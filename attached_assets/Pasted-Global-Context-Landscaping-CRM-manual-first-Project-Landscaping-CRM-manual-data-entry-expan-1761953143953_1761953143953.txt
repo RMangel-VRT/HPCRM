@@ -1,0 +1,242 @@
+Global Context — Landscaping CRM (manual-first)
+
+Project: Landscaping CRM (manual data entry), expandable in small, testable slices.
+
+North Star: CRM hub for Customers → Properties → Contacts/Notes. Branches (later): Contracts with monthly amounts, Ticketing (work orders), Labor Planning/Forecast, and QuickBooks Online (QBO) read-only customer sync (opt-in). Build with clear acceptance criteria + demo script per slice.
+
+Roles: admin, office, ops, viewer.
+
+Guiding Constraints:
+
+Manual contract entry (no spreadsheet imports).
+
+QBO integration is customers read-only and opt-in (not all QBO customers are tracked).
+
+Vertical slices (end-to-end) with server-side validation, role-based access, audit fields.
+
+Feature flags for risky areas.
+
+MVP Scope (Phases 0–4):
+
+Auth & roles, Settings/flags
+
+CRM core (Customers, Properties, Contacts, Notes)
+
+Contracts + Monthly Amounts + Revenue Dashboard v1
+
+Ticketing (basic)
+
+Service Templates, Property Service Plan, Monthly Labor Forecast + Effective $/hr flags
+
+Core Entities (MVP) — Detailed Spec
+
+Names, fields, validation, and relationships; implementation-agnostic.
+
+1) User
+
+Fields: id (uuid), name (1–120), email (unique), password_hash, role (admin|office|ops|viewer), active (bool), created_at, updated_at
+
+Rules: email unique; role required; ops/viewer blocked from admin routes.
+
+2) Settings
+
+Fields:
+id (singleton),
+company_name (string),
+seasons (json) e.g. { "mowing":[4,5,6,7,8,9,10], "cleanup":[3,11], "blowout":[10] },
+benchmarks (json) e.g. { "small_pad":50, "hoa_standard":45, "hoa_complex":55 } ($/hr),
+feature_flags (json) e.g. { "tickets_v2": false, "forecast_v2": false, "qbo_write": false },
+created_at, updated_at
+
+Validation: benchmarks ≥ 0; months 1–12.
+
+3) Customer
+
+Fields: id, qbo_customer_id (uuid→qbo_customers.id, nullable), alias (optional), status (active|prospect|inactive), tags (json or csv), created_at, updated_at
+
+Rels: has many Properties, Contacts, Notes.
+
+4) Property
+
+Fields: id, customer_id, name, address, acres (num, opt), complexity_score (int 1–5, opt), notes, active (bool), created_at, updated_at
+
+Rels: has many Contracts, Tickets, Notes; belongs to Customer.
+
+5) Contact
+
+Fields: id, customer_id, property_id (nullable), name, email, phone, title, preferred (bool), created_at
+
+Validation: require name; require at least one of email or phone.
+
+6) Note
+
+Fields: id, customer_id (nullable), property_id (nullable), user_id, body (1–5000), created_at
+
+Rules: must reference a customer or a property.
+
+7) Contract (Phase 2)
+
+Fields: id, property_id, service_type (maintenance|chemical|snow|irrigation|other), billing_schedule (monthly|seasonal|12of12), start_date, end_date, status (active|paused|ended), po_number, notes, created_at, updated_at
+
+Validation: end_date >= start_date; active means today within range.
+
+Rels: has many ContractMonthlyAmounts; optional link from Ticket.
+
+8) ContractMonthlyAmounts (Phase 2)
+
+Fields: id, contract_id, month (1–12), amount (decimal 12,2)
+
+Constraints: unique (contract_id, month); amount ≥ 0.
+
+9) Ticket (Phase 3)
+
+Fields: id, customer_id, property_id, contract_id (nullable), title, description, priority (low|normal|high|urgent), status (open|in_progress|waiting|closed), due_date, assigned_to (user_id), created_by (user_id), created_at, updated_at
+
+Rels: has many TicketComments.
+
+10) TicketComment (Phase 3)
+
+Fields: id, ticket_id, user_id, comment (1–2000), created_at
+
+11) ServiceTemplate (Phase 4)
+
+Fields: id, code (unique), name, default_men (int≥0), default_visits_per_year (int≥0), seasonality (weekly|fixed_months|window), notes
+
+12) PropertyServicePlan (Phase 4)
+
+Fields: id, property_id, service_template_id, men (int), visits_per_year (int), hours_total (decimal), notes
+
+Use: annual labor blueprint (men × visits → hours_total).
+
+13) LaborMonthlyForecast (Phase 4)
+
+Fields: id, property_id, month (1–12), maintenance_hours, chemical_hours, trimming_hours, cleanup_hours, blowout_hours, total_hours (decimals)
+
+Constraint: unique (property_id, month).
+
+14) QboConnection (Phase 5)
+
+Fields: id, realm_id, access_token, refresh_token, expires_at, created_at, updated_at
+
+15) QboCustomer (Phase 5)
+
+Fields: id, qbo_id (unique), display_name, active (bool), selected_for_tracking (bool), last_synced_at, timestamps
+
+Rule: toggling selected_for_tracking creates/links a Customer if missing.
+
+Cross-Entity Rules
+
+Use active flags (soft delete) where feasible.
+
+Add created_by/updated_at for audit on mutable records.
+
+Permissions: admin all; office CRM/contracts/revenue/tickets; ops tickets + read CRM; viewer read-only.
+
+Validation order: type → presence → referential integrity → business rules.
+
+Example JSON — Contract with Months
+{
+  "property_id": "uuid-...",
+  "service_type": "maintenance",
+  "billing_schedule": "monthly",
+  "start_date": "2025-01-01",
+  "end_date": "2025-12-31",
+  "status": "active",
+  "po_number": "PO-12345",
+  "monthly": [
+    {"month":1, "amount":1345.00},
+    {"month":2, "amount":1345.00},
+    {"month":3, "amount":1345.00},
+    {"month":4, "amount":2690.00},
+    {"month":5, "amount":2690.00},
+    {"month":6, "amount":2690.00},
+    {"month":7, "amount":2690.00},
+    {"month":8, "amount":2690.00},
+    {"month":9, "amount":2690.00},
+    {"month":10, "amount":2690.00},
+    {"month":11, "amount":2690.00},
+    {"month":12, "amount":1345.00}
+  ]
+}
+
+Example JSON — Property Service Plan
+{
+  "property_id": "uuid-...",
+  "rows": [
+    {"template_code": "MAINT_WEEKLY", "men": 3, "visits_per_year": 25, "hours_total": 450},
+    {"template_code": "CHEM_APP",     "men": 1, "visits_per_year": 5,  "hours_total": 15},
+    {"template_code": "SHRUB_TRIM",   "men": 3, "visits_per_year": 2,  "hours_total": 192},
+    {"template_code": "CLEANUP",      "men": 4, "visits_per_year": 3,  "hours_total": 288},
+    {"template_code": "BLOWOUT",      "men": 3, "visits_per_year": 3,  "hours_total": 48}
+  ]
+}
+
+Slice Packet — Phase 0 / Slice 0.1: Auth & Roles (start here)
+
+Goal: Establish secure sign-in and role-based navigation so future features can be gated and tested safely.
+
+Scope
+
+Email + password login, logout.
+
+User roles: admin, office, ops, viewer.
+
+Basic nav shell with role-based visibility.
+
+Minimal Settings page visible only to admin.
+
+Add audit fields scaffold (created_at, updated_at) to the user model.
+
+Acceptance Criteria
+
+Users can sign in and sign out.
+
+After sign-in, the user’s role is visible (header/profile).
+
+Route guards:
+
+/settings accessible only to admin (others: access-denied).
+
+Placeholder pages exist for /dashboard, /customers, /properties, /contracts, /tickets (can be empty).
+
+Bad credentials → friendly error (no stack traces).
+
+Passwords stored hashed (no plain text).
+
+Test Checklist (manual QA for now)
+
+Create four users (one per role). Confirm:
+
+admin can open /settings; others cannot.
+
+All roles can open /dashboard (placeholder).
+
+Wrong password → shows error, doesn’t crash.
+
+Open a protected URL while logged out → redirected to login.
+
+Role-based menu visibility: ops does not see admin/settings.
+
+Demo Script (60–90 seconds)
+
+Log in as admin → show /settings available.
+
+Log out → log in as ops → show /settings hidden/blocked.
+
+Manually navigate to /settings as ops → access-denied.
+
+Log back in as admin → success.
+
+Non-Goals (this slice)
+
+No public sign-up/reset flows yet (seed users or admin-create is fine).
+
+No SSO/OAuth yet.
+
+Guardrails
+
+Prepare a feature_flags mechanism in Settings for future slices.
+
+Add a reusable requireRole(...) server-side guard.
+
+Standard error UI component for friendly messages.
