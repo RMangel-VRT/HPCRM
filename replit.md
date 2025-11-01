@@ -2,20 +2,24 @@
 
 ## Overview
 
-A comprehensive Customer Relationship Management system designed for landscaping businesses. The application manages properties (combined customer/property entities), and will include contracts, work orders (tickets), revenue tracking, and labor forecasting. Built as a manual-first data entry system with role-based access control (admin, office, ops, viewer).
+A multi-tenant SaaS Customer Relationship Management system designed for landscaping businesses. The application supports multiple landscaping companies with complete data isolation, role-based access control, and super admin capabilities. Each company can manage their properties (combined customer/property entities), users, and will include contracts, work orders (tickets), revenue tracking, and labor forecasting.
 
-The system follows a vertical slice architecture where features are implemented end-to-end with server-side validation, role-based access controls, and audit fields.
+The system follows a vertical slice architecture with multi-tenancy at its core, ensuring secure data isolation between companies while maintaining a unified codebase for efficient SaaS operations.
 
 ## Recent Changes
 
-**2025-11-01 - Phase 1: Property Management (COMPLETE)**
-- Implemented unified properties model (combines customers and properties into single entity per business requirement)
-- Database schema: properties table with address, property manager contact info, notes
-- Full CRUD API with Zod validation on all endpoints (including PATCH)
-- Properties page with responsive grid layout, add/edit dialog, delete functionality
-- Seed script creates 3 sample properties
-- All end-to-end tests passing
-- Production-ready and validated by architect
+**2025-11-01 - Multi-Tenant SaaS Architecture (COMPLETE)**
+- **Multi-tenancy**: Full multi-company support with strict data isolation
+- **Companies table**: Subscription management (plan, status, billing)
+- **Company-scoped data**: All properties, contacts scoped to companyId
+- **Company users**: Junction table for user-company memberships with roles and status
+- **Super admin role**: System-wide access to all companies with ability to switch between them
+- **Authentication**: Enhanced session management with activeCompanyId, activeRole context
+- **Authorization**: Role-based permissions (viewer read-only, office/ops/admin can mutate)
+- **Security**: Active membership filtering, cross-company data protection, viewer role enforcement
+- **User management**: Team page for admins to add/edit/remove company users
+- **Seed script**: Demo data with 2 companies showing complete multi-tenancy
+- Production-ready and architect-approved with comprehensive security review
 
 ## User Preferences
 
@@ -47,7 +51,8 @@ Preferred communication style: Simple, everyday language.
 - Protected routes that check authentication and role-based permissions
 - Automatic redirects to login for unauthenticated users
 - Access denied page for insufficient permissions
-- Route structure: `/dashboard`, `/properties`, `/settings` (admin-only)
+- Route structure: `/dashboard`, `/properties`, `/users` (admin-only), `/settings` (admin-only)
+- Super admins bypass role restrictions and can access all routes
 - Note: Properties serve as combined customers/properties per business model
 
 ### Backend Architecture
@@ -60,8 +65,12 @@ Preferred communication style: Simple, everyday language.
 **Authentication & Authorization:**
 - Scrypt-based password hashing with salts
 - Express sessions stored in PostgreSQL via connect-pg-simple
-- Four user roles: admin, office, ops, viewer
-- Role-based route protection (ops/viewer blocked from admin routes)
+- Multi-tenant session context: activeCompanyId, activeRole, isSuperAdminBool
+- Four user roles per company: admin, office, ops, viewer
+- Super admin role with system-wide access across all companies
+- Role-based route protection with mutation restrictions for viewer role
+- Active membership filtering (invited/suspended users cannot authenticate)
+- Company switching endpoint for super admins to access different companies
 
 **API Design:**
 - RESTful endpoints under `/api` prefix
@@ -82,22 +91,28 @@ Preferred communication style: Simple, everyday language.
 - WebSocket connection pooling for serverless environment
 
 **Schema Design:**
-- Users table with role-based access (id, email, passwordHash, name, role, createdAt)
-- Properties table (combined customers/properties): id, name, address (street, city, state, zip), property manager (name, phone, email), notes, createdAt, updatedAt
-- Contacts table (future): linked to properties for HOA contacts with roles
+- **Companies table**: Multi-tenant foundation (id, name, slug, subscriptionPlan, subscriptionStatus, billingEmail, timestamps)
+- **Company_users junction table**: User-company memberships with role and status (userId, companyId, role, status)
+- **Users table**: Global user records (id, email, passwordHash, name, isSuperAdmin, defaultCompanyId, createdAt)
+- **Properties table**: Company-scoped customers/properties (id, companyId, name, address, property manager, notes, timestamps)
+- **Contacts table**: Company-scoped HOA contacts (id, companyId, propertyId, name, role, contact info, timestamps)
 - Schema validation using Drizzle-Zod integration
 - UUID primary keys generated via `gen_random_uuid()`
+- Foreign key constraints with cascade/set null for referential integrity
+- Composite unique constraints on company-scoped data
 - Timestamp columns for audit tracking (createdAt, updatedAt)
 
 **Migration Strategy:**
 - Drizzle Kit for schema migrations
 - Schema defined in `shared/schema.ts` for type sharing between client and server
-- Direct SQL execution via execute_sql_tool for table creation
+- Database push with `npm run db:push --force` for safe schema synchronization
 
 **Implemented Schema:**
-- ✅ Users table (Phase 0)
-- ✅ Properties table (Phase 1) - combines customers and properties per business requirement
-- ✅ Contacts table structure defined (Phase 1) - for HOA contacts with roles
+- ✅ Companies table - multi-tenant foundation
+- ✅ Company_users table - user-company memberships
+- ✅ Users table - enhanced with isSuperAdmin and defaultCompanyId
+- ✅ Properties table - company-scoped with companyId foreign key
+- ✅ Contacts table - company-scoped with companyId and propertyId foreign keys
 
 **Future Schema (Per Requirements):**
 - Contracts with monthly billing amounts
