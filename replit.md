@@ -8,6 +8,17 @@ The system follows a vertical slice architecture with multi-tenancy at its core,
 
 ## Recent Changes
 
+**2025-11-01 - Create New User Feature (COMPLETE)**
+- **User creation**: Company admins can create new users with email, name, password, and role
+- **Atomic operation**: User account and company membership created in single transaction
+- **Password security**: Passwords hashed with scrypt before storage
+- **Database cleanup**: Removed legacy role column from users table (roles now per-company only)
+- **Immediate access**: New users can login immediately with their credentials
+- **Data isolation**: New users automatically scoped to admin's company, see only company data
+- **Validation**: Email format, name presence, password min 8 chars, role selection enforced
+- **API endpoint**: POST /api/companies/users/create with security and company scoping
+- End-to-end tested and architect-approved with no security issues
+
 **2025-11-01 - Multi-Tenant SaaS Architecture (COMPLETE)**
 - **Multi-tenancy**: Full multi-company support with strict data isolation
 - **Companies table**: Subscription management (plan, status, billing)
