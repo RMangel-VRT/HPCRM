@@ -8,6 +8,17 @@ The system follows a vertical slice architecture with multi-tenancy at its core,
 
 ## Recent Changes
 
+**2025-11-01 - Super Admin Portal Separation (COMPLETE)**
+- **Complete UX separation**: Super admins route to /admin portal, company users route to /dashboard CRM
+- **Dedicated super admin home**: SuperAdminHome page with placeholder cards for future platform admin features
+- **Conditional sidebar navigation**: Super admins see "Platform Admin" section, company users see "CRM" sections
+- **Protected routing**: /admin route restricted to super admins only via superAdminOnly prop
+- **Smart redirects**: Root path "/" routes super admins to /admin, company users to /dashboard
+- **Role-appropriate navigation**: Super admins see Admin Home only, company users see Dashboard/Properties/Team/Settings based on role
+- **End-to-end tested**: Super admin and company admin login flows verified with correct routing and sidebar display
+- **Data integrity fixed**: Corrected stale database entries from previous development iterations
+- Production-ready with clear separation of platform management vs company operations
+
 **2025-11-01 - Super Admin vs Company Admin Visual Delineation (COMPLETE)**
 - **Visual distinction**: "Super Admin" badge (amber) vs "Admin" badge (purple) throughout UI
 - **Role badge updates**: RoleBadge component shows "Super Admin" when isSuperAdmin flag is true
@@ -92,10 +103,12 @@ Preferred communication style: Simple, everyday language.
 **Routing Strategy:**
 - Protected routes that check authentication and role-based permissions
 - Automatic redirects to login for unauthenticated users
-- Unknown routes redirect to dashboard for authenticated users (no 404 errors)
+- Super admin routing: `/admin` portal for platform management (super admin only)
+- Company user routing: `/dashboard` (default), `/properties`, `/users` (admin-only), `/settings` (admin-only)
+- Smart root redirects: Super admins → /admin, company users → /dashboard
+- Unknown routes redirect appropriately based on user type (no 404 errors)
 - Access denied page for insufficient permissions
-- Route structure: `/dashboard`, `/properties`, `/users` (admin-only), `/settings` (admin-only)
-- Super admins bypass role restrictions and can access all routes
+- Super admins can access /admin but are separated from company CRM operations
 - Smooth navigation transitions without intermediate error states
 - Note: Properties serve as combined customers/properties per business model
 
