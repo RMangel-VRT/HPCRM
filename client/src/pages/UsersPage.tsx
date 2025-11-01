@@ -42,6 +42,7 @@ type CreateUserForm = z.infer<typeof createUserSchema>;
 const editUserSchema = z.object({
   role: z.enum(["admin", "office", "ops", "viewer"]),
   status: z.enum(["active", "invited", "suspended"]),
+  password: z.string().min(8, "Password must be at least 8 characters").optional().or(z.literal("")),
 });
 
 type EditUserForm = z.infer<typeof editUserSchema>;
@@ -363,6 +364,19 @@ export default function UsersPage() {
                           <SelectItem value="suspended">Suspended</SelectItem>
                         </SelectContent>
                       </Select>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+                <FormField
+                  control={editUserForm.control}
+                  name="password"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Reset Password (Optional)</FormLabel>
+                      <FormControl>
+                        <Input {...field} data-testid="input-edit-password" type="password" placeholder="Leave empty to keep current password" />
+                      </FormControl>
                       <FormMessage />
                     </FormItem>
                   )}

@@ -12,6 +12,7 @@ export interface IStorage {
   getUserById(id: string): Promise<User | undefined>;
   getUserByEmail(email: string): Promise<User | undefined>;
   createUser(user: InsertUser): Promise<User>;
+  updateUserPassword(userId: string, passwordHash: string): Promise<void>;
   
   getCompanies(): Promise<Company[]>;
   getCompanyById(id: string): Promise<Company | undefined>;
@@ -22,6 +23,7 @@ export interface IStorage {
   getCompanyUsersByUserId(userId: string): Promise<CompanyUser[]>;
   getCompanyUsersByCompanyId(companyId: string): Promise<CompanyUser[]>;
   getCompanyUser(userId: string, companyId: string): Promise<CompanyUser | undefined>;
+  getCompanyUserById(id: string): Promise<CompanyUser | undefined>;
   createCompanyUser(companyUser: InsertCompanyUser): Promise<CompanyUser>;
   updateCompanyUser(id: string, companyUser: Partial<InsertCompanyUser>): Promise<CompanyUser | undefined>;
   deleteCompanyUser(id: string): Promise<void>;
@@ -65,6 +67,12 @@ export class PgStorage implements IStorage {
     return result[0];
   }
 
+  async updateUserPassword(userId: string, passwordHash: string): Promise<void> {
+    await db.update(users)
+      .set({ passwordHash })
+      .where(eq(users.id, userId));
+  }
+
   async getCompanies(): Promise<Company[]> {
     return await db.select().from(companies);
   }
@@ -102,6 +110,13 @@ export class PgStorage implements IStorage {
   async getCompanyUser(userId: string, companyId: string): Promise<CompanyUser | undefined> {
     const result = await db.select().from(companyUsers)
       .where(and(eq(companyUsers.userId, userId), eq(companyUsers.companyId, companyId)))
+      .limit(1);
+    return result[0];
+  }
+
+  async getCompanyUserById(id: string): Promise<CompanyUser | undefined> {
+    const result = await db.select().from(companyUsers)
+      .where(eq(companyUsers.id, id))
       .limit(1);
     return result[0];
   }

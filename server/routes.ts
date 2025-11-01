@@ -344,16 +344,48 @@ export async function registerRoutes(app: Express): Promise<Server> {
       return res.status(403).send("Forbidden");
     }
 
-    const result = insertCompanyUserSchema.partial().omit({ companyId: true, userId: true }).safeParse(req.body);
+    const { password, ...companyUserUpdates } = req.body;
+
+    // Validate company user updates
+    const result = insertCompanyUserSchema.partial().omit({ companyId: true, userId: true }).safeParse(companyUserUpdates);
     if (!result.success) {
       return res.status(400).send(result.error.message);
     }
 
-    const companyUser = await storage.updateCompanyUser(req.params.id, result.data);
-    if (!companyUser) {
-      return res.status(404).send("Company user not found");
+    try {
+      // SECURITY: Verify the companyUser belongs to the admin's active company
+      const existingCompanyUser = await storage.getCompanyUserById(req.params.id);
+      if (!existingCompanyUser) {
+        return res.status(404).send("Company user not found");
+      }
+      
+      // Super admins can update users in any company, regular admins only in their own company
+      if (!user.isSuperAdminBool && existingCompanyUser.companyId !== user.activeCompanyId) {
+        return res.status(403).send("Cannot update users from other companies");
+      }
+
+      // Update company user record (role, status)
+      const companyUser = await storage.updateCompanyUser(req.params.id, result.data);
+      if (!companyUser) {
+        return res.status(404).send("Company user not found");
+      }
+
+      // If password is provided and not empty, update the user's password
+      if (password && password.trim().length > 0) {
+        if (password.length < 8) {
+          return res.status(400).json({ message: "Password must be at least 8 characters" });
+        }
+
+        const { hashPassword } = await import("./auth");
+        const passwordHash = await hashPassword(password);
+        await storage.updateUserPassword(companyUser.userId, passwordHash);
+      }
+
+      res.json(companyUser);
+    } catch (error) {
+      console.error("Error updating user:", error);
+      res.status(500).json({ message: "Failed to update user" });
     }
-    res.json(companyUser);
   });
 
   app.delete("/api/company-users/:id", async (req, res) => {
