@@ -11,10 +11,7 @@ import {
 } from "@/components/ui/sidebar";
 import {
   LayoutDashboard,
-  Users,
   Building2,
-  FileText,
-  Ticket,
   Settings,
   LogOut,
 } from "lucide-react";
@@ -38,13 +35,7 @@ export default function AppSidebar({
 
   const crmItems = [
     { title: "Dashboard", url: "/dashboard", icon: LayoutDashboard },
-    { title: "Customers", url: "/customers", icon: Users },
     { title: "Properties", url: "/properties", icon: Building2 },
-  ];
-
-  const operationsItems = [
-    { title: "Contracts", url: "/contracts", icon: FileText },
-    { title: "Tickets", url: "/tickets", icon: Ticket },
   ];
 
   const adminItems = userRole === "admin"
@@ -68,22 +59,6 @@ export default function AppSidebar({
           <SidebarGroupLabel>CRM</SidebarGroupLabel>
           <SidebarMenu>
             {crmItems.map((item) => (
-              <SidebarMenuItem key={item.title}>
-                <SidebarMenuButton asChild isActive={location === item.url}>
-                  <Link href={item.url} data-testid={`link-${item.title.toLowerCase()}`}>
-                    <item.icon className="w-4 h-4" />
-                    <span>{item.title}</span>
-                  </Link>
-                </SidebarMenuButton>
-              </SidebarMenuItem>
-            ))}
-          </SidebarMenu>
-        </SidebarGroup>
-
-        <SidebarGroup>
-          <SidebarGroupLabel>Operations</SidebarGroupLabel>
-          <SidebarMenu>
-            {operationsItems.map((item) => (
               <SidebarMenuItem key={item.title}>
                 <SidebarMenuButton asChild isActive={location === item.url}>
                   <Link href={item.url} data-testid={`link-${item.title.toLowerCase()}`}>

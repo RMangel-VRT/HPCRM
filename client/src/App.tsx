@@ -12,14 +12,7 @@ import ThemeToggle from "@/components/ThemeToggle";
 import LoginPage from "@/pages/LoginPage";
 import AccessDenied from "@/pages/AccessDenied";
 import Dashboard from "@/pages/Dashboard";
-import CustomersList from "@/pages/CustomersList";
-import CustomerDetail from "@/pages/CustomerDetail";
-import PropertiesList from "@/pages/PropertiesList";
-import PropertyDetail from "@/pages/PropertyDetail";
-import ContractsList from "@/pages/ContractsList";
-import ContractForm from "@/pages/ContractForm";
-import TicketsList from "@/pages/TicketsList";
-import TicketDetail from "@/pages/TicketDetail";
+import PropertiesPage from "@/pages/PropertiesPage";
 import SettingsPage from "@/pages/SettingsPage";
 import NotFound from "@/pages/not-found";
 
@@ -66,14 +59,7 @@ function Router() {
             <Switch>
               <ProtectedRoute path="/" component={Dashboard} />
               <ProtectedRoute path="/dashboard" component={Dashboard} />
-              <ProtectedRoute path="/customers" component={CustomersList} />
-              <ProtectedRoute path="/customers/:id" component={CustomerDetail} />
-              <ProtectedRoute path="/properties" component={PropertiesList} />
-              <ProtectedRoute path="/properties/:id" component={PropertyDetail} />
-              <ProtectedRoute path="/contracts" component={ContractsList} />
-              <ProtectedRoute path="/contracts/new" component={ContractForm} />
-              <ProtectedRoute path="/tickets" component={TicketsList} />
-              <ProtectedRoute path="/tickets/:id" component={TicketDetail} />
+              <ProtectedRoute path="/properties" component={PropertiesPage} />
               <ProtectedRoute
                 path="/settings"
                 component={SettingsPage}
