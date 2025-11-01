@@ -15,6 +15,7 @@ import {
   Users,
   Settings,
   LogOut,
+  Shield,
 } from "lucide-react";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import RoleBadge from "./RoleBadge";
@@ -36,16 +37,26 @@ export default function AppSidebar({
 }: AppSidebarProps) {
   const [location] = useLocation();
 
-  const crmItems = [
-    { title: "Dashboard", url: "/dashboard", icon: LayoutDashboard },
-    { title: "Properties", url: "/properties", icon: Building2 },
-  ];
+  // Super admins see admin portal navigation
+  const superAdminItems = isSuperAdmin
+    ? [
+        { title: "Admin Home", url: "/admin", icon: Shield },
+      ]
+    : [];
 
-  const managementItems = (userRole === "admin" || isSuperAdmin)
+  // Regular users see CRM navigation
+  const crmItems = !isSuperAdmin
+    ? [
+        { title: "Dashboard", url: "/dashboard", icon: LayoutDashboard },
+        { title: "Properties", url: "/properties", icon: Building2 },
+      ]
+    : [];
+
+  const managementItems = (!isSuperAdmin && userRole === "admin")
     ? [{ title: "Team", url: "/users", icon: Users }]
     : [];
 
-  const adminItems = (userRole === "admin" || isSuperAdmin)
+  const adminItems = (!isSuperAdmin && userRole === "admin")
     ? [{ title: "Settings", url: "/settings", icon: Settings }]
     : [];
 
@@ -62,21 +73,41 @@ export default function AppSidebar({
       </SidebarHeader>
 
       <SidebarContent>
-        <SidebarGroup>
-          <SidebarGroupLabel>CRM</SidebarGroupLabel>
-          <SidebarMenu>
-            {crmItems.map((item) => (
-              <SidebarMenuItem key={item.title}>
-                <SidebarMenuButton asChild isActive={location === item.url}>
-                  <Link href={item.url} data-testid={`link-${item.title.toLowerCase()}`}>
-                    <item.icon className="w-4 h-4" />
-                    <span>{item.title}</span>
-                  </Link>
-                </SidebarMenuButton>
-              </SidebarMenuItem>
-            ))}
-          </SidebarMenu>
-        </SidebarGroup>
+        {superAdminItems.length > 0 && (
+          <SidebarGroup>
+            <SidebarGroupLabel>Platform Admin</SidebarGroupLabel>
+            <SidebarMenu>
+              {superAdminItems.map((item) => (
+                <SidebarMenuItem key={item.title}>
+                  <SidebarMenuButton asChild isActive={location === item.url}>
+                    <Link href={item.url} data-testid={`link-${item.title.toLowerCase().replace(' ', '-')}`}>
+                      <item.icon className="w-4 h-4" />
+                      <span>{item.title}</span>
+                    </Link>
+                  </SidebarMenuButton>
+                </SidebarMenuItem>
+              ))}
+            </SidebarMenu>
+          </SidebarGroup>
+        )}
+
+        {crmItems.length > 0 && (
+          <SidebarGroup>
+            <SidebarGroupLabel>CRM</SidebarGroupLabel>
+            <SidebarMenu>
+              {crmItems.map((item) => (
+                <SidebarMenuItem key={item.title}>
+                  <SidebarMenuButton asChild isActive={location === item.url}>
+                    <Link href={item.url} data-testid={`link-${item.title.toLowerCase()}`}>
+                      <item.icon className="w-4 h-4" />
+                      <span>{item.title}</span>
+                    </Link>
+                  </SidebarMenuButton>
+                </SidebarMenuItem>
+              ))}
+            </SidebarMenu>
+          </SidebarGroup>
+        )}
 
         {managementItems.length > 0 && (
           <SidebarGroup>

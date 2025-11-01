@@ -15,6 +15,7 @@ import Dashboard from "@/pages/Dashboard";
 import PropertiesPage from "@/pages/PropertiesPage";
 import UsersPage from "@/pages/UsersPage";
 import SettingsPage from "@/pages/SettingsPage";
+import SuperAdminHome from "@/pages/SuperAdminHome";
 import NotFound from "@/pages/not-found";
 
 function Router() {
@@ -59,6 +60,7 @@ function Router() {
           </header>
           <main className="flex-1 overflow-y-auto p-6 md:p-8">
             <Switch>
+              <ProtectedRoute path="/admin" component={SuperAdminHome} superAdminOnly />
               <ProtectedRoute path="/dashboard" component={Dashboard} />
               <ProtectedRoute path="/properties" component={PropertiesPage} />
               <ProtectedRoute
@@ -73,10 +75,10 @@ function Router() {
               />
               <Route path="/access-denied" component={AccessDenied} />
               <Route path="/">
-                <Redirect to="/dashboard" />
+                {user.isSuperAdminBool ? <Redirect to="/admin" /> : <Redirect to="/dashboard" />}
               </Route>
               <Route>
-                <Redirect to="/dashboard" />
+                {user.isSuperAdminBool ? <Redirect to="/admin" /> : <Redirect to="/dashboard" />}
               </Route>
             </Switch>
           </main>
