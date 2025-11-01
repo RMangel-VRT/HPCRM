@@ -1,7 +1,7 @@
-import { type User, type InsertUser, type Property, type InsertProperty, type Contact, type InsertContact } from "@shared/schema";
+import { type User, type InsertUser, type Property, type InsertProperty, type Contact, type InsertContact, type Company, type InsertCompany, type CompanyUser, type InsertCompanyUser } from "@shared/schema";
 import { db } from "./db";
-import { users, properties, contacts } from "@shared/schema";
-import { eq, sql } from "drizzle-orm";
+import { users, properties, contacts, companies, companyUsers } from "@shared/schema";
+import { eq, and, sql } from "drizzle-orm";
 import session from "express-session";
 import connectPg from "connect-pg-simple";
 import { pool } from "./db";
@@ -12,6 +12,19 @@ export interface IStorage {
   getUserById(id: string): Promise<User | undefined>;
   getUserByEmail(email: string): Promise<User | undefined>;
   createUser(user: InsertUser): Promise<User>;
+  
+  getCompanies(): Promise<Company[]>;
+  getCompanyById(id: string): Promise<Company | undefined>;
+  createCompany(company: InsertCompany): Promise<Company>;
+  updateCompany(id: string, company: Partial<InsertCompany>): Promise<Company | undefined>;
+  deleteCompany(id: string): Promise<void>;
+  
+  getCompanyUsersByUserId(userId: string): Promise<CompanyUser[]>;
+  getCompanyUsersByCompanyId(companyId: string): Promise<CompanyUser[]>;
+  getCompanyUser(userId: string, companyId: string): Promise<CompanyUser | undefined>;
+  createCompanyUser(companyUser: InsertCompanyUser): Promise<CompanyUser>;
+  updateCompanyUser(id: string, companyUser: Partial<InsertCompanyUser>): Promise<CompanyUser | undefined>;
+  deleteCompanyUser(id: string): Promise<void>;
   
   getProperties(): Promise<Property[]>;
   getPropertyById(id: string): Promise<Property | undefined>;
@@ -50,6 +63,64 @@ export class PgStorage implements IStorage {
   async createUser(insertUser: InsertUser): Promise<User> {
     const result = await db.insert(users).values([insertUser]).returning();
     return result[0];
+  }
+
+  async getCompanies(): Promise<Company[]> {
+    return await db.select().from(companies);
+  }
+
+  async getCompanyById(id: string): Promise<Company | undefined> {
+    const result = await db.select().from(companies).where(eq(companies.id, id)).limit(1);
+    return result[0];
+  }
+
+  async createCompany(insertCompany: InsertCompany): Promise<Company> {
+    const result = await db.insert(companies).values([insertCompany]).returning();
+    return result[0];
+  }
+
+  async updateCompany(id: string, updates: Partial<InsertCompany>): Promise<Company | undefined> {
+    const result = await db.update(companies)
+      .set({ ...updates, updatedAt: new Date() })
+      .where(eq(companies.id, id))
+      .returning();
+    return result[0];
+  }
+
+  async deleteCompany(id: string): Promise<void> {
+    await db.delete(companies).where(eq(companies.id, id));
+  }
+
+  async getCompanyUsersByUserId(userId: string): Promise<CompanyUser[]> {
+    return await db.select().from(companyUsers).where(eq(companyUsers.userId, userId));
+  }
+
+  async getCompanyUsersByCompanyId(companyId: string): Promise<CompanyUser[]> {
+    return await db.select().from(companyUsers).where(eq(companyUsers.companyId, companyId));
+  }
+
+  async getCompanyUser(userId: string, companyId: string): Promise<CompanyUser | undefined> {
+    const result = await db.select().from(companyUsers)
+      .where(and(eq(companyUsers.userId, userId), eq(companyUsers.companyId, companyId)))
+      .limit(1);
+    return result[0];
+  }
+
+  async createCompanyUser(insertCompanyUser: InsertCompanyUser): Promise<CompanyUser> {
+    const result = await db.insert(companyUsers).values([insertCompanyUser]).returning();
+    return result[0];
+  }
+
+  async updateCompanyUser(id: string, updates: Partial<InsertCompanyUser>): Promise<CompanyUser | undefined> {
+    const result = await db.update(companyUsers)
+      .set(updates)
+      .where(eq(companyUsers.id, id))
+      .returning();
+    return result[0];
+  }
+
+  async deleteCompanyUser(id: string): Promise<void> {
+    await db.delete(companyUsers).where(eq(companyUsers.id, id));
   }
 
   async getProperties(): Promise<Property[]> {

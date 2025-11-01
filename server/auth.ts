@@ -7,9 +7,18 @@ import { promisify } from "util";
 import { storage } from "./storage";
 import { User as SelectUser } from "@shared/schema";
 
+export interface UserWithContext extends SelectUser {
+  activeCompanyId: string;
+  activeRole: "admin" | "office" | "ops" | "viewer";
+  isSuperAdminBool: boolean;
+}
+
 declare global {
   namespace Express {
-    interface User extends SelectUser {}
+    interface User extends UserWithContext {}
+    interface SessionData {
+      activeCompanyId?: string;
+    }
   }
 }
 
@@ -58,11 +67,40 @@ export function setupAuth(app: Express) {
     new LocalStrategy(
       { usernameField: "email", passwordField: "password" },
       async (email, password, done) => {
-        const user = await storage.getUserByEmail(email);
-        if (!user || !(await comparePasswords(password, user.passwordHash))) {
-          return done(null, false);
-        } else {
-          return done(null, user);
+        try {
+          const user = await storage.getUserByEmail(email);
+          if (!user || !(await comparePasswords(password, user.passwordHash))) {
+            return done(null, false);
+          }
+
+          const isSuperAdminBool = user.isSuperAdmin === "true";
+          let activeCompanyId: string;
+          let activeRole: "admin" | "office" | "ops" | "viewer";
+
+          if (isSuperAdminBool) {
+            activeCompanyId = user.defaultCompanyId || "";
+            activeRole = "admin";
+          } else {
+            const companyMemberships = await storage.getCompanyUsersByUserId(user.id);
+            if (companyMemberships.length === 0) {
+              return done(new Error("User has no company memberships"));
+            }
+            
+            const activeMembership = companyMemberships[0];
+            activeCompanyId = activeMembership.companyId;
+            activeRole = activeMembership.role as "admin" | "office" | "ops" | "viewer";
+          }
+
+          const userWithContext: UserWithContext = {
+            ...user,
+            activeCompanyId,
+            activeRole,
+            isSuperAdminBool,
+          };
+
+          return done(null, userWithContext);
+        } catch (error) {
+          return done(error);
         }
       }
     )
@@ -70,8 +108,42 @@ export function setupAuth(app: Express) {
 
   passport.serializeUser((user, done) => done(null, user.id));
   passport.deserializeUser(async (id: string, done) => {
-    const user = await storage.getUserById(id);
-    done(null, user);
+    try {
+      const user = await storage.getUserById(id);
+      if (!user) {
+        return done(null, false);
+      }
+
+      const isSuperAdminBool = user.isSuperAdmin === "true";
+      
+      let activeCompanyId: string;
+      let activeRole: "admin" | "office" | "ops" | "viewer";
+
+      if (isSuperAdminBool) {
+        activeCompanyId = user.defaultCompanyId || "";
+        activeRole = "admin";
+      } else {
+        const companyMemberships = await storage.getCompanyUsersByUserId(id);
+        if (companyMemberships.length === 0) {
+          return done(new Error("User has no company memberships"));
+        }
+        
+        const activeMembership = companyMemberships[0];
+        activeCompanyId = activeMembership.companyId;
+        activeRole = activeMembership.role as "admin" | "office" | "ops" | "viewer";
+      }
+
+      const userWithContext: UserWithContext = {
+        ...user,
+        activeCompanyId,
+        activeRole,
+        isSuperAdminBool,
+      };
+
+      done(null, userWithContext);
+    } catch (error) {
+      done(error);
+    }
   });
 
   app.post("/api/auth/register", async (req, res, next) => {
@@ -86,9 +158,34 @@ export function setupAuth(app: Express) {
         passwordHash: await hashPassword(req.body.password),
       });
 
-      req.login(user, (err) => {
+      const isSuperAdminBool = user.isSuperAdmin === "true";
+      let activeCompanyId: string;
+      let activeRole: "admin" | "office" | "ops" | "viewer";
+
+      if (isSuperAdminBool) {
+        activeCompanyId = user.defaultCompanyId || "";
+        activeRole = "admin";
+      } else {
+        const companyMemberships = await storage.getCompanyUsersByUserId(user.id);
+        if (companyMemberships.length === 0) {
+          return res.status(400).json({ message: "User has no company memberships" });
+        }
+        
+        const activeMembership = companyMemberships[0];
+        activeCompanyId = activeMembership.companyId;
+        activeRole = activeMembership.role as "admin" | "office" | "ops" | "viewer";
+      }
+
+      const userWithContext: UserWithContext = {
+        ...user,
+        activeCompanyId,
+        activeRole,
+        isSuperAdminBool,
+      };
+
+      req.login(userWithContext, (err) => {
         if (err) return next(err);
-        const { passwordHash, ...userWithoutPassword } = user;
+        const { passwordHash, ...userWithoutPassword } = userWithContext;
         res.status(201).json(userWithoutPassword);
       });
     } catch (error) {
@@ -97,7 +194,7 @@ export function setupAuth(app: Express) {
   });
 
   app.post("/api/auth/login", (req, res, next) => {
-    passport.authenticate("local", (err: Error, user: SelectUser, info: any) => {
+    passport.authenticate("local", (err: Error, user: UserWithContext, info: any) => {
       if (err) return next(err);
       if (!user) {
         return res.status(401).json({ message: "Invalid email or password" });
@@ -117,9 +214,77 @@ export function setupAuth(app: Express) {
     });
   });
 
-  app.get("/api/auth/me", (req, res) => {
+  app.get("/api/auth/me", async (req, res) => {
     if (!req.isAuthenticated()) return res.sendStatus(401);
-    const { passwordHash, ...userWithoutPassword } = req.user as SelectUser;
-    res.json(userWithoutPassword);
+    
+    const user = req.user as UserWithContext;
+    let activeCompany = null;
+    
+    if (user.activeCompanyId) {
+      activeCompany = await storage.getCompanyById(user.activeCompanyId);
+    }
+    
+    const { passwordHash, ...userWithoutPassword } = user;
+    res.json({
+      ...userWithoutPassword,
+      activeCompany,
+    });
+  });
+
+  app.post("/api/user/switch-company", async (req, res) => {
+    if (!req.isAuthenticated()) return res.sendStatus(401);
+    
+    const user = req.user as UserWithContext;
+    const { companyId } = req.body;
+
+    if (!companyId) {
+      return res.status(400).json({ message: "Company ID is required" });
+    }
+
+    const isSuperAdmin = user.isSuperAdmin === "true";
+    
+    if (!isSuperAdmin) {
+      const membership = await storage.getCompanyUser(user.id, companyId);
+      if (!membership) {
+        return res.status(403).json({ message: "You do not have access to this company" });
+      }
+    }
+
+    const company = await storage.getCompanyById(companyId);
+    if (!company) {
+      return res.status(404).json({ message: "Company not found" });
+    }
+
+    const updatedUser = await storage.getUserById(user.id);
+    if (!updatedUser) {
+      return res.status(404).json({ message: "User not found" });
+    }
+
+    let activeRole: "admin" | "office" | "ops" | "viewer" = "admin";
+    if (!isSuperAdmin) {
+      const membership = await storage.getCompanyUser(user.id, companyId);
+      if (membership) {
+        activeRole = membership.role as "admin" | "office" | "ops" | "viewer";
+      }
+    }
+
+    const userWithContext: UserWithContext = {
+      ...updatedUser,
+      activeCompanyId: companyId,
+      activeRole,
+      isSuperAdminBool: isSuperAdmin,
+    };
+
+    req.login(userWithContext, (err) => {
+      if (err) {
+        return res.status(500).json({ message: "Failed to switch company" });
+      }
+      
+      const { passwordHash, ...userWithoutPassword } = userWithContext;
+      res.json({
+        ...userWithoutPassword,
+        activeCompany: company,
+      });
+    });
   });
 }
