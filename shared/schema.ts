@@ -39,9 +39,9 @@ export const users = pgTable("users", {
 export const insertUserSchema = createInsertSchema(users).omit({
   id: true,
   createdAt: true,
-  defaultCompanyId: true,
 }).extend({
   isSuperAdmin: z.enum(["true", "false"]).default("false"),
+  defaultCompanyId: z.string().optional(),
 });
 
 export type InsertUser = z.infer<typeof insertUserSchema>;

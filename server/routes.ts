@@ -37,6 +37,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
 
     const user = req.user as UserWithContext;
+    
+    if (user.activeRole === "viewer" && !user.isSuperAdminBool) {
+      return res.status(403).send("Insufficient permissions");
+    }
+
     const result = insertPropertySchema.safeParse({
       ...req.body,
       companyId: user.activeCompanyId,
@@ -55,7 +60,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
 
     const user = req.user as UserWithContext;
-    const result = insertPropertySchema.partial().safeParse(req.body);
+    
+    if (user.activeRole === "viewer" && !user.isSuperAdminBool) {
+      return res.status(403).send("Insufficient permissions");
+    }
+
+    const result = insertPropertySchema.partial().omit({ companyId: true }).safeParse(req.body);
     if (!result.success) {
       return res.status(400).send(result.error.message);
     }
@@ -73,6 +83,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
 
     const user = req.user as UserWithContext;
+    
+    if (user.activeRole === "viewer" && !user.isSuperAdminBool) {
+      return res.status(403).send("Insufficient permissions");
+    }
+
     await storage.deleteProperty(req.params.id, user.activeCompanyId);
     res.status(200).send("Deleted");
   });
@@ -94,6 +109,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
 
     const user = req.user as UserWithContext;
+    
+    if (user.activeRole === "viewer" && !user.isSuperAdminBool) {
+      return res.status(403).send("Insufficient permissions");
+    }
+
     const result = insertContactSchema.safeParse({
       ...req.body,
       propertyId: req.params.propertyId,
@@ -113,7 +133,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
 
     const user = req.user as UserWithContext;
-    const result = insertContactSchema.partial().omit({ propertyId: true }).safeParse(req.body);
+    
+    if (user.activeRole === "viewer" && !user.isSuperAdminBool) {
+      return res.status(403).send("Insufficient permissions");
+    }
+
+    const result = insertContactSchema.partial().omit({ propertyId: true, companyId: true }).safeParse(req.body);
     if (!result.success) {
       return res.status(400).send(result.error.message);
     }
@@ -131,6 +156,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
 
     const user = req.user as UserWithContext;
+    
+    if (user.activeRole === "viewer" && !user.isSuperAdminBool) {
+      return res.status(403).send("Insufficient permissions");
+    }
+
     await storage.deleteContact(req.params.id, user.activeCompanyId);
     res.status(200).send("Deleted");
   });

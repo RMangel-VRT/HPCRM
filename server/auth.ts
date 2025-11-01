@@ -78,15 +78,20 @@ export function setupAuth(app: Express) {
           let activeRole: "admin" | "office" | "ops" | "viewer";
 
           if (isSuperAdminBool) {
-            activeCompanyId = user.defaultCompanyId || "";
+            if (!user.defaultCompanyId) {
+              return done(new Error("Super admin must have a default company"));
+            }
+            activeCompanyId = user.defaultCompanyId;
             activeRole = "admin";
           } else {
             const companyMemberships = await storage.getCompanyUsersByUserId(user.id);
-            if (companyMemberships.length === 0) {
-              return done(new Error("User has no company memberships"));
+            const activeMemberships = companyMemberships.filter(m => m.status === "active");
+            
+            if (activeMemberships.length === 0) {
+              return done(new Error("User has no active company memberships"));
             }
             
-            const activeMembership = companyMemberships[0];
+            const activeMembership = activeMemberships[0];
             activeCompanyId = activeMembership.companyId;
             activeRole = activeMembership.role as "admin" | "office" | "ops" | "viewer";
           }
@@ -120,15 +125,20 @@ export function setupAuth(app: Express) {
       let activeRole: "admin" | "office" | "ops" | "viewer";
 
       if (isSuperAdminBool) {
-        activeCompanyId = user.defaultCompanyId || "";
+        if (!user.defaultCompanyId) {
+          return done(new Error("Super admin must have a default company"));
+        }
+        activeCompanyId = user.defaultCompanyId;
         activeRole = "admin";
       } else {
         const companyMemberships = await storage.getCompanyUsersByUserId(id);
-        if (companyMemberships.length === 0) {
-          return done(new Error("User has no company memberships"));
+        const activeMemberships = companyMemberships.filter(m => m.status === "active");
+        
+        if (activeMemberships.length === 0) {
+          return done(new Error("User has no active company memberships"));
         }
         
-        const activeMembership = companyMemberships[0];
+        const activeMembership = activeMemberships[0];
         activeCompanyId = activeMembership.companyId;
         activeRole = activeMembership.role as "admin" | "office" | "ops" | "viewer";
       }
@@ -163,15 +173,20 @@ export function setupAuth(app: Express) {
       let activeRole: "admin" | "office" | "ops" | "viewer";
 
       if (isSuperAdminBool) {
-        activeCompanyId = user.defaultCompanyId || "";
+        if (!user.defaultCompanyId) {
+          return res.status(400).json({ message: "Super admin must have a default company" });
+        }
+        activeCompanyId = user.defaultCompanyId;
         activeRole = "admin";
       } else {
         const companyMemberships = await storage.getCompanyUsersByUserId(user.id);
-        if (companyMemberships.length === 0) {
-          return res.status(400).json({ message: "User has no company memberships" });
+        const activeMemberships = companyMemberships.filter(m => m.status === "active");
+        
+        if (activeMemberships.length === 0) {
+          return res.status(400).json({ message: "User has no active company memberships" });
         }
         
-        const activeMembership = companyMemberships[0];
+        const activeMembership = activeMemberships[0];
         activeCompanyId = activeMembership.companyId;
         activeRole = activeMembership.role as "admin" | "office" | "ops" | "viewer";
       }
@@ -248,6 +263,9 @@ export function setupAuth(app: Express) {
       if (!membership) {
         return res.status(403).json({ message: "You do not have access to this company" });
       }
+      if (membership.status !== "active") {
+        return res.status(403).json({ message: "Your membership is not active" });
+      }
     }
 
     const company = await storage.getCompanyById(companyId);
@@ -263,7 +281,7 @@ export function setupAuth(app: Express) {
     let activeRole: "admin" | "office" | "ops" | "viewer" = "admin";
     if (!isSuperAdmin) {
       const membership = await storage.getCompanyUser(user.id, companyId);
-      if (membership) {
+      if (membership && membership.status === "active") {
         activeRole = membership.role as "admin" | "office" | "ops" | "viewer";
       }
     }

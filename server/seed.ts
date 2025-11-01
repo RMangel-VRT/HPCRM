@@ -2,9 +2,42 @@ import { storage } from "./storage";
 import { hashPassword } from "./auth";
 
 async function seed() {
-  console.log("Seeding database with test users...");
+  console.log("Seeding database for multi-tenant CRM...\n");
 
-  const testUsers = [
+  // Create companies
+  console.log("Creating companies...");
+  const company1 = await storage.createCompany({
+    name: "GreenScape Landscaping",
+    slug: "greenscape",
+    subscriptionPlan: "pro",
+    subscriptionStatus: "active",
+    billingEmail: "billing@greenscape.com",
+  });
+  console.log(`✓ Created company: ${company1.name}`);
+
+  const company2 = await storage.createCompany({
+    name: "Perfect Lawns Inc",
+    slug: "perfect-lawns",
+    subscriptionPlan: "pro",
+    subscriptionStatus: "active",
+    billingEmail: "billing@perfectlawns.com",
+  });
+  console.log(`✓ Created company: ${company2.name}`);
+
+  // Create super admin user
+  console.log("\nCreating users...");
+  const superAdminPasswordHash = await hashPassword("superadmin123");
+  const superAdmin = await storage.createUser({
+    email: "superadmin@replit.com",
+    passwordHash: superAdminPasswordHash,
+    name: "Super Admin",
+    isSuperAdmin: "true",
+    defaultCompanyId: company1.id,
+  });
+  console.log(`✓ Created super admin: ${superAdmin.email}`);
+
+  // Create users for GreenScape
+  const greenScapeUsers = [
     {
       email: "admin@greenscape.com",
       password: "admin123",
@@ -31,26 +64,67 @@ async function seed() {
     },
   ];
 
-  for (const userData of testUsers) {
-    const existingUser = await storage.getUserByEmail(userData.email);
-    if (!existingUser) {
-      const passwordHash = await hashPassword(userData.password);
-      await storage.createUser({
-        email: userData.email,
-        passwordHash,
-        name: userData.name,
-        role: userData.role,
-      });
-      console.log(`✓ Created user: ${userData.email} (${userData.role})`);
-    } else {
-      console.log(`- User already exists: ${userData.email}`);
-    }
+  for (const userData of greenScapeUsers) {
+    const passwordHash = await hashPassword(userData.password);
+    const user = await storage.createUser({
+      email: userData.email,
+      passwordHash,
+      name: userData.name,
+      isSuperAdmin: "false",
+      defaultCompanyId: company1.id,
+    });
+
+    // Add user to GreenScape company
+    await storage.createCompanyUser({
+      userId: user.id,
+      companyId: company1.id,
+      role: userData.role,
+      status: "active",
+    });
+
+    console.log(`✓ Created GreenScape user: ${userData.email} (${userData.role})`);
   }
 
-  // Seed sample properties
-  console.log("\nSeeding sample properties...");
+  // Create users for Perfect Lawns
+  const perfectLawnsUsers = [
+    {
+      email: "admin@perfectlawns.com",
+      password: "admin123",
+      name: "Tom Williams",
+      role: "admin" as const,
+    },
+    {
+      email: "ops@perfectlawns.com",
+      password: "ops123",
+      name: "Lisa Martinez",
+      role: "ops" as const,
+    },
+  ];
 
-  const sampleProperties = [
+  for (const userData of perfectLawnsUsers) {
+    const passwordHash = await hashPassword(userData.password);
+    const user = await storage.createUser({
+      email: userData.email,
+      passwordHash,
+      name: userData.name,
+      isSuperAdmin: "false",
+      defaultCompanyId: company2.id,
+    });
+
+    // Add user to Perfect Lawns company
+    await storage.createCompanyUser({
+      userId: user.id,
+      companyId: company2.id,
+      role: userData.role,
+      status: "active",
+    });
+
+    console.log(`✓ Created Perfect Lawns user: ${userData.email} (${userData.role})`);
+  }
+
+  // Create properties for GreenScape
+  console.log("\nCreating properties...");
+  const greenScapeProperties = [
     {
       name: "Greenwood HOA",
       street: "1500 Oak Ridge Drive",
@@ -61,6 +135,7 @@ async function seed() {
       propertyManagerPhone: "(503) 555-0123",
       propertyManagerEmail: "j.martinez@greenwoodhoa.com",
       notes: "Large community with pool and recreation center. Service every Tuesday and Friday.",
+      companyId: company1.id,
     },
     {
       name: "Sunset Village Apartments",
@@ -72,35 +147,71 @@ async function seed() {
       propertyManagerPhone: "(541) 555-0456",
       propertyManagerEmail: "dchen@sunsetvillage.com",
       notes: "120-unit complex. Weekly lawn service, bi-weekly hedge trimming.",
-    },
-    {
-      name: "Riverside Commons",
-      street: "5620 River Road",
-      city: "Salem",
-      state: "OR",
-      zip: "97301",
-      propertyManagerName: "Maria Rodriguez",
-      propertyManagerPhone: "(503) 555-0789",
-      propertyManagerEmail: "maria.r@riversidecommons.org",
-      notes: "Mixed-use development. Seasonal flower bed maintenance required.",
+      companyId: company1.id,
     },
   ];
 
-  for (const propertyData of sampleProperties) {
-    const property = await storage.createProperty(propertyData);
-    console.log(`✓ Created property: ${propertyData.name}`);
+  for (const propertyData of greenScapeProperties) {
+    await storage.createProperty(propertyData);
+    console.log(`✓ Created GreenScape property: ${propertyData.name}`);
   }
 
-  console.log("\nSeed completed!");
-  console.log("\nTest users:");
+  // Create properties for Perfect Lawns
+  const perfectLawnsProperties = [
+    {
+      name: "Oak Hill Estates",
+      street: "789 Highland Avenue",
+      city: "Salem",
+      state: "OR",
+      zip: "97301",
+      propertyManagerName: "Robert Johnson",
+      propertyManagerPhone: "(503) 555-0789",
+      propertyManagerEmail: "rjohnson@oakhillestates.com",
+      notes: "Upscale residential community. Monthly full-service landscaping.",
+      companyId: company2.id,
+    },
+    {
+      name: "Pine Valley HOA",
+      street: "456 Pine Street",
+      city: "Beaverton",
+      state: "OR",
+      zip: "97005",
+      propertyManagerName: "Amanda Lee",
+      propertyManagerPhone: "(503) 555-0321",
+      propertyManagerEmail: "alee@pinevalley.org",
+      notes: "Family-friendly neighborhood. Weekly mowing and trimming.",
+      companyId: company2.id,
+    },
+  ];
+
+  for (const propertyData of perfectLawnsProperties) {
+    await storage.createProperty(propertyData);
+    console.log(`✓ Created Perfect Lawns property: ${propertyData.name}`);
+  }
+
+  console.log("\n" + "=".repeat(60));
+  console.log("SEED COMPLETED - Multi-Tenant CRM Demo Data");
+  console.log("=".repeat(60));
+  
+  console.log("\n🔑 SUPER ADMIN (Access to all companies):");
+  console.log("  superadmin@replit.com / superadmin123");
+  
+  console.log("\n🏢 GREENSCAPE LANDSCAPING:");
   console.log("  admin@greenscape.com / admin123 (Admin)");
   console.log("  office@greenscape.com / office123 (Office)");
   console.log("  ops@greenscape.com / ops123 (Operations)");
-  console.log("  viewer@greenscape.com / viewer123 (Viewer)");
-  console.log("\nSample properties:");
-  console.log("  - Greenwood HOA (Portland)");
-  console.log("  - Sunset Village Apartments (Eugene)");
-  console.log("  - Riverside Commons (Salem)");
+  console.log("  viewer@greenscape.com / viewer123 (Viewer - Read Only)");
+  console.log("  Properties: Greenwood HOA, Sunset Village Apartments");
+  
+  console.log("\n🏢 PERFECT LAWNS INC:");
+  console.log("  admin@perfectlawns.com / admin123 (Admin)");
+  console.log("  ops@perfectlawns.com / ops123 (Operations)");
+  console.log("  Properties: Oak Hill Estates, Pine Valley HOA");
+  
+  console.log("\n✨ Each company's users can ONLY see their own properties!");
+  console.log("✨ Super admin can switch between companies to manage all data!");
+  console.log("✨ Viewer role can read but cannot create/edit/delete!");
+  console.log("=".repeat(60) + "\n");
   
   process.exit(0);
 }
