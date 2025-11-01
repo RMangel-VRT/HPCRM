@@ -47,12 +47,60 @@ async function seed() {
     }
   }
 
+  // Seed sample properties
+  console.log("\nSeeding sample properties...");
+
+  const sampleProperties = [
+    {
+      name: "Greenwood HOA",
+      street: "1500 Oak Ridge Drive",
+      city: "Portland",
+      state: "OR",
+      zip: "97201",
+      propertyManagerName: "Jennifer Martinez",
+      propertyManagerPhone: "(503) 555-0123",
+      propertyManagerEmail: "j.martinez@greenwoodhoa.com",
+      notes: "Large community with pool and recreation center. Service every Tuesday and Friday.",
+    },
+    {
+      name: "Sunset Village Apartments",
+      street: "2847 Maple Street",
+      city: "Eugene",
+      state: "OR",
+      zip: "97401",
+      propertyManagerName: "David Chen",
+      propertyManagerPhone: "(541) 555-0456",
+      propertyManagerEmail: "dchen@sunsetvillage.com",
+      notes: "120-unit complex. Weekly lawn service, bi-weekly hedge trimming.",
+    },
+    {
+      name: "Riverside Commons",
+      street: "5620 River Road",
+      city: "Salem",
+      state: "OR",
+      zip: "97301",
+      propertyManagerName: "Maria Rodriguez",
+      propertyManagerPhone: "(503) 555-0789",
+      propertyManagerEmail: "maria.r@riversidecommons.org",
+      notes: "Mixed-use development. Seasonal flower bed maintenance required.",
+    },
+  ];
+
+  for (const propertyData of sampleProperties) {
+    const property = await storage.createProperty(propertyData);
+    console.log(`✓ Created property: ${propertyData.name}`);
+  }
+
   console.log("\nSeed completed!");
   console.log("\nTest users:");
   console.log("  admin@greenscape.com / admin123 (Admin)");
   console.log("  office@greenscape.com / office123 (Office)");
   console.log("  ops@greenscape.com / ops123 (Operations)");
   console.log("  viewer@greenscape.com / viewer123 (Viewer)");
+  console.log("\nSample properties:");
+  console.log("  - Greenwood HOA (Portland)");
+  console.log("  - Sunset Village Apartments (Eugene)");
+  console.log("  - Riverside Commons (Salem)");
   
   process.exit(0);
 }
