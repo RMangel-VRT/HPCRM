@@ -8,6 +8,17 @@ The system follows a vertical slice architecture with multi-tenancy at its core,
 
 ## Recent Changes
 
+**2025-11-01 - Password Reset Feature with Security Hardening (COMPLETE)**
+- **Password reset capability**: Company admins can reset passwords for team members through Edit User dialog
+- **Security fix**: Company scoping enforced to prevent cross-company password resets (returns 403 Forbidden)
+- **Super admin bypass**: Super admins can reset passwords across all companies as expected
+- **Optional field**: Password field is optional - only updates when value provided
+- **Validation**: 8 character minimum enforced, passwords hashed with scrypt before storage
+- **New storage method**: getCompanyUserById added for company membership verification
+- **Security verification**: Company ID checked BEFORE any password updates occur
+- **API endpoint**: PATCH /api/company-users/:id enhanced with password update and company scoping
+- **Production-ready**: Debug logging removed, end-to-end tested, architect-approved with comprehensive security review
+
 **2025-11-01 - Navigation UX Improvements (COMPLETE)**
 - **Smooth transitions**: Eliminated Page Not Found flash during login and navigation
 - **Graceful routing**: Unknown routes redirect to dashboard for authenticated users
