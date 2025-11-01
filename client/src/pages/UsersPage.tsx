@@ -30,13 +30,14 @@ type CompanyUserWithDetails = {
   } | null;
 };
 
-const addUserSchema = z.object({
-  userId: z.string().min(1, "User ID is required"),
+const createUserSchema = z.object({
+  email: z.string().email("Invalid email address"),
+  name: z.string().min(1, "Name is required"),
+  password: z.string().min(8, "Password must be at least 8 characters"),
   role: z.enum(["admin", "office", "ops", "viewer"]),
-  status: z.enum(["active", "invited", "suspended"]).default("active"),
 });
 
-type AddUserForm = z.infer<typeof addUserSchema>;
+type CreateUserForm = z.infer<typeof createUserSchema>;
 
 const editUserSchema = z.object({
   role: z.enum(["admin", "office", "ops", "viewer"]),
@@ -56,11 +57,13 @@ export default function UsersPage() {
     queryKey: ["/api/companies/users"],
   });
 
-  const addUserForm = useForm<AddUserForm>({
-    resolver: zodResolver(addUserSchema),
+  const createUserForm = useForm<CreateUserForm>({
+    resolver: zodResolver(createUserSchema),
     defaultValues: {
       role: "viewer",
-      status: "active",
+      email: "",
+      name: "",
+      password: "",
     },
   });
 
@@ -68,23 +71,23 @@ export default function UsersPage() {
     resolver: zodResolver(editUserSchema),
   });
 
-  const addUserMutation = useMutation({
-    mutationFn: async (data: AddUserForm) => {
-      const res = await apiRequest("POST", "/api/companies/users", data);
+  const createUserMutation = useMutation({
+    mutationFn: async (data: CreateUserForm) => {
+      const res = await apiRequest("POST", "/api/companies/users/create", data);
       return await res.json();
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/companies/users"] });
       setAddDialogOpen(false);
-      addUserForm.reset();
+      createUserForm.reset();
       toast({
-        title: "User added",
-        description: "User has been successfully added to the company",
+        title: "User created",
+        description: "User has been successfully created and added to the company",
       });
     },
     onError: (error: Error) => {
       toast({
-        title: "Failed to add user",
+        title: "Failed to create user",
         description: error.message,
         variant: "destructive",
       });
@@ -178,28 +181,54 @@ export default function UsersPage() {
             </DialogTrigger>
             <DialogContent>
               <DialogHeader>
-                <DialogTitle>Add User to Company</DialogTitle>
+                <DialogTitle>Create New User</DialogTitle>
                 <DialogDescription>
-                  Add an existing user to your company by entering their user ID
+                  Create a new user account and add them to your company
                 </DialogDescription>
               </DialogHeader>
-              <Form {...addUserForm}>
-                <form onSubmit={addUserForm.handleSubmit((data) => addUserMutation.mutate(data))} className="space-y-4">
+              <Form {...createUserForm}>
+                <form onSubmit={createUserForm.handleSubmit((data) => createUserMutation.mutate(data))} className="space-y-4">
                   <FormField
-                    control={addUserForm.control}
-                    name="userId"
+                    control={createUserForm.control}
+                    name="email"
                     render={({ field }) => (
                       <FormItem>
-                        <FormLabel>User ID</FormLabel>
+                        <FormLabel>Email</FormLabel>
                         <FormControl>
-                          <Input {...field} data-testid="input-user-id" placeholder="Enter user ID" />
+                          <Input {...field} data-testid="input-email" type="email" placeholder="user@example.com" />
                         </FormControl>
                         <FormMessage />
                       </FormItem>
                     )}
                   />
                   <FormField
-                    control={addUserForm.control}
+                    control={createUserForm.control}
+                    name="name"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>Full Name</FormLabel>
+                        <FormControl>
+                          <Input {...field} data-testid="input-name" placeholder="John Doe" />
+                        </FormControl>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+                  <FormField
+                    control={createUserForm.control}
+                    name="password"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>Password</FormLabel>
+                        <FormControl>
+                          <Input {...field} data-testid="input-password" type="password" placeholder="Min 8 characters" />
+                        </FormControl>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+                  <FormField
+                    control={createUserForm.control}
                     name="role"
                     render={({ field }) => (
                       <FormItem>
@@ -221,31 +250,9 @@ export default function UsersPage() {
                       </FormItem>
                     )}
                   />
-                  <FormField
-                    control={addUserForm.control}
-                    name="status"
-                    render={({ field }) => (
-                      <FormItem>
-                        <FormLabel>Status</FormLabel>
-                        <Select onValueChange={field.onChange} defaultValue={field.value}>
-                          <FormControl>
-                            <SelectTrigger data-testid="select-status">
-                              <SelectValue placeholder="Select status" />
-                            </SelectTrigger>
-                          </FormControl>
-                          <SelectContent>
-                            <SelectItem value="active">Active</SelectItem>
-                            <SelectItem value="invited">Invited</SelectItem>
-                            <SelectItem value="suspended">Suspended</SelectItem>
-                          </SelectContent>
-                        </Select>
-                        <FormMessage />
-                      </FormItem>
-                    )}
-                  />
                   <DialogFooter>
-                    <Button type="submit" disabled={addUserMutation.isPending} data-testid="button-submit-add-user">
-                      {addUserMutation.isPending ? "Adding..." : "Add User"}
+                    <Button type="submit" disabled={createUserMutation.isPending} data-testid="button-submit-create-user">
+                      {createUserMutation.isPending ? "Creating..." : "Create User"}
                     </Button>
                   </DialogFooter>
                 </form>

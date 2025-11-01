@@ -260,6 +260,58 @@ export async function registerRoutes(app: Express): Promise<Server> {
     res.json(usersWithDetails);
   });
 
+  app.post("/api/companies/users/create", async (req, res) => {
+    if (!req.isAuthenticated()) {
+      return res.status(401).send("Not authenticated");
+    }
+
+    const currentUser = req.user as UserWithContext;
+    if (currentUser.activeRole !== "admin" && !currentUser.isSuperAdminBool) {
+      return res.status(403).send("Forbidden");
+    }
+
+    const { email, name, password, role } = req.body;
+
+    if (!email || !name || !password || !role) {
+      return res.status(400).json({ message: "Email, name, password, and role are required" });
+    }
+
+    if (password.length < 8) {
+      return res.status(400).json({ message: "Password must be at least 8 characters" });
+    }
+
+    const existingUser = await storage.getUserByEmail(email);
+    if (existingUser) {
+      return res.status(400).json({ message: "User with this email already exists" });
+    }
+
+    try {
+      const { hashPassword } = await import("./auth");
+      const passwordHash = await hashPassword(password);
+
+      const newUser = await storage.createUser({
+        email,
+        name,
+        passwordHash,
+        isSuperAdmin: "false",
+        defaultCompanyId: currentUser.activeCompanyId,
+      });
+
+      await storage.createCompanyUser({
+        userId: newUser.id,
+        companyId: currentUser.activeCompanyId,
+        role: role as "admin" | "office" | "ops" | "viewer",
+        status: "active",
+      });
+
+      const { passwordHash: _, ...userWithoutPassword } = newUser;
+      res.status(201).json(userWithoutPassword);
+    } catch (error) {
+      console.error("Error creating user:", error);
+      res.status(500).json({ message: "Failed to create user" });
+    }
+  });
+
   app.post("/api/companies/users", async (req, res) => {
     if (!req.isAuthenticated()) {
       return res.status(401).send("Not authenticated");
