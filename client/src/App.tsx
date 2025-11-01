@@ -59,7 +59,6 @@ function Router() {
           </header>
           <main className="flex-1 overflow-y-auto p-6 md:p-8">
             <Switch>
-              <ProtectedRoute path="/" component={Dashboard} />
               <ProtectedRoute path="/dashboard" component={Dashboard} />
               <ProtectedRoute path="/properties" component={PropertiesPage} />
               <ProtectedRoute
@@ -73,7 +72,12 @@ function Router() {
                 allowedRoles={["admin"]}
               />
               <Route path="/access-denied" component={AccessDenied} />
-              <Route component={NotFound} />
+              <Route path="/">
+                <Redirect to="/dashboard" />
+              </Route>
+              <Route>
+                <Redirect to="/dashboard" />
+              </Route>
             </Switch>
           </main>
         </div>
