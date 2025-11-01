@@ -12,6 +12,7 @@ import {
 import {
   LayoutDashboard,
   Building2,
+  Users,
   Settings,
   LogOut,
 } from "lucide-react";
@@ -22,12 +23,14 @@ import logoImage from "@assets/generated_images/Landscaping_CRM_company_logo_b2c
 
 interface AppSidebarProps {
   userRole?: "admin" | "office" | "ops" | "viewer";
+  isSuperAdmin?: boolean;
   userName?: string;
   onLogout?: () => void;
 }
 
 export default function AppSidebar({
   userRole = "admin",
+  isSuperAdmin = false,
   userName = "John Doe",
   onLogout,
 }: AppSidebarProps) {
@@ -38,7 +41,11 @@ export default function AppSidebar({
     { title: "Properties", url: "/properties", icon: Building2 },
   ];
 
-  const adminItems = userRole === "admin"
+  const managementItems = (userRole === "admin" || isSuperAdmin)
+    ? [{ title: "Team", url: "/users", icon: Users }]
+    : [];
+
+  const adminItems = (userRole === "admin" || isSuperAdmin)
     ? [{ title: "Settings", url: "/settings", icon: Settings }]
     : [];
 
@@ -70,6 +77,24 @@ export default function AppSidebar({
             ))}
           </SidebarMenu>
         </SidebarGroup>
+
+        {managementItems.length > 0 && (
+          <SidebarGroup>
+            <SidebarGroupLabel>Management</SidebarGroupLabel>
+            <SidebarMenu>
+              {managementItems.map((item) => (
+                <SidebarMenuItem key={item.title}>
+                  <SidebarMenuButton asChild isActive={location === item.url}>
+                    <Link href={item.url} data-testid={`link-${item.title.toLowerCase()}`}>
+                      <item.icon className="w-4 h-4" />
+                      <span>{item.title}</span>
+                    </Link>
+                  </SidebarMenuButton>
+                </SidebarMenuItem>
+              ))}
+            </SidebarMenu>
+          </SidebarGroup>
+        )}
 
         {adminItems.length > 0 && (
           <SidebarGroup>

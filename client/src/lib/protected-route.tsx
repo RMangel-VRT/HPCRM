@@ -33,7 +33,7 @@ export function ProtectedRoute({
     );
   }
 
-  if (allowedRoles && !allowedRoles.includes(user.role)) {
+  if (allowedRoles && !user.isSuperAdminBool && !allowedRoles.includes(user.activeRole)) {
     return (
       <Route path={path}>
         <Redirect to="/access-denied" />

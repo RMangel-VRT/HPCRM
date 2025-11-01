@@ -4,16 +4,24 @@ import {
   useMutation,
   UseMutationResult,
 } from "@tanstack/react-query";
-import { User } from "@shared/schema";
+import { User, Company } from "@shared/schema";
 import { getQueryFn, apiRequest, queryClient } from "../lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 
+export type UserWithCompanyContext = Omit<User, "passwordHash"> & {
+  activeCompanyId: string;
+  activeRole: "admin" | "office" | "ops" | "viewer";
+  isSuperAdminBool: boolean;
+  activeCompany?: Company | null;
+};
+
 type AuthContextType = {
-  user: Omit<User, "passwordHash"> | null;
+  user: UserWithCompanyContext | null;
   isLoading: boolean;
   error: Error | null;
-  loginMutation: UseMutationResult<Omit<User, "passwordHash">, Error, LoginData>;
+  loginMutation: UseMutationResult<UserWithCompanyContext, Error, LoginData>;
   logoutMutation: UseMutationResult<void, Error, void>;
+  switchCompanyMutation: UseMutationResult<UserWithCompanyContext, Error, string>;
 };
 
 type LoginData = {
@@ -29,7 +37,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     data: user,
     error,
     isLoading,
-  } = useQuery<Omit<User, "passwordHash"> | undefined, Error>({
+  } = useQuery<UserWithCompanyContext | undefined, Error>({
     queryKey: ["/api/auth/me"],
     queryFn: getQueryFn({ on401: "returnNull" }),
     retry: false,
@@ -40,7 +48,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       const res = await apiRequest("POST", "/api/auth/login", credentials);
       return await res.json();
     },
-    onSuccess: (user: Omit<User, "passwordHash">) => {
+    onSuccess: (user: UserWithCompanyContext) => {
       queryClient.setQueryData(["/api/auth/me"], user);
     },
     onError: (error: Error) => {
@@ -68,6 +76,29 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     },
   });
 
+  const switchCompanyMutation = useMutation({
+    mutationFn: async (companyId: string) => {
+      const res = await apiRequest("POST", "/api/user/switch-company", { companyId });
+      return await res.json();
+    },
+    onSuccess: (user: UserWithCompanyContext) => {
+      queryClient.setQueryData(["/api/auth/me"], user);
+      queryClient.invalidateQueries({ queryKey: ["/api/properties"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/companies/users"] });
+      toast({
+        title: "Company switched",
+        description: `Now viewing ${user.activeCompany?.name || "company"}`,
+      });
+    },
+    onError: (error: Error) => {
+      toast({
+        title: "Failed to switch company",
+        description: error.message,
+        variant: "destructive",
+      });
+    },
+  });
+
   return (
     <AuthContext.Provider
       value={{
@@ -76,6 +107,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         error,
         loginMutation,
         logoutMutation,
+        switchCompanyMutation,
       }}
     >
       {children}

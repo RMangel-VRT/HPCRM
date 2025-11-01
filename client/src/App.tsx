@@ -13,6 +13,7 @@ import LoginPage from "@/pages/LoginPage";
 import AccessDenied from "@/pages/AccessDenied";
 import Dashboard from "@/pages/Dashboard";
 import PropertiesPage from "@/pages/PropertiesPage";
+import UsersPage from "@/pages/UsersPage";
 import SettingsPage from "@/pages/SettingsPage";
 import NotFound from "@/pages/not-found";
 
@@ -46,7 +47,8 @@ function Router() {
     <SidebarProvider style={style as React.CSSProperties}>
       <div className="flex h-screen w-full">
         <AppSidebar
-          userRole={user.role}
+          userRole={user.activeRole}
+          isSuperAdmin={user.isSuperAdminBool}
           userName={user.name}
           onLogout={() => logoutMutation.mutate()}
         />
@@ -60,6 +62,11 @@ function Router() {
               <ProtectedRoute path="/" component={Dashboard} />
               <ProtectedRoute path="/dashboard" component={Dashboard} />
               <ProtectedRoute path="/properties" component={PropertiesPage} />
+              <ProtectedRoute
+                path="/users"
+                component={UsersPage}
+                allowedRoles={["admin"]}
+              />
               <ProtectedRoute
                 path="/settings"
                 component={SettingsPage}
