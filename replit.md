@@ -36,7 +36,8 @@ Preferred communication style: Simple, everyday language.
 - Protected routes that check authentication and role-based permissions
 - Automatic redirects to login for unauthenticated users
 - Access denied page for insufficient permissions
-- Route structure: `/dashboard`, `/customers`, `/properties`, `/contracts`, `/tickets`, `/settings`
+- Route structure: `/dashboard`, `/properties`, `/settings` (admin-only)
+- Note: Properties serve as combined customers/properties per business model
 
 ### Backend Architecture
 
@@ -71,6 +72,8 @@ Preferred communication style: Simple, everyday language.
 
 **Schema Design:**
 - Users table with role-based access (id, email, passwordHash, name, role, createdAt)
+- Properties table (combined customers/properties): id, name, address (street, city, state, zip), property manager (name, phone, email), notes, createdAt, updatedAt
+- Contacts table (future): linked to properties for HOA contacts with roles
 - Schema validation using Drizzle-Zod integration
 - UUID primary keys generated via `gen_random_uuid()`
 - Timestamp columns for audit tracking (createdAt, updatedAt)
@@ -78,12 +81,14 @@ Preferred communication style: Simple, everyday language.
 **Migration Strategy:**
 - Drizzle Kit for schema migrations
 - Schema defined in `shared/schema.ts` for type sharing between client and server
-- Migration files stored in `/migrations` directory
+- Direct SQL execution via execute_sql_tool for table creation
+
+**Implemented Schema:**
+- ✅ Users table (Phase 0)
+- ✅ Properties table (Phase 1) - combines customers and properties per business requirement
+- ✅ Contacts table structure defined (Phase 1) - for HOA contacts with roles
 
 **Future Schema (Per Requirements):**
-- Customers (CRM core)
-- Properties linked to customers
-- Contacts and Notes
 - Contracts with monthly billing amounts
 - Tickets (work orders)
 - Service Templates and Property Service Plans

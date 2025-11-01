@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -184,13 +184,7 @@ function PropertyDialog({ property, onClose }: { property: Property | null; onCl
 
   const form = useForm<InsertProperty>({
     resolver: zodResolver(insertPropertySchema),
-    defaultValues: property ? {
-      ...property,
-      propertyManagerName: property.propertyManagerName || "",
-      propertyManagerPhone: property.propertyManagerPhone || "",
-      propertyManagerEmail: property.propertyManagerEmail || "",
-      notes: property.notes || "",
-    } : {
+    defaultValues: {
       name: "",
       street: "",
       city: "",
@@ -202,6 +196,31 @@ function PropertyDialog({ property, onClose }: { property: Property | null; onCl
       notes: "",
     },
   });
+
+  // Reset form when property changes
+  useEffect(() => {
+    if (property) {
+      form.reset({
+        ...property,
+        propertyManagerName: property.propertyManagerName || "",
+        propertyManagerPhone: property.propertyManagerPhone || "",
+        propertyManagerEmail: property.propertyManagerEmail || "",
+        notes: property.notes || "",
+      });
+    } else {
+      form.reset({
+        name: "",
+        street: "",
+        city: "",
+        state: "",
+        zip: "",
+        propertyManagerName: "",
+        propertyManagerPhone: "",
+        propertyManagerEmail: "",
+        notes: "",
+      });
+    }
+  }, [property, form]);
 
   const createMutation = useMutation({
     mutationFn: async (data: InsertProperty) => {
