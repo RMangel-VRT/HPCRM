@@ -48,7 +48,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
       return res.status(401).send("Not authenticated");
     }
 
-    const property = await storage.updateProperty(req.params.id, req.body);
+    const result = insertPropertySchema.partial().safeParse(req.body);
+    if (!result.success) {
+      return res.status(400).send(result.error.message);
+    }
+
+    const property = await storage.updateProperty(req.params.id, result.data);
     if (!property) {
       return res.status(404).send("Property not found");
     }
@@ -96,7 +101,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
       return res.status(401).send("Not authenticated");
     }
 
-    const contact = await storage.updateContact(req.params.id, req.body);
+    const result = insertContactSchema.partial().omit({ propertyId: true }).safeParse(req.body);
+    if (!result.success) {
+      return res.status(400).send(result.error.message);
+    }
+
+    const contact = await storage.updateContact(req.params.id, result.data);
     if (!contact) {
       return res.status(404).send("Contact not found");
     }

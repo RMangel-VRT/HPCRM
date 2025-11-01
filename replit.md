@@ -2,9 +2,20 @@
 
 ## Overview
 
-A comprehensive Customer Relationship Management system designed for landscaping businesses. The application manages customers, properties, contracts, work orders (tickets), and provides revenue tracking and labor forecasting capabilities. Built as a manual-first data entry system with role-based access control (admin, office, ops, viewer) and optional QuickBooks Online integration for read-only customer data.
+A comprehensive Customer Relationship Management system designed for landscaping businesses. The application manages properties (combined customer/property entities), and will include contracts, work orders (tickets), revenue tracking, and labor forecasting. Built as a manual-first data entry system with role-based access control (admin, office, ops, viewer).
 
-The system follows a vertical slice architecture where features are implemented end-to-end with server-side validation, role-based access controls, and audit fields. Feature flags enable gradual rollout of experimental features.
+The system follows a vertical slice architecture where features are implemented end-to-end with server-side validation, role-based access controls, and audit fields.
+
+## Recent Changes
+
+**2025-11-01 - Phase 1: Property Management (COMPLETE)**
+- Implemented unified properties model (combines customers and properties into single entity per business requirement)
+- Database schema: properties table with address, property manager contact info, notes
+- Full CRUD API with Zod validation on all endpoints (including PATCH)
+- Properties page with responsive grid layout, add/edit dialog, delete functionality
+- Seed script creates 3 sample properties
+- All end-to-end tests passing
+- Production-ready and validated by architect
 
 ## User Preferences
 
