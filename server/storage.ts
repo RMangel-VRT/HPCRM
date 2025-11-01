@@ -26,16 +26,16 @@ export interface IStorage {
   updateCompanyUser(id: string, companyUser: Partial<InsertCompanyUser>): Promise<CompanyUser | undefined>;
   deleteCompanyUser(id: string): Promise<void>;
   
-  getProperties(): Promise<Property[]>;
-  getPropertyById(id: string): Promise<Property | undefined>;
+  getProperties(companyId: string): Promise<Property[]>;
+  getPropertyById(id: string, companyId: string): Promise<Property | undefined>;
   createProperty(property: InsertProperty): Promise<Property>;
-  updateProperty(id: string, property: Partial<InsertProperty>): Promise<Property | undefined>;
-  deleteProperty(id: string): Promise<void>;
+  updateProperty(id: string, companyId: string, property: Partial<InsertProperty>): Promise<Property | undefined>;
+  deleteProperty(id: string, companyId: string): Promise<void>;
   
-  getContactsByPropertyId(propertyId: string): Promise<Contact[]>;
+  getContactsByPropertyId(propertyId: string, companyId: string): Promise<Contact[]>;
   createContact(contact: InsertContact): Promise<Contact>;
-  updateContact(id: string, contact: Partial<InsertContact>): Promise<Contact | undefined>;
-  deleteContact(id: string): Promise<void>;
+  updateContact(id: string, companyId: string, contact: Partial<InsertContact>): Promise<Contact | undefined>;
+  deleteContact(id: string, companyId: string): Promise<void>;
   
   sessionStore: session.Store;
 }
@@ -123,12 +123,14 @@ export class PgStorage implements IStorage {
     await db.delete(companyUsers).where(eq(companyUsers.id, id));
   }
 
-  async getProperties(): Promise<Property[]> {
-    return await db.select().from(properties);
+  async getProperties(companyId: string): Promise<Property[]> {
+    return await db.select().from(properties).where(eq(properties.companyId, companyId));
   }
 
-  async getPropertyById(id: string): Promise<Property | undefined> {
-    const result = await db.select().from(properties).where(eq(properties.id, id)).limit(1);
+  async getPropertyById(id: string, companyId: string): Promise<Property | undefined> {
+    const result = await db.select().from(properties)
+      .where(and(eq(properties.id, id), eq(properties.companyId, companyId)))
+      .limit(1);
     return result[0];
   }
 
@@ -137,20 +139,21 @@ export class PgStorage implements IStorage {
     return result[0];
   }
 
-  async updateProperty(id: string, updates: Partial<InsertProperty>): Promise<Property | undefined> {
+  async updateProperty(id: string, companyId: string, updates: Partial<InsertProperty>): Promise<Property | undefined> {
     const result = await db.update(properties)
       .set({ ...updates, updatedAt: new Date() })
-      .where(eq(properties.id, id))
+      .where(and(eq(properties.id, id), eq(properties.companyId, companyId)))
       .returning();
     return result[0];
   }
 
-  async deleteProperty(id: string): Promise<void> {
-    await db.delete(properties).where(eq(properties.id, id));
+  async deleteProperty(id: string, companyId: string): Promise<void> {
+    await db.delete(properties).where(and(eq(properties.id, id), eq(properties.companyId, companyId)));
   }
 
-  async getContactsByPropertyId(propertyId: string): Promise<Contact[]> {
-    return await db.select().from(contacts).where(eq(contacts.propertyId, propertyId));
+  async getContactsByPropertyId(propertyId: string, companyId: string): Promise<Contact[]> {
+    return await db.select().from(contacts)
+      .where(and(eq(contacts.propertyId, propertyId), eq(contacts.companyId, companyId)));
   }
 
   async createContact(insertContact: InsertContact): Promise<Contact> {
@@ -158,16 +161,16 @@ export class PgStorage implements IStorage {
     return result[0];
   }
 
-  async updateContact(id: string, updates: Partial<InsertContact>): Promise<Contact | undefined> {
+  async updateContact(id: string, companyId: string, updates: Partial<InsertContact>): Promise<Contact | undefined> {
     const result = await db.update(contacts)
       .set(updates)
-      .where(eq(contacts.id, id))
+      .where(and(eq(contacts.id, id), eq(contacts.companyId, companyId)))
       .returning();
     return result[0];
   }
 
-  async deleteContact(id: string): Promise<void> {
-    await db.delete(contacts).where(eq(contacts.id, id));
+  async deleteContact(id: string, companyId: string): Promise<void> {
+    await db.delete(contacts).where(and(eq(contacts.id, id), eq(contacts.companyId, companyId)));
   }
 }
 
