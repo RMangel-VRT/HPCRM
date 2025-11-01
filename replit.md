@@ -8,6 +8,14 @@ The system follows a vertical slice architecture with multi-tenancy at its core,
 
 ## Recent Changes
 
+**2025-11-01 - Navigation UX Improvements (COMPLETE)**
+- **Smooth transitions**: Eliminated Page Not Found flash during login and navigation
+- **Graceful routing**: Unknown routes redirect to dashboard for authenticated users
+- **Clean redirects**: Root path "/" explicitly redirects to /dashboard
+- **No error states**: Removed NotFound catch-all that caused timing-related flashes
+- **Better UX**: All navigation transitions now smooth without intermediate error states
+- Architect-approved with no security or routing issues
+
 **2025-11-01 - Create New User Feature (COMPLETE)**
 - **User creation**: Company admins can create new users with email, name, password, and role
 - **Atomic operation**: User account and company membership created in single transaction
@@ -61,9 +69,11 @@ Preferred communication style: Simple, everyday language.
 **Routing Strategy:**
 - Protected routes that check authentication and role-based permissions
 - Automatic redirects to login for unauthenticated users
+- Unknown routes redirect to dashboard for authenticated users (no 404 errors)
 - Access denied page for insufficient permissions
 - Route structure: `/dashboard`, `/properties`, `/users` (admin-only), `/settings` (admin-only)
 - Super admins bypass role restrictions and can access all routes
+- Smooth navigation transitions without intermediate error states
 - Note: Properties serve as combined customers/properties per business model
 
 ### Backend Architecture
