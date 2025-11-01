@@ -8,6 +8,18 @@ The system follows a vertical slice architecture with multi-tenancy at its core,
 
 ## Recent Changes
 
+**2025-11-01 - Super Admin vs Company Admin Visual Delineation (COMPLETE)**
+- **Visual distinction**: "Super Admin" badge (amber) vs "Admin" badge (purple) throughout UI
+- **Role badge updates**: RoleBadge component shows "Super Admin" when isSuperAdmin flag is true
+- **Users page indicators**: User cards display super admin badges, clear visual distinction
+- **Role editing protection**: Super admin roles cannot be edited in Edit User dialog
+- **Explanation messaging**: Shows "Super admins always have full admin access across all companies"
+- **Backend safeguard**: API rejects role change attempts for super admin users (400 Bad Request)
+- **API enhancement**: /api/companies/users includes isSuperAdmin flag for frontend display
+- **Permission verification**: Role-based access control tested and working (viewer role restrictions verified)
+- **End-to-end tested**: Super admin badge display, role editing restrictions, and viewer access control all verified
+- Production-ready and architect-approved with defense-in-depth security
+
 **2025-11-01 - Password Reset Feature with Security Hardening (COMPLETE)**
 - **Password reset capability**: Company admins can reset passwords for team members through Edit User dialog
 - **Security fix**: Company scoping enforced to prevent cross-company password resets (returns 403 Forbidden)

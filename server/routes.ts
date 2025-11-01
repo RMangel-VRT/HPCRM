@@ -365,6 +365,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(403).send("Cannot update users from other companies");
       }
 
+      // SECURITY: Prevent role changes for super admin users
+      const targetUser = await storage.getUserById(existingCompanyUser.userId);
+      if (targetUser?.isSuperAdmin === "true" && companyUserUpdates.role) {
+        return res.status(400).json({ message: "Cannot change role for super admin users" });
+      }
+
       // Update company user record (role, status)
       const companyUser = await storage.updateCompanyUser(req.params.id, result.data);
       if (!companyUser) {
