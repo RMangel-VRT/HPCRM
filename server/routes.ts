@@ -253,6 +253,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return {
           companyUser: cu,
           user: userDetails,
+          isSuperAdmin: userDetails?.isSuperAdmin === "true",
         };
       })
     );

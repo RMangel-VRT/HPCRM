@@ -124,7 +124,7 @@ export default function AppSidebar({
           </Avatar>
           <div className="flex-1 min-w-0">
             <p className="text-sm font-medium truncate">{userName}</p>
-            <RoleBadge role={userRole} />
+            <RoleBadge role={userRole} isSuperAdmin={isSuperAdmin} />
           </div>
         </div>
         <SidebarMenuButton

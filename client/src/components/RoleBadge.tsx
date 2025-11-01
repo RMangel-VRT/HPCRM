@@ -5,6 +5,7 @@ type Role = "admin" | "office" | "ops" | "viewer";
 
 interface RoleBadgeProps {
   role: Role;
+  isSuperAdmin?: boolean;
   className?: string;
 }
 
@@ -27,8 +28,14 @@ const roleConfig: Record<Role, { label: string; className: string }> = {
   },
 };
 
-export default function RoleBadge({ role, className }: RoleBadgeProps) {
-  const config = roleConfig[role];
+const superAdminConfig = {
+  label: "Super Admin",
+  className: "bg-amber-100 text-amber-900 dark:bg-amber-900/30 dark:text-amber-400",
+};
+
+export default function RoleBadge({ role, isSuperAdmin = false, className }: RoleBadgeProps) {
+  const config = isSuperAdmin ? superAdminConfig : roleConfig[role];
+  const testId = isSuperAdmin ? "role-badge-super-admin" : `role-badge-${role}`;
   
   return (
     <Badge
@@ -38,7 +45,7 @@ export default function RoleBadge({ role, className }: RoleBadgeProps) {
         config.className,
         className
       )}
-      data-testid={`role-badge-${role}`}
+      data-testid={testId}
     >
       {config.label}
     </Badge>

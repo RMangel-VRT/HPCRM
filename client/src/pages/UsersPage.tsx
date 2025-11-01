@@ -13,6 +13,8 @@ import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useAuth } from "@/hooks/use-auth";
+import RoleBadge from "@/components/RoleBadge";
+import { Badge } from "@/components/ui/badge";
 
 type CompanyUserWithDetails = {
   companyUser: {
@@ -28,6 +30,7 @@ type CompanyUserWithDetails = {
     email: string;
     name: string;
   } | null;
+  isSuperAdmin: boolean;
 };
 
 const createUserSchema = z.object({
@@ -271,14 +274,19 @@ export default function UsersPage() {
               <CardDescription>{userItem.user?.email}</CardDescription>
             </CardHeader>
             <CardContent>
-              <div className="space-y-2">
-                <div className="flex justify-between">
+              <div className="space-y-3">
+                <div className="flex justify-between items-center">
                   <span className="text-sm text-muted-foreground">Role:</span>
-                  <span className="text-sm font-medium capitalize">{userItem.companyUser.role}</span>
+                  <RoleBadge 
+                    role={userItem.companyUser.role as "admin" | "office" | "ops" | "viewer"} 
+                    isSuperAdmin={userItem.isSuperAdmin}
+                  />
                 </div>
-                <div className="flex justify-between">
+                <div className="flex justify-between items-center">
                   <span className="text-sm text-muted-foreground">Status:</span>
-                  <span className="text-sm font-medium capitalize">{userItem.companyUser.status}</span>
+                  <Badge variant="secondary" className="text-xs capitalize">
+                    {userItem.companyUser.status}
+                  </Badge>
                 </div>
               </div>
               {canManageUsers && (
@@ -323,29 +331,41 @@ export default function UsersPage() {
             </DialogHeader>
             <Form {...editUserForm}>
               <form onSubmit={editUserForm.handleSubmit((data) => updateUserMutation.mutate({ id: selectedUser.companyUser.id, updates: data }))} className="space-y-4">
-                <FormField
-                  control={editUserForm.control}
-                  name="role"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>Role</FormLabel>
-                      <Select onValueChange={field.onChange} value={field.value}>
-                        <FormControl>
-                          <SelectTrigger data-testid="select-edit-role">
-                            <SelectValue placeholder="Select role" />
-                          </SelectTrigger>
-                        </FormControl>
-                        <SelectContent>
-                          <SelectItem value="admin">Admin</SelectItem>
-                          <SelectItem value="office">Office</SelectItem>
-                          <SelectItem value="ops">Operations</SelectItem>
-                          <SelectItem value="viewer">Viewer</SelectItem>
-                        </SelectContent>
-                      </Select>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
+                {selectedUser.isSuperAdmin ? (
+                  <div className="space-y-2">
+                    <div className="flex items-center justify-between">
+                      <span className="text-sm font-medium">Role</span>
+                      <RoleBadge role="admin" isSuperAdmin={true} />
+                    </div>
+                    <p className="text-sm text-muted-foreground">
+                      Super admins always have full admin access across all companies. Role cannot be changed.
+                    </p>
+                  </div>
+                ) : (
+                  <FormField
+                    control={editUserForm.control}
+                    name="role"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>Role</FormLabel>
+                        <Select onValueChange={field.onChange} value={field.value}>
+                          <FormControl>
+                            <SelectTrigger data-testid="select-edit-role">
+                              <SelectValue placeholder="Select role" />
+                            </SelectTrigger>
+                          </FormControl>
+                          <SelectContent>
+                            <SelectItem value="admin">Admin</SelectItem>
+                            <SelectItem value="office">Office</SelectItem>
+                            <SelectItem value="ops">Operations</SelectItem>
+                            <SelectItem value="viewer">Viewer</SelectItem>
+                          </SelectContent>
+                        </Select>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+                )}
                 <FormField
                   control={editUserForm.control}
                   name="status"
