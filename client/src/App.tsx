@@ -1,10 +1,12 @@
-import { useState } from "react";
-import { Switch, Route, useLocation } from "wouter";
+import { Switch, Route, Redirect } from "wouter";
 import { queryClient } from "./lib/queryClient";
 import { QueryClientProvider } from "@tanstack/react-query";
 import { Toaster } from "@/components/ui/toaster";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { SidebarProvider, SidebarTrigger } from "@/components/ui/sidebar";
+import { AuthProvider, useAuth } from "@/hooks/use-auth";
+import { ProtectedRoute } from "@/lib/protected-route";
+import { Loader2 } from "lucide-react";
 import AppSidebar from "@/components/AppSidebar";
 import ThemeToggle from "@/components/ThemeToggle";
 import LoginPage from "@/pages/LoginPage";
@@ -21,23 +23,27 @@ import TicketDetail from "@/pages/TicketDetail";
 import SettingsPage from "@/pages/SettingsPage";
 import NotFound from "@/pages/not-found";
 
-type UserRole = "admin" | "office" | "ops" | "viewer";
+function Router() {
+  const { user, isLoading, logoutMutation } = useAuth();
 
-interface User {
-  id: string;
-  name: string;
-  email: string;
-  role: UserRole;
-}
-
-function Router({ user, onLogout }: { user: User | null; onLogout: () => void }) {
-  const [location, setLocation] = useLocation();
-
-  if (!user) {
-    return <LoginPage onLogin={(email) => console.log("Login:", email)} />;
+  if (isLoading) {
+    return (
+      <div className="flex items-center justify-center min-h-screen">
+        <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
+      </div>
+    );
   }
 
-  const canAccessSettings = user.role === "admin";
+  if (!user) {
+    return (
+      <Switch>
+        <Route path="/login" component={LoginPage} />
+        <Route>
+          <Redirect to="/login" />
+        </Route>
+      </Switch>
+    );
+  }
 
   const style = {
     "--sidebar-width": "16rem",
@@ -49,7 +55,7 @@ function Router({ user, onLogout }: { user: User | null; onLogout: () => void })
         <AppSidebar
           userRole={user.role}
           userName={user.name}
-          onLogout={onLogout}
+          onLogout={() => logoutMutation.mutate()}
         />
         <div className="flex flex-col flex-1 overflow-hidden">
           <header className="flex items-center justify-between p-4 border-b bg-background">
@@ -58,19 +64,21 @@ function Router({ user, onLogout }: { user: User | null; onLogout: () => void })
           </header>
           <main className="flex-1 overflow-y-auto p-6 md:p-8">
             <Switch>
-              <Route path="/" component={Dashboard} />
-              <Route path="/dashboard" component={Dashboard} />
-              <Route path="/customers" component={CustomersList} />
-              <Route path="/customers/:id" component={CustomerDetail} />
-              <Route path="/properties" component={PropertiesList} />
-              <Route path="/properties/:id" component={PropertyDetail} />
-              <Route path="/contracts" component={ContractsList} />
-              <Route path="/contracts/new" component={ContractForm} />
-              <Route path="/tickets" component={TicketsList} />
-              <Route path="/tickets/:id" component={TicketDetail} />
-              <Route path="/settings">
-                {canAccessSettings ? <SettingsPage /> : <AccessDenied />}
-              </Route>
+              <ProtectedRoute path="/" component={Dashboard} />
+              <ProtectedRoute path="/dashboard" component={Dashboard} />
+              <ProtectedRoute path="/customers" component={CustomersList} />
+              <ProtectedRoute path="/customers/:id" component={CustomerDetail} />
+              <ProtectedRoute path="/properties" component={PropertiesList} />
+              <ProtectedRoute path="/properties/:id" component={PropertyDetail} />
+              <ProtectedRoute path="/contracts" component={ContractsList} />
+              <ProtectedRoute path="/contracts/new" component={ContractForm} />
+              <ProtectedRoute path="/tickets" component={TicketsList} />
+              <ProtectedRoute path="/tickets/:id" component={TicketDetail} />
+              <ProtectedRoute
+                path="/settings"
+                component={SettingsPage}
+                allowedRoles={["admin"]}
+              />
               <Route path="/access-denied" component={AccessDenied} />
               <Route component={NotFound} />
             </Switch>
@@ -82,23 +90,13 @@ function Router({ user, onLogout }: { user: User | null; onLogout: () => void })
 }
 
 function App() {
-  const [user, setUser] = useState<User | null>({
-    id: "1",
-    name: "Sarah Johnson",
-    email: "sarah@greenscape.com",
-    role: "admin",
-  });
-
-  const handleLogout = () => {
-    console.log("Logout");
-    setUser(null);
-  };
-
   return (
     <QueryClientProvider client={queryClient}>
       <TooltipProvider>
-        <Router user={user} onLogout={handleLogout} />
-        <Toaster />
+        <AuthProvider>
+          <Router />
+          <Toaster />
+        </AuthProvider>
       </TooltipProvider>
     </QueryClientProvider>
   );

@@ -1,0 +1,45 @@
+import { useAuth } from "@/hooks/use-auth";
+import { Loader2 } from "lucide-react";
+import { Redirect, Route, RouteProps } from "wouter";
+
+interface ProtectedRouteProps extends RouteProps {
+  path: string;
+  component: () => React.JSX.Element;
+  allowedRoles?: Array<"admin" | "office" | "ops" | "viewer">;
+}
+
+export function ProtectedRoute({
+  path,
+  component: Component,
+  allowedRoles,
+}: ProtectedRouteProps) {
+  const { user, isLoading } = useAuth();
+
+  if (isLoading) {
+    return (
+      <Route path={path}>
+        <div className="flex items-center justify-center min-h-screen">
+          <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
+        </div>
+      </Route>
+    );
+  }
+
+  if (!user) {
+    return (
+      <Route path={path}>
+        <Redirect to="/login" />
+      </Route>
+    );
+  }
+
+  if (allowedRoles && !allowedRoles.includes(user.role)) {
+    return (
+      <Route path={path}>
+        <Redirect to="/access-denied" />
+      </Route>
+    );
+  }
+
+  return <Route path={path} component={Component} />;
+}

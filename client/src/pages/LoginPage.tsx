@@ -1,33 +1,34 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
+import { useLocation } from "wouter";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { useAuth } from "@/hooks/use-auth";
 import logoImage from "@assets/generated_images/Landscaping_CRM_company_logo_b2cf0b31.png";
 
-interface LoginPageProps {
-  onLogin?: (email: string, password: string) => void;
-}
-
-export default function LoginPage({ onLogin }: LoginPageProps) {
+export default function LoginPage() {
+  const { user, loginMutation } = useAuth();
+  const [, setLocation] = useLocation();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
-  const [error, setError] = useState("");
+
+  useEffect(() => {
+    if (user) {
+      setLocation("/dashboard");
+    }
+  }, [user, setLocation]);
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    setError("");
-
-    if (!email || !password) {
-      setError("Please enter both email and password");
-      return;
-    }
-
-    if (onLogin) {
-      onLogin(email, password);
-    } else {
-      console.log("Login submitted:", { email, password });
-    }
+    loginMutation.mutate(
+      { email, password },
+      {
+        onSuccess: () => {
+          setLocation("/dashboard");
+        },
+      }
+    );
   };
 
   return (
@@ -52,6 +53,7 @@ export default function LoginPage({ onLogin }: LoginPageProps) {
                 placeholder="you@company.com"
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
+                disabled={loginMutation.isPending}
                 data-testid="input-email"
               />
             </div>
@@ -63,17 +65,23 @@ export default function LoginPage({ onLogin }: LoginPageProps) {
                 placeholder="Enter your password"
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
+                disabled={loginMutation.isPending}
                 data-testid="input-password"
               />
             </div>
-            {error && (
-              <p className="text-sm text-destructive" data-testid="text-error">
-                {error}
-              </p>
-            )}
-            <Button type="submit" className="w-full" data-testid="button-login">
-              Sign In
+            <Button
+              type="submit"
+              className="w-full"
+              disabled={loginMutation.isPending}
+              data-testid="button-login"
+            >
+              {loginMutation.isPending ? "Signing in..." : "Sign In"}
             </Button>
+            <div className="text-xs text-muted-foreground text-center pt-2">
+              <p className="font-medium mb-1">Demo Accounts:</p>
+              <p>admin@greenscape.com / admin123</p>
+              <p>office@greenscape.com / office123</p>
+            </div>
           </form>
         </CardContent>
       </Card>
