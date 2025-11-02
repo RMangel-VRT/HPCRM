@@ -8,6 +8,19 @@ The system follows a vertical slice architecture with multi-tenancy at its core,
 
 ## Recent Changes
 
+**2025-11-02 - Settings Management Implementation (COMPLETE)**
+- **Settings persistence**: Company-scoped settings stored in database with full CRUD operations
+- **Settings schema**: New settings table with company_id, seasons, benchmarks, feature flags
+- **API endpoints**: GET /api/settings and PATCH /api/settings (admin-only access)
+- **Settings page**: Fully functional with 4 tabs (Company, Seasons, Benchmarks, Feature Flags)
+- **Company info**: Editable company name with form validation
+- **Service seasons**: Interactive month selection for mowing and cleanup seasons
+- **Hourly benchmarks**: Configurable rates for Small Pad, HOA Standard, HOA Complex properties
+- **Feature flags**: Toggle system for experimental features (Tickets V2, Forecast V2, QBO Write)
+- **Data persistence**: All settings changes save to database and persist across sessions
+- **End-to-end tested**: All four tabs verified with edit, save, and reload persistence checks
+- Production-ready with proper state management and admin-only access control
+
 **2025-11-01 - Super Admin Portal Separation (COMPLETE)**
 - **Complete UX separation**: Super admins route to /admin portal, company users route to /dashboard CRM
 - **Dedicated super admin home**: SuperAdminHome page with placeholder cards for future platform admin features
@@ -170,12 +183,12 @@ Preferred communication style: Simple, everyday language.
 - ✅ Users table - enhanced with isSuperAdmin and defaultCompanyId
 - ✅ Properties table - company-scoped with companyId foreign key
 - ✅ Contacts table - company-scoped with companyId and propertyId foreign keys
+- ✅ Settings table - company configuration, seasons (mowing/cleanup months), hourly rate benchmarks, feature flags
 
 **Future Schema (Per Requirements):**
 - Contracts with monthly billing amounts
 - Tickets (work orders)
 - Service Templates and Property Service Plans
-- Settings table for company configuration, seasons, benchmarks, and feature flags
 
 ### External Dependencies
 
