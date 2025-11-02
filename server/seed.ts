@@ -122,6 +122,26 @@ async function seed() {
     console.log(`✓ Created property: ${propertyData.name}`);
   }
 
+  // Create default settings
+  console.log("\nCreating settings...");
+  await storage.createSettings({
+    companyId: company.id,
+    companyName: company.name,
+    mowingSeasonMonths: ["Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct"],
+    cleanupSeasonMonths: ["Mar", "Nov"],
+    hourlyRateBenchmarks: JSON.stringify({
+      smallPad: 50,
+      hoaStandard: 45,
+      hoaComplex: 55,
+    }),
+    featureFlags: JSON.stringify({
+      tickets_v2: false,
+      forecast_v2: false,
+      qbo_write: false,
+    }),
+  });
+  console.log("✓ Created default settings");
+
   console.log("\n" + "=".repeat(60));
   console.log("SEED COMPLETED - Landscaping CRM Demo Data");
   console.log("=".repeat(60));

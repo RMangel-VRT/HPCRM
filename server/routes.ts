@@ -2,7 +2,7 @@ import type { Express } from "express";
 import { createServer, type Server } from "http";
 import { setupAuth, type UserWithContext } from "./auth";
 import { storage } from "./storage";
-import { insertPropertySchema, insertContactSchema, insertCompanySchema, insertCompanyUserSchema } from "@shared/schema";
+import { insertPropertySchema, insertContactSchema, insertCompanySchema, insertCompanyUserSchema, insertSettingsSchema } from "@shared/schema";
 
 export async function registerRoutes(app: Express): Promise<Server> {
   setupAuth(app);
@@ -407,6 +407,48 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
     await storage.deleteCompanyUser(req.params.id);
     res.status(200).send("Deleted");
+  });
+
+  // Settings routes
+  app.get("/api/settings", async (req, res) => {
+    if (!req.isAuthenticated()) {
+      return res.status(401).send("Not authenticated");
+    }
+
+    const user = req.user as UserWithContext;
+    if (user.activeRole !== "admin" && !user.isSuperAdminBool) {
+      return res.status(403).send("Forbidden");
+    }
+
+    const settings = await storage.getSettings(user.activeCompanyId);
+    if (!settings) {
+      return res.status(404).send("Settings not found");
+    }
+
+    res.json(settings);
+  });
+
+  app.patch("/api/settings", async (req, res) => {
+    if (!req.isAuthenticated()) {
+      return res.status(401).send("Not authenticated");
+    }
+
+    const user = req.user as UserWithContext;
+    if (user.activeRole !== "admin" && !user.isSuperAdminBool) {
+      return res.status(403).send("Forbidden");
+    }
+
+    const result = insertSettingsSchema.partial().omit({ companyId: true }).safeParse(req.body);
+    if (!result.success) {
+      return res.status(400).send(result.error.message);
+    }
+
+    const settings = await storage.updateSettings(user.activeCompanyId, result.data);
+    if (!settings) {
+      return res.status(404).send("Settings not found");
+    }
+
+    res.json(settings);
   });
 
   const httpServer = createServer(app);

@@ -1,6 +1,6 @@
-import { type User, type InsertUser, type Property, type InsertProperty, type Contact, type InsertContact, type Company, type InsertCompany, type CompanyUser, type InsertCompanyUser } from "@shared/schema";
+import { type User, type InsertUser, type Property, type InsertProperty, type Contact, type InsertContact, type Company, type InsertCompany, type CompanyUser, type InsertCompanyUser, type Settings, type InsertSettings } from "@shared/schema";
 import { db } from "./db";
-import { users, properties, contacts, companies, companyUsers } from "@shared/schema";
+import { users, properties, contacts, companies, companyUsers, settings } from "@shared/schema";
 import { eq, and, sql } from "drizzle-orm";
 import session from "express-session";
 import connectPg from "connect-pg-simple";
@@ -38,6 +38,10 @@ export interface IStorage {
   createContact(contact: InsertContact): Promise<Contact>;
   updateContact(id: string, companyId: string, contact: Partial<InsertContact>): Promise<Contact | undefined>;
   deleteContact(id: string, companyId: string): Promise<void>;
+  
+  getSettings(companyId: string): Promise<Settings | undefined>;
+  createSettings(settings: InsertSettings): Promise<Settings>;
+  updateSettings(companyId: string, updates: Partial<InsertSettings>): Promise<Settings | undefined>;
   
   sessionStore: session.Store;
 }
@@ -186,6 +190,24 @@ export class PgStorage implements IStorage {
 
   async deleteContact(id: string, companyId: string): Promise<void> {
     await db.delete(contacts).where(and(eq(contacts.id, id), eq(contacts.companyId, companyId)));
+  }
+
+  async getSettings(companyId: string): Promise<Settings | undefined> {
+    const result = await db.select().from(settings).where(eq(settings.companyId, companyId)).limit(1);
+    return result[0];
+  }
+
+  async createSettings(insertSettings: InsertSettings): Promise<Settings> {
+    const result = await db.insert(settings).values([insertSettings]).returning();
+    return result[0];
+  }
+
+  async updateSettings(companyId: string, updates: Partial<InsertSettings>): Promise<Settings | undefined> {
+    const result = await db.update(settings)
+      .set({ ...updates, updatedAt: new Date() })
+      .where(eq(settings.companyId, companyId))
+      .returning();
+    return result[0];
   }
 }
 

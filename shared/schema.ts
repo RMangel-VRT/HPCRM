@@ -118,3 +118,29 @@ export const insertContactSchema = createInsertSchema(contacts).omit({
 
 export type InsertContact = z.infer<typeof insertContactSchema>;
 export type Contact = typeof contacts.$inferSelect;
+
+export const settings = pgTable("settings", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  companyId: varchar("company_id").notNull().references(() => companies.id, { onDelete: "cascade" }).unique(),
+  companyName: text("company_name").notNull(),
+  mowingSeasonMonths: text("mowing_season_months").array().notNull().default(sql`ARRAY[]::text[]`),
+  cleanupSeasonMonths: text("cleanup_season_months").array().notNull().default(sql`ARRAY[]::text[]`),
+  hourlyRateBenchmarks: text("hourly_rate_benchmarks").notNull().default('{}'),
+  featureFlags: text("feature_flags").notNull().default('{}'),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  updatedAt: timestamp("updated_at").notNull().defaultNow(),
+});
+
+export const insertSettingsSchema = createInsertSchema(settings).omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+}).extend({
+  mowingSeasonMonths: z.array(z.string()).default([]),
+  cleanupSeasonMonths: z.array(z.string()).default([]),
+  hourlyRateBenchmarks: z.string().default('{}'),
+  featureFlags: z.string().default('{}'),
+});
+
+export type InsertSettings = z.infer<typeof insertSettingsSchema>;
+export type Settings = typeof settings.$inferSelect;
