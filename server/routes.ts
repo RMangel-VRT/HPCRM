@@ -2,47 +2,47 @@ import type { Express } from "express";
 import { createServer, type Server } from "http";
 import { setupAuth, type UserWithContext } from "./auth";
 import { storage } from "./storage";
-import { insertPropertySchema, insertContactSchema, insertCompanySchema, insertCompanyUserSchema, insertSettingsSchema } from "@shared/schema";
+import { insertCustomerSchema, insertContactSchema, insertCompanySchema, insertCompanyUserSchema, insertSettingsSchema, insertNoteSchema, insertContractSchema } from "@shared/schema";
 
 export async function registerRoutes(app: Express): Promise<Server> {
   setupAuth(app);
 
-  // Properties routes
-  app.get("/api/properties", async (req, res) => {
+  // Customers routes
+  app.get("/api/customers", async (req, res) => {
     if (!req.isAuthenticated()) {
       return res.status(401).send("Not authenticated");
     }
 
     const user = req.user as UserWithContext;
-    const properties = await storage.getProperties(user.activeCompanyId);
-    res.json(properties);
+    const customers = await storage.getCustomers(user.activeCompanyId);
+    res.json(customers);
   });
 
-  app.get("/api/properties/:id", async (req, res) => {
+  app.get("/api/customers/:id", async (req, res) => {
     if (!req.isAuthenticated()) {
       return res.status(401).send("Not authenticated");
     }
 
     const user = req.user as UserWithContext;
-    const property = await storage.getPropertyById(req.params.id, user.activeCompanyId);
-    if (!property) {
-      return res.status(404).send("Property not found");
+    const customer = await storage.getCustomerById(req.params.id, user.activeCompanyId);
+    if (!customer) {
+      return res.status(404).send("Customer not found");
     }
-    res.json(property);
+    res.json(customer);
   });
 
-  app.post("/api/properties", async (req, res) => {
+  app.post("/api/customers", async (req, res) => {
     if (!req.isAuthenticated()) {
       return res.status(401).send("Not authenticated");
     }
 
     const user = req.user as UserWithContext;
     
-    if (user.activeRole === "viewer" && !user.isSuperAdminBool) {
-      return res.status(403).send("Insufficient permissions");
+    if (user.activeRole === "ops" || user.activeRole === "viewer") {
+      return res.status(403).send("Insufficient permissions - admin or office role required");
     }
 
-    const result = insertPropertySchema.safeParse({
+    const result = insertCustomerSchema.safeParse({
       ...req.body,
       companyId: user.activeCompanyId,
     });
@@ -50,73 +50,73 @@ export async function registerRoutes(app: Express): Promise<Server> {
       return res.status(400).send(result.error.message);
     }
 
-    const property = await storage.createProperty(result.data);
-    res.json(property);
+    const customer = await storage.createCustomer(result.data);
+    res.json(customer);
   });
 
-  app.patch("/api/properties/:id", async (req, res) => {
+  app.patch("/api/customers/:id", async (req, res) => {
     if (!req.isAuthenticated()) {
       return res.status(401).send("Not authenticated");
     }
 
     const user = req.user as UserWithContext;
     
-    if (user.activeRole === "viewer" && !user.isSuperAdminBool) {
-      return res.status(403).send("Insufficient permissions");
+    if (user.activeRole === "ops" || user.activeRole === "viewer") {
+      return res.status(403).send("Insufficient permissions - admin or office role required");
     }
 
-    const result = insertPropertySchema.partial().omit({ companyId: true }).safeParse(req.body);
+    const result = insertCustomerSchema.partial().omit({ companyId: true }).safeParse(req.body);
     if (!result.success) {
       return res.status(400).send(result.error.message);
     }
 
-    const property = await storage.updateProperty(req.params.id, user.activeCompanyId, result.data);
-    if (!property) {
-      return res.status(404).send("Property not found");
+    const customer = await storage.updateCustomer(req.params.id, user.activeCompanyId, result.data);
+    if (!customer) {
+      return res.status(404).send("Customer not found");
     }
-    res.json(property);
+    res.json(customer);
   });
 
-  app.delete("/api/properties/:id", async (req, res) => {
+  app.delete("/api/customers/:id", async (req, res) => {
     if (!req.isAuthenticated()) {
       return res.status(401).send("Not authenticated");
     }
 
     const user = req.user as UserWithContext;
     
-    if (user.activeRole === "viewer" && !user.isSuperAdminBool) {
-      return res.status(403).send("Insufficient permissions");
+    if (user.activeRole === "ops" || user.activeRole === "viewer") {
+      return res.status(403).send("Insufficient permissions - admin or office role required");
     }
 
-    await storage.deleteProperty(req.params.id, user.activeCompanyId);
+    await storage.deleteCustomer(req.params.id, user.activeCompanyId);
     res.status(200).send("Deleted");
   });
 
   // Contacts routes
-  app.get("/api/properties/:propertyId/contacts", async (req, res) => {
+  app.get("/api/customers/:customerId/contacts", async (req, res) => {
     if (!req.isAuthenticated()) {
       return res.status(401).send("Not authenticated");
     }
 
     const user = req.user as UserWithContext;
-    const contacts = await storage.getContactsByPropertyId(req.params.propertyId, user.activeCompanyId);
+    const contacts = await storage.getContactsByCustomerId(req.params.customerId, user.activeCompanyId);
     res.json(contacts);
   });
 
-  app.post("/api/properties/:propertyId/contacts", async (req, res) => {
+  app.post("/api/customers/:customerId/contacts", async (req, res) => {
     if (!req.isAuthenticated()) {
       return res.status(401).send("Not authenticated");
     }
 
     const user = req.user as UserWithContext;
     
-    if (user.activeRole === "viewer" && !user.isSuperAdminBool) {
-      return res.status(403).send("Insufficient permissions");
+    if (user.activeRole === "ops" || user.activeRole === "viewer") {
+      return res.status(403).send("Insufficient permissions - admin or office role required");
     }
 
     const result = insertContactSchema.safeParse({
       ...req.body,
-      propertyId: req.params.propertyId,
+      customerId: req.params.customerId,
       companyId: user.activeCompanyId,
     });
     if (!result.success) {
@@ -134,11 +134,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
     const user = req.user as UserWithContext;
     
-    if (user.activeRole === "viewer" && !user.isSuperAdminBool) {
-      return res.status(403).send("Insufficient permissions");
+    if (user.activeRole === "ops" || user.activeRole === "viewer") {
+      return res.status(403).send("Insufficient permissions - admin or office role required");
     }
 
-    const result = insertContactSchema.partial().omit({ propertyId: true, companyId: true }).safeParse(req.body);
+    const result = insertContactSchema.partial().omit({ customerId: true, companyId: true }).safeParse(req.body);
     if (!result.success) {
       return res.status(400).send(result.error.message);
     }
@@ -157,11 +157,147 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
     const user = req.user as UserWithContext;
     
-    if (user.activeRole === "viewer" && !user.isSuperAdminBool) {
-      return res.status(403).send("Insufficient permissions");
+    if (user.activeRole === "ops" || user.activeRole === "viewer") {
+      return res.status(403).send("Insufficient permissions - admin or office role required");
     }
 
     await storage.deleteContact(req.params.id, user.activeCompanyId);
+    res.status(200).send("Deleted");
+  });
+
+  // Notes routes
+  app.get("/api/customers/:customerId/notes", async (req, res) => {
+    if (!req.isAuthenticated()) {
+      return res.status(401).send("Not authenticated");
+    }
+
+    const user = req.user as UserWithContext;
+    const notes = await storage.getNotesByCustomerId(req.params.customerId, user.activeCompanyId);
+    res.json(notes);
+  });
+
+  app.post("/api/customers/:customerId/notes", async (req, res) => {
+    if (!req.isAuthenticated()) {
+      return res.status(401).send("Not authenticated");
+    }
+
+    const user = req.user as UserWithContext;
+    
+    if (user.activeRole === "viewer") {
+      return res.status(403).send("Insufficient permissions - viewer role cannot create notes");
+    }
+
+    const result = insertNoteSchema.safeParse({
+      ...req.body,
+      customerId: req.params.customerId,
+      companyId: user.activeCompanyId,
+      authorId: user.id,
+    });
+    if (!result.success) {
+      return res.status(400).send(result.error.message);
+    }
+
+    const note = await storage.createNote(result.data);
+    res.json(note);
+  });
+
+  app.delete("/api/notes/:id", async (req, res) => {
+    if (!req.isAuthenticated()) {
+      return res.status(401).send("Not authenticated");
+    }
+
+    const user = req.user as UserWithContext;
+    
+    if (user.activeRole === "viewer") {
+      return res.status(403).send("Insufficient permissions - viewer role cannot delete notes");
+    }
+
+    await storage.deleteNote(req.params.id, user.activeCompanyId);
+    res.status(200).send("Deleted");
+  });
+
+  // Contracts routes
+  app.get("/api/customers/:customerId/contracts", async (req, res) => {
+    if (!req.isAuthenticated()) {
+      return res.status(401).send("Not authenticated");
+    }
+
+    const user = req.user as UserWithContext;
+    const contracts = await storage.getContractsByCustomerId(req.params.customerId, user.activeCompanyId);
+    res.json(contracts);
+  });
+
+  app.post("/api/customers/:customerId/contracts", async (req, res) => {
+    if (!req.isAuthenticated()) {
+      return res.status(401).send("Not authenticated");
+    }
+
+    const user = req.user as UserWithContext;
+    
+    if (user.activeRole === "ops" || user.activeRole === "viewer") {
+      return res.status(403).send("Insufficient permissions - admin or office role required");
+    }
+
+    const result = insertContractSchema.safeParse({
+      ...req.body,
+      customerId: req.params.customerId,
+      companyId: user.activeCompanyId,
+    });
+    if (!result.success) {
+      return res.status(400).send(result.error.message);
+    }
+
+    const contract = await storage.createContract(result.data);
+    
+    await storage.createContractStatusHistory({
+      contractId: contract.id,
+      newStatus: contract.status,
+      changedBy: user.id,
+    });
+
+    res.json(contract);
+  });
+
+  app.patch("/api/contracts/:id", async (req, res) => {
+    if (!req.isAuthenticated()) {
+      return res.status(401).send("Not authenticated");
+    }
+
+    const user = req.user as UserWithContext;
+    
+    if (user.activeRole === "ops" || user.activeRole === "viewer") {
+      return res.status(403).send("Insufficient permissions - admin or office role required");
+    }
+
+    const contract = await storage.updateContract(req.params.id, user.activeCompanyId, req.body);
+    if (!contract) {
+      return res.status(404).send("Contract not found");
+    }
+
+    if (req.body.status && req.body.status !== contract.status) {
+      await storage.createContractStatusHistory({
+        contractId: contract.id,
+        oldStatus: contract.status as any,
+        newStatus: req.body.status,
+        changedBy: user.id,
+      });
+    }
+
+    res.json(contract);
+  });
+
+  app.delete("/api/contracts/:id", async (req, res) => {
+    if (!req.isAuthenticated()) {
+      return res.status(401).send("Not authenticated");
+    }
+
+    const user = req.user as UserWithContext;
+    
+    if (user.activeRole === "ops" || user.activeRole === "viewer") {
+      return res.status(403).send("Insufficient permissions - admin or office role required");
+    }
+
+    await storage.deleteContract(req.params.id, user.activeCompanyId);
     res.status(200).send("Deleted");
   });
 
