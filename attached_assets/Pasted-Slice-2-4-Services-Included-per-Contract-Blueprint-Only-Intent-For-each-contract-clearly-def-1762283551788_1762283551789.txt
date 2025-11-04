@@ -1,0 +1,258 @@
+Slice 2.4 — “Services Included” per Contract (Blueprint Only)
+
+Intent
+For each contract, clearly define which services are included, how many times per year they occur, and how they’re spread across the months — using a standard catalog and business-specific patterns.
+
+This is a planning blueprint only:
+✅ Store services, counts, and month patterns
+❌ No tickets or work orders yet
+
+1. Service Catalog (shared for all contracts)
+
+Create a standard service catalog that every contract pulls from. No free-text service names.
+
+Initial catalog items:
+
+Full mowing service
+
+Description: Mowing, trimming, blowing
+
+Default annual count: 26 visits
+
+Default pattern:
+
+2 visits in April
+
+Weekly in May–September
+
+2 visits in October
+
+Pet station service
+
+Parameters (per contract):
+
+Number of stations
+
+Times per week
+
+Default season: same months as mowing unless overridden
+
+Chemical service (with internal sub-components)
+
+High-level flag: Organic or Non-organic
+
+Sub-services under Chemical (each trackable separately):
+
+Roundup / organic equivalent – weekly on mow day (during mowing season)
+
+Broadleaf control – 4 times per year
+
+Fertilizer – 4 applications total:
+
+1 spring app with pre-emergent
+
+2 summer apps
+
+1 fall app
+
+Shrub trimming
+
+1 summer service
+
+1 fall service
+
+Ornamental grass trimming
+
+1 fall service
+
+Aeration
+
+1 spring service
+
+Cleanups
+
+1 spring cleanup
+
+1 fall cleanup
+
+Tree pruning
+
+1 service, up to 10 feet
+
+The catalog should be reusable, so each contract just selects and customizes items from this list.
+
+2. “Services Included” on Each Contract
+
+On the Contract detail view, add a “Services” tab or section.
+
+For that contract, the user can:
+
+See the catalog list (above) and mark which services are included in the contract.
+
+For each included service:
+
+See a default annual count and default month pattern pulled from the catalog.
+
+Adjust:
+
+Annual count (visits per year)
+
+Month-by-month distribution (how many visits in each month)
+
+Any service-specific parameters:
+
+Pet stations: number of stations; visits per week
+
+Chemical: organic vs non-organic; which sub-services are included; counts for each if different from default
+
+Notes / special instructions
+
+No daily dates, no tickets — only counts per month.
+
+3. Scheduling Blueprint (Month-by-Month Summary)
+
+Internally, each Contract Service should have enough structure to allow future ticketing, but for now just provide a summary.
+
+For each included service on that contract, store:
+
+Which customer and contract it belongs to
+
+Which catalog item it references (mowing, pet stations, etc.)
+
+Annual total count (e.g., 26 mowings, 2 shrub trims, 4 broadleaf apps)
+
+A 12-month breakdown of planned occurrences, e.g.:
+
+Apr: 2
+
+May: 4
+
+Jun: 4
+
+Jul: 4
+
+Aug: 4
+
+Sep: 4
+
+Oct: 2
+
+others: 0
+
+Any extra fields (stations, organic flag, etc.)
+
+UI summary
+
+On the Services tab, show a “Schedule Summary” table:
+
+Rows = each included service (e.g., Mowing, Pet stations, Shrub trimming, Cleanups, etc.)
+
+Columns = months Jan–Dec
+
+Cells = how many times that service is planned for that month
+
+A total per service at the end of each row
+
+This is purely informational for now: “we plan to do this many of X in these months.”
+
+4. Defaults vs Editing
+
+When a service is first added to a contract:
+
+It should start with sensible defaults from the catalog (annual count + month pattern).
+
+Example: Full mowing starts at 26 visits, distributed as described.
+
+The user can then edit:
+
+Total count
+
+Month distribution
+
+Service-specific fields
+
+Editing should update the Schedule Summary immediately.
+
+5. Permissions
+
+Admin / Office
+
+Can add/remove services to a contract.
+
+Can edit annual counts, month patterns, and service-specific parameters.
+
+Ops / Viewer
+
+Can view the services and summary.
+
+Cannot add/remove or edit anything in this section.
+
+6. Acceptance Criteria
+
+On a contract’s Services tab, the user can:
+
+See the full catalog list.
+
+Mark services as included for that contract.
+
+For each included service:
+
+A default annual count and month pattern from the catalog is shown.
+
+The user can edit:
+
+Annual count
+
+Month-by-month distribution
+
+Service-specific fields (stations, organic flag, etc.)
+
+Notes
+
+The Schedule Summary:
+
+Shows each included service as a row, months as columns, and the correct counts per month.
+
+Shows annual totals per service.
+
+All settings persist:
+
+After saving and reloading, included services, counts, patterns, and notes are unchanged.
+
+Role behavior:
+
+Admin/Office can edit everything in this section.
+
+Ops/Viewer see the same information but with all controls read-only / disabled.
+
+7. Test Checklist (for you to verify)
+
+Add Full mowing to a contract:
+
+Confirm it starts at 26 visits with the correct default month pattern.
+
+Add Chemical service:
+
+Set Organic vs Non-organic.
+
+Confirm you can configure Roundup weekly in mowing months, plus the 4 Broadleaf and 4 Fertilizer apps.
+
+Add Cleanups:
+
+Confirm 1 spring + 1 fall, and they appear in the right months.
+
+Adjust counts (e.g., add more cleanups or change mowing visits):
+
+Confirm both the annual total and month breakdown update correctly.
+
+Save and reload:
+
+Confirm all settings are intact.
+
+Log in as Ops or Viewer:
+
+Confirm the Services tab is fully visible but not editable.
+
+You can tell Replit something like:
+
+“Replace the existing ‘Services Included’ implementation plan with this Slice 2.4 spec. No tickets or work orders yet — just the contract service catalog, per-contract included services, and month-by-month blueprint.”

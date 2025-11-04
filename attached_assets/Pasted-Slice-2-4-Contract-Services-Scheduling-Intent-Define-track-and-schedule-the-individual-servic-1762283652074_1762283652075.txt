@@ -1,0 +1,168 @@
+Slice 2.4 — Contract Services & Scheduling
+
+Intent
+Define, track, and schedule the individual services that are included within each contract so they can generate work tickets and completion records throughout the year.
+This turns a contract from a dollar figure into a working maintenance plan.
+
+Scope — what users should be able to do
+A) Service Setup (inside each Contract)
+
+When viewing a Contract, users can:
+
+Add or remove Included Services from a predefined service catalog (your list below).
+
+For each service, define:
+
+Service name (from list)
+
+Service frequency or count (e.g., 26 visits, 2 cleanups)
+
+Seasonal window (months of year or date range)
+
+Notes (special instructions or exclusions)
+
+Core service types (template list):
+
+Full mowing service
+
+Includes mowing, trimming, blowing
+
+26 visits (2 in April, 2 in October, weekly May–September)
+
+Pet station service
+
+Specify number of stations and visits per week
+
+Chemical service
+
+Option: Organic or Non-organic
+
+Sub-services:
+
+Roundup or organic equivalent (weekly, on mow day)
+
+Broadleaf (4× per year)
+
+Fertilizer (1 spring pre-emergent, 2 summer, 1 fall)
+
+Shrub trimming
+
+1 summer service, 1 fall service
+
+Ornamental grass trimming
+
+1 fall service
+
+Aeration
+
+1 spring service
+
+Cleanups
+
+1 spring, 1 fall
+
+Tree pruning
+
+1 service, up to 10 ft
+
+(This catalog should be reusable so every contract can reference the same definitions.)
+
+B) Scheduling Layer
+
+Each selected service defines how many tickets need to be created and when.
+
+Example:
+
+Mowing: 26 services → generate 26 scheduled tickets (2 April, 2 October, weekly May–Sept).
+
+Shrub trimming: 2 tickets (summer, fall).
+
+Pet station: recurring weekly tickets, number = (stations × visits per week × weeks in season).
+
+Chemical service: generates separate tickets for each application type.
+
+Each ticket includes:
+
+Service name
+
+Contract (and customer) reference
+
+Target date (auto-generated but editable)
+
+Assigned crew or left unassigned
+
+Status (Scheduled / Completed / Skipped / Cancelled)
+
+Notes / photos / attachments (optional)
+
+C) User experience
+
+On a Contract:
+
+“Services & Schedule” tab shows all included services and how many tickets each creates.
+
+Button: Generate Schedule → populates tickets for the season based on frequencies.
+
+Users can adjust individual dates or delete unwanted tickets before confirming.
+
+On a Customer or Operations view:
+
+“Calendar” or “Ticket Board” view lists all tickets by date or service type.
+
+Users can mark tickets Completed, add notes/photos, or reschedule.
+
+Rules & behavior
+
+Tickets auto-generate based on service rules but can be manually added or edited.
+
+Each ticket always links back to its parent Service → Contract → Customer chain.
+
+Changing the contract’s start or end date should prompt a “regenerate schedule?” option.
+
+If a service is removed from a contract, its future tickets are automatically cancelled (keep completion history intact).
+
+Permissions
+
+Admin / Office: can create, edit, and regenerate service schedules; mark complete.
+
+Ops: can view their assigned tickets and mark them completed with notes/photos.
+
+Viewer: read-only visibility.
+
+Acceptance Criteria
+
+In a contract, users can select which services are included and define their details.
+
+Clicking Generate Schedule creates the correct number of tickets with appropriate dates.
+
+Tickets show up in the operations view, grouped by date or service type.
+
+Marking a ticket “Completed” stores the completion date and notes.
+
+Editing the contract’s date range offers the option to regenerate its schedule.
+
+Removing a service cancels any uncompleted tickets tied to it.
+
+Completion data is retained for reporting and audit.
+
+Test Checklist
+
+Add mowing and cleanup to a contract → generate schedule → confirm ticket counts and dates align with the rules.
+
+Add chemical services → verify distinct tickets for Roundup, Broadleaf, and Fertilizer with correct months.
+
+Mark some tickets complete, others skipped → ensure tracking works.
+
+Adjust contract end date → prompted to adjust schedule.
+
+Remove one service → its future tickets disappear but past completions remain.
+
+Ops user can view their assigned tickets and mark completion; cannot edit other data.
+
+Not included yet
+
+Crew assignment logic or route optimization (later).
+
+Automated reminders or notifications.
+
+PDF service reports or export (future).
