@@ -48,7 +48,7 @@ export default function AppSidebar({
   const crmItems = !isSuperAdmin
     ? [
         { title: "Dashboard", url: "/dashboard", icon: LayoutDashboard },
-        { title: "Properties", url: "/properties", icon: Building2 },
+        { title: "Customers", url: "/customers", icon: Building2 },
       ]
     : [];
 

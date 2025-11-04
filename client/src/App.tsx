@@ -12,7 +12,8 @@ import ThemeToggle from "@/components/ThemeToggle";
 import LoginPage from "@/pages/LoginPage";
 import AccessDenied from "@/pages/AccessDenied";
 import Dashboard from "@/pages/Dashboard";
-import PropertiesPage from "@/pages/PropertiesPage";
+import CustomersList from "@/pages/CustomersList";
+import CustomerDetail from "@/pages/CustomerDetail";
 import UsersPage from "@/pages/UsersPage";
 import SettingsPage from "@/pages/SettingsPage";
 import SuperAdminHome from "@/pages/SuperAdminHome";
@@ -62,7 +63,8 @@ function Router() {
             <Switch>
               <ProtectedRoute path="/admin" component={SuperAdminHome} superAdminOnly />
               <ProtectedRoute path="/dashboard" component={Dashboard} />
-              <ProtectedRoute path="/properties" component={PropertiesPage} />
+              <ProtectedRoute path="/customers/:id" component={CustomerDetail} />
+              <ProtectedRoute path="/customers" component={CustomersList} />
               <ProtectedRoute
                 path="/users"
                 component={UsersPage}

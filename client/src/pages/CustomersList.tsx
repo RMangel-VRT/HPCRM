@@ -1,4 +1,6 @@
 import { useState } from "react";
+import { useQuery } from "@tanstack/react-query";
+import type { Customer } from "@shared/schema";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
@@ -16,59 +18,27 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { Plus, Search, Eye, Edit } from "lucide-react";
+import { Plus, Search, Eye, MapPin } from "lucide-react";
 import StatusBadge from "@/components/StatusBadge";
 import EmptyState from "@/components/EmptyState";
 import emptyCustomersImage from "@assets/generated_images/Empty_customers_state_illustration_84171f59.png";
 import { Link } from "wouter";
-
-const mockCustomers = [
-  {
-    id: "1",
-    name: "Riverside Homeowners Association",
-    status: "active" as const,
-    properties: 12,
-    lastActivity: "2024-03-10",
-  },
-  {
-    id: "2",
-    name: "Greenfield Corporate Park",
-    status: "active" as const,
-    properties: 3,
-    lastActivity: "2024-03-09",
-  },
-  {
-    id: "3",
-    name: "Sunset Gardens LLC",
-    status: "prospect" as const,
-    properties: 1,
-    lastActivity: "2024-03-08",
-  },
-  {
-    id: "4",
-    name: "Oak Valley Estates",
-    status: "active" as const,
-    properties: 8,
-    lastActivity: "2024-03-05",
-  },
-  {
-    id: "5",
-    name: "Mountain View Retail Center",
-    status: "inactive" as const,
-    properties: 2,
-    lastActivity: "2024-02-15",
-  },
-];
+import { Skeleton } from "@/components/ui/skeleton";
 
 export default function CustomersList() {
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState("all");
-  const [customers] = useState(mockCustomers);
+  const [showArchived, setShowArchived] = useState(false);
+
+  const { data: customers = [], isLoading } = useQuery<Customer[]>({
+    queryKey: ["/api/customers"],
+  });
 
   const filteredCustomers = customers.filter((customer) => {
     const matchesSearch = customer.name.toLowerCase().includes(search.toLowerCase());
     const matchesStatus = statusFilter === "all" || customer.status === statusFilter;
-    return matchesSearch && matchesStatus;
+    const matchesArchived = showArchived || customer.active === "true";
+    return matchesSearch && matchesStatus && matchesArchived;
   });
 
   return (
@@ -112,7 +82,13 @@ export default function CustomersList() {
         </Select>
       </div>
 
-      {filteredCustomers.length === 0 ? (
+      {isLoading ? (
+        <div className="space-y-3">
+          {[1, 2, 3, 4, 5].map((i) => (
+            <Skeleton key={i} className="h-16 w-full" />
+          ))}
+        </div>
+      ) : filteredCustomers.length === 0 ? (
         <EmptyState
           image={emptyCustomersImage}
           title="No customers found"
@@ -126,9 +102,10 @@ export default function CustomersList() {
             <TableHeader>
               <TableRow>
                 <TableHead>Customer Name</TableHead>
+                <TableHead>Address</TableHead>
                 <TableHead>Status</TableHead>
-                <TableHead>Properties</TableHead>
-                <TableHead>Last Activity</TableHead>
+                <TableHead>Acres</TableHead>
+                <TableHead>Complexity</TableHead>
                 <TableHead className="text-right">Actions</TableHead>
               </TableRow>
             </TableHeader>
@@ -136,24 +113,28 @@ export default function CustomersList() {
               {filteredCustomers.map((customer) => (
                 <TableRow key={customer.id} data-testid={`row-customer-${customer.id}`}>
                   <TableCell className="font-medium">{customer.name}</TableCell>
+                  <TableCell className="text-muted-foreground">
+                    <div className="flex items-center gap-1.5">
+                      <MapPin className="w-3.5 h-3.5" />
+                      <span>{customer.city}, {customer.state}</span>
+                    </div>
+                  </TableCell>
                   <TableCell>
                     <StatusBadge status={customer.status} />
                   </TableCell>
-                  <TableCell>{customer.properties}</TableCell>
                   <TableCell className="text-muted-foreground">
-                    {new Date(customer.lastActivity).toLocaleDateString()}
+                    {customer.acres || "—"}
+                  </TableCell>
+                  <TableCell className="text-muted-foreground">
+                    {customer.complexityScore ? `Level ${customer.complexityScore}` : "—"}
                   </TableCell>
                   <TableCell className="text-right">
-                    <div className="flex justify-end gap-2">
-                      <Button variant="ghost" size="icon" asChild data-testid={`button-view-${customer.id}`}>
-                        <Link href={`/customers/${customer.id}`}>
-                          <Eye className="w-4 h-4" />
-                        </Link>
-                      </Button>
-                      <Button variant="ghost" size="icon" data-testid={`button-edit-${customer.id}`}>
-                        <Edit className="w-4 h-4" />
-                      </Button>
-                    </div>
+                    <Button variant="ghost" size="sm" asChild data-testid={`button-view-${customer.id}`}>
+                      <Link href={`/customers/${customer.id}`}>
+                        <Eye className="w-4 h-4 mr-2" />
+                        View Details
+                      </Link>
+                    </Button>
                   </TableCell>
                 </TableRow>
               ))}

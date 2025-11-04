@@ -76,51 +76,127 @@ async function seed() {
     console.log(`✓ Created user: ${userData.email} (${userData.role})`);
   }
 
-  // Create properties
-  console.log("\nCreating properties...");
-  const properties = [
-    {
-      name: "Greenwood HOA",
-      street: "1500 Oak Ridge Drive",
-      city: "Portland",
-      state: "OR",
-      zip: "97201",
-      propertyManagerName: "Jennifer Martinez",
-      propertyManagerPhone: "(503) 555-0123",
-      propertyManagerEmail: "j.martinez@greenwoodhoa.com",
-      notes: "Large community with pool and recreation center. Service every Tuesday and Friday.",
-      companyId: company.id,
-    },
-    {
-      name: "Sunset Village Apartments",
-      street: "2847 Maple Street",
-      city: "Eugene",
-      state: "OR",
-      zip: "97401",
-      propertyManagerName: "David Chen",
-      propertyManagerPhone: "(541) 555-0456",
-      propertyManagerEmail: "dchen@sunsetvillage.com",
-      notes: "120-unit complex. Weekly lawn service, bi-weekly hedge trimming.",
-      companyId: company.id,
-    },
-    {
-      name: "Oak Hill Estates",
-      street: "789 Highland Avenue",
-      city: "Salem",
-      state: "OR",
-      zip: "97301",
-      propertyManagerName: "Robert Johnson",
-      propertyManagerPhone: "(503) 555-0789",
-      propertyManagerEmail: "rjohnson@oakhillestates.com",
-      notes: "Upscale residential community. Monthly full-service landscaping.",
-      companyId: company.id,
-    },
-  ];
+  // Get admin user for notes/contracts
+  const adminUser = greenScapeUsers[0];
+  const adminUserRecord = await storage.getUserByEmail(adminUser.email);
 
-  for (const propertyData of properties) {
-    await storage.createProperty(propertyData);
-    console.log(`✓ Created property: ${propertyData.name}`);
-  }
+  // Create customers
+  console.log("\nCreating customers...");
+  const customer1 = await storage.createCustomer({
+    name: "Greenwood HOA",
+    street: "1500 Oak Ridge Drive",
+    city: "Portland",
+    state: "OR",
+    zip: "97201",
+    status: "active",
+    tags: ["HOA", "High-Value"],
+    acres: "12.5",
+    complexityScore: "4",
+    active: "true",
+    companyId: company.id,
+  });
+  console.log(`✓ Created customer: ${customer1.name}`);
+
+  const customer2 = await storage.createCustomer({
+    name: "Sunset Village Apartments",
+    street: "2847 Maple Street",
+    city: "Eugene",
+    state: "OR",
+    zip: "97401",
+    status: "active",
+    tags: ["Apartments", "Weekly Service"],
+    acres: "8.0",
+    complexityScore: "3",
+    active: "true",
+    companyId: company.id,
+  });
+  console.log(`✓ Created customer: ${customer2.name}`);
+
+  const customer3 = await storage.createCustomer({
+    name: "Oak Hill Estates",
+    street: "789 Highland Avenue",
+    city: "Salem",
+    state: "OR",
+    zip: "97301",
+    status: "prospect",
+    tags: ["Residential", "Premium"],
+    acres: "15.0",
+    complexityScore: "5",
+    active: "true",
+    companyId: company.id,
+  });
+  console.log(`✓ Created customer: ${customer3.name}`);
+
+  // Create contacts
+  console.log("\nCreating contacts...");
+  await storage.createContact({
+    customerId: customer1.id,
+    companyId: company.id,
+    name: "Jennifer Martinez",
+    phone: "(503) 555-0123",
+    email: "j.martinez@greenwoodhoa.com",
+    role: "Property Manager",
+    isPrimary: "true",
+  });
+  console.log("✓ Created contact for Greenwood HOA");
+
+  await storage.createContact({
+    customerId: customer2.id,
+    companyId: company.id,
+    name: "David Chen",
+    phone: "(541) 555-0456",
+    email: "dchen@sunsetvillage.com",
+    role: "Property Manager",
+    isPrimary: "true",
+  });
+  console.log("✓ Created contact for Sunset Village");
+
+  // Create notes
+  console.log("\nCreating notes...");
+  await storage.createNote({
+    customerId: customer1.id,
+    companyId: company.id,
+    authorId: adminUserRecord!.id,
+    body: "Discussed spring cleanup schedule. They want to start week of April 1st. Large community with pool and recreation center.",
+  });
+  console.log("✓ Created note for Greenwood HOA");
+
+  // Create contracts
+  console.log("\nCreating contracts...");
+  const contract1 = await storage.createContract({
+    customerId: customer1.id,
+    companyId: company.id,
+    serviceType: "Maintenance",
+    billingPattern: "monthly",
+    startDate: new Date("2024-01-01"),
+    endDate: new Date("2024-12-31"),
+    status: "active",
+    po: "PO-2024-001",
+    notes: "Annual maintenance contract with weekly mowing and bi-weekly trimming",
+  });
+  await storage.createContractStatusHistory({
+    contractId: contract1.id,
+    newStatus: "active",
+    changedBy: adminUserRecord!.id,
+  });
+  console.log("✓ Created contract for Greenwood HOA");
+
+  const contract2 = await storage.createContract({
+    customerId: customer2.id,
+    companyId: company.id,
+    serviceType: "Maintenance",
+    billingPattern: "12-of-12",
+    startDate: new Date("2024-03-01"),
+    endDate: new Date("2025-02-28"),
+    status: "active",
+    po: "PO-2024-002",
+  });
+  await storage.createContractStatusHistory({
+    contractId: contract2.id,
+    newStatus: "active",
+    changedBy: adminUserRecord!.id,
+  });
+  console.log("✓ Created contract for Sunset Village")
 
   // Create default settings
   console.log("\nCreating settings...");
@@ -150,19 +226,24 @@ async function seed() {
   console.log("  superadmin@replit.com / superadmin123");
   
   console.log("\n🏢 GREENSCAPE LANDSCAPING:");
-  console.log("  admin@greenscape.com / admin123 (Admin)");
-  console.log("  office@greenscape.com / office123 (Office)");
-  console.log("  ops@greenscape.com / ops123 (Operations)");
+  console.log("  admin@greenscape.com / admin123 (Admin - Full CRUD)");
+  console.log("  office@greenscape.com / office123 (Office - Full CRUD)");
+  console.log("  ops@greenscape.com / ops123 (Operations - Read Only)");
   console.log("  viewer@greenscape.com / viewer123 (Viewer - Read Only)");
   
-  console.log("\n📍 PROPERTIES:");
-  console.log("  • Greenwood HOA");
-  console.log("  • Sunset Village Apartments");
-  console.log("  • Oak Hill Estates");
+  console.log("\n👥 CUSTOMERS:");
+  console.log("  • Greenwood HOA (Active) - 12.5 acres, Complexity 4");
+  console.log("  • Sunset Village Apartments (Active) - 8.0 acres, Complexity 3");
+  console.log("  • Oak Hill Estates (Prospect) - 15.0 acres, Complexity 5");
+  
+  console.log("\n📋 SAMPLE DATA:");
+  console.log("  • 2 contacts (property managers)");
+  console.log("  • 1 note (customer communication)");
+  console.log("  • 2 contracts (maintenance services)");
   
   console.log("\n✨ Super admin has platform access to the /admin portal");
-  console.log("✨ Company users access the CRM dashboard and features");
-  console.log("✨ Viewer role can read but cannot create/edit/delete");
+  console.log("✨ Admin & Office can create/edit customers, contacts, contracts, notes");
+  console.log("✨ Ops & Viewer roles are read-only for CRM");
   console.log("=".repeat(60) + "\n");
   
   process.exit(0);
