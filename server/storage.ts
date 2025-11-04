@@ -44,6 +44,7 @@ export interface IStorage {
   deleteNote(id: string, companyId: string): Promise<void>;
   
   getContractsByCustomerId(customerId: string, companyId: string): Promise<Contract[]>;
+  getContractById(id: string, companyId: string): Promise<Contract | undefined>;
   createContract(contract: InsertContract): Promise<Contract>;
   updateContract(id: string, companyId: string, contract: Partial<InsertContract>): Promise<Contract | undefined>;
   deleteContract(id: string, companyId: string): Promise<void>;
@@ -229,6 +230,13 @@ export class PgStorage implements IStorage {
     return await db.select().from(contracts)
       .where(and(eq(contracts.customerId, customerId), eq(contracts.companyId, companyId)))
       .orderBy(desc(contracts.createdAt));
+  }
+
+  async getContractById(id: string, companyId: string): Promise<Contract | undefined> {
+    const result = await db.select().from(contracts)
+      .where(and(eq(contracts.id, id), eq(contracts.companyId, companyId)))
+      .limit(1);
+    return result[0];
   }
 
   async createContract(insertContract: InsertContract): Promise<Contract> {

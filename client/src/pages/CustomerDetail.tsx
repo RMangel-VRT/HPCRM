@@ -318,11 +318,10 @@ export default function CustomerDetail() {
     setUploadingFile(true);
 
     try {
-      const urlResponse = await apiRequest<{ uploadURL: string }>(`/api/contracts/${contractId}/documents/upload-url`, {
-        method: "POST",
-      });
+      const urlResponse = await apiRequest("POST", `/api/contracts/${contractId}/documents/upload-url`);
+      const { uploadURL } = await urlResponse.json();
 
-      const uploadResponse = await fetch(urlResponse.uploadURL, {
+      const uploadResponse = await fetch(uploadURL, {
         method: "PUT",
         body: file,
         headers: {
@@ -334,14 +333,11 @@ export default function CustomerDetail() {
         throw new Error("Upload failed");
       }
 
-      await apiRequest(`/api/contracts/${contractId}/documents`, {
-        method: "POST",
-        body: {
-          uploadURL: urlResponse.uploadURL,
-          filename: file.name,
-          fileSize: file.size,
-          mimeType: file.type,
-        },
+      await apiRequest("POST", `/api/contracts/${contractId}/documents`, {
+        uploadURL: uploadURL,
+        filename: file.name,
+        fileSize: file.size,
+        mimeType: file.type,
       });
 
       await queryClient.invalidateQueries({ queryKey: ["/api/contracts", contractId, "documents"] });

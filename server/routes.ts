@@ -315,13 +315,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
       return res.status(403).send("Insufficient permissions - admin or office role required");
     }
 
-    const contract = await storage.getContractsByCustomerId("", user.activeCompanyId);
-    const contractExists = contract.find(c => c.id === req.params.contractId);
-    if (!contractExists) {
-      return res.status(404).send("Contract not found");
-    }
-
     try {
+      const contract = await storage.getContractById(req.params.contractId, user.activeCompanyId);
+      if (!contract) {
+        return res.status(404).send("Contract not found");
+      }
+
       const objectStorageService = new ObjectStorageService();
       const uploadURL = await objectStorageService.getObjectEntityUploadURL();
       res.json({ uploadURL });
