@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import type { ContractService, InsertContractService } from "@shared/schema";
 import { insertContractServiceSchema } from "@shared/schema";
@@ -167,6 +167,22 @@ export default function ContractServices({ contractId, canEdit }: ContractServic
 
   const selectedServiceType = form.watch("serviceType");
   const selectedCatalog = SERVICE_CATALOG[selectedServiceType as ServiceType];
+  
+  const formValues = form.watch();
+  
+  useEffect(() => {
+    const monthlyDistribution = formValues.monthlyDistribution;
+    if (monthlyDistribution && Array.isArray(monthlyDistribution) && monthlyDistribution.length === 12) {
+      const sum = monthlyDistribution.reduce((total, count) => {
+        const value = typeof count === 'number' ? count : parseInt(count as any) || 0;
+        return total + value;
+      }, 0);
+      const currentAnnualCount = formValues.annualCount;
+      if (currentAnnualCount !== sum) {
+        form.setValue("annualCount", sum, { shouldValidate: false, shouldDirty: false });
+      }
+    }
+  }, [formValues]);
 
   return (
     <div>
@@ -177,10 +193,11 @@ export default function ContractServices({ contractId, canEdit }: ContractServic
             size="sm"
             onClick={() => {
               setEditingService(null);
+              const defaultCatalog = SERVICE_CATALOG.mowing;
               form.reset({
                 serviceType: "mowing",
-                annualCount: 26,
-                monthlyDistribution: [0, 0, 0, 2, 4, 4, 4, 4, 4, 2, 0, 0],
+                annualCount: defaultCatalog.defaultAnnualCount,
+                monthlyDistribution: [...defaultCatalog.defaultMonthlyDistribution],
                 serviceParameters: {},
                 notes: "",
               });
@@ -312,16 +329,20 @@ export default function ContractServices({ contractId, canEdit }: ContractServic
                 name="annualCount"
                 render={({ field }) => (
                   <FormItem>
-                    <FormLabel>Annual Visit Count</FormLabel>
+                    <FormLabel>Annual Visit Count (Auto-calculated)</FormLabel>
                     <FormControl>
                       <Input
                         type="number"
                         min="0"
                         {...field}
-                        onChange={(e) => field.onChange(parseInt(e.target.value) || 0)}
+                        disabled
+                        className="bg-muted"
                         data-testid="input-annual-count"
                       />
                     </FormControl>
+                    <p className="text-xs text-muted-foreground">
+                      This is automatically calculated from the monthly distribution
+                    </p>
                     <FormMessage />
                   </FormItem>
                 )}

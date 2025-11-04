@@ -27,14 +27,14 @@ export const SERVICE_CATALOG: Record<ServiceType, ServiceDefinition> = {
     name: "Full Mowing Service",
     description: "Mowing, trimming, blowing",
     defaultAnnualCount: 26,
-    defaultMonthlyDistribution: [0, 0, 0, 2, 4, 4, 4, 4, 4, 2, 0, 0], // 2 in April, weekly May-Sept, 2 in October
+    defaultMonthlyDistribution: [0, 0, 0, 2, 5, 4, 4, 4, 5, 2, 0, 0], // April: 2, May: 5, June-Aug: 4, Sep: 5, Oct: 2 = 26
   },
   pet_station: {
     type: "pet_station",
     name: "Pet Station Service",
     description: "Pet waste station maintenance",
     defaultAnnualCount: 26,
-    defaultMonthlyDistribution: [0, 0, 0, 2, 4, 4, 4, 4, 4, 2, 0, 0], // Same as mowing season by default
+    defaultMonthlyDistribution: [0, 0, 0, 2, 5, 4, 4, 4, 5, 2, 0, 0], // Same as mowing season by default = 26
     parameters: {
       hasStationCount: true,
       hasVisitsPerWeek: true,

@@ -529,14 +529,24 @@ export class PgStorage implements IStorage {
   }
 
   async createContractService(service: InsertContractService): Promise<ContractService> {
-    const result = await db.insert(contractServices).values([service]).returning();
+    const annualCount = service.monthlyDistribution.reduce((sum, count) => sum + count, 0);
+    const result = await db.insert(contractServices).values([{ ...service, annualCount }]).returning();
     return result[0];
   }
 
   async updateContractService(id: string, companyId: string, service: Partial<InsertContractService>): Promise<ContractService | undefined> {
+    const updateData: Partial<InsertContractService> & { updatedAt: Date } = { 
+      ...service, 
+      updatedAt: new Date() 
+    };
+    
+    if (service.monthlyDistribution) {
+      updateData.annualCount = service.monthlyDistribution.reduce((sum, count) => sum + count, 0);
+    }
+    
     const result = await db
       .update(contractServices)
-      .set({ ...service, updatedAt: new Date() })
+      .set(updateData)
       .where(and(
         eq(contractServices.id, id),
         eq(contractServices.companyId, companyId)
