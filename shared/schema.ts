@@ -1,5 +1,5 @@
 import { sql } from "drizzle-orm";
-import { pgTable, text, varchar, timestamp, unique, integer } from "drizzle-orm/pg-core";
+import { pgTable, text, varchar, timestamp, unique, integer, jsonb } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
 
@@ -319,3 +319,41 @@ export const insertCustomerRateSheetSchema = createInsertSchema(customerRateShee
 
 export type InsertCustomerRateSheet = z.infer<typeof insertCustomerRateSheetSchema>;
 export type CustomerRateSheet = typeof customerRateSheets.$inferSelect;
+
+export const contractServices = pgTable("contract_services", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  contractId: varchar("contract_id").notNull().references(() => contracts.id, { onDelete: "cascade" }),
+  companyId: varchar("company_id").notNull().references(() => companies.id, { onDelete: "cascade" }),
+  serviceType: text("service_type").notNull().$type<
+    "mowing" | "pet_station" | "chemical" | "shrub_trimming" | 
+    "ornamental_grass" | "aeration" | "cleanups" | "tree_pruning"
+  >(),
+  annualCount: integer("annual_count").notNull(),
+  monthlyDistribution: integer("monthly_distribution").array().notNull(),
+  serviceParameters: jsonb("service_parameters").$type<{
+    organic?: boolean;
+    stationCount?: number;
+    visitsPerWeek?: number;
+  }>().default(sql`'{}'::jsonb`),
+  notes: text("notes"),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  updatedAt: timestamp("updated_at").notNull().defaultNow(),
+});
+
+export const insertContractServiceSchema = createInsertSchema(contractServices).omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+}).extend({
+  serviceType: z.enum(["mowing", "pet_station", "chemical", "shrub_trimming", "ornamental_grass", "aeration", "cleanups", "tree_pruning"]),
+  annualCount: z.number().int().min(0),
+  monthlyDistribution: z.array(z.number().int().min(0)).length(12),
+  serviceParameters: z.object({
+    organic: z.boolean().optional(),
+    stationCount: z.number().int().min(0).optional(),
+    visitsPerWeek: z.number().int().min(0).optional(),
+  }).optional(),
+});
+
+export type InsertContractService = z.infer<typeof insertContractServiceSchema>;
+export type ContractService = typeof contractServices.$inferSelect;
