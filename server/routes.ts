@@ -954,6 +954,20 @@ export async function registerRoutes(app: Express): Promise<Server> {
     res.json(revenueData);
   });
 
+  app.get("/api/dashboard/stats", async (req, res) => {
+    if (!req.isAuthenticated()) {
+      return res.status(401).send("Not authenticated");
+    }
+
+    const user = req.user as UserWithContext;
+    const now = new Date();
+    const currentMonth = now.getMonth() + 1;
+    const currentYear = now.getFullYear();
+
+    const stats = await storage.getDashboardStats(user.activeCompanyId, currentMonth, currentYear);
+    res.json(stats);
+  });
+
   app.get("/api/revenue/overview", async (req, res) => {
     if (!req.isAuthenticated()) {
       return res.status(401).send("Not authenticated");

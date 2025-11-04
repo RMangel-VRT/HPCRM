@@ -1,15 +1,51 @@
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Users, Building2, FileText, Ticket, DollarSign, TrendingUp } from "lucide-react";
+import { Users, FileText, DollarSign, TrendingUp } from "lucide-react";
+import { useQuery } from "@tanstack/react-query";
+import { Skeleton } from "@/components/ui/skeleton";
+
+interface DashboardStats {
+  customersCount: number;
+  activeContractsCount: number;
+  monthlyRevenue: number;
+  ytdRevenue: number;
+}
 
 export default function Dashboard() {
-  const stats = [
-    { title: "Active Customers", value: "124", icon: Users, change: "+12%" },
-    { title: "Properties", value: "289", icon: Building2, change: "+8%" },
-    { title: "Active Contracts", value: "156", icon: FileText, change: "+5%" },
-    { title: "Open Tickets", value: "23", icon: Ticket, change: "-15%" },
-    { title: "Monthly Revenue", value: "$48,750", icon: DollarSign, change: "+18%" },
-    { title: "YTD Revenue", value: "$425,200", icon: TrendingUp, change: "+22%" },
-  ];
+  const { data: stats, isLoading } = useQuery<DashboardStats>({
+    queryKey: ["/api/dashboard/stats"],
+  });
+
+  const formatCurrency = (amount: number) => {
+    return new Intl.NumberFormat('en-US', {
+      style: 'currency',
+      currency: 'USD',
+      minimumFractionDigits: 0,
+      maximumFractionDigits: 0,
+    }).format(amount);
+  };
+
+  const dashboardCards = stats ? [
+    { 
+      title: "Active Customers", 
+      value: stats.customersCount.toString(), 
+      icon: Users,
+    },
+    { 
+      title: "Active Contracts", 
+      value: stats.activeContractsCount.toString(), 
+      icon: FileText,
+    },
+    { 
+      title: "Monthly Revenue", 
+      value: formatCurrency(stats.monthlyRevenue), 
+      icon: DollarSign,
+    },
+    { 
+      title: "YTD Revenue", 
+      value: formatCurrency(stats.ytdRevenue), 
+      icon: TrendingUp,
+    },
+  ] : [];
 
   return (
     <div className="space-y-6">
@@ -22,75 +58,37 @@ export default function Dashboard() {
         </p>
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-        {stats.map((stat) => (
-          <Card key={stat.title} data-testid={`card-stat-${stat.title.toLowerCase().replace(/\s+/g, '-')}`}>
-            <CardHeader className="flex flex-row items-center justify-between gap-2 space-y-0 pb-2">
-              <CardTitle className="text-sm font-medium">{stat.title}</CardTitle>
-              <stat.icon className="w-4 h-4 text-muted-foreground" />
-            </CardHeader>
-            <CardContent>
-              <div className="text-3xl font-bold" data-testid={`text-stat-value-${stat.title.toLowerCase().replace(/\s+/g, '-')}`}>
-                {stat.value}
-              </div>
-              <p className="text-xs text-muted-foreground mt-1">
-                <span className={stat.change.startsWith('+') ? 'text-green-600 dark:text-green-400' : 'text-red-600 dark:text-red-400'}>
-                  {stat.change}
-                </span>
-                {' '}from last month
-              </p>
-            </CardContent>
-          </Card>
-        ))}
-      </div>
-
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        <Card>
-          <CardHeader>
-            <CardTitle>Recent Activity</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="space-y-4">
-              {[
-                { text: "New contract signed with Riverside HOA", time: "2 hours ago" },
-                { text: "Property inspection completed at Oak Valley", time: "5 hours ago" },
-                { text: "Ticket #142 closed - Sprinkler repair", time: "1 day ago" },
-                { text: "New customer added - Sunset Gardens LLC", time: "2 days ago" },
-              ].map((activity, i) => (
-                <div key={i} className="flex justify-between items-start text-sm">
-                  <p className="text-foreground">{activity.text}</p>
-                  <span className="text-muted-foreground text-xs whitespace-nowrap ml-4">
-                    {activity.time}
-                  </span>
+      {isLoading ? (
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+          {[1, 2, 3, 4].map((i) => (
+            <Card key={i}>
+              <CardHeader className="flex flex-row items-center justify-between gap-2 space-y-0 pb-2">
+                <Skeleton className="h-4 w-32" />
+                <Skeleton className="h-4 w-4" />
+              </CardHeader>
+              <CardContent>
+                <Skeleton className="h-9 w-24 mb-2" />
+              </CardContent>
+            </Card>
+          ))}
+        </div>
+      ) : (
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+          {dashboardCards.map((card) => (
+            <Card key={card.title} data-testid={`card-stat-${card.title.toLowerCase().replace(/\s+/g, '-')}`}>
+              <CardHeader className="flex flex-row items-center justify-between gap-2 space-y-0 pb-2">
+                <CardTitle className="text-sm font-medium">{card.title}</CardTitle>
+                <card.icon className="w-4 h-4 text-muted-foreground" />
+              </CardHeader>
+              <CardContent>
+                <div className="text-3xl font-bold" data-testid={`text-stat-value-${card.title.toLowerCase().replace(/\s+/g, '-')}`}>
+                  {card.value}
                 </div>
-              ))}
-            </div>
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader>
-            <CardTitle>Upcoming Tasks</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="space-y-4">
-              {[
-                { text: "Spring cleanup at Maple Ridge", date: "Tomorrow" },
-                { text: "Quarterly review with Greenfield Corp", date: "Mar 15" },
-                { text: "Chemical application - Zone 3", date: "Mar 18" },
-                { text: "Equipment maintenance scheduled", date: "Mar 20" },
-              ].map((task, i) => (
-                <div key={i} className="flex justify-between items-start text-sm">
-                  <p className="text-foreground">{task.text}</p>
-                  <span className="text-muted-foreground text-xs whitespace-nowrap ml-4">
-                    {task.date}
-                  </span>
-                </div>
-              ))}
-            </div>
-          </CardContent>
-        </Card>
-      </div>
+              </CardContent>
+            </Card>
+          ))}
+        </div>
+      )}
     </div>
   );
 }

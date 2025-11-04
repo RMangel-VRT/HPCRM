@@ -76,7 +76,16 @@ export interface IStorage {
   updateContractService(id: string, companyId: string, service: Partial<InsertContractService>): Promise<ContractService | undefined>;
   deleteContractService(id: string, companyId: string): Promise<void>;
   
+  getDashboardStats(companyId: string, month: number, year: number): Promise<DashboardStats>;
+  
   sessionStore: session.Store;
+}
+
+export interface DashboardStats {
+  customersCount: number;
+  activeContractsCount: number;
+  monthlyRevenue: number;
+  ytdRevenue: number;
 }
 
 export interface CustomerRevenueData {
@@ -562,6 +571,29 @@ export class PgStorage implements IStorage {
         eq(contractServices.id, id),
         eq(contractServices.companyId, companyId)
       ));
+  }
+
+  async getDashboardStats(companyId: string, month: number, year: number): Promise<DashboardStats> {
+    const allCustomers = await db
+      .select()
+      .from(customers)
+      .where(eq(customers.companyId, companyId));
+    
+    const allContracts = await db
+      .select()
+      .from(contracts)
+      .where(eq(contracts.companyId, companyId));
+    
+    const activeContracts = allContracts.filter(c => c.status === "active");
+    
+    const revenueData = await this.getRevenueOverview(companyId, month, year);
+    
+    return {
+      customersCount: allCustomers.length,
+      activeContractsCount: activeContracts.length,
+      monthlyRevenue: revenueData.selectedMonthTotal,
+      ytdRevenue: revenueData.yearToDateTotal,
+    };
   }
 }
 
