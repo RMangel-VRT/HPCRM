@@ -66,7 +66,7 @@ export interface IStorage {
   upsertContractMonthlyAmounts(contractId: string, companyId: string, amounts: { month: number; amount: number }[]): Promise<ContractMonthlyAmount[]>;
   
   getCustomerRateSheet(customerId: string, companyId: string): Promise<CustomerRateSheet | undefined>;
-  upsertCustomerRateSheet(customerId: string, companyId: string, rateSheet: InsertCustomerRateSheet, userId: string): Promise<CustomerRateSheet>;
+  upsertCustomerRateSheet(customerId: string, companyId: string, rateSheet: Omit<InsertCustomerRateSheet, 'customerId' | 'companyId' | 'lastUpdatedBy' | 'lastUpdatedAt'>, userId: string): Promise<CustomerRateSheet>;
   
   sessionStore: session.Store;
 }
@@ -360,7 +360,7 @@ export class PgStorage implements IStorage {
     return result[0];
   }
 
-  async upsertCustomerRateSheet(customerId: string, companyId: string, rateSheet: InsertCustomerRateSheet, userId: string): Promise<CustomerRateSheet> {
+  async upsertCustomerRateSheet(customerId: string, companyId: string, rateSheet: Omit<InsertCustomerRateSheet, 'customerId' | 'companyId' | 'lastUpdatedBy' | 'lastUpdatedAt'>, userId: string): Promise<CustomerRateSheet> {
     const result = await db.insert(customerRateSheets)
       .values({
         ...rateSheet,

@@ -472,6 +472,73 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // Customer Rate Sheet routes
+  app.get("/api/customers/:customerId/rate-sheet", async (req, res) => {
+    if (!req.isAuthenticated()) {
+      return res.status(401).send("Not authenticated");
+    }
+
+    const user = req.user as UserWithContext;
+    const rateSheet = await storage.getCustomerRateSheet(req.params.customerId, user.activeCompanyId);
+    
+    if (!rateSheet) {
+      return res.json(null);
+    }
+    
+    res.json(rateSheet);
+  });
+
+  app.put("/api/customers/:customerId/rate-sheet", async (req, res) => {
+    if (!req.isAuthenticated()) {
+      return res.status(401).send("Not authenticated");
+    }
+
+    const user = req.user as UserWithContext;
+    
+    if (user.activeRole === "ops" || user.activeRole === "viewer") {
+      return res.status(403).send("No permission to edit rate sheet");
+    }
+
+    try {
+      const { z } = await import("zod");
+      
+      // Define the rate sheet input schema with nullable fields
+      const rateSheetInputSchema = z.object({
+        generalLabor: z.number().int().min(0).nullable().optional(),
+        operatorLabor: z.number().int().min(0).nullable().optional(),
+        irrigationLabor: z.number().int().min(0).nullable().optional(),
+        emergencyGeneralLabor: z.number().int().min(0).nullable().optional(),
+        emergencyIrrigationLabor: z.number().int().min(0).nullable().optional(),
+        handShovelLabor: z.number().int().min(0).nullable().optional(),
+        plowTruck: z.number().int().min(0).nullable().optional(),
+        atv: z.number().int().min(0).nullable().optional(),
+        skidSteer: z.number().int().min(0).nullable().optional(),
+        snowBlower: z.number().int().min(0).nullable().optional(),
+        iceMeltMaterial: z.number().int().min(0).nullable().optional(),
+        iceMeltApplicationLabor: z.number().int().min(0).nullable().optional(),
+        notes: z.string().nullable().optional(),
+      });
+      
+      const result = rateSheetInputSchema.safeParse(req.body);
+      
+      if (!result.success) {
+        return res.status(400).send(result.error.message);
+      }
+
+      const rateSheet = await storage.upsertCustomerRateSheet(
+        req.params.customerId,
+        user.activeCompanyId,
+        result.data,
+        user.id
+      );
+      
+      res.json(rateSheet);
+    } catch (error) {
+      console.error("Error saving rate sheet:", error);
+      res.status(500).send("Failed to save rate sheet");
+    }
+  });
+
   app.get("/objects/:objectPath(*)", async (req, res) => {
     if (!req.isAuthenticated()) {
       return res.status(401).send("Not authenticated");
