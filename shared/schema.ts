@@ -264,3 +264,58 @@ export const insertContractMonthlyAmountSchema = createInsertSchema(contractMont
 
 export type InsertContractMonthlyAmount = z.infer<typeof insertContractMonthlyAmountSchema>;
 export type ContractMonthlyAmount = typeof contractMonthlyAmounts.$inferSelect;
+
+export const customerRateSheets = pgTable("customer_rate_sheets", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  customerId: varchar("customer_id").notNull().references(() => customers.id, { onDelete: "cascade" }).unique(),
+  companyId: varchar("company_id").notNull().references(() => companies.id, { onDelete: "cascade" }),
+  
+  // Maintenance & Emergency Labor (per hour, in cents)
+  generalLabor: integer("general_labor"),
+  operatorLabor: integer("operator_labor"),
+  irrigationLabor: integer("irrigation_labor"),
+  emergencyGeneralLabor: integer("emergency_general_labor"),
+  emergencyIrrigationLabor: integer("emergency_irrigation_labor"),
+  
+  // Snow & Ice Services (in cents)
+  handShovelLabor: integer("hand_shovel_labor"),
+  plowTruck: integer("plow_truck"),
+  atv: integer("atv"),
+  skidSteer: integer("skid_steer"),
+  snowBlower: integer("snow_blower"),
+  iceMeltMaterial: integer("ice_melt_material"),
+  iceMeltApplicationLabor: integer("ice_melt_application_labor"),
+  
+  // Metadata
+  notes: text("notes"),
+  lastUpdatedBy: varchar("last_updated_by").references(() => users.id),
+  lastUpdatedAt: timestamp("last_updated_at"),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  updatedAt: timestamp("updated_at").notNull().defaultNow(),
+});
+
+export const insertCustomerRateSheetSchema = createInsertSchema(customerRateSheets).omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+}).extend({
+  // All rate fields are optional (nullable) and must be non-negative integers if provided
+  generalLabor: z.number().int().min(0).optional().nullable(),
+  operatorLabor: z.number().int().min(0).optional().nullable(),
+  irrigationLabor: z.number().int().min(0).optional().nullable(),
+  emergencyGeneralLabor: z.number().int().min(0).optional().nullable(),
+  emergencyIrrigationLabor: z.number().int().min(0).optional().nullable(),
+  handShovelLabor: z.number().int().min(0).optional().nullable(),
+  plowTruck: z.number().int().min(0).optional().nullable(),
+  atv: z.number().int().min(0).optional().nullable(),
+  skidSteer: z.number().int().min(0).optional().nullable(),
+  snowBlower: z.number().int().min(0).optional().nullable(),
+  iceMeltMaterial: z.number().int().min(0).optional().nullable(),
+  iceMeltApplicationLabor: z.number().int().min(0).optional().nullable(),
+  notes: z.string().optional().nullable(),
+  lastUpdatedBy: z.string().optional().nullable(),
+  lastUpdatedAt: z.date().optional().nullable(),
+});
+
+export type InsertCustomerRateSheet = z.infer<typeof insertCustomerRateSheetSchema>;
+export type CustomerRateSheet = typeof customerRateSheets.$inferSelect;
