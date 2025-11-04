@@ -1,7 +1,7 @@
 import { useState, useRef, useMemo, useEffect } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { useRoute } from "wouter";
-import type { Customer, Contact, Note, Contract, ContractDocument, ContractMonthlyAmount } from "@shared/schema";
+import type { Customer, Contact, Note, Contract, ContractDocument, ContractMonthlyAmount, CustomerRateSheet } from "@shared/schema";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -11,9 +11,12 @@ import { Input } from "@/components/ui/input";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { Edit, Plus, Users, FileText, MessageSquare, MapPin, BarChart3, Upload, Download, Eye, Paperclip, History, RefreshCw } from "lucide-react";
+import { Edit, Plus, Users, FileText, MessageSquare, MapPin, BarChart3, Upload, Download, Eye, Paperclip, History, RefreshCw, DollarSign } from "lucide-react";
 import StatusBadge from "@/components/StatusBadge";
 import { Skeleton } from "@/components/ui/skeleton";
+import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion";
+import { Textarea } from "@/components/ui/textarea";
+import { Label } from "@/components/ui/label";
 import { format } from "date-fns";
 import { useToast } from "@/hooks/use-toast";
 import { queryClient, apiRequest } from "@/lib/queryClient";
@@ -580,6 +583,9 @@ export default function CustomerDetail() {
           <TabsTrigger value="contracts" data-testid="tab-contracts">
             Contracts ({contracts.length})
           </TabsTrigger>
+          <TabsTrigger value="rate-sheet" data-testid="tab-rate-sheet">
+            Rate Sheet
+          </TabsTrigger>
         </TabsList>
 
         <TabsContent value="overview" className="space-y-6">
@@ -833,7 +839,226 @@ export default function CustomerDetail() {
             formatFileSize={formatFileSize}
           />
         </TabsContent>
+
+        <TabsContent value="rate-sheet" className="space-y-4">
+          <RateSheetSection customerId={customerId!} />
+        </TabsContent>
       </Tabs>
+    </div>
+  );
+}
+
+function RateSheetSection({ customerId }: { customerId: string }) {
+  const { user } = useAuth();
+  const { toast } = useToast();
+  const canEdit = user?.activeRole === "admin" || user?.activeRole === "office";
+
+  const { data: rateSheet, isLoading } = useQuery<CustomerRateSheet | null>({
+    queryKey: ["/api/customers", customerId, "rate-sheet"],
+  });
+
+  const [localRates, setLocalRates] = useState<Record<string, string>>({});
+  const [localNotes, setLocalNotes] = useState("");
+  const [hasChanges, setHasChanges] = useState(false);
+
+  useEffect(() => {
+    if (rateSheet && !hasChanges) {
+      const rates: Record<string, string> = {};
+      
+      // Maintenance & Emergency Labor
+      if (rateSheet.generalLabor !== null) rates.generalLabor = (rateSheet.generalLabor / 100).toFixed(2);
+      if (rateSheet.operatorLabor !== null) rates.operatorLabor = (rateSheet.operatorLabor / 100).toFixed(2);
+      if (rateSheet.irrigationLabor !== null) rates.irrigationLabor = (rateSheet.irrigationLabor / 100).toFixed(2);
+      if (rateSheet.emergencyGeneralLabor !== null) rates.emergencyGeneralLabor = (rateSheet.emergencyGeneralLabor / 100).toFixed(2);
+      if (rateSheet.emergencyIrrigationLabor !== null) rates.emergencyIrrigationLabor = (rateSheet.emergencyIrrigationLabor / 100).toFixed(2);
+      
+      // Snow & Ice Services
+      if (rateSheet.handShovelLabor !== null) rates.handShovelLabor = (rateSheet.handShovelLabor / 100).toFixed(2);
+      if (rateSheet.plowTruck !== null) rates.plowTruck = (rateSheet.plowTruck / 100).toFixed(2);
+      if (rateSheet.atv !== null) rates.atv = (rateSheet.atv / 100).toFixed(2);
+      if (rateSheet.skidSteer !== null) rates.skidSteer = (rateSheet.skidSteer / 100).toFixed(2);
+      if (rateSheet.snowBlower !== null) rates.snowBlower = (rateSheet.snowBlower / 100).toFixed(2);
+      if (rateSheet.iceMeltMaterial !== null) rates.iceMeltMaterial = (rateSheet.iceMeltMaterial / 100).toFixed(2);
+      if (rateSheet.iceMeltApplicationLabor !== null) rates.iceMeltApplicationLabor = (rateSheet.iceMeltApplicationLabor / 100).toFixed(2);
+      
+      setLocalRates(rates);
+      setLocalNotes(rateSheet.notes || "");
+    }
+  }, [rateSheet, hasChanges]);
+
+  const handleRateChange = (field: string, value: string) => {
+    // Only allow positive numbers with up to 2 decimal places or empty string
+    if (value !== "" && !/^\d*\.?\d{0,2}$/.test(value)) return;
+    
+    setLocalRates(prev => {
+      const updated = { ...prev };
+      if (value === "") {
+        delete updated[field];
+      } else {
+        updated[field] = value;
+      }
+      return updated;
+    });
+    setHasChanges(true);
+  };
+
+  const handleNotesChange = (value: string) => {
+    setLocalNotes(value);
+    setHasChanges(true);
+  };
+
+  const saveMutation = useMutation({
+    mutationFn: async () => {
+      const data: Record<string, number | null | string> = {};
+      
+      // Convert all rate fields to cents or null
+      const rateFields = [
+        'generalLabor', 'operatorLabor', 'irrigationLabor', 'emergencyGeneralLabor', 'emergencyIrrigationLabor',
+        'handShovelLabor', 'plowTruck', 'atv', 'skidSteer', 'snowBlower', 'iceMeltMaterial', 'iceMeltApplicationLabor'
+      ];
+      
+      for (const field of rateFields) {
+        if (localRates[field] && localRates[field] !== "") {
+          data[field] = Math.round(parseFloat(localRates[field]) * 100);
+        } else {
+          data[field] = null;
+        }
+      }
+      
+      data.notes = localNotes || null;
+      
+      return await apiRequest("PUT", `/api/customers/${customerId}/rate-sheet`, data);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/customers", customerId, "rate-sheet"] });
+      setHasChanges(false);
+      toast({
+        title: "Success",
+        description: "Rate sheet saved",
+      });
+    },
+    onError: (error: Error) => {
+      toast({
+        title: "Error",
+        description: error.message || "Failed to save rate sheet",
+        variant: "destructive",
+      });
+    },
+  });
+
+  const RateInput = ({ label, field, unit }: { label: string; field: string; unit: string }) => (
+    <div>
+      <Label htmlFor={field} className="text-sm font-medium">{label}</Label>
+      <div className="flex items-center gap-2 mt-1">
+        <div className="relative flex-1">
+          <DollarSign className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
+          <Input
+            id={field}
+            data-testid={`input-rate-${field}`}
+            value={localRates[field] || ""}
+            onChange={(e) => handleRateChange(field, e.target.value)}
+            placeholder={canEdit ? "Not set" : "—"}
+            disabled={!canEdit || saveMutation.isPending}
+            className="pl-8"
+          />
+        </div>
+        <span className="text-sm text-muted-foreground whitespace-nowrap">{unit}</span>
+      </div>
+    </div>
+  );
+
+  if (isLoading) {
+    return (
+      <div className="space-y-4">
+        <Skeleton className="h-12 w-full" />
+        <Skeleton className="h-64 w-full" />
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-4">
+      <Accordion type="multiple" defaultValue={["maintenance", "snow"]} className="space-y-4">
+        <AccordionItem value="maintenance">
+          <AccordionTrigger className="text-lg font-semibold" data-testid="accordion-maintenance">
+            Maintenance & Emergency Labor
+          </AccordionTrigger>
+          <AccordionContent>
+            <Card>
+              <CardContent className="pt-6 space-y-4">
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <RateInput label="General Labor" field="generalLabor" unit="per hour" />
+                  <RateInput label="Operator Labor" field="operatorLabor" unit="per hour" />
+                  <RateInput label="Irrigation Labor" field="irrigationLabor" unit="per hour" />
+                  <RateInput label="Emergency General Labor" field="emergencyGeneralLabor" unit="per hour" />
+                  <RateInput label="Emergency Irrigation Labor" field="emergencyIrrigationLabor" unit="per hour" />
+                </div>
+              </CardContent>
+            </Card>
+          </AccordionContent>
+        </AccordionItem>
+
+        <AccordionItem value="snow">
+          <AccordionTrigger className="text-lg font-semibold" data-testid="accordion-snow">
+            Snow & Ice Services
+          </AccordionTrigger>
+          <AccordionContent>
+            <Card>
+              <CardContent className="pt-6 space-y-4">
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <RateInput label="Hand Shovel Labor" field="handShovelLabor" unit="per hour" />
+                  <RateInput label="Plow Truck" field="plowTruck" unit="per hour" />
+                  <RateInput label="ATV" field="atv" unit="per hour" />
+                  <RateInput label="Skid Steer" field="skidSteer" unit="per hour" />
+                  <RateInput label="Snow Blower" field="snowBlower" unit="per hour" />
+                  <RateInput label="Ice Melt Material" field="iceMeltMaterial" unit="per pound" />
+                  <RateInput label="Ice Melt Application Labor" field="iceMeltApplicationLabor" unit="per hour" />
+                </div>
+              </CardContent>
+            </Card>
+          </AccordionContent>
+        </AccordionItem>
+      </Accordion>
+
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-lg">Notes</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <Textarea
+            data-testid="textarea-rate-notes"
+            value={localNotes}
+            onChange={(e) => handleNotesChange(e.target.value)}
+            placeholder={canEdit ? "Add pricing exceptions or inclusions..." : "—"}
+            disabled={!canEdit || saveMutation.isPending}
+            rows={3}
+          />
+        </CardContent>
+      </Card>
+
+      {rateSheet?.lastUpdatedBy && rateSheet?.lastUpdatedAt && (
+        <div className="text-sm text-muted-foreground" data-testid="text-last-updated">
+          Last updated {format(new Date(rateSheet.lastUpdatedAt), "PPp")}
+        </div>
+      )}
+
+      {canEdit && hasChanges && (
+        <div className="flex justify-end">
+          <Button
+            data-testid="button-save-rate-sheet"
+            onClick={() => saveMutation.mutate()}
+            disabled={saveMutation.isPending}
+          >
+            {saveMutation.isPending ? "Saving..." : "Save Rate Sheet"}
+          </Button>
+        </div>
+      )}
+
+      {!canEdit && (
+        <div className="text-sm text-muted-foreground text-center p-4 bg-muted/50 rounded-md">
+          You do not have permission to edit the rate sheet
+        </div>
+      )}
     </div>
   );
 }
