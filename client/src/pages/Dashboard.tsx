@@ -11,7 +11,7 @@ interface DashboardStats {
 }
 
 export default function Dashboard() {
-  const { data: stats, isLoading } = useQuery<DashboardStats>({
+  const { data: stats, isLoading, error } = useQuery<DashboardStats>({
     queryKey: ["/api/dashboard/stats"],
   });
 
@@ -46,6 +46,55 @@ export default function Dashboard() {
       icon: TrendingUp,
     },
   ] : [];
+
+  if (error) {
+    return (
+      <div className="space-y-6">
+        <div>
+          <h1 className="text-3xl font-semibold tracking-tight" data-testid="text-page-title">
+            Dashboard
+          </h1>
+          <p className="text-sm text-muted-foreground mt-1">
+            Overview of your landscaping business
+          </p>
+        </div>
+        <Card className="border-destructive">
+          <CardHeader>
+            <CardTitle className="text-destructive">Unable to Load Dashboard</CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <p className="text-sm text-muted-foreground">
+              There was a problem loading your dashboard statistics. This usually happens due to a session issue.
+            </p>
+            <p className="text-sm font-mono text-muted-foreground">
+              Error: {error instanceof Error ? error.message : "Unknown error"}
+            </p>
+            <div className="flex gap-2">
+              <button
+                onClick={() => window.location.reload()}
+                className="px-4 py-2 bg-primary text-primary-foreground rounded-md hover:bg-primary/90"
+                data-testid="button-reload"
+              >
+                Reload Page
+              </button>
+              <button
+                onClick={() => {
+                  document.cookie.split(";").forEach((c) => {
+                    document.cookie = c.replace(/^ +/, "").replace(/=.*/, "=;expires=" + new Date().toUTCString() + ";path=/");
+                  });
+                  window.location.href = "/login";
+                }}
+                className="px-4 py-2 bg-secondary text-secondary-foreground rounded-md hover:bg-secondary/90"
+                data-testid="button-relogin"
+              >
+                Clear Session & Re-login
+              </button>
+            </div>
+          </CardContent>
+        </Card>
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-6">
