@@ -855,6 +855,51 @@ export async function registerRoutes(app: Express): Promise<Server> {
     res.json(settings);
   });
 
+  app.get("/api/customers/:customerId/revenue/:year", async (req, res) => {
+    if (!req.isAuthenticated()) {
+      return res.status(401).send("Not authenticated");
+    }
+
+    const user = req.user as UserWithContext;
+    const { customerId, year } = req.params;
+    
+    const customer = await storage.getCustomerById(customerId, user.activeCompanyId);
+    if (!customer) {
+      return res.status(404).send("Customer not found");
+    }
+
+    const yearNum = parseInt(year);
+    if (isNaN(yearNum) || yearNum < 2000 || yearNum > 2100) {
+      return res.status(400).send("Invalid year");
+    }
+
+    const revenueData = await storage.getCustomerRevenue(customerId, user.activeCompanyId, yearNum);
+    res.json(revenueData);
+  });
+
+  app.get("/api/revenue/overview", async (req, res) => {
+    if (!req.isAuthenticated()) {
+      return res.status(401).send("Not authenticated");
+    }
+
+    const user = req.user as UserWithContext;
+    const { month, year } = req.query;
+    
+    const monthNum = parseInt(month as string);
+    const yearNum = parseInt(year as string);
+    
+    if (isNaN(monthNum) || monthNum < 1 || monthNum > 12) {
+      return res.status(400).send("Invalid month");
+    }
+    
+    if (isNaN(yearNum) || yearNum < 2000 || yearNum > 2100) {
+      return res.status(400).send("Invalid year");
+    }
+
+    const overviewData = await storage.getRevenueOverview(user.activeCompanyId, monthNum, yearNum);
+    res.json(overviewData);
+  });
+
   const httpServer = createServer(app);
 
   return httpServer;

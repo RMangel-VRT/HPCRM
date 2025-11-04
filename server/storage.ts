@@ -68,7 +68,22 @@ export interface IStorage {
   getCustomerRateSheet(customerId: string, companyId: string): Promise<CustomerRateSheet | undefined>;
   upsertCustomerRateSheet(customerId: string, companyId: string, rateSheet: Omit<InsertCustomerRateSheet, 'customerId' | 'companyId' | 'lastUpdatedBy' | 'lastUpdatedAt'>, userId: string): Promise<CustomerRateSheet>;
   
+  getCustomerRevenue(customerId: string, companyId: string, year: number): Promise<CustomerRevenueData>;
+  getRevenueOverview(companyId: string, month: number, year: number): Promise<RevenueOverviewData>;
+  
   sessionStore: session.Store;
+}
+
+export interface CustomerRevenueData {
+  annualProjection: number;
+  monthlyBreakdown: { month: number; total: number; byServiceType: { serviceType: string; amount: number }[] }[];
+  contractBreakdown: { contractId: string; serviceType: string; status: string; startDate: Date; endDate: Date | null; annualTotal: number }[];
+}
+
+export interface RevenueOverviewData {
+  selectedMonthTotal: number;
+  yearToDateTotal: number;
+  customers: { customerId: string; customerName: string; monthlyRevenue: number; annualProjection: number }[];
 }
 
 export class PgStorage implements IStorage {
@@ -381,6 +396,123 @@ export class PgStorage implements IStorage {
       .returning();
     
     return result[0];
+  }
+
+  async getCustomerRevenue(customerId: string, companyId: string, year: number): Promise<CustomerRevenueData> {
+    const customerContracts = await this.getContractsByCustomerId(customerId, companyId);
+    
+    const yearStart = new Date(year, 0, 1);
+    const yearEnd = new Date(year, 11, 31, 23, 59, 59);
+    
+    let annualProjection = 0;
+    const monthlyTotals: Record<number, number> = {};
+    const monthlyByServiceType: Record<number, Record<string, number>> = {};
+    const contractBreakdown: { contractId: string; serviceType: string; status: string; startDate: Date; endDate: Date | null; annualTotal: number }[] = [];
+    
+    for (let month = 1; month <= 12; month++) {
+      monthlyTotals[month] = 0;
+      monthlyByServiceType[month] = {};
+    }
+    
+    for (const contract of customerContracts) {
+      if (contract.status === 'paused') {
+        contractBreakdown.push({
+          contractId: contract.id,
+          serviceType: contract.serviceType,
+          status: contract.status,
+          startDate: contract.startDate,
+          endDate: contract.endDate,
+          annualTotal: 0,
+        });
+        continue;
+      }
+      
+      const amounts = await this.getContractMonthlyAmounts(contract.id, companyId);
+      let contractAnnualTotal = 0;
+      
+      for (const amountRecord of amounts) {
+        const monthDate = new Date(year, amountRecord.month - 1, 1);
+        
+        const isInRange = monthDate >= (contract.startDate < yearStart ? yearStart : contract.startDate) &&
+                         (!contract.endDate || monthDate <= (contract.endDate > yearEnd ? yearEnd : contract.endDate));
+        
+        if (isInRange) {
+          const amountInDollars = amountRecord.amount / 100;
+          contractAnnualTotal += amountInDollars;
+          monthlyTotals[amountRecord.month] += amountInDollars;
+          
+          if (!monthlyByServiceType[amountRecord.month][contract.serviceType]) {
+            monthlyByServiceType[amountRecord.month][contract.serviceType] = 0;
+          }
+          monthlyByServiceType[amountRecord.month][contract.serviceType] += amountInDollars;
+        }
+      }
+      
+      annualProjection += contractAnnualTotal;
+      contractBreakdown.push({
+        contractId: contract.id,
+        serviceType: contract.serviceType,
+        status: contract.status,
+        startDate: contract.startDate,
+        endDate: contract.endDate,
+        annualTotal: contractAnnualTotal,
+      });
+    }
+    
+    const monthlyBreakdown = [];
+    for (let month = 1; month <= 12; month++) {
+      const byServiceType = Object.entries(monthlyByServiceType[month]).map(([serviceType, amount]) => ({
+        serviceType,
+        amount,
+      }));
+      monthlyBreakdown.push({
+        month,
+        total: monthlyTotals[month],
+        byServiceType,
+      });
+    }
+    
+    return {
+      annualProjection,
+      monthlyBreakdown,
+      contractBreakdown,
+    };
+  }
+
+  async getRevenueOverview(companyId: string, month: number, year: number): Promise<RevenueOverviewData> {
+    const allCustomers = await this.getCustomers(companyId);
+    
+    let selectedMonthTotal = 0;
+    let yearToDateTotal = 0;
+    const customers: { customerId: string; customerName: string; monthlyRevenue: number; annualProjection: number }[] = [];
+    
+    for (const customer of allCustomers) {
+      const revenueData = await this.getCustomerRevenue(customer.id, companyId, year);
+      
+      const monthlyRevenue = revenueData.monthlyBreakdown.find(m => m.month === month)?.total || 0;
+      selectedMonthTotal += monthlyRevenue;
+      
+      customers.push({
+        customerId: customer.id,
+        customerName: customer.name,
+        monthlyRevenue,
+        annualProjection: revenueData.annualProjection,
+      });
+    }
+    
+    for (let m = 1; m <= month; m++) {
+      for (const customer of allCustomers) {
+        const revenueData = await this.getCustomerRevenue(customer.id, companyId, year);
+        const monthRevenue = revenueData.monthlyBreakdown.find(mb => mb.month === m)?.total || 0;
+        yearToDateTotal += monthRevenue;
+      }
+    }
+    
+    return {
+      selectedMonthTotal,
+      yearToDateTotal,
+      customers,
+    };
   }
 }
 
