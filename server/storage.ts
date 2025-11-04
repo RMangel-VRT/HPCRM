@@ -1,6 +1,6 @@
-import { type User, type InsertUser, type Customer, type InsertCustomer, type Contact, type InsertContact, type Company, type InsertCompany, type CompanyUser, type InsertCompanyUser, type Settings, type InsertSettings, type Note, type InsertNote, type Contract, type InsertContract, type ContractStatusHistory, type InsertContractStatusHistory, type ContractDocument, type InsertContractDocument, type ContractMonthlyAmount, type InsertContractMonthlyAmount } from "@shared/schema";
+import { type User, type InsertUser, type Customer, type InsertCustomer, type Contact, type InsertContact, type Company, type InsertCompany, type CompanyUser, type InsertCompanyUser, type Settings, type InsertSettings, type Note, type InsertNote, type Contract, type InsertContract, type ContractStatusHistory, type InsertContractStatusHistory, type ContractDocument, type InsertContractDocument, type ContractMonthlyAmount, type InsertContractMonthlyAmount, type CustomerRateSheet, type InsertCustomerRateSheet } from "@shared/schema";
 import { db } from "./db";
-import { users, customers, contacts, companies, companyUsers, settings, notes, contracts, contractStatusHistory, contractDocuments, contractMonthlyAmounts } from "@shared/schema";
+import { users, customers, contacts, companies, companyUsers, settings, notes, contracts, contractStatusHistory, contractDocuments, contractMonthlyAmounts, customerRateSheets } from "@shared/schema";
 import { eq, and, sql, desc } from "drizzle-orm";
 import session from "express-session";
 import connectPg from "connect-pg-simple";
@@ -64,6 +64,9 @@ export interface IStorage {
   
   getContractMonthlyAmounts(contractId: string, companyId: string): Promise<ContractMonthlyAmount[]>;
   upsertContractMonthlyAmounts(contractId: string, companyId: string, amounts: { month: number; amount: number }[]): Promise<ContractMonthlyAmount[]>;
+  
+  getCustomerRateSheet(customerId: string, companyId: string): Promise<CustomerRateSheet | undefined>;
+  upsertCustomerRateSheet(customerId: string, companyId: string, rateSheet: InsertCustomerRateSheet, userId: string): Promise<CustomerRateSheet>;
   
   sessionStore: session.Store;
 }
@@ -348,6 +351,36 @@ export class PgStorage implements IStorage {
     }
     
     return result;
+  }
+
+  async getCustomerRateSheet(customerId: string, companyId: string): Promise<CustomerRateSheet | undefined> {
+    const result = await db.select().from(customerRateSheets)
+      .where(and(eq(customerRateSheets.customerId, customerId), eq(customerRateSheets.companyId, companyId)))
+      .limit(1);
+    return result[0];
+  }
+
+  async upsertCustomerRateSheet(customerId: string, companyId: string, rateSheet: InsertCustomerRateSheet, userId: string): Promise<CustomerRateSheet> {
+    const result = await db.insert(customerRateSheets)
+      .values({
+        ...rateSheet,
+        customerId,
+        companyId,
+        lastUpdatedBy: userId,
+        lastUpdatedAt: new Date(),
+      })
+      .onConflictDoUpdate({
+        target: customerRateSheets.customerId,
+        set: {
+          ...rateSheet,
+          lastUpdatedBy: userId,
+          lastUpdatedAt: new Date(),
+          updatedAt: sql`NOW()`,
+        },
+      })
+      .returning();
+    
+    return result[0];
   }
 }
 
