@@ -15,7 +15,15 @@ The frontend uses React 18+ with TypeScript, Vite, Wouter for routing, and TanSt
 The backend is built with Express.js and TypeScript. Authentication uses Passport.js with session-based management, storing sessions in PostgreSQL. It supports multi-tenancy with `activeCompanyId`, `activeRole`, and `isSuperAdminBool` in the session context. There are four company-specific roles (admin, office, ops, viewer) and a system-wide super admin role. The API is RESTful, uses JSON, requires authentication for most routes, and includes comprehensive error handling.
 
 ### Data Storage
-The system uses PostgreSQL (Neon serverless) with Drizzle ORM for type-safe queries. The schema is designed for multi-tenancy, including `Companies`, `Company_users` (junction table for user-company memberships with roles), `Users`, `Customers` (formerly properties), `Contacts`, and `Settings` tables. UUIDs are used for primary keys, and foreign key constraints ensure referential integrity. Drizzle Kit is used for schema migrations, with the schema defined in `shared/schema.ts` for type sharing.
+The system uses PostgreSQL (Neon serverless) with Drizzle ORM for type-safe queries. The schema is designed for multi-tenancy, including `Companies`, `Company_users` (junction table for user-company memberships with roles), `Users`, `Customers` (formerly properties), `Contacts`, `Contracts`, `Contract_documents`, and `Settings` tables. UUIDs are used for primary keys, and foreign key constraints ensure referential integrity. Drizzle Kit is used for schema migrations, with the schema defined in `shared/schema.ts` for type sharing.
+
+### Object Storage
+The system uses Replit's built-in object storage (Google Cloud Storage backend) for storing contract PDF documents. Key features:
+- **Company-scoped ACL:** Documents are protected with access control lists that verify company membership via the `Company_users` junction table
+- **Private visibility:** All documents use "private" visibility with company-specific access rules
+- **Direct uploads:** Client-side direct uploads using presigned URLs (15-minute TTL)
+- **Normalized paths:** Object paths stored as `/objects/uploads/{uuid}` in database
+- **ACL enforcement:** `CompanyMemberAccessGroup` class verifies user membership before granting access
 
 ## External Dependencies
 
