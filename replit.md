@@ -15,7 +15,16 @@ The frontend uses React 18+ with TypeScript, Vite, Wouter for routing, and TanSt
 The backend is built with Express.js and TypeScript. Authentication uses Passport.js with session-based management, storing sessions in PostgreSQL. It supports multi-tenancy with `activeCompanyId`, `activeRole`, and `isSuperAdminBool` in the session context. There are four company-specific roles (admin, office, ops, viewer) and a system-wide super admin role. The API is RESTful, uses JSON, requires authentication for most routes, and includes comprehensive error handling.
 
 ### Data Storage
-The system uses PostgreSQL (Neon serverless) with Drizzle ORM for type-safe queries. The schema is designed for multi-tenancy, including `Companies`, `Company_users` (junction table for user-company memberships with roles), `Users`, `Customers` (formerly properties), `Contacts`, `Contracts`, `Contract_documents`, and `Settings` tables. UUIDs are used for primary keys, and foreign key constraints ensure referential integrity. Drizzle Kit is used for schema migrations, with the schema defined in `shared/schema.ts` for type sharing.
+The system uses PostgreSQL (Neon serverless) with Drizzle ORM for type-safe queries. The schema is designed for multi-tenancy, including `Companies`, `Company_users` (junction table for user-company memberships with roles), `Users`, `Customers` (formerly properties), `Contacts`, `Contracts`, `Contract_documents`, `Contract_services`, and `Settings` tables. UUIDs are used for primary keys, and foreign key constraints ensure referential integrity. Drizzle Kit is used for schema migrations, with the schema defined in `shared/schema.ts` for type sharing.
+
+#### Contract Services
+The `Contract_services` table stores service configurations for each contract with the following features:
+- **Service Catalog:** 8 pre-defined service types (mowing, pet_station, chemicals, trimming, ornamental_grass, aeration, cleanups, tree_pruning) with intelligent defaults
+- **Monthly Distribution:** 12-element integer array representing scheduled visits per month (Jan-Dec)
+- **Auto-calculated Annual Count:** Derived from monthly distribution sum; automatically recomputed on both client and server to prevent data inconsistency
+- **Service-specific Parameters:** Stored as JSONB (e.g., organic flag for chemicals, station count for pet stations)
+- **Company Isolation:** All services scoped to company with proper authorization checks
+- **Version 1 (Blueprint):** Services define the schedule but do not yet generate work orders/tickets (planned for Version 2)
 
 ### Object Storage
 The system uses Replit's built-in object storage (Google Cloud Storage backend) for storing contract PDF documents. Key features:
