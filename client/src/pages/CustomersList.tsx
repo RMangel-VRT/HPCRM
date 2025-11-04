@@ -40,11 +40,8 @@ export default function CustomersList() {
   });
 
   const archiveMutation = useMutation({
-    mutationFn: async ({ id, active }: { id: number; active: boolean }) => {
-      return apiRequest(`/api/customers/${id}`, {
-        method: "PATCH",
-        body: JSON.stringify({ active: active ? "true" : "false" }),
-      });
+    mutationFn: async ({ id, active }: { id: string; active: boolean }) => {
+      return apiRequest("PATCH", `/api/customers/${id}`, { active: active ? "true" : "false" });
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/customers"] });
