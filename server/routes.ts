@@ -422,6 +422,83 @@ export async function registerRoutes(app: Express): Promise<Server> {
     res.status(200).send("Deleted");
   });
 
+  // Contract Services routes
+  app.get("/api/contracts/:contractId/services", async (req, res) => {
+    if (!req.isAuthenticated()) {
+      return res.status(401).send("Not authenticated");
+    }
+
+    const user = req.user as UserWithContext;
+    const services = await storage.getContractServices(req.params.contractId, user.activeCompanyId);
+    res.json(services);
+  });
+
+  app.post("/api/contracts/:contractId/services", async (req, res) => {
+    if (!req.isAuthenticated()) {
+      return res.status(401).send("Not authenticated");
+    }
+
+    const user = req.user as UserWithContext;
+    
+    if (user.activeRole === "ops" || user.activeRole === "viewer") {
+      return res.status(403).send("Insufficient permissions - admin or office role required");
+    }
+
+    try {
+      const { insertContractServiceSchema } = await import("@shared/schema");
+      
+      const result = insertContractServiceSchema.safeParse({
+        ...req.body,
+        contractId: req.params.contractId,
+        companyId: user.activeCompanyId,
+      });
+
+      if (!result.success) {
+        return res.status(400).send(result.error.message);
+      }
+
+      const service = await storage.createContractService(result.data);
+      res.json(service);
+    } catch (error) {
+      console.error("Error creating contract service:", error);
+      res.status(500).send("Failed to create service");
+    }
+  });
+
+  app.patch("/api/contracts/:contractId/services/:serviceId", async (req, res) => {
+    if (!req.isAuthenticated()) {
+      return res.status(401).send("Not authenticated");
+    }
+
+    const user = req.user as UserWithContext;
+    
+    if (user.activeRole === "ops" || user.activeRole === "viewer") {
+      return res.status(403).send("Insufficient permissions - admin or office role required");
+    }
+
+    const service = await storage.updateContractService(req.params.serviceId, user.activeCompanyId, req.body);
+    if (!service) {
+      return res.status(404).send("Service not found");
+    }
+
+    res.json(service);
+  });
+
+  app.delete("/api/contracts/:contractId/services/:serviceId", async (req, res) => {
+    if (!req.isAuthenticated()) {
+      return res.status(401).send("Not authenticated");
+    }
+
+    const user = req.user as UserWithContext;
+    
+    if (user.activeRole === "ops" || user.activeRole === "viewer") {
+      return res.status(403).send("Insufficient permissions - admin or office role required");
+    }
+
+    await storage.deleteContractService(req.params.serviceId, user.activeCompanyId);
+    res.status(200).send("Deleted");
+  });
+
   // Contract Monthly Amounts routes
   app.get("/api/contracts/:contractId/monthly-amounts", async (req, res) => {
     if (!req.isAuthenticated()) {
