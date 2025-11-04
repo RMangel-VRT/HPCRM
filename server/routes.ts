@@ -445,10 +445,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
 
     try {
-      const { insertContractMonthlyAmountSchema } = await import("@shared/schema");
       const { z } = await import("zod");
       
-      const amountsArraySchema = z.array(insertContractMonthlyAmountSchema);
+      const monthlyAmountInputSchema = z.object({
+        month: z.number().int().min(1).max(12),
+        amount: z.number().int().min(0),
+      });
+      
+      const amountsArraySchema = z.array(monthlyAmountInputSchema);
       const result = amountsArraySchema.safeParse(req.body);
       
       if (!result.success) {

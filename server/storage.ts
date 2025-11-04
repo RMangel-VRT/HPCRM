@@ -63,7 +63,7 @@ export interface IStorage {
   deleteContractDocument(id: string, companyId: string): Promise<void>;
   
   getContractMonthlyAmounts(contractId: string, companyId: string): Promise<ContractMonthlyAmount[]>;
-  upsertContractMonthlyAmounts(contractId: string, companyId: string, amounts: InsertContractMonthlyAmount[]): Promise<ContractMonthlyAmount[]>;
+  upsertContractMonthlyAmounts(contractId: string, companyId: string, amounts: { month: number; amount: number }[]): Promise<ContractMonthlyAmount[]>;
   
   sessionStore: session.Store;
 }
@@ -324,13 +324,14 @@ export class PgStorage implements IStorage {
       .orderBy(contractMonthlyAmounts.month);
   }
 
-  async upsertContractMonthlyAmounts(contractId: string, companyId: string, amounts: InsertContractMonthlyAmount[]): Promise<ContractMonthlyAmount[]> {
+  async upsertContractMonthlyAmounts(contractId: string, companyId: string, amounts: { month: number; amount: number }[]): Promise<ContractMonthlyAmount[]> {
     const result: ContractMonthlyAmount[] = [];
     
     for (const amount of amounts) {
       const upserted = await db.insert(contractMonthlyAmounts)
         .values({
-          ...amount,
+          month: amount.month,
+          amount: amount.amount,
           contractId,
           companyId,
         })

@@ -1,4 +1,4 @@
-import { useState, useRef, useMemo } from "react";
+import { useState, useRef, useMemo, useEffect } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { useRoute } from "wouter";
 import type { Customer, Contact, Note, Contract, ContractDocument, ContractMonthlyAmount } from "@shared/schema";
@@ -56,9 +56,11 @@ function ContractCard({ contract, canUploadDocuments, onUploadClick, uploadingFi
     return amounts;
   }, [monthlyAmounts]);
   
-  if (!hasChanges && Object.keys(localAmounts).length === 0 && monthlyAmounts.length > 0) {
-    setLocalAmounts(initializedAmounts);
-  }
+  useEffect(() => {
+    if (!hasChanges && monthlyAmounts.length > 0) {
+      setLocalAmounts(initializedAmounts);
+    }
+  }, [initializedAmounts, hasChanges, monthlyAmounts.length]);
   
   const annualTotal = useMemo(() => {
     const amounts = Object.keys(localAmounts).length > 0 ? localAmounts : initializedAmounts;
