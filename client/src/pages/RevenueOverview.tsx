@@ -17,7 +17,7 @@ export default function RevenueOverview() {
   const [selectedYear, setSelectedYear] = useState(currentDate.getFullYear());
   
   const { data: overviewData, isLoading } = useQuery<RevenueOverviewData>({
-    queryKey: ["/api/revenue/overview", { month: selectedMonth, year: selectedYear }],
+    queryKey: [`/api/revenue/overview?month=${selectedMonth}&year=${selectedYear}`],
   });
   
   const monthNames = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];

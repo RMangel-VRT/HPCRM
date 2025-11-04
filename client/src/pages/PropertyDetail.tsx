@@ -70,7 +70,7 @@ export default function PropertyDetail() {
           </div>
           <p className="text-sm text-muted-foreground">
             Customer:{" "}
-            <Link href={`/customers/${property.customerId}`} className="text-primary hover:underline">
+            <Link href={`/dashboard/customers/${property.customerId}`} className="text-primary hover:underline">
               {property.customer}
             </Link>
           </p>

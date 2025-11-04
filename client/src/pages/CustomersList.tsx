@@ -167,7 +167,7 @@ export default function CustomersList() {
                   <TableCell className="text-right">
                     <div className="flex items-center justify-end gap-2">
                       <Button variant="ghost" size="sm" asChild data-testid={`button-view-${customer.id}`}>
-                        <Link href={`/customers/${customer.id}`}>
+                        <Link href={`/dashboard/customers/${customer.id}`}>
                           <Eye className="w-4 h-4 mr-2" />
                           View
                         </Link>

@@ -492,20 +492,17 @@ export class PgStorage implements IStorage {
       const monthlyRevenue = revenueData.monthlyBreakdown.find(m => m.month === month)?.total || 0;
       selectedMonthTotal += monthlyRevenue;
       
+      for (let m = 1; m <= month; m++) {
+        const monthRevenue = revenueData.monthlyBreakdown.find(mb => mb.month === m)?.total || 0;
+        yearToDateTotal += monthRevenue;
+      }
+      
       customers.push({
         customerId: customer.id,
         customerName: customer.name,
         monthlyRevenue,
         annualProjection: revenueData.annualProjection,
       });
-    }
-    
-    for (let m = 1; m <= month; m++) {
-      for (const customer of allCustomers) {
-        const revenueData = await this.getCustomerRevenue(customer.id, companyId, year);
-        const monthRevenue = revenueData.monthlyBreakdown.find(mb => mb.month === m)?.total || 0;
-        yearToDateTotal += monthRevenue;
-      }
     }
     
     return {

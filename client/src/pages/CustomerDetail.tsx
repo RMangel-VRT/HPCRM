@@ -481,7 +481,7 @@ function VersionHistoryDialog({ contractId, onClose, formatFileSize }: VersionHi
 }
 
 export default function CustomerDetail() {
-  const [, params] = useRoute("/customers/:id");
+  const [, params] = useRoute("/dashboard/customers/:id");
   const id = params?.id;
   const [activeTab, setActiveTab] = useState("overview");
   const [uploadingContractId, setUploadingContractId] = useState<string | null>(null);

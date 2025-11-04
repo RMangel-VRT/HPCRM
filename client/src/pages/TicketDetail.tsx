@@ -224,7 +224,7 @@ export default function TicketDetail() {
 
               <div>
                 <p className="text-sm font-medium text-muted-foreground mb-1">Customer</p>
-                <Link href={`/customers/${ticket.customerId}`} className="text-sm text-primary hover:underline">
+                <Link href={`/dashboard/customers/${ticket.customerId}`} className="text-sm text-primary hover:underline">
                   {ticket.customer}
                 </Link>
               </div>
