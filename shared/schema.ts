@@ -71,7 +71,7 @@ export const insertCompanyUserSchema = createInsertSchema(companyUsers).omit({
 export type InsertCompanyUser = z.infer<typeof insertCompanyUserSchema>;
 export type CompanyUser = typeof companyUsers.$inferSelect;
 
-export const properties = pgTable("properties", {
+export const customers = pgTable("customers", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
   companyId: varchar("company_id").notNull().references(() => companies.id, { onDelete: "cascade" }),
   name: text("name").notNull(),
@@ -79,27 +79,33 @@ export const properties = pgTable("properties", {
   city: text("city").notNull(),
   state: text("state").notNull(),
   zip: text("zip").notNull(),
-  propertyManagerName: text("property_manager_name"),
-  propertyManagerPhone: text("property_manager_phone"),
-  propertyManagerEmail: text("property_manager_email"),
-  notes: text("notes"),
+  status: text("status").notNull().$type<"active" | "prospect" | "inactive">().default("active"),
+  tags: text("tags").array().default(sql`ARRAY[]::text[]`),
+  acres: text("acres"),
+  complexityScore: text("complexity_score").$type<"1" | "2" | "3" | "4" | "5">(),
+  active: text("active").notNull().default("true").$type<"true" | "false">(),
   createdAt: timestamp("created_at").notNull().defaultNow(),
   updatedAt: timestamp("updated_at").notNull().defaultNow(),
 });
 
-export const insertPropertySchema = createInsertSchema(properties).omit({
+export const insertCustomerSchema = createInsertSchema(customers).omit({
   id: true,
   createdAt: true,
   updatedAt: true,
+}).extend({
+  status: z.enum(["active", "prospect", "inactive"]).default("active"),
+  tags: z.array(z.string()).default([]),
+  complexityScore: z.enum(["1", "2", "3", "4", "5"]).optional(),
+  active: z.enum(["true", "false"]).default("true"),
 });
 
-export type InsertProperty = z.infer<typeof insertPropertySchema>;
-export type Property = typeof properties.$inferSelect;
+export type InsertCustomer = z.infer<typeof insertCustomerSchema>;
+export type Customer = typeof customers.$inferSelect;
 
 export const contacts = pgTable("contacts", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
   companyId: varchar("company_id").notNull().references(() => companies.id, { onDelete: "cascade" }),
-  propertyId: varchar("property_id").notNull().references(() => properties.id, { onDelete: "cascade" }),
+  customerId: varchar("customer_id").notNull().references(() => customers.id, { onDelete: "cascade" }),
   name: text("name").notNull(),
   phone: text("phone"),
   email: text("email"),
@@ -118,6 +124,73 @@ export const insertContactSchema = createInsertSchema(contacts).omit({
 
 export type InsertContact = z.infer<typeof insertContactSchema>;
 export type Contact = typeof contacts.$inferSelect;
+
+export const notes = pgTable("notes", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  companyId: varchar("company_id").notNull().references(() => companies.id, { onDelete: "cascade" }),
+  customerId: varchar("customer_id").notNull().references(() => customers.id, { onDelete: "cascade" }),
+  body: text("body").notNull(),
+  authorId: varchar("author_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+});
+
+export const insertNoteSchema = createInsertSchema(notes).omit({
+  id: true,
+  createdAt: true,
+}).extend({
+  body: z.string().min(1).max(5000),
+});
+
+export type InsertNote = z.infer<typeof insertNoteSchema>;
+export type Note = typeof notes.$inferSelect;
+
+export const contracts = pgTable("contracts", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  companyId: varchar("company_id").notNull().references(() => companies.id, { onDelete: "cascade" }),
+  customerId: varchar("customer_id").notNull().references(() => customers.id, { onDelete: "cascade" }),
+  serviceType: text("service_type").notNull().$type<"Maintenance" | "Chemical" | "Snow" | "Irrigation" | "Other">(),
+  billingPattern: text("billing_pattern").notNull().$type<"monthly" | "seasonal" | "12-of-12">(),
+  startDate: timestamp("start_date").notNull(),
+  endDate: timestamp("end_date"),
+  status: text("status").notNull().$type<"active" | "paused" | "ended">().default("active"),
+  po: text("po"),
+  notes: text("notes"),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  updatedAt: timestamp("updated_at").notNull().defaultNow(),
+});
+
+export const insertContractSchema = createInsertSchema(contracts).omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+}).extend({
+  serviceType: z.enum(["Maintenance", "Chemical", "Snow", "Irrigation", "Other"]),
+  billingPattern: z.enum(["monthly", "seasonal", "12-of-12"]),
+  status: z.enum(["active", "paused", "ended"]).default("active"),
+});
+
+export type InsertContract = z.infer<typeof insertContractSchema>;
+export type Contract = typeof contracts.$inferSelect;
+
+export const contractStatusHistory = pgTable("contract_status_history", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  contractId: varchar("contract_id").notNull().references(() => contracts.id, { onDelete: "cascade" }),
+  oldStatus: text("old_status").$type<"active" | "paused" | "ended">(),
+  newStatus: text("new_status").notNull().$type<"active" | "paused" | "ended">(),
+  changedBy: varchar("changed_by").notNull().references(() => users.id, { onDelete: "cascade" }),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+});
+
+export const insertContractStatusHistorySchema = createInsertSchema(contractStatusHistory).omit({
+  id: true,
+  createdAt: true,
+}).extend({
+  oldStatus: z.enum(["active", "paused", "ended"]).optional(),
+  newStatus: z.enum(["active", "paused", "ended"]),
+});
+
+export type InsertContractStatusHistory = z.infer<typeof insertContractStatusHistorySchema>;
+export type ContractStatusHistory = typeof contractStatusHistory.$inferSelect;
 
 export const settings = pgTable("settings", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),

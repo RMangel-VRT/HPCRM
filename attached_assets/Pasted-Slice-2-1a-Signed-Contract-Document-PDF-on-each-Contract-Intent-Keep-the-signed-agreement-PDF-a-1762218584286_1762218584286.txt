@@ -1,0 +1,98 @@
+Slice 2.1a — Signed Contract Document (PDF on each Contract)
+
+Intent
+Keep the signed agreement PDF attached to the Contract so anyone can quickly view/download the source of truth.
+
+Scope (what users can do)
+
+On a Contract page, there’s a Signed Agreement section to:
+
+Upload one PDF of the signed contract.
+
+View (inline preview if possible) and Download the PDF.
+
+Replace the PDF when a new signed version is issued.
+
+Show a small indicator (e.g., a paperclip icon) in the Contracts list for items that have a signed PDF.
+
+Rules & constraints
+
+File type: PDF only.
+
+File size: up to a reasonable limit (suggest 20 MB; you can choose the exact cap).
+
+One primary document per contract (no gallery). Replacing keeps a version history.
+
+Metadata captured: filename, uploaded by (user), uploaded date/time, file size.
+
+Versioning behavior: replacing the PDF creates a new version and keeps prior versions accessible via a simple “Version history” link.
+
+Integrity: prevent duplicate uploads if the exact same file is re-submitted (optional, nice to have).
+
+Security: only authorized users can access/download; URLs shouldn’t be shareable publicly.
+
+Permissions
+
+Admin / Office: upload, replace, delete, view, download.
+
+Ops / Viewer: view & download only (no upload/replace/delete).
+
+UX
+
+Empty state: “No signed agreement uploaded yet” + Upload button.
+
+After upload: show filename, who uploaded, when, size, and buttons: View, Download, Replace.
+
+Replace flow: confirm dialog (“This will supersede the current signed agreement. The old file will remain in version history.”).
+
+List indicator: In the Contracts table on the Customer page, show a small icon for “has PDF”.
+
+Optional nicety: auto-add a timeline note like “Signed contract uploaded by <user>”.
+
+Validation & errors
+
+Non-PDF → friendly message (“Please upload a .pdf file.”)
+
+Over size limit → friendly message naming the limit.
+
+Network/storage failure → friendly retry guidance; don’t lose the form state.
+
+Acceptance criteria
+
+Users with permission can upload a PDF to a Contract; it appears immediately with View/Download actions.
+
+Replacing adds a new version; users can see at least the current and previous version entries.
+
+Ops/Viewer can open the Contract and View/Download the PDF but cannot replace/delete.
+
+Contracts list shows which items have a signed PDF attached.
+
+Test checklist
+
+Upload a valid PDF → shows in place; metadata correct.
+
+Try a non-PDF (e.g., .docx) → blocked with clear message.
+
+Try an oversized file → blocked with clear message.
+
+Replace the PDF → version count increments; current file changes; prior remains accessible.
+
+Check permissions: Office can replace; Ops cannot (button hidden and blocked if forced).
+
+From the Contracts list, verify the “has PDF” indicator matches reality.
+
+Non-goals (now)
+
+E-signature workflow (DocuSign/Adobe) — future.
+
+Multiple separate attachments per contract — we’re keeping one primary signed agreement for clarity.
+
+Future-friendly notes (optional)
+
+Add a “Contract Effective/Expiration” reminder later using this file’s upload/renewal date.
+
+If you later need amendments, either:
+
+keep them inside version history, or
+
+add a secondary “Amendments (PDF)” field (not needed now).
