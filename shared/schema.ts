@@ -1,5 +1,5 @@
 import { sql } from "drizzle-orm";
-import { pgTable, text, varchar, timestamp, unique } from "drizzle-orm/pg-core";
+import { pgTable, text, varchar, timestamp, unique, integer } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
 
@@ -217,3 +217,26 @@ export const insertSettingsSchema = createInsertSchema(settings).omit({
 
 export type InsertSettings = z.infer<typeof insertSettingsSchema>;
 export type Settings = typeof settings.$inferSelect;
+
+export const contractDocuments = pgTable("contract_documents", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  contractId: varchar("contract_id").notNull().references(() => contracts.id, { onDelete: "cascade" }),
+  companyId: varchar("company_id").notNull().references(() => companies.id, { onDelete: "cascade" }),
+  version: integer("version").notNull(),
+  filename: text("filename").notNull(),
+  uploadedBy: varchar("uploaded_by").notNull().references(() => users.id),
+  uploadedAt: timestamp("uploaded_at").notNull().defaultNow(),
+  fileSize: integer("file_size").notNull(),
+  storageObjectPath: text("storage_object_path").notNull(),
+  mimeType: text("mime_type").notNull().default("application/pdf"),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+});
+
+export const insertContractDocumentSchema = createInsertSchema(contractDocuments).omit({
+  id: true,
+  uploadedAt: true,
+  createdAt: true,
+});
+
+export type InsertContractDocument = z.infer<typeof insertContractDocumentSchema>;
+export type ContractDocument = typeof contractDocuments.$inferSelect;

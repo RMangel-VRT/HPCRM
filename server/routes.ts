@@ -2,7 +2,9 @@ import type { Express } from "express";
 import { createServer, type Server } from "http";
 import { setupAuth, type UserWithContext } from "./auth";
 import { storage } from "./storage";
-import { insertCustomerSchema, insertContactSchema, insertCompanySchema, insertCompanyUserSchema, insertSettingsSchema, insertNoteSchema, insertContractSchema } from "@shared/schema";
+import { insertCustomerSchema, insertContactSchema, insertCompanySchema, insertCompanyUserSchema, insertSettingsSchema, insertNoteSchema, insertContractSchema, insertContractDocumentSchema } from "@shared/schema";
+import { ObjectStorageService, ObjectNotFoundError } from "./objectStorage";
+import { ObjectPermission, ObjectAccessGroupType } from "./objectAcl";
 
 export async function registerRoutes(app: Express): Promise<Server> {
   setupAuth(app);
@@ -299,6 +301,156 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
     await storage.deleteContract(req.params.id, user.activeCompanyId);
     res.status(200).send("Deleted");
+  });
+
+  // Contract Documents routes
+  app.post("/api/contracts/:contractId/documents/upload-url", async (req, res) => {
+    if (!req.isAuthenticated()) {
+      return res.status(401).send("Not authenticated");
+    }
+
+    const user = req.user as UserWithContext;
+    
+    if (user.activeRole === "ops" || user.activeRole === "viewer") {
+      return res.status(403).send("Insufficient permissions - admin or office role required");
+    }
+
+    const contract = await storage.getContractsByCustomerId("", user.activeCompanyId);
+    const contractExists = contract.find(c => c.id === req.params.contractId);
+    if (!contractExists) {
+      return res.status(404).send("Contract not found");
+    }
+
+    try {
+      const objectStorageService = new ObjectStorageService();
+      const uploadURL = await objectStorageService.getObjectEntityUploadURL();
+      res.json({ uploadURL });
+    } catch (error) {
+      console.error("Error getting upload URL:", error);
+      res.status(500).send("Failed to get upload URL");
+    }
+  });
+
+  app.post("/api/contracts/:contractId/documents", async (req, res) => {
+    if (!req.isAuthenticated()) {
+      return res.status(401).send("Not authenticated");
+    }
+
+    const user = req.user as UserWithContext;
+    
+    if (user.activeRole === "ops" || user.activeRole === "viewer") {
+      return res.status(403).send("Insufficient permissions - admin or office role required");
+    }
+
+    try {
+      const objectStorageService = new ObjectStorageService();
+      const normalizedPath = objectStorageService.normalizeObjectEntityPath(req.body.uploadURL);
+
+      const existingDocs = await storage.getContractDocuments(req.params.contractId, user.activeCompanyId);
+      const nextVersion = existingDocs.length > 0 ? Math.max(...existingDocs.map(d => d.version)) + 1 : 1;
+
+      const result = insertContractDocumentSchema.safeParse({
+        contractId: req.params.contractId,
+        companyId: user.activeCompanyId,
+        version: nextVersion,
+        filename: req.body.filename,
+        uploadedBy: user.id,
+        fileSize: req.body.fileSize,
+        storageObjectPath: normalizedPath,
+        mimeType: req.body.mimeType || "application/pdf",
+      });
+
+      if (!result.success) {
+        return res.status(400).send(result.error.message);
+      }
+
+      const objectFile = await objectStorageService.getObjectEntityFile(normalizedPath);
+      await objectStorageService.trySetObjectEntityAclPolicy(req.body.uploadURL, {
+        owner: user.id,
+        visibility: "private",
+        aclRules: [{
+          group: {
+            type: ObjectAccessGroupType.COMPANY_MEMBER,
+            id: user.activeCompanyId,
+          },
+          permission: ObjectPermission.READ,
+        }],
+      });
+
+      const document = await storage.createContractDocument(result.data);
+      res.json(document);
+    } catch (error) {
+      console.error("Error saving document metadata:", error);
+      res.status(500).send("Failed to save document metadata");
+    }
+  });
+
+  app.get("/api/contracts/:contractId/documents", async (req, res) => {
+    if (!req.isAuthenticated()) {
+      return res.status(401).send("Not authenticated");
+    }
+
+    const user = req.user as UserWithContext;
+    const documents = await storage.getContractDocuments(req.params.contractId, user.activeCompanyId);
+    res.json(documents);
+  });
+
+  app.get("/api/contracts/:contractId/documents/current", async (req, res) => {
+    if (!req.isAuthenticated()) {
+      return res.status(401).send("Not authenticated");
+    }
+
+    const user = req.user as UserWithContext;
+    const document = await storage.getCurrentContractDocument(req.params.contractId, user.activeCompanyId);
+    if (!document) {
+      return res.status(404).send("No document found");
+    }
+    res.json(document);
+  });
+
+  app.delete("/api/contracts/:contractId/documents/:docId", async (req, res) => {
+    if (!req.isAuthenticated()) {
+      return res.status(401).send("Not authenticated");
+    }
+
+    const user = req.user as UserWithContext;
+    
+    if (user.activeRole === "ops" || user.activeRole === "viewer") {
+      return res.status(403).send("Insufficient permissions - admin or office role required");
+    }
+
+    await storage.deleteContractDocument(req.params.docId, user.activeCompanyId);
+    res.status(200).send("Deleted");
+  });
+
+  app.get("/objects/:objectPath(*)", async (req, res) => {
+    if (!req.isAuthenticated()) {
+      return res.status(401).send("Not authenticated");
+    }
+
+    const user = req.user as UserWithContext;
+    const objectStorageService = new ObjectStorageService();
+    
+    try {
+      const objectFile = await objectStorageService.getObjectEntityFile(req.path);
+      const canAccess = await objectStorageService.canAccessObjectEntity({
+        objectFile,
+        userId: user.id,
+        requestedPermission: ObjectPermission.READ,
+      });
+      
+      if (!canAccess) {
+        return res.sendStatus(403);
+      }
+      
+      objectStorageService.downloadObject(objectFile, res);
+    } catch (error) {
+      console.error("Error accessing object:", error);
+      if (error instanceof ObjectNotFoundError) {
+        return res.sendStatus(404);
+      }
+      return res.sendStatus(500);
+    }
   });
 
   // Admin: Company Management Routes (Super Admin only)

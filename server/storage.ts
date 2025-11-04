@@ -1,6 +1,6 @@
-import { type User, type InsertUser, type Customer, type InsertCustomer, type Contact, type InsertContact, type Company, type InsertCompany, type CompanyUser, type InsertCompanyUser, type Settings, type InsertSettings, type Note, type InsertNote, type Contract, type InsertContract, type ContractStatusHistory, type InsertContractStatusHistory } from "@shared/schema";
+import { type User, type InsertUser, type Customer, type InsertCustomer, type Contact, type InsertContact, type Company, type InsertCompany, type CompanyUser, type InsertCompanyUser, type Settings, type InsertSettings, type Note, type InsertNote, type Contract, type InsertContract, type ContractStatusHistory, type InsertContractStatusHistory, type ContractDocument, type InsertContractDocument } from "@shared/schema";
 import { db } from "./db";
-import { users, customers, contacts, companies, companyUsers, settings, notes, contracts, contractStatusHistory } from "@shared/schema";
+import { users, customers, contacts, companies, companyUsers, settings, notes, contracts, contractStatusHistory, contractDocuments } from "@shared/schema";
 import { eq, and, sql, desc } from "drizzle-orm";
 import session from "express-session";
 import connectPg from "connect-pg-simple";
@@ -54,6 +54,12 @@ export interface IStorage {
   getSettings(companyId: string): Promise<Settings | undefined>;
   createSettings(settings: InsertSettings): Promise<Settings>;
   updateSettings(companyId: string, updates: Partial<InsertSettings>): Promise<Settings | undefined>;
+  
+  createContractDocument(document: InsertContractDocument): Promise<ContractDocument>;
+  getContractDocuments(contractId: string, companyId: string): Promise<ContractDocument[]>;
+  getContractDocumentById(id: string, companyId: string): Promise<ContractDocument | undefined>;
+  getCurrentContractDocument(contractId: string, companyId: string): Promise<ContractDocument | undefined>;
+  deleteContractDocument(id: string, companyId: string): Promise<void>;
   
   sessionStore: session.Store;
 }
@@ -269,6 +275,36 @@ export class PgStorage implements IStorage {
       .where(eq(settings.companyId, companyId))
       .returning();
     return result[0];
+  }
+
+  async createContractDocument(insertDocument: InsertContractDocument): Promise<ContractDocument> {
+    const result = await db.insert(contractDocuments).values([insertDocument]).returning();
+    return result[0];
+  }
+
+  async getContractDocuments(contractId: string, companyId: string): Promise<ContractDocument[]> {
+    return await db.select().from(contractDocuments)
+      .where(and(eq(contractDocuments.contractId, contractId), eq(contractDocuments.companyId, companyId)))
+      .orderBy(desc(contractDocuments.version));
+  }
+
+  async getContractDocumentById(id: string, companyId: string): Promise<ContractDocument | undefined> {
+    const result = await db.select().from(contractDocuments)
+      .where(and(eq(contractDocuments.id, id), eq(contractDocuments.companyId, companyId)))
+      .limit(1);
+    return result[0];
+  }
+
+  async getCurrentContractDocument(contractId: string, companyId: string): Promise<ContractDocument | undefined> {
+    const result = await db.select().from(contractDocuments)
+      .where(and(eq(contractDocuments.contractId, contractId), eq(contractDocuments.companyId, companyId)))
+      .orderBy(desc(contractDocuments.version))
+      .limit(1);
+    return result[0];
+  }
+
+  async deleteContractDocument(id: string, companyId: string): Promise<void> {
+    await db.delete(contractDocuments).where(and(eq(contractDocuments.id, id), eq(contractDocuments.companyId, companyId)));
   }
 }
 
