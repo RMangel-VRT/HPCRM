@@ -1,6 +1,6 @@
-import { type User, type InsertUser, type Customer, type InsertCustomer, type Contact, type InsertContact, type Company, type InsertCompany, type CompanyUser, type InsertCompanyUser, type Settings, type InsertSettings, type Note, type InsertNote, type Contract, type InsertContract, type ContractStatusHistory, type InsertContractStatusHistory, type ContractDocument, type InsertContractDocument, type ContractMonthlyAmount, type InsertContractMonthlyAmount, type CustomerRateSheet, type InsertCustomerRateSheet } from "@shared/schema";
+import { type User, type InsertUser, type Customer, type InsertCustomer, type Contact, type InsertContact, type Company, type InsertCompany, type CompanyUser, type InsertCompanyUser, type Settings, type InsertSettings, type Note, type InsertNote, type Contract, type InsertContract, type ContractStatusHistory, type InsertContractStatusHistory, type ContractDocument, type InsertContractDocument, type ContractMonthlyAmount, type InsertContractMonthlyAmount, type CustomerRateSheet, type InsertCustomerRateSheet, type ContractService, type InsertContractService } from "@shared/schema";
 import { db } from "./db";
-import { users, customers, contacts, companies, companyUsers, settings, notes, contracts, contractStatusHistory, contractDocuments, contractMonthlyAmounts, customerRateSheets } from "@shared/schema";
+import { users, customers, contacts, companies, companyUsers, settings, notes, contracts, contractStatusHistory, contractDocuments, contractMonthlyAmounts, customerRateSheets, contractServices } from "@shared/schema";
 import { eq, and, sql, desc } from "drizzle-orm";
 import session from "express-session";
 import connectPg from "connect-pg-simple";
@@ -70,6 +70,11 @@ export interface IStorage {
   
   getCustomerRevenue(customerId: string, companyId: string, year: number): Promise<CustomerRevenueData>;
   getRevenueOverview(companyId: string, month: number, year: number): Promise<RevenueOverviewData>;
+  
+  getContractServices(contractId: string, companyId: string): Promise<ContractService[]>;
+  createContractService(service: InsertContractService): Promise<ContractService>;
+  updateContractService(id: string, companyId: string, service: Partial<InsertContractService>): Promise<ContractService | undefined>;
+  deleteContractService(id: string, companyId: string): Promise<void>;
   
   sessionStore: session.Store;
 }
@@ -510,6 +515,43 @@ export class PgStorage implements IStorage {
       yearToDateTotal,
       customers,
     };
+  }
+
+  async getContractServices(contractId: string, companyId: string): Promise<ContractService[]> {
+    return await db
+      .select()
+      .from(contractServices)
+      .where(and(
+        eq(contractServices.contractId, contractId),
+        eq(contractServices.companyId, companyId)
+      ))
+      .orderBy(contractServices.createdAt);
+  }
+
+  async createContractService(service: InsertContractService): Promise<ContractService> {
+    const result = await db.insert(contractServices).values([service]).returning();
+    return result[0];
+  }
+
+  async updateContractService(id: string, companyId: string, service: Partial<InsertContractService>): Promise<ContractService | undefined> {
+    const result = await db
+      .update(contractServices)
+      .set({ ...service, updatedAt: new Date() })
+      .where(and(
+        eq(contractServices.id, id),
+        eq(contractServices.companyId, companyId)
+      ))
+      .returning();
+    return result[0];
+  }
+
+  async deleteContractService(id: string, companyId: string): Promise<void> {
+    await db
+      .delete(contractServices)
+      .where(and(
+        eq(contractServices.id, id),
+        eq(contractServices.companyId, companyId)
+      ));
   }
 }
 
