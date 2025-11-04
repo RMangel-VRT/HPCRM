@@ -422,6 +422,52 @@ export async function registerRoutes(app: Express): Promise<Server> {
     res.status(200).send("Deleted");
   });
 
+  // Contract Monthly Amounts routes
+  app.get("/api/contracts/:contractId/monthly-amounts", async (req, res) => {
+    if (!req.isAuthenticated()) {
+      return res.status(401).send("Not authenticated");
+    }
+
+    const user = req.user as UserWithContext;
+    const amounts = await storage.getContractMonthlyAmounts(req.params.contractId, user.activeCompanyId);
+    res.json(amounts);
+  });
+
+  app.put("/api/contracts/:contractId/monthly-amounts", async (req, res) => {
+    if (!req.isAuthenticated()) {
+      return res.status(401).send("Not authenticated");
+    }
+
+    const user = req.user as UserWithContext;
+    
+    if (user.activeRole === "ops" || user.activeRole === "viewer") {
+      return res.status(403).send("Insufficient permissions - admin or office role required");
+    }
+
+    try {
+      const { insertContractMonthlyAmountSchema } = await import("@shared/schema");
+      const { z } = await import("zod");
+      
+      const amountsArraySchema = z.array(insertContractMonthlyAmountSchema);
+      const result = amountsArraySchema.safeParse(req.body);
+      
+      if (!result.success) {
+        return res.status(400).send(result.error.message);
+      }
+
+      const amounts = await storage.upsertContractMonthlyAmounts(
+        req.params.contractId,
+        user.activeCompanyId,
+        result.data
+      );
+      
+      res.json(amounts);
+    } catch (error) {
+      console.error("Error saving monthly amounts:", error);
+      res.status(500).send("Failed to save monthly amounts");
+    }
+  });
+
   app.get("/objects/:objectPath(*)", async (req, res) => {
     if (!req.isAuthenticated()) {
       return res.status(401).send("Not authenticated");
