@@ -240,3 +240,27 @@ export const insertContractDocumentSchema = createInsertSchema(contractDocuments
 
 export type InsertContractDocument = z.infer<typeof insertContractDocumentSchema>;
 export type ContractDocument = typeof contractDocuments.$inferSelect;
+
+export const contractMonthlyAmounts = pgTable("contract_monthly_amounts", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  contractId: varchar("contract_id").notNull().references(() => contracts.id, { onDelete: "cascade" }),
+  companyId: varchar("company_id").notNull().references(() => companies.id, { onDelete: "cascade" }),
+  month: integer("month").notNull(),
+  amount: integer("amount").notNull(),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  updatedAt: timestamp("updated_at").notNull().defaultNow(),
+}, (table) => ({
+  contractMonthUnique: unique().on(table.contractId, table.month),
+}));
+
+export const insertContractMonthlyAmountSchema = createInsertSchema(contractMonthlyAmounts).omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+}).extend({
+  month: z.number().int().min(1).max(12),
+  amount: z.number().int().min(0),
+});
+
+export type InsertContractMonthlyAmount = z.infer<typeof insertContractMonthlyAmountSchema>;
+export type ContractMonthlyAmount = typeof contractMonthlyAmounts.$inferSelect;
