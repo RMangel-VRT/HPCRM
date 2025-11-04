@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useMutation } from "@tanstack/react-query";
 import type { Customer } from "@shared/schema";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -18,20 +18,48 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { Plus, Search, Eye, MapPin } from "lucide-react";
+import { Switch } from "@/components/ui/switch";
+import { Label } from "@/components/ui/label";
+import { Plus, Search, Eye, MapPin, Archive, ArchiveRestore } from "lucide-react";
 import StatusBadge from "@/components/StatusBadge";
 import EmptyState from "@/components/EmptyState";
 import emptyCustomersImage from "@assets/generated_images/Empty_customers_state_illustration_84171f59.png";
 import { Link } from "wouter";
 import { Skeleton } from "@/components/ui/skeleton";
+import { apiRequest, queryClient } from "@/lib/queryClient";
+import { useToast } from "@/hooks/use-toast";
 
 export default function CustomersList() {
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState("all");
   const [showArchived, setShowArchived] = useState(false);
+  const { toast } = useToast();
 
   const { data: customers = [], isLoading } = useQuery<Customer[]>({
     queryKey: ["/api/customers"],
+  });
+
+  const archiveMutation = useMutation({
+    mutationFn: async ({ id, active }: { id: number; active: boolean }) => {
+      return apiRequest(`/api/customers/${id}`, {
+        method: "PATCH",
+        body: JSON.stringify({ active: active ? "true" : "false" }),
+      });
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/customers"] });
+      toast({
+        title: "Success",
+        description: "Customer updated successfully",
+      });
+    },
+    onError: () => {
+      toast({
+        title: "Error",
+        description: "Failed to update customer",
+        variant: "destructive",
+      });
+    },
   });
 
   const filteredCustomers = customers.filter((customer) => {
@@ -58,7 +86,7 @@ export default function CustomersList() {
         </Button>
       </div>
 
-      <div className="flex gap-4 flex-wrap">
+      <div className="flex gap-4 flex-wrap items-center">
         <div className="relative flex-1 min-w-[240px]">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
           <Input
@@ -80,6 +108,17 @@ export default function CustomersList() {
             <SelectItem value="inactive">Inactive</SelectItem>
           </SelectContent>
         </Select>
+        <div className="flex items-center gap-2">
+          <Switch
+            id="show-archived"
+            checked={showArchived}
+            onCheckedChange={setShowArchived}
+            data-testid="toggle-show-archived"
+          />
+          <Label htmlFor="show-archived" className="text-sm cursor-pointer">
+            Show archived
+          </Label>
+        </div>
       </div>
 
       {isLoading ? (
@@ -129,12 +168,36 @@ export default function CustomersList() {
                     {customer.complexityScore ? `Level ${customer.complexityScore}` : "—"}
                   </TableCell>
                   <TableCell className="text-right">
-                    <Button variant="ghost" size="sm" asChild data-testid={`button-view-${customer.id}`}>
-                      <Link href={`/customers/${customer.id}`}>
-                        <Eye className="w-4 h-4 mr-2" />
-                        View Details
-                      </Link>
-                    </Button>
+                    <div className="flex items-center justify-end gap-2">
+                      <Button variant="ghost" size="sm" asChild data-testid={`button-view-${customer.id}`}>
+                        <Link href={`/customers/${customer.id}`}>
+                          <Eye className="w-4 h-4 mr-2" />
+                          View
+                        </Link>
+                      </Button>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => archiveMutation.mutate({
+                          id: customer.id,
+                          active: customer.active === "false"
+                        })}
+                        disabled={archiveMutation.isPending}
+                        data-testid={`button-archive-${customer.id}`}
+                      >
+                        {customer.active === "false" ? (
+                          <>
+                            <ArchiveRestore className="w-4 h-4 mr-2" />
+                            Unarchive
+                          </>
+                        ) : (
+                          <>
+                            <Archive className="w-4 h-4 mr-2" />
+                            Archive
+                          </>
+                        )}
+                      </Button>
+                    </div>
                   </TableCell>
                 </TableRow>
               ))}
