@@ -24,6 +24,7 @@ import { useAuth } from "@/hooks/use-auth";
 
 interface ContractCardProps {
   contract: Contract;
+  customerId: string;
   canUploadDocuments: boolean;
   onUploadClick: (contractId: string, isReplace: boolean) => void;
   uploadingFile: boolean;
@@ -31,9 +32,13 @@ interface ContractCardProps {
   setShowVersionHistory: (contractId: string | null) => void;
 }
 
-function ContractCard({ contract, canUploadDocuments, onUploadClick, uploadingFile, formatFileSize, setShowVersionHistory }: ContractCardProps) {
+function ContractCard({ contract, customerId, canUploadDocuments, onUploadClick, uploadingFile, formatFileSize, setShowVersionHistory }: ContractCardProps) {
   const { data: currentDocument, isLoading } = useQuery<ContractDocument>({
     queryKey: ["/api/contracts", contract.id, "documents", "current"],
+  });
+  
+  const { data: rateSheet } = useQuery<CustomerRateSheet | null>({
+    queryKey: ["/api/customers", customerId, "rate-sheet"],
   });
   
   const { toast } = useToast();
@@ -294,6 +299,96 @@ function ContractCard({ contract, canUploadDocuments, onUploadClick, uploadingFi
             </div>
           )}
         </div>
+
+        {rateSheet && (
+          <>
+            <Separator className="my-3" />
+            <div>
+              <p className="text-sm font-medium mb-2">Applied Rates</p>
+              <div className="text-xs space-y-1.5 bg-muted/30 p-2 rounded-md">
+                {contract.serviceType.toLowerCase().includes('snow') || contract.serviceType.toLowerCase().includes('ice') ? (
+                  <>
+                    {rateSheet.handShovelLabor !== null && (
+                      <div className="flex justify-between">
+                        <span className="text-muted-foreground">Hand Shovel:</span>
+                        <span className="font-medium">${(rateSheet.handShovelLabor / 100).toFixed(2)}/hr</span>
+                      </div>
+                    )}
+                    {rateSheet.plowTruck !== null && (
+                      <div className="flex justify-between">
+                        <span className="text-muted-foreground">Plow Truck:</span>
+                        <span className="font-medium">${(rateSheet.plowTruck / 100).toFixed(2)}/hr</span>
+                      </div>
+                    )}
+                    {rateSheet.atv !== null && (
+                      <div className="flex justify-between">
+                        <span className="text-muted-foreground">ATV:</span>
+                        <span className="font-medium">${(rateSheet.atv / 100).toFixed(2)}/hr</span>
+                      </div>
+                    )}
+                    {rateSheet.skidSteer !== null && (
+                      <div className="flex justify-between">
+                        <span className="text-muted-foreground">Skid Steer:</span>
+                        <span className="font-medium">${(rateSheet.skidSteer / 100).toFixed(2)}/hr</span>
+                      </div>
+                    )}
+                    {rateSheet.snowBlower !== null && (
+                      <div className="flex justify-between">
+                        <span className="text-muted-foreground">Snow Blower:</span>
+                        <span className="font-medium">${(rateSheet.snowBlower / 100).toFixed(2)}/hr</span>
+                      </div>
+                    )}
+                    {rateSheet.iceMeltMaterial !== null && (
+                      <div className="flex justify-between">
+                        <span className="text-muted-foreground">Ice Melt Material:</span>
+                        <span className="font-medium">${(rateSheet.iceMeltMaterial / 100).toFixed(2)}/lb</span>
+                      </div>
+                    )}
+                    {rateSheet.iceMeltApplicationLabor !== null && (
+                      <div className="flex justify-between">
+                        <span className="text-muted-foreground">Ice Melt Application:</span>
+                        <span className="font-medium">${(rateSheet.iceMeltApplicationLabor / 100).toFixed(2)}/hr</span>
+                      </div>
+                    )}
+                  </>
+                ) : (
+                  <>
+                    {rateSheet.generalLabor !== null && (
+                      <div className="flex justify-between">
+                        <span className="text-muted-foreground">General Labor:</span>
+                        <span className="font-medium">${(rateSheet.generalLabor / 100).toFixed(2)}/hr</span>
+                      </div>
+                    )}
+                    {rateSheet.operatorLabor !== null && (
+                      <div className="flex justify-between">
+                        <span className="text-muted-foreground">Operator Labor:</span>
+                        <span className="font-medium">${(rateSheet.operatorLabor / 100).toFixed(2)}/hr</span>
+                      </div>
+                    )}
+                    {rateSheet.irrigationLabor !== null && (
+                      <div className="flex justify-between">
+                        <span className="text-muted-foreground">Irrigation Labor:</span>
+                        <span className="font-medium">${(rateSheet.irrigationLabor / 100).toFixed(2)}/hr</span>
+                      </div>
+                    )}
+                    {rateSheet.emergencyGeneralLabor !== null && (
+                      <div className="flex justify-between">
+                        <span className="text-muted-foreground">Emergency General:</span>
+                        <span className="font-medium">${(rateSheet.emergencyGeneralLabor / 100).toFixed(2)}/hr</span>
+                      </div>
+                    )}
+                    {rateSheet.emergencyIrrigationLabor !== null && (
+                      <div className="flex justify-between">
+                        <span className="text-muted-foreground">Emergency Irrigation:</span>
+                        <span className="font-medium">${(rateSheet.emergencyIrrigationLabor / 100).toFixed(2)}/hr</span>
+                      </div>
+                    )}
+                  </>
+                )}
+              </div>
+            </div>
+          </>
+        )}
       </CardContent>
     </Card>
   );
@@ -805,7 +900,8 @@ export default function CustomerDetail() {
               {contracts.map((contract) => (
                 <ContractCard 
                   key={contract.id} 
-                  contract={contract} 
+                  contract={contract}
+                  customerId={params?.id!}
                   canUploadDocuments={canUploadDocuments}
                   onUploadClick={handleUploadClick}
                   uploadingFile={uploadingFile}
@@ -841,7 +937,7 @@ export default function CustomerDetail() {
         </TabsContent>
 
         <TabsContent value="rate-sheet" className="space-y-4">
-          <RateSheetSection customerId={customerId!} />
+          <RateSheetSection customerId={params?.id!} />
         </TabsContent>
       </Tabs>
     </div>
