@@ -21,6 +21,7 @@ import { format } from "date-fns";
 import { useToast } from "@/hooks/use-toast";
 import { queryClient, apiRequest } from "@/lib/queryClient";
 import { useAuth } from "@/hooks/use-auth";
+import ContractServices from "@/components/ContractServices";
 
 interface ContractCardProps {
   contract: Contract;
@@ -299,6 +300,10 @@ function ContractCard({ contract, customerId, canUploadDocuments, onUploadClick,
             </div>
           )}
         </div>
+
+        <Separator className="my-3" />
+
+        <ContractServices contractId={contract.id} canEdit={canEditBilling} />
 
         {rateSheet && (
           <>
