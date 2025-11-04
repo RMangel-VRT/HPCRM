@@ -1,4 +1,5 @@
 import { File } from "@google-cloud/storage";
+import { storage } from "./storage";
 
 const ACL_POLICY_METADATA_KEY = "custom:aclPolicy";
 
@@ -53,7 +54,8 @@ class CompanyMemberAccessGroup extends BaseObjectAccessGroup {
   }
 
   public async hasMember(userId: string): Promise<boolean> {
-    return true;
+    const companyUser = await storage.getCompanyUser(userId, this.id);
+    return companyUser !== undefined;
   }
 }
 
