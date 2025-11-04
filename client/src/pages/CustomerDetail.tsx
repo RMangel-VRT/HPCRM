@@ -1,12 +1,13 @@
-import { useState, useRef } from "react";
+import { useState, useRef, useMemo } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { useRoute } from "wouter";
-import type { Customer, Contact, Note, Contract, ContractDocument } from "@shared/schema";
+import type { Customer, Contact, Note, Contract, ContractDocument, ContractMonthlyAmount } from "@shared/schema";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
+import { Input } from "@/components/ui/input";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
@@ -30,6 +31,79 @@ interface ContractCardProps {
 function ContractCard({ contract, canUploadDocuments, onUploadClick, uploadingFile, formatFileSize, setShowVersionHistory }: ContractCardProps) {
   const { data: currentDocument, isLoading } = useQuery<ContractDocument>({
     queryKey: ["/api/contracts", contract.id, "documents", "current"],
+  });
+  
+  const { toast } = useToast();
+  const { user } = useAuth();
+  
+  const canEditBilling = user?.activeRole === "admin" || user?.activeRole === "office";
+  
+  const { data: monthlyAmounts = [], isLoading: isLoadingAmounts } = useQuery<ContractMonthlyAmount[]>({
+    queryKey: ["/api/contracts", contract.id, "monthly-amounts"],
+  });
+  
+  const [localAmounts, setLocalAmounts] = useState<Record<number, string>>({});
+  const [hasChanges, setHasChanges] = useState(false);
+  
+  const monthNames = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+  
+  const initializedAmounts = useMemo(() => {
+    const amounts: Record<number, string> = {};
+    for (let i = 1; i <= 12; i++) {
+      const existing = monthlyAmounts.find(a => a.month === i);
+      amounts[i] = existing ? (existing.amount / 100).toFixed(2) : "0.00";
+    }
+    return amounts;
+  }, [monthlyAmounts]);
+  
+  if (!hasChanges && Object.keys(localAmounts).length === 0 && monthlyAmounts.length > 0) {
+    setLocalAmounts(initializedAmounts);
+  }
+  
+  const annualTotal = useMemo(() => {
+    const amounts = Object.keys(localAmounts).length > 0 ? localAmounts : initializedAmounts;
+    return Object.values(amounts).reduce((sum, val) => {
+      const num = parseFloat(val) || 0;
+      return sum + num;
+    }, 0);
+  }, [localAmounts, initializedAmounts]);
+  
+  const handleAmountChange = (month: number, value: string) => {
+    if (!/^\d*\.?\d{0,2}$/.test(value)) return;
+    setLocalAmounts(prev => ({ ...prev, [month]: value }));
+    setHasChanges(true);
+  };
+  
+  const saveMutation = useMutation({
+    mutationFn: async () => {
+      const amounts = Object.keys(localAmounts).length > 0 ? localAmounts : initializedAmounts;
+      const data = Array.from({ length: 12 }, (_, i) => {
+        const month = i + 1;
+        const amountStr = amounts[month] || "0.00";
+        const amountCents = Math.round(parseFloat(amountStr) * 100);
+        return {
+          month,
+          amount: amountCents,
+        };
+      });
+      
+      return await apiRequest("PUT", `/api/contracts/${contract.id}/monthly-amounts`, data);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/contracts", contract.id, "monthly-amounts"] });
+      setHasChanges(false);
+      toast({
+        title: "Success",
+        description: "Monthly billing amounts saved",
+      });
+    },
+    onError: (error: Error) => {
+      toast({
+        title: "Error",
+        description: error.message || "Failed to save monthly amounts",
+        variant: "destructive",
+      });
+    },
   });
 
   return (
@@ -154,6 +228,64 @@ function ContractCard({ contract, canUploadDocuments, onUploadClick, uploadingFi
                   Upload
                 </Button>
               )}
+            </div>
+          )}
+        </div>
+
+        <Separator className="my-3" />
+
+        <div>
+          <div className="flex items-center justify-between mb-2">
+            <p className="text-sm font-medium">Monthly Billing</p>
+            {hasChanges && canEditBilling && (
+              <Button 
+                size="sm" 
+                onClick={() => saveMutation.mutate()}
+                disabled={saveMutation.isPending}
+                data-testid="button-save-monthly-amounts"
+              >
+                {saveMutation.isPending ? "Saving..." : "Save"}
+              </Button>
+            )}
+          </div>
+          {isLoadingAmounts ? (
+            <Skeleton className="h-32 w-full" />
+          ) : (
+            <div className="space-y-3">
+              <div className="grid grid-cols-3 gap-2">
+                {monthNames.map((monthName, index) => {
+                  const month = index + 1;
+                  const amounts = Object.keys(localAmounts).length > 0 ? localAmounts : initializedAmounts;
+                  const value = amounts[month] || "0.00";
+                  
+                  return (
+                    <div key={month}>
+                      <label className="text-xs text-muted-foreground mb-1 block">
+                        {monthName}
+                      </label>
+                      <div className="relative">
+                        <span className="absolute left-2 top-1/2 -translate-y-1/2 text-sm text-muted-foreground">
+                          $
+                        </span>
+                        <Input
+                          type="text"
+                          value={value}
+                          onChange={(e) => handleAmountChange(month, e.target.value)}
+                          disabled={!canEditBilling}
+                          className="pl-5 text-sm"
+                          data-testid={`input-month-${month}`}
+                        />
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+              <div className="flex items-center justify-between pt-2 border-t">
+                <p className="text-sm font-medium">Annual Total</p>
+                <p className="text-lg font-semibold" data-testid="text-annual-total">
+                  ${annualTotal.toFixed(2)}
+                </p>
+              </div>
             </div>
           )}
         </div>
