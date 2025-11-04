@@ -16,6 +16,7 @@ import {
   Settings,
   LogOut,
   Shield,
+  DollarSign,
 } from "lucide-react";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import RoleBadge from "./RoleBadge";
@@ -48,16 +49,17 @@ export default function AppSidebar({
   const crmItems = !isSuperAdmin
     ? [
         { title: "Dashboard", url: "/dashboard", icon: LayoutDashboard },
-        { title: "Customers", url: "/customers", icon: Building2 },
+        { title: "Customers", url: "/dashboard/customers", icon: Building2 },
+        { title: "Revenue", url: "/dashboard/revenue", icon: DollarSign },
       ]
     : [];
 
   const managementItems = (!isSuperAdmin && userRole === "admin")
-    ? [{ title: "Team", url: "/users", icon: Users }]
+    ? [{ title: "Team", url: "/dashboard/users", icon: Users }]
     : [];
 
   const adminItems = (!isSuperAdmin && userRole === "admin")
-    ? [{ title: "Settings", url: "/settings", icon: Settings }]
+    ? [{ title: "Settings", url: "/dashboard/settings", icon: Settings }]
     : [];
 
   return (

@@ -681,6 +681,9 @@ export default function CustomerDetail() {
           <TabsTrigger value="rate-sheet" data-testid="tab-rate-sheet">
             Rate Sheet
           </TabsTrigger>
+          <TabsTrigger value="revenue" data-testid="tab-revenue">
+            Revenue
+          </TabsTrigger>
         </TabsList>
 
         <TabsContent value="overview" className="space-y-6">
@@ -939,7 +942,163 @@ export default function CustomerDetail() {
         <TabsContent value="rate-sheet" className="space-y-4">
           <RateSheetSection customerId={params?.id!} />
         </TabsContent>
+
+        <TabsContent value="revenue" className="space-y-4">
+          <RevenueSection customerId={params?.id!} />
+        </TabsContent>
       </Tabs>
+    </div>
+  );
+}
+
+interface CustomerRevenueData {
+  annualProjection: number;
+  monthlyBreakdown: { month: number; total: number; byServiceType: { serviceType: string; amount: number }[] }[];
+  contractBreakdown: { contractId: string; serviceType: string; status: string; startDate: Date; endDate: Date | null; annualTotal: number }[];
+}
+
+function RevenueSection({ customerId }: { customerId: string }) {
+  const currentYear = new Date().getFullYear();
+  const [selectedYear, setSelectedYear] = useState(currentYear);
+  
+  const { data: revenueData, isLoading } = useQuery<CustomerRevenueData>({
+    queryKey: ["/api/customers", customerId, "revenue", selectedYear],
+  });
+  
+  const monthNames = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+  
+  if (isLoading) {
+    return (
+      <div className="space-y-4">
+        <Skeleton className="h-32 w-full" />
+        <Skeleton className="h-64 w-full" />
+        <Skeleton className="h-48 w-full" />
+      </div>
+    );
+  }
+  
+  if (!revenueData) {
+    return (
+      <Card>
+        <CardContent className="flex items-center justify-center p-12">
+          <p className="text-sm text-muted-foreground">No revenue data available</p>
+        </CardContent>
+      </Card>
+    );
+  }
+  
+  return (
+    <div className="space-y-4">
+      <div className="flex items-center justify-between gap-4">
+        <div>
+          <h3 className="text-lg font-semibold">Revenue Projection</h3>
+          <p className="text-sm text-muted-foreground">Based on contract monthly amounts</p>
+        </div>
+        <div className="flex items-center gap-2">
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => setSelectedYear(selectedYear - 1)}
+            data-testid="button-prev-year"
+          >
+            ← {selectedYear - 1}
+          </Button>
+          <span className="text-sm font-medium px-3" data-testid="text-selected-year">{selectedYear}</span>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => setSelectedYear(selectedYear + 1)}
+            data-testid="button-next-year"
+          >
+            {selectedYear + 1} →
+          </Button>
+        </div>
+      </div>
+      
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-lg">Annual Projection</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <p className="text-4xl font-bold" data-testid="text-annual-projection">
+            ${revenueData.annualProjection.toFixed(2)}
+          </p>
+          <p className="text-sm text-muted-foreground mt-1">
+            Total projected revenue for {selectedYear}
+          </p>
+        </CardContent>
+      </Card>
+      
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-lg">By Month</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <div className="grid grid-cols-3 gap-3">
+            {revenueData.monthlyBreakdown.map((monthData) => (
+              <div key={monthData.month} className="p-3 border rounded-md">
+                <p className="text-xs font-medium text-muted-foreground mb-1">
+                  {monthNames[monthData.month - 1]}
+                </p>
+                <p className="text-lg font-semibold" data-testid={`text-month-${monthData.month}-total`}>
+                  ${monthData.total.toFixed(2)}
+                </p>
+                {monthData.byServiceType.length > 0 && (
+                  <div className="mt-2 space-y-0.5">
+                    {monthData.byServiceType.map((service) => (
+                      <div key={service.serviceType} className="flex justify-between text-xs">
+                        <span className="text-muted-foreground">{service.serviceType}:</span>
+                        <span className="font-medium">${service.amount.toFixed(2)}</span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            ))}
+          </div>
+        </CardContent>
+      </Card>
+      
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-lg">By Contract</CardTitle>
+        </CardHeader>
+        <CardContent>
+          {revenueData.contractBreakdown.length === 0 ? (
+            <p className="text-sm text-muted-foreground text-center py-4">No contracts</p>
+          ) : (
+            <div className="border rounded-md">
+              <table className="w-full">
+                <thead>
+                  <tr className="border-b bg-muted/30">
+                    <th className="text-left p-3 text-xs font-medium">Service Type</th>
+                    <th className="text-left p-3 text-xs font-medium">Status</th>
+                    <th className="text-left p-3 text-xs font-medium">Date Range</th>
+                    <th className="text-right p-3 text-xs font-medium">Annual Total</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {revenueData.contractBreakdown.map((contract) => (
+                    <tr key={contract.contractId} className="border-b last:border-0" data-testid={`row-contract-${contract.contractId}`}>
+                      <td className="p-3 text-sm">{contract.serviceType}</td>
+                      <td className="p-3">
+                        <StatusBadge status={contract.status as "active" | "paused" | "ended"} />
+                      </td>
+                      <td className="p-3 text-sm text-muted-foreground">
+                        {format(new Date(contract.startDate), "MMM d, yyyy")}
+                        {contract.endDate ? ` - ${format(new Date(contract.endDate), "MMM d, yyyy")}` : " - Ongoing"}
+                      </td>
+                      <td className="p-3 text-sm font-semibold text-right" data-testid={`text-contract-${contract.contractId}-total`}>
+                        ${contract.annualTotal.toFixed(2)}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </CardContent>
+      </Card>
     </div>
   );
 }
