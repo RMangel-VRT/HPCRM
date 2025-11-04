@@ -65,10 +65,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
       return res.status(403).send("Insufficient permissions - admin or office role required");
     }
 
-    console.log("PATCH /api/customers/:id - Request body:", req.body);
     const result = insertCustomerSchema.partial().omit({ companyId: true }).safeParse(req.body);
     if (!result.success) {
-      console.log("Validation failed:", result.error);
       return res.status(400).send(result.error.message);
     }
 
