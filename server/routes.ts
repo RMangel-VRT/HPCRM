@@ -991,6 +991,28 @@ export async function registerRoutes(app: Express): Promise<Server> {
     res.json(data);
   });
 
+  app.get("/api/dashboard/top-customers", async (req, res) => {
+    if (!req.isAuthenticated()) {
+      return res.status(401).send("Not authenticated");
+    }
+
+    const user = req.user as UserWithContext;
+    const limit = req.query.limit ? parseInt(req.query.limit as string) : 5;
+    const data = await storage.getTopCustomers(user.activeCompanyId, limit);
+    res.json(data);
+  });
+
+  app.get("/api/dashboard/upcoming-renewals", async (req, res) => {
+    if (!req.isAuthenticated()) {
+      return res.status(401).send("Not authenticated");
+    }
+
+    const user = req.user as UserWithContext;
+    const daysAhead = req.query.days ? parseInt(req.query.days as string) : 90;
+    const data = await storage.getUpcomingRenewals(user.activeCompanyId, daysAhead);
+    res.json(data);
+  });
+
   app.get("/api/revenue/overview", async (req, res) => {
     if (!req.isAuthenticated()) {
       return res.status(401).send("Not authenticated");
