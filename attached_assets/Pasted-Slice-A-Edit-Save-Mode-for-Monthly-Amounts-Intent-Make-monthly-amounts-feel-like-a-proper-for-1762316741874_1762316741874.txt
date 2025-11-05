@@ -1,0 +1,166 @@
+Slice A — “Edit / Save” Mode for Monthly Amounts
+
+Intent
+Make monthly amounts feel like a proper form with Edit → Save (or Cancel) instead of live-updating fields.
+
+What changes in the UI
+
+On the Customer → Contracts → [Open a Contract] → Monthly Amounts section:
+
+The monthly grid (Jan–Dec) starts in view mode:
+
+months and amounts visible
+
+no editable inputs
+
+a single “Edit amounts” button
+
+Clicking “Edit amounts” switches into edit mode:
+
+each month becomes an editable amount field
+
+show two buttons: “Save changes” and “Cancel”
+
+show the Annual Total updating as values change
+
+Clicking “Save changes”:
+
+validates all months
+
+shows errors inline if anything is invalid
+
+if valid, saves all twelve, updates the total, and returns to view mode
+
+Clicking “Cancel”:
+
+discards any changes since entering edit mode
+
+restores the last saved values and returns to view mode
+
+Validation behavior
+
+In edit mode, each month must be a valid currency amount (or zero).
+
+Non-numeric or negative values block saving and show a friendly error.
+
+No changes are persisted until “Save changes” succeeds.
+
+Permissions
+
+Admin/Office: can enter edit mode and save/cancel.
+
+Ops/Viewer: see the grid only in view mode; no edit button.
+
+Acceptance checks
+
+Changing values and hitting Cancel does NOT affect the stored amounts.
+
+Changing values and hitting Save changes updates the stored amounts and the annual total.
+
+Non-numeric input is highlighted and blocks saving.
+
+Slice B — Contract Lifecycle: End / Archive / Delete + Uniqueness
+
+You’ve noticed: “Right now there are two contracts for Sunset Village Apartments and both say active.”
+
+We want:
+
+A clean way to retire old contracts.
+
+History preserved (so you can see what used to be in place).
+
+A rule that only one active Maintenance and one active Snow contract can exist per customer.
+
+1. Contract actions
+
+On each Contract:
+
+Add clear actions:
+
+End contract – sets its status to “Ended”, keeps it in history.
+
+Archive contract (if you want a separate concept from End; optional).
+
+Delete permanently – only for mistakes, and only if there are no important attachments/usage.
+
+In the Contracts list for a customer:
+
+Default view: Active and Paused contracts.
+
+Filter/option to “Show ended/archived” for historical view.
+
+Strong recommendation: rely mainly on End contract rather than hard Delete, and only allow Delete for obvious test/bad records (maybe admin-only).
+
+2. Uniqueness rule: only one active Maintenance & Snow
+
+Business rule:
+
+For each Customer:
+
+At most one active Maintenance contract.
+
+At most one active Snow contract.
+
+Other services (Chemical, Irrigation, etc.) can have multiple contracts if needed (unless you want limits there too).
+
+Behavior when users try to create or activate:
+
+When creating or editing a contract as Maintenance:
+
+If another active Maintenance contract already exists for that customer:
+
+Show a clear message like:
+“There is already an active Maintenance contract for this customer. Please end or pause the existing one before adding another.”
+
+Block saving until they resolve it.
+
+Same rule for Snow.
+
+You can still have multiple Ended Maintenance/Snow contracts for history — only active ones are restricted.
+
+Acceptance checks
+
+For Sunset Village: try to set two Maintenance contracts both as Active → system blocks the second.
+
+After ending one of them, you can activate a new one.
+
+Slice C — Coverage Indicator per Customer (Full / Maintenance only / Snow only)
+
+Now that Maintenance and Snow contracts are controlled, we can give you a quick coverage status at the customer level.
+
+Goal
+On each Customer, show whether their current active contracts provide:
+
+Full maintenance and snow
+
+Maintenance only
+
+Snow only
+
+Neither (no active Maintenance or Snow contracts)
+
+How to determine this
+
+For each Customer, look at active contracts:
+
+If at least one active Maintenance and at least one active Snow → “Maintenance & Snow”
+
+If at least one active Maintenance and no active Snow → “Maintenance only”
+
+If at least one active Snow and no active Maintenance → “Snow only”
+
+If neither → “No active maintenance or snow”
+
+Where to show it
+
+On the Customer header somewhere prominent (e.g., a small status pill).
+
+On the Contracts tab, maybe as a line of text (e.g., “Coverage: Maintenance & Snow”).
+
+Acceptance checks
+
+End all Snow contracts for a customer → coverage changes to “Maintenance only”.
+
+End all Maintenance contracts → coverage changes to “Snow only” (or “None” if there’s no Snow).
+
+Reactivate or create a Snow contract → coverage updates to “Maintenance & Snow”.
