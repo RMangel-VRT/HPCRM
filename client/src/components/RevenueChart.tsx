@@ -11,7 +11,7 @@ export function RevenueChart() {
 
   if (isLoading) {
     return (
-      <Card>
+      <Card data-testid="card-revenue-chart">
         <CardHeader>
           <CardTitle>Monthly Revenue</CardTitle>
           <CardDescription>Revenue breakdown for {currentYear}</CardDescription>
@@ -25,7 +25,7 @@ export function RevenueChart() {
 
   if (!revenueData || revenueData.length === 0) {
     return (
-      <Card>
+      <Card data-testid="card-revenue-chart">
         <CardHeader>
           <CardTitle>Monthly Revenue</CardTitle>
           <CardDescription>Revenue breakdown for {currentYear}</CardDescription>
