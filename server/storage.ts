@@ -647,8 +647,8 @@ export class PgStorage implements IStorage {
     return {
       customersCount: allCustomers.length,
       activeContractsCount: activeContracts.length,
-      monthlyRevenue: Number(currentMonthRevenue[0]?.total || 0),
-      ytdRevenue: Number(ytdRevenue[0]?.total || 0),
+      monthlyRevenue: Number(currentMonthRevenue[0]?.total || 0) / 100, // Convert cents to dollars
+      ytdRevenue: Number(ytdRevenue[0]?.total || 0) / 100, // Convert cents to dollars
     };
   }
 
@@ -692,7 +692,7 @@ export class PgStorage implements IStorage {
       .orderBy(contractMonthlyAmounts.month);
     
     const monthNames = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
-    const revenueByMonth = new Map(result.map(r => [r.month, Number(r.revenue)]));
+    const revenueByMonth = new Map(result.map(r => [r.month, Number(r.revenue) / 100])); // Convert cents to dollars
     
     return monthNames.map((name, index) => ({
       month: name,
@@ -719,7 +719,7 @@ export class PgStorage implements IStorage {
     return result.map(r => ({
       id: r.id,
       name: r.name,
-      totalRevenue: Number(r.totalRevenue),
+      totalRevenue: Number(r.totalRevenue) / 100, // Convert cents to dollars
       activeContracts: r.activeContracts,
     }));
   }
