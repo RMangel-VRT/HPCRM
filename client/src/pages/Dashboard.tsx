@@ -2,8 +2,9 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Users, FileText, DollarSign, TrendingUp } from "lucide-react";
 import { useQuery } from "@tanstack/react-query";
 import { Skeleton } from "@/components/ui/skeleton";
-import { CustomerGrowthChart } from "@/components/CustomerGrowthChart";
 import { RevenueChart } from "@/components/RevenueChart";
+import TopCustomers from "@/components/TopCustomers";
+import UpcomingRenewals from "@/components/UpcomingRenewals";
 
 interface DashboardStats {
   customersCount: number;
@@ -145,7 +146,10 @@ export default function Dashboard() {
         </div>
       )}
 
-      <CustomerGrowthChart />
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+        <TopCustomers />
+        <UpcomingRenewals />
+      </div>
     </div>
   );
 }
