@@ -26,6 +26,8 @@ export default function Dashboard() {
     }).format(amount);
   };
 
+  const currentMonth = new Date().toLocaleDateString('en-US', { month: 'long' });
+
   const dashboardCards = stats ? [
     { 
       title: "Active Customers", 
@@ -38,7 +40,7 @@ export default function Dashboard() {
       icon: FileText,
     },
     { 
-      title: "Monthly Revenue", 
+      title: `${currentMonth} Revenue`, 
       value: formatCurrency(stats.monthlyRevenue), 
       icon: DollarSign,
     },

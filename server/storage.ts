@@ -598,13 +598,39 @@ export class PgStorage implements IStorage {
     
     const activeContracts = allContracts.filter(c => c.status === "active");
     
-    const revenueData = await this.getRevenueOverview(companyId, month, year);
+    const currentMonthRevenue = await db
+      .select({
+        total: sql<number>`COALESCE(SUM(${contractMonthlyAmounts.amount}), 0)::numeric`,
+      })
+      .from(contractMonthlyAmounts)
+      .innerJoin(contracts, eq(contractMonthlyAmounts.contractId, contracts.id))
+      .where(
+        and(
+          eq(contracts.companyId, companyId),
+          eq(contracts.status, "active"),
+          eq(contractMonthlyAmounts.month, month)
+        )
+      );
+    
+    const ytdRevenue = await db
+      .select({
+        total: sql<number>`COALESCE(SUM(${contractMonthlyAmounts.amount}), 0)::numeric`,
+      })
+      .from(contractMonthlyAmounts)
+      .innerJoin(contracts, eq(contractMonthlyAmounts.contractId, contracts.id))
+      .where(
+        and(
+          eq(contracts.companyId, companyId),
+          eq(contracts.status, "active"),
+          sql`${contractMonthlyAmounts.month} <= ${month}`
+        )
+      );
     
     return {
       customersCount: allCustomers.length,
       activeContractsCount: activeContracts.length,
-      monthlyRevenue: revenueData.selectedMonthTotal,
-      ytdRevenue: revenueData.yearToDateTotal,
+      monthlyRevenue: Number(currentMonthRevenue[0]?.total || 0),
+      ytdRevenue: Number(ytdRevenue[0]?.total || 0),
     };
   }
 

@@ -1,9 +1,10 @@
 import { useQuery } from "@tanstack/react-query";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from "recharts";
+import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, ReferenceLine } from "recharts";
 
 export function RevenueChart() {
   const currentYear = new Date().getFullYear();
+  const currentMonth = new Date().toLocaleDateString('en-US', { month: 'short' });
   
   const { data: revenueData, isLoading } = useQuery<{ month: string; revenue: number }[]>({
     queryKey: [`/api/dashboard/monthly-revenue?year=${currentYear}`],
@@ -74,6 +75,18 @@ export function RevenueChart() {
               }}
               labelStyle={{ color: 'hsl(var(--foreground))' }}
               formatter={(value: number) => [formatCurrency(value), 'Revenue']}
+            />
+            <ReferenceLine 
+              x={currentMonth} 
+              stroke="hsl(var(--primary))" 
+              strokeDasharray="3 3"
+              strokeWidth={1.5}
+              label={{ 
+                value: 'Current Month', 
+                position: 'top',
+                fill: 'hsl(var(--primary))',
+                fontSize: 12,
+              }}
             />
             <Line 
               type="monotone" 
