@@ -641,7 +641,7 @@ export class PgStorage implements IStorage {
       .where(
         and(
           eq(contracts.companyId, companyId),
-          eq(contractMonthlyAmounts.year, year)
+          eq(contracts.status, "active")
         )
       )
       .groupBy(contractMonthlyAmounts.month)
