@@ -574,9 +574,8 @@ export default function CustomerDetail() {
 
   const createContractMutation = useMutation({
     mutationFn: async (data: Omit<InsertContract, "companyId" | "customerId">) => {
-      return apiRequest("POST", "/api/contracts", {
+      return apiRequest("POST", `/api/customers/${id}/contracts`, {
         ...data,
-        customerId: id,
         startDate: data.startDate instanceof Date ? data.startDate.toISOString() : data.startDate,
         endDate: data.endDate ? (data.endDate instanceof Date ? data.endDate.toISOString() : data.endDate) : null,
       });

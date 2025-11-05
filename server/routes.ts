@@ -242,6 +242,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
     const result = insertContractSchema.safeParse({
       ...req.body,
+      startDate: req.body.startDate ? new Date(req.body.startDate) : undefined,
+      endDate: req.body.endDate ? new Date(req.body.endDate) : null,
       customerId: req.params.customerId,
       companyId: user.activeCompanyId,
     });
