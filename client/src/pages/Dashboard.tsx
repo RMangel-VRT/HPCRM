@@ -109,6 +109,8 @@ export default function Dashboard() {
         </p>
       </div>
 
+      <RevenueChart />
+
       {isLoading ? (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
           {[1, 2, 3, 4].map((i) => (
@@ -141,10 +143,7 @@ export default function Dashboard() {
         </div>
       )}
 
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        <CustomerGrowthChart />
-        <RevenueChart />
-      </div>
+      <CustomerGrowthChart />
     </div>
   );
 }
