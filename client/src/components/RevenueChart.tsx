@@ -6,7 +6,7 @@ export function RevenueChart() {
   const currentYear = new Date().getFullYear();
   
   const { data: revenueData, isLoading } = useQuery<{ month: string; revenue: number }[]>({
-    queryKey: ["/api/dashboard/monthly-revenue", currentYear],
+    queryKey: [`/api/dashboard/monthly-revenue?year=${currentYear}`],
   });
 
   if (isLoading) {
