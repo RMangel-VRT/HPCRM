@@ -1,7 +1,8 @@
 import { useState, useRef, useMemo, useEffect } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { useRoute } from "wouter";
-import type { Customer, Contact, Note, Contract, ContractDocument, ContractMonthlyAmount, CustomerRateSheet } from "@shared/schema";
+import type { Customer, Contact, Note, Contract, ContractDocument, ContractMonthlyAmount, CustomerRateSheet, InsertContract } from "@shared/schema";
+import { insertContractSchema } from "@shared/schema";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -11,6 +12,21 @@ import { Input } from "@/components/ui/input";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import {
+  Form,
+  FormControl,
+  FormField,
+  FormItem,
+  FormLabel,
+  FormMessage,
+} from "@/components/ui/form";
 import { Edit, Plus, Users, FileText, MessageSquare, MapPin, BarChart3, Upload, Download, Eye, Paperclip, History, RefreshCw, DollarSign } from "lucide-react";
 import StatusBadge from "@/components/StatusBadge";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -21,6 +37,8 @@ import { format } from "date-fns";
 import { useToast } from "@/hooks/use-toast";
 import { queryClient, apiRequest } from "@/lib/queryClient";
 import { useAuth } from "@/hooks/use-auth";
+import { useForm } from "react-hook-form";
+import { zodResolver } from "@hookform/resolvers/zod";
 import ContractServices from "@/components/ContractServices";
 import ScheduleSummary from "@/components/ScheduleSummary";
 
@@ -498,6 +516,7 @@ export default function CustomerDetail() {
   const [showVersionHistory, setShowVersionHistory] = useState<string | null>(null);
   const [showReplaceConfirm, setShowReplaceConfirm] = useState<string | null>(null);
   const [uploadingFile, setUploadingFile] = useState(false);
+  const [isAddContractDialogOpen, setIsAddContractDialogOpen] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const { toast } = useToast();
   const { user } = useAuth();
@@ -523,6 +542,62 @@ export default function CustomerDetail() {
   });
 
   const canUploadDocuments = user?.activeRole === "admin" || user?.activeRole === "office";
+  const canEditContracts = user?.activeRole === "admin" || user?.activeRole === "office";
+
+  const contractForm = useForm<Omit<InsertContract, "companyId" | "customerId">>({
+    resolver: zodResolver(
+      insertContractSchema
+        .omit({ companyId: true, customerId: true })
+        .refine(
+          (data) => {
+            if (!data.endDate) return true;
+            const start = new Date(data.startDate);
+            const end = new Date(data.endDate);
+            return end >= start;
+          },
+          {
+            message: "End date must be after or equal to start date",
+            path: ["endDate"],
+          }
+        )
+    ),
+    defaultValues: {
+      serviceType: "Maintenance",
+      billingPattern: "monthly",
+      status: "active",
+      startDate: new Date(),
+      endDate: undefined,
+      po: "",
+      notes: "",
+    },
+  });
+
+  const createContractMutation = useMutation({
+    mutationFn: async (data: Omit<InsertContract, "companyId" | "customerId">) => {
+      return apiRequest("POST", "/api/contracts", {
+        ...data,
+        customerId: id,
+        startDate: data.startDate instanceof Date ? data.startDate.toISOString() : data.startDate,
+        endDate: data.endDate ? (data.endDate instanceof Date ? data.endDate.toISOString() : data.endDate) : null,
+      });
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/customers", id, "contracts"] });
+      toast({
+        title: "Success",
+        description: "Contract created successfully",
+      });
+      setIsAddContractDialogOpen(false);
+      contractForm.reset();
+    },
+    onError: (error: Error) => {
+      toast({
+        title: "Error",
+        description: error.message || "Failed to create contract",
+        variant: "destructive",
+      });
+    },
+  });
 
   const formatFileSize = (bytes: number) => {
     if (bytes === 0) return "0 B";
@@ -885,6 +960,15 @@ export default function CustomerDetail() {
         </TabsContent>
 
         <TabsContent value="contracts" className="space-y-4">
+          <div className="flex justify-end">
+            {canEditContracts && (
+              <Button size="sm" onClick={() => setIsAddContractDialogOpen(true)} data-testid="button-add-contract">
+                <Plus className="w-4 h-4 mr-2" />
+                Add Contract
+              </Button>
+            )}
+          </div>
+          
           <input
             ref={fileInputRef}
             type="file"
@@ -957,6 +1041,193 @@ export default function CustomerDetail() {
           <RevenueSection customerId={params?.id!} />
         </TabsContent>
       </Tabs>
+
+      <Dialog open={isAddContractDialogOpen} onOpenChange={setIsAddContractDialogOpen}>
+        <DialogContent className="max-w-2xl">
+          <DialogHeader>
+            <DialogTitle>Add New Contract</DialogTitle>
+            <DialogDescription>
+              Create a new service contract for this customer
+            </DialogDescription>
+          </DialogHeader>
+          <Form {...contractForm}>
+            <form onSubmit={contractForm.handleSubmit((data) => createContractMutation.mutate(data))} className="space-y-4">
+              <div className="grid grid-cols-2 gap-4">
+                <FormField
+                  control={contractForm.control}
+                  name="serviceType"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Service Type *</FormLabel>
+                      <Select onValueChange={field.onChange} value={field.value}>
+                        <FormControl>
+                          <SelectTrigger data-testid="select-service-type">
+                            <SelectValue placeholder="Select service type" />
+                          </SelectTrigger>
+                        </FormControl>
+                        <SelectContent>
+                          <SelectItem value="Maintenance">Maintenance</SelectItem>
+                          <SelectItem value="Chemical">Chemical</SelectItem>
+                          <SelectItem value="Snow">Snow & Ice</SelectItem>
+                          <SelectItem value="Irrigation">Irrigation</SelectItem>
+                          <SelectItem value="Other">Other</SelectItem>
+                        </SelectContent>
+                      </Select>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+                <FormField
+                  control={contractForm.control}
+                  name="billingPattern"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Billing Pattern *</FormLabel>
+                      <Select onValueChange={field.onChange} value={field.value}>
+                        <FormControl>
+                          <SelectTrigger data-testid="select-billing-pattern">
+                            <SelectValue placeholder="Select pattern" />
+                          </SelectTrigger>
+                        </FormControl>
+                        <SelectContent>
+                          <SelectItem value="monthly">Monthly</SelectItem>
+                          <SelectItem value="seasonal">Seasonal</SelectItem>
+                          <SelectItem value="12-of-12">12 of 12</SelectItem>
+                        </SelectContent>
+                      </Select>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+              </div>
+              <div className="grid grid-cols-2 gap-4">
+                <FormField
+                  control={contractForm.control}
+                  name="startDate"
+                  render={({ field }) => {
+                    const dateValue = field.value instanceof Date 
+                      ? field.value.toISOString().split('T')[0] 
+                      : '';
+                    return (
+                      <FormItem>
+                        <FormLabel>Start Date *</FormLabel>
+                        <FormControl>
+                          <Input
+                            type="date"
+                            data-testid="input-start-date"
+                            value={dateValue}
+                            onChange={(e) => {
+                              const dateStr = e.target.value;
+                              if (dateStr) {
+                                const date = new Date(dateStr + 'T00:00:00');
+                                field.onChange(date);
+                              }
+                            }}
+                          />
+                        </FormControl>
+                        <FormMessage />
+                      </FormItem>
+                    );
+                  }}
+                />
+                <FormField
+                  control={contractForm.control}
+                  name="endDate"
+                  render={({ field }) => {
+                    const dateValue = field.value instanceof Date 
+                      ? field.value.toISOString().split('T')[0] 
+                      : '';
+                    return (
+                      <FormItem>
+                        <FormLabel>End Date (Optional)</FormLabel>
+                        <FormControl>
+                          <Input
+                            type="date"
+                            data-testid="input-end-date"
+                            value={dateValue}
+                            onChange={(e) => {
+                              const dateStr = e.target.value;
+                              if (dateStr) {
+                                const date = new Date(dateStr + 'T00:00:00');
+                                field.onChange(date);
+                              } else {
+                                field.onChange(undefined);
+                              }
+                            }}
+                          />
+                        </FormControl>
+                        <FormMessage />
+                      </FormItem>
+                    );
+                  }}
+                />
+              </div>
+              <FormField
+                control={contractForm.control}
+                name="status"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Status *</FormLabel>
+                    <Select onValueChange={field.onChange} value={field.value}>
+                      <FormControl>
+                        <SelectTrigger data-testid="select-status">
+                          <SelectValue placeholder="Select status" />
+                        </SelectTrigger>
+                      </FormControl>
+                      <SelectContent>
+                        <SelectItem value="active">Active</SelectItem>
+                        <SelectItem value="paused">Paused</SelectItem>
+                        <SelectItem value="ended">Ended</SelectItem>
+                      </SelectContent>
+                    </Select>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+              <FormField
+                control={contractForm.control}
+                name="po"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>PO Number (Optional)</FormLabel>
+                    <FormControl>
+                      <Input placeholder="Enter PO number" {...field} value={field.value || ""} data-testid="input-po" />
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+              <FormField
+                control={contractForm.control}
+                name="notes"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Notes (Optional)</FormLabel>
+                    <FormControl>
+                      <Textarea
+                        placeholder="Add any additional notes about this contract"
+                        {...field}
+                        value={field.value || ""}
+                        data-testid="textarea-notes"
+                        rows={3}
+                      />
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+              <DialogFooter>
+                <Button type="button" variant="outline" onClick={() => setIsAddContractDialogOpen(false)} data-testid="button-cancel">
+                  Cancel
+                </Button>
+                <Button type="submit" disabled={createContractMutation.isPending} data-testid="button-save-contract">
+                  {createContractMutation.isPending ? "Creating..." : "Create Contract"}
+                </Button>
+              </DialogFooter>
+            </form>
+          </Form>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
