@@ -77,6 +77,8 @@ export interface IStorage {
   deleteContractService(id: string, companyId: string): Promise<void>;
   
   getDashboardStats(companyId: string, month: number, year: number): Promise<DashboardStats>;
+  getCustomerGrowthData(companyId: string): Promise<CustomerGrowthData[]>;
+  getMonthlyRevenueData(companyId: string, year: number): Promise<MonthlyRevenueData[]>;
   
   sessionStore: session.Store;
 }
@@ -86,6 +88,16 @@ export interface DashboardStats {
   activeContractsCount: number;
   monthlyRevenue: number;
   ytdRevenue: number;
+}
+
+export interface CustomerGrowthData {
+  month: string;
+  count: number;
+}
+
+export interface MonthlyRevenueData {
+  month: string;
+  revenue: number;
 }
 
 export interface CustomerRevenueData {
@@ -594,6 +606,54 @@ export class PgStorage implements IStorage {
       monthlyRevenue: revenueData.selectedMonthTotal,
       ytdRevenue: revenueData.yearToDateTotal,
     };
+  }
+
+  async getCustomerGrowthData(companyId: string): Promise<CustomerGrowthData[]> {
+    const result = await db
+      .select({
+        month: sql<string>`TO_CHAR(${customers.createdAt}, 'YYYY-MM')`,
+        count: sql<number>`COUNT(*)::int`,
+      })
+      .from(customers)
+      .where(
+        and(
+          eq(customers.companyId, companyId),
+          sql`${customers.createdAt} >= NOW() - INTERVAL '12 months'`
+        )
+      )
+      .groupBy(sql`TO_CHAR(${customers.createdAt}, 'YYYY-MM')`)
+      .orderBy(sql`TO_CHAR(${customers.createdAt}, 'YYYY-MM')`);
+    
+    return result.map(r => ({
+      month: r.month,
+      count: r.count,
+    }));
+  }
+
+  async getMonthlyRevenueData(companyId: string, year: number): Promise<MonthlyRevenueData[]> {
+    const result = await db
+      .select({
+        month: contractMonthlyAmounts.month,
+        revenue: sql<number>`COALESCE(SUM(${contractMonthlyAmounts.amount}), 0)::numeric`,
+      })
+      .from(contractMonthlyAmounts)
+      .innerJoin(contracts, eq(contractMonthlyAmounts.contractId, contracts.id))
+      .where(
+        and(
+          eq(contracts.companyId, companyId),
+          eq(contractMonthlyAmounts.year, year)
+        )
+      )
+      .groupBy(contractMonthlyAmounts.month)
+      .orderBy(contractMonthlyAmounts.month);
+    
+    const monthNames = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+    const revenueByMonth = new Map(result.map(r => [r.month, Number(r.revenue)]));
+    
+    return monthNames.map((name, index) => ({
+      month: name,
+      revenue: revenueByMonth.get(index + 1) || 0,
+    }));
   }
 }
 
