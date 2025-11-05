@@ -9,6 +9,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
 import { Input } from "@/components/ui/input";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
@@ -65,6 +66,11 @@ function ContractCard({ contract, customerId, canUploadDocuments, onUploadClick,
   const { user } = useAuth();
   
   const canEditBilling = user?.activeRole === "admin" || user?.activeRole === "office";
+  const canEndContract = (user?.activeRole === "admin" || user?.activeRole === "office") && contract.status === "active";
+  const canDeleteContract = user?.activeRole === "admin";
+  
+  const [showEndConfirm, setShowEndConfirm] = useState(false);
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   
   const { data: monthlyAmounts = [], isLoading: isLoadingAmounts } = useQuery<ContractMonthlyAmount[]>({
     queryKey: ["/api/contracts", contract.id, "monthly-amounts"],
@@ -72,6 +78,7 @@ function ContractCard({ contract, customerId, canUploadDocuments, onUploadClick,
   
   const [localAmounts, setLocalAmounts] = useState<Record<number, string>>({});
   const [hasChanges, setHasChanges] = useState(false);
+  const [isEditingAmounts, setIsEditingAmounts] = useState(false);
   
   const monthNames = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
   
@@ -99,13 +106,30 @@ function ContractCard({ contract, customerId, canUploadDocuments, onUploadClick,
   }, [localAmounts, initializedAmounts]);
   
   const handleAmountChange = (month: number, value: string) => {
-    if (!/^\d*\.?\d{0,2}$/.test(value)) return;
+    // Allow empty string during editing, or valid decimal numbers
+    if (value !== "" && !/^\d*\.?\d{0,2}$/.test(value)) return;
     setLocalAmounts(prev => ({ ...prev, [month]: value }));
     setHasChanges(true);
   };
   
+  const validateAmounts = () => {
+    const amounts = Object.keys(localAmounts).length > 0 ? localAmounts : initializedAmounts;
+    for (let i = 1; i <= 12; i++) {
+      const value = amounts[i] || "0.00";
+      const num = parseFloat(value);
+      if (isNaN(num) || num < 0) {
+        return false;
+      }
+    }
+    return true;
+  };
+
   const saveMutation = useMutation({
     mutationFn: async () => {
+      if (!validateAmounts()) {
+        throw new Error("All monthly amounts must be non-negative numbers");
+      }
+      
       const amounts = Object.keys(localAmounts).length > 0 ? localAmounts : initializedAmounts;
       const data = Array.from({ length: 12 }, (_, i) => {
         const month = i + 1;
@@ -122,6 +146,7 @@ function ContractCard({ contract, customerId, canUploadDocuments, onUploadClick,
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/contracts", contract.id, "monthly-amounts"] });
       setHasChanges(false);
+      setIsEditingAmounts(false);
       toast({
         title: "Success",
         description: "Monthly billing amounts saved",
@@ -131,6 +156,48 @@ function ContractCard({ contract, customerId, canUploadDocuments, onUploadClick,
       toast({
         title: "Error",
         description: error.message || "Failed to save monthly amounts",
+        variant: "destructive",
+      });
+    },
+  });
+
+  const endContractMutation = useMutation({
+    mutationFn: async () => {
+      return await apiRequest("PATCH", `/api/contracts/${contract.id}`, { status: "ended" });
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/customers", customerId, "contracts"] });
+      setShowEndConfirm(false);
+      toast({
+        title: "Success",
+        description: "Contract ended",
+      });
+    },
+    onError: (error: Error) => {
+      toast({
+        title: "Error",
+        description: error.message || "Failed to end contract",
+        variant: "destructive",
+      });
+    },
+  });
+
+  const deleteContractMutation = useMutation({
+    mutationFn: async () => {
+      return await apiRequest("DELETE", `/api/contracts/${contract.id}`, {});
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/customers", customerId, "contracts"] });
+      setShowDeleteConfirm(false);
+      toast({
+        title: "Success",
+        description: "Contract deleted",
+      });
+    },
+    onError: (error: Error) => {
+      toast({
+        title: "Error",
+        description: error.message || "Failed to delete contract",
         variant: "destructive",
       });
     },
@@ -267,15 +334,49 @@ function ContractCard({ contract, customerId, canUploadDocuments, onUploadClick,
         <div>
           <div className="flex items-center justify-between mb-2">
             <p className="text-sm font-medium">Monthly Billing</p>
-            {hasChanges && canEditBilling && (
+            {!isEditingAmounts && canEditBilling && (
               <Button 
                 size="sm" 
-                onClick={() => saveMutation.mutate()}
-                disabled={saveMutation.isPending}
-                data-testid="button-save-monthly-amounts"
+                variant="outline"
+                onClick={() => setIsEditingAmounts(true)}
+                data-testid="button-edit-amounts"
               >
-                {saveMutation.isPending ? "Saving..." : "Save"}
+                Edit Amounts
               </Button>
+            )}
+            {isEditingAmounts && (
+              <div className="flex gap-2">
+                <Button 
+                  size="sm" 
+                  variant="outline"
+                  onClick={() => {
+                    setLocalAmounts(initializedAmounts);
+                    setHasChanges(false);
+                    setIsEditingAmounts(false);
+                  }}
+                  data-testid="button-cancel-amounts"
+                >
+                  Cancel
+                </Button>
+                <Button 
+                  size="sm" 
+                  onClick={() => {
+                    if (!validateAmounts()) {
+                      toast({
+                        title: "Invalid amounts",
+                        description: "All monthly amounts must be non-negative numbers",
+                        variant: "destructive",
+                      });
+                      return;
+                    }
+                    saveMutation.mutate();
+                  }}
+                  disabled={saveMutation.isPending}
+                  data-testid="button-save-amounts"
+                >
+                  {saveMutation.isPending ? "Saving..." : "Save Changes"}
+                </Button>
+              </div>
             )}
           </div>
           {isLoadingAmounts ? (
@@ -293,19 +394,24 @@ function ContractCard({ contract, customerId, canUploadDocuments, onUploadClick,
                       <label className="text-xs text-muted-foreground mb-1 block">
                         {monthName}
                       </label>
-                      <div className="relative">
-                        <span className="absolute left-2 top-1/2 -translate-y-1/2 text-sm text-muted-foreground">
-                          $
-                        </span>
-                        <Input
-                          type="text"
-                          value={value}
-                          onChange={(e) => handleAmountChange(month, e.target.value)}
-                          disabled={!canEditBilling}
-                          className="pl-5 text-sm"
-                          data-testid={`input-month-${month}`}
-                        />
-                      </div>
+                      {isEditingAmounts ? (
+                        <div className="relative">
+                          <span className="absolute left-2 top-1/2 -translate-y-1/2 text-sm text-muted-foreground">
+                            $
+                          </span>
+                          <Input
+                            type="text"
+                            value={value}
+                            onChange={(e) => handleAmountChange(month, e.target.value)}
+                            className="pl-5 text-sm"
+                            data-testid={`input-month-${month}`}
+                          />
+                        </div>
+                      ) : (
+                        <p className="text-sm font-medium" data-testid={`text-month-${month}`}>
+                          ${value}
+                        </p>
+                      )}
                     </div>
                   );
                 })}
@@ -417,7 +523,76 @@ function ContractCard({ contract, customerId, canUploadDocuments, onUploadClick,
             </div>
           </>
         )}
+
+        {(canEndContract || canDeleteContract) && (
+          <>
+            <Separator className="my-3" />
+            <div className="flex gap-2 flex-wrap">
+              {canEndContract && (
+                <Button 
+                  size="sm" 
+                  variant="outline"
+                  onClick={() => setShowEndConfirm(true)}
+                  data-testid={`button-end-contract-${contract.id}`}
+                >
+                  End Contract
+                </Button>
+              )}
+              {canDeleteContract && (
+                <Button 
+                  size="sm" 
+                  variant="destructive"
+                  onClick={() => setShowDeleteConfirm(true)}
+                  data-testid={`button-delete-contract-${contract.id}`}
+                >
+                  Delete Contract
+                </Button>
+              )}
+            </div>
+          </>
+        )}
       </CardContent>
+
+      <AlertDialog open={showEndConfirm} onOpenChange={setShowEndConfirm}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>End this contract?</AlertDialogTitle>
+            <AlertDialogDescription>
+              This will mark the contract as ended. This action can be reversed by changing the status back to active.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction 
+              onClick={() => endContractMutation.mutate()}
+              disabled={endContractMutation.isPending}
+            >
+              {endContractMutation.isPending ? "Ending..." : "End Contract"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      <AlertDialog open={showDeleteConfirm} onOpenChange={setShowDeleteConfirm}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete this contract permanently?</AlertDialogTitle>
+            <AlertDialogDescription>
+              This will permanently delete the contract, including all monthly amounts, documents, and service records. This action cannot be undone.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction 
+              onClick={() => deleteContractMutation.mutate()}
+              disabled={deleteContractMutation.isPending}
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+            >
+              {deleteContractMutation.isPending ? "Deleting..." : "Delete Permanently"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </Card>
   );
 }
@@ -517,6 +692,7 @@ export default function CustomerDetail() {
   const [showReplaceConfirm, setShowReplaceConfirm] = useState<string | null>(null);
   const [uploadingFile, setUploadingFile] = useState(false);
   const [isAddContractDialogOpen, setIsAddContractDialogOpen] = useState(false);
+  const [showEndedContracts, setShowEndedContracts] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const { toast } = useToast();
   const { user } = useAuth();
@@ -720,6 +896,39 @@ export default function CustomerDetail() {
     new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
   );
 
+  const calculateCoverage = (contracts: Contract[]) => {
+    const now = new Date();
+    const currentContracts = contracts.filter(c => {
+      if (c.status !== "active") return false;
+      
+      // Check if contract is within its term
+      const startDate = new Date(c.startDate);
+      if (startDate > now) return false; // Contract hasn't started yet
+      
+      if (c.endDate) {
+        const endDate = new Date(c.endDate);
+        if (endDate < now) return false; // Contract has ended
+      }
+      
+      return true;
+    });
+    
+    const hasMaintenance = currentContracts.some(c => c.serviceType === "Maintenance");
+    const hasSnow = currentContracts.some(c => c.serviceType === "Snow");
+    
+    if (hasMaintenance && hasSnow) {
+      return "Maintenance & Snow";
+    } else if (hasMaintenance) {
+      return "Maintenance Only";
+    } else if (hasSnow) {
+      return "Snow Only";
+    } else {
+      return "No Coverage";
+    }
+  };
+
+  const coverage = calculateCoverage(contracts);
+
   return (
     <div className="space-y-6">
       <div className="flex items-start justify-between gap-4 flex-wrap">
@@ -729,6 +938,12 @@ export default function CustomerDetail() {
               {customer.name}
             </h1>
             <StatusBadge status={customer.status} />
+            <Badge 
+              variant={coverage === "Maintenance & Snow" ? "default" : coverage === "No Coverage" ? "outline" : "secondary"}
+              data-testid="badge-coverage-status"
+            >
+              {coverage}
+            </Badge>
           </div>
           <div className="flex gap-2 flex-wrap">
             {customer.tags?.map((tag) => (
@@ -959,7 +1174,21 @@ export default function CustomerDetail() {
         </TabsContent>
 
         <TabsContent value="contracts" className="space-y-4">
-          <div className="flex justify-end">
+          <div className="flex justify-between items-center gap-4">
+            <div className="flex items-center gap-2">
+              <Checkbox 
+                id="show-ended-contracts"
+                checked={showEndedContracts}
+                onCheckedChange={(checked) => setShowEndedContracts(checked as boolean)}
+                data-testid="toggle-show-ended-contracts"
+              />
+              <label 
+                htmlFor="show-ended-contracts"
+                className="text-sm font-medium cursor-pointer"
+              >
+                Show Ended Contracts
+              </label>
+            </div>
             {canEditContracts && (
               <Button size="sm" onClick={() => setIsAddContractDialogOpen(true)} data-testid="button-add-contract">
                 <Plus className="w-4 h-4 mr-2" />
@@ -982,31 +1211,39 @@ export default function CustomerDetail() {
                 <Skeleton key={i} className="h-32 w-full" />
               ))}
             </div>
-          ) : contracts.length === 0 ? (
-            <Card>
-              <CardContent className="flex items-center justify-center p-12">
-                <div className="text-center">
-                  <FileText className="w-12 h-12 mx-auto text-muted-foreground mb-3" />
-                  <p className="text-sm text-muted-foreground">No contracts yet</p>
-                </div>
-              </CardContent>
-            </Card>
-          ) : (
-            <div className="space-y-3">
-              {contracts.map((contract) => (
-                <ContractCard 
-                  key={contract.id} 
-                  contract={contract}
-                  customerId={params?.id!}
-                  canUploadDocuments={canUploadDocuments}
-                  onUploadClick={handleUploadClick}
-                  uploadingFile={uploadingFile}
-                  formatFileSize={formatFileSize}
-                  setShowVersionHistory={setShowVersionHistory}
-                />
-              ))}
-            </div>
-          )}
+          ) : (() => {
+            const filteredContracts = showEndedContracts 
+              ? contracts 
+              : contracts.filter(c => c.status === "active" || c.status === "paused");
+            
+            return filteredContracts.length === 0 ? (
+              <Card>
+                <CardContent className="flex items-center justify-center p-12">
+                  <div className="text-center">
+                    <FileText className="w-12 h-12 mx-auto text-muted-foreground mb-3" />
+                    <p className="text-sm text-muted-foreground">
+                      {showEndedContracts ? "No contracts yet" : "No active or paused contracts"}
+                    </p>
+                  </div>
+                </CardContent>
+              </Card>
+            ) : (
+              <div className="space-y-3">
+                {filteredContracts.map((contract) => (
+                  <ContractCard 
+                    key={contract.id} 
+                    contract={contract}
+                    customerId={params?.id!}
+                    canUploadDocuments={canUploadDocuments}
+                    onUploadClick={handleUploadClick}
+                    uploadingFile={uploadingFile}
+                    formatFileSize={formatFileSize}
+                    setShowVersionHistory={setShowVersionHistory}
+                  />
+                ))}
+              </div>
+            );
+          })()}
 
           <AlertDialog open={showReplaceConfirm !== null} onOpenChange={(open) => !open && setShowReplaceConfirm(null)}>
             <AlertDialogContent>

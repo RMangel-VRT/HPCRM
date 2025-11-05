@@ -251,6 +251,19 @@ export async function registerRoutes(app: Express): Promise<Server> {
       return res.status(400).send(result.error.message);
     }
 
+    if (result.data.serviceType === "Maintenance" || result.data.serviceType === "Snow") {
+      const existingContracts = await storage.getContractsByCustomerId(req.params.customerId, user.activeCompanyId);
+      const existingActiveContract = existingContracts.find(
+        c => c.serviceType === result.data.serviceType && c.status === "active"
+      );
+      
+      if (existingActiveContract) {
+        return res.status(400).send(
+          `An active ${result.data.serviceType} contract already exists for this customer. Please end the existing contract first.`
+        );
+      }
+    }
+
     const contract = await storage.createContract(result.data);
     
     await storage.createContractStatusHistory({
@@ -273,15 +286,36 @@ export async function registerRoutes(app: Express): Promise<Server> {
       return res.status(403).send("Insufficient permissions - admin or office role required");
     }
 
+    const existingContract = await storage.getContractById(req.params.id, user.activeCompanyId);
+    if (!existingContract) {
+      return res.status(404).send("Contract not found");
+    }
+
+    // If changing status to active, check uniqueness for Maintenance/Snow contracts
+    if (req.body.status === "active" && existingContract.status !== "active") {
+      if (existingContract.serviceType === "Maintenance" || existingContract.serviceType === "Snow") {
+        const allContracts = await storage.getContractsByCustomerId(existingContract.customerId, user.activeCompanyId);
+        const conflictingContract = allContracts.find(
+          c => c.id !== req.params.id && c.serviceType === existingContract.serviceType && c.status === "active"
+        );
+        
+        if (conflictingContract) {
+          return res.status(400).send(
+            `An active ${existingContract.serviceType} contract already exists for this customer. Please end the existing contract first.`
+          );
+        }
+      }
+    }
+
     const contract = await storage.updateContract(req.params.id, user.activeCompanyId, req.body);
     if (!contract) {
       return res.status(404).send("Contract not found");
     }
 
-    if (req.body.status && req.body.status !== contract.status) {
+    if (req.body.status && req.body.status !== existingContract.status) {
       await storage.createContractStatusHistory({
         contractId: contract.id,
-        oldStatus: contract.status as any,
+        oldStatus: existingContract.status as any,
         newStatus: req.body.status,
         changedBy: user.id,
       });
@@ -297,8 +331,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
     const user = req.user as UserWithContext;
     
-    if (user.activeRole === "ops" || user.activeRole === "viewer") {
-      return res.status(403).send("Insufficient permissions - admin or office role required");
+    if (user.activeRole !== "admin") {
+      return res.status(403).send("Insufficient permissions - admin role required");
     }
 
     await storage.deleteContract(req.params.id, user.activeCompanyId);
