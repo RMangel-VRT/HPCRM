@@ -17,6 +17,32 @@ The backend is built with Express.js and TypeScript. Authentication uses Passpor
 ### Data Storage
 The system uses PostgreSQL (Neon serverless) with Drizzle ORM for type-safe queries. The schema is designed for multi-tenancy, including `Companies`, `Company_users` (junction table for user-company memberships with roles), `Users`, `Customers` (formerly properties), `Contacts`, `Contracts`, `Contract_documents`, `Contract_services`, and `Settings` tables. UUIDs are used for primary keys, and foreign key constraints ensure referential integrity. Drizzle Kit is used for schema migrations, with the schema defined in `shared/schema.ts` for type sharing.
 
+#### Contract Management
+The system provides comprehensive contract lifecycle management with the following features:
+
+**Monthly Billing:**
+- **Edit/Save/Cancel Workflow:** Monthly billing amounts use a stateful edit mode with explicit save/cancel actions to prevent accidental data loss
+- **12-Month Entry:** Each contract stores individual monthly amounts (in cents) for each month (1-12)
+- **Validation:** Non-negative decimal validation prevents invalid amounts; empty fields default to $0.00
+- **Permission-based Editing:** Admin and office roles can edit monthly amounts; ops and viewer have read-only access
+
+**Contract Lifecycle:**
+- **End Contract:** Admin and office roles can end active contracts with confirmation dialog; updates status to "ended" and creates status history
+- **Delete Contract:** Admin-only action with confirmation dialog; permanently removes contract and associated data
+- **Uniqueness Enforcement:** Only ONE active Maintenance contract and ONE active Snow contract allowed per customer at a time
+- **Uniqueness Validation:** Enforced on both POST (create) and PATCH (reactivate) operations with clear JSON error messages
+
+**Coverage Indicator:**
+- **Smart Calculation:** Badge displays customer's current service coverage based on active contracts within their term dates
+- **Four States:** "Maintenance & Snow", "Maintenance Only", "Snow Only", "No Coverage"
+- **Date-aware:** Considers both contract status AND whether current date falls within start/end dates
+- **Real-time Updates:** Coverage badge updates immediately when contracts are created, ended, or deleted
+
+**Visibility Controls:**
+- **Default View:** Ended contracts hidden by default to reduce clutter
+- **Show All Toggle:** Users can toggle to view all contracts including ended ones
+- **Status Badges:** Visual indicators for "Active" and "Ended" status
+
 #### Contract Services
 The `Contract_services` table stores service configurations for each contract with the following features:
 - **Service Catalog:** 8 pre-defined service types (mowing, pet_station, chemicals, trimming, ornamental_grass, aeration, cleanups, tree_pruning) with intelligent defaults

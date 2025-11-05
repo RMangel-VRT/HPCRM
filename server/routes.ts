@@ -248,7 +248,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       companyId: user.activeCompanyId,
     });
     if (!result.success) {
-      return res.status(400).send(result.error.message);
+      return res.status(400).json({ error: result.error.message });
     }
 
     if (result.data.serviceType === "Maintenance" || result.data.serviceType === "Snow") {
@@ -258,9 +258,56 @@ export async function registerRoutes(app: Express): Promise<Server> {
       );
       
       if (existingActiveContract) {
-        return res.status(400).send(
-          `An active ${result.data.serviceType} contract already exists for this customer. Please end the existing contract first.`
-        );
+        return res.status(400).json({
+          error: `An active ${result.data.serviceType} contract already exists for this customer. Please end the existing contract first.`
+        });
+      }
+    }
+
+    const contract = await storage.createContract(result.data);
+    
+    await storage.createContractStatusHistory({
+      contractId: contract.id,
+      newStatus: contract.status,
+      changedBy: user.id,
+    });
+
+    res.json(contract);
+  });
+
+  // Alternative endpoint for creating contracts (customer_id in body instead of URL)
+  app.post("/api/contracts", async (req, res) => {
+    if (!req.isAuthenticated()) {
+      return res.status(401).send("Not authenticated");
+    }
+
+    const user = req.user as UserWithContext;
+    
+    if (user.activeRole === "ops" || user.activeRole === "viewer") {
+      return res.status(403).send("Insufficient permissions - admin or office role required");
+    }
+
+    const result = insertContractSchema.safeParse({
+      ...req.body,
+      startDate: req.body.startDate ? new Date(req.body.startDate) : undefined,
+      endDate: req.body.endDate ? new Date(req.body.endDate) : null,
+      customerId: req.body.customer_id || req.body.customerId,
+      companyId: user.activeCompanyId,
+    });
+    if (!result.success) {
+      return res.status(400).json({ error: result.error.message });
+    }
+
+    if (result.data.serviceType === "Maintenance" || result.data.serviceType === "Snow") {
+      const existingContracts = await storage.getContractsByCustomerId(result.data.customerId, user.activeCompanyId);
+      const existingActiveContract = existingContracts.find(
+        c => c.serviceType === result.data.serviceType && c.status === "active"
+      );
+      
+      if (existingActiveContract) {
+        return res.status(400).json({
+          error: `An active ${result.data.serviceType} contract already exists for this customer. Please end the existing contract first.`
+        });
       }
     }
 
@@ -300,9 +347,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
         );
         
         if (conflictingContract) {
-          return res.status(400).send(
-            `An active ${existingContract.serviceType} contract already exists for this customer. Please end the existing contract first.`
-          );
+          return res.status(400).json({
+            error: `An active ${existingContract.serviceType} contract already exists for this customer. Please end the existing contract first.`
+          });
         }
       }
     }
