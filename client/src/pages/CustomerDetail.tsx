@@ -1,8 +1,8 @@
 import { useState, useRef, useMemo, useEffect } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { useRoute } from "wouter";
-import type { Customer, Contact, Note, Contract, ContractDocument, ContractMonthlyAmount, CustomerRateSheet, InsertContract, InsertContact, InsertNote } from "@shared/schema";
-import { insertContractSchema, insertContactSchema, insertNoteSchema } from "@shared/schema";
+import type { Customer, Contact, Note, Contract, ContractDocument, ContractMonthlyAmount, CustomerRateSheet, InsertContract, InsertContact, InsertNote, InsertCustomer } from "@shared/schema";
+import { insertContractSchema, insertContactSchema, insertNoteSchema, insertCustomerSchema } from "@shared/schema";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -774,6 +774,65 @@ export default function CustomerDetail() {
     },
   });
 
+  // Customer edit management
+  const [isEditCustomerDialogOpen, setIsEditCustomerDialogOpen] = useState(false);
+  
+  const customerForm = useForm<Omit<InsertCustomer, "companyId">>({
+    resolver: zodResolver(insertCustomerSchema.omit({ companyId: true })),
+    defaultValues: {
+      name: customer?.name || "",
+      street: customer?.street || "",
+      city: customer?.city || "",
+      state: customer?.state || "",
+      zip: customer?.zip || "",
+      status: customer?.status || "active",
+      tags: customer?.tags || [],
+      acres: customer?.acres || "",
+      complexityScore: customer?.complexityScore || undefined,
+      active: customer?.active || "true",
+    },
+  });
+
+  // Update form when customer data loads
+  useEffect(() => {
+    if (customer && isEditCustomerDialogOpen) {
+      customerForm.reset({
+        name: customer.name,
+        street: customer.street,
+        city: customer.city,
+        state: customer.state,
+        zip: customer.zip,
+        status: customer.status,
+        tags: customer.tags || [],
+        acres: customer.acres || "",
+        complexityScore: customer.complexityScore || undefined,
+        active: customer.active,
+      });
+    }
+  }, [customer, customerForm, isEditCustomerDialogOpen]);
+
+  const updateCustomerMutation = useMutation({
+    mutationFn: async (data: Omit<InsertCustomer, "companyId">) => {
+      return apiRequest("PATCH", `/api/customers/${id}`, data);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/customers", id] });
+      queryClient.invalidateQueries({ queryKey: ["/api/customers"] });
+      toast({
+        title: "Success",
+        description: "Customer updated successfully",
+      });
+      setIsEditCustomerDialogOpen(false);
+    },
+    onError: (error: Error) => {
+      toast({
+        title: "Error",
+        description: error.message || "Failed to update customer",
+        variant: "destructive",
+      });
+    },
+  });
+
   // Contact management
   const [isAddContactDialogOpen, setIsAddContactDialogOpen] = useState(false);
   const [editingContact, setEditingContact] = useState<Contact | null>(null);
@@ -1109,11 +1168,21 @@ export default function CustomerDetail() {
           </div>
         </div>
         <div className="flex gap-2">
-          <Button variant="outline" data-testid="button-add-note">
+          <Button 
+            variant="outline" 
+            data-testid="button-add-note"
+            onClick={() => {
+              setIsAddNoteDialogOpen(true);
+              setActiveTab("notes");
+            }}
+          >
             <MessageSquare className="w-4 h-4 mr-2" />
             Add Note
           </Button>
-          <Button data-testid="button-edit-customer">
+          <Button 
+            data-testid="button-edit-customer"
+            onClick={() => setIsEditCustomerDialogOpen(true)}
+          >
             <Edit className="w-4 h-4 mr-2" />
             Edit
           </Button>
@@ -1894,6 +1963,165 @@ export default function CustomerDetail() {
                     ? (updateNoteMutation.isPending ? "Updating..." : "Update Note")
                     : (createNoteMutation.isPending ? "Creating..." : "Create Note")
                   }
+                </Button>
+              </DialogFooter>
+            </form>
+          </Form>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={isEditCustomerDialogOpen} onOpenChange={setIsEditCustomerDialogOpen}>
+        <DialogContent className="max-w-2xl">
+          <DialogHeader>
+            <DialogTitle>Edit Customer</DialogTitle>
+            <DialogDescription>
+              Update customer information
+            </DialogDescription>
+          </DialogHeader>
+          <Form {...customerForm}>
+            <form onSubmit={customerForm.handleSubmit((data) => updateCustomerMutation.mutate(data))} className="space-y-4">
+              <FormField
+                control={customerForm.control}
+                name="name"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Customer Name *</FormLabel>
+                    <FormControl>
+                      <Input placeholder="ABC Corporation" {...field} data-testid="input-customer-name" />
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+              <div className="grid grid-cols-2 gap-4">
+                <FormField
+                  control={customerForm.control}
+                  name="status"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Status *</FormLabel>
+                      <Select onValueChange={field.onChange} value={field.value}>
+                        <FormControl>
+                          <SelectTrigger data-testid="select-customer-status">
+                            <SelectValue placeholder="Select status" />
+                          </SelectTrigger>
+                        </FormControl>
+                        <SelectContent>
+                          <SelectItem value="active">Active</SelectItem>
+                          <SelectItem value="prospect">Prospect</SelectItem>
+                          <SelectItem value="inactive">Inactive</SelectItem>
+                        </SelectContent>
+                      </Select>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+                <FormField
+                  control={customerForm.control}
+                  name="acres"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Acres</FormLabel>
+                      <FormControl>
+                        <Input placeholder="1.5" {...field} value={field.value || ""} data-testid="input-customer-acres" />
+                      </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+              </div>
+              <FormField
+                control={customerForm.control}
+                name="street"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Street Address *</FormLabel>
+                    <FormControl>
+                      <Input placeholder="123 Main St" {...field} data-testid="input-customer-street" />
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+              <div className="grid grid-cols-3 gap-4">
+                <FormField
+                  control={customerForm.control}
+                  name="city"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>City *</FormLabel>
+                      <FormControl>
+                        <Input placeholder="Cityville" {...field} data-testid="input-customer-city" />
+                      </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+                <FormField
+                  control={customerForm.control}
+                  name="state"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>State *</FormLabel>
+                      <FormControl>
+                        <Input placeholder="TX" {...field} data-testid="input-customer-state" />
+                      </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+                <FormField
+                  control={customerForm.control}
+                  name="zip"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>ZIP Code *</FormLabel>
+                      <FormControl>
+                        <Input placeholder="12345" {...field} data-testid="input-customer-zip" />
+                      </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+              </div>
+              <FormField
+                control={customerForm.control}
+                name="complexityScore"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Complexity Score</FormLabel>
+                    <Select onValueChange={field.onChange} value={field.value}>
+                      <FormControl>
+                        <SelectTrigger data-testid="select-customer-complexity">
+                          <SelectValue placeholder="Select complexity" />
+                        </SelectTrigger>
+                      </FormControl>
+                      <SelectContent>
+                        <SelectItem value="1">1 - Simple</SelectItem>
+                        <SelectItem value="2">2 - Below Average</SelectItem>
+                        <SelectItem value="3">3 - Average</SelectItem>
+                        <SelectItem value="4">4 - Above Average</SelectItem>
+                        <SelectItem value="5">5 - Complex</SelectItem>
+                      </SelectContent>
+                    </Select>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+              <DialogFooter>
+                <Button 
+                  type="button" 
+                  variant="outline" 
+                  onClick={() => {
+                    setIsEditCustomerDialogOpen(false);
+                    customerForm.reset();
+                  }} 
+                  data-testid="button-cancel-customer"
+                >
+                  Cancel
+                </Button>
+                <Button type="submit" disabled={updateCustomerMutation.isPending} data-testid="button-save-customer">
+                  {updateCustomerMutation.isPending ? "Updating..." : "Update Customer"}
                 </Button>
               </DialogFooter>
             </form>
