@@ -1,8 +1,8 @@
 import { useState, useRef, useMemo, useEffect } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { useRoute } from "wouter";
-import type { Customer, Contact, Note, Contract, ContractDocument, ContractMonthlyAmount, CustomerRateSheet, InsertContract } from "@shared/schema";
-import { insertContractSchema } from "@shared/schema";
+import type { Customer, Contact, Note, Contract, ContractDocument, ContractMonthlyAmount, CustomerRateSheet, InsertContract, InsertContact, InsertNote } from "@shared/schema";
+import { insertContractSchema, insertContactSchema, insertNoteSchema } from "@shared/schema";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -11,7 +11,7 @@ import { Separator } from "@/components/ui/separator";
 import { Input } from "@/components/ui/input";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
-import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
+import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "@/components/ui/alert-dialog";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import {
   Select,
@@ -774,6 +774,161 @@ export default function CustomerDetail() {
     },
   });
 
+  // Contact management
+  const [isAddContactDialogOpen, setIsAddContactDialogOpen] = useState(false);
+  const [editingContact, setEditingContact] = useState<Contact | null>(null);
+
+  const contactForm = useForm<Omit<InsertContact, "companyId" | "customerId">>({
+    resolver: zodResolver(insertContactSchema.omit({ companyId: true, customerId: true })),
+    defaultValues: {
+      name: "",
+      phone: "",
+      email: "",
+      role: "",
+      isPrimary: "false",
+      notes: "",
+    },
+  });
+
+  const createContactMutation = useMutation({
+    mutationFn: async (data: Omit<InsertContact, "companyId" | "customerId">) => {
+      return apiRequest("POST", `/api/customers/${id}/contacts`, data);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/customers", id, "contacts"] });
+      toast({
+        title: "Success",
+        description: "Contact created successfully",
+      });
+      setIsAddContactDialogOpen(false);
+      contactForm.reset();
+    },
+    onError: (error: Error) => {
+      toast({
+        title: "Error",
+        description: error.message || "Failed to create contact",
+        variant: "destructive",
+      });
+    },
+  });
+
+  const updateContactMutation = useMutation({
+    mutationFn: async ({ contactId, data }: { contactId: string; data: Omit<InsertContact, "companyId" | "customerId"> }) => {
+      return apiRequest("PATCH", `/api/contacts/${contactId}`, data);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/customers", id, "contacts"] });
+      toast({
+        title: "Success",
+        description: "Contact updated successfully",
+      });
+      setEditingContact(null);
+      contactForm.reset();
+    },
+    onError: (error: Error) => {
+      toast({
+        title: "Error",
+        description: error.message || "Failed to update contact",
+        variant: "destructive",
+      });
+    },
+  });
+
+  const deleteContactMutation = useMutation({
+    mutationFn: async (contactId: string) => {
+      return apiRequest("DELETE", `/api/contacts/${contactId}`);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/customers", id, "contacts"] });
+      toast({
+        title: "Success",
+        description: "Contact deleted successfully",
+      });
+    },
+    onError: (error: Error) => {
+      toast({
+        title: "Error",
+        description: error.message || "Failed to delete contact",
+        variant: "destructive",
+      });
+    },
+  });
+
+  // Note management
+  const [isAddNoteDialogOpen, setIsAddNoteDialogOpen] = useState(false);
+  const [editingNote, setEditingNote] = useState<Note | null>(null);
+
+  const noteForm = useForm<Omit<InsertNote, "companyId" | "customerId" | "authorId">>({
+    resolver: zodResolver(insertNoteSchema.omit({ companyId: true, customerId: true, authorId: true })),
+    defaultValues: {
+      body: "",
+    },
+  });
+
+  const createNoteMutation = useMutation({
+    mutationFn: async (data: Omit<InsertNote, "companyId" | "customerId" | "authorId">) => {
+      return apiRequest("POST", `/api/customers/${id}/notes`, data);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/customers", id, "notes"] });
+      toast({
+        title: "Success",
+        description: "Note created successfully",
+      });
+      setIsAddNoteDialogOpen(false);
+      noteForm.reset();
+    },
+    onError: (error: Error) => {
+      toast({
+        title: "Error",
+        description: error.message || "Failed to create note",
+        variant: "destructive",
+      });
+    },
+  });
+
+  const updateNoteMutation = useMutation({
+    mutationFn: async ({ noteId, data }: { noteId: string; data: Omit<InsertNote, "companyId" | "customerId" | "authorId"> }) => {
+      return apiRequest("PATCH", `/api/notes/${noteId}`, data);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/customers", id, "notes"] });
+      toast({
+        title: "Success",
+        description: "Note updated successfully",
+      });
+      setEditingNote(null);
+      noteForm.reset();
+    },
+    onError: (error: Error) => {
+      toast({
+        title: "Error",
+        description: error.message || "Failed to update note",
+        variant: "destructive",
+      });
+    },
+  });
+
+  const deleteNoteMutation = useMutation({
+    mutationFn: async (noteId: string) => {
+      return apiRequest("DELETE", `/api/notes/${noteId}`);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/customers", id, "notes"] });
+      toast({
+        title: "Success",
+        description: "Note deleted successfully",
+      });
+    },
+    onError: (error: Error) => {
+      toast({
+        title: "Error",
+        description: error.message || "Failed to delete note",
+        variant: "destructive",
+      });
+    },
+  });
+
   const formatFileSize = (bytes: number) => {
     if (bytes === 0) return "0 B";
     const k = 1024;
@@ -1080,7 +1235,11 @@ export default function CustomerDetail() {
 
         <TabsContent value="contacts" className="space-y-4">
           <div className="flex justify-end">
-            <Button size="sm" data-testid="button-add-contact">
+            <Button 
+              size="sm" 
+              onClick={() => setIsAddContactDialogOpen(true)}
+              data-testid="button-add-contact"
+            >
               <Plus className="w-4 h-4 mr-2" />
               Add Contact
             </Button>
@@ -1105,7 +1264,7 @@ export default function CustomerDetail() {
               {contacts.map((contact) => (
                 <Card key={contact.id} data-testid={`card-contact-${contact.id}`}>
                   <CardContent className="flex items-center justify-between p-4">
-                    <div>
+                    <div className="flex-1">
                       <div className="flex items-center gap-2">
                         <p className="font-medium">{contact.name}</p>
                         {contact.isPrimary === "true" && (
@@ -1121,10 +1280,58 @@ export default function CustomerDetail() {
                       {contact.email && (
                         <p className="text-sm text-muted-foreground">{contact.email}</p>
                       )}
+                      {contact.notes && (
+                        <p className="text-sm text-muted-foreground mt-2">{contact.notes}</p>
+                      )}
                     </div>
-                    <Button variant="ghost" size="icon" data-testid={`button-edit-contact-${contact.id}`}>
-                      <Edit className="w-4 h-4" />
-                    </Button>
+                    <div className="flex gap-1">
+                      <Button 
+                        variant="ghost" 
+                        size="icon"
+                        onClick={() => {
+                          setEditingContact(contact);
+                          contactForm.reset({
+                            name: contact.name,
+                            phone: contact.phone || "",
+                            email: contact.email || "",
+                            role: contact.role || "",
+                            isPrimary: contact.isPrimary,
+                            notes: contact.notes || "",
+                          });
+                        }}
+                        data-testid={`button-edit-contact-${contact.id}`}
+                      >
+                        <Edit className="w-4 h-4" />
+                      </Button>
+                      <AlertDialog>
+                        <AlertDialogTrigger asChild>
+                          <Button 
+                            variant="ghost" 
+                            size="icon"
+                            data-testid={`button-delete-contact-${contact.id}`}
+                          >
+                            <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M3 6h18"/><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"/><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/></svg>
+                          </Button>
+                        </AlertDialogTrigger>
+                        <AlertDialogContent>
+                          <AlertDialogHeader>
+                            <AlertDialogTitle>Delete Contact</AlertDialogTitle>
+                            <AlertDialogDescription>
+                              Are you sure you want to delete this contact? This action cannot be undone.
+                            </AlertDialogDescription>
+                          </AlertDialogHeader>
+                          <AlertDialogFooter>
+                            <AlertDialogCancel>Cancel</AlertDialogCancel>
+                            <AlertDialogAction
+                              onClick={() => deleteContactMutation.mutate(contact.id)}
+                              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                            >
+                              Delete
+                            </AlertDialogAction>
+                          </AlertDialogFooter>
+                        </AlertDialogContent>
+                      </AlertDialog>
+                    </div>
                   </CardContent>
                 </Card>
               ))}
@@ -1134,7 +1341,11 @@ export default function CustomerDetail() {
 
         <TabsContent value="notes" className="space-y-4">
           <div className="flex justify-end">
-            <Button size="sm" data-testid="button-add-note-tab">
+            <Button 
+              size="sm"
+              onClick={() => setIsAddNoteDialogOpen(true)}
+              data-testid="button-add-note-tab"
+            >
               <Plus className="w-4 h-4 mr-2" />
               Add Note
             </Button>
@@ -1159,13 +1370,60 @@ export default function CustomerDetail() {
               {sortedNotes.map((note) => (
                 <Card key={note.id} data-testid={`card-note-${note.id}`}>
                   <CardContent className="p-4">
-                    <div className="flex justify-between items-start mb-2">
-                      <p className="text-sm font-medium">Note</p>
-                      <p className="text-xs text-muted-foreground" data-testid={`text-note-date-${note.id}`}>
-                        {format(new Date(note.createdAt), "MMM d, yyyy")}
-                      </p>
+                    <div className="flex justify-between items-start gap-4 mb-2">
+                      <div className="flex-1">
+                        <div className="flex justify-between items-center mb-1">
+                          <p className="text-sm font-medium">Note</p>
+                          <p className="text-xs text-muted-foreground" data-testid={`text-note-date-${note.id}`}>
+                            {format(new Date(note.createdAt), "MMM d, yyyy")}
+                          </p>
+                        </div>
+                        <p className="text-sm" data-testid={`text-note-body-${note.id}`}>{note.body}</p>
+                      </div>
+                      <div className="flex gap-1">
+                        <Button 
+                          variant="ghost" 
+                          size="icon"
+                          onClick={() => {
+                            setEditingNote(note);
+                            noteForm.reset({
+                              body: note.body,
+                            });
+                          }}
+                          data-testid={`button-edit-note-${note.id}`}
+                        >
+                          <Edit className="w-4 h-4" />
+                        </Button>
+                        <AlertDialog>
+                          <AlertDialogTrigger asChild>
+                            <Button 
+                              variant="ghost" 
+                              size="icon"
+                              data-testid={`button-delete-note-${note.id}`}
+                            >
+                              <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M3 6h18"/><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"/><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/></svg>
+                            </Button>
+                          </AlertDialogTrigger>
+                          <AlertDialogContent>
+                            <AlertDialogHeader>
+                              <AlertDialogTitle>Delete Note</AlertDialogTitle>
+                              <AlertDialogDescription>
+                                Are you sure you want to delete this note? This action cannot be undone.
+                              </AlertDialogDescription>
+                            </AlertDialogHeader>
+                            <AlertDialogFooter>
+                              <AlertDialogCancel>Cancel</AlertDialogCancel>
+                              <AlertDialogAction
+                                onClick={() => deleteNoteMutation.mutate(note.id)}
+                                className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                              >
+                                Delete
+                              </AlertDialogAction>
+                            </AlertDialogFooter>
+                          </AlertDialogContent>
+                        </AlertDialog>
+                      </div>
                     </div>
-                    <p className="text-sm" data-testid={`text-note-body-${note.id}`}>{note.body}</p>
                   </CardContent>
                 </Card>
               ))}
@@ -1458,6 +1716,184 @@ export default function CustomerDetail() {
                 </Button>
                 <Button type="submit" disabled={createContractMutation.isPending} data-testid="button-save-contract">
                   {createContractMutation.isPending ? "Creating..." : "Create Contract"}
+                </Button>
+              </DialogFooter>
+            </form>
+          </Form>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={isAddContactDialogOpen || !!editingContact} onOpenChange={(open) => {
+        if (!open) {
+          setIsAddContactDialogOpen(false);
+          setEditingContact(null);
+          contactForm.reset();
+        }
+      }}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>{editingContact ? "Edit Contact" : "Add Contact"}</DialogTitle>
+            <DialogDescription>
+              {editingContact ? "Update contact information" : "Add a new contact for this customer"}
+            </DialogDescription>
+          </DialogHeader>
+          <Form {...contactForm}>
+            <form onSubmit={contactForm.handleSubmit((data) => {
+              if (editingContact) {
+                updateContactMutation.mutate({ contactId: editingContact.id, data });
+              } else {
+                createContactMutation.mutate(data);
+              }
+            })} className="space-y-4">
+              <FormField
+                control={contactForm.control}
+                name="name"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Name *</FormLabel>
+                    <FormControl>
+                      <Input placeholder="John Doe" {...field} data-testid="input-contact-name" />
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+              <FormField
+                control={contactForm.control}
+                name="phone"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Phone</FormLabel>
+                    <FormControl>
+                      <Input placeholder="555-1234" {...field} value={field.value || ""} data-testid="input-contact-phone" />
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+              <FormField
+                control={contactForm.control}
+                name="email"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Email</FormLabel>
+                    <FormControl>
+                      <Input type="email" placeholder="john@example.com" {...field} value={field.value || ""} data-testid="input-contact-email" />
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+              <FormField
+                control={contactForm.control}
+                name="role"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Role</FormLabel>
+                    <FormControl>
+                      <Input placeholder="Manager" {...field} value={field.value || ""} data-testid="input-contact-role" />
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+              <FormField
+                control={contactForm.control}
+                name="isPrimary"
+                render={({ field }) => (
+                  <FormItem className="flex items-center gap-2 space-y-0">
+                    <FormControl>
+                      <Checkbox
+                        checked={field.value === "true"}
+                        onCheckedChange={(checked) => field.onChange(checked ? "true" : "false")}
+                        data-testid="checkbox-contact-primary"
+                      />
+                    </FormControl>
+                    <FormLabel className="!mt-0">Primary Contact</FormLabel>
+                  </FormItem>
+                )}
+              />
+              <FormField
+                control={contactForm.control}
+                name="notes"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Notes</FormLabel>
+                    <FormControl>
+                      <Textarea placeholder="Additional notes..." {...field} value={field.value || ""} rows={3} data-testid="textarea-contact-notes" />
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+              <DialogFooter>
+                <Button type="button" variant="outline" onClick={() => {
+                  setIsAddContactDialogOpen(false);
+                  setEditingContact(null);
+                  contactForm.reset();
+                }} data-testid="button-cancel-contact">
+                  Cancel
+                </Button>
+                <Button type="submit" disabled={createContactMutation.isPending || updateContactMutation.isPending} data-testid="button-save-contact">
+                  {editingContact 
+                    ? (updateContactMutation.isPending ? "Updating..." : "Update Contact")
+                    : (createContactMutation.isPending ? "Creating..." : "Create Contact")
+                  }
+                </Button>
+              </DialogFooter>
+            </form>
+          </Form>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={isAddNoteDialogOpen || !!editingNote} onOpenChange={(open) => {
+        if (!open) {
+          setIsAddNoteDialogOpen(false);
+          setEditingNote(null);
+          noteForm.reset();
+        }
+      }}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>{editingNote ? "Edit Note" : "Add Note"}</DialogTitle>
+            <DialogDescription>
+              {editingNote ? "Update the note" : "Add a new note for this customer"}
+            </DialogDescription>
+          </DialogHeader>
+          <Form {...noteForm}>
+            <form onSubmit={noteForm.handleSubmit((data) => {
+              if (editingNote) {
+                updateNoteMutation.mutate({ noteId: editingNote.id, data });
+              } else {
+                createNoteMutation.mutate(data);
+              }
+            })} className="space-y-4">
+              <FormField
+                control={noteForm.control}
+                name="body"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Note *</FormLabel>
+                    <FormControl>
+                      <Textarea placeholder="Enter your note here..." {...field} rows={5} data-testid="textarea-note-body" />
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+              <DialogFooter>
+                <Button type="button" variant="outline" onClick={() => {
+                  setIsAddNoteDialogOpen(false);
+                  setEditingNote(null);
+                  noteForm.reset();
+                }} data-testid="button-cancel-note">
+                  Cancel
+                </Button>
+                <Button type="submit" disabled={createNoteMutation.isPending || updateNoteMutation.isPending} data-testid="button-save-note">
+                  {editingNote 
+                    ? (updateNoteMutation.isPending ? "Updating..." : "Update Note")
+                    : (createNoteMutation.isPending ? "Creating..." : "Create Note")
+                  }
                 </Button>
               </DialogFooter>
             </form>
