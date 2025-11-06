@@ -56,7 +56,7 @@ export default function TopCustomers() {
                     </p>
                   </div>
                   <div className="text-sm font-semibold" data-testid={`text-revenue-${customer.id}`}>
-                    ${(customer.totalRevenue / 100).toLocaleString()}
+                    ${customer.totalRevenue.toLocaleString()}
                   </div>
                 </div>
               </Link>
