@@ -1,5 +1,7 @@
 import type { Express } from "express";
 import { createServer, type Server } from "http";
+import path from "path";
+import { promises as fs } from "fs";
 import { setupAuth, type UserWithContext } from "./auth";
 import { storage } from "./storage";
 import { insertCustomerSchema, insertContactSchema, insertCompanySchema, insertCompanyUserSchema, insertSettingsSchema, insertNoteSchema, insertContractSchema, insertContractDocumentSchema, insertContractBuilderDocumentSchema, insertContractBuilderSectionSchema, insertContractBuilderVariableSchema } from "@shared/schema";
@@ -1332,7 +1334,16 @@ export async function registerRoutes(app: Express): Promise<Server> {
         .filter(s => s !== null)
         .sort((a, b) => a!.displayOrder - b!.displayOrder);
 
-      const PDFDocument = require('pdfkit');
+      const PDFDocument = (await import('pdfkit')).default;
+      
+      const logoPath = path.join(process.cwd(), 'attached_assets', 'NEW - LOGO-03_1763582979034.png');
+      let logoBuffer: Buffer | null = null;
+      try {
+        logoBuffer = await fs.readFile(logoPath);
+      } catch (err) {
+        console.error('Failed to load logo:', err);
+      }
+
       const chunks: Buffer[] = [];
       const doc = new PDFDocument({
         size: 'LETTER',
@@ -1345,6 +1356,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
         doc.on('end', () => resolve(Buffer.concat(chunks)));
         doc.on('error', reject);
       });
+
+      if (logoBuffer) {
+        const logoWidth = 100;
+        const logoX = (doc.page.width - logoWidth) / 2;
+        doc.image(logoBuffer, logoX, 40, { width: logoWidth });
+        doc.moveDown(3);
+      }
 
       doc.fillColor('#2E7D32')
          .fontSize(24)

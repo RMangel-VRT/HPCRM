@@ -121,7 +121,8 @@ export default function ContractBuilderPage() {
     );
   }, [customers, customerSearch]);
 
-  const extractVariables = (content: string): string[] => {
+  const extractVariables = (content: string | null | undefined): string[] => {
+    if (!content) return [];
     const matches = content.match(/\{\{(\w+)\}\}/g);
     if (!matches) return [];
     const uniqueVars = new Set(matches.map((m) => m.replace(/\{\{|\}\}/g, "")));
@@ -135,7 +136,7 @@ export default function ContractBuilderPage() {
     const vars = new Set<string>();
     templates.forEach((template) => {
       if (sections[template.id]?.isIncluded !== false) {
-        const content = sections[template.id]?.customContent || template.content;
+        const content = sections[template.id]?.customContent || template.defaultContent;
         extractVariables(content).forEach((v) => vars.add(v));
       }
     });
@@ -159,11 +160,10 @@ export default function ContractBuilderPage() {
   }, [templates, sections]);
 
   const createDocumentMutation = useMutation({
-    mutationFn: async () => {
-      if (!selectedCustomer) throw new Error("No customer selected");
+    mutationFn: async (customer: Customer) => {
       const response = await apiRequest("POST", "/api/contract-builder/documents", {
-        customerId: selectedCustomer.id,
-        title: `Contract for ${selectedCustomer.name}`,
+        customerId: customer.id,
+        documentTitle: `Contract for ${customer.name}`,
       });
       return await response.json();
     },
@@ -186,14 +186,19 @@ export default function ContractBuilderPage() {
   const saveSectionsMutation = useMutation({
     mutationFn: async () => {
       if (!documentId) throw new Error("No document ID");
-      const sectionsData = Object.values(sections).map((section) => ({
-        template_id: section.templateId,
-        is_included: section.isIncluded,
-        custom_content: section.customContent,
-      }));
-      const response = await apiRequest("PUT", `/api/contract-builder/documents/${documentId}/sections`, {
-        sections: sectionsData,
+      if (!templates) throw new Error("No templates loaded");
+      
+      const sectionsData = Object.values(sections).map((section) => {
+        const template = templates.find(t => t.id === section.templateId);
+        return {
+          documentId,
+          templateId: section.templateId,
+          isIncluded: section.isIncluded ? "true" : "false",
+          customContent: section.customContent,
+          displayOrder: template?.display_order || 0,
+        };
       });
+      const response = await apiRequest("PUT", `/api/contract-builder/documents/${documentId}/sections`, sectionsData);
       return await response.json();
     },
     onSuccess: () => {
@@ -210,12 +215,11 @@ export default function ContractBuilderPage() {
     mutationFn: async () => {
       if (!documentId) throw new Error("No document ID");
       const variablesData = Object.entries(variables).map(([key, value]) => ({
-        variable_key: key,
-        variable_value: value,
+        documentId,
+        variableKey: key,
+        variableValue: value,
       }));
-      const response = await apiRequest("PUT", `/api/contract-builder/documents/${documentId}/variables`, {
-        variables: variablesData,
-      });
+      const response = await apiRequest("PUT", `/api/contract-builder/documents/${documentId}/variables`, variablesData);
       return await response.json();
     },
     onSuccess: () => {
@@ -334,21 +338,25 @@ export default function ContractBuilderPage() {
     
     const autoSaveInterval = setInterval(async () => {
       try {
-        const sectionsResponse = await apiRequest("PUT", `/api/contract-builder/documents/${documentId}/sections`, {
-          sections: Object.values(sections).map((section) => ({
-            template_id: section.templateId,
-            is_included: section.isIncluded,
-            custom_content: section.customContent,
-          })),
+        const sectionsData = Object.values(sections).map((section) => {
+          const template = templates?.find(t => t.id === section.templateId);
+          return {
+            documentId,
+            templateId: section.templateId,
+            isIncluded: section.isIncluded ? "true" : "false",
+            customContent: section.customContent,
+            displayOrder: template?.display_order || 0,
+          };
         });
+        const sectionsResponse = await apiRequest("PUT", `/api/contract-builder/documents/${documentId}/sections`, sectionsData);
         await sectionsResponse.json();
 
-        const variablesResponse = await apiRequest("PUT", `/api/contract-builder/documents/${documentId}/variables`, {
-          variables: Object.entries(variables).map(([key, value]) => ({
-            variable_key: key,
-            variable_value: value,
-          })),
-        });
+        const variablesData = Object.entries(variables).map(([key, value]) => ({
+          documentId,
+          variableKey: key,
+          variableValue: value,
+        }));
+        const variablesResponse = await apiRequest("PUT", `/api/contract-builder/documents/${documentId}/variables`, variablesData);
         await variablesResponse.json();
 
         queryClient.invalidateQueries({ queryKey: ["/api/contract-builder/documents", documentId] });
@@ -364,7 +372,7 @@ export default function ContractBuilderPage() {
   const handleCustomerSelect = (customer: Customer) => {
     setSelectedCustomer(customer);
     setIsCustomerDialogOpen(false);
-    createDocumentMutation.mutate();
+    createDocumentMutation.mutate(customer);
   };
 
   const handleSectionToggle = (templateId: string, isIncluded: boolean) => {
@@ -391,7 +399,7 @@ export default function ContractBuilderPage() {
 
     return includedTemplates
       .map((template) => {
-        let content = sections[template.id]?.customContent || template.content;
+        let content = sections[template.id]?.customContent || template.defaultContent;
         Object.entries(variables).forEach(([key, value]) => {
           content = content.replace(new RegExp(`\\{\\{${key}\\}\\}`, "g"), value || `{{${key}}}`);
         });
