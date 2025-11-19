@@ -97,3 +97,74 @@ The system uses Replit's built-in object storage (Google Cloud Storage backend) 
 - **Google Fonts:** Inter (primary), JetBrains Mono (monospace).
 - Custom border radius values and a semantic color system using CSS custom properties.
 - Sidebar-based layout with a flexible content area, and a hover/active state elevation system.
+
+## Tools Section (In Development)
+
+### Overview
+The Tools section provides a centralized workspace for creating standardized documents using customer data. All tools follow a customer-first selection pattern with guided workflows and PDF export capabilities. Currently under development: Contract Builder (first priority), Snow Damage Capture, and Estimate Builder.
+
+### Contract Builder
+A document creation tool that generates customized landscape maintenance contracts using template sections and variable substitution.
+
+**Database Architecture:**
+- **contract_templates:** Stores 17 pre-defined contract sections (header, terms, definitions, general provisions, communication, maintenance subsections, irrigation, winter services, snow/ice, insurance, termination, payments, labor rates, acceptance)
+- **contract_builder_documents:** Stores customer-specific contract documents with draft/published status, version tracking, PDF storage paths, and audit trails (createdBy, updatedBy, publishedAt)
+- **contract_builder_sections:** Junction table linking documents to template sections with custom content override, inclusion toggles, and display order
+- **contract_builder_variables:** Stores variable values for each document using key-value pairs (e.g., property_name, start_date, monthly_payment)
+
+**Contract Variables (34 total):**
+- **Customer Info (6):** property_name, property_address, property_contact, management_company, contact_phone, contact_email
+- **Contract Terms (3):** num_months, start_date, end_date
+- **Maintenance Pricing (7):** addl_aeration_price, disposal_fee, native_broadleaf_price, crabgrass_price, num_petstations, petstation_price, petstations_total_price
+- **Irrigation (3):** monthly_irrigation_total, backflow_inspection, winter_water_rate
+- **Snow Triggers (2):** sidewalk_trigger, road_trigger
+- **Contract Amounts (2):** contract_amount, monthly_payment
+- **Labor Rates (13):** general_labor_rate, emergency_general_labor_rate, irrigation_labor_rate, emergency_irrigation_labor_rate, handshovel_rate, skid_rate, plowtruck_rate, ATV_rate, icemelt_application_rate, holiday_rate, icemelt_material_rate
+
+**Backend Implementation (Completed):**
+- Storage methods in `server/storage.ts`: getContractTemplates, getContractBuilderDocuments, getContractBuilderDocumentById, createContractBuilderDocument, updateContractBuilderDocument, deleteContractBuilderDocument, getContractBuilderSections, upsertContractBuilderSections, getContractBuilderVariables, upsertContractBuilderVariables
+- API routes in `server/routes.ts`: GET /api/contract-templates, GET/POST/PATCH/DELETE /api/contract-builder/documents, GET/PUT /api/contract-builder/documents/:id/sections, GET/PUT /api/contract-builder/documents/:id/variables
+- Role-based permissions: All roles can view, viewer cannot edit sections/variables, only admin can delete documents
+
+**Frontend Implementation (In Progress):**
+- ✅ Navigation: "Tools" menu item added to sidebar with Wrench icon
+- ✅ Landing page: `/dashboard/tools` with 3 tool cards (Contract Builder active, others coming soon)
+- ⏳ Contract Builder page: `/dashboard/tools/contract-builder` with customer selection, section checklist, variable editor, live preview, and PDF export
+- ⏳ Variable extraction logic: Parse {{variable_name}} syntax from template sections
+- ⏳ Auto-fill logic: Populate customer data from database, suggest pricing from most recent contracts
+- ⏳ PDF generation: Professional PDF with High Plains logo, proper formatting, and object storage upload
+
+**Workflow Design:**
+1. Select customer (search existing or quick-create new)
+2. Select/deselect contract sections (all included by default)
+3. Fill variables (auto-populated where possible: customer data, contract dates, pricing suggestions)
+4. Preview contract with real-time variable substitution
+5. Save draft (auto-save every 30 seconds)
+6. Publish and export PDF to object storage
+
+**Template Sections (17 total):**
+- Header (property info) - Required
+- Terms (I) - Required
+- Definitions (II) - Required
+- General Provisions (III) - Required
+- Communication (IV) - Optional
+- Weekly Turf Services (V.B) - Optional
+- Aeration (V.C) - Optional
+- Seasonal Clean-Up (V.D) - Optional
+- Shrub and Tree Care (V.E) - Optional
+- Native Areas and Detention/Retention Ponds (V.F) - Optional
+- Weed Control in Landscape Beds (V.G) - Optional
+- Bluegrass Turf Fertilization (V.H) - Optional
+- Pet Waste Stations (V.I) - Optional
+- Irrigation Services (VI) - Optional
+- Winter Services (VII) - Optional
+- Snow & Ice Management (VIII) - Optional
+- Insurance (IX) - Required
+- Termination (X) - Required
+- Payments (XI) - Required
+- Labor Rates (XII) - Required
+- Acceptance (XIII) - Required
+
+**Assets:**
+- Logo file: `attached_assets/NEW - LOGO-03_1763582979034.png`
+- Contract template PDF: `attached_assets/REPLIT - CONTRACT TEMPLATE - 2025_2026_1763582873394.pdf`
