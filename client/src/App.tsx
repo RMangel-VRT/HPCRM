@@ -16,6 +16,7 @@ import CustomersList from "@/pages/CustomersList";
 import CustomerDetail from "@/pages/CustomerDetail";
 import RevenueOverview from "@/pages/RevenueOverview";
 import ToolsPage from "@/pages/ToolsPage";
+import ContractBuilderPage from "@/pages/ContractBuilderPage";
 import UsersPage from "@/pages/UsersPage";
 import SettingsPage from "@/pages/SettingsPage";
 import SuperAdminHome from "@/pages/SuperAdminHome";
@@ -67,6 +68,7 @@ function Router() {
               <ProtectedRoute path="/dashboard" component={Dashboard} />
               <ProtectedRoute path="/dashboard/customers/:id" component={CustomerDetail} />
               <ProtectedRoute path="/dashboard/customers" component={CustomersList} />
+              <ProtectedRoute path="/dashboard/tools/contract-builder" component={ContractBuilderPage} />
               <ProtectedRoute path="/dashboard/tools" component={ToolsPage} />
               <ProtectedRoute path="/dashboard/revenue" component={RevenueOverview} />
               <ProtectedRoute
