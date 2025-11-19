@@ -13,6 +13,7 @@ import { Separator } from "@/components/ui/separator";
 import { useToast } from "@/hooks/use-toast";
 import { Search, FileText, Save, Download, ArrowLeft } from "lucide-react";
 import { Link } from "wouter";
+import type { ContractTemplate } from "@shared/schema";
 
 type Customer = {
   id: string;
@@ -49,16 +50,6 @@ type ContractMonthlyAmount = {
   contractId: string;
   month: number;
   amount: number;
-};
-
-type ContractTemplate = {
-  id: string;
-  section_key: string;
-  section_title: string;
-  content: string;
-  category: string;
-  display_order: number;
-  is_required: boolean;
 };
 
 type SectionState = {
@@ -195,7 +186,7 @@ export default function ContractBuilderPage() {
           templateId: section.templateId,
           isIncluded: section.isIncluded ? "true" : "false",
           customContent: section.customContent,
-          displayOrder: template?.display_order || 0,
+          displayOrder: template?.displayOrder || 0,
         };
       });
       const response = await apiRequest("PUT", `/api/contract-builder/documents/${documentId}/sections`, sectionsData);
@@ -345,7 +336,7 @@ export default function ContractBuilderPage() {
             templateId: section.templateId,
             isIncluded: section.isIncluded ? "true" : "false",
             customContent: section.customContent,
-            displayOrder: template?.display_order || 0,
+            displayOrder: template?.displayOrder || 0,
           };
         });
         const sectionsResponse = await apiRequest("PUT", `/api/contract-builder/documents/${documentId}/sections`, sectionsData);
@@ -395,7 +386,7 @@ export default function ContractBuilderPage() {
     if (!templates) return "";
     const includedTemplates = templates
       .filter((t) => sections[t.id]?.isIncluded !== false)
-      .sort((a, b) => a.display_order - b.display_order);
+      .sort((a, b) => a.displayOrder - b.displayOrder);
 
     return includedTemplates
       .map((template) => {
@@ -548,62 +539,116 @@ export default function ContractBuilderPage() {
 
           <TabsContent value="sections" className="flex-1 overflow-hidden px-4 pb-4">
             <ScrollArea className="h-full">
-              <div className="space-y-6 pr-4">
+              <div className="space-y-4 pr-4">
                 {templatesLoading ? (
                   <p className="text-sm text-muted-foreground">Loading sections...</p>
                 ) : (
                   (() => {
-                    const categoryOrder = ["header", "terms", "maintenance", "irrigation", "snow", "payments", "acceptance"];
-                    const categoryLabels: Record<string, string> = {
-                      header: "I. Header & Property Information",
-                      terms: "II. General Terms & Definitions",
-                      maintenance: "V. Landscape Maintenance Services",
-                      irrigation: "VI. Irrigation Services",
-                      snow: "VII-VIII. Winter & Snow Services",
-                      payments: "XI. Payment Terms",
-                      acceptance: "XIII. Acceptance & Signatures",
-                    };
+                    const sortedTemplates = templates?.sort((a, b) => a.displayOrder - b.displayOrder) || [];
                     
-                    const sortedTemplates = templates?.sort((a, b) => a.display_order - b.display_order) || [];
-                    const grouped = categoryOrder.reduce((acc, cat) => {
-                      acc[cat] = sortedTemplates.filter(t => t.category === cat);
-                      return acc;
-                    }, {} as Record<string, typeof sortedTemplates>);
-                    
-                    return categoryOrder.map(category => {
-                      const categoryTemplates = grouped[category];
-                      if (!categoryTemplates || categoryTemplates.length === 0) return null;
-                      
-                      return (
-                        <div key={category} className="space-y-2">
+                    return (
+                      <>
+                        {/* Sections I-IV: Auto-included */}
+                        <div className="space-y-3">
                           <h3 className="text-sm font-semibold text-primary sticky top-0 bg-background py-2 z-10">
-                            {categoryLabels[category]}
+                            Sections I-IV (Auto-Included)
                           </h3>
                           <div className="space-y-2 pl-4">
-                            {categoryTemplates.map((template) => (
-                              <div key={template.id} className="flex items-start gap-3 py-2" data-testid={`card-section-${template.section_key}`}>
-                                <Checkbox
-                                  checked={sections[template.id]?.isIncluded !== false}
-                                  onCheckedChange={(checked) =>
-                                    handleSectionToggle(template.id, checked as boolean)
-                                  }
-                                  disabled={template.is_required}
-                                  data-testid={`checkbox-section-${template.section_key}`}
-                                />
-                                <div className="flex-1">
-                                  <div className="flex items-center gap-2">
-                                    <p className="text-sm font-medium">{template.section_title}</p>
-                                    {template.is_required && (
-                                      <span className="text-xs text-muted-foreground italic">(Required)</span>
-                                    )}
+                            {sortedTemplates
+                              .filter(t => ['header', 'terms', 'definitions', 'general_provisions', 'communication'].includes(t.sectionKey))
+                              .map((template) => (
+                                <div key={template.id} className="flex items-start gap-3 py-2 opacity-60" data-testid={`card-section-${template.sectionKey}`}>
+                                  <div className="w-4 h-4 flex items-center justify-center mt-0.5">
+                                    <div className="w-3 h-3 bg-primary rounded-sm" />
+                                  </div>
+                                  <div className="flex-1">
+                                    <p className="text-sm font-medium">
+                                      {template.sectionNumber ? `${template.sectionNumber}. ` : ''}{template.sectionTitle}
+                                    </p>
                                   </div>
                                 </div>
-                              </div>
-                            ))}
+                              ))}
                           </div>
                         </div>
-                      );
-                    });
+
+                        {/* Section V: Maintenance - Subsections are checkable */}
+                        <div className="space-y-3">
+                          <h3 className="text-sm font-semibold text-primary sticky top-0 bg-background py-2 z-10">
+                            Section V - Maintenance & Site Care and Scope of Work
+                          </h3>
+                          <div className="space-y-2 pl-4">
+                            {sortedTemplates
+                              .filter(t => t.category === 'maintenance' && t.sectionNumber?.startsWith('V.'))
+                              .map((template) => (
+                                <div key={template.id} className="flex items-start gap-3 py-2" data-testid={`card-section-${template.sectionKey}`}>
+                                  <Checkbox
+                                    checked={sections[template.id]?.isIncluded !== false}
+                                    onCheckedChange={(checked) =>
+                                      handleSectionToggle(template.id, checked as boolean)
+                                    }
+                                    data-testid={`checkbox-section-${template.sectionKey}`}
+                                  />
+                                  <div className="flex-1">
+                                    <p className="text-sm font-medium">
+                                      {template.sectionNumber}. {template.sectionTitle}
+                                    </p>
+                                  </div>
+                                </div>
+                              ))}
+                          </div>
+                        </div>
+
+                        {/* Sections VI-VIII: Checkable */}
+                        <div className="space-y-3">
+                          <h3 className="text-sm font-semibold text-primary sticky top-0 bg-background py-2 z-10">
+                            Sections VI-VIII (Optional Services)
+                          </h3>
+                          <div className="space-y-2 pl-4">
+                            {sortedTemplates
+                              .filter(t => ['irrigation', 'winter_services', 'snow_ice'].includes(t.sectionKey))
+                              .map((template) => (
+                                <div key={template.id} className="flex items-start gap-3 py-2" data-testid={`card-section-${template.sectionKey}`}>
+                                  <Checkbox
+                                    checked={sections[template.id]?.isIncluded !== false}
+                                    onCheckedChange={(checked) =>
+                                      handleSectionToggle(template.id, checked as boolean)
+                                    }
+                                    data-testid={`checkbox-section-${template.sectionKey}`}
+                                  />
+                                  <div className="flex-1">
+                                    <p className="text-sm font-medium">
+                                      {template.sectionNumber}. {template.sectionTitle}
+                                    </p>
+                                  </div>
+                                </div>
+                              ))}
+                          </div>
+                        </div>
+
+                        {/* Sections IX-XIII: Auto-included */}
+                        <div className="space-y-3">
+                          <h3 className="text-sm font-semibold text-primary sticky top-0 bg-background py-2 z-10">
+                            Sections IX-XIII (Auto-Included)
+                          </h3>
+                          <div className="space-y-2 pl-4">
+                            {sortedTemplates
+                              .filter(t => ['insurance', 'termination', 'payments', 'labor_rates', 'acceptance'].includes(t.sectionKey))
+                              .map((template) => (
+                                <div key={template.id} className="flex items-start gap-3 py-2 opacity-60" data-testid={`card-section-${template.sectionKey}`}>
+                                  <div className="w-4 h-4 flex items-center justify-center mt-0.5">
+                                    <div className="w-3 h-3 bg-primary rounded-sm" />
+                                  </div>
+                                  <div className="flex-1">
+                                    <p className="text-sm font-medium">
+                                      {template.sectionNumber}. {template.sectionTitle}
+                                    </p>
+                                  </div>
+                                </div>
+                              ))}
+                          </div>
+                        </div>
+                      </>
+                    );
                   })()
                 )}
               </div>
@@ -629,7 +674,7 @@ export default function ContractBuilderPage() {
                     
                     const sortedTemplates = templates
                       ?.filter((t) => sections[t.id]?.isIncluded !== false)
-                      .sort((a, b) => a.display_order - b.display_order) || [];
+                      .sort((a, b) => a.displayOrder - b.displayOrder) || [];
                     
                     const variablesBySectionId: Record<string, string[]> = {};
                     sortedTemplates.forEach((template) => {

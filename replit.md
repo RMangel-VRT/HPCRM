@@ -131,13 +131,20 @@ A document creation tool that generates customized landscape maintenance contrac
 - ✅ Landing page: `/dashboard/tools` with 3 tool cards (Contract Builder active, others coming soon)
 - ✅ Contract Builder page: `/dashboard/tools/contract-builder` with three-tab workspace (Sections, Variables, Preview)
 - ✅ Customer selection modal with search and quick-create
-- ✅ **Sections Tab**: Hierarchical outline organized by category (Header, Terms, Maintenance, Irrigation, Snow, Payments, Acceptance) with Roman numerals and sticky category headers
+- ✅ **Sections Tab**: Intuitive outline structure with all section titles visible
+  - Sections I-IV (auto-included): Header, Terms, Definitions, General Provisions, Communication
+  - Section V - Maintenance & Site Care: Parent section with checkable subsections V.B-V.I
+  - Sections VI-VIII (checkable): Irrigation Services, Winter Services, Snow & Ice Management
+  - Sections IX-XIII (auto-included): Insurance, Termination, Payments, Labor Rates, Acceptance
+  - Auto-included sections show filled checkbox indicator (non-interactive)
+  - Optional sections have working checkboxes for inclusion control
 - ✅ **Variables Tab**: Variables grouped by section in contract order, showing where each variable appears with category and section context
 - ✅ Variable extraction logic: Parse {{variable_name}} syntax from template sections
 - ✅ Auto-fill logic: Populate customer data (name, address, contact info), contract dates, pricing from existing maintenance contracts, default labor rates
 - ✅ Auto-save: Every 30 seconds with proper guards for documentId and loaded sections
 - ✅ Real-time preview: Variable substitution in contract preview
 - ✅ PDF generation: Professional PDF with High Plains logo, green brand color (#2E7D32), customer-specific storage paths, company-scoped ACL
+- ✅ Type consistency: Drizzle ORM schema uses camelCase (sectionKey, sectionTitle, defaultContent, displayOrder) and returns camelCase properties at runtime
 
 **Workflow Design:**
 1. Select customer (search existing or quick-create new)
