@@ -357,3 +357,101 @@ export const insertContractServiceSchema = createInsertSchema(contractServices).
 
 export type InsertContractService = z.infer<typeof insertContractServiceSchema>;
 export type ContractService = typeof contractServices.$inferSelect;
+
+// Contract Builder Tables
+export const contractTemplates = pgTable("contract_templates", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  sectionKey: text("section_key").notNull().unique(),
+  sectionTitle: text("section_title").notNull(),
+  sectionNumber: text("section_number"),
+  defaultContent: text("default_content").notNull(),
+  displayOrder: integer("display_order").notNull(),
+  isOptional: text("is_optional").notNull().default("true").$type<"true" | "false">(),
+  category: text("category").notNull().$type<"header" | "terms" | "maintenance" | "irrigation" | "snow" | "payments" | "acceptance">(),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  updatedAt: timestamp("updated_at").notNull().defaultNow(),
+});
+
+export const insertContractTemplateSchema = createInsertSchema(contractTemplates).omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+}).extend({
+  isOptional: z.enum(["true", "false"]).default("true"),
+  category: z.enum(["header", "terms", "maintenance", "irrigation", "snow", "payments", "acceptance"]),
+});
+
+export type InsertContractTemplate = z.infer<typeof insertContractTemplateSchema>;
+export type ContractTemplate = typeof contractTemplates.$inferSelect;
+
+export const contractBuilderDocuments = pgTable("contract_builder_documents", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  companyId: varchar("company_id").notNull().references(() => companies.id, { onDelete: "cascade" }),
+  customerId: varchar("customer_id").notNull().references(() => customers.id, { onDelete: "cascade" }),
+  contractId: varchar("contract_id").references(() => contracts.id, { onDelete: "set null" }),
+  documentTitle: text("document_title").notNull(),
+  status: text("status").notNull().$type<"draft" | "published">().default("draft"),
+  version: integer("version").notNull().default(1),
+  createdBy: varchar("created_by").notNull().references(() => users.id),
+  updatedBy: varchar("updated_by").notNull().references(() => users.id),
+  publishedAt: timestamp("published_at"),
+  pdfStorageObjectPath: text("pdf_storage_object_path"),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  updatedAt: timestamp("updated_at").notNull().defaultNow(),
+});
+
+export const insertContractBuilderDocumentSchema = createInsertSchema(contractBuilderDocuments).omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+}).extend({
+  status: z.enum(["draft", "published"]).default("draft"),
+  version: z.number().int().min(1).default(1),
+});
+
+export type InsertContractBuilderDocument = z.infer<typeof insertContractBuilderDocumentSchema>;
+export type ContractBuilderDocument = typeof contractBuilderDocuments.$inferSelect;
+
+export const contractBuilderSections = pgTable("contract_builder_sections", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  documentId: varchar("document_id").notNull().references(() => contractBuilderDocuments.id, { onDelete: "cascade" }),
+  templateId: varchar("template_id").notNull().references(() => contractTemplates.id, { onDelete: "cascade" }),
+  customContent: text("custom_content"),
+  isIncluded: text("is_included").notNull().default("true").$type<"true" | "false">(),
+  displayOrder: integer("display_order").notNull(),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  updatedAt: timestamp("updated_at").notNull().defaultNow(),
+}, (table) => ({
+  docTemplateUnique: unique().on(table.documentId, table.templateId),
+}));
+
+export const insertContractBuilderSectionSchema = createInsertSchema(contractBuilderSections).omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+}).extend({
+  isIncluded: z.enum(["true", "false"]).default("true"),
+});
+
+export type InsertContractBuilderSection = z.infer<typeof insertContractBuilderSectionSchema>;
+export type ContractBuilderSection = typeof contractBuilderSections.$inferSelect;
+
+export const contractBuilderVariables = pgTable("contract_builder_variables", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  documentId: varchar("document_id").notNull().references(() => contractBuilderDocuments.id, { onDelete: "cascade" }),
+  variableKey: text("variable_key").notNull(),
+  variableValue: text("variable_value").notNull(),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  updatedAt: timestamp("updated_at").notNull().defaultNow(),
+}, (table) => ({
+  docVarUnique: unique().on(table.documentId, table.variableKey),
+}));
+
+export const insertContractBuilderVariableSchema = createInsertSchema(contractBuilderVariables).omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+});
+
+export type InsertContractBuilderVariable = z.infer<typeof insertContractBuilderVariableSchema>;
+export type ContractBuilderVariable = typeof contractBuilderVariables.$inferSelect;
