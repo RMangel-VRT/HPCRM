@@ -1,6 +1,6 @@
-import { type User, type InsertUser, type Customer, type InsertCustomer, type Contact, type InsertContact, type Company, type InsertCompany, type CompanyUser, type InsertCompanyUser, type Settings, type InsertSettings, type Note, type InsertNote, type Contract, type InsertContract, type ContractStatusHistory, type InsertContractStatusHistory, type ContractDocument, type InsertContractDocument, type ContractMonthlyAmount, type InsertContractMonthlyAmount, type CustomerRateSheet, type InsertCustomerRateSheet, type ContractService, type InsertContractService } from "@shared/schema";
+import { type User, type InsertUser, type Customer, type InsertCustomer, type Contact, type InsertContact, type Company, type InsertCompany, type CompanyUser, type InsertCompanyUser, type Settings, type InsertSettings, type Note, type InsertNote, type Contract, type InsertContract, type ContractStatusHistory, type InsertContractStatusHistory, type ContractDocument, type InsertContractDocument, type ContractMonthlyAmount, type InsertContractMonthlyAmount, type CustomerRateSheet, type InsertCustomerRateSheet, type ContractService, type InsertContractService, type ContractTemplate, type InsertContractTemplate, type ContractBuilderDocument, type InsertContractBuilderDocument, type ContractBuilderSection, type InsertContractBuilderSection, type ContractBuilderVariable, type InsertContractBuilderVariable } from "@shared/schema";
 import { db } from "./db";
-import { users, customers, contacts, companies, companyUsers, settings, notes, contracts, contractStatusHistory, contractDocuments, contractMonthlyAmounts, customerRateSheets, contractServices } from "@shared/schema";
+import { users, customers, contacts, companies, companyUsers, settings, notes, contracts, contractStatusHistory, contractDocuments, contractMonthlyAmounts, customerRateSheets, contractServices, contractTemplates, contractBuilderDocuments, contractBuilderSections, contractBuilderVariables } from "@shared/schema";
 import { eq, and, sql, desc } from "drizzle-orm";
 import session from "express-session";
 import connectPg from "connect-pg-simple";
@@ -81,6 +81,20 @@ export interface IStorage {
   getMonthlyRevenueData(companyId: string, year: number): Promise<MonthlyRevenueData[]>;
   getTopCustomers(companyId: string, limit: number): Promise<TopCustomer[]>;
   getUpcomingRenewals(companyId: string, daysAhead: number): Promise<UpcomingRenewal[]>;
+  
+  getContractTemplates(): Promise<ContractTemplate[]>;
+  
+  getContractBuilderDocuments(companyId: string, customerId?: string): Promise<ContractBuilderDocument[]>;
+  getContractBuilderDocumentById(id: string, companyId: string): Promise<ContractBuilderDocument | undefined>;
+  createContractBuilderDocument(document: InsertContractBuilderDocument): Promise<ContractBuilderDocument>;
+  updateContractBuilderDocument(id: string, companyId: string, document: Partial<InsertContractBuilderDocument>): Promise<ContractBuilderDocument | undefined>;
+  deleteContractBuilderDocument(id: string, companyId: string): Promise<void>;
+  
+  getContractBuilderSections(documentId: string, companyId: string): Promise<ContractBuilderSection[]>;
+  upsertContractBuilderSections(documentId: string, companyId: string, sections: InsertContractBuilderSection[]): Promise<ContractBuilderSection[]>;
+  
+  getContractBuilderVariables(documentId: string, companyId: string): Promise<ContractBuilderVariable[]>;
+  upsertContractBuilderVariables(documentId: string, companyId: string, variables: { variableKey: string; variableValue: string }[]): Promise<ContractBuilderVariable[]>;
   
   sessionStore: session.Store;
 }
@@ -754,6 +768,116 @@ export class PgStorage implements IStorage {
       endDate: r.endDate!,
       daysUntilExpiry: Math.ceil((r.endDate!.getTime() - new Date().getTime()) / (1000 * 60 * 60 * 24)),
     }));
+  }
+
+  async getContractTemplates(): Promise<ContractTemplate[]> {
+    return await db.select().from(contractTemplates).orderBy(contractTemplates.displayOrder);
+  }
+
+  async getContractBuilderDocuments(companyId: string, customerId?: string): Promise<ContractBuilderDocument[]> {
+    const conditions = customerId
+      ? and(eq(contractBuilderDocuments.companyId, companyId), eq(contractBuilderDocuments.customerId, customerId))
+      : eq(contractBuilderDocuments.companyId, companyId);
+    
+    return await db.select().from(contractBuilderDocuments)
+      .where(conditions)
+      .orderBy(desc(contractBuilderDocuments.createdAt));
+  }
+
+  async getContractBuilderDocumentById(id: string, companyId: string): Promise<ContractBuilderDocument | undefined> {
+    const result = await db.select().from(contractBuilderDocuments)
+      .where(and(eq(contractBuilderDocuments.id, id), eq(contractBuilderDocuments.companyId, companyId)))
+      .limit(1);
+    return result[0];
+  }
+
+  async createContractBuilderDocument(insertDocument: InsertContractBuilderDocument): Promise<ContractBuilderDocument> {
+    const result = await db.insert(contractBuilderDocuments).values([insertDocument]).returning();
+    return result[0];
+  }
+
+  async updateContractBuilderDocument(id: string, companyId: string, updates: Partial<InsertContractBuilderDocument>): Promise<ContractBuilderDocument | undefined> {
+    const result = await db.update(contractBuilderDocuments)
+      .set({ ...updates, updatedAt: new Date() })
+      .where(and(eq(contractBuilderDocuments.id, id), eq(contractBuilderDocuments.companyId, companyId)))
+      .returning();
+    return result[0];
+  }
+
+  async deleteContractBuilderDocument(id: string, companyId: string): Promise<void> {
+    await db.delete(contractBuilderDocuments)
+      .where(and(eq(contractBuilderDocuments.id, id), eq(contractBuilderDocuments.companyId, companyId)));
+  }
+
+  async getContractBuilderSections(documentId: string, companyId: string): Promise<ContractBuilderSection[]> {
+    const document = await this.getContractBuilderDocumentById(documentId, companyId);
+    if (!document) return [];
+    
+    return await db.select().from(contractBuilderSections)
+      .where(eq(contractBuilderSections.documentId, documentId))
+      .orderBy(contractBuilderSections.displayOrder);
+  }
+
+  async upsertContractBuilderSections(documentId: string, companyId: string, sections: InsertContractBuilderSection[]): Promise<ContractBuilderSection[]> {
+    const document = await this.getContractBuilderDocumentById(documentId, companyId);
+    if (!document) throw new Error('Document not found');
+    
+    const result: ContractBuilderSection[] = [];
+    
+    for (const section of sections) {
+      const upserted = await db.insert(contractBuilderSections)
+        .values(section)
+        .onConflictDoUpdate({
+          target: [contractBuilderSections.documentId, contractBuilderSections.templateId],
+          set: {
+            customContent: section.customContent,
+            isIncluded: section.isIncluded,
+            displayOrder: section.displayOrder,
+            updatedAt: sql`NOW()`,
+          },
+        })
+        .returning();
+      
+      result.push(upserted[0]);
+    }
+    
+    return result;
+  }
+
+  async getContractBuilderVariables(documentId: string, companyId: string): Promise<ContractBuilderVariable[]> {
+    const document = await this.getContractBuilderDocumentById(documentId, companyId);
+    if (!document) return [];
+    
+    return await db.select().from(contractBuilderVariables)
+      .where(eq(contractBuilderVariables.documentId, documentId));
+  }
+
+  async upsertContractBuilderVariables(documentId: string, companyId: string, variables: { variableKey: string; variableValue: string }[]): Promise<ContractBuilderVariable[]> {
+    const document = await this.getContractBuilderDocumentById(documentId, companyId);
+    if (!document) throw new Error('Document not found');
+    
+    const result: ContractBuilderVariable[] = [];
+    
+    for (const variable of variables) {
+      const upserted = await db.insert(contractBuilderVariables)
+        .values({
+          documentId,
+          variableKey: variable.variableKey,
+          variableValue: variable.variableValue,
+        })
+        .onConflictDoUpdate({
+          target: [contractBuilderVariables.documentId, contractBuilderVariables.variableKey],
+          set: {
+            variableValue: variable.variableValue,
+            updatedAt: sql`NOW()`,
+          },
+        })
+        .returning();
+      
+      result.push(upserted[0]);
+    }
+    
+    return result;
   }
 }
 
