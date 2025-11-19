@@ -126,13 +126,18 @@ A document creation tool that generates customized landscape maintenance contrac
 - API routes in `server/routes.ts`: GET /api/contract-templates, GET/POST/PATCH/DELETE /api/contract-builder/documents, GET/PUT /api/contract-builder/documents/:id/sections, GET/PUT /api/contract-builder/documents/:id/variables
 - Role-based permissions: All roles can view, viewer cannot edit sections/variables, only admin can delete documents
 
-**Frontend Implementation (In Progress):**
+**Frontend Implementation (Completed):**
 - ✅ Navigation: "Tools" menu item added to sidebar with Wrench icon
 - ✅ Landing page: `/dashboard/tools` with 3 tool cards (Contract Builder active, others coming soon)
-- ⏳ Contract Builder page: `/dashboard/tools/contract-builder` with customer selection, section checklist, variable editor, live preview, and PDF export
-- ⏳ Variable extraction logic: Parse {{variable_name}} syntax from template sections
-- ⏳ Auto-fill logic: Populate customer data from database, suggest pricing from most recent contracts
-- ⏳ PDF generation: Professional PDF with High Plains logo, proper formatting, and object storage upload
+- ✅ Contract Builder page: `/dashboard/tools/contract-builder` with three-tab workspace (Sections, Variables, Preview)
+- ✅ Customer selection modal with search and quick-create
+- ✅ **Sections Tab**: Hierarchical outline organized by category (Header, Terms, Maintenance, Irrigation, Snow, Payments, Acceptance) with Roman numerals and sticky category headers
+- ✅ **Variables Tab**: Variables grouped by section in contract order, showing where each variable appears with category and section context
+- ✅ Variable extraction logic: Parse {{variable_name}} syntax from template sections
+- ✅ Auto-fill logic: Populate customer data (name, address, contact info), contract dates, pricing from existing maintenance contracts, default labor rates
+- ✅ Auto-save: Every 30 seconds with proper guards for documentId and loaded sections
+- ✅ Real-time preview: Variable substitution in contract preview
+- ✅ PDF generation: Professional PDF with High Plains logo, green brand color (#2E7D32), customer-specific storage paths, company-scoped ACL
 
 **Workflow Design:**
 1. Select customer (search existing or quick-create new)

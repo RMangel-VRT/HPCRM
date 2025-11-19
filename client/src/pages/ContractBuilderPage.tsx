@@ -548,39 +548,63 @@ export default function ContractBuilderPage() {
 
           <TabsContent value="sections" className="flex-1 overflow-hidden px-4 pb-4">
             <ScrollArea className="h-full">
-              <div className="space-y-2 pr-4">
+              <div className="space-y-6 pr-4">
                 {templatesLoading ? (
                   <p className="text-sm text-muted-foreground">Loading sections...</p>
                 ) : (
-                  templates
-                    ?.sort((a, b) => a.display_order - b.display_order)
-                    .map((template) => (
-                      <Card key={template.id} data-testid={`card-section-${template.section_key}`}>
-                        <CardContent className="p-4">
-                          <div className="flex items-start gap-3">
-                            <Checkbox
-                              checked={sections[template.id]?.isIncluded !== false}
-                              onCheckedChange={(checked) =>
-                                handleSectionToggle(template.id, checked as boolean)
-                              }
-                              disabled={template.is_required}
-                              data-testid={`checkbox-section-${template.section_key}`}
-                            />
-                            <div className="flex-1">
-                              <div className="flex items-center gap-2 mb-1">
-                                <p className="font-medium">{template.section_title}</p>
-                                {template.is_required && (
-                                  <span className="text-xs text-muted-foreground">(Required)</span>
-                                )}
+                  (() => {
+                    const categoryOrder = ["header", "terms", "maintenance", "irrigation", "snow", "payments", "acceptance"];
+                    const categoryLabels: Record<string, string> = {
+                      header: "I. Header & Property Information",
+                      terms: "II. General Terms & Definitions",
+                      maintenance: "V. Landscape Maintenance Services",
+                      irrigation: "VI. Irrigation Services",
+                      snow: "VII-VIII. Winter & Snow Services",
+                      payments: "XI. Payment Terms",
+                      acceptance: "XIII. Acceptance & Signatures",
+                    };
+                    
+                    const sortedTemplates = templates?.sort((a, b) => a.display_order - b.display_order) || [];
+                    const grouped = categoryOrder.reduce((acc, cat) => {
+                      acc[cat] = sortedTemplates.filter(t => t.category === cat);
+                      return acc;
+                    }, {} as Record<string, typeof sortedTemplates>);
+                    
+                    return categoryOrder.map(category => {
+                      const categoryTemplates = grouped[category];
+                      if (!categoryTemplates || categoryTemplates.length === 0) return null;
+                      
+                      return (
+                        <div key={category} className="space-y-2">
+                          <h3 className="text-sm font-semibold text-primary sticky top-0 bg-background py-2 z-10">
+                            {categoryLabels[category]}
+                          </h3>
+                          <div className="space-y-2 pl-4">
+                            {categoryTemplates.map((template) => (
+                              <div key={template.id} className="flex items-start gap-3 py-2" data-testid={`card-section-${template.section_key}`}>
+                                <Checkbox
+                                  checked={sections[template.id]?.isIncluded !== false}
+                                  onCheckedChange={(checked) =>
+                                    handleSectionToggle(template.id, checked as boolean)
+                                  }
+                                  disabled={template.is_required}
+                                  data-testid={`checkbox-section-${template.section_key}`}
+                                />
+                                <div className="flex-1">
+                                  <div className="flex items-center gap-2">
+                                    <p className="text-sm font-medium">{template.section_title}</p>
+                                    {template.is_required && (
+                                      <span className="text-xs text-muted-foreground italic">(Required)</span>
+                                    )}
+                                  </div>
+                                </div>
                               </div>
-                              <p className="text-sm text-muted-foreground">
-                                Category: {template.category}
-                              </p>
-                            </div>
+                            ))}
                           </div>
-                        </CardContent>
-                      </Card>
-                    ))
+                        </div>
+                      );
+                    });
+                  })()
                 )}
               </div>
             </ScrollArea>
@@ -588,26 +612,74 @@ export default function ContractBuilderPage() {
 
           <TabsContent value="variables" className="flex-1 overflow-hidden px-4 pb-4">
             <ScrollArea className="h-full">
-              <div className="space-y-4 pr-4">
-                {allVariables.length === 0 ? (
-                  <p className="text-sm text-muted-foreground">
-                    No variables found in selected sections
-                  </p>
+              <div className="space-y-6 pr-4">
+                {templatesLoading ? (
+                  <p className="text-sm text-muted-foreground">Loading variables...</p>
                 ) : (
-                  allVariables.map((varKey) => (
-                    <div key={varKey} className="space-y-2">
-                      <Label htmlFor={`var-${varKey}`} data-testid={`label-variable-${varKey}`}>
-                        {varKey.replace(/_/g, " ").replace(/\b\w/g, (l) => l.toUpperCase())}
-                      </Label>
-                      <Input
-                        id={`var-${varKey}`}
-                        value={variables[varKey] || ""}
-                        onChange={(e) => handleVariableChange(varKey, e.target.value)}
-                        placeholder={`Enter ${varKey.replace(/_/g, " ")}`}
-                        data-testid={`input-variable-${varKey}`}
-                      />
-                    </div>
-                  ))
+                  (() => {
+                    const categoryLabels: Record<string, string> = {
+                      header: "I. Header & Property Information",
+                      terms: "II. General Terms & Definitions",
+                      maintenance: "V. Landscape Maintenance Services",
+                      irrigation: "VI. Irrigation Services",
+                      snow: "VII-VIII. Winter & Snow Services",
+                      payments: "XI. Payment Terms",
+                      acceptance: "XIII. Acceptance & Signatures",
+                    };
+                    
+                    const sortedTemplates = templates
+                      ?.filter((t) => sections[t.id]?.isIncluded !== false)
+                      .sort((a, b) => a.display_order - b.display_order) || [];
+                    
+                    const variablesBySectionId: Record<string, string[]> = {};
+                    sortedTemplates.forEach((template) => {
+                      const content = sections[template.id]?.customContent || template.defaultContent;
+                      const vars = extractVariables(content);
+                      if (vars.length > 0) {
+                        variablesBySectionId[template.id] = vars;
+                      }
+                    });
+                    
+                    const hasVariables = Object.keys(variablesBySectionId).length > 0;
+                    if (!hasVariables) {
+                      return (
+                        <p className="text-sm text-muted-foreground">
+                          No variables found in selected sections
+                        </p>
+                      );
+                    }
+                    
+                    return sortedTemplates.map((template) => {
+                      const templateVars = variablesBySectionId[template.id];
+                      if (!templateVars || templateVars.length === 0) return null;
+                      
+                      return (
+                        <div key={template.id} className="space-y-3">
+                          <div className="sticky top-0 bg-background py-2 z-10">
+                            <h3 className="text-sm font-semibold text-primary">
+                              {categoryLabels[template.category]} - {template.section_title}
+                            </h3>
+                          </div>
+                          <div className="space-y-4 pl-4">
+                            {templateVars.map((varKey) => (
+                              <div key={varKey} className="space-y-2">
+                                <Label htmlFor={`var-${varKey}`} className="text-sm font-medium" data-testid={`label-variable-${varKey}`}>
+                                  {varKey.replace(/_/g, " ").replace(/\b\w/g, (l) => l.toUpperCase())}
+                                </Label>
+                                <Input
+                                  id={`var-${varKey}`}
+                                  value={variables[varKey] || ""}
+                                  onChange={(e) => handleVariableChange(varKey, e.target.value)}
+                                  placeholder={`Enter ${varKey.replace(/_/g, " ")}`}
+                                  data-testid={`input-variable-${varKey}`}
+                                />
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      );
+                    });
+                  })()
                 )}
               </div>
             </ScrollArea>
