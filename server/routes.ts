@@ -2,7 +2,7 @@ import type { Express } from "express";
 import { createServer, type Server } from "http";
 import { setupAuth, type UserWithContext } from "./auth";
 import { storage } from "./storage";
-import { insertCustomerSchema, insertContactSchema, insertCompanySchema, insertCompanyUserSchema, insertSettingsSchema, insertNoteSchema, insertContractSchema, insertContractDocumentSchema } from "@shared/schema";
+import { insertCustomerSchema, insertContactSchema, insertCompanySchema, insertCompanyUserSchema, insertSettingsSchema, insertNoteSchema, insertContractSchema, insertContractDocumentSchema, insertContractBuilderDocumentSchema, insertContractBuilderSectionSchema, insertContractBuilderVariableSchema } from "@shared/schema";
 import { ObjectStorageService, ObjectNotFoundError } from "./objectStorage";
 import { ObjectPermission, ObjectAccessGroupType } from "./objectAcl";
 
@@ -1115,6 +1115,174 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
     const overviewData = await storage.getRevenueOverview(user.activeCompanyId, monthNum, yearNum);
     res.json(overviewData);
+  });
+
+  // Contract Builder routes
+  app.get("/api/contract-templates", async (req, res) => {
+    if (!req.isAuthenticated()) {
+      return res.status(401).send("Not authenticated");
+    }
+
+    const templates = await storage.getContractTemplates();
+    res.json(templates);
+  });
+
+  app.get("/api/contract-builder/documents", async (req, res) => {
+    if (!req.isAuthenticated()) {
+      return res.status(401).send("Not authenticated");
+    }
+
+    const user = req.user as UserWithContext;
+    const customerId = req.query.customerId as string | undefined;
+    const documents = await storage.getContractBuilderDocuments(user.activeCompanyId, customerId);
+    res.json(documents);
+  });
+
+  app.get("/api/contract-builder/documents/:id", async (req, res) => {
+    if (!req.isAuthenticated()) {
+      return res.status(401).send("Not authenticated");
+    }
+
+    const user = req.user as UserWithContext;
+    const document = await storage.getContractBuilderDocumentById(req.params.id, user.activeCompanyId);
+    if (!document) {
+      return res.status(404).send("Document not found");
+    }
+    res.json(document);
+  });
+
+  app.post("/api/contract-builder/documents", async (req, res) => {
+    if (!req.isAuthenticated()) {
+      return res.status(401).send("Not authenticated");
+    }
+
+    const user = req.user as UserWithContext;
+
+    const result = insertContractBuilderDocumentSchema.safeParse({
+      ...req.body,
+      companyId: user.activeCompanyId,
+      createdBy: user.id,
+      updatedBy: user.id,
+    });
+    if (!result.success) {
+      return res.status(400).send(result.error.message);
+    }
+
+    const document = await storage.createContractBuilderDocument(result.data);
+    res.json(document);
+  });
+
+  app.patch("/api/contract-builder/documents/:id", async (req, res) => {
+    if (!req.isAuthenticated()) {
+      return res.status(401).send("Not authenticated");
+    }
+
+    const user = req.user as UserWithContext;
+
+    const result = insertContractBuilderDocumentSchema.partial().omit({ companyId: true, createdBy: true }).safeParse({
+      ...req.body,
+      updatedBy: user.id,
+    });
+    if (!result.success) {
+      return res.status(400).send(result.error.message);
+    }
+
+    const document = await storage.updateContractBuilderDocument(req.params.id, user.activeCompanyId, result.data);
+    if (!document) {
+      return res.status(404).send("Document not found");
+    }
+    res.json(document);
+  });
+
+  app.delete("/api/contract-builder/documents/:id", async (req, res) => {
+    if (!req.isAuthenticated()) {
+      return res.status(401).send("Not authenticated");
+    }
+
+    const user = req.user as UserWithContext;
+
+    if (user.activeRole !== "admin") {
+      return res.status(403).send("Insufficient permissions - admin role required");
+    }
+
+    await storage.deleteContractBuilderDocument(req.params.id, user.activeCompanyId);
+    res.status(200).send("Deleted");
+  });
+
+  app.get("/api/contract-builder/documents/:id/sections", async (req, res) => {
+    if (!req.isAuthenticated()) {
+      return res.status(401).send("Not authenticated");
+    }
+
+    const user = req.user as UserWithContext;
+    const sections = await storage.getContractBuilderSections(req.params.id, user.activeCompanyId);
+    res.json(sections);
+  });
+
+  app.put("/api/contract-builder/documents/:id/sections", async (req, res) => {
+    if (!req.isAuthenticated()) {
+      return res.status(401).send("Not authenticated");
+    }
+
+    const user = req.user as UserWithContext;
+
+    if (user.activeRole === "viewer") {
+      return res.status(403).send("Insufficient permissions - viewer role cannot edit");
+    }
+
+    if (!Array.isArray(req.body)) {
+      return res.status(400).send("Request body must be an array of sections");
+    }
+
+    const validatedSections = [];
+    for (const section of req.body) {
+      const result = insertContractBuilderSectionSchema.safeParse(section);
+      if (!result.success) {
+        return res.status(400).send(`Invalid section data: ${result.error.message}`);
+      }
+      validatedSections.push(result.data);
+    }
+
+    const sections = await storage.upsertContractBuilderSections(req.params.id, user.activeCompanyId, validatedSections);
+    res.json(sections);
+  });
+
+  app.get("/api/contract-builder/documents/:id/variables", async (req, res) => {
+    if (!req.isAuthenticated()) {
+      return res.status(401).send("Not authenticated");
+    }
+
+    const user = req.user as UserWithContext;
+    const variables = await storage.getContractBuilderVariables(req.params.id, user.activeCompanyId);
+    res.json(variables);
+  });
+
+  app.put("/api/contract-builder/documents/:id/variables", async (req, res) => {
+    if (!req.isAuthenticated()) {
+      return res.status(401).send("Not authenticated");
+    }
+
+    const user = req.user as UserWithContext;
+
+    if (user.activeRole === "viewer") {
+      return res.status(403).send("Insufficient permissions - viewer role cannot edit");
+    }
+
+    if (!Array.isArray(req.body)) {
+      return res.status(400).send("Request body must be an array of variables");
+    }
+
+    const validatedVariables = [];
+    for (const variable of req.body) {
+      const result = insertContractBuilderVariableSchema.omit({ documentId: true }).safeParse(variable);
+      if (!result.success) {
+        return res.status(400).send(`Invalid variable data: ${result.error.message}`);
+      }
+      validatedVariables.push(result.data);
+    }
+
+    const variables = await storage.upsertContractBuilderVariables(req.params.id, user.activeCompanyId, validatedVariables);
+    res.json(variables);
   });
 
   const httpServer = createServer(app);
