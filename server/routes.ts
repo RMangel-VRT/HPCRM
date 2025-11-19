@@ -3,7 +3,7 @@ import { createServer, type Server } from "http";
 import { setupAuth, type UserWithContext } from "./auth";
 import { storage } from "./storage";
 import { insertCustomerSchema, insertContactSchema, insertCompanySchema, insertCompanyUserSchema, insertSettingsSchema, insertNoteSchema, insertContractSchema, insertContractDocumentSchema, insertContractBuilderDocumentSchema, insertContractBuilderSectionSchema, insertContractBuilderVariableSchema } from "@shared/schema";
-import { ObjectStorageService, ObjectNotFoundError } from "./objectStorage";
+import { ObjectStorageService, ObjectNotFoundError, objectStorageClient } from "./objectStorage";
 import { ObjectPermission, ObjectAccessGroupType } from "./objectAcl";
 
 export async function registerRoutes(app: Express): Promise<Server> {
@@ -1283,6 +1283,179 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
     const variables = await storage.upsertContractBuilderVariables(req.params.id, user.activeCompanyId, validatedVariables);
     res.json(variables);
+  });
+
+  app.post("/api/contract-builder/documents/:id/export-pdf", async (req, res) => {
+    if (!req.isAuthenticated()) {
+      return res.status(401).send("Not authenticated");
+    }
+
+    const user = req.user as UserWithContext;
+
+    try {
+      const document = await storage.getContractBuilderDocumentById(req.params.id, user.activeCompanyId);
+      if (!document) {
+        return res.status(404).send("Document not found");
+      }
+
+      const customer = await storage.getCustomerById(document.customerId, user.activeCompanyId);
+      if (!customer) {
+        return res.status(404).send("Customer not found");
+      }
+
+      const templates = await storage.getContractTemplates();
+      const sections = await storage.getContractBuilderSections(req.params.id, user.activeCompanyId);
+      const variables = await storage.getContractBuilderVariables(req.params.id, user.activeCompanyId);
+
+      const variablesMap: Record<string, string> = {};
+      variables.forEach(v => {
+        variablesMap[v.variableKey] = v.variableValue;
+      });
+
+      const includedSections = sections
+        .filter(s => s.isIncluded)
+        .map(s => {
+          const template = templates.find(t => t.id === s.templateId);
+          if (!template) return null;
+          
+          let content = s.customContent || template.defaultContent;
+          Object.entries(variablesMap).forEach(([key, value]) => {
+            content = content.replace(new RegExp(`\\{\\{${key}\\}\\}`, 'g'), value || `{{${key}}}`);
+          });
+
+          return {
+            title: template.sectionTitle,
+            content: content,
+            displayOrder: template.displayOrder
+          };
+        })
+        .filter(s => s !== null)
+        .sort((a, b) => a!.displayOrder - b!.displayOrder);
+
+      const PDFDocument = require('pdfkit');
+      const chunks: Buffer[] = [];
+      const doc = new PDFDocument({
+        size: 'LETTER',
+        margins: { top: 50, bottom: 50, left: 60, right: 60 }
+      });
+
+      doc.on('data', (chunk: Buffer) => chunks.push(chunk));
+
+      const pdfPromise = new Promise<Buffer>((resolve, reject) => {
+        doc.on('end', () => resolve(Buffer.concat(chunks)));
+        doc.on('error', reject);
+      });
+
+      doc.fillColor('#2E7D32')
+         .fontSize(24)
+         .font('Helvetica-Bold')
+         .text('LANDSCAPE MAINTENANCE CONTRACT', { align: 'center' });
+      
+      doc.moveDown(0.3);
+      doc.fillColor('#000000')
+         .fontSize(12)
+         .font('Helvetica')
+         .text(customer.name, { align: 'center' });
+      doc.fontSize(10)
+         .fillColor('#666666')
+         .text(`${customer.street}, ${customer.city}, ${customer.state} ${customer.zip}`, { align: 'center' });
+      
+      doc.moveDown(1);
+      doc.moveTo(60, doc.y)
+         .lineTo(552, doc.y)
+         .strokeColor('#2E7D32')
+         .lineWidth(2)
+         .stroke();
+      doc.moveDown(1.5);
+
+      includedSections.forEach((section) => {
+        if (!section) return;
+        
+        doc.fillColor('#2E7D32')
+           .fontSize(13)
+           .font('Helvetica-Bold')
+           .text(section.title);
+        doc.moveDown(0.4);
+        
+        const lines = section.content.split('\n');
+        lines.forEach((line: string) => {
+          if (line.trim()) {
+            doc.fillColor('#000000')
+               .fontSize(10)
+               .font('Helvetica')
+               .text(line, {
+                 align: 'justify',
+                 lineGap: 2
+               });
+          } else {
+            doc.moveDown(0.2);
+          }
+        });
+        
+        doc.moveDown(1.2);
+      });
+
+      doc.fillColor('#666666')
+         .fontSize(8)
+         .text(`Generated on: ${new Date().toLocaleDateString()}`, 60, doc.page.height - 40, { align: 'center' });
+
+      doc.end();
+
+      const pdfBuffer = await pdfPromise;
+
+      const objectStorage = new ObjectStorageService();
+      const sanitizedCustomerName = customer.name.replace(/[^a-zA-Z0-9]/g, '_').substring(0, 50);
+      const pdfFileName = `contract_${sanitizedCustomerName}_${document.id.substring(0, 8)}_${Date.now()}.pdf`;
+      const privateDir = objectStorage.getPrivateObjectDir();
+      const uploadPath = `${privateDir}/contracts/${user.activeCompanyId}/${customer.id}/${pdfFileName}`;
+
+      let path = uploadPath.startsWith("/") ? uploadPath : `/${uploadPath}`;
+      const parts = path.split("/");
+      const bucketName = parts[2];
+      const objectName = parts.slice(3).join("/");
+      
+      const bucket = objectStorageClient.bucket(bucketName);
+      const file = bucket.file(objectName);
+
+      await file.save(pdfBuffer, {
+        contentType: 'application/pdf',
+        metadata: {
+          contentType: 'application/pdf'
+        }
+      });
+
+      await objectStorage.trySetObjectEntityAclPolicy(uploadPath, {
+        owner: user.id,
+        visibility: 'private',
+        aclRules: [
+          {
+            group: {
+              type: ObjectAccessGroupType.COMPANY_MEMBER,
+              id: user.activeCompanyId
+            },
+            permission: ObjectPermission.READ
+          }
+        ]
+      });
+
+      await storage.updateContractBuilderDocument(document.id, user.activeCompanyId, {
+        status: 'published',
+        pdfStorageObjectPath: uploadPath,
+        publishedAt: new Date(),
+        updatedBy: user.id
+      });
+
+      res.json({
+        success: true,
+        documentId: document.id,
+        filePath: uploadPath,
+        fileName: pdfFileName
+      });
+
+    } catch (error: any) {
+      console.error('PDF export error:', error);
+      res.status(500).send(`Failed to export PDF: ${error.message}`);
+    }
   });
 
   const httpServer = createServer(app);

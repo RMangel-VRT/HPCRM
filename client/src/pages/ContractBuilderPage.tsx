@@ -228,6 +228,31 @@ export default function ContractBuilderPage() {
     },
   });
 
+  const exportPdfMutation = useMutation({
+    mutationFn: async () => {
+      if (!documentId) throw new Error("No document ID");
+      await saveSectionsMutation.mutateAsync();
+      await saveVariablesMutation.mutateAsync();
+      const response = await apiRequest("POST", `/api/contract-builder/documents/${documentId}/export-pdf`, {});
+      return await response.json();
+    },
+    onSuccess: (data: { documentId: string; filePath: string; fileName: string }) => {
+      queryClient.invalidateQueries({ queryKey: ["/api/contract-builder/documents", documentId] });
+      queryClient.invalidateQueries({ queryKey: ["/api/customers", selectedCustomer?.id, "documents"] });
+      toast({
+        title: "PDF exported successfully",
+        description: `Contract saved as ${data.fileName} and attached to customer`,
+      });
+    },
+    onError: (error: Error) => {
+      toast({
+        title: "Export failed",
+        description: error.message,
+        variant: "destructive",
+      });
+    },
+  });
+
   const autoFillCustomerData = (
     customer: Customer, 
     contacts: Contact[] | undefined,
@@ -486,9 +511,14 @@ export default function ContractBuilderPage() {
               <Save className="w-4 h-4 mr-2" />
               Save Draft
             </Button>
-            <Button variant="default" disabled data-testid="button-export-pdf">
+            <Button 
+              variant="default" 
+              onClick={() => exportPdfMutation.mutate()}
+              disabled={!documentId || exportPdfMutation.isPending}
+              data-testid="button-export-pdf"
+            >
               <Download className="w-4 h-4 mr-2" />
-              Export PDF
+              {exportPdfMutation.isPending ? "Exporting..." : "Export PDF"}
             </Button>
           </div>
         </div>
