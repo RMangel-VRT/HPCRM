@@ -394,7 +394,7 @@ export default function ContractBuilderPage() {
         Object.entries(variables).forEach(([key, value]) => {
           content = content.replace(new RegExp(`\\{\\{${key}\\}\\}`, "g"), value || `{{${key}}}`);
         });
-        return `${template.section_title}\n\n${content}`;
+        return `${template.sectionTitle}\n\n${content}`;
       })
       .join("\n\n---\n\n");
   };
@@ -590,7 +590,7 @@ export default function ContractBuilderPage() {
                                   />
                                   <div className="flex-1">
                                     <p className="text-sm font-medium">
-                                      {template.sectionNumber}. {template.sectionTitle}
+                                      {template.sectionNumber?.replace('V.', '')}. {template.sectionTitle}
                                     </p>
                                   </div>
                                 </div>
@@ -702,7 +702,7 @@ export default function ContractBuilderPage() {
                         <div key={template.id} className="space-y-3">
                           <div className="sticky top-0 bg-background py-2 z-10">
                             <h3 className="text-sm font-semibold text-primary">
-                              {categoryLabels[template.category]} - {template.section_title}
+                              {categoryLabels[template.category]} - {template.sectionTitle}
                             </h3>
                           </div>
                           <div className="space-y-4 pl-4">
