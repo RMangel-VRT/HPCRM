@@ -68,6 +68,14 @@ export default function ContractBuilderPage() {
   const [selectedCustomer, setSelectedCustomer] = useState<Customer | null>(null);
   const [customerSearch, setCustomerSearch] = useState("");
   const [isCustomerDialogOpen, setIsCustomerDialogOpen] = useState(false);
+  const [isCreatingCustomer, setIsCreatingCustomer] = useState(false);
+  const [newCustomerForm, setNewCustomerForm] = useState({
+    name: "",
+    street: "",
+    city: "",
+    state: "",
+    zip: "",
+  });
   const [sections, setSections] = useState<Record<string, SectionState>>({});
   const [variables, setVariables] = useState<Record<string, string>>({});
   const [documentId, setDocumentId] = useState<string | null>(null);
@@ -111,6 +119,30 @@ export default function ContractBuilderPage() {
         c.city.toLowerCase().includes(search)
     );
   }, [customers, customerSearch]);
+
+  const createCustomerMutation = useMutation({
+    mutationFn: async (customerData: typeof newCustomerForm) => {
+      const response = await apiRequest("POST", "/api/customers", customerData);
+      return await response.json();
+    },
+    onSuccess: (newCustomer: Customer) => {
+      queryClient.invalidateQueries({ queryKey: ["/api/customers"] });
+      handleCustomerSelect(newCustomer);
+      setNewCustomerForm({ name: "", street: "", city: "", state: "", zip: "" });
+      setIsCreatingCustomer(false);
+      toast({
+        title: "Customer created",
+        description: `${newCustomer.name} has been created successfully.`,
+      });
+    },
+    onError: () => {
+      toast({
+        title: "Error",
+        description: "Failed to create customer. Please try again.",
+        variant: "destructive",
+      });
+    },
+  });
 
   const extractVariables = (content: string | null | undefined): string[] => {
     if (!content) return [];
@@ -363,7 +395,21 @@ export default function ContractBuilderPage() {
   const handleCustomerSelect = (customer: Customer) => {
     setSelectedCustomer(customer);
     setIsCustomerDialogOpen(false);
+    setIsCreatingCustomer(false);
+    setCustomerSearch("");
     createDocumentMutation.mutate(customer);
+  };
+
+  const handleCreateCustomer = () => {
+    if (!newCustomerForm.name || !newCustomerForm.street || !newCustomerForm.city || !newCustomerForm.state || !newCustomerForm.zip) {
+      toast({
+        title: "Missing information",
+        description: "Please fill in all fields to create a customer.",
+        variant: "destructive",
+      });
+      return;
+    }
+    createCustomerMutation.mutate(newCustomerForm);
   };
 
   const handleSectionToggle = (templateId: string, isIncluded: boolean) => {
@@ -435,43 +481,146 @@ export default function ContractBuilderPage() {
                 </DialogTrigger>
                 <DialogContent className="max-w-2xl">
                   <DialogHeader>
-                    <DialogTitle>Select Customer</DialogTitle>
+                    <DialogTitle>{isCreatingCustomer ? "New Customer" : "Select Customer"}</DialogTitle>
                   </DialogHeader>
-                  <div className="space-y-4">
-                    <Input
-                      placeholder="Search by name or address..."
-                      value={customerSearch}
-                      onChange={(e) => setCustomerSearch(e.target.value)}
-                      data-testid="input-customer-search"
-                    />
-                    <ScrollArea className="h-96">
-                      {customersLoading ? (
-                        <p className="text-sm text-muted-foreground p-4">Loading customers...</p>
-                      ) : filteredCustomers.length === 0 ? (
-                        <p className="text-sm text-muted-foreground p-4">No customers found</p>
-                      ) : (
-                        <div className="space-y-2">
-                          {filteredCustomers.map((customer) => (
-                            <Card
-                              key={customer.id}
-                              className="hover-elevate cursor-pointer"
-                              onClick={() => handleCustomerSelect(customer)}
-                              data-testid={`card-customer-${customer.id}`}
-                            >
-                              <CardContent className="p-4">
-                                <p className="font-medium" data-testid={`text-customer-name-${customer.id}`}>
-                                  {customer.name}
-                                </p>
-                                <p className="text-sm text-muted-foreground" data-testid={`text-customer-address-${customer.id}`}>
-                                  {customer.street}, {customer.city}, {customer.state} {customer.zip}
-                                </p>
-                              </CardContent>
-                            </Card>
-                          ))}
-                        </div>
-                      )}
-                    </ScrollArea>
+                  
+                  <div className="flex gap-2 mb-4">
+                    <Button
+                      variant={!isCreatingCustomer ? "default" : "outline"}
+                      size="sm"
+                      onClick={() => setIsCreatingCustomer(false)}
+                      className="flex-1"
+                      data-testid="button-search-mode"
+                    >
+                      <Search className="w-4 h-4 mr-2" />
+                      Search
+                    </Button>
+                    <Button
+                      variant={isCreatingCustomer ? "default" : "outline"}
+                      size="sm"
+                      onClick={() => setIsCreatingCustomer(true)}
+                      className="flex-1"
+                      data-testid="button-create-mode"
+                    >
+                      New Customer
+                    </Button>
                   </div>
+
+                  {!isCreatingCustomer ? (
+                    <div className="space-y-4">
+                      <Input
+                        placeholder="Search by name or address..."
+                        value={customerSearch}
+                        onChange={(e) => setCustomerSearch(e.target.value)}
+                        data-testid="input-customer-search"
+                      />
+                      <ScrollArea className="h-96">
+                        {customersLoading ? (
+                          <p className="text-sm text-muted-foreground p-4">Loading customers...</p>
+                        ) : filteredCustomers.length === 0 ? (
+                          <p className="text-sm text-muted-foreground p-4">No customers found</p>
+                        ) : (
+                          <div className="space-y-2">
+                            {filteredCustomers.map((customer) => (
+                              <Card
+                                key={customer.id}
+                                className="hover-elevate cursor-pointer"
+                                onClick={() => handleCustomerSelect(customer)}
+                                data-testid={`card-customer-${customer.id}`}
+                              >
+                                <CardContent className="p-4">
+                                  <p className="font-medium" data-testid={`text-customer-name-${customer.id}`}>
+                                    {customer.name}
+                                  </p>
+                                  <p className="text-sm text-muted-foreground" data-testid={`text-customer-address-${customer.id}`}>
+                                    {customer.street}, {customer.city}, {customer.state} {customer.zip}
+                                  </p>
+                                </CardContent>
+                              </Card>
+                            ))}
+                          </div>
+                        )}
+                      </ScrollArea>
+                    </div>
+                  ) : (
+                    <div className="space-y-4">
+                      <div className="space-y-2">
+                        <Label htmlFor="customer-name">Customer Name *</Label>
+                        <Input
+                          id="customer-name"
+                          placeholder="Enter customer name"
+                          value={newCustomerForm.name}
+                          onChange={(e) => setNewCustomerForm({ ...newCustomerForm, name: e.target.value })}
+                          data-testid="input-new-customer-name"
+                        />
+                      </div>
+                      <div className="space-y-2">
+                        <Label htmlFor="customer-street">Street Address *</Label>
+                        <Input
+                          id="customer-street"
+                          placeholder="123 Main St"
+                          value={newCustomerForm.street}
+                          onChange={(e) => setNewCustomerForm({ ...newCustomerForm, street: e.target.value })}
+                          data-testid="input-new-customer-street"
+                        />
+                      </div>
+                      <div className="grid grid-cols-3 gap-4">
+                        <div className="space-y-2 col-span-1">
+                          <Label htmlFor="customer-city">City *</Label>
+                          <Input
+                            id="customer-city"
+                            placeholder="Denver"
+                            value={newCustomerForm.city}
+                            onChange={(e) => setNewCustomerForm({ ...newCustomerForm, city: e.target.value })}
+                            data-testid="input-new-customer-city"
+                          />
+                        </div>
+                        <div className="space-y-2 col-span-1">
+                          <Label htmlFor="customer-state">State *</Label>
+                          <Input
+                            id="customer-state"
+                            placeholder="CO"
+                            value={newCustomerForm.state}
+                            onChange={(e) => setNewCustomerForm({ ...newCustomerForm, state: e.target.value })}
+                            maxLength={2}
+                            data-testid="input-new-customer-state"
+                          />
+                        </div>
+                        <div className="space-y-2 col-span-1">
+                          <Label htmlFor="customer-zip">ZIP *</Label>
+                          <Input
+                            id="customer-zip"
+                            placeholder="80202"
+                            value={newCustomerForm.zip}
+                            onChange={(e) => setNewCustomerForm({ ...newCustomerForm, zip: e.target.value })}
+                            maxLength={10}
+                            data-testid="input-new-customer-zip"
+                          />
+                        </div>
+                      </div>
+                      <div className="flex gap-2 pt-4">
+                        <Button
+                          variant="outline"
+                          onClick={() => {
+                            setIsCreatingCustomer(false);
+                            setNewCustomerForm({ name: "", street: "", city: "", state: "", zip: "" });
+                          }}
+                          className="flex-1"
+                          data-testid="button-cancel-create"
+                        >
+                          Cancel
+                        </Button>
+                        <Button
+                          onClick={handleCreateCustomer}
+                          disabled={createCustomerMutation.isPending}
+                          className="flex-1"
+                          data-testid="button-confirm-create"
+                        >
+                          {createCustomerMutation.isPending ? "Creating..." : "Create & Continue"}
+                        </Button>
+                      </div>
+                    </div>
+                  )}
                 </DialogContent>
               </Dialog>
             </CardContent>

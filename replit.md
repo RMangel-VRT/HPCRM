@@ -130,7 +130,10 @@ A document creation tool that generates customized landscape maintenance contrac
 - ✅ Navigation: "Tools" menu item added to sidebar with Wrench icon
 - ✅ Landing page: `/dashboard/tools` with 3 tool cards (Contract Builder active, others coming soon)
 - ✅ Contract Builder page: `/dashboard/tools/contract-builder` with three-tab workspace (Sections, Variables, Preview)
-- ✅ Customer selection modal with search and quick-create
+- ✅ Customer selection modal with two modes:
+  - Search mode: Search existing customers by name or address
+  - New Customer mode: Quick-create form with name, street, city, state, zip fields
+  - Seamless flow: Creating a customer automatically selects them and proceeds to contract building
 - ✅ **Sections Tab**: Intuitive outline structure with all section titles visible
   - Sections I-IV (auto-included): Header, Terms, Definitions, General Provisions, Communication
   - Section V - Maintenance & Site Care: Parent section with checkable subsections V.B-V.I
