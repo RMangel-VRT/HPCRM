@@ -77,3 +77,37 @@ A document generation tool for landscape maintenance contracts using templates a
 ### Design System
 - **Google Fonts:** Inter, JetBrains Mono.
 - Custom CSS properties for theming.
+
+## Contract Builder (Tools Section)
+
+### Overview
+A document generation tool for landscape maintenance contracts using templates and variable substitution.
+
+### Features Implemented
+- ✅ Customer selection modal with two modes:
+  - Search mode: Search existing customers by name or address
+  - New Customer mode: Quick-create form with name, street, city, state, zip fields
+  - Seamless flow: Creating a customer automatically selects them and proceeds to contract building
+- ✅ **Sections Tab**: Intuitive outline structure with all section titles visible
+  - Sections I-IV (auto-included): Header, Terms, Definitions, General Provisions, Communication
+  - Section V - Maintenance & Site Care: Parent section header with checkable subsections B-I (V. prefix removed for cleaner display)
+  - Sections VI-VIII (checkable): Irrigation Services, Winter Services, Snow & Ice Management
+  - Sections IX-XIII (auto-included): Insurance, Termination, Payments, Labor Rates, Acceptance
+  - Auto-included sections show filled checkbox indicator (non-interactive)
+  - Optional sections have working checkboxes for inclusion control
+- ✅ **Variables Tab**: Variables grouped by section in contract order, showing where each variable appears with category and section context
+- ✅ Variable extraction logic: Parse {{variable_name}} syntax from template sections
+- ✅ Auto-fill logic: Populate customer data (name, address, contact info), contract dates, pricing from existing maintenance contracts, default labor rates
+- ✅ Auto-calculated fields:
+  - `petstations_total_price` = `num_petstations` × `petstation_price` (auto-updates when either input changes)
+  - `monthly_payment` = `contract_amount` ÷ `num_months` (auto-updates when either input changes)
+  - Calculated fields are read-only and marked with "(Auto-calculated)" label
+- ✅ Auto-save: Every 30 seconds with proper guards for documentId and loaded sections
+- ✅ **Preview Tab** with visual enhancements:
+  - Variable substitution shows filled values in contract
+  - Variables highlighted with yellow background for easy identification
+  - Hover tooltip shows variable key name
+  - Section headers formatted with clear visual hierarchy
+  - Proper spacing and separators between sections
+- ✅ PDF generation: Professional PDF with High Plains logo, green brand color (#2E7D32), customer-specific storage paths, company-scoped ACL
+- ✅ Type consistency: Drizzle ORM schema uses camelCase (sectionKey, sectionTitle, defaultContent, displayOrder) and returns camelCase properties at runtime

@@ -451,20 +451,44 @@ export default function ContractBuilderPage() {
   };
 
   const renderPreview = () => {
-    if (!templates) return "";
+    if (!templates) return [];
     const includedTemplates = templates
       .filter((t) => sections[t.id]?.isIncluded !== false)
       .sort((a, b) => a.displayOrder - b.displayOrder);
 
-    return includedTemplates
-      .map((template) => {
-        let content = sections[template.id]?.customContent || template.defaultContent;
-        Object.entries(variables).forEach(([key, value]) => {
-          content = content.replace(new RegExp(`\\{\\{${key}\\}\\}`, "g"), value || `{{${key}}}`);
-        });
-        return `${template.sectionTitle}\n\n${content}`;
-      })
-      .join("\n\n---\n\n");
+    return includedTemplates.map((template) => {
+      let content = sections[template.id]?.customContent || template.defaultContent;
+      
+      // Create an array of parts with variable highlighting
+      const parts: Array<{ text: string; isVariable: boolean; varKey?: string }> = [];
+      let lastIndex = 0;
+      const variableRegex = /\{\{(\w+)\}\}/g;
+      let match;
+      
+      while ((match = variableRegex.exec(content)) !== null) {
+        // Add text before the variable
+        if (match.index > lastIndex) {
+          parts.push({ text: content.slice(lastIndex, match.index), isVariable: false });
+        }
+        
+        // Add the variable with its value or placeholder
+        const varKey = match[1];
+        const varValue = variables[varKey] || `{{${varKey}}}`;
+        parts.push({ text: varValue, isVariable: true, varKey });
+        
+        lastIndex = match.index + match[0].length;
+      }
+      
+      // Add remaining text
+      if (lastIndex < content.length) {
+        parts.push({ text: content.slice(lastIndex), isVariable: false });
+      }
+      
+      return {
+        title: template.sectionTitle,
+        parts,
+      };
+    });
   };
 
   if (!selectedCustomer) {
@@ -911,9 +935,34 @@ export default function ContractBuilderPage() {
             <ScrollArea className="h-full">
               <Card>
                 <CardContent className="p-6">
-                  <pre className="whitespace-pre-wrap text-sm font-mono" data-testid="text-preview">
-                    {renderPreview()}
-                  </pre>
+                  <div className="space-y-6" data-testid="text-preview">
+                    {renderPreview().map((section, sectionIndex) => (
+                      <div key={sectionIndex} className="space-y-3">
+                        <h3 className="text-lg font-semibold border-b pb-2">
+                          {section.title}
+                        </h3>
+                        <div className="text-sm whitespace-pre-wrap leading-relaxed">
+                          {section.parts.map((part, partIndex) => (
+                            part.isVariable ? (
+                              <span
+                                key={partIndex}
+                                className="bg-yellow-100 dark:bg-yellow-900/30 px-1 py-0.5 rounded font-medium text-yellow-900 dark:text-yellow-100"
+                                title={part.varKey ? `Variable: ${part.varKey}` : undefined}
+                                data-testid={`variable-highlight-${part.varKey}`}
+                              >
+                                {part.text}
+                              </span>
+                            ) : (
+                              <span key={partIndex}>{part.text}</span>
+                            )
+                          ))}
+                        </div>
+                        {sectionIndex < renderPreview().length - 1 && (
+                          <div className="border-t pt-2 mt-4" />
+                        )}
+                      </div>
+                    ))}
+                  </div>
                 </CardContent>
               </Card>
             </ScrollArea>
