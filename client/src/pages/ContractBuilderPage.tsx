@@ -420,7 +420,29 @@ export default function ContractBuilderPage() {
   };
 
   const handleVariableChange = (key: string, value: string) => {
-    setVariables((prev) => ({ ...prev, [key]: value }));
+    setVariables((prev) => {
+      const updated = { ...prev, [key]: value };
+      
+      // Auto-calculate petstations_total_price = num_petstations * petstation_price
+      if (key === 'num_petstations' || key === 'petstation_price') {
+        const numStations = parseFloat(updated.num_petstations || '0');
+        const pricePerStation = parseFloat(updated.petstation_price || '0');
+        if (!isNaN(numStations) && !isNaN(pricePerStation)) {
+          updated.petstations_total_price = (numStations * pricePerStation).toFixed(2);
+        }
+      }
+      
+      // Auto-calculate monthly_payment = contract_amount / num_months
+      if (key === 'contract_amount' || key === 'num_months') {
+        const contractAmount = parseFloat(updated.contract_amount || '0');
+        const numMonths = parseFloat(updated.num_months || '0');
+        if (!isNaN(contractAmount) && !isNaN(numMonths) && numMonths > 0) {
+          updated.monthly_payment = (contractAmount / numMonths).toFixed(2);
+        }
+      }
+      
+      return updated;
+    });
   };
 
   const handleSaveAll = async () => {
@@ -855,20 +877,26 @@ export default function ContractBuilderPage() {
                             </h3>
                           </div>
                           <div className="space-y-4 pl-4">
-                            {templateVars.map((varKey) => (
-                              <div key={varKey} className="space-y-2">
-                                <Label htmlFor={`var-${varKey}`} className="text-sm font-medium" data-testid={`label-variable-${varKey}`}>
-                                  {varKey.replace(/_/g, " ").replace(/\b\w/g, (l) => l.toUpperCase())}
-                                </Label>
-                                <Input
-                                  id={`var-${varKey}`}
-                                  value={variables[varKey] || ""}
-                                  onChange={(e) => handleVariableChange(varKey, e.target.value)}
-                                  placeholder={`Enter ${varKey.replace(/_/g, " ")}`}
-                                  data-testid={`input-variable-${varKey}`}
-                                />
-                              </div>
-                            ))}
+                            {templateVars.map((varKey) => {
+                              const isCalculated = varKey === 'petstations_total_price' || varKey === 'monthly_payment';
+                              return (
+                                <div key={varKey} className="space-y-2">
+                                  <Label htmlFor={`var-${varKey}`} className="text-sm font-medium" data-testid={`label-variable-${varKey}`}>
+                                    {varKey.replace(/_/g, " ").replace(/\b\w/g, (l) => l.toUpperCase())}
+                                    {isCalculated && <span className="text-xs text-muted-foreground ml-2">(Auto-calculated)</span>}
+                                  </Label>
+                                  <Input
+                                    id={`var-${varKey}`}
+                                    value={variables[varKey] || ""}
+                                    onChange={(e) => handleVariableChange(varKey, e.target.value)}
+                                    placeholder={`Enter ${varKey.replace(/_/g, " ")}`}
+                                    disabled={isCalculated}
+                                    className={isCalculated ? "bg-muted" : ""}
+                                    data-testid={`input-variable-${varKey}`}
+                                  />
+                                </div>
+                              );
+                            })}
                           </div>
                         </div>
                       );
