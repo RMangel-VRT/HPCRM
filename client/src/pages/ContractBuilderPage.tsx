@@ -63,11 +63,21 @@ type VariableValue = {
   value: string;
 };
 
+type ContractBuilderDocument = {
+  id: string;
+  customerId: string;
+  documentTitle: string;
+  status: "draft" | "published";
+  createdAt: string;
+  updatedAt: string;
+};
+
 export default function ContractBuilderPage() {
   const { toast } = useToast();
   const [selectedCustomer, setSelectedCustomer] = useState<Customer | null>(null);
   const [customerSearch, setCustomerSearch] = useState("");
   const [isCustomerDialogOpen, setIsCustomerDialogOpen] = useState(false);
+  const [isDraftSelectionOpen, setIsDraftSelectionOpen] = useState(false);
   const [isCreatingCustomer, setIsCreatingCustomer] = useState(false);
   const [newCustomerForm, setNewCustomerForm] = useState({
     name: "",
@@ -106,6 +116,11 @@ export default function ContractBuilderPage() {
   const { data: contractMonthlyAmounts } = useQuery<ContractMonthlyAmount[]>({
     queryKey: ["/api/contract-monthly-amounts"],
     enabled: !!selectedCustomer?.id,
+  });
+
+  const { data: existingDrafts, refetch: refetchDrafts } = useQuery<ContractBuilderDocument[]>({
+    queryKey: [`/api/contract-builder/documents?customerId=${selectedCustomer?.id}`, selectedCustomer?.id],
+    enabled: !!selectedCustomer?.id && isDraftSelectionOpen,
   });
 
   const filteredCustomers = useMemo(() => {
@@ -397,8 +412,62 @@ export default function ContractBuilderPage() {
     setIsCustomerDialogOpen(false);
     setIsCreatingCustomer(false);
     setCustomerSearch("");
-    createDocumentMutation.mutate(customer);
+    setIsDraftSelectionOpen(true);
   };
+
+  const handleCreateNewDraft = () => {
+    if (!selectedCustomer) return;
+    // Reset all state before creating a new draft
+    setSections({});
+    setVariables({});
+    setDocumentId(null);
+    createDocumentMutation.mutate(selectedCustomer);
+    setIsDraftSelectionOpen(false);
+  };
+
+  const loadDraftMutation = useMutation({
+    mutationFn: async (draftId: string) => {
+      const [sectionsRes, variablesRes] = await Promise.all([
+        apiRequest("GET", `/api/contract-builder/documents/${draftId}/sections`),
+        apiRequest("GET", `/api/contract-builder/documents/${draftId}/variables`),
+      ]);
+      const sections = await sectionsRes.json();
+      const variables = await variablesRes.json();
+      return { draftId, sections, variables };
+    },
+    onSuccess: (data) => {
+      setDocumentId(data.draftId);
+      
+      const loadedSections: Record<string, SectionState> = {};
+      data.sections.forEach((section: any) => {
+        loadedSections[section.templateId] = {
+          templateId: section.templateId,
+          isIncluded: section.isIncluded,
+          customContent: section.customContent,
+        };
+      });
+      setSections(loadedSections);
+
+      const loadedVariables: Record<string, string> = {};
+      data.variables.forEach((variable: any) => {
+        loadedVariables[variable.variableKey] = variable.variableValue;
+      });
+      setVariables(loadedVariables);
+
+      setIsDraftSelectionOpen(false);
+      toast({
+        title: "Draft loaded",
+        description: "Your saved draft has been loaded successfully.",
+      });
+    },
+    onError: (error: Error) => {
+      toast({
+        title: "Error",
+        description: `Failed to load draft: ${error.message}`,
+        variant: "destructive",
+      });
+    },
+  });
 
   const handleCreateCustomer = () => {
     if (!newCustomerForm.name || !newCustomerForm.street || !newCustomerForm.city || !newCustomerForm.state || !newCustomerForm.zip) {
@@ -667,6 +736,82 @@ export default function ContractBuilderPage() {
                       </div>
                     </div>
                   )}
+                </DialogContent>
+              </Dialog>
+
+              <Dialog open={isDraftSelectionOpen} onOpenChange={setIsDraftSelectionOpen}>
+                <DialogContent className="max-w-2xl">
+                  <DialogHeader>
+                    <DialogTitle>Load Draft or Create New?</DialogTitle>
+                  </DialogHeader>
+                  
+                  <div className="space-y-4">
+                    {existingDrafts && existingDrafts.length > 0 ? (
+                      <>
+                        <p className="text-sm text-muted-foreground">
+                          Found {existingDrafts.length} existing {existingDrafts.length === 1 ? 'draft' : 'drafts'} for {selectedCustomer?.name ?? ''}
+                        </p>
+                        
+                        <ScrollArea className="h-64 border rounded-md p-2">
+                          <div className="space-y-2">
+                            {existingDrafts.map((draft) => (
+                              <Card
+                                key={draft.id}
+                                className="hover-elevate cursor-pointer"
+                                onClick={() => loadDraftMutation.mutate(draft.id)}
+                                data-testid={`card-draft-${draft.id}`}
+                              >
+                                <CardContent className="p-4">
+                                  <div className="flex items-start justify-between">
+                                    <div className="flex-1">
+                                      <p className="font-medium" data-testid={`text-draft-title-${draft.id}`}>
+                                        {draft.documentTitle}
+                                      </p>
+                                      <p className="text-sm text-muted-foreground">
+                                        Status: <span className="capitalize">{draft.status}</span>
+                                      </p>
+                                      <p className="text-xs text-muted-foreground mt-1">
+                                        Last updated: {new Date(draft.updatedAt).toLocaleDateString()} at {new Date(draft.updatedAt).toLocaleTimeString()}
+                                      </p>
+                                    </div>
+                                    <FileText className="w-5 h-5 text-muted-foreground" />
+                                  </div>
+                                </CardContent>
+                              </Card>
+                            ))}
+                          </div>
+                        </ScrollArea>
+
+                        <Separator />
+                      </>
+                    ) : (
+                      <p className="text-sm text-muted-foreground">
+                        No existing drafts found for {selectedCustomer?.name ?? ''}
+                      </p>
+                    )}
+
+                    <div className="flex gap-2 pt-2">
+                      <Button
+                        variant="outline"
+                        onClick={() => {
+                          setIsDraftSelectionOpen(false);
+                          setSelectedCustomer(null);
+                        }}
+                        className="flex-1"
+                        data-testid="button-cancel-draft-selection"
+                      >
+                        Cancel
+                      </Button>
+                      <Button
+                        onClick={handleCreateNewDraft}
+                        disabled={createDocumentMutation.isPending}
+                        className="flex-1"
+                        data-testid="button-create-new-draft"
+                      >
+                        {createDocumentMutation.isPending ? "Creating..." : "Create New Draft"}
+                      </Button>
+                    </div>
+                  </div>
                 </DialogContent>
               </Dialog>
             </CardContent>

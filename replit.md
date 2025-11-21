@@ -111,3 +111,9 @@ A document generation tool for landscape maintenance contracts using templates a
   - Proper spacing and separators between sections
 - ✅ PDF generation: Professional PDF with High Plains logo, green brand color (#2E7D32), customer-specific storage paths, company-scoped ACL
 - ✅ Type consistency: Drizzle ORM schema uses camelCase (sectionKey, sectionTitle, defaultContent, displayOrder) and returns camelCase properties at runtime
+- ✅ **Draft Management**: Complete workflow for saving and loading drafts
+  - When selecting a customer, system shows existing drafts (if any) in a modal
+  - User can choose to load an existing draft or create a new one
+  - Loading a draft restores all sections (included/excluded states and custom content) and variable values
+  - Draft list shows document title, status (draft/published), and last updated timestamp
+  - Seamless workflow: Load → Edit → Auto-save → Export PDF
