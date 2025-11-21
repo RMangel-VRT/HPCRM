@@ -207,6 +207,7 @@ export default function ContractBuilderPage() {
     },
     onSuccess: (data: { id: string }) => {
       setDocumentId(data.id);
+      setIsDraftSelectionOpen(false);
       toast({
         title: "Document created",
         description: "Contract document initialized successfully",
@@ -422,7 +423,6 @@ export default function ContractBuilderPage() {
     setVariables({});
     setDocumentId(null);
     createDocumentMutation.mutate(selectedCustomer);
-    setIsDraftSelectionOpen(false);
   };
 
   const loadDraftMutation = useMutation({
