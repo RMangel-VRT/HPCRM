@@ -177,6 +177,41 @@ export default function ContractBuilderPage() {
     return result;
   };
 
+  const shouldShowVariable = (variableKey: string): boolean => {
+    if (!templates) return true;
+    
+    // Check which service sections are included
+    const hasIrrigationSection = templates.some(
+      (t) => t.category === "irrigation" && sections[t.id]?.isIncluded !== false
+    );
+    const hasSnowSection = templates.some(
+      (t) => t.category === "snow" && sections[t.id]?.isIncluded !== false
+    );
+    
+    const varLower = variableKey.toLowerCase();
+    
+    // Irrigation-specific variables
+    if (varLower.includes("irrigation")) {
+      return hasIrrigationSection;
+    }
+    
+    // Snow/winter-specific variables
+    if (
+      varLower.includes("handshovel") ||
+      varLower.includes("plow") ||
+      varLower.includes("atv") ||
+      varLower.includes("skid") ||
+      varLower.includes("snow") ||
+      varLower.includes("icemelt") ||
+      varLower.includes("ice_melt")
+    ) {
+      return hasSnowSection;
+    }
+    
+    // All other variables are always visible
+    return true;
+  };
+
   const allVariables = useMemo(() => {
     if (!templates) return [];
     const vars = new Set<string>();
@@ -1115,6 +1150,10 @@ export default function ContractBuilderPage() {
                       const templateVars = variablesBySectionId[template.id];
                       if (!templateVars || templateVars.length === 0) return null;
                       
+                      // Filter variables based on included sections
+                      const visibleVars = templateVars.filter((varKey) => shouldShowVariable(varKey));
+                      if (visibleVars.length === 0) return null;
+                      
                       return (
                         <div key={template.id} className="space-y-3">
                           <div className="sticky top-0 bg-background py-2 z-10">
@@ -1123,7 +1162,7 @@ export default function ContractBuilderPage() {
                             </h3>
                           </div>
                           <div className="space-y-4 pl-4">
-                            {templateVars.map((varKey) => {
+                            {visibleVars.map((varKey) => {
                               const isCalculated = varKey === 'petstations_total_price' || varKey === 'monthly_payment';
                               return (
                                 <div key={varKey} className="space-y-2">
