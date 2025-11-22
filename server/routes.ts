@@ -1471,6 +1471,306 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  app.post("/api/contract-builder/documents/:id/publish-and-create", async (req, res) => {
+    if (!req.isAuthenticated()) {
+      return res.status(401).send("Not authenticated");
+    }
+
+    const user = req.user as UserWithContext;
+
+    if (user.activeRole === "ops" || user.activeRole === "viewer") {
+      return res.status(403).send("Insufficient permissions - admin or office role required");
+    }
+
+    try {
+      const document = await storage.getContractBuilderDocumentById(req.params.id, user.activeCompanyId);
+      if (!document) {
+        return res.status(404).send("Document not found");
+      }
+
+      const customer = await storage.getCustomerById(document.customerId, user.activeCompanyId);
+      if (!customer) {
+        return res.status(404).send("Customer not found");
+      }
+
+      const templates = await storage.getContractTemplates();
+      const sections = await storage.getContractBuilderSections(req.params.id, user.activeCompanyId);
+      const variables = await storage.getContractBuilderVariables(req.params.id, user.activeCompanyId);
+
+      // Build variables map
+      const variablesMap: Record<string, string> = {};
+      variables.forEach(v => {
+        variablesMap[v.variableKey] = v.variableValue;
+      });
+
+      // Normalize legacy variable names (migration support)
+      // This allows existing drafts with old variable names to work
+      if (variablesMap['start_date'] && !variablesMap['contract_start_date']) {
+        console.log(`[Migration] Normalizing start_date → contract_start_date for document ${req.params.id}`);
+        variablesMap['contract_start_date'] = variablesMap['start_date'];
+      }
+      if (variablesMap['end_date'] && !variablesMap['contract_end_date']) {
+        console.log(`[Migration] Normalizing end_date → contract_end_date for document ${req.params.id}`);
+        variablesMap['contract_end_date'] = variablesMap['end_date'];
+      }
+
+      // Validate required variables for contract creation
+      const requiredVars = ['contract_start_date', 'contract_amount'];
+      const missingVars = requiredVars.filter(v => !variablesMap[v]);
+      if (missingVars.length > 0) {
+        return res.status(400).json({ 
+          error: `Missing required variables: ${missingVars.join(', ')}` 
+        });
+      }
+
+      // Parse contract data from variables
+      const startDate = new Date(variablesMap.contract_start_date);
+      if (isNaN(startDate.getTime())) {
+        return res.status(400).json({ error: 'Invalid contract_start_date format' });
+      }
+
+      const endDate = variablesMap.contract_end_date ? new Date(variablesMap.contract_end_date) : null;
+      if (endDate && isNaN(endDate.getTime())) {
+        return res.status(400).json({ error: 'Invalid contract_end_date format' });
+      }
+
+      const contractAmount = parseFloat(variablesMap.contract_amount);
+      if (isNaN(contractAmount)) {
+        return res.status(400).json({ error: 'Invalid contract_amount' });
+      }
+
+      // Determine service type from included sections
+      const includedTemplates = sections
+        .filter(s => s.isIncluded)
+        .map(s => templates.find(t => t.id === s.templateId))
+        .filter(t => t !== undefined);
+
+      const hasIrrigation = includedTemplates.some(t => t!.category === 'irrigation');
+      const hasMaintenance = includedTemplates.some(t => t!.category === 'maintenance');
+      const hasSnow = includedTemplates.some(t => t!.category === 'snow');
+
+      let serviceType: "Maintenance" | "Chemical" | "Snow" | "Irrigation" | "Other" = "Other";
+      if (hasMaintenance && hasSnow) {
+        serviceType = "Maintenance"; // Primary service
+      } else if (hasMaintenance) {
+        serviceType = "Maintenance";
+      } else if (hasIrrigation) {
+        serviceType = "Irrigation";
+      } else if (hasSnow) {
+        serviceType = "Snow";
+      }
+
+      // Determine billing pattern from num_months
+      const numMonths = parseInt(variablesMap.num_months || '12');
+      let billingPattern: "monthly" | "seasonal" | "12-of-12" = "12-of-12";
+      if (numMonths === 1) {
+        billingPattern = "monthly";
+      } else if (numMonths === 12) {
+        billingPattern = "12-of-12";
+      } else {
+        billingPattern = "seasonal";
+      }
+
+      // Check for existing active contracts of the same type
+      const existingContracts = await storage.getContractsByCustomerId(customer.id, user.activeCompanyId);
+      const existingActiveContract = existingContracts.find(
+        c => c.serviceType === serviceType && c.status === "active"
+      );
+      
+      if (existingActiveContract && (serviceType === "Maintenance" || serviceType === "Snow")) {
+        return res.status(400).json({
+          error: `An active ${serviceType} contract already exists for this customer. Please end the existing contract first.`
+        });
+      }
+
+      // Generate PDF (reuse export logic)
+      const includedSections = sections
+        .filter(s => s.isIncluded)
+        .map(s => {
+          const template = templates.find(t => t.id === s.templateId);
+          if (!template) return null;
+          
+          let content = s.customContent || template.defaultContent;
+          Object.entries(variablesMap).forEach(([key, value]) => {
+            content = content.replace(new RegExp(`\\{\\{${key}\\}\\}`, 'g'), value || `{{${key}}}`);
+          });
+
+          return {
+            title: template.sectionTitle,
+            content: content,
+            displayOrder: template.displayOrder
+          };
+        })
+        .filter(s => s !== null)
+        .sort((a, b) => a!.displayOrder - b!.displayOrder);
+
+      const PDFDocument = (await import('pdfkit')).default;
+      
+      const logoPath = path.join(process.cwd(), 'attached_assets', 'NEW - LOGO-03_1763582979034.png');
+      let logoBuffer: Buffer | null = null;
+      try {
+        logoBuffer = await fs.readFile(logoPath);
+      } catch (err) {
+        console.error('Failed to load logo:', err);
+      }
+
+      const chunks: Buffer[] = [];
+      const doc = new PDFDocument({
+        size: 'LETTER',
+        margins: { top: 50, bottom: 50, left: 60, right: 60 }
+      });
+
+      doc.on('data', (chunk: Buffer) => chunks.push(chunk));
+
+      const pdfPromise = new Promise<Buffer>((resolve, reject) => {
+        doc.on('end', () => resolve(Buffer.concat(chunks)));
+        doc.on('error', reject);
+      });
+
+      if (logoBuffer) {
+        const logoWidth = 100;
+        const logoX = (doc.page.width - logoWidth) / 2;
+        doc.image(logoBuffer, logoX, 40, { width: logoWidth });
+        doc.moveDown(3);
+      }
+
+      doc.fillColor('#2E7D32')
+         .fontSize(24)
+         .font('Helvetica-Bold')
+         .text('LANDSCAPE MAINTENANCE CONTRACT', { align: 'center' });
+      
+      doc.moveDown(0.3);
+      doc.fillColor('#000000')
+         .fontSize(12)
+         .font('Helvetica')
+         .text(customer.name, { align: 'center' });
+      doc.fontSize(10)
+         .fillColor('#666666')
+         .text(`${customer.street}, ${customer.city}, ${customer.state} ${customer.zip}`, { align: 'center' });
+      
+      doc.moveDown(1);
+      doc.moveTo(60, doc.y)
+         .lineTo(552, doc.y)
+         .strokeColor('#2E7D32')
+         .lineWidth(2)
+         .stroke();
+      doc.moveDown(1.5);
+
+      includedSections.forEach((section) => {
+        if (!section) return;
+        
+        doc.fillColor('#2E7D32')
+           .fontSize(13)
+           .font('Helvetica-Bold')
+           .text(section.title);
+        doc.moveDown(0.4);
+        
+        const lines = section.content.split('\n');
+        lines.forEach((line: string) => {
+          if (line.trim()) {
+            doc.fillColor('#000000')
+               .fontSize(10)
+               .font('Helvetica')
+               .text(line, {
+                 align: 'justify',
+                 lineGap: 2
+               });
+          } else {
+            doc.moveDown(0.2);
+          }
+        });
+        
+        doc.moveDown(1.2);
+      });
+
+      doc.fillColor('#666666')
+         .fontSize(8)
+         .text(`Generated on: ${new Date().toLocaleDateString()}`, 60, doc.page.height - 40, { align: 'center' });
+
+      doc.end();
+
+      const pdfBuffer = await pdfPromise;
+
+      // Upload PDF to object storage
+      const objectStorage = new ObjectStorageService();
+      const sanitizedCustomerName = customer.name.replace(/[^a-zA-Z0-9]/g, '_').substring(0, 50);
+      const pdfFileName = `contract_${sanitizedCustomerName}_${document.id.substring(0, 8)}_${Date.now()}.pdf`;
+      const privateDir = objectStorage.getPrivateObjectDir();
+      const uploadPath = `${privateDir}/contracts/${user.activeCompanyId}/${customer.id}/${pdfFileName}`;
+
+      const bucketId = process.env.DEFAULT_OBJECT_STORAGE_BUCKET_ID;
+      if (!bucketId) {
+        throw new Error('DEFAULT_OBJECT_STORAGE_BUCKET_ID not configured');
+      }
+      
+      const objectName = uploadPath.startsWith("/") ? uploadPath.slice(1) : uploadPath;
+      
+      const bucket = objectStorageClient.bucket(bucketId);
+      const file = bucket.file(objectName);
+
+      await file.save(pdfBuffer, {
+        contentType: 'application/pdf',
+        metadata: {
+          contentType: 'application/pdf'
+        }
+      });
+
+      // Create the CRM contract
+      const contractData = {
+        companyId: user.activeCompanyId,
+        customerId: customer.id,
+        serviceType,
+        billingPattern,
+        startDate,
+        endDate,
+        status: "active" as const,
+        notes: `Created from Contract Builder document: ${document.documentTitle}`
+      };
+
+      const contract = await storage.createContract(contractData);
+
+      // Create contract status history
+      await storage.createContractStatusHistory({
+        contractId: contract.id,
+        newStatus: contract.status,
+        changedBy: user.id,
+      });
+
+      // Upload PDF as contract document
+      const contractDoc = await storage.createContractDocument({
+        contractId: contract.id,
+        companyId: user.activeCompanyId,
+        version: 1,
+        filename: pdfFileName,
+        storageObjectPath: uploadPath,
+        fileSize: pdfBuffer.length,
+        uploadedBy: user.id,
+      });
+
+      // Update contract builder document with link to contract and published status
+      await storage.updateContractBuilderDocument(document.id, user.activeCompanyId, {
+        status: 'published',
+        contractId: contract.id,
+        pdfStorageObjectPath: uploadPath,
+        publishedAt: new Date(),
+        updatedBy: user.id
+      });
+
+      res.json({
+        success: true,
+        contract: contract,
+        contractDocument: contractDoc,
+        documentId: document.id,
+        filePath: uploadPath,
+        fileName: pdfFileName
+      });
+
+    } catch (error: any) {
+      console.error('Publish and create contract error:', error);
+      res.status(500).send(`Failed to publish and create contract: ${error.message}`);
+    }
+  });
+
   const httpServer = createServer(app);
 
   return httpServer;

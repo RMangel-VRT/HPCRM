@@ -11,8 +11,8 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Separator } from "@/components/ui/separator";
 import { useToast } from "@/hooks/use-toast";
-import { Search, FileText, Save, Download, ArrowLeft } from "lucide-react";
-import { Link } from "wouter";
+import { Search, FileText, Save, Download, ArrowLeft, FileCheck } from "lucide-react";
+import { Link, useLocation } from "wouter";
 import type { ContractTemplate } from "@shared/schema";
 
 type Customer = {
@@ -74,6 +74,7 @@ type ContractBuilderDocument = {
 
 export default function ContractBuilderPage() {
   const { toast } = useToast();
+  const [, setLocation] = useLocation();
   const [selectedCustomer, setSelectedCustomer] = useState<Customer | null>(null);
   const [customerSearch, setCustomerSearch] = useState("");
   const [isCustomerDialogOpen, setIsCustomerDialogOpen] = useState(false);
@@ -389,6 +390,62 @@ export default function ContractBuilderPage() {
     },
   });
 
+  const publishAndCreateMutation = useMutation({
+    mutationFn: async () => {
+      if (!documentId) throw new Error("No document ID");
+      console.log('[Publish] Saving sections and variables...');
+      await saveSectionsMutation.mutateAsync();
+      await saveVariablesMutation.mutateAsync();
+      console.log('[Publish] Calling publish-and-create endpoint...');
+      const response = await apiRequest("POST", `/api/contract-builder/documents/${documentId}/publish-and-create`, {});
+      console.log('[Publish] Response status:', response.status, response.statusText);
+      const data = await response.json();
+      console.log('[Publish] Response data:', data);
+      return data;
+    },
+    onSuccess: (data: { contract: { id: string; customerId: string }; fileName: string }) => {
+      console.log('[Publish] onSuccess called with data:', data);
+      queryClient.invalidateQueries({ queryKey: ["/api/contract-builder/documents", documentId] });
+      queryClient.invalidateQueries({ queryKey: ["/api/customers", data.contract.customerId, "contracts"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/customers", data.contract.customerId] });
+      toast({
+        title: "Contract created successfully",
+        description: "The contract has been created and the PDF has been attached",
+      });
+      console.log('[Publish] Navigating to customer page:', `/customers/${data.contract.customerId}`);
+      // Navigate to customer detail page, contracts tab
+      setLocation(`/customers/${data.contract.customerId}`);
+    },
+    onError: (error: any) => {
+      console.error('[Publish] onError called:', error);
+      
+      // Extract user-friendly error message from various error formats
+      let errorMessage = "An error occurred while publishing the contract";
+      
+      if (error.message) {
+        // Try to parse JSON error message from API
+        try {
+          // Format: "400: {"error":"message"}"
+          const match = error.message.match(/\d+:\s*(\{.*\})/);
+          if (match) {
+            const jsonError = JSON.parse(match[1]);
+            errorMessage = jsonError.error || errorMessage;
+          } else {
+            errorMessage = error.message;
+          }
+        } catch {
+          errorMessage = error.message;
+        }
+      }
+      
+      toast({
+        title: "Publish failed",
+        description: errorMessage,
+        variant: "destructive",
+      });
+    },
+  });
+
   const autoFillCustomerData = (
     customer: Customer, 
     contacts: Contact[] | undefined,
@@ -410,8 +467,8 @@ export default function ContractBuilderPage() {
     const today = new Date();
     const nextYear = new Date(today);
     nextYear.setFullYear(today.getFullYear() + 1);
-    autoFilledVars.start_date = today.toISOString().split("T")[0];
-    autoFilledVars.end_date = nextYear.toISOString().split("T")[0];
+    autoFilledVars.contract_start_date = today.toISOString().split("T")[0];
+    autoFilledVars.contract_end_date = nextYear.toISOString().split("T")[0];
     
     const startMonth = today.getMonth();
     const endMonth = nextYear.getMonth();
@@ -970,18 +1027,28 @@ export default function ContractBuilderPage() {
               onClick={handleSaveAll}
               disabled={!documentId || saveSectionsMutation.isPending || saveVariablesMutation.isPending}
               data-testid="button-save"
+              variant="outline"
             >
               <Save className="w-4 h-4 mr-2" />
               Save Draft
             </Button>
             <Button 
-              variant="default" 
+              variant="outline" 
               onClick={() => exportPdfMutation.mutate()}
               disabled={!documentId || exportPdfMutation.isPending}
               data-testid="button-export-pdf"
             >
               <Download className="w-4 h-4 mr-2" />
               {exportPdfMutation.isPending ? "Exporting..." : "Export PDF"}
+            </Button>
+            <Button 
+              variant="default" 
+              onClick={() => publishAndCreateMutation.mutate()}
+              disabled={!documentId || publishAndCreateMutation.isPending}
+              data-testid="button-publish-create"
+            >
+              <FileCheck className="w-4 h-4 mr-2" />
+              {publishAndCreateMutation.isPending ? "Publishing..." : "Publish & Create Contract"}
             </Button>
           </div>
         </div>
