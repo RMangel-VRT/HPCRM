@@ -122,6 +122,17 @@ A document generation tool for landscape maintenance contracts using templates a
   - Loading a draft restores all sections (included/excluded states and custom content) and variable values
   - Draft list shows document title, status (draft/published), and last updated timestamp
   - Seamless workflow: Load → Edit → Auto-save → Export PDF
+- ✅ **Publish & Create Contract Integration**: Direct connection to CRM contract management
+  - Single-click workflow to publish document and create CRM contract record
+  - Automatic service type inference from included sections (Maintenance, Irrigation, Snow)
+  - Billing pattern determination from `num_months` variable (monthly, seasonal, 12-of-12)
+  - PDF generation and upload to object storage with company-scoped access
+  - Contract document linking: PDF attached as "Signed Agreement"
+  - Duplicate contract prevention: Validates against existing active Maintenance/Snow contracts
+  - Variable validation: Requires `contract_start_date` and `contract_amount`
+  - User-friendly error handling with toast notifications
+  - Automatic navigation to customer detail page upon success
+  - Document status update to "published" with contractId linkage
 
 ### Recent Bug Fixes (November 22, 2025)
 
@@ -145,3 +156,14 @@ A document generation tool for landscape maintenance contracts using templates a
 3. No document is currently loaded
 
 **Impact**: Draft selection dialog now appears reliably after customer selection, allowing users to create new drafts or load existing ones.
+
+#### Bug #3: Variable Naming Mismatch in Publish & Create Contract
+**Problem**: Template sections used `{{start_date}}` and `{{end_date}}`, but the Publish & Create Contract backend endpoint expected `contract_start_date` and `contract_end_date`, causing validation failures with "Missing required variables: contract_start_date" error.
+
+**Fix**:
+1. Updated database templates via SQL to use canonical `{{contract_start_date}}` and `{{contract_end_date}}` variable names
+2. Updated frontend auto-fill logic to use `contract_start_date` and `contract_end_date`
+3. Added backend normalization layer to map legacy variable names (`start_date` → `contract_start_date`) for backwards compatibility with existing drafts
+4. Improved frontend error handling to extract and display user-friendly error messages from API responses
+
+**Impact**: Publish & Create Contract feature now works end-to-end, successfully creating CRM contracts from Contract Builder documents with proper variable validation and user-friendly error messages.
