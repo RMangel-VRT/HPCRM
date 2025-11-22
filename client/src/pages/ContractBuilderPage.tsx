@@ -177,38 +177,50 @@ export default function ContractBuilderPage() {
     return result;
   };
 
+  // Memoize which service categories are included to avoid recalculating per variable
+  const includedServiceCategories = useMemo(() => {
+    if (!templates) return { irrigation: false, snow: false, maintenance: false };
+    
+    return {
+      irrigation: templates.some(
+        (t) => t.category === "irrigation" && sections[t.id]?.isIncluded !== false
+      ),
+      snow: templates.some(
+        (t) => t.category === "snow" && sections[t.id]?.isIncluded !== false
+      ),
+      maintenance: templates.some(
+        (t) => t.category === "maintenance" && sections[t.id]?.isIncluded !== false
+      ),
+    };
+  }, [templates, sections]);
+
   const shouldShowVariable = (variableKey: string): boolean => {
-    if (!templates) return true;
-    
-    // Check which service sections are included
-    const hasIrrigationSection = templates.some(
-      (t) => t.category === "irrigation" && sections[t.id]?.isIncluded !== false
-    );
-    const hasSnowSection = templates.some(
-      (t) => t.category === "snow" && sections[t.id]?.isIncluded !== false
-    );
-    
     const varLower = variableKey.toLowerCase();
     
-    // Irrigation-specific variables
-    if (varLower.includes("irrigation")) {
-      return hasIrrigationSection;
+    // Explicit mapping of variable patterns to required service categories
+    const variableServiceMap: Record<string, keyof typeof includedServiceCategories> = {
+      // Irrigation-specific
+      irrigation: "irrigation",
+      
+      // Snow/winter-specific
+      handshovel: "snow",
+      plow: "snow",
+      plowtruck: "snow",
+      atv: "snow",
+      skid: "snow",
+      snow: "snow",
+      icemelt: "snow",
+      ice_melt: "snow",
+    };
+    
+    // Check if variable matches any service-specific pattern
+    for (const [pattern, category] of Object.entries(variableServiceMap)) {
+      if (varLower.includes(pattern)) {
+        return includedServiceCategories[category];
+      }
     }
     
-    // Snow/winter-specific variables
-    if (
-      varLower.includes("handshovel") ||
-      varLower.includes("plow") ||
-      varLower.includes("atv") ||
-      varLower.includes("skid") ||
-      varLower.includes("snow") ||
-      varLower.includes("icemelt") ||
-      varLower.includes("ice_melt")
-    ) {
-      return hasSnowSection;
-    }
-    
-    // All other variables are always visible
+    // All other variables (customer info, contract terms, payments, etc.) are always visible
     return true;
   };
 
