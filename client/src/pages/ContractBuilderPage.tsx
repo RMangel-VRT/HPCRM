@@ -79,6 +79,10 @@ export default function ContractBuilderPage() {
   const [isCustomerDialogOpen, setIsCustomerDialogOpen] = useState(false);
   const [isDraftSelectionOpen, setIsDraftSelectionOpen] = useState(false);
   const [isCreatingCustomer, setIsCreatingCustomer] = useState(false);
+
+  useEffect(() => {
+    console.log('[Contract Builder] isDraftSelectionOpen state changed to:', isDraftSelectionOpen);
+  }, [isDraftSelectionOpen]);
   const [newCustomerForm, setNewCustomerForm] = useState({
     name: "",
     street: "",
@@ -89,6 +93,10 @@ export default function ContractBuilderPage() {
   const [sections, setSections] = useState<Record<string, SectionState>>({});
   const [variables, setVariables] = useState<Record<string, string>>({});
   const [documentId, setDocumentId] = useState<string | null>(null);
+
+  useEffect(() => {
+    console.log('[Contract Builder] documentId state changed to:', documentId);
+  }, [documentId]);
 
   const { data: templates, isLoading: templatesLoading } = useQuery<ContractTemplate[]>({
     queryKey: ["/api/contract-templates"],
@@ -199,14 +207,33 @@ export default function ContractBuilderPage() {
 
   const createDocumentMutation = useMutation({
     mutationFn: async (customer: Customer) => {
-      const response = await apiRequest("POST", "/api/contract-builder/documents", {
-        customerId: customer.id,
-        documentTitle: `Contract for ${customer.name}`,
-      });
-      return await response.json();
+      console.log('[Contract Builder] Creating document for customer:', customer.name);
+      try {
+        const response = await apiRequest("POST", "/api/contract-builder/documents", {
+          customerId: customer.id,
+          documentTitle: `Contract for ${customer.name}`,
+        });
+        console.log('[Contract Builder] Response status:', response.status, response.statusText);
+        if (!response.ok) {
+          throw new Error(`Failed to create document: ${response.statusText}`);
+        }
+        const data = await response.json();
+        console.log('[Contract Builder] Document created with response data:', JSON.stringify(data));
+        if (!data.id) {
+          console.error('[Contract Builder] ERROR: Response missing id field!', data);
+          throw new Error('Server response missing document ID');
+        }
+        return data;
+      } catch (error) {
+        console.error('[Contract Builder] Error creating document:', error);
+        throw error;
+      }
     },
     onSuccess: (data: { id: string }) => {
+      console.log('[Contract Builder] onSuccess called with data:', JSON.stringify(data));
+      console.log('[Contract Builder] Setting documentId to:', data.id);
       setDocumentId(data.id);
+      console.log('[Contract Builder] Closing draft selection dialog');
       setIsDraftSelectionOpen(false);
       toast({
         title: "Document created",
@@ -214,6 +241,7 @@ export default function ContractBuilderPage() {
       });
     },
     onError: (error: Error) => {
+      console.error('[Contract Builder] onError called with error:', error);
       toast({
         title: "Error",
         description: error.message,
@@ -433,16 +461,36 @@ export default function ContractBuilderPage() {
   }, [documentId, sections, variables]);
 
   const handleCustomerSelect = (customer: Customer) => {
+    console.log('[Contract Builder] Customer selected:', customer.name, 'ID:', customer.id);
     setSelectedCustomer(customer);
     setIsCustomerDialogOpen(false);
     setIsCreatingCustomer(false);
     setCustomerSearch("");
-    setIsDraftSelectionOpen(true);
+    // Draft dialog will open via useEffect watching selectedCustomer
   };
 
+  // Open draft selection dialog when a customer is selected
+  useEffect(() => {
+    if (selectedCustomer && !isCustomerDialogOpen && !documentId) {
+      console.log('[Contract Builder] useEffect: Scheduling draft selection dialog to open for', selectedCustomer.name);
+      // Use setTimeout to ensure customer dialog is fully unmounted before opening draft dialog
+      // This prevents Radix UI portal conflicts
+      const timer = setTimeout(() => {
+        console.log('[Contract Builder] useEffect: Opening draft selection dialog now');
+        setIsDraftSelectionOpen(true);
+      }, 150);
+      return () => clearTimeout(timer);
+    }
+  }, [selectedCustomer, isCustomerDialogOpen, documentId]);
+
   const handleCreateNewDraft = () => {
-    if (!selectedCustomer) return;
+    console.log('[Contract Builder] handleCreateNewDraft called, selectedCustomer:', selectedCustomer?.name);
+    if (!selectedCustomer) {
+      console.error('[Contract Builder] No selected customer, aborting');
+      return;
+    }
     // Reset all state before creating a new draft
+    console.log('[Contract Builder] Resetting state and creating new draft...');
     setSections({});
     setVariables({});
     setDocumentId(null);
@@ -764,7 +812,7 @@ export default function ContractBuilderPage() {
               </Dialog>
 
               <Dialog open={isDraftSelectionOpen} onOpenChange={setIsDraftSelectionOpen}>
-                <DialogContent className="max-w-2xl">
+                <DialogContent className="max-w-2xl" data-testid="dialog-draft-selection">
                   <DialogHeader>
                     <DialogTitle>Load Draft or Create New?</DialogTitle>
                   </DialogHeader>
@@ -773,7 +821,7 @@ export default function ContractBuilderPage() {
                     {existingDrafts && existingDrafts.length > 0 ? (
                       <>
                         <p className="text-sm text-muted-foreground">
-                          Found {existingDrafts.length} existing {existingDrafts.length === 1 ? 'draft' : 'drafts'} for {selectedCustomer?.name ?? ''}
+                          Found {existingDrafts.length} existing {existingDrafts.length === 1 ? 'draft' : 'drafts'} for {selectedCustomer?.name || 'this customer'}
                         </p>
                         
                         <ScrollArea className="h-64 border rounded-md p-2">
@@ -809,8 +857,8 @@ export default function ContractBuilderPage() {
                         <Separator />
                       </>
                     ) : (
-                      <p className="text-sm text-muted-foreground">
-                        No existing drafts found for {selectedCustomer?.name ?? ''}
+                      <p className="text-sm text-muted-foreground" data-testid="text-no-drafts">
+                        No existing drafts found for {selectedCustomer?.name || 'this customer'}
                       </p>
                     )}
 

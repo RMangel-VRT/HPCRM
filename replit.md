@@ -117,3 +117,26 @@ A document generation tool for landscape maintenance contracts using templates a
   - Loading a draft restores all sections (included/excluded states and custom content) and variable values
   - Draft list shows document title, status (draft/published), and last updated timestamp
   - Seamless workflow: Load → Edit → Auto-save → Export PDF
+
+### Recent Bug Fixes (November 22, 2025)
+
+#### Bug #1: PDF Export JSON Parsing Error
+**Problem**: Backend returned `204 No Content` for PUT/POST save endpoints, but frontend attempted to parse JSON from empty responses, causing "SyntaxError: Unexpected end of JSON input".
+
+**Fix**: 
+- Added response status checks before calling `.json()` in save sections mutation
+- Added response status checks before calling `.json()` in save variables mutation  
+- Updated auto-save functionality to handle 204 responses properly
+- Renamed local `path` variable to `normalizedPath` to avoid shadowing Node.js path module
+
+**Impact**: Save Draft, Auto-save, and Export PDF operations now work without JSON parsing errors.
+
+#### Bug #2: Draft Selection Dialog Not Appearing
+**Problem**: Radix UI Dialog component conflict when closing customer selection dialog and opening draft selection dialog in the same render cycle. Dialog state was set to open but component never rendered.
+
+**Fix**: Implemented React `useEffect` hook to watch for customer selection changes and open draft dialog when:
+1. A customer is selected
+2. Customer dialog is closed
+3. No document is currently loaded
+
+**Impact**: Draft selection dialog now appears reliably after customer selection, allowing users to create new drafts or load existing ones.
