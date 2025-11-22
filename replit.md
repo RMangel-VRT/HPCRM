@@ -96,6 +96,11 @@ A document generation tool for landscape maintenance contracts using templates a
   - Auto-included sections show filled checkbox indicator (non-interactive)
   - Optional sections have working checkboxes for inclusion control
 - ✅ **Variables Tab**: Variables grouped by section in contract order, showing where each variable appears with category and section context
+  - **Conditional Variable Filtering**: Service-specific variables only appear when their parent sections are included
+    - Irrigation variables (e.g., `irrigation_labor_rate`) hide when Irrigation Services sections are excluded
+    - Snow/ice variables (e.g., `handshovel_rate`, `plowtruck_rate`, `icemelt_application_rate`) hide when Snow & Ice sections are excluded
+    - Core variables (customer info, contract terms, payments) always visible regardless of section selection
+    - Optimized with memoized section category checks for performance
 - ✅ Variable extraction logic: Parse {{variable_name}} syntax from template sections
 - ✅ Auto-fill logic: Populate customer data (name, address, contact info), contract dates, pricing from existing maintenance contracts, default labor rates
 - ✅ Auto-calculated fields:
