@@ -469,19 +469,24 @@ export default function ContractBuilderPage() {
     // Draft dialog will open via useEffect watching selectedCustomer
   };
 
-  // Open draft selection dialog when a customer is selected
+  // Auto-create or load draft when customer is selected
   useEffect(() => {
     if (selectedCustomer && !isCustomerDialogOpen && !documentId) {
-      console.log('[Contract Builder] useEffect: Scheduling draft selection dialog to open for', selectedCustomer.name);
-      // Use setTimeout to ensure customer dialog is fully unmounted before opening draft dialog
-      // This prevents Radix UI portal conflicts
-      const timer = setTimeout(() => {
-        console.log('[Contract Builder] useEffect: Opening draft selection dialog now');
-        setIsDraftSelectionOpen(true);
-      }, 150);
-      return () => clearTimeout(timer);
+      console.log('[Contract Builder] useEffect: Customer selected, checking for existing drafts for', selectedCustomer.name);
+      
+      // Check if drafts exist
+      if (existingDrafts && existingDrafts.length > 0) {
+        // Auto-load the most recent draft
+        const mostRecent = existingDrafts[0];
+        console.log('[Contract Builder] Auto-loading most recent draft:', mostRecent.id);
+        loadDraftMutation.mutate(mostRecent.id);
+      } else {
+        // No drafts exist, auto-create a new one
+        console.log('[Contract Builder] No existing drafts, auto-creating new draft for', selectedCustomer.name);
+        createDocumentMutation.mutate(selectedCustomer); // Pass entire customer object, not just ID
+      }
     }
-  }, [selectedCustomer, isCustomerDialogOpen, documentId]);
+  }, [selectedCustomer, isCustomerDialogOpen, documentId, existingDrafts]);
 
   const handleCreateNewDraft = () => {
     console.log('[Contract Builder] handleCreateNewDraft called, selectedCustomer:', selectedCustomer?.name);
