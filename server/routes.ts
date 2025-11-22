@@ -1427,8 +1427,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const privateDir = objectStorage.getPrivateObjectDir();
       const uploadPath = `${privateDir}/contracts/${user.activeCompanyId}/${customer.id}/${pdfFileName}`;
 
-      let path = uploadPath.startsWith("/") ? uploadPath : `/${uploadPath}`;
-      const parts = path.split("/");
+      let normalizedPath = uploadPath.startsWith("/") ? uploadPath : `/${uploadPath}`;
+      const parts = normalizedPath.split("/");
       const bucketName = parts[2];
       const objectName = parts.slice(3).join("/");
       

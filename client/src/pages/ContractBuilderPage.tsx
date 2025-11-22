@@ -238,6 +238,8 @@ export default function ContractBuilderPage() {
         };
       });
       const response = await apiRequest("PUT", `/api/contract-builder/documents/${documentId}/sections`, sectionsData);
+      // 204 No Content response, don't try to parse JSON
+      if (response.status === 204) return;
       return await response.json();
     },
     onSuccess: () => {
@@ -246,6 +248,13 @@ export default function ContractBuilderPage() {
       toast({
         title: "Sections saved",
         description: "Contract sections updated successfully",
+      });
+    },
+    onError: (error: Error) => {
+      toast({
+        title: "Save failed",
+        description: error.message,
+        variant: "destructive",
       });
     },
   });
@@ -259,6 +268,8 @@ export default function ContractBuilderPage() {
         variableValue: value,
       }));
       const response = await apiRequest("PUT", `/api/contract-builder/documents/${documentId}/variables`, variablesData);
+      // 204 No Content response, don't try to parse JSON
+      if (response.status === 204) return;
       return await response.json();
     },
     onSuccess: () => {
@@ -267,6 +278,13 @@ export default function ContractBuilderPage() {
       toast({
         title: "Variables saved",
         description: "Contract variables updated successfully",
+      });
+    },
+    onError: (error: Error) => {
+      toast({
+        title: "Save failed",
+        description: error.message,
+        variant: "destructive",
       });
     },
   });
@@ -388,7 +406,10 @@ export default function ContractBuilderPage() {
           };
         });
         const sectionsResponse = await apiRequest("PUT", `/api/contract-builder/documents/${documentId}/sections`, sectionsData);
-        await sectionsResponse.json();
+        // 204 No Content response, don't try to parse JSON
+        if (sectionsResponse.status !== 204) {
+          await sectionsResponse.json();
+        }
 
         const variablesData = Object.entries(variables).map(([key, value]) => ({
           documentId,
@@ -396,7 +417,10 @@ export default function ContractBuilderPage() {
           variableValue: value,
         }));
         const variablesResponse = await apiRequest("PUT", `/api/contract-builder/documents/${documentId}/variables`, variablesData);
-        await variablesResponse.json();
+        // 204 No Content response, don't try to parse JSON
+        if (variablesResponse.status !== 204) {
+          await variablesResponse.json();
+        }
 
         queryClient.invalidateQueries({ queryKey: ["/api/contract-builder/documents", documentId] });
         console.log("Auto-saved at", new Date().toLocaleTimeString());
