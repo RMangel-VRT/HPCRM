@@ -378,7 +378,7 @@ export default function ContractBuilderPage() {
       queryClient.invalidateQueries({ queryKey: ["/api/customers", selectedCustomer?.id, "documents"] });
       toast({
         title: "PDF exported successfully",
-        description: `Contract saved as ${data.fileName} and attached to customer`,
+        description: `Document saved as ${data.fileName}. Use "Publish & Create Contract" to add this as an active contract in the CRM.`,
       });
     },
     onError: (error: Error) => {
