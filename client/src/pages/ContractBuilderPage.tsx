@@ -127,9 +127,9 @@ export default function ContractBuilderPage() {
     enabled: !!selectedCustomer?.id,
   });
 
-  const { data: existingDrafts, refetch: refetchDrafts } = useQuery<ContractBuilderDocument[]>({
+  const { data: existingDrafts, refetch: refetchDrafts, isLoading: draftsLoading } = useQuery<ContractBuilderDocument[]>({
     queryKey: [`/api/contract-builder/documents?customerId=${selectedCustomer?.id}`, selectedCustomer?.id],
-    enabled: !!selectedCustomer?.id && isDraftSelectionOpen,
+    enabled: !!selectedCustomer?.id,
   });
 
   const filteredCustomers = useMemo(() => {
@@ -578,19 +578,26 @@ export default function ContractBuilderPage() {
     if (selectedCustomer && !isCustomerDialogOpen && !documentId) {
       console.log('[Contract Builder] useEffect: Customer selected, checking for existing drafts for', selectedCustomer.name);
       
-      // Check if drafts exist
-      if (existingDrafts && existingDrafts.length > 0) {
-        // Auto-load the most recent draft
-        const mostRecent = existingDrafts[0];
-        console.log('[Contract Builder] Auto-loading most recent draft:', mostRecent.id);
-        loadDraftMutation.mutate(mostRecent.id);
+      // Wait for drafts query to finish loading
+      if (draftsLoading) {
+        console.log('[Contract Builder] Drafts still loading, waiting...');
+        return;
+      }
+      
+      // Check if drafts exist (filter to only show draft status, not published)
+      const unpublishedDrafts = existingDrafts?.filter(d => d.status === 'draft') || [];
+      
+      if (unpublishedDrafts.length > 0) {
+        // Show draft selection dialog
+        console.log('[Contract Builder] Found', unpublishedDrafts.length, 'draft(s), showing selection dialog');
+        setIsDraftSelectionOpen(true);
       } else {
         // No drafts exist, auto-create a new one
         console.log('[Contract Builder] No existing drafts, auto-creating new draft for', selectedCustomer.name);
-        createDocumentMutation.mutate(selectedCustomer); // Pass entire customer object, not just ID
+        createDocumentMutation.mutate(selectedCustomer);
       }
     }
-  }, [selectedCustomer, isCustomerDialogOpen, documentId, existingDrafts]);
+  }, [selectedCustomer, isCustomerDialogOpen, documentId, existingDrafts, draftsLoading]);
 
   const handleCreateNewDraft = () => {
     console.log('[Contract Builder] handleCreateNewDraft called, selectedCustomer:', selectedCustomer?.name);
@@ -927,15 +934,17 @@ export default function ContractBuilderPage() {
                   </DialogHeader>
                   
                   <div className="space-y-4">
-                    {existingDrafts && existingDrafts.length > 0 ? (
+                    {(() => {
+                      const unpublishedDrafts = existingDrafts?.filter(d => d.status === 'draft') || [];
+                      return unpublishedDrafts.length > 0 ? (
                       <>
                         <p className="text-sm text-muted-foreground">
-                          Found {existingDrafts.length} existing {existingDrafts.length === 1 ? 'draft' : 'drafts'} for {selectedCustomer?.name || 'this customer'}
+                          Found {unpublishedDrafts.length} existing {unpublishedDrafts.length === 1 ? 'draft' : 'drafts'} for {selectedCustomer?.name || 'this customer'}
                         </p>
                         
                         <ScrollArea className="h-64 border rounded-md p-2">
                           <div className="space-y-2">
-                            {existingDrafts.map((draft) => (
+                            {unpublishedDrafts.map((draft) => (
                               <Card
                                 key={draft.id}
                                 className="hover-elevate cursor-pointer"
@@ -969,7 +978,8 @@ export default function ContractBuilderPage() {
                       <p className="text-sm text-muted-foreground" data-testid="text-no-drafts">
                         No existing drafts found for {selectedCustomer?.name || 'this customer'}
                       </p>
-                    )}
+                    );
+                    })()}
 
                     <div className="flex gap-2 pt-2">
                       <Button
