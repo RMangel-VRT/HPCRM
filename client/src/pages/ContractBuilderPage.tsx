@@ -933,87 +933,133 @@ export default function ContractBuilderPage() {
                   )}
                 </DialogContent>
               </Dialog>
-
-              <Dialog open={isDraftSelectionOpen} onOpenChange={setIsDraftSelectionOpen}>
-                <DialogContent className="max-w-2xl" data-testid="dialog-draft-selection">
-                  <DialogHeader>
-                    <DialogTitle>Load Draft or Create New?</DialogTitle>
-                  </DialogHeader>
-                  
-                  <div className="space-y-4">
-                    {(() => {
-                      const unpublishedDrafts = existingDrafts?.filter(d => d.status === 'draft') || [];
-                      return unpublishedDrafts.length > 0 ? (
-                      <>
-                        <p className="text-sm text-muted-foreground">
-                          Found {unpublishedDrafts.length} existing {unpublishedDrafts.length === 1 ? 'draft' : 'drafts'} for {selectedCustomer?.name || 'this customer'}
-                        </p>
-                        
-                        <ScrollArea className="h-64 border rounded-md p-2">
-                          <div className="space-y-2">
-                            {unpublishedDrafts.map((draft) => (
-                              <Card
-                                key={draft.id}
-                                className="hover-elevate cursor-pointer"
-                                onClick={() => loadDraftMutation.mutate(draft.id)}
-                                data-testid={`card-draft-${draft.id}`}
-                              >
-                                <CardContent className="p-4">
-                                  <div className="flex items-start justify-between">
-                                    <div className="flex-1">
-                                      <p className="font-medium" data-testid={`text-draft-title-${draft.id}`}>
-                                        {draft.documentTitle}
-                                      </p>
-                                      <p className="text-sm text-muted-foreground">
-                                        Status: <span className="capitalize">{draft.status}</span>
-                                      </p>
-                                      <p className="text-xs text-muted-foreground mt-1">
-                                        Last updated: {new Date(draft.updatedAt).toLocaleDateString()} at {new Date(draft.updatedAt).toLocaleTimeString()}
-                                      </p>
-                                    </div>
-                                    <FileText className="w-5 h-5 text-muted-foreground" />
-                                  </div>
-                                </CardContent>
-                              </Card>
-                            ))}
-                          </div>
-                        </ScrollArea>
-
-                        <Separator />
-                      </>
-                    ) : (
-                      <p className="text-sm text-muted-foreground" data-testid="text-no-drafts">
-                        No existing drafts found for {selectedCustomer?.name || 'this customer'}
-                      </p>
-                    );
-                    })()}
-
-                    <div className="flex gap-2 pt-2">
-                      <Button
-                        variant="outline"
-                        onClick={() => {
-                          setIsDraftSelectionOpen(false);
-                          setSelectedCustomer(null);
-                        }}
-                        className="flex-1"
-                        data-testid="button-cancel-draft-selection"
-                      >
-                        Cancel
-                      </Button>
-                      <Button
-                        onClick={handleCreateNewDraft}
-                        disabled={createDocumentMutation.isPending}
-                        className="flex-1"
-                        data-testid="button-create-new-draft"
-                      >
-                        {createDocumentMutation.isPending ? "Creating..." : "Create New Draft"}
-                      </Button>
-                    </div>
-                  </div>
-                </DialogContent>
-              </Dialog>
             </CardContent>
           </Card>
+        </div>
+      </div>
+    );
+  }
+
+  // Intermediate state: customer selected but no document yet (show draft selection)
+  if (selectedCustomer && !documentId) {
+    return (
+      <div className="p-8">
+        <div className="max-w-4xl mx-auto">
+          <div className="mb-8">
+            <Button 
+              variant="ghost" 
+              size="sm" 
+              className="mb-4" 
+              onClick={() => setSelectedCustomer(null)}
+              data-testid="button-back-to-customer"
+            >
+              <ArrowLeft className="w-4 h-4 mr-2" />
+              Back to Customer Selection
+            </Button>
+            <h1 className="text-3xl font-semibold tracking-tight mb-2">
+              Contract for {selectedCustomer.name}
+            </h1>
+            <p className="text-muted-foreground">
+              {selectedCustomer.street}, {selectedCustomer.city}, {selectedCustomer.state} {selectedCustomer.zip}
+            </p>
+          </div>
+
+          <Dialog open={isDraftSelectionOpen} onOpenChange={(open) => {
+            console.log('[Contract Builder] Draft dialog onOpenChange called with:', open);
+            setIsDraftSelectionOpen(open);
+          }}>
+            <DialogContent className="max-w-2xl" data-testid="dialog-draft-selection">
+              <DialogHeader>
+                <DialogTitle>Load Draft or Create New?</DialogTitle>
+              </DialogHeader>
+              
+              <div className="space-y-4">
+                {(() => {
+                  const unpublishedDrafts = existingDrafts?.filter(d => d.status === 'draft') || [];
+                  return unpublishedDrafts.length > 0 ? (
+                  <>
+                    <p className="text-sm text-muted-foreground">
+                      Found {unpublishedDrafts.length} existing {unpublishedDrafts.length === 1 ? 'draft' : 'drafts'} for {selectedCustomer?.name || 'this customer'}
+                    </p>
+                    
+                    <ScrollArea className="h-64 border rounded-md p-2">
+                      <div className="space-y-2">
+                        {unpublishedDrafts.map((draft) => (
+                          <Card
+                            key={draft.id}
+                            className="hover-elevate cursor-pointer"
+                            onClick={() => loadDraftMutation.mutate(draft.id)}
+                            data-testid={`card-draft-${draft.id}`}
+                          >
+                            <CardContent className="p-4">
+                              <div className="flex items-start justify-between">
+                                <div className="flex-1">
+                                  <p className="font-medium" data-testid={`text-draft-title-${draft.id}`}>
+                                    {draft.documentTitle}
+                                  </p>
+                                  <p className="text-sm text-muted-foreground">
+                                    Status: <span className="capitalize">{draft.status}</span>
+                                  </p>
+                                  <p className="text-xs text-muted-foreground mt-1">
+                                    Last updated: {new Date(draft.updatedAt).toLocaleDateString()} at {new Date(draft.updatedAt).toLocaleTimeString()}
+                                  </p>
+                                </div>
+                                <FileText className="w-5 h-5 text-muted-foreground" />
+                              </div>
+                            </CardContent>
+                          </Card>
+                        ))}
+                      </div>
+                    </ScrollArea>
+
+                    <Separator />
+                  </>
+                ) : (
+                  <p className="text-sm text-muted-foreground" data-testid="text-no-drafts">
+                    No existing drafts found for {selectedCustomer?.name || 'this customer'}
+                  </p>
+                );
+                })()}
+
+                <div className="flex gap-2 pt-2">
+                  <Button
+                    variant="outline"
+                    onClick={() => {
+                      setIsDraftSelectionOpen(false);
+                      setSelectedCustomer(null);
+                    }}
+                    className="flex-1"
+                    data-testid="button-cancel-draft-selection"
+                  >
+                    Cancel
+                  </Button>
+                  <Button
+                    onClick={handleCreateNewDraft}
+                    disabled={createDocumentMutation.isPending}
+                    className="flex-1"
+                    data-testid="button-create-new-draft"
+                  >
+                    {createDocumentMutation.isPending ? "Creating..." : "Create New Draft"}
+                  </Button>
+                </div>
+              </div>
+            </DialogContent>
+          </Dialog>
+
+          {/* Show loading state while checking for drafts */}
+          {draftsLoading ? (
+            <Card>
+              <CardContent className="p-8 text-center">
+                <p className="text-muted-foreground">Checking for existing drafts...</p>
+              </CardContent>
+            </Card>
+          ) : !isDraftSelectionOpen ? (
+            <Card>
+              <CardContent className="p-8 text-center">
+                <p className="text-muted-foreground">Loading contract builder...</p>
+              </CardContent>
+            </Card>
+          ) : null}
         </div>
       </div>
     );
