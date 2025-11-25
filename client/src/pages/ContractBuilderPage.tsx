@@ -128,7 +128,14 @@ export default function ContractBuilderPage() {
   });
 
   const { data: existingDrafts, refetch: refetchDrafts, isLoading: draftsLoading } = useQuery<ContractBuilderDocument[]>({
-    queryKey: [`/api/contract-builder/documents?customerId=${selectedCustomer?.id}`, selectedCustomer?.id],
+    queryKey: ['/api/contract-builder/documents', { customerId: selectedCustomer?.id }],
+    queryFn: async () => {
+      const response = await fetch(`/api/contract-builder/documents?customerId=${selectedCustomer?.id}`, {
+        credentials: "include",
+      });
+      if (!response.ok) throw new Error('Failed to fetch drafts');
+      return response.json();
+    },
     enabled: !!selectedCustomer?.id,
   });
 

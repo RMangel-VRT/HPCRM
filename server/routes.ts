@@ -1136,7 +1136,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
     const user = req.user as UserWithContext;
     const customerId = req.query.customerId as string | undefined;
+    console.log('[Contract Builder API] Fetching documents, customerId:', customerId, 'companyId:', user.activeCompanyId);
     const documents = await storage.getContractBuilderDocuments(user.activeCompanyId, customerId);
+    console.log('[Contract Builder API] Found', documents.length, 'documents');
     res.json(documents);
   });
 
