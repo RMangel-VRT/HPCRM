@@ -6,6 +6,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
+import { Badge } from "@/components/ui/badge";
 import {
   Select,
   SelectContent,
@@ -26,19 +27,22 @@ import {
   Check,
   Loader2,
   ClipboardList,
-  Users
+  FileText,
+  ChevronRight
 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { queryClient, apiRequest } from "@/lib/queryClient";
-import type { Customer, TicketType, CompanyUser, User } from "@shared/schema";
+import type { Customer, TicketType, CompanyUser, User, Contract } from "@shared/schema";
+import { format } from "date-fns";
 
 export default function NewTicket() {
   const [, navigate] = useLocation();
   const { toast } = useToast();
   
-  const [step, setStep] = useState<"type" | "customer" | "details">("type");
+  const [step, setStep] = useState<"type" | "customer" | "contract" | "details">("type");
   const [selectedTypeId, setSelectedTypeId] = useState<string | null>(null);
   const [selectedCustomerId, setSelectedCustomerId] = useState<string | null>(null);
+  const [selectedContractId, setSelectedContractId] = useState<string | null>(null);
   const [customerSearch, setCustomerSearch] = useState("");
   const [showCustomerDialog, setShowCustomerDialog] = useState(false);
   
@@ -55,6 +59,20 @@ export default function NewTicket() {
   const { data: customers = [] } = useQuery<Customer[]>({
     queryKey: ["/api/customers"],
   });
+
+  const { data: customerContracts = [], isLoading: contractsLoading } = useQuery<Contract[]>({
+    queryKey: ["/api/customers", selectedCustomerId, "contracts"],
+    enabled: !!selectedCustomerId,
+    queryFn: async () => {
+      const res = await fetch(`/api/customers/${selectedCustomerId}/contracts`);
+      if (!res.ok) throw new Error("Failed to fetch contracts");
+      return res.json();
+    },
+  });
+
+  const activeContracts = useMemo(() => {
+    return customerContracts.filter(c => c.status === "active");
+  }, [customerContracts]);
 
   const { data: companyUsers = [] } = useQuery<CompanyUser[]>({
     queryKey: ["/api/company-users"],
@@ -86,12 +104,14 @@ export default function NewTicket() {
 
   const selectedType = ticketTypes.find(t => t.id === selectedTypeId);
   const selectedCustomer = customers.find(c => c.id === selectedCustomerId);
+  const selectedContract = customerContracts.find(c => c.id === selectedContractId);
 
   const createTicketMutation = useMutation({
     mutationFn: async () => {
       return apiRequest("POST", "/api/tickets", {
         ticketTypeId: selectedTypeId,
         customerId: selectedCustomerId,
+        contractId: selectedContractId,
         title,
         description: description || null,
         priority,
@@ -117,7 +137,18 @@ export default function NewTicket() {
 
   const handleSelectCustomer = (customerId: string) => {
     setSelectedCustomerId(customerId);
+    setSelectedContractId(null);
     setShowCustomerDialog(false);
+    setStep("contract");
+  };
+
+  const handleSelectContract = (contractId: string | null) => {
+    setSelectedContractId(contractId);
+    setStep("details");
+  };
+
+  const handleSkipContract = () => {
+    setSelectedContractId(null);
     setStep("details");
   };
 
@@ -133,6 +164,16 @@ export default function NewTicket() {
   };
 
   const canSubmit = selectedTypeId && selectedCustomerId && title.trim();
+
+  const getServiceBadgeColor = (serviceType: string) => {
+    switch (serviceType) {
+      case "Maintenance": return "bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-400";
+      case "Snow": return "bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-400";
+      case "Irrigation": return "bg-cyan-100 text-cyan-800 dark:bg-cyan-900/30 dark:text-cyan-400";
+      case "Chemical": return "bg-amber-100 text-amber-800 dark:bg-amber-900/30 dark:text-amber-400";
+      default: return "bg-gray-100 text-gray-800 dark:bg-gray-800 dark:text-gray-300";
+    }
+  };
 
   return (
     <div className="space-y-4 max-w-2xl mx-auto">
@@ -276,6 +317,98 @@ export default function NewTicket() {
         </div>
       )}
 
+      {step === "contract" && (
+        <div className="space-y-4">
+          <div className="flex items-center gap-2 text-sm text-muted-foreground flex-wrap">
+            <span 
+              className="hover:text-foreground cursor-pointer"
+              onClick={() => setStep("type")}
+            >
+              {selectedType?.name}
+            </span>
+            <span>/</span>
+            <span 
+              className="hover:text-foreground cursor-pointer"
+              onClick={() => setStep("customer")}
+            >
+              {selectedCustomer?.name}
+            </span>
+            <span>/</span>
+            <span>Link Contract (Optional)</span>
+          </div>
+
+          <p className="text-muted-foreground text-sm">
+            Optionally link this ticket to an active contract for better tracking.
+          </p>
+          
+          {contractsLoading ? (
+            <div className="flex justify-center py-8">
+              <Loader2 className="w-8 h-8 animate-spin text-muted-foreground" />
+            </div>
+          ) : activeContracts.length === 0 ? (
+            <Card>
+              <CardContent className="py-6 text-center space-y-4">
+                <FileText className="w-10 h-10 mx-auto text-muted-foreground" />
+                <div>
+                  <p className="font-medium">No active contracts</p>
+                  <p className="text-sm text-muted-foreground">
+                    This customer has no active contracts to link.
+                  </p>
+                </div>
+                <Button onClick={handleSkipContract} className="mt-2" data-testid="button-continue-without-contract">
+                  Continue Without Contract
+                  <ChevronRight className="w-4 h-4 ml-1" />
+                </Button>
+              </CardContent>
+            </Card>
+          ) : (
+            <div className="space-y-3">
+              {activeContracts.map((contract) => (
+                <Card 
+                  key={contract.id}
+                  className="hover-elevate active-elevate-2 cursor-pointer"
+                  onClick={() => handleSelectContract(contract.id)}
+                  data-testid={`card-contract-${contract.id}`}
+                >
+                  <CardContent className="p-4 flex items-center gap-4">
+                    <div className="w-10 h-10 rounded-lg bg-muted flex items-center justify-center shrink-0">
+                      <FileText className="w-5 h-5 text-muted-foreground" />
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium ${getServiceBadgeColor(contract.serviceType)}`}>
+                          {contract.serviceType}
+                        </span>
+                        <Badge variant="outline" className="text-xs">
+                          {contract.billingPattern}
+                        </Badge>
+                      </div>
+                      <p className="text-sm text-muted-foreground mt-1">
+                        {format(new Date(contract.startDate), "MMM d, yyyy")}
+                        {contract.endDate && ` - ${format(new Date(contract.endDate), "MMM d, yyyy")}`}
+                      </p>
+                    </div>
+                    {selectedContractId === contract.id && (
+                      <Check className="w-5 h-5 text-primary shrink-0" />
+                    )}
+                  </CardContent>
+                </Card>
+              ))}
+
+              <Button 
+                variant="outline" 
+                className="w-full" 
+                onClick={handleSkipContract}
+                data-testid="button-skip-contract"
+              >
+                Skip - No Contract Link
+                <ChevronRight className="w-4 h-4 ml-1" />
+              </Button>
+            </div>
+          )}
+        </div>
+      )}
+
       {step === "details" && (
         <form onSubmit={handleSubmit} className="space-y-4">
           <div className="flex items-center gap-2 text-sm text-muted-foreground flex-wrap">
@@ -292,6 +425,17 @@ export default function NewTicket() {
             >
               {selectedCustomer?.name}
             </span>
+            {selectedContract && (
+              <>
+                <span>/</span>
+                <span 
+                  className="hover:text-foreground cursor-pointer"
+                  onClick={() => setStep("contract")}
+                >
+                  {selectedContract.serviceType}
+                </span>
+              </>
+            )}
             <span>/</span>
             <span>Details</span>
           </div>
