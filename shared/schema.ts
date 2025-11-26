@@ -458,12 +458,16 @@ export type ContractBuilderVariable = typeof contractBuilderVariables.$inferSele
 
 // Ticketing System Tables
 
+// Ticket Type Categories - classifies the nature of ticket types
+export type TicketTypeCategory = "quick_task" | "project" | "service";
+
 // Ticket Types - configurable workflow definitions (e.g., "Quick Task", "Project", "Estimate Request")
 export const ticketTypes = pgTable("ticket_types", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
   companyId: varchar("company_id").notNull().references(() => companies.id, { onDelete: "cascade" }),
   name: text("name").notNull(),
   description: text("description"),
+  category: text("category").notNull().$type<TicketTypeCategory>().default("quick_task"),
   icon: text("icon").default("clipboard-list"),
   color: text("color").default("#2563eb"),
   isActive: text("is_active").notNull().default("true").$type<"true" | "false">(),
@@ -476,6 +480,7 @@ export const insertTicketTypeSchema = createInsertSchema(ticketTypes).omit({
   createdAt: true,
   updatedAt: true,
 }).extend({
+  category: z.enum(["quick_task", "project", "service"]).default("quick_task"),
   isActive: z.enum(["true", "false"]).default("true"),
 });
 
@@ -532,11 +537,15 @@ export const insertTicketTypeFieldSchema = createInsertSchema(ticketTypeFields).
 export type InsertTicketTypeField = z.infer<typeof insertTicketTypeFieldSchema>;
 export type TicketTypeField = typeof ticketTypeFields.$inferSelect;
 
+// Ticket Source Types - where the ticket originated from
+export type TicketSourceType = "manual" | "contract_service";
+
 // Tickets - actual work items
 export const tickets = pgTable("tickets", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
   companyId: varchar("company_id").notNull().references(() => companies.id, { onDelete: "cascade" }),
   customerId: varchar("customer_id").notNull().references(() => customers.id, { onDelete: "cascade" }),
+  contractId: varchar("contract_id").references(() => contracts.id, { onDelete: "set null" }),
   ticketTypeId: varchar("ticket_type_id").notNull().references(() => ticketTypes.id, { onDelete: "restrict" }),
   currentStatusId: varchar("current_status_id").notNull().references(() => ticketTypeStatuses.id, { onDelete: "restrict" }),
   title: text("title").notNull(),
@@ -556,6 +565,7 @@ export const insertTicketSchema = createInsertSchema(tickets).omit({
   updatedAt: true,
 }).extend({
   priority: z.enum(["low", "normal", "high", "urgent"]).default("normal"),
+  contractId: z.string().nullable().optional(),
 });
 
 export type InsertTicket = z.infer<typeof insertTicketSchema>;
@@ -618,3 +628,22 @@ export const insertTicketCommentSchema = createInsertSchema(ticketComments).omit
 
 export type InsertTicketComment = z.infer<typeof insertTicketCommentSchema>;
 export type TicketComment = typeof ticketComments.$inferSelect;
+
+// Ticket Sources - tracks origin of tickets for future service occurrence linking
+export const ticketSources = pgTable("ticket_sources", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  ticketId: varchar("ticket_id").notNull().references(() => tickets.id, { onDelete: "cascade" }),
+  sourceType: text("source_type").notNull().$type<TicketSourceType>().default("manual"),
+  sourceId: text("source_id"),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+});
+
+export const insertTicketSourceSchema = createInsertSchema(ticketSources).omit({
+  id: true,
+  createdAt: true,
+}).extend({
+  sourceType: z.enum(["manual", "contract_service"]).default("manual"),
+});
+
+export type InsertTicketSource = z.infer<typeof insertTicketSourceSchema>;
+export type TicketSource = typeof ticketSources.$inferSelect;
