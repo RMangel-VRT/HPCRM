@@ -32,7 +32,13 @@ Replit's object storage (Google Cloud Storage) is used for storing contract PDF 
 A document generation tool for landscape maintenance contracts using templates and variable substitution. It uses a dedicated database architecture for templates, documents, sections, and variables. The workflow allows users to select customers, include/exclude sections, fill variables (with auto-population), preview, auto-save, publish, and export to PDF. It integrates directly with the CRM's contract management by publishing documents and creating contract records, inferring service types and billing patterns.
 
 #### Ticketing System
-A mobile-first system for field crews to track and manage work at customer properties. It supports configurable ticket types with custom workflows, where tickets progress through multiple status steps with step-specific data capture. The system includes default ticket types ("Quick Task", "Project") and role-based access control. The UI is optimized for mobile with card-based layouts, a three-step creation wizard, and workflow progress indicators.
+A mobile-first system for field crews to track and manage work at customer properties. It supports configurable ticket types with custom workflows, where tickets progress through multiple status steps with step-specific data capture. The system includes default ticket types ("Quick Task", "Project") and role-based access control. The UI is optimized for mobile with card-based layouts, a four-step creation wizard (type, customer, contract, details), and workflow progress indicators.
+
+**Contract Integration:** Tickets can optionally be linked to active customer contracts. The creation wizard shows available active contracts after customer selection, allowing users to associate work with specific service agreements. Contract-linked tickets display a contract indicator in the list view and contract details in the detail view. Filters allow filtering by contract linkage status.
+
+**Ticket Categories:** Ticket types are categorized as quick_task, project, or service for filtering and reporting purposes.
+
+**Ticket Sources:** The `ticket_sources` table tracks ticket origin (manual creation vs. future auto-generated from service blueprints) to distinguish between user-created tickets and system-generated service tickets.
 
 ## External Dependencies
 
