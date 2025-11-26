@@ -15,6 +15,12 @@ import { Plus, Search, ChevronRight, Clock, User, MapPin, CalendarDays, Filter, 
 import { Link } from "wouter";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import type { Ticket, TicketType, TicketTypeStatus, Customer } from "@shared/schema";
+import { SERVICE_CATALOG } from "@shared/serviceCatalog";
+
+const getServiceDisplayName = (serviceType: string) => {
+  const service = SERVICE_CATALOG[serviceType as keyof typeof SERVICE_CATALOG];
+  return service?.name || serviceType;
+};
 
 interface TicketWithDetails extends Ticket {
   ticketType?: TicketType;
@@ -288,6 +294,11 @@ function TicketCard({ ticket, formatDueDate }: TicketCardProps) {
                       <span className="flex items-center gap-1 text-primary">
                         <FileText className="w-3.5 h-3.5" />
                       </span>
+                    )}
+                    {ticket.serviceType && (
+                      <Badge variant="outline" className="text-xs font-normal" data-testid={`badge-service-${ticket.id}`}>
+                        {getServiceDisplayName(ticket.serviceType)}
+                      </Badge>
                     )}
                     {ticket.ticketType && (
                       <Badge variant="secondary" className="text-xs font-normal">

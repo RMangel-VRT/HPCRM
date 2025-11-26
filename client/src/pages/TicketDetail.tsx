@@ -33,7 +33,8 @@ import {
 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { queryClient, apiRequest } from "@/lib/queryClient";
-import type { Ticket, TicketType, TicketTypeStatus, TicketTypeField, TicketFieldValue, TicketComment, TicketStatusHistory, Customer, Contract } from "@shared/schema";
+import type { Ticket, TicketType, TicketTypeStatus, TicketTypeField, TicketFieldValue, TicketComment, TicketStatusHistory, Customer, Contract, ContractService } from "@shared/schema";
+import { SERVICE_CATALOG } from "@shared/serviceCatalog";
 import { format } from "date-fns";
 
 interface TicketDetails {
@@ -45,8 +46,14 @@ interface TicketDetails {
   comments: TicketComment[];
   customer: Customer;
   contract: Contract | null;
+  contractServices: ContractService[];
   assignedUser: { id: string; email: string } | null;
 }
+
+const getServiceDisplayName = (serviceType: string) => {
+  const service = SERVICE_CATALOG[serviceType as keyof typeof SERVICE_CATALOG];
+  return service?.name || serviceType;
+};
 
 const priorityConfig = {
   urgent: { color: "bg-red-500", textColor: "text-red-700 dark:text-red-400", label: "Urgent" },
@@ -126,7 +133,7 @@ export default function TicketDetail() {
     );
   }
 
-  const { ticket, ticketType, statuses, fieldValues, statusHistory, comments, customer, contract, assignedUser } = details;
+  const { ticket, ticketType, statuses, fieldValues, statusHistory, comments, customer, contract, contractServices = [], assignedUser } = details;
   const priority = priorityConfig[ticket.priority as keyof typeof priorityConfig] || priorityConfig.normal;
   const currentStatus = statuses.find(s => s.id === ticket.currentStatusId);
   const currentStatusIndex = statuses.findIndex(s => s.id === ticket.currentStatusId);
@@ -211,6 +218,11 @@ export default function TicketDetail() {
             <FileText className="w-3.5 h-3.5" />
             {contract.serviceType}
           </Link>
+        )}
+        {ticket.serviceType && (
+          <Badge variant="outline" className="text-xs" data-testid="badge-service-type">
+            {getServiceDisplayName(ticket.serviceType)}
+          </Badge>
         )}
         {ticket.dueDate && (
           <span className="flex items-center gap-1 text-muted-foreground">

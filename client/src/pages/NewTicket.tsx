@@ -32,17 +32,19 @@ import {
 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { queryClient, apiRequest } from "@/lib/queryClient";
-import type { Customer, TicketType, CompanyUser, User, Contract } from "@shared/schema";
+import type { Customer, TicketType, CompanyUser, User, Contract, ContractService } from "@shared/schema";
+import { SERVICE_CATALOG } from "@shared/serviceCatalog";
 import { format } from "date-fns";
 
 export default function NewTicket() {
   const [, navigate] = useLocation();
   const { toast } = useToast();
   
-  const [step, setStep] = useState<"type" | "customer" | "contract" | "details">("type");
+  const [step, setStep] = useState<"type" | "customer" | "contract" | "service" | "details">("type");
   const [selectedTypeId, setSelectedTypeId] = useState<string | null>(null);
   const [selectedCustomerId, setSelectedCustomerId] = useState<string | null>(null);
   const [selectedContractId, setSelectedContractId] = useState<string | null>(null);
+  const [selectedServiceType, setSelectedServiceType] = useState<string | null>(null);
   const [customerSearch, setCustomerSearch] = useState("");
   const [showCustomerDialog, setShowCustomerDialog] = useState(false);
   
@@ -73,6 +75,16 @@ export default function NewTicket() {
   const activeContracts = useMemo(() => {
     return customerContracts.filter(c => c.status === "active");
   }, [customerContracts]);
+
+  const { data: contractServices = [], isLoading: servicesLoading } = useQuery<ContractService[]>({
+    queryKey: ["/api/contracts", selectedContractId, "services"],
+    enabled: !!selectedContractId,
+    queryFn: async () => {
+      const res = await fetch(`/api/contracts/${selectedContractId}/services`);
+      if (!res.ok) throw new Error("Failed to fetch contract services");
+      return res.json();
+    },
+  });
 
   const { data: companyUsers = [] } = useQuery<CompanyUser[]>({
     queryKey: ["/api/company-users"],
@@ -112,6 +124,7 @@ export default function NewTicket() {
         ticketTypeId: selectedTypeId,
         customerId: selectedCustomerId,
         contractId: selectedContractId,
+        serviceType: selectedServiceType,
         title,
         description: description || null,
         priority,
@@ -138,18 +151,36 @@ export default function NewTicket() {
   const handleSelectCustomer = (customerId: string) => {
     setSelectedCustomerId(customerId);
     setSelectedContractId(null);
+    setSelectedServiceType(null);
     setShowCustomerDialog(false);
     setStep("contract");
   };
 
-  const handleSelectContract = (contractId: string | null) => {
+  const handleSelectContract = (contractId: string) => {
     setSelectedContractId(contractId);
-    setStep("details");
+    setSelectedServiceType(null);
+    setStep("service");
   };
 
   const handleSkipContract = () => {
     setSelectedContractId(null);
+    setSelectedServiceType(null);
     setStep("details");
+  };
+
+  const handleSelectService = (serviceType: string | null) => {
+    setSelectedServiceType(serviceType);
+    setStep("details");
+  };
+
+  const handleSkipService = () => {
+    setSelectedServiceType(null);
+    setStep("details");
+  };
+
+  const getServiceDisplayName = (serviceType: string) => {
+    const service = SERVICE_CATALOG[serviceType as keyof typeof SERVICE_CATALOG];
+    return service?.name || serviceType;
   };
 
   const handleSubmit = (e: React.FormEvent) => {
@@ -409,6 +440,97 @@ export default function NewTicket() {
         </div>
       )}
 
+      {step === "service" && (
+        <div className="space-y-4">
+          <div className="flex items-center gap-2 text-sm text-muted-foreground flex-wrap">
+            <span 
+              className="hover:text-foreground cursor-pointer"
+              onClick={() => setStep("type")}
+            >
+              {selectedType?.name}
+            </span>
+            <span>/</span>
+            <span 
+              className="hover:text-foreground cursor-pointer"
+              onClick={() => setStep("customer")}
+            >
+              {selectedCustomer?.name}
+            </span>
+            <span>/</span>
+            <span 
+              className="hover:text-foreground cursor-pointer"
+              onClick={() => setStep("contract")}
+            >
+              {selectedContract?.serviceType}
+            </span>
+            <span>/</span>
+            <span>Tag Service (Optional)</span>
+          </div>
+
+          <p className="text-muted-foreground text-sm">
+            Optionally tag this ticket to a specific service included in the contract.
+          </p>
+          
+          {servicesLoading ? (
+            <div className="flex justify-center py-8">
+              <Loader2 className="w-8 h-8 animate-spin text-muted-foreground" />
+            </div>
+          ) : contractServices.length === 0 ? (
+            <Card>
+              <CardContent className="py-6 text-center space-y-4">
+                <ClipboardList className="w-10 h-10 mx-auto text-muted-foreground" />
+                <div>
+                  <p className="font-medium">No services configured</p>
+                  <p className="text-sm text-muted-foreground">
+                    This contract has no services to tag.
+                  </p>
+                </div>
+                <Button onClick={handleSkipService} className="mt-2" data-testid="button-continue-without-service">
+                  Continue Without Service Tag
+                  <ChevronRight className="w-4 h-4 ml-1" />
+                </Button>
+              </CardContent>
+            </Card>
+          ) : (
+            <div className="space-y-3">
+              {contractServices.map((service) => (
+                <Card 
+                  key={service.id}
+                  className="hover-elevate active-elevate-2 cursor-pointer"
+                  onClick={() => handleSelectService(service.serviceType)}
+                  data-testid={`card-service-${service.serviceType}`}
+                >
+                  <CardContent className="p-4 flex items-center gap-4">
+                    <div className="w-10 h-10 rounded-lg bg-muted flex items-center justify-center shrink-0">
+                      <ClipboardList className="w-5 h-5 text-muted-foreground" />
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <p className="font-medium">{getServiceDisplayName(service.serviceType)}</p>
+                      <p className="text-sm text-muted-foreground">
+                        {service.annualCount} visits per year
+                      </p>
+                    </div>
+                    {selectedServiceType === service.serviceType && (
+                      <Check className="w-5 h-5 text-primary shrink-0" />
+                    )}
+                  </CardContent>
+                </Card>
+              ))}
+
+              <Button 
+                variant="outline" 
+                className="w-full" 
+                onClick={handleSkipService}
+                data-testid="button-skip-service"
+              >
+                Skip - No Service Tag
+                <ChevronRight className="w-4 h-4 ml-1" />
+              </Button>
+            </div>
+          )}
+        </div>
+      )}
+
       {step === "details" && (
         <form onSubmit={handleSubmit} className="space-y-4">
           <div className="flex items-center gap-2 text-sm text-muted-foreground flex-wrap">
@@ -433,6 +555,17 @@ export default function NewTicket() {
                   onClick={() => setStep("contract")}
                 >
                   {selectedContract.serviceType}
+                </span>
+              </>
+            )}
+            {selectedServiceType && (
+              <>
+                <span>/</span>
+                <span 
+                  className="hover:text-foreground cursor-pointer"
+                  onClick={() => setStep("service")}
+                >
+                  {getServiceDisplayName(selectedServiceType)}
                 </span>
               </>
             )}
