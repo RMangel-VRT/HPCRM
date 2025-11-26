@@ -525,7 +525,7 @@ export const insertTicketTypeFieldSchema = createInsertSchema(ticketTypeFields).
 }).extend({
   fieldType: z.enum(["text", "number", "date", "currency", "select", "textarea"]),
   isRequired: z.enum(["true", "false"]).default("false"),
-  options: z.array(z.string()).default([]),
+  options: z.array(z.string()).optional().default([]),
   displayOrder: z.number().int().min(0),
 });
 
