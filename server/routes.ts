@@ -4,7 +4,7 @@ import path from "path";
 import { promises as fs } from "fs";
 import { setupAuth, type UserWithContext } from "./auth";
 import { storage } from "./storage";
-import { insertCustomerSchema, insertContactSchema, insertCompanySchema, insertCompanyUserSchema, insertSettingsSchema, insertNoteSchema, insertContractSchema, insertContractDocumentSchema, insertContractBuilderDocumentSchema, insertContractBuilderSectionSchema, insertContractBuilderVariableSchema } from "@shared/schema";
+import { insertCustomerSchema, insertContactSchema, insertCompanySchema, insertCompanyUserSchema, insertSettingsSchema, insertNoteSchema, insertContractSchema, insertContractDocumentSchema, insertContractBuilderDocumentSchema, insertContractBuilderSectionSchema, insertContractBuilderVariableSchema, insertTicketTypeSchema, insertTicketTypeStatusSchema, insertTicketTypeFieldSchema, insertTicketSchema, insertTicketFieldValueSchema, insertTicketStatusHistorySchema, insertTicketCommentSchema } from "@shared/schema";
 import { ObjectStorageService, ObjectNotFoundError, objectStorageClient } from "./objectStorage";
 import { ObjectPermission, ObjectAccessGroupType } from "./objectAcl";
 
@@ -1771,6 +1771,611 @@ export async function registerRoutes(app: Express): Promise<Server> {
       console.error('Publish and create contract error:', error);
       res.status(500).send(`Failed to publish and create contract: ${error.message}`);
     }
+  });
+
+  // Ticket Types routes (admin/office only for management)
+  app.get("/api/ticket-types", async (req, res) => {
+    if (!req.isAuthenticated()) {
+      return res.status(401).send("Not authenticated");
+    }
+
+    const user = req.user as UserWithContext;
+    const ticketTypes = await storage.getTicketTypes(user.activeCompanyId);
+    res.json(ticketTypes);
+  });
+
+  app.get("/api/ticket-types/:id", async (req, res) => {
+    if (!req.isAuthenticated()) {
+      return res.status(401).send("Not authenticated");
+    }
+
+    const user = req.user as UserWithContext;
+    const ticketType = await storage.getTicketTypeById(req.params.id, user.activeCompanyId);
+    if (!ticketType) {
+      return res.status(404).send("Ticket type not found");
+    }
+    res.json(ticketType);
+  });
+
+  app.post("/api/ticket-types", async (req, res) => {
+    if (!req.isAuthenticated()) {
+      return res.status(401).send("Not authenticated");
+    }
+
+    const user = req.user as UserWithContext;
+    
+    if (user.activeRole !== "admin" && user.activeRole !== "super_admin") {
+      return res.status(403).send("Insufficient permissions - admin role required");
+    }
+
+    const result = insertTicketTypeSchema.safeParse({
+      ...req.body,
+      companyId: user.activeCompanyId,
+    });
+    if (!result.success) {
+      return res.status(400).send(result.error.message);
+    }
+
+    const ticketType = await storage.createTicketType(result.data);
+    res.json(ticketType);
+  });
+
+  app.patch("/api/ticket-types/:id", async (req, res) => {
+    if (!req.isAuthenticated()) {
+      return res.status(401).send("Not authenticated");
+    }
+
+    const user = req.user as UserWithContext;
+    
+    if (user.activeRole !== "admin" && user.activeRole !== "super_admin") {
+      return res.status(403).send("Insufficient permissions - admin role required");
+    }
+
+    const result = insertTicketTypeSchema.partial().omit({ companyId: true }).safeParse(req.body);
+    if (!result.success) {
+      return res.status(400).send(result.error.message);
+    }
+
+    const ticketType = await storage.updateTicketType(req.params.id, user.activeCompanyId, result.data);
+    if (!ticketType) {
+      return res.status(404).send("Ticket type not found");
+    }
+    res.json(ticketType);
+  });
+
+  app.delete("/api/ticket-types/:id", async (req, res) => {
+    if (!req.isAuthenticated()) {
+      return res.status(401).send("Not authenticated");
+    }
+
+    const user = req.user as UserWithContext;
+    
+    if (user.activeRole !== "admin" && user.activeRole !== "super_admin") {
+      return res.status(403).send("Insufficient permissions - admin role required");
+    }
+
+    await storage.deleteTicketType(req.params.id, user.activeCompanyId);
+    res.status(200).send("Deleted");
+  });
+
+  // Ticket Type Statuses routes
+  app.get("/api/ticket-types/:ticketTypeId/statuses", async (req, res) => {
+    if (!req.isAuthenticated()) {
+      return res.status(401).send("Not authenticated");
+    }
+
+    const statuses = await storage.getTicketTypeStatuses(req.params.ticketTypeId);
+    res.json(statuses);
+  });
+
+  app.post("/api/ticket-types/:ticketTypeId/statuses", async (req, res) => {
+    if (!req.isAuthenticated()) {
+      return res.status(401).send("Not authenticated");
+    }
+
+    const user = req.user as UserWithContext;
+    
+    if (user.activeRole !== "admin" && user.activeRole !== "super_admin") {
+      return res.status(403).send("Insufficient permissions - admin role required");
+    }
+
+    const result = insertTicketTypeStatusSchema.safeParse({
+      ...req.body,
+      ticketTypeId: req.params.ticketTypeId,
+    });
+    if (!result.success) {
+      return res.status(400).send(result.error.message);
+    }
+
+    const status = await storage.createTicketTypeStatus(result.data);
+    res.json(status);
+  });
+
+  app.patch("/api/ticket-type-statuses/:id", async (req, res) => {
+    if (!req.isAuthenticated()) {
+      return res.status(401).send("Not authenticated");
+    }
+
+    const user = req.user as UserWithContext;
+    
+    if (user.activeRole !== "admin" && user.activeRole !== "super_admin") {
+      return res.status(403).send("Insufficient permissions - admin role required");
+    }
+
+    const result = insertTicketTypeStatusSchema.partial().omit({ ticketTypeId: true }).safeParse(req.body);
+    if (!result.success) {
+      return res.status(400).send(result.error.message);
+    }
+
+    const status = await storage.updateTicketTypeStatus(req.params.id, result.data);
+    if (!status) {
+      return res.status(404).send("Status not found");
+    }
+    res.json(status);
+  });
+
+  app.delete("/api/ticket-type-statuses/:id", async (req, res) => {
+    if (!req.isAuthenticated()) {
+      return res.status(401).send("Not authenticated");
+    }
+
+    const user = req.user as UserWithContext;
+    
+    if (user.activeRole !== "admin" && user.activeRole !== "super_admin") {
+      return res.status(403).send("Insufficient permissions - admin role required");
+    }
+
+    await storage.deleteTicketTypeStatus(req.params.id);
+    res.status(200).send("Deleted");
+  });
+
+  // Ticket Type Fields routes
+  app.get("/api/ticket-types/:ticketTypeId/fields", async (req, res) => {
+    if (!req.isAuthenticated()) {
+      return res.status(401).send("Not authenticated");
+    }
+
+    const fields = await storage.getTicketTypeFields(req.params.ticketTypeId);
+    res.json(fields);
+  });
+
+  app.get("/api/ticket-type-statuses/:statusId/fields", async (req, res) => {
+    if (!req.isAuthenticated()) {
+      return res.status(401).send("Not authenticated");
+    }
+
+    const fields = await storage.getTicketTypeFieldsByStatus(req.params.statusId);
+    res.json(fields);
+  });
+
+  app.post("/api/ticket-types/:ticketTypeId/fields", async (req, res) => {
+    if (!req.isAuthenticated()) {
+      return res.status(401).send("Not authenticated");
+    }
+
+    const user = req.user as UserWithContext;
+    
+    if (user.activeRole !== "admin" && user.activeRole !== "super_admin") {
+      return res.status(403).send("Insufficient permissions - admin role required");
+    }
+
+    const result = insertTicketTypeFieldSchema.safeParse({
+      ...req.body,
+      ticketTypeId: req.params.ticketTypeId,
+    });
+    if (!result.success) {
+      return res.status(400).send(result.error.message);
+    }
+
+    const field = await storage.createTicketTypeField(result.data);
+    res.json(field);
+  });
+
+  app.patch("/api/ticket-type-fields/:id", async (req, res) => {
+    if (!req.isAuthenticated()) {
+      return res.status(401).send("Not authenticated");
+    }
+
+    const user = req.user as UserWithContext;
+    
+    if (user.activeRole !== "admin" && user.activeRole !== "super_admin") {
+      return res.status(403).send("Insufficient permissions - admin role required");
+    }
+
+    const result = insertTicketTypeFieldSchema.partial().omit({ ticketTypeId: true }).safeParse(req.body);
+    if (!result.success) {
+      return res.status(400).send(result.error.message);
+    }
+
+    const field = await storage.updateTicketTypeField(req.params.id, result.data);
+    if (!field) {
+      return res.status(404).send("Field not found");
+    }
+    res.json(field);
+  });
+
+  app.delete("/api/ticket-type-fields/:id", async (req, res) => {
+    if (!req.isAuthenticated()) {
+      return res.status(401).send("Not authenticated");
+    }
+
+    const user = req.user as UserWithContext;
+    
+    if (user.activeRole !== "admin" && user.activeRole !== "super_admin") {
+      return res.status(403).send("Insufficient permissions - admin role required");
+    }
+
+    await storage.deleteTicketTypeField(req.params.id);
+    res.status(200).send("Deleted");
+  });
+
+  // Tickets routes
+  app.get("/api/tickets", async (req, res) => {
+    if (!req.isAuthenticated()) {
+      return res.status(401).send("Not authenticated");
+    }
+
+    const user = req.user as UserWithContext;
+    const filters: { customerId?: string; assignedToId?: string } = {};
+    
+    if (req.query.customerId) {
+      filters.customerId = req.query.customerId as string;
+    }
+    if (req.query.assignedToId) {
+      filters.assignedToId = req.query.assignedToId as string;
+    }
+    
+    // Ops users can only see their assigned tickets
+    if (user.activeRole === "ops") {
+      filters.assignedToId = user.id;
+    }
+
+    const tickets = await storage.getTickets(user.activeCompanyId, filters);
+    res.json(tickets);
+  });
+
+  app.get("/api/tickets/:id", async (req, res) => {
+    if (!req.isAuthenticated()) {
+      return res.status(401).send("Not authenticated");
+    }
+
+    const user = req.user as UserWithContext;
+    const ticket = await storage.getTicketById(req.params.id, user.activeCompanyId);
+    if (!ticket) {
+      return res.status(404).send("Ticket not found");
+    }
+    
+    // Ops users can only view their assigned tickets
+    if (user.activeRole === "ops" && ticket.assignedToId !== user.id) {
+      return res.status(403).send("Access denied - not assigned to this ticket");
+    }
+    
+    res.json(ticket);
+  });
+
+  app.get("/api/customers/:customerId/tickets", async (req, res) => {
+    if (!req.isAuthenticated()) {
+      return res.status(401).send("Not authenticated");
+    }
+
+    const user = req.user as UserWithContext;
+    const tickets = await storage.getTicketsByCustomerId(req.params.customerId, user.activeCompanyId);
+    res.json(tickets);
+  });
+
+  app.post("/api/tickets", async (req, res) => {
+    if (!req.isAuthenticated()) {
+      return res.status(401).send("Not authenticated");
+    }
+
+    const user = req.user as UserWithContext;
+    
+    // Only admin and office can create tickets
+    if (user.activeRole === "ops" || user.activeRole === "viewer") {
+      return res.status(403).send("Insufficient permissions - admin or office role required");
+    }
+
+    // Get the ticket type to find the initial status
+    const ticketType = await storage.getTicketTypeById(req.body.ticketTypeId, user.activeCompanyId);
+    if (!ticketType) {
+      return res.status(400).send("Invalid ticket type");
+    }
+
+    const statuses = await storage.getTicketTypeStatuses(ticketType.id);
+    if (statuses.length === 0) {
+      return res.status(400).send("Ticket type has no statuses defined");
+    }
+
+    // Sort by displayOrder and get the first status
+    const initialStatus = statuses.sort((a, b) => a.displayOrder - b.displayOrder)[0];
+
+    const result = insertTicketSchema.safeParse({
+      ...req.body,
+      companyId: user.activeCompanyId,
+      currentStatusId: initialStatus.id,
+      createdById: user.id,
+    });
+    if (!result.success) {
+      return res.status(400).send(result.error.message);
+    }
+
+    const ticket = await storage.createTicket(result.data);
+    
+    // Create initial status history
+    await storage.createTicketStatusHistory({
+      ticketId: ticket.id,
+      fromStatusId: null,
+      toStatusId: initialStatus.id,
+      changedById: user.id,
+      notes: "Ticket created",
+    });
+
+    res.json(ticket);
+  });
+
+  app.patch("/api/tickets/:id", async (req, res) => {
+    if (!req.isAuthenticated()) {
+      return res.status(401).send("Not authenticated");
+    }
+
+    const user = req.user as UserWithContext;
+    const existingTicket = await storage.getTicketById(req.params.id, user.activeCompanyId);
+    
+    if (!existingTicket) {
+      return res.status(404).send("Ticket not found");
+    }
+    
+    // Ops users can update their assigned tickets (for status changes and field values)
+    if (user.activeRole === "ops" && existingTicket.assignedToId !== user.id) {
+      return res.status(403).send("Access denied - not assigned to this ticket");
+    }
+    
+    // Viewers cannot update tickets
+    if (user.activeRole === "viewer") {
+      return res.status(403).send("Insufficient permissions");
+    }
+
+    // If status is changing, record history
+    if (req.body.currentStatusId && req.body.currentStatusId !== existingTicket.currentStatusId) {
+      await storage.createTicketStatusHistory({
+        ticketId: existingTicket.id,
+        fromStatusId: existingTicket.currentStatusId,
+        toStatusId: req.body.currentStatusId,
+        changedById: user.id,
+        notes: req.body.statusChangeNotes || null,
+      });
+      
+      // Check if new status is final
+      const newStatus = await storage.getTicketTypeStatuses(existingTicket.ticketTypeId)
+        .then(statuses => statuses.find(s => s.id === req.body.currentStatusId));
+      
+      if (newStatus?.isFinal === "true") {
+        req.body.completedAt = new Date();
+      }
+    }
+
+    const result = insertTicketSchema.partial().omit({ companyId: true, createdById: true }).safeParse(req.body);
+    if (!result.success) {
+      return res.status(400).send(result.error.message);
+    }
+
+    const ticket = await storage.updateTicket(req.params.id, user.activeCompanyId, result.data);
+    res.json(ticket);
+  });
+
+  app.delete("/api/tickets/:id", async (req, res) => {
+    if (!req.isAuthenticated()) {
+      return res.status(401).send("Not authenticated");
+    }
+
+    const user = req.user as UserWithContext;
+    
+    // Only admin and office can delete tickets
+    if (user.activeRole === "ops" || user.activeRole === "viewer") {
+      return res.status(403).send("Insufficient permissions - admin or office role required");
+    }
+
+    await storage.deleteTicket(req.params.id, user.activeCompanyId);
+    res.status(200).send("Deleted");
+  });
+
+  // Ticket Field Values routes
+  app.get("/api/tickets/:ticketId/field-values", async (req, res) => {
+    if (!req.isAuthenticated()) {
+      return res.status(401).send("Not authenticated");
+    }
+
+    const user = req.user as UserWithContext;
+    const ticket = await storage.getTicketById(req.params.ticketId, user.activeCompanyId);
+    
+    if (!ticket) {
+      return res.status(404).send("Ticket not found");
+    }
+    
+    // Ops users can only view their assigned tickets
+    if (user.activeRole === "ops" && ticket.assignedToId !== user.id) {
+      return res.status(403).send("Access denied");
+    }
+
+    const fieldValues = await storage.getTicketFieldValues(req.params.ticketId);
+    res.json(fieldValues);
+  });
+
+  app.put("/api/tickets/:ticketId/field-values/:fieldId", async (req, res) => {
+    if (!req.isAuthenticated()) {
+      return res.status(401).send("Not authenticated");
+    }
+
+    const user = req.user as UserWithContext;
+    const ticket = await storage.getTicketById(req.params.ticketId, user.activeCompanyId);
+    
+    if (!ticket) {
+      return res.status(404).send("Ticket not found");
+    }
+    
+    // Ops users can update field values for their assigned tickets
+    if (user.activeRole === "ops" && ticket.assignedToId !== user.id) {
+      return res.status(403).send("Access denied");
+    }
+    
+    if (user.activeRole === "viewer") {
+      return res.status(403).send("Insufficient permissions");
+    }
+
+    const result = insertTicketFieldValueSchema.safeParse({
+      ticketId: req.params.ticketId,
+      fieldId: req.params.fieldId,
+      value: req.body.value,
+      capturedById: user.id,
+    });
+    if (!result.success) {
+      return res.status(400).send(result.error.message);
+    }
+
+    const fieldValue = await storage.upsertTicketFieldValue(result.data);
+    res.json(fieldValue);
+  });
+
+  // Ticket Status History routes
+  app.get("/api/tickets/:ticketId/status-history", async (req, res) => {
+    if (!req.isAuthenticated()) {
+      return res.status(401).send("Not authenticated");
+    }
+
+    const user = req.user as UserWithContext;
+    const ticket = await storage.getTicketById(req.params.ticketId, user.activeCompanyId);
+    
+    if (!ticket) {
+      return res.status(404).send("Ticket not found");
+    }
+
+    const history = await storage.getTicketStatusHistory(req.params.ticketId);
+    res.json(history);
+  });
+
+  // Ticket Comments routes
+  app.get("/api/tickets/:ticketId/comments", async (req, res) => {
+    if (!req.isAuthenticated()) {
+      return res.status(401).send("Not authenticated");
+    }
+
+    const user = req.user as UserWithContext;
+    const ticket = await storage.getTicketById(req.params.ticketId, user.activeCompanyId);
+    
+    if (!ticket) {
+      return res.status(404).send("Ticket not found");
+    }
+    
+    // Ops users can only view comments on their assigned tickets
+    if (user.activeRole === "ops" && ticket.assignedToId !== user.id) {
+      return res.status(403).send("Access denied");
+    }
+
+    const comments = await storage.getTicketComments(req.params.ticketId);
+    res.json(comments);
+  });
+
+  app.post("/api/tickets/:ticketId/comments", async (req, res) => {
+    if (!req.isAuthenticated()) {
+      return res.status(401).send("Not authenticated");
+    }
+
+    const user = req.user as UserWithContext;
+    const ticket = await storage.getTicketById(req.params.ticketId, user.activeCompanyId);
+    
+    if (!ticket) {
+      return res.status(404).send("Ticket not found");
+    }
+    
+    // Ops users can add comments to their assigned tickets
+    if (user.activeRole === "ops" && ticket.assignedToId !== user.id) {
+      return res.status(403).send("Access denied");
+    }
+    
+    if (user.activeRole === "viewer") {
+      return res.status(403).send("Insufficient permissions");
+    }
+
+    const result = insertTicketCommentSchema.safeParse({
+      ticketId: req.params.ticketId,
+      authorId: user.id,
+      body: req.body.body,
+    });
+    if (!result.success) {
+      return res.status(400).send(result.error.message);
+    }
+
+    const comment = await storage.createTicketComment(result.data);
+    res.json(comment);
+  });
+
+  app.delete("/api/ticket-comments/:id", async (req, res) => {
+    if (!req.isAuthenticated()) {
+      return res.status(401).send("Not authenticated");
+    }
+
+    const user = req.user as UserWithContext;
+    
+    // Only admin/office can delete comments
+    if (user.activeRole === "ops" || user.activeRole === "viewer") {
+      return res.status(403).send("Insufficient permissions - admin or office role required");
+    }
+
+    await storage.deleteTicketComment(req.params.id);
+    res.status(200).send("Deleted");
+  });
+
+  // Get ticket with full details (type, statuses, fields)
+  app.get("/api/tickets/:id/details", async (req, res) => {
+    if (!req.isAuthenticated()) {
+      return res.status(401).send("Not authenticated");
+    }
+
+    const user = req.user as UserWithContext;
+    const ticket = await storage.getTicketById(req.params.id, user.activeCompanyId);
+    
+    if (!ticket) {
+      return res.status(404).send("Ticket not found");
+    }
+    
+    // Ops users can only view their assigned tickets
+    if (user.activeRole === "ops" && ticket.assignedToId !== user.id) {
+      return res.status(403).send("Access denied");
+    }
+
+    const [ticketType, statuses, fieldValues, statusHistory, comments, customer] = await Promise.all([
+      storage.getTicketTypeById(ticket.ticketTypeId, user.activeCompanyId),
+      storage.getTicketTypeStatuses(ticket.ticketTypeId),
+      storage.getTicketFieldValues(ticket.id),
+      storage.getTicketStatusHistory(ticket.id),
+      storage.getTicketComments(ticket.id),
+      storage.getCustomerById(ticket.customerId, user.activeCompanyId),
+    ]);
+
+    // Get fields for each status
+    const statusesWithFields = await Promise.all(
+      statuses.map(async (status) => ({
+        ...status,
+        fields: await storage.getTicketTypeFieldsByStatus(status.id),
+      }))
+    );
+
+    // Get assigned user info if assigned
+    let assignedUser = null;
+    if (ticket.assignedToId) {
+      assignedUser = await storage.getUserById(ticket.assignedToId);
+    }
+
+    res.json({
+      ticket,
+      ticketType,
+      statuses: statusesWithFields,
+      fieldValues,
+      statusHistory,
+      comments,
+      customer,
+      assignedUser: assignedUser ? { id: assignedUser.id, email: assignedUser.email, firstName: assignedUser.firstName, lastName: assignedUser.lastName } : null,
+    });
   });
 
   const httpServer = createServer(app);
