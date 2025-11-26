@@ -2063,6 +2063,16 @@ export async function registerRoutes(app: Express): Promise<Server> {
     res.json(tickets);
   });
 
+  app.get("/api/contracts/:contractId/tickets", async (req, res) => {
+    if (!req.isAuthenticated()) {
+      return res.status(401).send("Not authenticated");
+    }
+
+    const user = req.user as UserWithContext;
+    const tickets = await storage.getTicketsByContractId(req.params.contractId, user.activeCompanyId);
+    res.json(tickets);
+  });
+
   app.post("/api/tickets", async (req, res) => {
     if (!req.isAuthenticated()) {
       return res.status(401).send("Not authenticated");
@@ -2108,6 +2118,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
       toStatusId: initialStatus.id,
       changedById: user.id,
       notes: "Ticket created",
+    });
+
+    // Create ticket source record (manual creation)
+    await storage.createTicketSource({
+      ticketId: ticket.id,
+      sourceType: "manual",
+      sourceId: null,
     });
 
     res.json(ticket);

@@ -1,6 +1,6 @@
-import { type User, type InsertUser, type Customer, type InsertCustomer, type Contact, type InsertContact, type Company, type InsertCompany, type CompanyUser, type InsertCompanyUser, type Settings, type InsertSettings, type Note, type InsertNote, type Contract, type InsertContract, type ContractStatusHistory, type InsertContractStatusHistory, type ContractDocument, type InsertContractDocument, type ContractMonthlyAmount, type InsertContractMonthlyAmount, type CustomerRateSheet, type InsertCustomerRateSheet, type ContractService, type InsertContractService, type ContractTemplate, type InsertContractTemplate, type ContractBuilderDocument, type InsertContractBuilderDocument, type ContractBuilderSection, type InsertContractBuilderSection, type ContractBuilderVariable, type InsertContractBuilderVariable, type TicketType, type InsertTicketType, type TicketTypeStatus, type InsertTicketTypeStatus, type TicketTypeField, type InsertTicketTypeField, type Ticket, type InsertTicket, type TicketFieldValue, type InsertTicketFieldValue, type TicketStatusHistory, type InsertTicketStatusHistory, type TicketComment, type InsertTicketComment } from "@shared/schema";
+import { type User, type InsertUser, type Customer, type InsertCustomer, type Contact, type InsertContact, type Company, type InsertCompany, type CompanyUser, type InsertCompanyUser, type Settings, type InsertSettings, type Note, type InsertNote, type Contract, type InsertContract, type ContractStatusHistory, type InsertContractStatusHistory, type ContractDocument, type InsertContractDocument, type ContractMonthlyAmount, type InsertContractMonthlyAmount, type CustomerRateSheet, type InsertCustomerRateSheet, type ContractService, type InsertContractService, type ContractTemplate, type InsertContractTemplate, type ContractBuilderDocument, type InsertContractBuilderDocument, type ContractBuilderSection, type InsertContractBuilderSection, type ContractBuilderVariable, type InsertContractBuilderVariable, type TicketType, type InsertTicketType, type TicketTypeStatus, type InsertTicketTypeStatus, type TicketTypeField, type InsertTicketTypeField, type Ticket, type InsertTicket, type TicketFieldValue, type InsertTicketFieldValue, type TicketStatusHistory, type InsertTicketStatusHistory, type TicketComment, type InsertTicketComment, type TicketSource, type InsertTicketSource, type TicketTypeCategory } from "@shared/schema";
 import { db } from "./db";
-import { users, customers, contacts, companies, companyUsers, settings, notes, contracts, contractStatusHistory, contractDocuments, contractMonthlyAmounts, customerRateSheets, contractServices, contractTemplates, contractBuilderDocuments, contractBuilderSections, contractBuilderVariables, ticketTypes, ticketTypeStatuses, ticketTypeFields, tickets, ticketFieldValues, ticketStatusHistory, ticketComments } from "@shared/schema";
+import { users, customers, contacts, companies, companyUsers, settings, notes, contracts, contractStatusHistory, contractDocuments, contractMonthlyAmounts, customerRateSheets, contractServices, contractTemplates, contractBuilderDocuments, contractBuilderSections, contractBuilderVariables, ticketTypes, ticketTypeStatuses, ticketTypeFields, tickets, ticketFieldValues, ticketStatusHistory, ticketComments, ticketSources } from "@shared/schema";
 import { eq, and, sql, desc } from "drizzle-orm";
 import session from "express-session";
 import connectPg from "connect-pg-simple";
@@ -114,9 +114,10 @@ export interface IStorage {
   updateTicketTypeField(id: string, updates: Partial<InsertTicketTypeField>): Promise<TicketTypeField | undefined>;
   deleteTicketTypeField(id: string): Promise<void>;
   
-  getTickets(companyId: string, filters?: { customerId?: string; assignedToId?: string; status?: string }): Promise<Ticket[]>;
+  getTickets(companyId: string, filters?: { customerId?: string; contractId?: string; assignedToId?: string; status?: string; category?: TicketTypeCategory }): Promise<Ticket[]>;
   getTicketById(id: string, companyId: string): Promise<Ticket | undefined>;
   getTicketsByCustomerId(customerId: string, companyId: string): Promise<Ticket[]>;
+  getTicketsByContractId(contractId: string, companyId: string): Promise<Ticket[]>;
   createTicket(ticket: InsertTicket): Promise<Ticket>;
   updateTicket(id: string, companyId: string, updates: Partial<InsertTicket>): Promise<Ticket | undefined>;
   deleteTicket(id: string, companyId: string): Promise<void>;
@@ -130,6 +131,9 @@ export interface IStorage {
   getTicketComments(ticketId: string): Promise<TicketComment[]>;
   createTicketComment(comment: InsertTicketComment): Promise<TicketComment>;
   deleteTicketComment(id: string): Promise<void>;
+  
+  createTicketSource(ticketSource: InsertTicketSource): Promise<TicketSource>;
+  getTicketSource(ticketId: string): Promise<TicketSource | undefined>;
   
   sessionStore: session.Store;
 }
@@ -999,11 +1003,14 @@ export class PgStorage implements IStorage {
     await db.delete(ticketTypeFields).where(eq(ticketTypeFields.id, id));
   }
 
-  async getTickets(companyId: string, filters?: { customerId?: string; assignedToId?: string; status?: string }): Promise<Ticket[]> {
+  async getTickets(companyId: string, filters?: { customerId?: string; contractId?: string; assignedToId?: string; status?: string; category?: TicketTypeCategory }): Promise<Ticket[]> {
     let conditions = [eq(tickets.companyId, companyId)];
     
     if (filters?.customerId) {
       conditions.push(eq(tickets.customerId, filters.customerId));
+    }
+    if (filters?.contractId) {
+      conditions.push(eq(tickets.contractId, filters.contractId));
     }
     if (filters?.assignedToId) {
       conditions.push(eq(tickets.assignedToId, filters.assignedToId));
@@ -1024,6 +1031,12 @@ export class PgStorage implements IStorage {
   async getTicketsByCustomerId(customerId: string, companyId: string): Promise<Ticket[]> {
     return await db.select().from(tickets)
       .where(and(eq(tickets.customerId, customerId), eq(tickets.companyId, companyId)))
+      .orderBy(desc(tickets.createdAt));
+  }
+
+  async getTicketsByContractId(contractId: string, companyId: string): Promise<Ticket[]> {
+    return await db.select().from(tickets)
+      .where(and(eq(tickets.contractId, contractId), eq(tickets.companyId, companyId)))
       .orderBy(desc(tickets.createdAt));
   }
 
@@ -1089,6 +1102,18 @@ export class PgStorage implements IStorage {
 
   async deleteTicketComment(id: string): Promise<void> {
     await db.delete(ticketComments).where(eq(ticketComments.id, id));
+  }
+
+  async createTicketSource(insertSource: InsertTicketSource): Promise<TicketSource> {
+    const result = await db.insert(ticketSources).values([insertSource]).returning();
+    return result[0];
+  }
+
+  async getTicketSource(ticketId: string): Promise<TicketSource | undefined> {
+    const result = await db.select().from(ticketSources)
+      .where(eq(ticketSources.ticketId, ticketId))
+      .limit(1);
+    return result[0];
   }
 }
 
