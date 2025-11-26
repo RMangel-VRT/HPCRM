@@ -540,12 +540,16 @@ export type TicketTypeField = typeof ticketTypeFields.$inferSelect;
 // Ticket Source Types - where the ticket originated from
 export type TicketSourceType = "manual" | "contract_service";
 
+// Service type for ticket tagging (imported from serviceCatalog)
+export type TicketServiceType = "mowing" | "pet_station" | "chemical" | "shrub_trimming" | "ornamental_grass" | "aeration" | "cleanups" | "tree_pruning";
+
 // Tickets - actual work items
 export const tickets = pgTable("tickets", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
   companyId: varchar("company_id").notNull().references(() => companies.id, { onDelete: "cascade" }),
   customerId: varchar("customer_id").notNull().references(() => customers.id, { onDelete: "cascade" }),
   contractId: varchar("contract_id").references(() => contracts.id, { onDelete: "set null" }),
+  serviceType: text("service_type").$type<TicketServiceType>(), // Optional service type tagging
   ticketTypeId: varchar("ticket_type_id").notNull().references(() => ticketTypes.id, { onDelete: "restrict" }),
   currentStatusId: varchar("current_status_id").notNull().references(() => ticketTypeStatuses.id, { onDelete: "restrict" }),
   title: text("title").notNull(),
@@ -566,6 +570,7 @@ export const insertTicketSchema = createInsertSchema(tickets).omit({
 }).extend({
   priority: z.enum(["low", "normal", "high", "urgent"]).default("normal"),
   contractId: z.string().nullable().optional(),
+  serviceType: z.enum(["mowing", "pet_station", "chemical", "shrub_trimming", "ornamental_grass", "aeration", "cleanups", "tree_pruning"]).nullable().optional(),
 });
 
 export type InsertTicket = z.infer<typeof insertTicketSchema>;
