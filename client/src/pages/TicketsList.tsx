@@ -32,6 +32,8 @@ const priorityConfig = {
 export default function TicketsList() {
   const [search, setSearch] = useState("");
   const [priorityFilter, setPriorityFilter] = useState("all");
+  const [typeFilter, setTypeFilter] = useState("all");
+  const [contractFilter, setContractFilter] = useState("all");
   const [showFilters, setShowFilters] = useState(false);
 
   const { data: tickets = [], isLoading: ticketsLoading } = useQuery<Ticket[]>({
@@ -78,7 +80,12 @@ export default function TicketsList() {
       ticket.title.toLowerCase().includes(search.toLowerCase()) ||
       ticket.customer?.name?.toLowerCase().includes(search.toLowerCase()) || false;
     const matchesPriority = priorityFilter === "all" || ticket.priority === priorityFilter;
-    return matchesSearch && matchesPriority;
+    const matchesType = typeFilter === "all" || ticket.ticketTypeId === typeFilter;
+    const matchesContract = 
+      contractFilter === "all" || 
+      (contractFilter === "linked" && ticket.contractId) ||
+      (contractFilter === "unlinked" && !ticket.contractId);
+    return matchesSearch && matchesPriority && matchesType && matchesContract;
   });
 
   const openTickets = filteredTickets.filter(t => !t.completedAt);
@@ -158,6 +165,29 @@ export default function TicketsList() {
               <SelectItem value="high">High</SelectItem>
               <SelectItem value="normal">Normal</SelectItem>
               <SelectItem value="low">Low</SelectItem>
+            </SelectContent>
+          </Select>
+
+          <Select value={typeFilter} onValueChange={setTypeFilter}>
+            <SelectTrigger className="w-[140px] h-10" data-testid="select-type-filter">
+              <SelectValue placeholder="Ticket Type" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">All Types</SelectItem>
+              {ticketTypes.map(tt => (
+                <SelectItem key={tt.id} value={tt.id}>{tt.name}</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+
+          <Select value={contractFilter} onValueChange={setContractFilter}>
+            <SelectTrigger className="w-[140px] h-10" data-testid="select-contract-filter">
+              <SelectValue placeholder="Contract" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">All Tickets</SelectItem>
+              <SelectItem value="linked">With Contract</SelectItem>
+              <SelectItem value="unlinked">No Contract</SelectItem>
             </SelectContent>
           </Select>
         </div>
