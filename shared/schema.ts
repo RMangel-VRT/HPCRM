@@ -455,3 +455,166 @@ export const insertContractBuilderVariableSchema = createInsertSchema(contractBu
 
 export type InsertContractBuilderVariable = z.infer<typeof insertContractBuilderVariableSchema>;
 export type ContractBuilderVariable = typeof contractBuilderVariables.$inferSelect;
+
+// Ticketing System Tables
+
+// Ticket Types - configurable workflow definitions (e.g., "Quick Task", "Project", "Estimate Request")
+export const ticketTypes = pgTable("ticket_types", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  companyId: varchar("company_id").notNull().references(() => companies.id, { onDelete: "cascade" }),
+  name: text("name").notNull(),
+  description: text("description"),
+  icon: text("icon").default("clipboard-list"),
+  color: text("color").default("#2563eb"),
+  isActive: text("is_active").notNull().default("true").$type<"true" | "false">(),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  updatedAt: timestamp("updated_at").notNull().defaultNow(),
+});
+
+export const insertTicketTypeSchema = createInsertSchema(ticketTypes).omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+}).extend({
+  isActive: z.enum(["true", "false"]).default("true"),
+});
+
+export type InsertTicketType = z.infer<typeof insertTicketTypeSchema>;
+export type TicketType = typeof ticketTypes.$inferSelect;
+
+// Ticket Type Statuses - workflow steps for each ticket type (ordered)
+export const ticketTypeStatuses = pgTable("ticket_type_statuses", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  ticketTypeId: varchar("ticket_type_id").notNull().references(() => ticketTypes.id, { onDelete: "cascade" }),
+  name: text("name").notNull(),
+  description: text("description"),
+  displayOrder: integer("display_order").notNull(),
+  color: text("color").default("#6b7280"),
+  isFinal: text("is_final").notNull().default("false").$type<"true" | "false">(),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+});
+
+export const insertTicketTypeStatusSchema = createInsertSchema(ticketTypeStatuses).omit({
+  id: true,
+  createdAt: true,
+}).extend({
+  displayOrder: z.number().int().min(0),
+  isFinal: z.enum(["true", "false"]).default("false"),
+});
+
+export type InsertTicketTypeStatus = z.infer<typeof insertTicketTypeStatusSchema>;
+export type TicketTypeStatus = typeof ticketTypeStatuses.$inferSelect;
+
+// Ticket Type Fields - custom fields that can be captured at specific statuses
+export const ticketTypeFields = pgTable("ticket_type_fields", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  ticketTypeId: varchar("ticket_type_id").notNull().references(() => ticketTypes.id, { onDelete: "cascade" }),
+  statusId: varchar("status_id").references(() => ticketTypeStatuses.id, { onDelete: "cascade" }),
+  fieldKey: text("field_key").notNull(),
+  fieldLabel: text("field_label").notNull(),
+  fieldType: text("field_type").notNull().$type<"text" | "number" | "date" | "currency" | "select" | "textarea">(),
+  isRequired: text("is_required").notNull().default("false").$type<"true" | "false">(),
+  options: text("options").array().default(sql`ARRAY[]::text[]`),
+  displayOrder: integer("display_order").notNull(),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+});
+
+export const insertTicketTypeFieldSchema = createInsertSchema(ticketTypeFields).omit({
+  id: true,
+  createdAt: true,
+}).extend({
+  fieldType: z.enum(["text", "number", "date", "currency", "select", "textarea"]),
+  isRequired: z.enum(["true", "false"]).default("false"),
+  options: z.array(z.string()).default([]),
+  displayOrder: z.number().int().min(0),
+});
+
+export type InsertTicketTypeField = z.infer<typeof insertTicketTypeFieldSchema>;
+export type TicketTypeField = typeof ticketTypeFields.$inferSelect;
+
+// Tickets - actual work items
+export const tickets = pgTable("tickets", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  companyId: varchar("company_id").notNull().references(() => companies.id, { onDelete: "cascade" }),
+  customerId: varchar("customer_id").notNull().references(() => customers.id, { onDelete: "cascade" }),
+  ticketTypeId: varchar("ticket_type_id").notNull().references(() => ticketTypes.id, { onDelete: "restrict" }),
+  currentStatusId: varchar("current_status_id").notNull().references(() => ticketTypeStatuses.id, { onDelete: "restrict" }),
+  title: text("title").notNull(),
+  description: text("description"),
+  priority: text("priority").notNull().$type<"low" | "normal" | "high" | "urgent">().default("normal"),
+  assignedToId: varchar("assigned_to_id").references(() => users.id, { onDelete: "set null" }),
+  dueDate: timestamp("due_date"),
+  completedAt: timestamp("completed_at"),
+  createdById: varchar("created_by_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  updatedAt: timestamp("updated_at").notNull().defaultNow(),
+});
+
+export const insertTicketSchema = createInsertSchema(tickets).omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+}).extend({
+  priority: z.enum(["low", "normal", "high", "urgent"]).default("normal"),
+});
+
+export type InsertTicket = z.infer<typeof insertTicketSchema>;
+export type Ticket = typeof tickets.$inferSelect;
+
+// Ticket Field Values - captured data for custom fields
+export const ticketFieldValues = pgTable("ticket_field_values", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  ticketId: varchar("ticket_id").notNull().references(() => tickets.id, { onDelete: "cascade" }),
+  fieldId: varchar("field_id").notNull().references(() => ticketTypeFields.id, { onDelete: "cascade" }),
+  value: text("value").notNull(),
+  capturedAt: timestamp("captured_at").notNull().defaultNow(),
+  capturedById: varchar("captured_by_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+}, (table) => ({
+  ticketFieldUnique: unique().on(table.ticketId, table.fieldId),
+}));
+
+export const insertTicketFieldValueSchema = createInsertSchema(ticketFieldValues).omit({
+  id: true,
+  capturedAt: true,
+});
+
+export type InsertTicketFieldValue = z.infer<typeof insertTicketFieldValueSchema>;
+export type TicketFieldValue = typeof ticketFieldValues.$inferSelect;
+
+// Ticket Status History - audit trail of status changes
+export const ticketStatusHistory = pgTable("ticket_status_history", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  ticketId: varchar("ticket_id").notNull().references(() => tickets.id, { onDelete: "cascade" }),
+  fromStatusId: varchar("from_status_id").references(() => ticketTypeStatuses.id, { onDelete: "set null" }),
+  toStatusId: varchar("to_status_id").notNull().references(() => ticketTypeStatuses.id, { onDelete: "cascade" }),
+  changedById: varchar("changed_by_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+  notes: text("notes"),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+});
+
+export const insertTicketStatusHistorySchema = createInsertSchema(ticketStatusHistory).omit({
+  id: true,
+  createdAt: true,
+});
+
+export type InsertTicketStatusHistory = z.infer<typeof insertTicketStatusHistorySchema>;
+export type TicketStatusHistory = typeof ticketStatusHistory.$inferSelect;
+
+// Ticket Comments
+export const ticketComments = pgTable("ticket_comments", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  ticketId: varchar("ticket_id").notNull().references(() => tickets.id, { onDelete: "cascade" }),
+  authorId: varchar("author_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+  body: text("body").notNull(),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+});
+
+export const insertTicketCommentSchema = createInsertSchema(ticketComments).omit({
+  id: true,
+  createdAt: true,
+}).extend({
+  body: z.string().min(1).max(5000),
+});
+
+export type InsertTicketComment = z.infer<typeof insertTicketCommentSchema>;
+export type TicketComment = typeof ticketComments.$inferSelect;
