@@ -18,6 +18,7 @@ import {
   Shield,
   DollarSign,
   Wrench,
+  ClipboardList,
 } from "lucide-react";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import RoleBadge from "./RoleBadge";
@@ -51,6 +52,7 @@ export default function AppSidebar({
     ? [
         { title: "Dashboard", url: "/dashboard", icon: LayoutDashboard },
         { title: "Customers", url: "/dashboard/customers", icon: Building2 },
+        { title: "Tickets", url: "/dashboard/tickets", icon: ClipboardList },
         { title: "Tools", url: "/dashboard/tools", icon: Wrench },
         { title: "Revenue", url: "/dashboard/revenue", icon: DollarSign },
       ]

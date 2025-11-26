@@ -1,14 +1,8 @@
 import { useState } from "react";
+import { useQuery, useMutation } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "@/components/ui/table";
+import { Card, CardContent } from "@/components/ui/card";
 import {
   Select,
   SelectContent,
@@ -17,193 +11,291 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Badge } from "@/components/ui/badge";
-import { Plus, Search, Eye } from "lucide-react";
-import StatusBadge from "@/components/StatusBadge";
-import EmptyState from "@/components/EmptyState";
-import emptyTicketsImage from "@assets/generated_images/Empty_tickets_state_illustration_2fd7f4ab.png";
+import { Plus, Search, ChevronRight, Clock, User, MapPin, CalendarDays, Filter, Loader2 } from "lucide-react";
 import { Link } from "wouter";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
+import type { Ticket, TicketType, TicketTypeStatus, Customer } from "@shared/schema";
 
-const mockTickets = [
-  {
-    id: "1",
-    title: "Sprinkler head replacement needed",
-    customer: "Riverside HOA",
-    property: "Main Entrance",
-    priority: "high",
-    status: "open" as const,
-    assignedTo: "John Doe",
-    dueDate: "2024-03-15",
-  },
-  {
-    id: "2",
-    title: "Spring mulch application",
-    customer: "Greenfield Corp",
-    property: "Corporate Campus",
-    priority: "normal",
-    status: "in_progress" as const,
-    assignedTo: "Sarah Johnson",
-    dueDate: "2024-03-20",
-  },
-  {
-    id: "3",
-    title: "Irrigation system inspection",
-    customer: "Riverside HOA",
-    property: "Community Park",
-    priority: "urgent",
-    status: "waiting" as const,
-    assignedTo: "Mike Chen",
-    dueDate: "2024-03-12",
-  },
-];
+interface TicketWithDetails extends Ticket {
+  ticketType?: TicketType;
+  currentStatus?: TicketTypeStatus;
+  customer?: Customer;
+}
+
+const priorityConfig = {
+  urgent: { color: "bg-red-500", textColor: "text-red-700 dark:text-red-400", label: "Urgent" },
+  high: { color: "bg-orange-500", textColor: "text-orange-700 dark:text-orange-400", label: "High" },
+  normal: { color: "bg-blue-500", textColor: "text-blue-700 dark:text-blue-400", label: "Normal" },
+  low: { color: "bg-gray-400", textColor: "text-gray-600 dark:text-gray-400", label: "Low" },
+};
 
 export default function TicketsList() {
   const [search, setSearch] = useState("");
-  const [statusFilter, setStatusFilter] = useState("all");
   const [priorityFilter, setPriorityFilter] = useState("all");
-  const [tickets] = useState(mockTickets);
+  const [showFilters, setShowFilters] = useState(false);
 
-  const filteredTickets = tickets.filter((ticket) => {
-    const matchesSearch =
-      ticket.title.toLowerCase().includes(search.toLowerCase()) ||
-      ticket.customer.toLowerCase().includes(search.toLowerCase());
-    const matchesStatus = statusFilter === "all" || ticket.status === statusFilter;
-    const matchesPriority = priorityFilter === "all" || ticket.priority === priorityFilter;
-    return matchesSearch && matchesStatus && matchesPriority;
+  const { data: tickets = [], isLoading: ticketsLoading } = useQuery<Ticket[]>({
+    queryKey: ["/api/tickets"],
   });
 
-  const getPriorityColor = (priority: string) => {
-    switch (priority) {
-      case "urgent":
-        return "bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-400";
-      case "high":
-        return "bg-orange-100 text-orange-800 dark:bg-orange-900/30 dark:text-orange-400";
-      case "normal":
-        return "bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-400";
-      case "low":
-        return "bg-gray-100 text-gray-800 dark:bg-gray-800/30 dark:text-gray-400";
-      default:
-        return "bg-gray-100 text-gray-800 dark:bg-gray-800/30 dark:text-gray-400";
-    }
+  const { data: ticketTypes = [] } = useQuery<TicketType[]>({
+    queryKey: ["/api/ticket-types"],
+  });
+
+  const { data: customers = [] } = useQuery<Customer[]>({
+    queryKey: ["/api/customers"],
+  });
+
+  const ticketTypeStatusesQueries = ticketTypes.map(tt => ({
+    ticketTypeId: tt.id,
+    queryKey: ["/api/ticket-types", tt.id, "statuses"],
+  }));
+
+  const { data: allStatuses = [] } = useQuery({
+    queryKey: ["/api/ticket-type-statuses-all"],
+    queryFn: async () => {
+      const allStatusArrays = await Promise.all(
+        ticketTypes.map(async (tt) => {
+          const res = await fetch(`/api/ticket-types/${tt.id}/statuses`, { credentials: "include" });
+          if (!res.ok) return [];
+          return res.json();
+        })
+      );
+      return allStatusArrays.flat();
+    },
+    enabled: ticketTypes.length > 0,
+  });
+
+  const enrichedTickets: TicketWithDetails[] = tickets.map(ticket => ({
+    ...ticket,
+    ticketType: ticketTypes.find(tt => tt.id === ticket.ticketTypeId),
+    currentStatus: allStatuses.find((s: TicketTypeStatus) => s.id === ticket.currentStatusId),
+    customer: customers.find(c => c.id === ticket.customerId),
+  }));
+
+  const filteredTickets = enrichedTickets.filter((ticket) => {
+    const matchesSearch =
+      ticket.title.toLowerCase().includes(search.toLowerCase()) ||
+      ticket.customer?.name?.toLowerCase().includes(search.toLowerCase()) || false;
+    const matchesPriority = priorityFilter === "all" || ticket.priority === priorityFilter;
+    return matchesSearch && matchesPriority;
+  });
+
+  const openTickets = filteredTickets.filter(t => !t.completedAt);
+  const completedTickets = filteredTickets.filter(t => t.completedAt);
+
+  const formatDueDate = (date: Date | null | undefined) => {
+    if (!date) return null;
+    const d = new Date(date);
+    const now = new Date();
+    const diffDays = Math.ceil((d.getTime() - now.getTime()) / (1000 * 60 * 60 * 24));
+    
+    if (diffDays < 0) return { text: "Overdue", className: "text-red-600 dark:text-red-400 font-medium" };
+    if (diffDays === 0) return { text: "Today", className: "text-orange-600 dark:text-orange-400 font-medium" };
+    if (diffDays === 1) return { text: "Tomorrow", className: "text-yellow-600 dark:text-yellow-400" };
+    if (diffDays <= 7) return { text: `${diffDays} days`, className: "text-muted-foreground" };
+    return { text: d.toLocaleDateString(), className: "text-muted-foreground" };
   };
 
+  if (ticketsLoading) {
+    return (
+      <div className="flex items-center justify-center min-h-[50vh]">
+        <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
+      </div>
+    );
+  }
+
   return (
-    <div className="space-y-6">
-      <div className="flex items-center justify-between gap-4 flex-wrap">
+    <div className="space-y-4">
+      <div className="flex items-center justify-between gap-3">
         <div>
-          <h1 className="text-3xl font-semibold tracking-tight" data-testid="text-page-title">
+          <h1 className="text-2xl md:text-3xl font-semibold tracking-tight" data-testid="text-page-title">
             Tickets
           </h1>
-          <p className="text-sm text-muted-foreground mt-1">
-            Manage work orders and service tickets
+          <p className="text-sm text-muted-foreground mt-0.5 hidden md:block">
+            Manage work orders and service tasks
           </p>
         </div>
-        <Button data-testid="button-add-ticket">
-          <Plus className="w-4 h-4 mr-2" />
-          New Ticket
-        </Button>
+        <Link href="/dashboard/tickets/new">
+          <Button size="default" data-testid="button-add-ticket" className="gap-2">
+            <Plus className="w-4 h-4" />
+            <span className="hidden sm:inline">New Ticket</span>
+          </Button>
+        </Link>
       </div>
 
-      <div className="flex gap-4 flex-wrap">
-        <div className="relative flex-1 min-w-[240px]">
+      <div className="flex gap-2 items-center">
+        <div className="relative flex-1">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
           <Input
-            placeholder="Search tickets..."
+            placeholder="Search tickets or customers..."
             value={search}
             onChange={(e) => setSearch(e.target.value)}
-            className="pl-9"
+            className="pl-9 h-11"
             data-testid="input-search"
           />
         </div>
-        <Select value={statusFilter} onValueChange={setStatusFilter}>
-          <SelectTrigger className="w-[140px]" data-testid="select-status-filter">
-            <SelectValue placeholder="Status" />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="all">All Statuses</SelectItem>
-            <SelectItem value="open">Open</SelectItem>
-            <SelectItem value="in_progress">In Progress</SelectItem>
-            <SelectItem value="waiting">Waiting</SelectItem>
-            <SelectItem value="closed">Closed</SelectItem>
-          </SelectContent>
-        </Select>
-        <Select value={priorityFilter} onValueChange={setPriorityFilter}>
-          <SelectTrigger className="w-[140px]" data-testid="select-priority-filter">
-            <SelectValue placeholder="Priority" />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="all">All Priorities</SelectItem>
-            <SelectItem value="urgent">Urgent</SelectItem>
-            <SelectItem value="high">High</SelectItem>
-            <SelectItem value="normal">Normal</SelectItem>
-            <SelectItem value="low">Low</SelectItem>
-          </SelectContent>
-        </Select>
+        <Button 
+          variant="outline" 
+          size="icon" 
+          className="h-11 w-11 shrink-0"
+          onClick={() => setShowFilters(!showFilters)}
+          data-testid="button-toggle-filters"
+        >
+          <Filter className="w-4 h-4" />
+        </Button>
       </div>
 
+      {showFilters && (
+        <div className="flex gap-2 flex-wrap animate-in slide-in-from-top-2 duration-200">
+          <Select value={priorityFilter} onValueChange={setPriorityFilter}>
+            <SelectTrigger className="w-[130px] h-10" data-testid="select-priority-filter">
+              <SelectValue placeholder="Priority" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">All Priorities</SelectItem>
+              <SelectItem value="urgent">Urgent</SelectItem>
+              <SelectItem value="high">High</SelectItem>
+              <SelectItem value="normal">Normal</SelectItem>
+              <SelectItem value="low">Low</SelectItem>
+            </SelectContent>
+          </Select>
+        </div>
+      )}
+
       {filteredTickets.length === 0 ? (
-        <EmptyState
-          image={emptyTicketsImage}
-          title="No tickets found"
-          description="Try adjusting your search or filters, or create a new ticket."
-          actionLabel="New Ticket"
-          onAction={() => console.log("New ticket")}
-        />
+        <Card className="mt-8">
+          <CardContent className="flex flex-col items-center justify-center py-12 text-center">
+            <div className="w-16 h-16 rounded-full bg-muted flex items-center justify-center mb-4">
+              <Clock className="w-8 h-8 text-muted-foreground" />
+            </div>
+            <h3 className="text-lg font-medium mb-1">No tickets found</h3>
+            <p className="text-sm text-muted-foreground mb-4 max-w-sm">
+              {search || priorityFilter !== "all"
+                ? "Try adjusting your search or filters."
+                : "Create your first ticket to get started."}
+            </p>
+            <Link href="/dashboard/tickets/new">
+              <Button data-testid="button-create-first-ticket">
+                <Plus className="w-4 h-4 mr-2" />
+                Create Ticket
+              </Button>
+            </Link>
+          </CardContent>
+        </Card>
       ) : (
-        <div className="border rounded-lg">
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead>Title</TableHead>
-                <TableHead>Customer</TableHead>
-                <TableHead>Property</TableHead>
-                <TableHead>Priority</TableHead>
-                <TableHead>Status</TableHead>
-                <TableHead>Assigned To</TableHead>
-                <TableHead>Due Date</TableHead>
-                <TableHead className="text-right">Actions</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {filteredTickets.map((ticket) => (
-                <TableRow key={ticket.id} data-testid={`row-ticket-${ticket.id}`}>
-                  <TableCell className="font-medium">{ticket.title}</TableCell>
-                  <TableCell>{ticket.customer}</TableCell>
-                  <TableCell className="text-muted-foreground">{ticket.property}</TableCell>
-                  <TableCell>
-                    <Badge variant="secondary" className={getPriorityColor(ticket.priority)}>
-                      {ticket.priority}
-                    </Badge>
-                  </TableCell>
-                  <TableCell>
-                    <StatusBadge status={ticket.status} />
-                  </TableCell>
-                  <TableCell>
-                    <div className="flex items-center gap-2">
-                      <Avatar className="w-6 h-6">
-                        <AvatarFallback className="text-xs">
-                          {ticket.assignedTo.split(" ").map((n) => n[0]).join("")}
-                        </AvatarFallback>
-                      </Avatar>
-                      <span className="text-sm">{ticket.assignedTo}</span>
-                    </div>
-                  </TableCell>
-                  <TableCell className="text-muted-foreground">
-                    {new Date(ticket.dueDate).toLocaleDateString()}
-                  </TableCell>
-                  <TableCell className="text-right">
-                    <Button variant="ghost" size="icon" asChild data-testid={`button-view-${ticket.id}`}>
-                      <Link href={`/tickets/${ticket.id}`}>
-                        <Eye className="w-4 h-4" />
-                      </Link>
-                    </Button>
-                  </TableCell>
-                </TableRow>
-              ))}
-            </TableBody>
-          </Table>
+        <div className="space-y-4">
+          {openTickets.length > 0 && (
+            <div className="space-y-2">
+              <h2 className="text-sm font-medium text-muted-foreground px-1">
+                Open ({openTickets.length})
+              </h2>
+              <div className="space-y-2">
+                {openTickets.map((ticket) => (
+                  <TicketCard key={ticket.id} ticket={ticket} formatDueDate={formatDueDate} />
+                ))}
+              </div>
+            </div>
+          )}
+
+          {completedTickets.length > 0 && (
+            <div className="space-y-2 mt-6">
+              <h2 className="text-sm font-medium text-muted-foreground px-1">
+                Completed ({completedTickets.length})
+              </h2>
+              <div className="space-y-2 opacity-75">
+                {completedTickets.slice(0, 5).map((ticket) => (
+                  <TicketCard key={ticket.id} ticket={ticket} formatDueDate={formatDueDate} />
+                ))}
+                {completedTickets.length > 5 && (
+                  <p className="text-sm text-muted-foreground text-center py-2">
+                    +{completedTickets.length - 5} more completed tickets
+                  </p>
+                )}
+              </div>
+            </div>
+          )}
         </div>
       )}
     </div>
+  );
+}
+
+interface TicketCardProps {
+  ticket: TicketWithDetails;
+  formatDueDate: (date: Date | null | undefined) => { text: string; className: string } | null;
+}
+
+function TicketCard({ ticket, formatDueDate }: TicketCardProps) {
+  const priority = priorityConfig[ticket.priority as keyof typeof priorityConfig] || priorityConfig.normal;
+  const dueInfo = formatDueDate(ticket.dueDate);
+
+  return (
+    <Link href={`/dashboard/tickets/${ticket.id}`}>
+      <Card 
+        className="hover-elevate active-elevate-2 cursor-pointer transition-colors"
+        data-testid={`card-ticket-${ticket.id}`}
+      >
+        <CardContent className="p-4">
+          <div className="flex items-start gap-3">
+            <div className={`w-1 self-stretch rounded-full ${priority.color}`} />
+            
+            <div className="flex-1 min-w-0">
+              <div className="flex items-start justify-between gap-2">
+                <div className="min-w-0 flex-1">
+                  <h3 className="font-medium text-base leading-tight line-clamp-2" data-testid={`text-ticket-title-${ticket.id}`}>
+                    {ticket.title}
+                  </h3>
+                  
+                  <div className="flex items-center gap-3 mt-2 text-sm text-muted-foreground flex-wrap">
+                    {ticket.customer && (
+                      <span className="flex items-center gap-1">
+                        <MapPin className="w-3.5 h-3.5" />
+                        <span className="truncate max-w-[120px]">{ticket.customer.name}</span>
+                      </span>
+                    )}
+                    {ticket.ticketType && (
+                      <Badge variant="secondary" className="text-xs font-normal">
+                        {ticket.ticketType.name}
+                      </Badge>
+                    )}
+                  </div>
+                </div>
+                
+                <ChevronRight className="w-5 h-5 text-muted-foreground shrink-0 mt-0.5" />
+              </div>
+
+              <div className="flex items-center justify-between mt-3 pt-3 border-t">
+                <div className="flex items-center gap-3">
+                  {ticket.currentStatus && (
+                    <Badge 
+                      variant="outline" 
+                      className="text-xs"
+                      style={{ borderColor: ticket.currentStatus.color || undefined }}
+                    >
+                      {ticket.currentStatus.name}
+                    </Badge>
+                  )}
+                  {dueInfo && (
+                    <span className={`text-xs flex items-center gap-1 ${dueInfo.className}`}>
+                      <CalendarDays className="w-3 h-3" />
+                      {dueInfo.text}
+                    </span>
+                  )}
+                </div>
+
+                {ticket.assignedToId && (
+                  <Avatar className="w-6 h-6">
+                    <AvatarFallback className="text-[10px] bg-muted">
+                      <User className="w-3 h-3" />
+                    </AvatarFallback>
+                  </Avatar>
+                )}
+              </div>
+            </div>
+          </div>
+        </CardContent>
+      </Card>
+    </Link>
   );
 }
