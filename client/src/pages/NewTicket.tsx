@@ -354,12 +354,15 @@ export default function NewTicket() {
 
             <div className="space-y-2">
               <Label htmlFor="assignedTo">Assign To</Label>
-              <Select value={assignedToId || ""} onValueChange={(v) => setAssignedToId(v || null)}>
+              <Select 
+                value={assignedToId || "unassigned"} 
+                onValueChange={(v) => setAssignedToId(v === "unassigned" ? null : v)}
+              >
                 <SelectTrigger id="assignedTo" data-testid="select-assigned-to">
                   <SelectValue placeholder="Select team member..." />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="">Unassigned</SelectItem>
+                  <SelectItem value="unassigned">Unassigned</SelectItem>
                   {teamMembers.map((member) => (
                     <SelectItem key={member.id} value={member.id}>
                       {member.name}
