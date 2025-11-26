@@ -11,7 +11,18 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Separator } from "@/components/ui/separator";
 import { useToast } from "@/hooks/use-toast";
-import { Search, FileText, Save, Download, ArrowLeft, FileCheck } from "lucide-react";
+import { Search, FileText, Save, Download, ArrowLeft, FileCheck, Trash2 } from "lucide-react";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from "@/components/ui/alert-dialog";
 import { Link, useLocation } from "wouter";
 import type { ContractTemplate } from "@shared/schema";
 
@@ -664,6 +675,31 @@ export default function ContractBuilderPage() {
     },
   });
 
+  const deleteDraftMutation = useMutation({
+    mutationFn: async (draftId: string) => {
+      const response = await apiRequest("DELETE", `/api/contract-builder/documents/${draftId}`);
+      if (!response.ok) {
+        const errorText = await response.text();
+        throw new Error(errorText || "Failed to delete draft");
+      }
+      return draftId;
+    },
+    onSuccess: (deletedId) => {
+      queryClient.invalidateQueries({ queryKey: ['/api/contract-builder/documents'] });
+      toast({
+        title: "Draft deleted",
+        description: "The draft has been permanently deleted.",
+      });
+    },
+    onError: (error: Error) => {
+      toast({
+        title: "Error",
+        description: error.message,
+        variant: "destructive",
+      });
+    },
+  });
+
   const handleCreateCustomer = () => {
     if (!newCustomerForm.name || !newCustomerForm.street || !newCustomerForm.city || !newCustomerForm.state || !newCustomerForm.zip) {
       toast({
@@ -992,9 +1028,9 @@ export default function ContractBuilderPage() {
                             data-testid={`card-draft-${draft.id}`}
                           >
                             <CardContent className="p-4">
-                              <div className="flex items-start justify-between">
-                                <div className="flex-1">
-                                  <p className="font-medium" data-testid={`text-draft-title-${draft.id}`}>
+                              <div className="flex items-start justify-between gap-2">
+                                <div className="flex-1 min-w-0">
+                                  <p className="font-medium truncate" data-testid={`text-draft-title-${draft.id}`}>
                                     {draft.documentTitle}
                                   </p>
                                   <p className="text-sm text-muted-foreground">
@@ -1004,7 +1040,40 @@ export default function ContractBuilderPage() {
                                     Last updated: {new Date(draft.updatedAt).toLocaleDateString()} at {new Date(draft.updatedAt).toLocaleTimeString()}
                                   </p>
                                 </div>
-                                <FileText className="w-5 h-5 text-muted-foreground" />
+                                <div className="flex items-center gap-2">
+                                  <AlertDialog>
+                                    <AlertDialogTrigger asChild>
+                                      <Button
+                                        variant="ghost"
+                                        size="icon"
+                                        className="text-muted-foreground hover:text-destructive"
+                                        onClick={(e) => e.stopPropagation()}
+                                        data-testid={`button-delete-draft-${draft.id}`}
+                                      >
+                                        <Trash2 className="w-4 h-4" />
+                                      </Button>
+                                    </AlertDialogTrigger>
+                                    <AlertDialogContent onClick={(e) => e.stopPropagation()}>
+                                      <AlertDialogHeader>
+                                        <AlertDialogTitle>Delete Draft?</AlertDialogTitle>
+                                        <AlertDialogDescription>
+                                          This will permanently delete "{draft.documentTitle}". This action cannot be undone.
+                                        </AlertDialogDescription>
+                                      </AlertDialogHeader>
+                                      <AlertDialogFooter>
+                                        <AlertDialogCancel data-testid="button-cancel-delete">Cancel</AlertDialogCancel>
+                                        <AlertDialogAction
+                                          onClick={() => deleteDraftMutation.mutate(draft.id)}
+                                          className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                                          data-testid="button-confirm-delete"
+                                        >
+                                          Delete
+                                        </AlertDialogAction>
+                                      </AlertDialogFooter>
+                                    </AlertDialogContent>
+                                  </AlertDialog>
+                                  <FileText className="w-5 h-5 text-muted-foreground" />
+                                </div>
                               </div>
                             </CardContent>
                           </Card>

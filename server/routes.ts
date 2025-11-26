@@ -1205,8 +1205,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
     const user = req.user as UserWithContext;
 
-    if (user.activeRole !== "admin") {
-      return res.status(403).send("Insufficient permissions - admin role required");
+    if (user.activeRole !== "admin" && user.activeRole !== "office") {
+      return res.status(403).send("Insufficient permissions - admin or office role required");
     }
 
     await storage.deleteContractBuilderDocument(req.params.id, user.activeCompanyId);
