@@ -28,11 +28,13 @@ import {
   CalendarDays,
   MessageSquare,
   History,
-  Loader2
+  Loader2,
+  FileText
 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { queryClient, apiRequest } from "@/lib/queryClient";
-import type { Ticket, TicketType, TicketTypeStatus, TicketTypeField, TicketFieldValue, TicketComment, TicketStatusHistory, Customer } from "@shared/schema";
+import type { Ticket, TicketType, TicketTypeStatus, TicketTypeField, TicketFieldValue, TicketComment, TicketStatusHistory, Customer, Contract } from "@shared/schema";
+import { format } from "date-fns";
 
 interface TicketDetails {
   ticket: Ticket;
@@ -42,7 +44,8 @@ interface TicketDetails {
   statusHistory: TicketStatusHistory[];
   comments: TicketComment[];
   customer: Customer;
-  assignedUser: { id: string; email: string; firstName: string | null; lastName: string | null } | null;
+  contract: Contract | null;
+  assignedUser: { id: string; email: string } | null;
 }
 
 const priorityConfig = {
@@ -123,7 +126,7 @@ export default function TicketDetail() {
     );
   }
 
-  const { ticket, ticketType, statuses, fieldValues, statusHistory, comments, customer, assignedUser } = details;
+  const { ticket, ticketType, statuses, fieldValues, statusHistory, comments, customer, contract, assignedUser } = details;
   const priority = priorityConfig[ticket.priority as keyof typeof priorityConfig] || priorityConfig.normal;
   const currentStatus = statuses.find(s => s.id === ticket.currentStatusId);
   const currentStatusIndex = statuses.findIndex(s => s.id === ticket.currentStatusId);
@@ -201,6 +204,12 @@ export default function TicketDetail() {
           <Link href={`/dashboard/customers/${customer.id}`} className="flex items-center gap-1 text-muted-foreground hover:text-foreground">
             <MapPin className="w-3.5 h-3.5" />
             {customer.name}
+          </Link>
+        )}
+        {contract && (
+          <Link href={`/dashboard/customers/${customer?.id}/contracts/${contract.id}`} className="flex items-center gap-1 text-muted-foreground hover:text-foreground">
+            <FileText className="w-3.5 h-3.5" />
+            {contract.serviceType}
           </Link>
         )}
         {ticket.dueDate && (

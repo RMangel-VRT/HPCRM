@@ -2383,6 +2383,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
       assignedUser = await storage.getUserById(ticket.assignedToId);
     }
 
+    // Get contract info if linked
+    let contract = null;
+    if (ticket.contractId) {
+      contract = await storage.getContractById(ticket.contractId, user.activeCompanyId);
+    }
+
     res.json({
       ticket,
       ticketType,
@@ -2391,7 +2397,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
       statusHistory,
       comments,
       customer,
-      assignedUser: assignedUser ? { id: assignedUser.id, email: assignedUser.email, firstName: assignedUser.firstName, lastName: assignedUser.lastName } : null,
+      contract,
+      assignedUser: assignedUser ? { id: assignedUser.id, email: assignedUser.email } : null,
     });
   });
 

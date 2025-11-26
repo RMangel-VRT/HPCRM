@@ -11,7 +11,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Badge } from "@/components/ui/badge";
-import { Plus, Search, ChevronRight, Clock, User, MapPin, CalendarDays, Filter, Loader2 } from "lucide-react";
+import { Plus, Search, ChevronRight, Clock, User, MapPin, CalendarDays, Filter, Loader2, FileText } from "lucide-react";
 import { Link } from "wouter";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import type { Ticket, TicketType, TicketTypeStatus, Customer } from "@shared/schema";
@@ -252,6 +252,11 @@ function TicketCard({ ticket, formatDueDate }: TicketCardProps) {
                       <span className="flex items-center gap-1">
                         <MapPin className="w-3.5 h-3.5" />
                         <span className="truncate max-w-[120px]">{ticket.customer.name}</span>
+                      </span>
+                    )}
+                    {ticket.contractId && (
+                      <span className="flex items-center gap-1 text-primary">
+                        <FileText className="w-3.5 h-3.5" />
                       </span>
                     )}
                     {ticket.ticketType && (
