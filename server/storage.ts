@@ -1,6 +1,6 @@
-import { type User, type InsertUser, type Customer, type InsertCustomer, type Contact, type InsertContact, type Company, type InsertCompany, type CompanyUser, type InsertCompanyUser, type Settings, type InsertSettings, type Note, type InsertNote, type Contract, type InsertContract, type ContractStatusHistory, type InsertContractStatusHistory, type ContractDocument, type InsertContractDocument, type ContractMonthlyAmount, type InsertContractMonthlyAmount, type CustomerRateSheet, type InsertCustomerRateSheet, type ContractService, type InsertContractService, type ContractTemplate, type InsertContractTemplate, type ContractBuilderDocument, type InsertContractBuilderDocument, type ContractBuilderSection, type InsertContractBuilderSection, type ContractBuilderVariable, type InsertContractBuilderVariable } from "@shared/schema";
+import { type User, type InsertUser, type Customer, type InsertCustomer, type Contact, type InsertContact, type Company, type InsertCompany, type CompanyUser, type InsertCompanyUser, type Settings, type InsertSettings, type Note, type InsertNote, type Contract, type InsertContract, type ContractStatusHistory, type InsertContractStatusHistory, type ContractDocument, type InsertContractDocument, type ContractMonthlyAmount, type InsertContractMonthlyAmount, type CustomerRateSheet, type InsertCustomerRateSheet, type ContractService, type InsertContractService, type ContractTemplate, type InsertContractTemplate, type ContractBuilderDocument, type InsertContractBuilderDocument, type ContractBuilderSection, type InsertContractBuilderSection, type ContractBuilderVariable, type InsertContractBuilderVariable, type TicketType, type InsertTicketType, type TicketTypeStatus, type InsertTicketTypeStatus, type TicketTypeField, type InsertTicketTypeField, type Ticket, type InsertTicket, type TicketFieldValue, type InsertTicketFieldValue, type TicketStatusHistory, type InsertTicketStatusHistory, type TicketComment, type InsertTicketComment } from "@shared/schema";
 import { db } from "./db";
-import { users, customers, contacts, companies, companyUsers, settings, notes, contracts, contractStatusHistory, contractDocuments, contractMonthlyAmounts, customerRateSheets, contractServices, contractTemplates, contractBuilderDocuments, contractBuilderSections, contractBuilderVariables } from "@shared/schema";
+import { users, customers, contacts, companies, companyUsers, settings, notes, contracts, contractStatusHistory, contractDocuments, contractMonthlyAmounts, customerRateSheets, contractServices, contractTemplates, contractBuilderDocuments, contractBuilderSections, contractBuilderVariables, ticketTypes, ticketTypeStatuses, ticketTypeFields, tickets, ticketFieldValues, ticketStatusHistory, ticketComments } from "@shared/schema";
 import { eq, and, sql, desc } from "drizzle-orm";
 import session from "express-session";
 import connectPg from "connect-pg-simple";
@@ -95,6 +95,41 @@ export interface IStorage {
   
   getContractBuilderVariables(documentId: string, companyId: string): Promise<ContractBuilderVariable[]>;
   upsertContractBuilderVariables(documentId: string, companyId: string, variables: { variableKey: string; variableValue: string }[]): Promise<ContractBuilderVariable[]>;
+  
+  // Ticketing System
+  getTicketTypes(companyId: string): Promise<TicketType[]>;
+  getTicketTypeById(id: string, companyId: string): Promise<TicketType | undefined>;
+  createTicketType(ticketType: InsertTicketType): Promise<TicketType>;
+  updateTicketType(id: string, companyId: string, updates: Partial<InsertTicketType>): Promise<TicketType | undefined>;
+  deleteTicketType(id: string, companyId: string): Promise<void>;
+  
+  getTicketTypeStatuses(ticketTypeId: string): Promise<TicketTypeStatus[]>;
+  createTicketTypeStatus(status: InsertTicketTypeStatus): Promise<TicketTypeStatus>;
+  updateTicketTypeStatus(id: string, updates: Partial<InsertTicketTypeStatus>): Promise<TicketTypeStatus | undefined>;
+  deleteTicketTypeStatus(id: string): Promise<void>;
+  
+  getTicketTypeFields(ticketTypeId: string): Promise<TicketTypeField[]>;
+  getTicketTypeFieldsByStatus(statusId: string): Promise<TicketTypeField[]>;
+  createTicketTypeField(field: InsertTicketTypeField): Promise<TicketTypeField>;
+  updateTicketTypeField(id: string, updates: Partial<InsertTicketTypeField>): Promise<TicketTypeField | undefined>;
+  deleteTicketTypeField(id: string): Promise<void>;
+  
+  getTickets(companyId: string, filters?: { customerId?: string; assignedToId?: string; status?: string }): Promise<Ticket[]>;
+  getTicketById(id: string, companyId: string): Promise<Ticket | undefined>;
+  getTicketsByCustomerId(customerId: string, companyId: string): Promise<Ticket[]>;
+  createTicket(ticket: InsertTicket): Promise<Ticket>;
+  updateTicket(id: string, companyId: string, updates: Partial<InsertTicket>): Promise<Ticket | undefined>;
+  deleteTicket(id: string, companyId: string): Promise<void>;
+  
+  getTicketFieldValues(ticketId: string): Promise<TicketFieldValue[]>;
+  upsertTicketFieldValue(fieldValue: InsertTicketFieldValue): Promise<TicketFieldValue>;
+  
+  createTicketStatusHistory(history: InsertTicketStatusHistory): Promise<TicketStatusHistory>;
+  getTicketStatusHistory(ticketId: string): Promise<TicketStatusHistory[]>;
+  
+  getTicketComments(ticketId: string): Promise<TicketComment[]>;
+  createTicketComment(comment: InsertTicketComment): Promise<TicketComment>;
+  deleteTicketComment(id: string): Promise<void>;
   
   sessionStore: session.Store;
 }
@@ -878,6 +913,182 @@ export class PgStorage implements IStorage {
     }
     
     return result;
+  }
+
+  // Ticketing System implementations
+  async getTicketTypes(companyId: string): Promise<TicketType[]> {
+    return await db.select().from(ticketTypes)
+      .where(eq(ticketTypes.companyId, companyId))
+      .orderBy(ticketTypes.name);
+  }
+
+  async getTicketTypeById(id: string, companyId: string): Promise<TicketType | undefined> {
+    const result = await db.select().from(ticketTypes)
+      .where(and(eq(ticketTypes.id, id), eq(ticketTypes.companyId, companyId)))
+      .limit(1);
+    return result[0];
+  }
+
+  async createTicketType(insertTicketType: InsertTicketType): Promise<TicketType> {
+    const result = await db.insert(ticketTypes).values([insertTicketType]).returning();
+    return result[0];
+  }
+
+  async updateTicketType(id: string, companyId: string, updates: Partial<InsertTicketType>): Promise<TicketType | undefined> {
+    const result = await db.update(ticketTypes)
+      .set({ ...updates, updatedAt: new Date() })
+      .where(and(eq(ticketTypes.id, id), eq(ticketTypes.companyId, companyId)))
+      .returning();
+    return result[0];
+  }
+
+  async deleteTicketType(id: string, companyId: string): Promise<void> {
+    await db.delete(ticketTypes)
+      .where(and(eq(ticketTypes.id, id), eq(ticketTypes.companyId, companyId)));
+  }
+
+  async getTicketTypeStatuses(ticketTypeId: string): Promise<TicketTypeStatus[]> {
+    return await db.select().from(ticketTypeStatuses)
+      .where(eq(ticketTypeStatuses.ticketTypeId, ticketTypeId))
+      .orderBy(ticketTypeStatuses.displayOrder);
+  }
+
+  async createTicketTypeStatus(insertStatus: InsertTicketTypeStatus): Promise<TicketTypeStatus> {
+    const result = await db.insert(ticketTypeStatuses).values([insertStatus]).returning();
+    return result[0];
+  }
+
+  async updateTicketTypeStatus(id: string, updates: Partial<InsertTicketTypeStatus>): Promise<TicketTypeStatus | undefined> {
+    const result = await db.update(ticketTypeStatuses)
+      .set(updates)
+      .where(eq(ticketTypeStatuses.id, id))
+      .returning();
+    return result[0];
+  }
+
+  async deleteTicketTypeStatus(id: string): Promise<void> {
+    await db.delete(ticketTypeStatuses).where(eq(ticketTypeStatuses.id, id));
+  }
+
+  async getTicketTypeFields(ticketTypeId: string): Promise<TicketTypeField[]> {
+    return await db.select().from(ticketTypeFields)
+      .where(eq(ticketTypeFields.ticketTypeId, ticketTypeId))
+      .orderBy(ticketTypeFields.displayOrder);
+  }
+
+  async getTicketTypeFieldsByStatus(statusId: string): Promise<TicketTypeField[]> {
+    return await db.select().from(ticketTypeFields)
+      .where(eq(ticketTypeFields.statusId, statusId))
+      .orderBy(ticketTypeFields.displayOrder);
+  }
+
+  async createTicketTypeField(insertField: InsertTicketTypeField): Promise<TicketTypeField> {
+    const result = await db.insert(ticketTypeFields).values([insertField]).returning();
+    return result[0];
+  }
+
+  async updateTicketTypeField(id: string, updates: Partial<InsertTicketTypeField>): Promise<TicketTypeField | undefined> {
+    const result = await db.update(ticketTypeFields)
+      .set(updates)
+      .where(eq(ticketTypeFields.id, id))
+      .returning();
+    return result[0];
+  }
+
+  async deleteTicketTypeField(id: string): Promise<void> {
+    await db.delete(ticketTypeFields).where(eq(ticketTypeFields.id, id));
+  }
+
+  async getTickets(companyId: string, filters?: { customerId?: string; assignedToId?: string; status?: string }): Promise<Ticket[]> {
+    let conditions = [eq(tickets.companyId, companyId)];
+    
+    if (filters?.customerId) {
+      conditions.push(eq(tickets.customerId, filters.customerId));
+    }
+    if (filters?.assignedToId) {
+      conditions.push(eq(tickets.assignedToId, filters.assignedToId));
+    }
+    
+    return await db.select().from(tickets)
+      .where(and(...conditions))
+      .orderBy(desc(tickets.createdAt));
+  }
+
+  async getTicketById(id: string, companyId: string): Promise<Ticket | undefined> {
+    const result = await db.select().from(tickets)
+      .where(and(eq(tickets.id, id), eq(tickets.companyId, companyId)))
+      .limit(1);
+    return result[0];
+  }
+
+  async getTicketsByCustomerId(customerId: string, companyId: string): Promise<Ticket[]> {
+    return await db.select().from(tickets)
+      .where(and(eq(tickets.customerId, customerId), eq(tickets.companyId, companyId)))
+      .orderBy(desc(tickets.createdAt));
+  }
+
+  async createTicket(insertTicket: InsertTicket): Promise<Ticket> {
+    const result = await db.insert(tickets).values([insertTicket]).returning();
+    return result[0];
+  }
+
+  async updateTicket(id: string, companyId: string, updates: Partial<InsertTicket>): Promise<Ticket | undefined> {
+    const result = await db.update(tickets)
+      .set({ ...updates, updatedAt: new Date() })
+      .where(and(eq(tickets.id, id), eq(tickets.companyId, companyId)))
+      .returning();
+    return result[0];
+  }
+
+  async deleteTicket(id: string, companyId: string): Promise<void> {
+    await db.delete(tickets)
+      .where(and(eq(tickets.id, id), eq(tickets.companyId, companyId)));
+  }
+
+  async getTicketFieldValues(ticketId: string): Promise<TicketFieldValue[]> {
+    return await db.select().from(ticketFieldValues)
+      .where(eq(ticketFieldValues.ticketId, ticketId));
+  }
+
+  async upsertTicketFieldValue(insertFieldValue: InsertTicketFieldValue): Promise<TicketFieldValue> {
+    const result = await db.insert(ticketFieldValues)
+      .values([insertFieldValue])
+      .onConflictDoUpdate({
+        target: [ticketFieldValues.ticketId, ticketFieldValues.fieldId],
+        set: {
+          value: insertFieldValue.value,
+          capturedAt: sql`NOW()`,
+          capturedById: insertFieldValue.capturedById,
+        },
+      })
+      .returning();
+    return result[0];
+  }
+
+  async createTicketStatusHistory(insertHistory: InsertTicketStatusHistory): Promise<TicketStatusHistory> {
+    const result = await db.insert(ticketStatusHistory).values([insertHistory]).returning();
+    return result[0];
+  }
+
+  async getTicketStatusHistory(ticketId: string): Promise<TicketStatusHistory[]> {
+    return await db.select().from(ticketStatusHistory)
+      .where(eq(ticketStatusHistory.ticketId, ticketId))
+      .orderBy(desc(ticketStatusHistory.createdAt));
+  }
+
+  async getTicketComments(ticketId: string): Promise<TicketComment[]> {
+    return await db.select().from(ticketComments)
+      .where(eq(ticketComments.ticketId, ticketId))
+      .orderBy(ticketComments.createdAt);
+  }
+
+  async createTicketComment(insertComment: InsertTicketComment): Promise<TicketComment> {
+    const result = await db.insert(ticketComments).values([insertComment]).returning();
+    return result[0];
+  }
+
+  async deleteTicketComment(id: string): Promise<void> {
+    await db.delete(ticketComments).where(eq(ticketComments.id, id));
   }
 }
 
