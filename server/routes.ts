@@ -2116,6 +2116,27 @@ export async function registerRoutes(app: Express): Promise<Server> {
     res.json(tickets);
   });
 
+  app.post("/api/tickets/photo-upload-url", async (req, res) => {
+    if (!req.isAuthenticated()) {
+      return res.status(401).send("Not authenticated");
+    }
+
+    const user = req.user as UserWithContext;
+    
+    if (user.activeRole === "viewer") {
+      return res.status(403).send("Insufficient permissions");
+    }
+
+    try {
+      const objectStorageService = new ObjectStorageService();
+      const uploadURL = await objectStorageService.getObjectEntityUploadURL();
+      res.json({ uploadURL });
+    } catch (error) {
+      console.error("Error getting photo upload URL:", error);
+      res.status(500).send("Failed to get upload URL");
+    }
+  });
+
   app.post("/api/tickets", async (req, res) => {
     if (!req.isAuthenticated()) {
       return res.status(401).send("Not authenticated");
