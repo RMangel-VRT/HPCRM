@@ -2053,6 +2053,18 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Tickets routes
+  
+  // Get tickets assigned to the current user
+  app.get("/api/tickets/my", async (req, res) => {
+    if (!req.isAuthenticated()) {
+      return res.status(401).send("Not authenticated");
+    }
+
+    const user = req.user as UserWithContext;
+    const tickets = await storage.getTickets(user.activeCompanyId, { assignedToId: user.id });
+    res.json(tickets);
+  });
+
   app.get("/api/tickets", async (req, res) => {
     if (!req.isAuthenticated()) {
       return res.status(401).send("Not authenticated");
@@ -2144,9 +2156,20 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
     const user = req.user as UserWithContext;
     
-    // Only admin and office can create tickets
-    if (user.activeRole === "ops" || user.activeRole === "viewer") {
-      return res.status(403).send("Insufficient permissions - admin or office role required");
+    // Only admin can create tickets
+    if (user.activeRole !== "admin") {
+      return res.status(403).send("Insufficient permissions - admin role required");
+    }
+
+    // Validate assignedToId is provided and user belongs to the company
+    if (!req.body.assignedToId) {
+      return res.status(400).send("Assignment is required - tickets must be assigned to a user");
+    }
+    
+    const companyUsers = await storage.getCompanyUsersByCompanyId(user.activeCompanyId);
+    const isValidAssignee = companyUsers.some(cu => cu.userId === req.body.assignedToId);
+    if (!isValidAssignee) {
+      return res.status(400).send("Invalid assignee - user must belong to this company");
     }
 
     // Get the ticket type to find the initial status

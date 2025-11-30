@@ -20,6 +20,7 @@ import ContractBuilderPage from "@/pages/ContractBuilderPage";
 import TicketsList from "@/pages/TicketsList";
 import TicketDetail from "@/pages/TicketDetail";
 import NewTicket from "@/pages/NewTicket";
+import MyTickets from "@/pages/MyTickets";
 import UsersPage from "@/pages/UsersPage";
 import SettingsPage from "@/pages/SettingsPage";
 import SuperAdminHome from "@/pages/SuperAdminHome";
@@ -71,7 +72,8 @@ function Router() {
               <ProtectedRoute path="/dashboard" component={Dashboard} />
               <ProtectedRoute path="/dashboard/customers/:id" component={CustomerDetail} />
               <ProtectedRoute path="/dashboard/customers" component={CustomersList} />
-              <ProtectedRoute path="/dashboard/tickets/new" component={NewTicket} allowedRoles={["admin", "office"]} />
+              <ProtectedRoute path="/dashboard/tickets/new" component={NewTicket} allowedRoles={["admin"]} />
+              <ProtectedRoute path="/dashboard/tickets/my" component={MyTickets} />
               <ProtectedRoute path="/dashboard/tickets/:id" component={TicketDetail} />
               <ProtectedRoute path="/dashboard/tickets" component={TicketsList} />
               <ProtectedRoute path="/dashboard/tools/contract-builder" component={ContractBuilderPage} />

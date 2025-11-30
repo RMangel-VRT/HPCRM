@@ -11,12 +11,11 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Badge } from "@/components/ui/badge";
-import { Plus, Search, ChevronRight, Clock, User, MapPin, CalendarDays, Filter, Loader2 } from "lucide-react";
+import { Search, ChevronRight, Clock, User, MapPin, CalendarDays, Filter, Loader2, CheckCircle2 } from "lucide-react";
 import { Link } from "wouter";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import type { Ticket, TicketType, TicketTypeStatus, Customer, WorkType } from "@shared/schema";
 import { WORK_TYPE_CATALOG } from "@shared/workTypeCatalog";
-import { useAuth } from "@/hooks/use-auth";
 
 interface TicketWithDetails extends Ticket {
   ticketType?: TicketType;
@@ -31,18 +30,14 @@ const priorityConfig = {
   low: { color: "bg-gray-400", textColor: "text-gray-600 dark:text-gray-400", label: "Low" },
 };
 
-export default function TicketsList() {
-  const { user } = useAuth();
+export default function MyTickets() {
   const [search, setSearch] = useState("");
   const [priorityFilter, setPriorityFilter] = useState("all");
-  const [typeFilter, setTypeFilter] = useState("all");
   const [workTypeFilter, setWorkTypeFilter] = useState("all");
   const [showFilters, setShowFilters] = useState(false);
 
-  const isAdmin = user?.activeRole === "admin";
-
   const { data: tickets = [], isLoading: ticketsLoading } = useQuery<Ticket[]>({
-    queryKey: ["/api/tickets"],
+    queryKey: ["/api/tickets/my"],
   });
 
   const { data: ticketTypes = [] } = useQuery<TicketType[]>({
@@ -53,13 +48,8 @@ export default function TicketsList() {
     queryKey: ["/api/customers"],
   });
 
-  const ticketTypeStatusesQueries = ticketTypes.map(tt => ({
-    ticketTypeId: tt.id,
-    queryKey: ["/api/ticket-types", tt.id, "statuses"],
-  }));
-
   const { data: allStatuses = [] } = useQuery({
-    queryKey: ["/api/ticket-type-statuses-all"],
+    queryKey: ["/api/ticket-type-statuses-all-my"],
     queryFn: async () => {
       const allStatusArrays = await Promise.all(
         ticketTypes.map(async (tt) => {
@@ -85,9 +75,8 @@ export default function TicketsList() {
       ticket.title.toLowerCase().includes(search.toLowerCase()) ||
       ticket.customer?.name?.toLowerCase().includes(search.toLowerCase()) || false;
     const matchesPriority = priorityFilter === "all" || ticket.priority === priorityFilter;
-    const matchesType = typeFilter === "all" || ticket.ticketTypeId === typeFilter;
     const matchesWorkType = workTypeFilter === "all" || ticket.workType === workTypeFilter;
-    return matchesSearch && matchesPriority && matchesType && matchesWorkType;
+    return matchesSearch && matchesPriority && matchesWorkType;
   });
 
   const openTickets = filteredTickets.filter(t => !t.completedAt);
@@ -119,20 +108,16 @@ export default function TicketsList() {
       <div className="flex items-center justify-between gap-3">
         <div>
           <h1 className="text-2xl md:text-3xl font-semibold tracking-tight" data-testid="text-page-title">
-            Tickets
+            My Tickets
           </h1>
           <p className="text-sm text-muted-foreground mt-0.5 hidden md:block">
-            Manage work orders and service tasks
+            Tickets assigned to you
           </p>
         </div>
-        {isAdmin && (
-          <Link href="/dashboard/tickets/new">
-            <Button size="default" data-testid="button-add-ticket" className="gap-2">
-              <Plus className="w-4 h-4" />
-              <span className="hidden sm:inline">New Ticket</span>
-            </Button>
-          </Link>
-        )}
+        <div className="flex items-center gap-2 text-sm text-muted-foreground">
+          <CheckCircle2 className="w-4 h-4" />
+          <span>{openTickets.length} open</span>
+        </div>
       </div>
 
       <div className="flex gap-2 items-center">
@@ -143,7 +128,7 @@ export default function TicketsList() {
             value={search}
             onChange={(e) => setSearch(e.target.value)}
             className="pl-9 h-11"
-            data-testid="input-search"
+            data-testid="input-search-my-tickets"
           />
         </div>
         <Button 
@@ -151,7 +136,7 @@ export default function TicketsList() {
           size="icon" 
           className="h-11 w-11 shrink-0"
           onClick={() => setShowFilters(!showFilters)}
-          data-testid="button-toggle-filters"
+          data-testid="button-toggle-filters-my"
         >
           <Filter className="w-4 h-4" />
         </Button>
@@ -160,7 +145,7 @@ export default function TicketsList() {
       {showFilters && (
         <div className="flex gap-2 flex-wrap animate-in slide-in-from-top-2 duration-200">
           <Select value={priorityFilter} onValueChange={setPriorityFilter}>
-            <SelectTrigger className="w-[130px] h-10" data-testid="select-priority-filter">
+            <SelectTrigger className="w-[130px] h-10" data-testid="select-priority-filter-my">
               <SelectValue placeholder="Priority" />
             </SelectTrigger>
             <SelectContent>
@@ -172,20 +157,8 @@ export default function TicketsList() {
             </SelectContent>
           </Select>
 
-          <Select value={typeFilter} onValueChange={setTypeFilter}>
-            <SelectTrigger className="w-[140px] h-10" data-testid="select-type-filter">
-              <SelectValue placeholder="Ticket Type" />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="all">All Types</SelectItem>
-              {ticketTypes.map(tt => (
-                <SelectItem key={tt.id} value={tt.id}>{tt.name}</SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-
           <Select value={workTypeFilter} onValueChange={setWorkTypeFilter}>
-            <SelectTrigger className="w-[150px] h-10" data-testid="select-worktype-filter">
+            <SelectTrigger className="w-[150px] h-10" data-testid="select-worktype-filter-my">
               <SelectValue placeholder="Work Type" />
             </SelectTrigger>
             <SelectContent>
@@ -206,22 +179,12 @@ export default function TicketsList() {
             <div className="w-16 h-16 rounded-full bg-muted flex items-center justify-center mb-4">
               <Clock className="w-8 h-8 text-muted-foreground" />
             </div>
-            <h3 className="text-lg font-medium mb-1">No tickets found</h3>
+            <h3 className="text-lg font-medium mb-1">No tickets assigned to you</h3>
             <p className="text-sm text-muted-foreground mb-4 max-w-sm">
-              {search || priorityFilter !== "all"
+              {search || priorityFilter !== "all" || workTypeFilter !== "all"
                 ? "Try adjusting your search or filters."
-                : isAdmin 
-                  ? "Create your first ticket to get started."
-                  : "No tickets found."}
+                : "You don't have any tickets assigned to you yet."}
             </p>
-            {isAdmin && (
-              <Link href="/dashboard/tickets/new">
-                <Button data-testid="button-create-first-ticket">
-                  <Plus className="w-4 h-4 mr-2" />
-                  Create Ticket
-                </Button>
-              </Link>
-            )}
           </CardContent>
         </Card>
       ) : (
@@ -275,7 +238,7 @@ function TicketCard({ ticket, formatDueDate }: TicketCardProps) {
     <Link href={`/dashboard/tickets/${ticket.id}`}>
       <Card 
         className="hover-elevate active-elevate-2 cursor-pointer transition-colors"
-        data-testid={`card-ticket-${ticket.id}`}
+        data-testid={`card-my-ticket-${ticket.id}`}
       >
         <CardContent className="p-4">
           <div className="flex items-start gap-3">
@@ -284,7 +247,7 @@ function TicketCard({ ticket, formatDueDate }: TicketCardProps) {
             <div className="flex-1 min-w-0">
               <div className="flex items-start justify-between gap-2">
                 <div className="min-w-0 flex-1">
-                  <h3 className="font-medium text-base leading-tight line-clamp-2" data-testid={`text-ticket-title-${ticket.id}`}>
+                  <h3 className="font-medium text-base leading-tight line-clamp-2" data-testid={`text-my-ticket-title-${ticket.id}`}>
                     {ticket.title}
                   </h3>
                   
@@ -299,7 +262,7 @@ function TicketCard({ ticket, formatDueDate }: TicketCardProps) {
                       <Badge 
                         variant={WORK_TYPE_CATALOG[ticket.workType as WorkType].badgeVariant}
                         className="text-xs font-normal"
-                        data-testid={`badge-worktype-${ticket.id}`}
+                        data-testid={`badge-my-worktype-${ticket.id}`}
                       >
                         {WORK_TYPE_CATALOG[ticket.workType as WorkType].billingLabel}
                       </Badge>
@@ -328,14 +291,6 @@ function TicketCard({ ticket, formatDueDate }: TicketCardProps) {
                     </span>
                   )}
                 </div>
-
-                {ticket.assignedToId && (
-                  <Avatar className="w-6 h-6">
-                    <AvatarFallback className="text-[10px] bg-muted">
-                      <User className="w-3 h-3" />
-                    </AvatarFallback>
-                  </Avatar>
-                )}
               </div>
             </div>
           </div>

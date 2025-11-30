@@ -121,27 +121,25 @@ export default function NewTicket() {
     queryKey: ["/api/customers"],
   });
 
-  const { data: companyUsers = [] } = useQuery<CompanyUser[]>({
-    queryKey: ["/api/company-users"],
-  });
+  interface CompanyUserWithDetails {
+    companyUser: CompanyUser;
+    user: User;
+    isSuperAdmin: boolean;
+  }
 
-  const { data: users = [] } = useQuery<User[]>({
-    queryKey: ["/api/users"],
-    enabled: companyUsers.length > 0,
+  const { data: companyUsersData = [] } = useQuery<CompanyUserWithDetails[]>({
+    queryKey: ["/api/companies/users"],
   });
 
   const teamMembers = useMemo(() => {
-    return companyUsers
-      .filter(cu => cu.role === "admin" || cu.role === "office" || cu.role === "ops")
-      .map(cu => {
-        const user = users.find(u => u.id === cu.userId);
-        return {
-          id: cu.userId,
-          name: user?.name || user?.email || cu.userId,
-          role: cu.role,
-        };
-      });
-  }, [companyUsers, users]);
+    return companyUsersData
+      .filter(item => item.companyUser.role === "admin" || item.companyUser.role === "office" || item.companyUser.role === "ops")
+      .map(item => ({
+        id: item.companyUser.userId,
+        name: item.user?.name || item.user?.email || item.companyUser.userId,
+        role: item.companyUser.role,
+      }));
+  }, [companyUsersData]);
 
   const filteredCustomers = customers.filter(c =>
     c.name.toLowerCase().includes(customerSearch.toLowerCase()) ||
@@ -186,7 +184,7 @@ export default function NewTicket() {
         title,
         description: description || null,
         priority,
-        assignedToId: assignedToId || null,
+        assignedToId: assignedToId,
         dueDate: dueDate ? new Date(dueDate) : null,
         locationLat: locationLat,
         locationLng: locationLng,
@@ -365,7 +363,7 @@ export default function NewTicket() {
     createTicketMutation.mutate();
   };
 
-  const canSubmit = selectedWorkType && selectedCustomerId && title.trim();
+  const canSubmit = selectedWorkType && selectedCustomerId && title.trim() && assignedToId;
   const hasLocation = locationLat !== null && locationLng !== null;
 
   const workTypeOptions: WorkType[] = ["contract", "extra_work", "project", "admin", "estimate_request"];
@@ -730,23 +728,27 @@ export default function NewTicket() {
             </div>
 
             <div className="space-y-2">
-              <Label htmlFor="assignedTo">Assign To</Label>
+              <Label htmlFor="assignedTo">Assign To <span className="text-destructive">*</span></Label>
               <Select 
-                value={assignedToId || "unassigned"} 
-                onValueChange={(v) => setAssignedToId(v === "unassigned" ? null : v)}
+                value={assignedToId || ""} 
+                onValueChange={(v) => setAssignedToId(v)}
               >
                 <SelectTrigger id="assignedTo" data-testid="select-assigned-to">
                   <SelectValue placeholder="Select team member..." />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="unassigned">Unassigned</SelectItem>
                   {teamMembers.map((member) => (
                     <SelectItem key={member.id} value={member.id}>
-                      {member.name}
+                      {member.name} ({member.role})
                     </SelectItem>
                   ))}
                 </SelectContent>
               </Select>
+              {!assignedToId && (
+                <p className="text-xs text-muted-foreground">
+                  All tickets must be assigned to a team member
+                </p>
+              )}
             </div>
           </div>
 

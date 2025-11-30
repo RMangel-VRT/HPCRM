@@ -593,6 +593,7 @@ export const insertTicketSchema = createInsertSchema(tickets).omit({
   locationLabel: z.string().nullable().optional(),
   locationDescription: z.string().nullable().optional(),
   photos: z.array(z.string()).nullable().optional(),
+  assignedToId: z.string().min(1, "Assignment is required"), // Required - tickets must be assigned
 });
 
 export type InsertTicket = z.infer<typeof insertTicketSchema>;
