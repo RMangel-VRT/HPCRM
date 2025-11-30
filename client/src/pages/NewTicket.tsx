@@ -1,4 +1,4 @@
-import { useState, useMemo, useEffect, useRef } from "react";
+import { useState, useMemo, useEffect } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { useLocation, Link } from "wouter";
 import { Button } from "@/components/ui/button";
@@ -34,6 +34,8 @@ import {
   Navigation,
   X,
   Building2,
+  Plus,
+  Pencil,
 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { queryClient, apiRequest } from "@/lib/queryClient";
@@ -86,11 +88,12 @@ export default function NewTicket() {
   const [, navigate] = useLocation();
   const { toast } = useToast();
   
-  const [step, setStep] = useState<"workType" | "customer" | "location" | "details">("workType");
+  const [step, setStep] = useState<"workType" | "customer" | "details">("workType");
   const [selectedWorkType, setSelectedWorkType] = useState<WorkType | null>(null);
   const [selectedCustomerId, setSelectedCustomerId] = useState<string | null>(null);
   const [customerSearch, setCustomerSearch] = useState("");
   const [showCustomerDialog, setShowCustomerDialog] = useState(false);
+  const [showLocationDialog, setShowLocationDialog] = useState(false);
   
   const [locationLat, setLocationLat] = useState<number | null>(null);
   const [locationLng, setLocationLng] = useState<number | null>(null);
@@ -205,7 +208,7 @@ export default function NewTicket() {
   const handleSelectCustomer = (customerId: string) => {
     setSelectedCustomerId(customerId);
     setShowCustomerDialog(false);
-    setStep("location");
+    setStep("details");
   };
 
   const handleUsePropertyAddress = async () => {
@@ -283,8 +286,8 @@ export default function NewTicket() {
     setLocationDescription("");
   };
 
-  const handleContinueToDetails = () => {
-    setStep("details");
+  const handleSaveLocation = () => {
+    setShowLocationDialog(false);
   };
 
   const handleSubmit = (e: React.FormEvent) => {
@@ -299,6 +302,7 @@ export default function NewTicket() {
   };
 
   const canSubmit = selectedWorkType && selectedCustomerId && title.trim();
+  const hasLocation = locationLat !== null && locationLng !== null;
 
   const workTypeOptions: WorkType[] = ["contract", "extra_work", "project", "admin", "estimate_request"];
 
@@ -438,148 +442,6 @@ export default function NewTicket() {
         </div>
       )}
 
-      {step === "location" && (
-        <div className="space-y-4">
-          <div className="flex items-center gap-2 text-sm text-muted-foreground flex-wrap">
-            <span 
-              className="hover:text-foreground cursor-pointer"
-              onClick={() => setStep("workType")}
-            >
-              {selectedWorkTypeConfig?.name}
-            </span>
-            <span>/</span>
-            <span 
-              className="hover:text-foreground cursor-pointer"
-              onClick={() => setStep("customer")}
-            >
-              {selectedCustomer?.name}
-            </span>
-            <span>/</span>
-            <span>Location</span>
-          </div>
-
-          <p className="text-muted-foreground text-sm">
-            Where exactly is the work needed? Tap on the map or use one of the options below.
-          </p>
-
-          <div className="flex flex-wrap gap-2">
-            <Button 
-              variant="outline" 
-              size="sm"
-              onClick={handleUsePropertyAddress}
-              disabled={isGeocodingLoading}
-              data-testid="button-use-property-address"
-            >
-              {isGeocodingLoading ? (
-                <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-              ) : (
-                <Building2 className="w-4 h-4 mr-2" />
-              )}
-              {isGeocodingLoading ? "Finding..." : "Use Property Address"}
-            </Button>
-            <Button 
-              variant="outline" 
-              size="sm"
-              onClick={handleGetCurrentLocation}
-              data-testid="button-current-location"
-            >
-              <Navigation className="w-4 h-4 mr-2" />
-              My Location
-            </Button>
-            {locationLat && locationLng && (
-              <Button 
-                variant="ghost" 
-                size="sm"
-                onClick={handleClearLocation}
-                data-testid="button-clear-location"
-              >
-                <X className="w-4 h-4 mr-2" />
-                Clear
-              </Button>
-            )}
-          </div>
-
-          <div className="rounded-lg overflow-hidden border h-[250px] md:h-[300px]">
-            <MapContainer
-              center={mapCenter}
-              zoom={4}
-              style={{ height: "100%", width: "100%" }}
-              className="z-0"
-            >
-              <TileLayer
-                attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
-                url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
-              />
-              <LocationMarker
-                position={locationLat && locationLng ? [locationLat, locationLng] : null}
-                onPositionChange={handleMapClick}
-              />
-              {locationLat && locationLng && (
-                <MapCenterUpdater center={[locationLat, locationLng]} />
-              )}
-            </MapContainer>
-          </div>
-
-          {locationLat && locationLng && (
-            <div className="p-3 rounded-lg bg-muted/50 text-sm space-y-3">
-              <div className="flex items-center gap-2">
-                <MapPin className="w-4 h-4 text-primary shrink-0" />
-                <span>
-                  {locationLat.toFixed(6)}, {locationLng.toFixed(6)}
-                </span>
-              </div>
-              
-              <div className="space-y-2">
-                <Label htmlFor="locationLabel" className="text-xs">Location Name (optional)</Label>
-                <Input
-                  id="locationLabel"
-                  placeholder="e.g., Near the pool, Back gate entrance..."
-                  value={locationLabel}
-                  onChange={(e) => setLocationLabel(e.target.value)}
-                  className="h-9"
-                  data-testid="input-location-label"
-                />
-              </div>
-
-              <div className="space-y-2">
-                <Label htmlFor="locationDescription" className="text-xs">Additional Notes (optional)</Label>
-                <Textarea
-                  id="locationDescription"
-                  placeholder="Any specific instructions to find this spot..."
-                  value={locationDescription}
-                  onChange={(e) => setLocationDescription(e.target.value)}
-                  rows={2}
-                  data-testid="input-location-description"
-                />
-              </div>
-            </div>
-          )}
-
-          <div className="flex gap-2">
-            <Button 
-              variant="outline" 
-              className="flex-1"
-              onClick={() => setStep("customer")}
-              data-testid="button-back-to-customer"
-            >
-              Back
-            </Button>
-            <Button 
-              className="flex-1"
-              onClick={handleContinueToDetails}
-              disabled={isGeocodingLoading}
-              data-testid="button-continue-to-details"
-            >
-              {isGeocodingLoading ? (
-                <Loader2 className="w-4 h-4 animate-spin" />
-              ) : (
-                locationLat && locationLng ? "Continue" : "Skip Location"
-              )}
-            </Button>
-          </div>
-        </div>
-      )}
-
       {step === "details" && (
         <form onSubmit={handleSubmit} className="space-y-4">
           <div className="flex items-center gap-2 text-sm text-muted-foreground flex-wrap">
@@ -597,13 +459,6 @@ export default function NewTicket() {
               {selectedCustomer?.name}
             </span>
             <span>/</span>
-            <span 
-              className="hover:text-foreground cursor-pointer"
-              onClick={() => setStep("location")}
-            >
-              {locationLat && locationLng ? (locationLabel || "Location Set") : "No Location"}
-            </span>
-            <span>/</span>
             <span>Details</span>
           </div>
 
@@ -618,15 +473,6 @@ export default function NewTicket() {
                   : selectedWorkTypeConfig.billingBehavior === "internal"
                   ? "Internal work - not invoiced"
                   : "Covered by existing contract"}
-              </span>
-            </div>
-          )}
-
-          {locationLat && locationLng && (
-            <div className="flex items-center gap-2 p-3 rounded-lg bg-muted/50">
-              <MapPin className="w-4 h-4 text-primary shrink-0" />
-              <span className="text-sm">
-                {locationLabel || `${locationLat.toFixed(4)}, ${locationLng.toFixed(4)}`}
               </span>
             </div>
           )}
@@ -656,6 +502,56 @@ export default function NewTicket() {
                 rows={3}
                 data-testid="input-description"
               />
+            </div>
+
+            <div className="space-y-2">
+              <Label>Location (optional)</Label>
+              {hasLocation ? (
+                <div className="p-3 rounded-lg border bg-muted/30 space-y-2">
+                  <div className="flex items-center justify-between gap-2">
+                    <div className="flex items-center gap-2 min-w-0">
+                      <MapPin className="w-4 h-4 text-primary shrink-0" />
+                      <span className="text-sm truncate">
+                        {locationLabel || `${locationLat!.toFixed(4)}, ${locationLng!.toFixed(4)}`}
+                      </span>
+                    </div>
+                    <div className="flex items-center gap-1 shrink-0">
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => setShowLocationDialog(true)}
+                        data-testid="button-edit-location"
+                      >
+                        <Pencil className="w-4 h-4" />
+                      </Button>
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="sm"
+                        onClick={handleClearLocation}
+                        data-testid="button-clear-location"
+                      >
+                        <X className="w-4 h-4" />
+                      </Button>
+                    </div>
+                  </div>
+                  {locationDescription && (
+                    <p className="text-xs text-muted-foreground pl-6">{locationDescription}</p>
+                  )}
+                </div>
+              ) : (
+                <Button
+                  type="button"
+                  variant="outline"
+                  className="w-full justify-start gap-2 h-11"
+                  onClick={() => setShowLocationDialog(true)}
+                  data-testid="button-add-location"
+                >
+                  <Plus className="w-4 h-4" />
+                  Add Location
+                </Button>
+              )}
             </div>
 
             <div className="grid grid-cols-2 gap-4">
@@ -724,6 +620,138 @@ export default function NewTicket() {
           </div>
         </form>
       )}
+
+      <Dialog open={showLocationDialog} onOpenChange={setShowLocationDialog}>
+        <DialogContent className="sm:max-w-lg max-h-[90vh] flex flex-col">
+          <DialogHeader>
+            <DialogTitle>Set Location</DialogTitle>
+          </DialogHeader>
+          
+          <div className="space-y-4 flex-1 overflow-y-auto">
+            <p className="text-sm text-muted-foreground">
+              Tap on the map or use one of the options below.
+            </p>
+
+            <div className="flex flex-wrap gap-2">
+              <Button 
+                variant="outline" 
+                size="sm"
+                onClick={handleUsePropertyAddress}
+                disabled={isGeocodingLoading}
+                data-testid="button-use-property-address"
+              >
+                {isGeocodingLoading ? (
+                  <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                ) : (
+                  <Building2 className="w-4 h-4 mr-2" />
+                )}
+                {isGeocodingLoading ? "Finding..." : "Use Property Address"}
+              </Button>
+              <Button 
+                variant="outline" 
+                size="sm"
+                onClick={handleGetCurrentLocation}
+                data-testid="button-current-location"
+              >
+                <Navigation className="w-4 h-4 mr-2" />
+                My Location
+              </Button>
+              {hasLocation && (
+                <Button 
+                  variant="ghost" 
+                  size="sm"
+                  onClick={handleClearLocation}
+                  data-testid="button-dialog-clear-location"
+                >
+                  <X className="w-4 h-4 mr-2" />
+                  Clear
+                </Button>
+              )}
+            </div>
+
+            <div className="rounded-lg overflow-hidden border h-[200px] md:h-[250px]">
+              <MapContainer
+                center={mapCenter}
+                zoom={4}
+                style={{ height: "100%", width: "100%" }}
+                className="z-0"
+              >
+                <TileLayer
+                  attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
+                  url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
+                />
+                <LocationMarker
+                  position={hasLocation ? [locationLat!, locationLng!] : null}
+                  onPositionChange={handleMapClick}
+                />
+                {hasLocation && (
+                  <MapCenterUpdater center={[locationLat!, locationLng!]} />
+                )}
+              </MapContainer>
+            </div>
+
+            {hasLocation && (
+              <div className="p-3 rounded-lg bg-muted/50 text-sm space-y-3">
+                <div className="flex items-center gap-2">
+                  <MapPin className="w-4 h-4 text-primary shrink-0" />
+                  <span>
+                    {locationLat!.toFixed(6)}, {locationLng!.toFixed(6)}
+                  </span>
+                </div>
+                
+                <div className="space-y-2">
+                  <Label htmlFor="locationLabel" className="text-xs">Location Name (optional)</Label>
+                  <Input
+                    id="locationLabel"
+                    placeholder="e.g., Near the pool, Back gate entrance..."
+                    value={locationLabel}
+                    onChange={(e) => setLocationLabel(e.target.value)}
+                    className="h-9"
+                    data-testid="input-location-label"
+                  />
+                </div>
+
+                <div className="space-y-2">
+                  <Label htmlFor="locationDescription" className="text-xs">Additional Notes (optional)</Label>
+                  <Textarea
+                    id="locationDescription"
+                    placeholder="Any specific instructions to find this spot..."
+                    value={locationDescription}
+                    onChange={(e) => setLocationDescription(e.target.value)}
+                    rows={2}
+                    data-testid="input-location-description"
+                  />
+                </div>
+              </div>
+            )}
+          </div>
+
+          <div className="flex gap-2 pt-4 border-t">
+            <Button 
+              variant="outline" 
+              className="flex-1"
+              onClick={() => setShowLocationDialog(false)}
+              data-testid="button-cancel-location"
+            >
+              Cancel
+            </Button>
+            <Button 
+              className="flex-1"
+              onClick={handleSaveLocation}
+              disabled={isGeocodingLoading}
+              data-testid="button-save-location"
+            >
+              {isGeocodingLoading ? (
+                <Loader2 className="w-4 h-4 animate-spin" />
+              ) : hasLocation ? (
+                "Save Location"
+              ) : (
+                "Skip Location"
+              )}
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
