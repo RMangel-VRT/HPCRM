@@ -1,5 +1,5 @@
 import { sql } from "drizzle-orm";
-import { pgTable, text, varchar, timestamp, unique, integer, jsonb } from "drizzle-orm/pg-core";
+import { pgTable, text, varchar, timestamp, unique, integer, jsonb, real } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
 
@@ -563,6 +563,11 @@ export const tickets = pgTable("tickets", {
   title: text("title").notNull(),
   description: text("description"),
   priority: text("priority").notNull().$type<"low" | "normal" | "high" | "urgent">().default("normal"),
+  // Location fields for GPS/map functionality
+  locationLat: real("location_lat"), // Latitude coordinate
+  locationLng: real("location_lng"), // Longitude coordinate
+  locationLabel: text("location_label"), // User-friendly name like "Near the pool"
+  locationDescription: text("location_description"), // Additional location notes
   assignedToId: varchar("assigned_to_id").references(() => users.id, { onDelete: "set null" }),
   dueDate: timestamp("due_date"),
   completedAt: timestamp("completed_at"),
@@ -581,6 +586,10 @@ export const insertTicketSchema = createInsertSchema(tickets).omit({
   serviceType: z.enum(["mowing", "pet_station", "chemical", "shrub_trimming", "ornamental_grass", "aeration", "cleanups", "tree_pruning"]).nullable().optional(),
   workType: z.enum(["contract", "extra_work", "project", "admin", "estimate_request"]).default("contract"),
   billingBehavior: z.enum(["no_invoice", "invoice_required", "internal"]).default("no_invoice"),
+  locationLat: z.number().nullable().optional(),
+  locationLng: z.number().nullable().optional(),
+  locationLabel: z.string().nullable().optional(),
+  locationDescription: z.string().nullable().optional(),
 });
 
 export type InsertTicket = z.infer<typeof insertTicketSchema>;
