@@ -31,6 +31,7 @@ import {
   Loader2,
   ExternalLink,
   Navigation,
+  Image as ImageIcon,
 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { queryClient, apiRequest } from "@/lib/queryClient";
@@ -280,6 +281,37 @@ export default function TicketDetail() {
                   Open in Maps
                 </Button>
               </a>
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
+      {ticket.photos && ticket.photos.length > 0 && (
+        <Card data-testid="card-photos">
+          <CardHeader className="pb-2">
+            <CardTitle className="text-sm flex items-center gap-2">
+              <ImageIcon className="w-4 h-4" />
+              Photos ({ticket.photos.length})
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="pb-3">
+            <div className="grid grid-cols-3 gap-2">
+              {ticket.photos.map((photo, index) => (
+                <a
+                  key={index}
+                  href={`/objects/${photo.replace(/^\/[^/]+\/[^/]+\//, "")}`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="aspect-square rounded-lg overflow-hidden border hover:ring-2 hover:ring-primary transition-all"
+                  data-testid={`photo-thumbnail-${index}`}
+                >
+                  <img
+                    src={`/objects/${photo.replace(/^\/[^/]+\/[^/]+\//, "")}`}
+                    alt={`Ticket photo ${index + 1}`}
+                    className="w-full h-full object-cover"
+                  />
+                </a>
+              ))}
             </div>
           </CardContent>
         </Card>
