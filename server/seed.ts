@@ -221,18 +221,19 @@ async function seed() {
   // Create default ticket types with workflows
   console.log("\nCreating ticket types...");
   
-  // Quick Task - Simple 2-step workflow for small jobs
+  // Onsite Maintenance Task - Simple workflow for field jobs
   const quickTask = await storage.createTicketType({
     companyId: company.id,
-    name: "Quick Task",
-    description: "Simple tasks that can be completed quickly on-site",
+    name: "Onsite Maintenance Task",
+    description: "Focused field work at customer properties",
+    category: "quick_task",
     icon: "zap",
     color: "#22c55e",
     isActive: "true",
   });
   console.log(`✓ Created ticket type: ${quickTask.name}`);
 
-  // Quick Task statuses
+  // Onsite Maintenance Task statuses
   const qtNew = await storage.createTicketTypeStatus({
     ticketTypeId: quickTask.id,
     name: "New",
@@ -259,9 +260,9 @@ async function seed() {
     color: "#22c55e",
     isFinal: "true",
   });
-  console.log("✓ Created Quick Task workflow (3 steps)");
+  console.log("✓ Created Onsite Maintenance Task workflow (3 steps)");
 
-  // Quick Task fields
+  // Onsite Maintenance Task fields
   await storage.createTicketTypeField({
     ticketTypeId: quickTask.id,
     statusId: qtInProgress.id,
@@ -294,13 +295,14 @@ async function seed() {
     options: [],
     displayOrder: 1,
   });
-  console.log("✓ Created Quick Task fields");
+  console.log("✓ Created Onsite Maintenance Task fields");
 
   // Project - Full 8-step workflow for larger jobs
   const project = await storage.createTicketType({
     companyId: company.id,
     name: "Project",
     description: "Large projects requiring multiple steps and approvals",
+    category: "project",
     icon: "folder-kanban",
     color: "#8b5cf6",
     isActive: "true",
@@ -537,7 +539,7 @@ async function seed() {
   });
   console.log("✓ Created Project fields");
 
-  // Create a sample Quick Task ticket
+  // Create a sample Onsite Maintenance Task ticket
   console.log("\nCreating sample tickets...");
   const opsUser = await storage.getUserByEmail("ops@greenscape.com");
   const sampleTicket = await storage.createTicket({
@@ -545,6 +547,8 @@ async function seed() {
     customerId: customer1.id,
     ticketTypeId: quickTask.id,
     currentStatusId: qtNew.id,
+    workType: "contract",
+    billingBehavior: "no_invoice",
     title: "Fix sprinkler head near pool area",
     description: "Broken sprinkler head reported by property manager. Located near the north side of the pool area.",
     priority: "normal",
@@ -583,7 +587,7 @@ async function seed() {
   console.log("  • 2 contacts (property managers)");
   console.log("  • 1 note (customer communication)");
   console.log("  • 2 contracts (maintenance services)");
-  console.log("  • 2 ticket types (Quick Task, Project)");
+  console.log("  • 2 ticket types (Onsite Maintenance Task, Project)");
   console.log("  • 1 sample ticket (sprinkler repair)");
   
   console.log("\n✨ Super admin has platform access to the /admin portal");

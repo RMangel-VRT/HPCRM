@@ -29,12 +29,11 @@ import {
   MessageSquare,
   History,
   Loader2,
-  FileText
 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { queryClient, apiRequest } from "@/lib/queryClient";
-import type { Ticket, TicketType, TicketTypeStatus, TicketTypeField, TicketFieldValue, TicketComment, TicketStatusHistory, Customer, Contract, ContractService } from "@shared/schema";
-import { SERVICE_CATALOG } from "@shared/serviceCatalog";
+import type { Ticket, TicketType, TicketTypeStatus, TicketTypeField, TicketFieldValue, TicketComment, TicketStatusHistory, Customer, Contract, ContractService, WorkType } from "@shared/schema";
+import { WORK_TYPE_CATALOG } from "@shared/workTypeCatalog";
 import { format } from "date-fns";
 
 interface TicketDetails {
@@ -49,11 +48,6 @@ interface TicketDetails {
   contractServices: ContractService[];
   assignedUser: { id: string; email: string } | null;
 }
-
-const getServiceDisplayName = (serviceType: string) => {
-  const service = SERVICE_CATALOG[serviceType as keyof typeof SERVICE_CATALOG];
-  return service?.name || serviceType;
-};
 
 const priorityConfig = {
   urgent: { color: "bg-red-500", textColor: "text-red-700 dark:text-red-400", label: "Urgent" },
@@ -207,22 +201,19 @@ export default function TicketDetail() {
           <div className={`w-2 h-2 rounded-full ${priority.color}`} />
           {priority.label}
         </div>
+        {ticket.workType && WORK_TYPE_CATALOG[ticket.workType as WorkType] && (
+          <Badge 
+            variant={WORK_TYPE_CATALOG[ticket.workType as WorkType].badgeVariant}
+            data-testid="badge-worktype"
+          >
+            {WORK_TYPE_CATALOG[ticket.workType as WorkType].billingLabel}
+          </Badge>
+        )}
         {customer && (
           <Link href={`/dashboard/customers/${customer.id}`} className="flex items-center gap-1 text-muted-foreground hover:text-foreground">
             <MapPin className="w-3.5 h-3.5" />
             {customer.name}
           </Link>
-        )}
-        {contract && (
-          <Link href={`/dashboard/customers/${customer?.id}/contracts/${contract.id}`} className="flex items-center gap-1 text-muted-foreground hover:text-foreground">
-            <FileText className="w-3.5 h-3.5" />
-            {contract.serviceType}
-          </Link>
-        )}
-        {ticket.serviceType && (
-          <Badge variant="outline" className="text-xs" data-testid="badge-service-type">
-            {getServiceDisplayName(ticket.serviceType)}
-          </Badge>
         )}
         {ticket.dueDate && (
           <span className="flex items-center gap-1 text-muted-foreground">

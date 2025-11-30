@@ -11,16 +11,11 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Badge } from "@/components/ui/badge";
-import { Plus, Search, ChevronRight, Clock, User, MapPin, CalendarDays, Filter, Loader2, FileText } from "lucide-react";
+import { Plus, Search, ChevronRight, Clock, User, MapPin, CalendarDays, Filter, Loader2 } from "lucide-react";
 import { Link } from "wouter";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
-import type { Ticket, TicketType, TicketTypeStatus, Customer } from "@shared/schema";
-import { SERVICE_CATALOG } from "@shared/serviceCatalog";
-
-const getServiceDisplayName = (serviceType: string) => {
-  const service = SERVICE_CATALOG[serviceType as keyof typeof SERVICE_CATALOG];
-  return service?.name || serviceType;
-};
+import type { Ticket, TicketType, TicketTypeStatus, Customer, WorkType } from "@shared/schema";
+import { WORK_TYPE_CATALOG } from "@shared/workTypeCatalog";
 
 interface TicketWithDetails extends Ticket {
   ticketType?: TicketType;
@@ -39,7 +34,7 @@ export default function TicketsList() {
   const [search, setSearch] = useState("");
   const [priorityFilter, setPriorityFilter] = useState("all");
   const [typeFilter, setTypeFilter] = useState("all");
-  const [contractFilter, setContractFilter] = useState("all");
+  const [workTypeFilter, setWorkTypeFilter] = useState("all");
   const [showFilters, setShowFilters] = useState(false);
 
   const { data: tickets = [], isLoading: ticketsLoading } = useQuery<Ticket[]>({
@@ -87,11 +82,8 @@ export default function TicketsList() {
       ticket.customer?.name?.toLowerCase().includes(search.toLowerCase()) || false;
     const matchesPriority = priorityFilter === "all" || ticket.priority === priorityFilter;
     const matchesType = typeFilter === "all" || ticket.ticketTypeId === typeFilter;
-    const matchesContract = 
-      contractFilter === "all" || 
-      (contractFilter === "linked" && ticket.contractId) ||
-      (contractFilter === "unlinked" && !ticket.contractId);
-    return matchesSearch && matchesPriority && matchesType && matchesContract;
+    const matchesWorkType = workTypeFilter === "all" || ticket.workType === workTypeFilter;
+    return matchesSearch && matchesPriority && matchesType && matchesWorkType;
   });
 
   const openTickets = filteredTickets.filter(t => !t.completedAt);
@@ -186,14 +178,17 @@ export default function TicketsList() {
             </SelectContent>
           </Select>
 
-          <Select value={contractFilter} onValueChange={setContractFilter}>
-            <SelectTrigger className="w-[140px] h-10" data-testid="select-contract-filter">
-              <SelectValue placeholder="Contract" />
+          <Select value={workTypeFilter} onValueChange={setWorkTypeFilter}>
+            <SelectTrigger className="w-[150px] h-10" data-testid="select-worktype-filter">
+              <SelectValue placeholder="Work Type" />
             </SelectTrigger>
             <SelectContent>
-              <SelectItem value="all">All Tickets</SelectItem>
-              <SelectItem value="linked">With Contract</SelectItem>
-              <SelectItem value="unlinked">No Contract</SelectItem>
+              <SelectItem value="all">All Work Types</SelectItem>
+              <SelectItem value="contract">Contract Work</SelectItem>
+              <SelectItem value="extra_work">Extra Billable</SelectItem>
+              <SelectItem value="project">Project</SelectItem>
+              <SelectItem value="admin">Admin</SelectItem>
+              <SelectItem value="estimate_request">Estimate Request</SelectItem>
             </SelectContent>
           </Select>
         </div>
@@ -290,19 +285,13 @@ function TicketCard({ ticket, formatDueDate }: TicketCardProps) {
                         <span className="truncate max-w-[120px]">{ticket.customer.name}</span>
                       </span>
                     )}
-                    {ticket.contractId && (
-                      <span className="flex items-center gap-1 text-primary">
-                        <FileText className="w-3.5 h-3.5" />
-                      </span>
-                    )}
-                    {ticket.serviceType && (
-                      <Badge variant="outline" className="text-xs font-normal" data-testid={`badge-service-${ticket.id}`}>
-                        {getServiceDisplayName(ticket.serviceType)}
-                      </Badge>
-                    )}
-                    {ticket.ticketType && (
-                      <Badge variant="secondary" className="text-xs font-normal">
-                        {ticket.ticketType.name}
+                    {ticket.workType && WORK_TYPE_CATALOG[ticket.workType as WorkType] && (
+                      <Badge 
+                        variant={WORK_TYPE_CATALOG[ticket.workType as WorkType].badgeVariant}
+                        className="text-xs font-normal"
+                        data-testid={`badge-worktype-${ticket.id}`}
+                      >
+                        {WORK_TYPE_CATALOG[ticket.workType as WorkType].billingLabel}
                       </Badge>
                     )}
                   </div>

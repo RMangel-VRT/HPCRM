@@ -32,11 +32,19 @@ Replit's object storage (Google Cloud Storage) is used for storing contract PDF 
 A document generation tool for landscape maintenance contracts using templates and variable substitution. It uses a dedicated database architecture for templates, documents, sections, and variables. The workflow allows users to select customers, include/exclude sections, fill variables (with auto-population), preview, auto-save, publish, and export to PDF. It integrates directly with the CRM's contract management by publishing documents and creating contract records, inferring service types and billing patterns.
 
 #### Ticketing System
-A mobile-first system for field crews to track and manage work at customer properties. It supports configurable ticket types with custom workflows, where tickets progress through multiple status steps with step-specific data capture. The system includes default ticket types ("Quick Task", "Project") and role-based access control. The UI is optimized for mobile with card-based layouts, a five-step creation wizard (type, customer, contract, service, details), and workflow progress indicators.
+A mobile-first system for field crews to track and manage work at customer properties. It supports configurable ticket types with custom workflows, where tickets progress through multiple status steps with step-specific data capture. The system includes default ticket types ("Onsite Maintenance Task", "Project") and role-based access control. The UI is optimized for mobile with card-based layouts and workflow progress indicators.
 
-**Contract Integration:** Tickets can optionally be linked to active customer contracts. The creation wizard shows available active contracts after customer selection, allowing users to associate work with specific service agreements. Contract-linked tickets display a contract indicator in the list view and contract details in the detail view. Filters allow filtering by contract linkage status.
+**Work Types:** Every ticket has a work type classification that drives billing behavior:
+- **Contract Work** - Included in existing customer contract (no invoice required)
+- **Extra Billable** - Work outside contract scope (invoice required)
+- **Project** - Larger scoped work with estimate/approval workflow (invoice required)
+- **Admin** - Internal office work like emails, meetings (internal - no invoice)
+- **Estimate Request** - Request to price work that may become a project (internal)
 
-**Service Type Tagging:** When a ticket is linked to a contract, users can optionally tag the ticket to a specific service type from that contract's "Services Included" blueprint. This creates traceability from customer → contract → service → ticket. The service type (e.g., "mowing", "chemical", "cleanups") is displayed in both the ticket detail and list views using human-readable names from the SERVICE_CATALOG.
+**Ticket Creation Wizard:** A 3-step wizard flow:
+1. Work Type selection (determines billing behavior)
+2. Customer selection
+3. Details (title, description, priority, assignment)
 
 **Ticket Categories:** Ticket types are categorized as quick_task, project, or service for filtering and reporting purposes.
 

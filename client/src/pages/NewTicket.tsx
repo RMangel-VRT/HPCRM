@@ -26,25 +26,32 @@ import {
   MapPin, 
   Check,
   Loader2,
-  ClipboardList,
-  FileText,
-  ChevronRight
+  FileCheck,
+  Receipt,
+  FolderKanban,
+  Briefcase,
+  Calculator,
 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { queryClient, apiRequest } from "@/lib/queryClient";
-import type { Customer, TicketType, CompanyUser, User, Contract, ContractService } from "@shared/schema";
-import { SERVICE_CATALOG } from "@shared/serviceCatalog";
-import { format } from "date-fns";
+import type { Customer, TicketType, CompanyUser, User, WorkType } from "@shared/schema";
+import { WORK_TYPE_CATALOG } from "@shared/workTypeCatalog";
+
+const WORK_TYPE_ICONS: Record<WorkType, typeof FileCheck> = {
+  contract: FileCheck,
+  extra_work: Receipt,
+  project: FolderKanban,
+  admin: Briefcase,
+  estimate_request: Calculator,
+};
 
 export default function NewTicket() {
   const [, navigate] = useLocation();
   const { toast } = useToast();
   
-  const [step, setStep] = useState<"type" | "customer" | "contract" | "service" | "details">("type");
-  const [selectedTypeId, setSelectedTypeId] = useState<string | null>(null);
+  const [step, setStep] = useState<"workType" | "customer" | "details">("workType");
+  const [selectedWorkType, setSelectedWorkType] = useState<WorkType | null>(null);
   const [selectedCustomerId, setSelectedCustomerId] = useState<string | null>(null);
-  const [selectedContractId, setSelectedContractId] = useState<string | null>(null);
-  const [selectedServiceType, setSelectedServiceType] = useState<string | null>(null);
   const [customerSearch, setCustomerSearch] = useState("");
   const [showCustomerDialog, setShowCustomerDialog] = useState(false);
   
@@ -54,36 +61,12 @@ export default function NewTicket() {
   const [assignedToId, setAssignedToId] = useState<string | null>(null);
   const [dueDate, setDueDate] = useState("");
 
-  const { data: ticketTypes = [], isLoading: typesLoading } = useQuery<TicketType[]>({
+  const { data: ticketTypes = [] } = useQuery<TicketType[]>({
     queryKey: ["/api/ticket-types"],
   });
 
   const { data: customers = [] } = useQuery<Customer[]>({
     queryKey: ["/api/customers"],
-  });
-
-  const { data: customerContracts = [], isLoading: contractsLoading } = useQuery<Contract[]>({
-    queryKey: ["/api/customers", selectedCustomerId, "contracts"],
-    enabled: !!selectedCustomerId,
-    queryFn: async () => {
-      const res = await fetch(`/api/customers/${selectedCustomerId}/contracts`);
-      if (!res.ok) throw new Error("Failed to fetch contracts");
-      return res.json();
-    },
-  });
-
-  const activeContracts = useMemo(() => {
-    return customerContracts.filter(c => c.status === "active");
-  }, [customerContracts]);
-
-  const { data: contractServices = [], isLoading: servicesLoading } = useQuery<ContractService[]>({
-    queryKey: ["/api/contracts", selectedContractId, "services"],
-    enabled: !!selectedContractId,
-    queryFn: async () => {
-      const res = await fetch(`/api/contracts/${selectedContractId}/services`);
-      if (!res.ok) throw new Error("Failed to fetch contract services");
-      return res.json();
-    },
   });
 
   const { data: companyUsers = [] } = useQuery<CompanyUser[]>({
@@ -114,17 +97,40 @@ export default function NewTicket() {
     c.city?.toLowerCase().includes(customerSearch.toLowerCase())
   );
 
-  const selectedType = ticketTypes.find(t => t.id === selectedTypeId);
   const selectedCustomer = customers.find(c => c.id === selectedCustomerId);
-  const selectedContract = customerContracts.find(c => c.id === selectedContractId);
+  const selectedWorkTypeConfig = selectedWorkType ? WORK_TYPE_CATALOG[selectedWorkType] : null;
+
+  const getTicketTypeForWorkType = (workType: WorkType): string | null => {
+    const activeTypes = ticketTypes.filter(t => t.isActive === "true");
+    
+    if (workType === "project") {
+      const projectType = activeTypes.find(t => t.category === "project" || t.name.toLowerCase().includes("project"));
+      return projectType?.id || activeTypes[0]?.id || null;
+    }
+    
+    const quickTaskType = activeTypes.find(t => 
+      t.category === "quick_task" || 
+      t.name.toLowerCase().includes("quick") ||
+      t.name.toLowerCase().includes("task") ||
+      t.name.toLowerCase().includes("maintenance")
+    );
+    return quickTaskType?.id || activeTypes[0]?.id || null;
+  };
 
   const createTicketMutation = useMutation({
     mutationFn: async () => {
+      const ticketTypeId = getTicketTypeForWorkType(selectedWorkType!);
+      if (!ticketTypeId) {
+        throw new Error("No ticket type available");
+      }
+      
+      const billingBehavior = WORK_TYPE_CATALOG[selectedWorkType!].billingBehavior;
+      
       return apiRequest("POST", "/api/tickets", {
-        ticketTypeId: selectedTypeId,
+        ticketTypeId,
         customerId: selectedCustomerId,
-        contractId: selectedContractId,
-        serviceType: selectedServiceType,
+        workType: selectedWorkType,
+        billingBehavior,
         title,
         description: description || null,
         priority,
@@ -143,44 +149,15 @@ export default function NewTicket() {
     },
   });
 
-  const handleSelectType = (typeId: string) => {
-    setSelectedTypeId(typeId);
+  const handleSelectWorkType = (workType: WorkType) => {
+    setSelectedWorkType(workType);
     setStep("customer");
   };
 
   const handleSelectCustomer = (customerId: string) => {
     setSelectedCustomerId(customerId);
-    setSelectedContractId(null);
-    setSelectedServiceType(null);
     setShowCustomerDialog(false);
-    setStep("contract");
-  };
-
-  const handleSelectContract = (contractId: string) => {
-    setSelectedContractId(contractId);
-    setSelectedServiceType(null);
-    setStep("service");
-  };
-
-  const handleSkipContract = () => {
-    setSelectedContractId(null);
-    setSelectedServiceType(null);
     setStep("details");
-  };
-
-  const handleSelectService = (serviceType: string | null) => {
-    setSelectedServiceType(serviceType);
-    setStep("details");
-  };
-
-  const handleSkipService = () => {
-    setSelectedServiceType(null);
-    setStep("details");
-  };
-
-  const getServiceDisplayName = (serviceType: string) => {
-    const service = SERVICE_CATALOG[serviceType as keyof typeof SERVICE_CATALOG];
-    return service?.name || serviceType;
   };
 
   const handleSubmit = (e: React.FormEvent) => {
@@ -194,17 +171,9 @@ export default function NewTicket() {
     createTicketMutation.mutate();
   };
 
-  const canSubmit = selectedTypeId && selectedCustomerId && title.trim();
+  const canSubmit = selectedWorkType && selectedCustomerId && title.trim();
 
-  const getServiceBadgeColor = (serviceType: string) => {
-    switch (serviceType) {
-      case "Maintenance": return "bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-400";
-      case "Snow": return "bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-400";
-      case "Irrigation": return "bg-cyan-100 text-cyan-800 dark:bg-cyan-900/30 dark:text-cyan-400";
-      case "Chemical": return "bg-amber-100 text-amber-800 dark:bg-amber-900/30 dark:text-amber-400";
-      default: return "bg-gray-100 text-gray-800 dark:bg-gray-800 dark:text-gray-300";
-    }
-  };
+  const workTypeOptions: WorkType[] = ["contract", "extra_work", "project", "admin", "estimate_request"];
 
   return (
     <div className="space-y-4 max-w-2xl mx-auto">
@@ -219,51 +188,45 @@ export default function NewTicket() {
         </h1>
       </div>
 
-      {step === "type" && (
+      {step === "workType" && (
         <div className="space-y-4">
-          <p className="text-muted-foreground">Select a ticket type to get started</p>
+          <p className="text-muted-foreground">What type of work is this?</p>
           
-          {typesLoading ? (
-            <div className="flex justify-center py-8">
-              <Loader2 className="w-8 h-8 animate-spin text-muted-foreground" />
-            </div>
-          ) : ticketTypes.length === 0 ? (
-            <Card>
-              <CardContent className="py-8 text-center">
-                <ClipboardList className="w-12 h-12 mx-auto text-muted-foreground mb-3" />
-                <h3 className="font-medium mb-1">No ticket types configured</h3>
-                <p className="text-sm text-muted-foreground">
-                  Contact your administrator to set up ticket types.
-                </p>
-              </CardContent>
-            </Card>
-          ) : (
-            <div className="grid gap-3">
-              {ticketTypes.filter(t => t.isActive === "true").map((type) => (
+          <div className="grid gap-3">
+            {workTypeOptions.map((type) => {
+              const config = WORK_TYPE_CATALOG[type];
+              const Icon = WORK_TYPE_ICONS[type];
+              
+              return (
                 <Card 
-                  key={type.id}
+                  key={type}
                   className="hover-elevate active-elevate-2 cursor-pointer"
-                  onClick={() => handleSelectType(type.id)}
-                  data-testid={`card-type-${type.id}`}
+                  onClick={() => handleSelectWorkType(type)}
+                  data-testid={`card-worktype-${type}`}
                 >
                   <CardContent className="p-4 flex items-center gap-4">
                     <div 
                       className="w-10 h-10 rounded-lg flex items-center justify-center"
-                      style={{ backgroundColor: `${type.color}20` }}
+                      style={{ backgroundColor: `${config.color}20` }}
                     >
-                      <ClipboardList className="w-5 h-5" style={{ color: type.color || undefined }} />
+                      <Icon className="w-5 h-5" style={{ color: config.color }} />
                     </div>
                     <div className="flex-1">
-                      <h3 className="font-medium">{type.name}</h3>
-                      {type.description && (
-                        <p className="text-sm text-muted-foreground line-clamp-1">{type.description}</p>
-                      )}
+                      <div className="flex items-center gap-2">
+                        <h3 className="font-medium">{config.name}</h3>
+                        <Badge variant={config.badgeVariant} className="text-xs">
+                          {config.billingLabel}
+                        </Badge>
+                      </div>
+                      <p className="text-sm text-muted-foreground line-clamp-1">
+                        {config.description}
+                      </p>
                     </div>
                   </CardContent>
                 </Card>
-              ))}
-            </div>
-          )}
+              );
+            })}
+          </div>
         </div>
       )}
 
@@ -272,9 +235,9 @@ export default function NewTicket() {
           <div className="flex items-center gap-2 text-sm text-muted-foreground">
             <span 
               className="hover:text-foreground cursor-pointer"
-              onClick={() => setStep("type")}
+              onClick={() => setStep("workType")}
             >
-              {selectedType?.name}
+              {selectedWorkTypeConfig?.name}
             </span>
             <span>/</span>
             <span>Select Customer</span>
@@ -348,197 +311,14 @@ export default function NewTicket() {
         </div>
       )}
 
-      {step === "contract" && (
-        <div className="space-y-4">
-          <div className="flex items-center gap-2 text-sm text-muted-foreground flex-wrap">
-            <span 
-              className="hover:text-foreground cursor-pointer"
-              onClick={() => setStep("type")}
-            >
-              {selectedType?.name}
-            </span>
-            <span>/</span>
-            <span 
-              className="hover:text-foreground cursor-pointer"
-              onClick={() => setStep("customer")}
-            >
-              {selectedCustomer?.name}
-            </span>
-            <span>/</span>
-            <span>Link Contract (Optional)</span>
-          </div>
-
-          <p className="text-muted-foreground text-sm">
-            Optionally link this ticket to an active contract for better tracking.
-          </p>
-          
-          {contractsLoading ? (
-            <div className="flex justify-center py-8">
-              <Loader2 className="w-8 h-8 animate-spin text-muted-foreground" />
-            </div>
-          ) : activeContracts.length === 0 ? (
-            <Card>
-              <CardContent className="py-6 text-center space-y-4">
-                <FileText className="w-10 h-10 mx-auto text-muted-foreground" />
-                <div>
-                  <p className="font-medium">No active contracts</p>
-                  <p className="text-sm text-muted-foreground">
-                    This customer has no active contracts to link.
-                  </p>
-                </div>
-                <Button onClick={handleSkipContract} className="mt-2" data-testid="button-continue-without-contract">
-                  Continue Without Contract
-                  <ChevronRight className="w-4 h-4 ml-1" />
-                </Button>
-              </CardContent>
-            </Card>
-          ) : (
-            <div className="space-y-3">
-              {activeContracts.map((contract) => (
-                <Card 
-                  key={contract.id}
-                  className="hover-elevate active-elevate-2 cursor-pointer"
-                  onClick={() => handleSelectContract(contract.id)}
-                  data-testid={`card-contract-${contract.id}`}
-                >
-                  <CardContent className="p-4 flex items-center gap-4">
-                    <div className="w-10 h-10 rounded-lg bg-muted flex items-center justify-center shrink-0">
-                      <FileText className="w-5 h-5 text-muted-foreground" />
-                    </div>
-                    <div className="flex-1 min-w-0">
-                      <div className="flex items-center gap-2 flex-wrap">
-                        <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium ${getServiceBadgeColor(contract.serviceType)}`}>
-                          {contract.serviceType}
-                        </span>
-                        <Badge variant="outline" className="text-xs">
-                          {contract.billingPattern}
-                        </Badge>
-                      </div>
-                      <p className="text-sm text-muted-foreground mt-1">
-                        {format(new Date(contract.startDate), "MMM d, yyyy")}
-                        {contract.endDate && ` - ${format(new Date(contract.endDate), "MMM d, yyyy")}`}
-                      </p>
-                    </div>
-                    {selectedContractId === contract.id && (
-                      <Check className="w-5 h-5 text-primary shrink-0" />
-                    )}
-                  </CardContent>
-                </Card>
-              ))}
-
-              <Button 
-                variant="outline" 
-                className="w-full" 
-                onClick={handleSkipContract}
-                data-testid="button-skip-contract"
-              >
-                Skip - No Contract Link
-                <ChevronRight className="w-4 h-4 ml-1" />
-              </Button>
-            </div>
-          )}
-        </div>
-      )}
-
-      {step === "service" && (
-        <div className="space-y-4">
-          <div className="flex items-center gap-2 text-sm text-muted-foreground flex-wrap">
-            <span 
-              className="hover:text-foreground cursor-pointer"
-              onClick={() => setStep("type")}
-            >
-              {selectedType?.name}
-            </span>
-            <span>/</span>
-            <span 
-              className="hover:text-foreground cursor-pointer"
-              onClick={() => setStep("customer")}
-            >
-              {selectedCustomer?.name}
-            </span>
-            <span>/</span>
-            <span 
-              className="hover:text-foreground cursor-pointer"
-              onClick={() => setStep("contract")}
-            >
-              {selectedContract?.serviceType}
-            </span>
-            <span>/</span>
-            <span>Tag Service (Optional)</span>
-          </div>
-
-          <p className="text-muted-foreground text-sm">
-            Optionally tag this ticket to a specific service included in the contract.
-          </p>
-          
-          {servicesLoading ? (
-            <div className="flex justify-center py-8">
-              <Loader2 className="w-8 h-8 animate-spin text-muted-foreground" />
-            </div>
-          ) : contractServices.length === 0 ? (
-            <Card>
-              <CardContent className="py-6 text-center space-y-4">
-                <ClipboardList className="w-10 h-10 mx-auto text-muted-foreground" />
-                <div>
-                  <p className="font-medium">No services configured</p>
-                  <p className="text-sm text-muted-foreground">
-                    This contract has no services to tag.
-                  </p>
-                </div>
-                <Button onClick={handleSkipService} className="mt-2" data-testid="button-continue-without-service">
-                  Continue Without Service Tag
-                  <ChevronRight className="w-4 h-4 ml-1" />
-                </Button>
-              </CardContent>
-            </Card>
-          ) : (
-            <div className="space-y-3">
-              {contractServices.map((service) => (
-                <Card 
-                  key={service.id}
-                  className="hover-elevate active-elevate-2 cursor-pointer"
-                  onClick={() => handleSelectService(service.serviceType)}
-                  data-testid={`card-service-${service.serviceType}`}
-                >
-                  <CardContent className="p-4 flex items-center gap-4">
-                    <div className="w-10 h-10 rounded-lg bg-muted flex items-center justify-center shrink-0">
-                      <ClipboardList className="w-5 h-5 text-muted-foreground" />
-                    </div>
-                    <div className="flex-1 min-w-0">
-                      <p className="font-medium">{getServiceDisplayName(service.serviceType)}</p>
-                      <p className="text-sm text-muted-foreground">
-                        {service.annualCount} visits per year
-                      </p>
-                    </div>
-                    {selectedServiceType === service.serviceType && (
-                      <Check className="w-5 h-5 text-primary shrink-0" />
-                    )}
-                  </CardContent>
-                </Card>
-              ))}
-
-              <Button 
-                variant="outline" 
-                className="w-full" 
-                onClick={handleSkipService}
-                data-testid="button-skip-service"
-              >
-                Skip - No Service Tag
-                <ChevronRight className="w-4 h-4 ml-1" />
-              </Button>
-            </div>
-          )}
-        </div>
-      )}
-
       {step === "details" && (
         <form onSubmit={handleSubmit} className="space-y-4">
           <div className="flex items-center gap-2 text-sm text-muted-foreground flex-wrap">
             <span 
               className="hover:text-foreground cursor-pointer"
-              onClick={() => setStep("type")}
+              onClick={() => setStep("workType")}
             >
-              {selectedType?.name}
+              {selectedWorkTypeConfig?.name}
             </span>
             <span>/</span>
             <span 
@@ -547,31 +327,24 @@ export default function NewTicket() {
             >
               {selectedCustomer?.name}
             </span>
-            {selectedContract && (
-              <>
-                <span>/</span>
-                <span 
-                  className="hover:text-foreground cursor-pointer"
-                  onClick={() => setStep("contract")}
-                >
-                  {selectedContract.serviceType}
-                </span>
-              </>
-            )}
-            {selectedServiceType && (
-              <>
-                <span>/</span>
-                <span 
-                  className="hover:text-foreground cursor-pointer"
-                  onClick={() => setStep("service")}
-                >
-                  {getServiceDisplayName(selectedServiceType)}
-                </span>
-              </>
-            )}
             <span>/</span>
             <span>Details</span>
           </div>
+
+          {selectedWorkTypeConfig && (
+            <div className="flex items-center gap-2 p-3 rounded-lg bg-muted/50">
+              <Badge variant={selectedWorkTypeConfig.badgeVariant}>
+                {selectedWorkTypeConfig.billingLabel}
+              </Badge>
+              <span className="text-sm text-muted-foreground">
+                {selectedWorkTypeConfig.billingBehavior === "invoice_required" 
+                  ? "This work will require an invoice" 
+                  : selectedWorkTypeConfig.billingBehavior === "internal"
+                  ? "Internal work - not invoiced"
+                  : "Covered by existing contract"}
+              </span>
+            </div>
+          )}
 
           <div className="space-y-4">
             <div className="space-y-2">
