@@ -543,6 +543,12 @@ export type TicketSourceType = "manual" | "contract_service";
 // Service type for ticket tagging (imported from serviceCatalog)
 export type TicketServiceType = "mowing" | "pet_station" | "chemical" | "shrub_trimming" | "ornamental_grass" | "aeration" | "cleanups" | "tree_pruning";
 
+// Work Type - classifies what kind of work the ticket represents (billing-driven)
+export type WorkType = "contract" | "extra_work" | "project" | "admin" | "estimate_request";
+
+// Billing Behavior - determines how the ticket affects invoicing
+export type BillingBehavior = "no_invoice" | "invoice_required" | "internal";
+
 // Tickets - actual work items
 export const tickets = pgTable("tickets", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
@@ -550,6 +556,8 @@ export const tickets = pgTable("tickets", {
   customerId: varchar("customer_id").notNull().references(() => customers.id, { onDelete: "cascade" }),
   contractId: varchar("contract_id").references(() => contracts.id, { onDelete: "set null" }),
   serviceType: text("service_type").$type<TicketServiceType>(), // Optional service type tagging
+  workType: text("work_type").notNull().$type<WorkType>().default("contract"), // Required work classification
+  billingBehavior: text("billing_behavior").notNull().$type<BillingBehavior>().default("no_invoice"), // Billing flag
   ticketTypeId: varchar("ticket_type_id").notNull().references(() => ticketTypes.id, { onDelete: "restrict" }),
   currentStatusId: varchar("current_status_id").notNull().references(() => ticketTypeStatuses.id, { onDelete: "restrict" }),
   title: text("title").notNull(),
@@ -571,6 +579,8 @@ export const insertTicketSchema = createInsertSchema(tickets).omit({
   priority: z.enum(["low", "normal", "high", "urgent"]).default("normal"),
   contractId: z.string().nullable().optional(),
   serviceType: z.enum(["mowing", "pet_station", "chemical", "shrub_trimming", "ornamental_grass", "aeration", "cleanups", "tree_pruning"]).nullable().optional(),
+  workType: z.enum(["contract", "extra_work", "project", "admin", "estimate_request"]).default("contract"),
+  billingBehavior: z.enum(["no_invoice", "invoice_required", "internal"]).default("no_invoice"),
 });
 
 export type InsertTicket = z.infer<typeof insertTicketSchema>;
