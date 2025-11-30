@@ -36,6 +36,8 @@ import {
   Building2,
   Plus,
   Pencil,
+  Camera,
+  Image as ImageIcon,
 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { queryClient, apiRequest } from "@/lib/queryClient";
@@ -107,6 +109,9 @@ export default function NewTicket() {
   const [priority, setPriority] = useState("normal");
   const [assignedToId, setAssignedToId] = useState<string | null>(null);
   const [dueDate, setDueDate] = useState("");
+  
+  const [photos, setPhotos] = useState<{ path: string; previewUrl: string }[]>([]);
+  const [isUploadingPhoto, setIsUploadingPhoto] = useState(false);
 
   const { data: ticketTypes = [] } = useQuery<TicketType[]>({
     queryKey: ["/api/ticket-types"],
@@ -187,6 +192,7 @@ export default function NewTicket() {
         locationLng: locationLng,
         locationLabel: locationLabel || null,
         locationDescription: locationDescription || null,
+        photos: photos.length > 0 ? photos.map(p => p.path) : null,
       });
     },
     onSuccess: async (res) => {
@@ -288,6 +294,64 @@ export default function NewTicket() {
 
   const handleSaveLocation = () => {
     setShowLocationDialog(false);
+  };
+
+  const handlePhotoUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const files = event.target.files;
+    if (!files || files.length === 0) return;
+
+    setIsUploadingPhoto(true);
+    
+    try {
+      for (const file of Array.from(files)) {
+        if (!file.type.startsWith("image/")) {
+          toast({ title: "Only images are allowed", variant: "destructive" });
+          continue;
+        }
+
+        if (file.size > 10 * 1024 * 1024) {
+          toast({ title: "Image must be under 10MB", variant: "destructive" });
+          continue;
+        }
+
+        const uploadUrlResponse = await apiRequest("POST", "/api/tickets/photo-upload-url");
+        const { uploadURL } = await uploadUrlResponse.json();
+
+        const uploadResponse = await fetch(uploadURL, {
+          method: "PUT",
+          body: file,
+          headers: {
+            "Content-Type": file.type,
+          },
+        });
+
+        if (!uploadResponse.ok) {
+          throw new Error("Failed to upload photo");
+        }
+
+        const url = new URL(uploadURL);
+        const path = url.pathname;
+
+        const previewUrl = URL.createObjectURL(file);
+        setPhotos((prev) => [...prev, { path, previewUrl }]);
+        toast({ title: "Photo added" });
+      }
+    } catch (error) {
+      console.error("Photo upload error:", error);
+      toast({ title: "Failed to upload photo", variant: "destructive" });
+    } finally {
+      setIsUploadingPhoto(false);
+      event.target.value = "";
+    }
+  };
+
+  const handleRemovePhoto = (index: number) => {
+    setPhotos((prev) => {
+      const newPhotos = [...prev];
+      URL.revokeObjectURL(newPhotos[index].previewUrl);
+      newPhotos.splice(index, 1);
+      return newPhotos;
+    });
   };
 
   const handleSubmit = (e: React.FormEvent) => {
@@ -552,6 +616,88 @@ export default function NewTicket() {
                   Add Location
                 </Button>
               )}
+            </div>
+
+            <div className="space-y-2">
+              <Label>Photos (optional)</Label>
+              <div className="space-y-3">
+                {photos.length > 0 && (
+                  <div className="grid grid-cols-3 gap-2">
+                    {photos.map((photo, index) => (
+                      <div key={index} className="relative group aspect-square">
+                        <img
+                          src={photo.previewUrl}
+                          alt={`Photo ${index + 1}`}
+                          className="w-full h-full object-cover rounded-lg border"
+                        />
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="icon"
+                          className="absolute top-1 right-1 h-6 w-6 bg-background/80 opacity-0 group-hover:opacity-100 transition-opacity"
+                          onClick={() => handleRemovePhoto(index)}
+                          data-testid={`button-remove-photo-${index}`}
+                        >
+                          <X className="w-3 h-3" />
+                        </Button>
+                      </div>
+                    ))}
+                  </div>
+                )}
+                
+                <div className="flex gap-2">
+                  <input
+                    type="file"
+                    accept="image/*"
+                    capture="environment"
+                    id="photo-capture"
+                    className="hidden"
+                    onChange={handlePhotoUpload}
+                    disabled={isUploadingPhoto}
+                  />
+                  <input
+                    type="file"
+                    accept="image/*"
+                    multiple
+                    id="photo-gallery"
+                    className="hidden"
+                    onChange={handlePhotoUpload}
+                    disabled={isUploadingPhoto}
+                  />
+                  
+                  <Button
+                    type="button"
+                    variant="outline"
+                    className="flex-1 gap-2 h-11"
+                    onClick={() => document.getElementById("photo-capture")?.click()}
+                    disabled={isUploadingPhoto}
+                    data-testid="button-take-photo"
+                  >
+                    {isUploadingPhoto ? (
+                      <Loader2 className="w-4 h-4 animate-spin" />
+                    ) : (
+                      <Camera className="w-4 h-4" />
+                    )}
+                    Take Photo
+                  </Button>
+                  
+                  <Button
+                    type="button"
+                    variant="outline"
+                    className="flex-1 gap-2 h-11"
+                    onClick={() => document.getElementById("photo-gallery")?.click()}
+                    disabled={isUploadingPhoto}
+                    data-testid="button-choose-photo"
+                  >
+                    {isUploadingPhoto ? (
+                      <Loader2 className="w-4 h-4 animate-spin" />
+                    ) : (
+                      <ImageIcon className="w-4 h-4" />
+                    )}
+                    Choose Photo
+                  </Button>
+                </div>
+              </div>
             </div>
 
             <div className="grid grid-cols-2 gap-4">
