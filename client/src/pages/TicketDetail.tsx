@@ -29,12 +29,24 @@ import {
   MessageSquare,
   History,
   Loader2,
+  ExternalLink,
+  Navigation,
 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { queryClient, apiRequest } from "@/lib/queryClient";
 import type { Ticket, TicketType, TicketTypeStatus, TicketTypeField, TicketFieldValue, TicketComment, TicketStatusHistory, Customer, Contract, ContractService, WorkType } from "@shared/schema";
 import { WORK_TYPE_CATALOG } from "@shared/workTypeCatalog";
 import { format } from "date-fns";
+import { MapContainer, TileLayer, Marker } from "react-leaflet";
+import L from "leaflet";
+import "leaflet/dist/leaflet.css";
+
+delete (L.Icon.Default.prototype as any)._getIconUrl;
+L.Icon.Default.mergeOptions({
+  iconRetinaUrl: "https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/images/marker-icon-2x.png",
+  iconUrl: "https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/images/marker-icon.png",
+  shadowUrl: "https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/images/marker-shadow.png",
+});
 
 interface TicketDetails {
   ticket: Ticket;
@@ -222,6 +234,56 @@ export default function TicketDetail() {
           </span>
         )}
       </div>
+
+      {ticket.locationLat && ticket.locationLng && (
+        <Card className="overflow-hidden" data-testid="card-location">
+          <div className="h-[150px] relative">
+            <MapContainer
+              center={[ticket.locationLat, ticket.locationLng]}
+              zoom={16}
+              style={{ height: "100%", width: "100%" }}
+              className="z-0"
+              scrollWheelZoom={false}
+              dragging={false}
+              zoomControl={false}
+            >
+              <TileLayer
+                attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
+                url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
+              />
+              <Marker position={[ticket.locationLat, ticket.locationLng]} />
+            </MapContainer>
+          </div>
+          <CardContent className="p-3">
+            <div className="flex items-start justify-between gap-2">
+              <div className="flex-1 min-w-0">
+                <div className="flex items-center gap-2">
+                  <MapPin className="w-4 h-4 text-primary shrink-0" />
+                  <span className="font-medium text-sm truncate">
+                    {ticket.locationLabel || "Pinned Location"}
+                  </span>
+                </div>
+                {ticket.locationDescription && (
+                  <p className="text-xs text-muted-foreground mt-1 line-clamp-2 ml-6">
+                    {ticket.locationDescription}
+                  </p>
+                )}
+              </div>
+              <a
+                href={`https://www.google.com/maps/search/?api=1&query=${ticket.locationLat},${ticket.locationLng}`}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="shrink-0"
+              >
+                <Button variant="outline" size="sm" data-testid="button-open-in-maps">
+                  <Navigation className="w-4 h-4 mr-1" />
+                  Open in Maps
+                </Button>
+              </a>
+            </div>
+          </CardContent>
+        </Card>
+      )}
 
       <div className="flex border-b">
         <button

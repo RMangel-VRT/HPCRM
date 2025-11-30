@@ -2009,6 +2009,49 @@ export async function registerRoutes(app: Express): Promise<Server> {
     res.status(200).send("Deleted");
   });
 
+  // Geocoding route (server-side to set proper User-Agent)
+  app.get("/api/geocode", async (req, res) => {
+    if (!req.isAuthenticated()) {
+      return res.status(401).send("Not authenticated");
+    }
+
+    const address = req.query.address as string;
+    if (!address) {
+      return res.status(400).send("Address is required");
+    }
+
+    try {
+      const response = await fetch(
+        `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(address)}&limit=1`,
+        {
+          headers: {
+            "User-Agent": "LandscapingCRM/1.0 (landscaping-crm@replit.app)",
+            "Accept": "application/json",
+          },
+        }
+      );
+
+      if (!response.ok) {
+        return res.status(response.status).send("Geocoding service error");
+      }
+
+      const data = await response.json();
+      
+      if (data && data.length > 0) {
+        res.json({
+          lat: parseFloat(data[0].lat),
+          lng: parseFloat(data[0].lon),
+          displayName: data[0].display_name,
+        });
+      } else {
+        res.status(404).send("Address not found");
+      }
+    } catch (error) {
+      console.error("Geocoding error:", error);
+      res.status(500).send("Failed to geocode address");
+    }
+  });
+
   // Tickets routes
   app.get("/api/tickets", async (req, res) => {
     if (!req.isAuthenticated()) {
