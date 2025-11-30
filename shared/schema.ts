@@ -568,6 +568,8 @@ export const tickets = pgTable("tickets", {
   locationLng: real("location_lng"), // Longitude coordinate
   locationLabel: text("location_label"), // User-friendly name like "Near the pool"
   locationDescription: text("location_description"), // Additional location notes
+  // Photos - array of object storage paths
+  photos: text("photos").array(), // Array of photo paths in object storage
   assignedToId: varchar("assigned_to_id").references(() => users.id, { onDelete: "set null" }),
   dueDate: timestamp("due_date"),
   completedAt: timestamp("completed_at"),
@@ -590,6 +592,7 @@ export const insertTicketSchema = createInsertSchema(tickets).omit({
   locationLng: z.number().nullable().optional(),
   locationLabel: z.string().nullable().optional(),
   locationDescription: z.string().nullable().optional(),
+  photos: z.array(z.string()).nullable().optional(),
 });
 
 export type InsertTicket = z.infer<typeof insertTicketSchema>;
