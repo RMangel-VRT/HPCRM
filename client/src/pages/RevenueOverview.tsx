@@ -4,6 +4,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Link } from "wouter";
+import { RevenueChart } from "@/components/RevenueChart";
 
 interface RevenueOverviewData {
   selectedMonthTotal: number;
@@ -44,6 +45,7 @@ export default function RevenueOverview() {
     return (
       <div className="space-y-6">
         <Skeleton className="h-10 w-1/3" />
+        <Skeleton className="h-[350px] w-full" />
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           <Skeleton className="h-32 w-full" />
           <Skeleton className="h-32 w-full" />
@@ -57,7 +59,7 @@ export default function RevenueOverview() {
     <div className="space-y-6">
       <div className="flex items-center justify-between gap-4 flex-wrap">
         <div>
-          <h1 className="text-3xl font-semibold tracking-tight">Revenue Overview</h1>
+          <h1 className="text-3xl font-semibold tracking-tight" data-testid="text-page-title">Revenue Overview</h1>
           <p className="text-muted-foreground mt-1">
             Projected revenue across all customers
           </p>
@@ -84,6 +86,8 @@ export default function RevenueOverview() {
           </Button>
         </div>
       </div>
+      
+      <RevenueChart />
       
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
         <Card>

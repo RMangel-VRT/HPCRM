@@ -2,9 +2,12 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Users, FileText, DollarSign, TrendingUp } from "lucide-react";
 import { useQuery } from "@tanstack/react-query";
 import { Skeleton } from "@/components/ui/skeleton";
-import { RevenueChart } from "@/components/RevenueChart";
 import TopCustomers from "@/components/TopCustomers";
 import UpcomingRenewals from "@/components/UpcomingRenewals";
+import MyTicketsPreview from "@/components/MyTicketsPreview";
+import { useAuth } from "@/hooks/use-auth";
+import SuperAdminDashboard from "./SuperAdminDashboard";
+import FieldCrewDashboard from "./FieldCrewDashboard";
 
 interface DashboardStats {
   customersCount: number;
@@ -14,6 +17,48 @@ interface DashboardStats {
 }
 
 export default function Dashboard() {
+  const { user, isLoading } = useAuth();
+  
+  if (isLoading) {
+    return (
+      <div className="space-y-6">
+        <div>
+          <Skeleton className="h-9 w-48 mb-2" />
+          <Skeleton className="h-4 w-64" />
+        </div>
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+          {[1, 2, 3, 4].map((i) => (
+            <Card key={i}>
+              <CardHeader className="flex flex-row items-center justify-between gap-2 space-y-0 pb-2">
+                <Skeleton className="h-4 w-24" />
+                <Skeleton className="h-4 w-4" />
+              </CardHeader>
+              <CardContent>
+                <Skeleton className="h-8 w-20" />
+              </CardContent>
+            </Card>
+          ))}
+        </div>
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+          <Skeleton className="h-64" />
+          <Skeleton className="h-64" />
+        </div>
+      </div>
+    );
+  }
+  
+  if (user?.isSuperAdminBool) {
+    return <SuperAdminDashboard />;
+  }
+  
+  if (user?.activeRole === "ops" || user?.activeRole === "viewer") {
+    return <FieldCrewDashboard />;
+  }
+  
+  return <AdminOfficeDashboard />;
+}
+
+function AdminOfficeDashboard() {
   const { data: stats, isLoading, error } = useQuery<DashboardStats>({
     queryKey: ["/api/dashboard/stats"],
   });
@@ -74,7 +119,7 @@ export default function Dashboard() {
             <p className="text-sm font-mono text-muted-foreground">
               Error: {error instanceof Error ? error.message : "Unknown error"}
             </p>
-            <div className="flex gap-2">
+            <div className="flex flex-wrap gap-2">
               <button
                 onClick={() => window.location.reload()}
                 className="px-4 py-2 bg-primary text-primary-foreground rounded-md hover:bg-primary/90"
@@ -112,10 +157,8 @@ export default function Dashboard() {
         </p>
       </div>
 
-      <RevenueChart />
-
       {isLoading ? (
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
           {[1, 2, 3, 4].map((i) => (
             <Card key={i}>
               <CardHeader className="flex flex-row items-center justify-between gap-2 space-y-0 pb-2">
@@ -129,7 +172,7 @@ export default function Dashboard() {
           ))}
         </div>
       ) : (
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
           {dashboardCards.map((card) => (
             <Card key={card.title} data-testid={`card-stat-${card.title.toLowerCase().replace(/\s+/g, '-')}`}>
               <CardHeader className="flex flex-row items-center justify-between gap-2 space-y-0 pb-2">
@@ -146,10 +189,12 @@ export default function Dashboard() {
         </div>
       )}
 
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-        <TopCustomers />
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        <MyTicketsPreview />
         <UpcomingRenewals />
       </div>
+
+      <TopCustomers />
     </div>
   );
 }
