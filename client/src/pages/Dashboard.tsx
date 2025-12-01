@@ -5,6 +5,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import TopCustomers from "@/components/TopCustomers";
 import UpcomingRenewals from "@/components/UpcomingRenewals";
 import MyTicketsPreview from "@/components/MyTicketsPreview";
+import SchedulePreview from "@/components/SchedulePreview";
 import { useAuth } from "@/hooks/use-auth";
 import SuperAdminDashboard from "./SuperAdminDashboard";
 import FieldCrewDashboard from "./FieldCrewDashboard";
@@ -189,8 +190,12 @@ function AdminOfficeDashboard() {
         </div>
       )}
 
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+        <SchedulePreview />
         <MyTicketsPreview />
+      </div>
+
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
         <UpcomingRenewals />
         <TopCustomers />
       </div>
