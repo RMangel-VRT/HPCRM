@@ -4,7 +4,6 @@ import { useRoute, Link } from "wouter";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { Separator } from "@/components/ui/separator";
 import { Textarea } from "@/components/ui/textarea";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -22,7 +21,6 @@ import {
   Send, 
   Check, 
   ChevronRight, 
-  Clock, 
   MapPin, 
   User, 
   CalendarDays,
@@ -32,12 +30,15 @@ import {
   ExternalLink,
   Navigation,
   Image as ImageIcon,
+  FileText,
+  Briefcase,
+  ClipboardList,
 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { queryClient, apiRequest } from "@/lib/queryClient";
 import type { Ticket, TicketType, TicketTypeStatus, TicketTypeField, TicketFieldValue, TicketComment, TicketStatusHistory, Customer, Contract, ContractService, WorkType } from "@shared/schema";
 import { WORK_TYPE_CATALOG } from "@shared/workTypeCatalog";
-import { format } from "date-fns";
+import { format, formatDistanceToNow } from "date-fns";
 import { MapContainer, TileLayer, Marker } from "react-leaflet";
 import L from "leaflet";
 import "leaflet/dist/leaflet.css";
@@ -63,10 +64,10 @@ interface TicketDetails {
 }
 
 const priorityConfig = {
-  urgent: { color: "bg-red-500", textColor: "text-red-700 dark:text-red-400", label: "Urgent" },
-  high: { color: "bg-orange-500", textColor: "text-orange-700 dark:text-orange-400", label: "High" },
-  normal: { color: "bg-blue-500", textColor: "text-blue-700 dark:text-blue-400", label: "Normal" },
-  low: { color: "bg-gray-400", textColor: "text-gray-600 dark:text-gray-400", label: "Low" },
+  urgent: { color: "bg-red-500", textColor: "text-red-700 dark:text-red-400", label: "Urgent", bgColor: "bg-red-50 dark:bg-red-900/20" },
+  high: { color: "bg-orange-500", textColor: "text-orange-700 dark:text-orange-400", label: "High", bgColor: "bg-orange-50 dark:bg-orange-900/20" },
+  normal: { color: "bg-blue-500", textColor: "text-blue-700 dark:text-blue-400", label: "Normal", bgColor: "bg-blue-50 dark:bg-blue-900/20" },
+  low: { color: "bg-gray-400", textColor: "text-gray-600 dark:text-gray-400", label: "Low", bgColor: "bg-gray-50 dark:bg-gray-900/20" },
 };
 
 export default function TicketDetail() {
@@ -79,7 +80,7 @@ export default function TicketDetail() {
   const [pendingStatusId, setPendingStatusId] = useState<string | null>(null);
   const [fieldInputs, setFieldInputs] = useState<Record<string, string>>({});
   const [statusNotes, setStatusNotes] = useState("");
-  const [activeTab, setActiveTab] = useState<"workflow" | "comments" | "history">("workflow");
+  const [activeTab, setActiveTab] = useState<"overview" | "workflow" | "comments" | "history">("overview");
 
   const { data: details, isLoading } = useQuery<TicketDetails>({
     queryKey: ["/api/tickets", ticketId, "details"],
@@ -146,6 +147,7 @@ export default function TicketDetail() {
   const currentStatusIndex = statuses.findIndex(s => s.id === ticket.currentStatusId);
   const sortedStatuses = [...statuses].sort((a, b) => a.displayOrder - b.displayOrder);
   const nextStatus = sortedStatuses[currentStatusIndex + 1];
+  const isComplete = !!ticket.completedAt;
 
   const handleAdvanceStatus = () => {
     if (!nextStatus) return;
@@ -200,124 +202,36 @@ export default function TicketDetail() {
           </Button>
         </Link>
         <div className="flex-1 min-w-0">
-          <Badge variant="secondary" className="mb-1 text-xs">
-            {ticketType.name}
-          </Badge>
+          <div className="flex items-center gap-2 mb-1">
+            <Badge variant="secondary" className="text-xs">
+              {ticketType.name}
+            </Badge>
+            {isComplete && (
+              <Badge variant="default" className="text-xs bg-green-600">
+                <Check className="w-3 h-3 mr-1" />
+                Complete
+              </Badge>
+            )}
+          </div>
           <h1 className="text-xl md:text-2xl font-semibold tracking-tight line-clamp-2" data-testid="text-ticket-title">
             {ticket.title}
           </h1>
         </div>
       </div>
 
-      <div className="flex items-center gap-3 flex-wrap text-sm">
-        <div className={`flex items-center gap-1.5 ${priority.textColor}`}>
-          <div className={`w-2 h-2 rounded-full ${priority.color}`} />
-          {priority.label}
-        </div>
-        {ticket.workType && WORK_TYPE_CATALOG[ticket.workType as WorkType] && (
-          <Badge 
-            variant={WORK_TYPE_CATALOG[ticket.workType as WorkType].badgeVariant}
-            data-testid="badge-worktype"
-          >
-            {WORK_TYPE_CATALOG[ticket.workType as WorkType].billingLabel}
-          </Badge>
-        )}
-        {customer && (
-          <Link href={`/dashboard/customers/${customer.id}`} className="flex items-center gap-1 text-muted-foreground hover:text-foreground">
-            <MapPin className="w-3.5 h-3.5" />
-            {customer.name}
-          </Link>
-        )}
-        {ticket.dueDate && (
-          <span className="flex items-center gap-1 text-muted-foreground">
-            <CalendarDays className="w-3.5 h-3.5" />
-            {new Date(ticket.dueDate).toLocaleDateString()}
-          </span>
-        )}
-      </div>
-
-      {ticket.locationLat && ticket.locationLng && (
-        <Card className="overflow-hidden" data-testid="card-location">
-          <div className="h-[150px] relative">
-            <MapContainer
-              center={[ticket.locationLat, ticket.locationLng]}
-              zoom={16}
-              style={{ height: "100%", width: "100%" }}
-              className="z-0"
-              scrollWheelZoom={false}
-              dragging={false}
-              zoomControl={false}
-            >
-              <TileLayer
-                attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
-                url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
-              />
-              <Marker position={[ticket.locationLat, ticket.locationLng]} />
-            </MapContainer>
-          </div>
-          <CardContent className="p-3">
-            <div className="flex items-start justify-between gap-2">
-              <div className="flex-1 min-w-0">
-                <div className="flex items-center gap-2">
-                  <MapPin className="w-4 h-4 text-primary shrink-0" />
-                  <span className="font-medium text-sm truncate">
-                    {ticket.locationLabel || "Pinned Location"}
-                  </span>
-                </div>
-                {ticket.locationDescription && (
-                  <p className="text-xs text-muted-foreground mt-1 line-clamp-2 ml-6">
-                    {ticket.locationDescription}
-                  </p>
-                )}
-              </div>
-              <a
-                href={`https://www.google.com/maps/search/?api=1&query=${ticket.locationLat},${ticket.locationLng}`}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="shrink-0"
-              >
-                <Button variant="outline" size="sm" data-testid="button-open-in-maps">
-                  <Navigation className="w-4 h-4 mr-1" />
-                  Open in Maps
-                </Button>
-              </a>
-            </div>
-          </CardContent>
-        </Card>
-      )}
-
-      {ticket.photos && ticket.photos.length > 0 && (
-        <Card data-testid="card-photos">
-          <CardHeader className="pb-2">
-            <CardTitle className="text-sm flex items-center gap-2">
-              <ImageIcon className="w-4 h-4" />
-              Photos ({ticket.photos.length})
-            </CardTitle>
-          </CardHeader>
-          <CardContent className="pb-3">
-            <div className="grid grid-cols-3 gap-2">
-              {ticket.photos.map((photo, index) => (
-                <a
-                  key={index}
-                  href={`/objects/${photo.replace(/^\/[^/]+\/[^/]+\//, "")}`}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="aspect-square rounded-lg overflow-hidden border hover:ring-2 hover:ring-primary transition-all"
-                  data-testid={`photo-thumbnail-${index}`}
-                >
-                  <img
-                    src={`/objects/${photo.replace(/^\/[^/]+\/[^/]+\//, "")}`}
-                    alt={`Ticket photo ${index + 1}`}
-                    className="w-full h-full object-cover"
-                  />
-                </a>
-              ))}
-            </div>
-          </CardContent>
-        </Card>
-      )}
-
-      <div className="flex border-b">
+      <div className="flex border-b sticky top-0 bg-background z-10">
+        <button
+          className={`px-4 py-2 text-sm font-medium border-b-2 transition-colors flex items-center gap-1.5 ${
+            activeTab === "overview"
+              ? "border-primary text-primary"
+              : "border-transparent text-muted-foreground hover:text-foreground"
+          }`}
+          onClick={() => setActiveTab("overview")}
+          data-testid="tab-overview"
+        >
+          <ClipboardList className="w-4 h-4" />
+          Overview
+        </button>
         <button
           className={`px-4 py-2 text-sm font-medium border-b-2 transition-colors ${
             activeTab === "workflow"
@@ -353,6 +267,226 @@ export default function TicketDetail() {
           <History className="w-4 h-4" />
         </button>
       </div>
+
+      {activeTab === "overview" && (
+        <div className="space-y-4">
+          <Card data-testid="card-ticket-summary">
+            <CardContent className="p-4">
+              <div className="grid grid-cols-2 gap-4">
+                <div className="space-y-1">
+                  <p className="text-xs text-muted-foreground uppercase tracking-wide">Priority</p>
+                  <div className={`flex items-center gap-1.5 ${priority.textColor}`}>
+                    <div className={`w-2.5 h-2.5 rounded-full ${priority.color}`} />
+                    <span className="font-medium">{priority.label}</span>
+                  </div>
+                </div>
+                
+                <div className="space-y-1">
+                  <p className="text-xs text-muted-foreground uppercase tracking-wide">Work Type</p>
+                  {ticket.workType && WORK_TYPE_CATALOG[ticket.workType as WorkType] ? (
+                    <Badge 
+                      variant={WORK_TYPE_CATALOG[ticket.workType as WorkType].badgeVariant}
+                      data-testid="badge-worktype"
+                    >
+                      {WORK_TYPE_CATALOG[ticket.workType as WorkType].billingLabel}
+                    </Badge>
+                  ) : (
+                    <span className="text-sm text-muted-foreground">Not set</span>
+                  )}
+                </div>
+
+                <div className="space-y-1">
+                  <p className="text-xs text-muted-foreground uppercase tracking-wide">Status</p>
+                  <Badge variant="outline" className="font-medium">
+                    {currentStatus?.name || "Unknown"}
+                  </Badge>
+                </div>
+
+                <div className="space-y-1">
+                  <p className="text-xs text-muted-foreground uppercase tracking-wide">Due Date</p>
+                  {ticket.dueDate ? (
+                    <div className="flex items-center gap-1.5">
+                      <CalendarDays className="w-4 h-4 text-muted-foreground" />
+                      <span className="font-medium">{format(new Date(ticket.dueDate), "MMM d, yyyy")}</span>
+                    </div>
+                  ) : (
+                    <span className="text-sm text-muted-foreground">Not set</span>
+                  )}
+                </div>
+
+                <div className="col-span-2 space-y-1">
+                  <p className="text-xs text-muted-foreground uppercase tracking-wide">Assigned To</p>
+                  <div className="flex items-center gap-2">
+                    <Avatar className="w-6 h-6">
+                      <AvatarFallback className="text-xs">
+                        <User className="w-3 h-3" />
+                      </AvatarFallback>
+                    </Avatar>
+                    <span className="font-medium">{assignedUser?.email || "Unassigned"}</span>
+                  </div>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+
+          {ticket.description && (
+            <Card data-testid="card-description">
+              <CardHeader className="pb-2">
+                <CardTitle className="text-sm flex items-center gap-2">
+                  <FileText className="w-4 h-4" />
+                  Description
+                </CardTitle>
+              </CardHeader>
+              <CardContent className="pt-0">
+                <p className="text-sm whitespace-pre-wrap">{ticket.description}</p>
+              </CardContent>
+            </Card>
+          )}
+
+          <Card data-testid="card-customer">
+            <CardHeader className="pb-2">
+              <CardTitle className="text-sm flex items-center gap-2">
+                <Briefcase className="w-4 h-4" />
+                Customer & Property
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="pt-0 space-y-3">
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="font-medium">{customer.name}</p>
+                  <p className="text-sm text-muted-foreground">
+                    {customer.street}, {customer.city}, {customer.state} {customer.zip}
+                  </p>
+                </div>
+                <Link href={`/dashboard/customers/${customer.id}`}>
+                  <Button variant="outline" size="sm" data-testid="button-view-customer">
+                    View
+                    <ExternalLink className="w-3 h-3 ml-1" />
+                  </Button>
+                </Link>
+              </div>
+
+              {contract && (
+                <div className="pt-2 border-t">
+                  <p className="text-xs text-muted-foreground mb-1">Related Contract</p>
+                  <Link href={`/dashboard/customers/${customer.id}`}>
+                    <Badge variant="secondary" className="hover-elevate cursor-pointer">
+                      {contract.serviceType?.replace(/_/g, " ") || "Contract"}
+                    </Badge>
+                  </Link>
+                </div>
+              )}
+            </CardContent>
+          </Card>
+
+          {ticket.locationLat && ticket.locationLng && (
+            <Card className="overflow-hidden" data-testid="card-location">
+              <div className="h-[150px] relative">
+                <MapContainer
+                  center={[ticket.locationLat, ticket.locationLng]}
+                  zoom={16}
+                  style={{ height: "100%", width: "100%" }}
+                  className="z-0"
+                  scrollWheelZoom={false}
+                  dragging={false}
+                  zoomControl={false}
+                >
+                  <TileLayer
+                    attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
+                    url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
+                  />
+                  <Marker position={[ticket.locationLat, ticket.locationLng]} />
+                </MapContainer>
+              </div>
+              <CardContent className="p-3">
+                <div className="flex items-start justify-between gap-2">
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-2">
+                      <MapPin className="w-4 h-4 text-primary shrink-0" />
+                      <span className="font-medium text-sm truncate">
+                        {ticket.locationLabel || "Pinned Location"}
+                      </span>
+                    </div>
+                    {ticket.locationDescription && (
+                      <p className="text-xs text-muted-foreground mt-1 line-clamp-2 ml-6">
+                        {ticket.locationDescription}
+                      </p>
+                    )}
+                  </div>
+                  <a
+                    href={`https://www.google.com/maps/search/?api=1&query=${ticket.locationLat},${ticket.locationLng}`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="shrink-0"
+                  >
+                    <Button variant="default" size="sm" data-testid="button-navigate">
+                      <Navigation className="w-4 h-4 mr-1" />
+                      Navigate
+                    </Button>
+                  </a>
+                </div>
+              </CardContent>
+            </Card>
+          )}
+
+          {ticket.photos && ticket.photos.length > 0 && (
+            <Card data-testid="card-photos">
+              <CardHeader className="pb-2">
+                <CardTitle className="text-sm flex items-center gap-2">
+                  <ImageIcon className="w-4 h-4" />
+                  Photos ({ticket.photos.length})
+                </CardTitle>
+              </CardHeader>
+              <CardContent className="pb-3">
+                <div className="grid grid-cols-3 gap-2">
+                  {ticket.photos.map((photo, index) => (
+                    <a
+                      key={index}
+                      href={`/objects/${photo.replace(/^\/[^/]+\/[^/]+\//, "")}`}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="aspect-square rounded-lg overflow-hidden border hover:ring-2 hover:ring-primary transition-all"
+                      data-testid={`photo-thumbnail-${index}`}
+                    >
+                      <img
+                        src={`/objects/${photo.replace(/^\/[^/]+\/[^/]+\//, "")}`}
+                        alt={`Ticket photo ${index + 1}`}
+                        className="w-full h-full object-cover"
+                      />
+                    </a>
+                  ))}
+                </div>
+              </CardContent>
+            </Card>
+          )}
+
+          {comments.length > 0 && (
+            <Card data-testid="card-recent-comments">
+              <CardHeader className="pb-2 flex flex-row items-center justify-between">
+                <CardTitle className="text-sm flex items-center gap-2">
+                  <MessageSquare className="w-4 h-4" />
+                  Recent Comments
+                </CardTitle>
+                <Button variant="ghost" size="sm" onClick={() => setActiveTab("comments")} data-testid="button-view-all-comments">
+                  View All
+                </Button>
+              </CardHeader>
+              <CardContent className="pt-0">
+                <div className="space-y-2">
+                  {comments.slice(0, 2).map((comment) => (
+                    <div key={comment.id} className="text-sm border-l-2 pl-3 py-1">
+                      <p className="line-clamp-2">{comment.body}</p>
+                      <p className="text-xs text-muted-foreground mt-0.5">
+                        {formatDistanceToNow(new Date(comment.createdAt), { addSuffix: true })}
+                      </p>
+                    </div>
+                  ))}
+                </div>
+              </CardContent>
+            </Card>
+          )}
+        </div>
+      )}
 
       {activeTab === "workflow" && (
         <div className="space-y-3">
@@ -466,7 +600,7 @@ export default function TicketDetail() {
                 value={newComment}
                 onChange={(e) => setNewComment(e.target.value)}
                 rows={2}
-                className="resize-none border-0 focus-visible:ring-0 p-0"
+                className="resize-none border-0 focus-visible:ring-0"
                 data-testid="input-comment"
               />
               <div className="flex justify-end mt-2">
@@ -541,7 +675,7 @@ export default function TicketDetail() {
         </div>
       )}
 
-      {nextStatus && !ticket.completedAt && (
+      {nextStatus && !isComplete && (
         <div className="fixed bottom-0 left-0 right-0 p-4 bg-background border-t md:left-64">
           <Button 
             className="w-full h-12 text-base gap-2" 
@@ -561,7 +695,7 @@ export default function TicketDetail() {
         </div>
       )}
 
-      {ticket.completedAt && (
+      {isComplete && (
         <div className="fixed bottom-0 left-0 right-0 p-4 bg-background border-t md:left-64">
           <div className="flex items-center justify-center gap-2 text-green-600 dark:text-green-400">
             <Check className="w-5 h-5" />
