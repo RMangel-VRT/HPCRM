@@ -594,6 +594,8 @@ export const insertTicketSchema = createInsertSchema(tickets).omit({
   locationDescription: z.string().nullable().optional(),
   photos: z.array(z.string()).nullable().optional(),
   assignedToId: z.string().min(1, "Assignment is required"), // Required - tickets must be assigned
+  dueDate: z.coerce.date().nullable().optional(), // Coerce ISO string to Date
+  completedAt: z.coerce.date().nullable().optional(), // Coerce ISO string to Date
 });
 
 export type InsertTicket = z.infer<typeof insertTicketSchema>;
