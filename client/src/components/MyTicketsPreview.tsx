@@ -56,63 +56,43 @@ export default function MyTicketsPreview() {
       </CardHeader>
       <CardContent>
         {isLoading ? (
-          <div className="space-y-3">
-            {[1, 2, 3].map((i) => (
-              <Skeleton key={i} className="h-16 w-full" />
+          <div className="space-y-2">
+            {[1, 2].map((i) => (
+              <Skeleton key={i} className="h-14 w-full" />
             ))}
           </div>
         ) : activeTickets.length === 0 ? (
-          <div className="text-center py-6 text-muted-foreground">
-            <ClipboardList className="w-8 h-8 mx-auto mb-2 opacity-50" />
-            <p className="text-sm">No active tickets assigned to you</p>
+          <div className="text-center py-4 text-muted-foreground">
+            <ClipboardList className="w-6 h-6 mx-auto mb-1 opacity-50" />
+            <p className="text-sm">No active tickets</p>
           </div>
         ) : (
-          <div className="space-y-3">
-            {activeTickets.slice(0, 3).map((ticket) => (
+          <div className="space-y-2">
+            {activeTickets.slice(0, 2).map((ticket) => (
               <Link key={ticket.id} href={`/dashboard/tickets/${ticket.id}`}>
                 <div
-                  className="flex items-center justify-between p-3 border rounded-md hover-elevate cursor-pointer"
+                  className="flex items-center justify-between p-2 border rounded-md hover-elevate cursor-pointer"
                   data-testid={`card-my-ticket-${ticket.id}`}
                 >
-                  <div className="flex-1 min-w-0 mr-3">
+                  <div className="flex-1 min-w-0 mr-2">
                     <p className="font-medium text-sm truncate">{ticket.title}</p>
-                    <div className="flex items-center gap-2 text-xs text-muted-foreground mt-1">
-                      {ticket.customer && (
-                        <span className="truncate">{ticket.customer.name}</span>
-                      )}
-                      <span className="flex items-center gap-1">
-                        <Clock className="w-3 h-3" />
-                        {format(parseISO(ticket.createdAt), "MMM d")}
-                      </span>
-                    </div>
+                    <p className="text-xs text-muted-foreground truncate">
+                      {ticket.customer?.name}
+                    </p>
                   </div>
-                  <div className="flex items-center gap-2 shrink-0">
-                    {ticket.currentStatus && (
-                      <Badge 
-                        variant="outline" 
-                        className="text-xs"
-                        style={{ 
-                          borderColor: ticket.currentStatus.color,
-                          color: ticket.currentStatus.color 
-                        }}
-                      >
-                        {ticket.currentStatus.name}
-                      </Badge>
-                    )}
-                    <Badge 
-                      variant={priorityConfig[ticket.priority]?.variant || "secondary"}
-                      className="text-xs"
-                    >
-                      {priorityConfig[ticket.priority]?.label || ticket.priority}
-                    </Badge>
-                  </div>
+                  <Badge 
+                    variant={priorityConfig[ticket.priority]?.variant || "secondary"}
+                    className="text-xs shrink-0"
+                  >
+                    {priorityConfig[ticket.priority]?.label || ticket.priority}
+                  </Badge>
                 </div>
               </Link>
             ))}
-            {activeTickets.length > 3 && (
+            {activeTickets.length > 2 && (
               <Link href="/dashboard/tickets/my">
-                <Button variant="outline" className="w-full" size="sm">
-                  +{activeTickets.length - 3} more tickets
+                <Button variant="ghost" className="w-full" size="sm">
+                  +{activeTickets.length - 2} more tickets
                 </Button>
               </Link>
             )}

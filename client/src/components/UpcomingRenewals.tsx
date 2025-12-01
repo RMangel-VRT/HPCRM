@@ -33,36 +33,36 @@ export default function UpcomingRenewals() {
       </CardHeader>
       <CardContent>
         {isLoading ? (
-          <div className="space-y-3">
-            {[1, 2, 3, 4].map((i) => (
-              <div key={i} className="flex items-start justify-between gap-2">
+          <div className="space-y-2">
+            {[1, 2, 3].map((i) => (
+              <div key={i} className="flex items-center justify-between gap-2">
                 <div className="space-y-1 flex-1">
-                  <div className="h-4 w-40 bg-muted rounded animate-pulse" />
-                  <div className="h-3 w-32 bg-muted rounded animate-pulse" />
+                  <div className="h-4 w-32 bg-muted rounded animate-pulse" />
+                  <div className="h-3 w-24 bg-muted rounded animate-pulse" />
                 </div>
-                <div className="h-5 w-16 bg-muted rounded animate-pulse" />
+                <div className="h-5 w-12 bg-muted rounded animate-pulse" />
               </div>
             ))}
           </div>
         ) : !renewals || renewals.length === 0 ? (
           <p className="text-sm text-muted-foreground" data-testid="text-no-renewals">
-            No contracts expiring in the next 90 days
+            No contracts expiring soon
           </p>
         ) : (
-          <div className="space-y-3">
-            {renewals.map((renewal) => (
+          <div className="space-y-2">
+            {renewals.slice(0, 3).map((renewal) => (
               <Link
                 key={renewal.contractId}
                 href={`/dashboard/customers/${renewal.customerId}`}
                 data-testid={`link-renewal-${renewal.contractId}`}
               >
-                <div className="flex items-start justify-between gap-2 hover-elevate active-elevate-2 rounded-md p-2 -mx-2 cursor-pointer">
-                  <div className="space-y-1 flex-1 min-w-0">
+                <div className="flex items-center justify-between gap-2 hover-elevate active-elevate-2 rounded-md p-1.5 -mx-1.5 cursor-pointer">
+                  <div className="flex-1 min-w-0">
                     <p className="text-sm font-medium leading-none truncate" data-testid={`text-customer-name-${renewal.contractId}`}>
                       {renewal.customerName}
                     </p>
-                    <p className="text-xs text-muted-foreground" data-testid={`text-service-type-${renewal.contractId}`}>
-                      {renewal.serviceType.replace(/_/g, " ")} • {format(new Date(renewal.endDate), "MMM d, yyyy")}
+                    <p className="text-xs text-muted-foreground truncate" data-testid={`text-service-type-${renewal.contractId}`}>
+                      {format(new Date(renewal.endDate), "MMM d")}
                     </p>
                   </div>
                   <Badge 

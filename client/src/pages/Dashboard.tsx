@@ -147,18 +147,18 @@ function AdminOfficeDashboard() {
   }
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-4">
       <div>
-        <h1 className="text-3xl font-semibold tracking-tight" data-testid="text-page-title">
+        <h1 className="text-2xl font-semibold tracking-tight" data-testid="text-page-title">
           Dashboard
         </h1>
-        <p className="text-sm text-muted-foreground mt-1">
+        <p className="text-sm text-muted-foreground">
           Overview of your landscaping business
         </p>
       </div>
 
       {isLoading ? (
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+        <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
           {[1, 2, 3, 4].map((i) => (
             <Card key={i}>
               <CardHeader className="flex flex-row items-center justify-between gap-2 space-y-0 pb-2">
@@ -172,15 +172,15 @@ function AdminOfficeDashboard() {
           ))}
         </div>
       ) : (
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+        <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
           {dashboardCards.map((card) => (
             <Card key={card.title} data-testid={`card-stat-${card.title.toLowerCase().replace(/\s+/g, '-')}`}>
-              <CardHeader className="flex flex-row items-center justify-between gap-2 space-y-0 pb-2">
-                <CardTitle className="text-sm font-medium">{card.title}</CardTitle>
-                <card.icon className="w-4 h-4 text-muted-foreground" />
+              <CardHeader className="flex flex-row items-center justify-between gap-2 space-y-0 pb-1">
+                <CardTitle className="text-xs font-medium text-muted-foreground">{card.title}</CardTitle>
+                <card.icon className="w-3.5 h-3.5 text-muted-foreground" />
               </CardHeader>
-              <CardContent>
-                <div className="text-3xl font-bold" data-testid={`text-stat-value-${card.title.toLowerCase().replace(/\s+/g, '-')}`}>
+              <CardContent className="pt-0">
+                <div className="text-2xl font-bold" data-testid={`text-stat-value-${card.title.toLowerCase().replace(/\s+/g, '-')}`}>
                   {card.value}
                 </div>
               </CardContent>
@@ -189,12 +189,11 @@ function AdminOfficeDashboard() {
         </div>
       )}
 
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
         <MyTicketsPreview />
         <UpcomingRenewals />
+        <TopCustomers />
       </div>
-
-      <TopCustomers />
     </div>
   );
 }

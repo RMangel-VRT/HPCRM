@@ -23,14 +23,11 @@ export default function TopCustomers() {
       </CardHeader>
       <CardContent>
         {isLoading ? (
-          <div className="space-y-3">
-            {[1, 2, 3, 4, 5].map((i) => (
+          <div className="space-y-2">
+            {[1, 2, 3, 4].map((i) => (
               <div key={i} className="flex items-center justify-between">
-                <div className="space-y-1">
-                  <div className="h-4 w-32 bg-muted rounded animate-pulse" />
-                  <div className="h-3 w-24 bg-muted rounded animate-pulse" />
-                </div>
-                <div className="h-5 w-20 bg-muted rounded animate-pulse" />
+                <div className="h-4 w-28 bg-muted rounded animate-pulse" />
+                <div className="h-4 w-16 bg-muted rounded animate-pulse" />
               </div>
             ))}
           </div>
@@ -39,23 +36,18 @@ export default function TopCustomers() {
             No customer data available
           </p>
         ) : (
-          <div className="space-y-3">
-            {customers.map((customer) => (
+          <div className="space-y-2">
+            {customers.slice(0, 4).map((customer) => (
               <Link
                 key={customer.id}
                 href={`/dashboard/customers/${customer.id}`}
                 data-testid={`link-customer-${customer.id}`}
               >
-                <div className="flex items-center justify-between hover-elevate active-elevate-2 rounded-md p-2 -mx-2 cursor-pointer">
-                  <div className="space-y-1">
-                    <p className="text-sm font-medium leading-none" data-testid={`text-customer-name-${customer.id}`}>
-                      {customer.name}
-                    </p>
-                    <p className="text-xs text-muted-foreground" data-testid={`text-contracts-count-${customer.id}`}>
-                      {customer.activeContracts} active {customer.activeContracts === 1 ? "contract" : "contracts"}
-                    </p>
-                  </div>
-                  <div className="text-sm font-semibold" data-testid={`text-revenue-${customer.id}`}>
+                <div className="flex items-center justify-between hover-elevate active-elevate-2 rounded-md p-1.5 -mx-1.5 cursor-pointer">
+                  <p className="text-sm font-medium leading-none truncate flex-1 min-w-0 mr-2" data-testid={`text-customer-name-${customer.id}`}>
+                    {customer.name}
+                  </p>
+                  <div className="text-sm font-semibold shrink-0" data-testid={`text-revenue-${customer.id}`}>
                     ${customer.totalRevenue.toLocaleString()}
                   </div>
                 </div>
