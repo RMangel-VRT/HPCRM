@@ -1,7 +1,7 @@
 import { useState, useRef, useMemo, useEffect } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { useRoute } from "wouter";
-import type { Customer, Contact, Note, Contract, ContractDocument, ContractMonthlyAmount, CustomerRateSheet, InsertContract, InsertContact, InsertNote, InsertCustomer } from "@shared/schema";
+import type { Customer, Contact, Note, Contract, ContractDocument, ContractMonthlyAmount, CustomerRateSheet, InsertContract, InsertContact, InsertNote, InsertCustomer, CustomerMapLayer } from "@shared/schema";
 import { insertContractSchema, insertContactSchema, insertNoteSchema, insertCustomerSchema } from "@shared/schema";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -28,7 +28,7 @@ import {
   FormLabel,
   FormMessage,
 } from "@/components/ui/form";
-import { Edit, Plus, Users, FileText, MessageSquare, MapPin, BarChart3, Upload, Download, Eye, Paperclip, History, RefreshCw, DollarSign } from "lucide-react";
+import { Edit, Plus, Users, FileText, MessageSquare, MapPin, BarChart3, Upload, Download, Eye, Paperclip, History, RefreshCw, DollarSign, Map, Layers, Trash2 } from "lucide-react";
 import StatusBadge from "@/components/StatusBadge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion";
@@ -1207,6 +1207,10 @@ export default function CustomerDetail() {
           <TabsTrigger value="revenue" data-testid="tab-revenue">
             Revenue
           </TabsTrigger>
+          <TabsTrigger value="maps" data-testid="tab-maps">
+            <Map className="w-4 h-4 mr-1" />
+            Maps
+          </TabsTrigger>
         </TabsList>
 
         <TabsContent value="overview" className="space-y-6">
@@ -1602,6 +1606,10 @@ export default function CustomerDetail() {
 
         <TabsContent value="revenue" className="space-y-4">
           <RevenueSection customerId={params?.id!} />
+        </TabsContent>
+
+        <TabsContent value="maps" className="space-y-4">
+          <CustomerMapsSection customerId={params?.id!} />
         </TabsContent>
       </Tabs>
 
@@ -2495,6 +2503,344 @@ function RateSheetSection({ customerId }: { customerId: string }) {
           You do not have permission to edit the rate sheet
         </div>
       )}
+    </div>
+  );
+}
+
+// Layer type configuration
+const LAYER_TYPES = {
+  community: [
+    { value: "mowing", label: "Mowing Zones", color: "#22c55e" },
+    { value: "native_grass", label: "Native Grass Areas", color: "#84cc16" },
+    { value: "landscape_beds", label: "Landscape Beds", color: "#f97316" },
+    { value: "pet_stations", label: "Pet Stations", color: "#8b5cf6" },
+  ],
+  snow: [
+    { value: "atv_route", label: "ATV Routes", color: "#3b82f6" },
+    { value: "truck_plow", label: "Truck Plow", color: "#06b6d4" },
+    { value: "hand_shovel", label: "Hand Shovel", color: "#f59e0b" },
+    { value: "ice_melt", label: "Ice Melt", color: "#ef4444" },
+  ],
+};
+
+function CustomerMapsSection({ customerId }: { customerId: string }) {
+  const { user } = useAuth();
+  const { toast } = useToast();
+  const [uploadingLayer, setUploadingLayer] = useState(false);
+  const [showUploadDialog, setShowUploadDialog] = useState(false);
+  const [selectedCategory, setSelectedCategory] = useState<"community" | "snow">("community");
+  const [selectedLayerType, setSelectedLayerType] = useState<string>("");
+  const [customName, setCustomName] = useState("");
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  const canEdit = user?.activeRole === "admin" || user?.activeRole === "office";
+
+  const { data: mapLayers = [], isLoading } = useQuery<CustomerMapLayer[]>({
+    queryKey: ["/api/customers", customerId, "map-layers"],
+  });
+
+  const createLayerMutation = useMutation({
+    mutationFn: async (data: { name: string; layerType: string; category: string; kmlPath: string; color: string }) => {
+      return apiRequest("POST", `/api/customers/${customerId}/map-layers`, data);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/customers", customerId, "map-layers"] });
+      toast({ title: "Layer uploaded successfully" });
+      setShowUploadDialog(false);
+      resetForm();
+    },
+    onError: () => {
+      toast({ title: "Failed to create layer", variant: "destructive" });
+    },
+  });
+
+  const deleteLayerMutation = useMutation({
+    mutationFn: async (layerId: string) => {
+      return apiRequest("DELETE", `/api/customers/${customerId}/map-layers/${layerId}`);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/customers", customerId, "map-layers"] });
+      toast({ title: "Layer deleted" });
+    },
+    onError: () => {
+      toast({ title: "Failed to delete layer", variant: "destructive" });
+    },
+  });
+
+  const resetForm = () => {
+    setSelectedCategory("community");
+    setSelectedLayerType("");
+    setCustomName("");
+    if (fileInputRef.current) {
+      fileInputRef.current.value = "";
+    }
+  };
+
+  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file || !selectedLayerType) return;
+
+    setUploadingLayer(true);
+
+    try {
+      // Get presigned upload URL
+      const urlRes = await apiRequest("POST", `/api/customers/${customerId}/map-layers/upload-url`, {
+        fileName: file.name,
+        contentType: file.type || "application/vnd.google-earth.kml+xml",
+      });
+      const { uploadURL, objectPath } = await urlRes.json() as { uploadURL: string; objectPath: string };
+
+      // Upload file to object storage
+      await fetch(uploadURL, {
+        method: "PUT",
+        body: file,
+        headers: { "Content-Type": file.type || "application/vnd.google-earth.kml+xml" },
+      });
+
+      // Find the layer config
+      const layerConfig = [...LAYER_TYPES.community, ...LAYER_TYPES.snow].find(
+        (l) => l.value === selectedLayerType
+      );
+
+      // Create the layer record
+      await createLayerMutation.mutateAsync({
+        name: customName || layerConfig?.label || selectedLayerType,
+        layerType: selectedLayerType,
+        category: selectedCategory,
+        kmlPath: objectPath,
+        color: layerConfig?.color || "#6b7280",
+      });
+    } catch (error) {
+      console.error("Upload error:", error);
+      toast({ title: "Failed to upload file", variant: "destructive" });
+    } finally {
+      setUploadingLayer(false);
+    }
+  };
+
+  const communityLayers = mapLayers.filter((l) => l.category === "community");
+  const snowLayers = mapLayers.filter((l) => l.category === "snow");
+
+  if (isLoading) {
+    return (
+      <div className="space-y-4">
+        <Skeleton className="h-40 w-full" />
+        <Skeleton className="h-40 w-full" />
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-6">
+      <div className="flex justify-between items-center">
+        <div>
+          <h3 className="text-lg font-semibold">Property Maps & Layers</h3>
+          <p className="text-sm text-muted-foreground">
+            Upload KML files to define service zones and routes
+          </p>
+        </div>
+        {canEdit && (
+          <Button
+            data-testid="button-add-map-layer"
+            onClick={() => setShowUploadDialog(true)}
+          >
+            <Upload className="w-4 h-4 mr-2" />
+            Add Layer
+          </Button>
+        )}
+      </div>
+
+      {/* Community Season Layers */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-base flex items-center gap-2">
+            <Layers className="w-4 h-4" />
+            Community Season
+          </CardTitle>
+        </CardHeader>
+        <CardContent>
+          {communityLayers.length === 0 ? (
+            <p className="text-sm text-muted-foreground text-center py-4">
+              No community season layers uploaded
+            </p>
+          ) : (
+            <div className="space-y-2">
+              {communityLayers.map((layer) => (
+                <div
+                  key={layer.id}
+                  className="flex items-center justify-between p-3 border rounded-md"
+                  data-testid={`layer-item-${layer.id}`}
+                >
+                  <div className="flex items-center gap-3">
+                    <div
+                      className="w-4 h-4 rounded"
+                      style={{ backgroundColor: layer.color || "#22c55e" }}
+                    />
+                    <div>
+                      <p className="font-medium text-sm">{layer.name}</p>
+                      <p className="text-xs text-muted-foreground">
+                        {LAYER_TYPES.community.find((t) => t.value === layer.layerType)?.label || layer.layerType}
+                      </p>
+                    </div>
+                  </div>
+                  {canEdit && (
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      data-testid={`button-delete-layer-${layer.id}`}
+                      onClick={() => deleteLayerMutation.mutate(layer.id)}
+                      disabled={deleteLayerMutation.isPending}
+                    >
+                      <Trash2 className="w-4 h-4 text-muted-foreground" />
+                    </Button>
+                  )}
+                </div>
+              ))}
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
+      {/* Snow Season Layers */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-base flex items-center gap-2">
+            <Layers className="w-4 h-4" />
+            Snow Season
+          </CardTitle>
+        </CardHeader>
+        <CardContent>
+          {snowLayers.length === 0 ? (
+            <p className="text-sm text-muted-foreground text-center py-4">
+              No snow season layers uploaded
+            </p>
+          ) : (
+            <div className="space-y-2">
+              {snowLayers.map((layer) => (
+                <div
+                  key={layer.id}
+                  className="flex items-center justify-between p-3 border rounded-md"
+                  data-testid={`layer-item-${layer.id}`}
+                >
+                  <div className="flex items-center gap-3">
+                    <div
+                      className="w-4 h-4 rounded"
+                      style={{ backgroundColor: layer.color || "#3b82f6" }}
+                    />
+                    <div>
+                      <p className="font-medium text-sm">{layer.name}</p>
+                      <p className="text-xs text-muted-foreground">
+                        {LAYER_TYPES.snow.find((t) => t.value === layer.layerType)?.label || layer.layerType}
+                      </p>
+                    </div>
+                  </div>
+                  {canEdit && (
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      data-testid={`button-delete-layer-${layer.id}`}
+                      onClick={() => deleteLayerMutation.mutate(layer.id)}
+                      disabled={deleteLayerMutation.isPending}
+                    >
+                      <Trash2 className="w-4 h-4 text-muted-foreground" />
+                    </Button>
+                  )}
+                </div>
+              ))}
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
+      {/* Upload Dialog */}
+      <Dialog open={showUploadDialog} onOpenChange={setShowUploadDialog}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Add Map Layer</DialogTitle>
+            <DialogDescription>
+              Upload a KML file to define a service zone or route
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4">
+            <div className="space-y-2">
+              <Label>Season Category</Label>
+              <Select
+                value={selectedCategory}
+                onValueChange={(v) => {
+                  setSelectedCategory(v as "community" | "snow");
+                  setSelectedLayerType("");
+                }}
+              >
+                <SelectTrigger data-testid="select-layer-category">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="community">Community Season</SelectItem>
+                  <SelectItem value="snow">Snow Season</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+
+            <div className="space-y-2">
+              <Label>Layer Type</Label>
+              <Select value={selectedLayerType} onValueChange={setSelectedLayerType}>
+                <SelectTrigger data-testid="select-layer-type">
+                  <SelectValue placeholder="Select layer type" />
+                </SelectTrigger>
+                <SelectContent>
+                  {LAYER_TYPES[selectedCategory].map((type) => (
+                    <SelectItem key={type.value} value={type.value}>
+                      <div className="flex items-center gap-2">
+                        <div
+                          className="w-3 h-3 rounded"
+                          style={{ backgroundColor: type.color }}
+                        />
+                        {type.label}
+                      </div>
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+
+            <div className="space-y-2">
+              <Label>Custom Name (Optional)</Label>
+              <Input
+                data-testid="input-layer-name"
+                value={customName}
+                onChange={(e) => setCustomName(e.target.value)}
+                placeholder="Enter a custom name for this layer"
+              />
+            </div>
+
+            <div className="space-y-2">
+              <Label>KML File</Label>
+              <Input
+                ref={fileInputRef}
+                type="file"
+                accept=".kml,.kmz"
+                data-testid="input-layer-file"
+                onChange={handleFileUpload}
+                disabled={!selectedLayerType || uploadingLayer}
+              />
+              <p className="text-xs text-muted-foreground">
+                Accepts .kml or .kmz files
+              </p>
+            </div>
+          </div>
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={() => {
+                setShowUploadDialog(false);
+                resetForm();
+              }}
+            >
+              Cancel
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
