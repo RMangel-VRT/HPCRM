@@ -24,6 +24,7 @@ import MyTickets from "@/pages/MyTickets";
 import UsersPage from "@/pages/UsersPage";
 import SettingsPage from "@/pages/SettingsPage";
 import SuperAdminHome from "@/pages/SuperAdminHome";
+import PropertyMapsPage from "@/pages/PropertyMapsPage";
 import NotFound from "@/pages/not-found";
 
 function Router() {
@@ -76,6 +77,7 @@ function Router() {
               <ProtectedRoute path="/dashboard/tickets/my" component={MyTickets} />
               <ProtectedRoute path="/dashboard/tickets/:id" component={TicketDetail} />
               <ProtectedRoute path="/dashboard/tickets" component={TicketsList} />
+              <ProtectedRoute path="/dashboard/maps" component={PropertyMapsPage} />
               <ProtectedRoute path="/dashboard/tools/contract-builder" component={ContractBuilderPage} />
               <ProtectedRoute path="/dashboard/tools" component={ToolsPage} />
               <ProtectedRoute path="/dashboard/revenue" component={RevenueOverview} />

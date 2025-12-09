@@ -33,6 +33,7 @@ import {
   FileText,
   Briefcase,
   ClipboardList,
+  Layers,
 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { queryClient, apiRequest } from "@/lib/queryClient";
@@ -42,6 +43,7 @@ import { format, formatDistanceToNow } from "date-fns";
 import { MapContainer, TileLayer, Marker } from "react-leaflet";
 import L from "leaflet";
 import "leaflet/dist/leaflet.css";
+import LayerMapViewer from "@/components/LayerMapViewer";
 
 delete (L.Icon.Default.prototype as any)._getIconUrl;
 L.Icon.Default.mergeOptions({
@@ -81,6 +83,7 @@ export default function TicketDetail() {
   const [fieldInputs, setFieldInputs] = useState<Record<string, string>>({});
   const [statusNotes, setStatusNotes] = useState("");
   const [activeTab, setActiveTab] = useState<"overview" | "workflow" | "comments" | "history">("overview");
+  const [showPropertyMaps, setShowPropertyMaps] = useState(false);
 
   const { data: details, isLoading } = useQuery<TicketDetails>({
     queryKey: ["/api/tickets", ticketId, "details"],
@@ -351,19 +354,30 @@ export default function TicketDetail() {
               </CardTitle>
             </CardHeader>
             <CardContent className="pt-0 space-y-3">
-              <div className="flex items-center justify-between">
+              <div className="flex items-center justify-between flex-wrap gap-2">
                 <div>
                   <p className="font-medium">{customer.name}</p>
                   <p className="text-sm text-muted-foreground">
                     {customer.street}, {customer.city}, {customer.state} {customer.zip}
                   </p>
                 </div>
-                <Link href={`/dashboard/customers/${customer.id}`}>
-                  <Button variant="outline" size="sm" data-testid="button-view-customer">
-                    View
-                    <ExternalLink className="w-3 h-3 ml-1" />
+                <div className="flex gap-2">
+                  <Button 
+                    variant="outline" 
+                    size="sm" 
+                    data-testid="button-view-property-maps"
+                    onClick={() => setShowPropertyMaps(true)}
+                  >
+                    <Layers className="w-3 h-3 mr-1" />
+                    Maps
                   </Button>
-                </Link>
+                  <Link href={`/dashboard/customers/${customer.id}`}>
+                    <Button variant="outline" size="sm" data-testid="button-view-customer">
+                      View
+                      <ExternalLink className="w-3 h-3 ml-1" />
+                    </Button>
+                  </Link>
+                </div>
               </div>
 
               {contract && (
@@ -787,6 +801,14 @@ export default function TicketDetail() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      {showPropertyMaps && (
+        <LayerMapViewer
+          customerId={customer.id}
+          fullScreen
+          onClose={() => setShowPropertyMaps(false)}
+        />
+      )}
     </div>
   );
 }
