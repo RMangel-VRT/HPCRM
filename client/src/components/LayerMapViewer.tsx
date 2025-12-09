@@ -169,9 +169,21 @@ export default function LayerMapViewer({
   if (mapLayers.length === 0) {
     return (
       <div className={fullScreen ? "fixed inset-0 bg-background z-50 flex items-center justify-center" : "h-[300px] flex items-center justify-center border rounded-md"}>
+        {fullScreen && onClose && (
+          <div className="absolute top-4 right-4 z-[1000]">
+            <Button variant="outline" size="icon" onClick={onClose} data-testid="button-close-map-viewer">
+              <X className="w-4 h-4" />
+            </Button>
+          </div>
+        )}
         <div className="text-center text-muted-foreground">
           <Layers className="w-12 h-12 mx-auto mb-2 opacity-50" />
           <p>No map layers uploaded for this property</p>
+          {fullScreen && onClose && (
+            <Button variant="outline" className="mt-4" onClick={onClose} data-testid="button-back-from-map">
+              Back to List
+            </Button>
+          )}
         </div>
       </div>
     );
@@ -181,7 +193,7 @@ export default function LayerMapViewer({
     <div className={fullScreen ? "fixed inset-0 bg-background z-50" : "h-[500px] relative"}>
       {fullScreen && onClose && (
         <div className="absolute top-4 right-4 z-[1000]">
-          <Button variant="outline" size="icon" onClick={onClose} data-testid="button-close-map">
+          <Button variant="outline" size="icon" onClick={onClose} data-testid="button-close-map-viewer">
             <X className="w-4 h-4" />
           </Button>
         </div>

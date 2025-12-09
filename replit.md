@@ -50,6 +50,22 @@ A mobile-first system for field crews to track and manage work at customer prope
 
 **Ticket Sources:** The `ticket_sources` table tracks ticket origin (manual creation vs. future auto-generated from service blueprints) to distinguish between user-created tickets and system-generated service tickets.
 
+#### Property Maps System
+A KML-based layer mapping system for field crews to view property zones and service areas. The system stores customer-specific map layers with the following structure:
+- **Database Tables:** `customer_map_layers` stores layer metadata (customerId, layerType, objectPath, customName, color) and `customer_map_documents` for document uploads.
+- **Layer Categories:**
+  - **Community Season:** Mowing Zones (#22c55e), Native Grass Areas (#84cc16), Landscape Beds (#f97316), Pet Stations (#8b5cf6)
+  - **Snow Season:** ATV Routes (#3b82f6), Truck Plow (#06b6d4), Hand Shovel (#f59e0b), Ice Melt (#ef4444)
+- **Components:**
+  - `LayerMapViewer` - Full-screen map component using react-leaflet with leaflet-omnivore for KML parsing
+  - `CustomerMapsSection` - Layer upload/management interface in customer profile
+  - `PropertyMapsPage` - Mobile-optimized customer list with map access
+- **Access Points:**
+  - Customer Detail page → Maps tab → View Map button
+  - Ticket Detail page → Customer & Property card → Maps button
+  - Sidebar → Property Maps menu item
+- **Object Storage:** KML files stored in Replit object storage with presigned URL uploads
+
 ## External Dependencies
 
 ### UI Component Libraries
