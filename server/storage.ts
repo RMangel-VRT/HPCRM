@@ -1,6 +1,6 @@
-import { type User, type InsertUser, type Customer, type InsertCustomer, type Contact, type InsertContact, type Company, type InsertCompany, type CompanyUser, type InsertCompanyUser, type Settings, type InsertSettings, type Note, type InsertNote, type Contract, type InsertContract, type ContractStatusHistory, type InsertContractStatusHistory, type ContractDocument, type InsertContractDocument, type ContractMonthlyAmount, type InsertContractMonthlyAmount, type CustomerRateSheet, type InsertCustomerRateSheet, type ContractService, type InsertContractService, type ContractTemplate, type InsertContractTemplate, type ContractBuilderDocument, type InsertContractBuilderDocument, type ContractBuilderSection, type InsertContractBuilderSection, type ContractBuilderVariable, type InsertContractBuilderVariable, type TicketType, type InsertTicketType, type TicketTypeStatus, type InsertTicketTypeStatus, type TicketTypeField, type InsertTicketTypeField, type Ticket, type InsertTicket, type TicketFieldValue, type InsertTicketFieldValue, type TicketStatusHistory, type InsertTicketStatusHistory, type TicketComment, type InsertTicketComment, type TicketSource, type InsertTicketSource, type TicketTypeCategory } from "@shared/schema";
+import { type User, type InsertUser, type Customer, type InsertCustomer, type Contact, type InsertContact, type Company, type InsertCompany, type CompanyUser, type InsertCompanyUser, type Settings, type InsertSettings, type Note, type InsertNote, type Contract, type InsertContract, type ContractStatusHistory, type InsertContractStatusHistory, type ContractDocument, type InsertContractDocument, type ContractMonthlyAmount, type InsertContractMonthlyAmount, type CustomerRateSheet, type InsertCustomerRateSheet, type ContractService, type InsertContractService, type ContractTemplate, type InsertContractTemplate, type ContractBuilderDocument, type InsertContractBuilderDocument, type ContractBuilderSection, type InsertContractBuilderSection, type ContractBuilderVariable, type InsertContractBuilderVariable, type TicketType, type InsertTicketType, type TicketTypeStatus, type InsertTicketTypeStatus, type TicketTypeField, type InsertTicketTypeField, type Ticket, type InsertTicket, type TicketFieldValue, type InsertTicketFieldValue, type TicketStatusHistory, type InsertTicketStatusHistory, type TicketComment, type InsertTicketComment, type TicketSource, type InsertTicketSource, type TicketTypeCategory, type CustomerMapLayer, type InsertCustomerMapLayer, type CustomerMapDocument, type InsertCustomerMapDocument } from "@shared/schema";
 import { db } from "./db";
-import { users, customers, contacts, companies, companyUsers, settings, notes, contracts, contractStatusHistory, contractDocuments, contractMonthlyAmounts, customerRateSheets, contractServices, contractTemplates, contractBuilderDocuments, contractBuilderSections, contractBuilderVariables, ticketTypes, ticketTypeStatuses, ticketTypeFields, tickets, ticketFieldValues, ticketStatusHistory, ticketComments, ticketSources } from "@shared/schema";
+import { users, customers, contacts, companies, companyUsers, settings, notes, contracts, contractStatusHistory, contractDocuments, contractMonthlyAmounts, customerRateSheets, contractServices, contractTemplates, contractBuilderDocuments, contractBuilderSections, contractBuilderVariables, ticketTypes, ticketTypeStatuses, ticketTypeFields, tickets, ticketFieldValues, ticketStatusHistory, ticketComments, ticketSources, customerMapLayers, customerMapDocuments } from "@shared/schema";
 import { eq, and, sql, desc } from "drizzle-orm";
 import session from "express-session";
 import connectPg from "connect-pg-simple";
@@ -134,6 +134,19 @@ export interface IStorage {
   
   createTicketSource(ticketSource: InsertTicketSource): Promise<TicketSource>;
   getTicketSource(ticketId: string): Promise<TicketSource | undefined>;
+  
+  // Customer Map Layers (KML)
+  getCustomerMapLayers(customerId: string, companyId: string): Promise<CustomerMapLayer[]>;
+  getCustomerMapLayerById(id: string, companyId: string): Promise<CustomerMapLayer | undefined>;
+  createCustomerMapLayer(layer: InsertCustomerMapLayer): Promise<CustomerMapLayer>;
+  updateCustomerMapLayer(id: string, companyId: string, updates: Partial<InsertCustomerMapLayer>): Promise<CustomerMapLayer | undefined>;
+  deleteCustomerMapLayer(id: string, companyId: string): Promise<void>;
+  
+  // Customer Map Documents (PDF)
+  getCustomerMapDocuments(customerId: string, companyId: string): Promise<CustomerMapDocument[]>;
+  getCustomerMapDocumentById(id: string, companyId: string): Promise<CustomerMapDocument | undefined>;
+  createCustomerMapDocument(document: InsertCustomerMapDocument): Promise<CustomerMapDocument>;
+  deleteCustomerMapDocument(id: string, companyId: string): Promise<void>;
   
   sessionStore: session.Store;
 }
@@ -1114,6 +1127,62 @@ export class PgStorage implements IStorage {
       .where(eq(ticketSources.ticketId, ticketId))
       .limit(1);
     return result[0];
+  }
+
+  // Customer Map Layers (KML)
+  async getCustomerMapLayers(customerId: string, companyId: string): Promise<CustomerMapLayer[]> {
+    return await db.select().from(customerMapLayers)
+      .where(and(eq(customerMapLayers.customerId, customerId), eq(customerMapLayers.companyId, companyId)))
+      .orderBy(customerMapLayers.category, customerMapLayers.displayOrder);
+  }
+
+  async getCustomerMapLayerById(id: string, companyId: string): Promise<CustomerMapLayer | undefined> {
+    const result = await db.select().from(customerMapLayers)
+      .where(and(eq(customerMapLayers.id, id), eq(customerMapLayers.companyId, companyId)))
+      .limit(1);
+    return result[0];
+  }
+
+  async createCustomerMapLayer(insertLayer: InsertCustomerMapLayer): Promise<CustomerMapLayer> {
+    const result = await db.insert(customerMapLayers).values([insertLayer]).returning();
+    return result[0];
+  }
+
+  async updateCustomerMapLayer(id: string, companyId: string, updates: Partial<InsertCustomerMapLayer>): Promise<CustomerMapLayer | undefined> {
+    const result = await db.update(customerMapLayers)
+      .set({ ...updates, updatedAt: new Date() })
+      .where(and(eq(customerMapLayers.id, id), eq(customerMapLayers.companyId, companyId)))
+      .returning();
+    return result[0];
+  }
+
+  async deleteCustomerMapLayer(id: string, companyId: string): Promise<void> {
+    await db.delete(customerMapLayers)
+      .where(and(eq(customerMapLayers.id, id), eq(customerMapLayers.companyId, companyId)));
+  }
+
+  // Customer Map Documents (PDF)
+  async getCustomerMapDocuments(customerId: string, companyId: string): Promise<CustomerMapDocument[]> {
+    return await db.select().from(customerMapDocuments)
+      .where(and(eq(customerMapDocuments.customerId, customerId), eq(customerMapDocuments.companyId, companyId)))
+      .orderBy(desc(customerMapDocuments.createdAt));
+  }
+
+  async getCustomerMapDocumentById(id: string, companyId: string): Promise<CustomerMapDocument | undefined> {
+    const result = await db.select().from(customerMapDocuments)
+      .where(and(eq(customerMapDocuments.id, id), eq(customerMapDocuments.companyId, companyId)))
+      .limit(1);
+    return result[0];
+  }
+
+  async createCustomerMapDocument(insertDocument: InsertCustomerMapDocument): Promise<CustomerMapDocument> {
+    const result = await db.insert(customerMapDocuments).values([insertDocument]).returning();
+    return result[0];
+  }
+
+  async deleteCustomerMapDocument(id: string, companyId: string): Promise<void> {
+    await db.delete(customerMapDocuments)
+      .where(and(eq(customerMapDocuments.id, id), eq(customerMapDocuments.companyId, companyId)));
   }
 }
 

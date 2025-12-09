@@ -4,7 +4,7 @@ import path from "path";
 import { promises as fs } from "fs";
 import { setupAuth, type UserWithContext } from "./auth";
 import { storage } from "./storage";
-import { insertCustomerSchema, insertContactSchema, insertCompanySchema, insertCompanyUserSchema, insertSettingsSchema, insertNoteSchema, insertContractSchema, insertContractDocumentSchema, insertContractBuilderDocumentSchema, insertContractBuilderSectionSchema, insertContractBuilderVariableSchema, insertTicketTypeSchema, insertTicketTypeStatusSchema, insertTicketTypeFieldSchema, insertTicketSchema, insertTicketFieldValueSchema, insertTicketStatusHistorySchema, insertTicketCommentSchema } from "@shared/schema";
+import { insertCustomerSchema, insertContactSchema, insertCompanySchema, insertCompanyUserSchema, insertSettingsSchema, insertNoteSchema, insertContractSchema, insertContractDocumentSchema, insertContractBuilderDocumentSchema, insertContractBuilderSectionSchema, insertContractBuilderVariableSchema, insertTicketTypeSchema, insertTicketTypeStatusSchema, insertTicketTypeFieldSchema, insertTicketSchema, insertTicketFieldValueSchema, insertTicketStatusHistorySchema, insertTicketCommentSchema, insertCustomerMapLayerSchema, insertCustomerMapDocumentSchema } from "@shared/schema";
 import { ObjectStorageService, ObjectNotFoundError, objectStorageClient } from "./objectStorage";
 import { ObjectPermission, ObjectAccessGroupType } from "./objectAcl";
 
@@ -2490,6 +2490,188 @@ export async function registerRoutes(app: Express): Promise<Server> {
       contractServices,
       assignedUser: assignedUser ? { id: assignedUser.id, email: assignedUser.email } : null,
     });
+  });
+
+  // Customer Map Layers (KML) routes
+  app.get("/api/customers/:customerId/map-layers", async (req, res) => {
+    if (!req.isAuthenticated()) {
+      return res.status(401).send("Not authenticated");
+    }
+    const user = req.user as UserWithContext;
+    const layers = await storage.getCustomerMapLayers(req.params.customerId, user.activeCompanyId);
+    res.json(layers);
+  });
+
+  app.post("/api/customers/:customerId/map-layers", async (req, res) => {
+    if (!req.isAuthenticated()) {
+      return res.status(401).send("Not authenticated");
+    }
+    const user = req.user as UserWithContext;
+    if (user.activeRole === "ops" || user.activeRole === "viewer") {
+      return res.status(403).send("Insufficient permissions");
+    }
+
+    const result = insertCustomerMapLayerSchema.safeParse({
+      ...req.body,
+      customerId: req.params.customerId,
+      companyId: user.activeCompanyId,
+    });
+    if (!result.success) {
+      return res.status(400).send(result.error.message);
+    }
+
+    const layer = await storage.createCustomerMapLayer(result.data);
+    res.json(layer);
+  });
+
+  app.patch("/api/customers/:customerId/map-layers/:id", async (req, res) => {
+    if (!req.isAuthenticated()) {
+      return res.status(401).send("Not authenticated");
+    }
+    const user = req.user as UserWithContext;
+    if (user.activeRole === "ops" || user.activeRole === "viewer") {
+      return res.status(403).send("Insufficient permissions");
+    }
+
+    const layer = await storage.updateCustomerMapLayer(req.params.id, user.activeCompanyId, req.body);
+    if (!layer) {
+      return res.status(404).send("Layer not found");
+    }
+    res.json(layer);
+  });
+
+  app.delete("/api/customers/:customerId/map-layers/:id", async (req, res) => {
+    if (!req.isAuthenticated()) {
+      return res.status(401).send("Not authenticated");
+    }
+    const user = req.user as UserWithContext;
+    if (user.activeRole === "ops" || user.activeRole === "viewer") {
+      return res.status(403).send("Insufficient permissions");
+    }
+
+    await storage.deleteCustomerMapLayer(req.params.id, user.activeCompanyId);
+    res.status(200).send("Deleted");
+  });
+
+  // KML file upload URL
+  app.post("/api/customers/:customerId/map-layers/upload-url", async (req, res) => {
+    if (!req.isAuthenticated()) {
+      return res.status(401).send("Not authenticated");
+    }
+    const user = req.user as UserWithContext;
+    if (user.activeRole === "ops" || user.activeRole === "viewer") {
+      return res.status(403).send("Insufficient permissions");
+    }
+
+    const { fileName, contentType } = req.body;
+    if (!fileName) {
+      return res.status(400).send("fileName is required");
+    }
+
+    const timestamp = Date.now();
+    const safeName = fileName.replace(/[^a-zA-Z0-9.-]/g, "_");
+    const objectPath = `.private/map-layers/${user.activeCompanyId}/${req.params.customerId}/${timestamp}_${safeName}`;
+
+    try {
+      const bucketId = process.env.DEFAULT_OBJECT_STORAGE_BUCKET_ID;
+      if (!bucketId) {
+        return res.status(500).send("Object storage not configured");
+      }
+
+      const uploadURL = await objectStorageClient.generatePresignedUploadUrl(
+        bucketId,
+        objectPath,
+        contentType || "application/vnd.google-earth.kml+xml"
+      );
+
+      res.json({ uploadURL, objectPath: `/${bucketId}/${objectPath}` });
+    } catch (error) {
+      console.error("Error generating upload URL:", error);
+      res.status(500).send("Failed to generate upload URL");
+    }
+  });
+
+  // Customer Map Documents (PDF) routes
+  app.get("/api/customers/:customerId/map-documents", async (req, res) => {
+    if (!req.isAuthenticated()) {
+      return res.status(401).send("Not authenticated");
+    }
+    const user = req.user as UserWithContext;
+    const documents = await storage.getCustomerMapDocuments(req.params.customerId, user.activeCompanyId);
+    res.json(documents);
+  });
+
+  app.post("/api/customers/:customerId/map-documents", async (req, res) => {
+    if (!req.isAuthenticated()) {
+      return res.status(401).send("Not authenticated");
+    }
+    const user = req.user as UserWithContext;
+    if (user.activeRole === "ops" || user.activeRole === "viewer") {
+      return res.status(403).send("Insufficient permissions");
+    }
+
+    const result = insertCustomerMapDocumentSchema.safeParse({
+      ...req.body,
+      customerId: req.params.customerId,
+      companyId: user.activeCompanyId,
+    });
+    if (!result.success) {
+      return res.status(400).send(result.error.message);
+    }
+
+    const document = await storage.createCustomerMapDocument(result.data);
+    res.json(document);
+  });
+
+  app.delete("/api/customers/:customerId/map-documents/:id", async (req, res) => {
+    if (!req.isAuthenticated()) {
+      return res.status(401).send("Not authenticated");
+    }
+    const user = req.user as UserWithContext;
+    if (user.activeRole === "ops" || user.activeRole === "viewer") {
+      return res.status(403).send("Insufficient permissions");
+    }
+
+    await storage.deleteCustomerMapDocument(req.params.id, user.activeCompanyId);
+    res.status(200).send("Deleted");
+  });
+
+  // PDF/document upload URL
+  app.post("/api/customers/:customerId/map-documents/upload-url", async (req, res) => {
+    if (!req.isAuthenticated()) {
+      return res.status(401).send("Not authenticated");
+    }
+    const user = req.user as UserWithContext;
+    if (user.activeRole === "ops" || user.activeRole === "viewer") {
+      return res.status(403).send("Insufficient permissions");
+    }
+
+    const { fileName, contentType } = req.body;
+    if (!fileName) {
+      return res.status(400).send("fileName is required");
+    }
+
+    const timestamp = Date.now();
+    const safeName = fileName.replace(/[^a-zA-Z0-9.-]/g, "_");
+    const objectPath = `.private/map-documents/${user.activeCompanyId}/${req.params.customerId}/${timestamp}_${safeName}`;
+
+    try {
+      const bucketId = process.env.DEFAULT_OBJECT_STORAGE_BUCKET_ID;
+      if (!bucketId) {
+        return res.status(500).send("Object storage not configured");
+      }
+
+      const uploadURL = await objectStorageClient.generatePresignedUploadUrl(
+        bucketId,
+        objectPath,
+        contentType || "application/pdf"
+      );
+
+      res.json({ uploadURL, objectPath: `/${bucketId}/${objectPath}` });
+    } catch (error) {
+      console.error("Error generating upload URL:", error);
+      res.status(500).send("Failed to generate upload URL");
+    }
   });
 
   const httpServer = createServer(app);

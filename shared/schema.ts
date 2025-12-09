@@ -677,3 +677,64 @@ export const insertTicketSourceSchema = createInsertSchema(ticketSources).omit({
 
 export type InsertTicketSource = z.infer<typeof insertTicketSourceSchema>;
 export type TicketSource = typeof ticketSources.$inferSelect;
+
+// Customer Map Layers - KML files for property mapping
+export type MapLayerCategory = "community" | "snow";
+export type MapLayerType = 
+  // Community season layers
+  | "mowing" | "native_grass" | "landscape_beds" | "pet_stations"
+  // Snow season layers
+  | "atv" | "truck_plow" | "hand_shovel" | "ice_melt";
+
+export const customerMapLayers = pgTable("customer_map_layers", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  customerId: varchar("customer_id").notNull().references(() => customers.id, { onDelete: "cascade" }),
+  companyId: varchar("company_id").notNull().references(() => companies.id, { onDelete: "cascade" }),
+  category: text("category").notNull().$type<MapLayerCategory>(), // community or snow
+  layerType: text("layer_type").notNull().$type<MapLayerType>(), // specific layer type
+  name: text("name").notNull(), // Custom display name
+  kmlPath: text("kml_path").notNull(), // Object storage path
+  color: text("color").notNull().default("#3B82F6"), // Hex color for display
+  isActive: text("is_active").notNull().default("true").$type<"true" | "false">(),
+  displayOrder: integer("display_order").notNull().default(0),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  updatedAt: timestamp("updated_at").notNull().defaultNow(),
+});
+
+export const insertCustomerMapLayerSchema = createInsertSchema(customerMapLayers).omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+}).extend({
+  category: z.enum(["community", "snow"]),
+  layerType: z.enum(["mowing", "native_grass", "landscape_beds", "pet_stations", "atv", "truck_plow", "hand_shovel", "ice_melt"]),
+  color: z.string().regex(/^#[0-9A-Fa-f]{6}$/).default("#3B82F6"),
+  isActive: z.enum(["true", "false"]).default("true"),
+  displayOrder: z.number().int().default(0),
+});
+
+export type InsertCustomerMapLayer = z.infer<typeof insertCustomerMapLayerSchema>;
+export type CustomerMapLayer = typeof customerMapLayers.$inferSelect;
+
+// Customer Map Documents - PDF maps and documents
+export const customerMapDocuments = pgTable("customer_map_documents", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  customerId: varchar("customer_id").notNull().references(() => customers.id, { onDelete: "cascade" }),
+  companyId: varchar("company_id").notNull().references(() => companies.id, { onDelete: "cascade" }),
+  name: text("name").notNull(), // Custom display name
+  filePath: text("file_path").notNull(), // Object storage path
+  fileType: text("file_type").notNull().default("pdf"), // pdf, image, etc.
+  fileSize: integer("file_size"), // Size in bytes
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+});
+
+export const insertCustomerMapDocumentSchema = createInsertSchema(customerMapDocuments).omit({
+  id: true,
+  createdAt: true,
+}).extend({
+  fileType: z.string().default("pdf"),
+  fileSize: z.number().int().optional(),
+});
+
+export type InsertCustomerMapDocument = z.infer<typeof insertCustomerMapDocumentSchema>;
+export type CustomerMapDocument = typeof customerMapDocuments.$inferSelect;
