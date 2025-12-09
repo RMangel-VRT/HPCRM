@@ -42,6 +42,7 @@ import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import ContractServices from "@/components/ContractServices";
 import ScheduleSummary from "@/components/ScheduleSummary";
+import LayerMapViewer from "@/components/LayerMapViewer";
 
 interface ContractCardProps {
   contract: Contract;
@@ -2528,6 +2529,7 @@ function CustomerMapsSection({ customerId }: { customerId: string }) {
   const { toast } = useToast();
   const [uploadingLayer, setUploadingLayer] = useState(false);
   const [showUploadDialog, setShowUploadDialog] = useState(false);
+  const [showMapViewer, setShowMapViewer] = useState(false);
   const [selectedCategory, setSelectedCategory] = useState<"community" | "snow">("community");
   const [selectedLayerType, setSelectedLayerType] = useState<string>("");
   const [customName, setCustomName] = useState("");
@@ -2632,23 +2634,43 @@ function CustomerMapsSection({ customerId }: { customerId: string }) {
 
   return (
     <div className="space-y-6">
-      <div className="flex justify-between items-center">
+      <div className="flex justify-between items-center flex-wrap gap-2">
         <div>
           <h3 className="text-lg font-semibold">Property Maps & Layers</h3>
           <p className="text-sm text-muted-foreground">
             Upload KML files to define service zones and routes
           </p>
         </div>
-        {canEdit && (
-          <Button
-            data-testid="button-add-map-layer"
-            onClick={() => setShowUploadDialog(true)}
-          >
-            <Upload className="w-4 h-4 mr-2" />
-            Add Layer
-          </Button>
-        )}
+        <div className="flex gap-2">
+          {mapLayers.length > 0 && (
+            <Button
+              variant="outline"
+              data-testid="button-view-map"
+              onClick={() => setShowMapViewer(true)}
+            >
+              <Map className="w-4 h-4 mr-2" />
+              View Map
+            </Button>
+          )}
+          {canEdit && (
+            <Button
+              data-testid="button-add-map-layer"
+              onClick={() => setShowUploadDialog(true)}
+            >
+              <Upload className="w-4 h-4 mr-2" />
+              Add Layer
+            </Button>
+          )}
+        </div>
       </div>
+
+      {showMapViewer && (
+        <LayerMapViewer
+          customerId={customerId}
+          fullScreen
+          onClose={() => setShowMapViewer(false)}
+        />
+      )}
 
       {/* Community Season Layers */}
       <Card>
