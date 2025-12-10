@@ -684,7 +684,7 @@ export type MapLayerType =
   // Community season layers
   | "mowing" | "native_grass" | "landscape_beds" | "pet_stations"
   // Snow season layers
-  | "atv" | "truck_plow" | "hand_shovel" | "ice_melt";
+  | "atv_route" | "truck_plow" | "hand_shovel" | "ice_melt";
 
 export const customerMapLayers = pgTable("customer_map_layers", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
@@ -707,7 +707,7 @@ export const insertCustomerMapLayerSchema = createInsertSchema(customerMapLayers
   updatedAt: true,
 }).extend({
   category: z.enum(["community", "snow"]),
-  layerType: z.enum(["mowing", "native_grass", "landscape_beds", "pet_stations", "atv", "truck_plow", "hand_shovel", "ice_melt"]),
+  layerType: z.enum(["mowing", "native_grass", "landscape_beds", "pet_stations", "atv_route", "truck_plow", "hand_shovel", "ice_melt"]),
   color: z.string().regex(/^#[0-9A-Fa-f]{6}$/).default("#3B82F6"),
   isActive: z.enum(["true", "false"]).default("true"),
   displayOrder: z.number().int().default(0),
