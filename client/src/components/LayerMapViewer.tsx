@@ -97,8 +97,8 @@ export default function LayerMapViewer({
           // The kmlPath should already be in /objects/... format
           const kmlUrl = layer.kmlPath;
 
-          const response = await fetch(kmlUrl);
-          if (!response.ok) throw new Error("Failed to fetch KML");
+          const response = await fetch(kmlUrl, { credentials: "include" });
+          if (!response.ok) throw new Error(`Failed to fetch KML: ${response.status}`);
 
           const kmlText = await response.text();
           const geoJson = kmlToGeoJson(kmlText);
