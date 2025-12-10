@@ -5,7 +5,7 @@ import { promises as fs } from "fs";
 import { setupAuth, type UserWithContext } from "./auth";
 import { storage } from "./storage";
 import { insertCustomerSchema, insertContactSchema, insertCompanySchema, insertCompanyUserSchema, insertSettingsSchema, insertNoteSchema, insertContractSchema, insertContractDocumentSchema, insertContractBuilderDocumentSchema, insertContractBuilderSectionSchema, insertContractBuilderVariableSchema, insertTicketTypeSchema, insertTicketTypeStatusSchema, insertTicketTypeFieldSchema, insertTicketSchema, insertTicketFieldValueSchema, insertTicketStatusHistorySchema, insertTicketCommentSchema, insertCustomerMapLayerSchema, insertCustomerMapDocumentSchema } from "@shared/schema";
-import { ObjectStorageService, ObjectNotFoundError, objectStorageClient } from "./objectStorage";
+import { ObjectStorageService, ObjectNotFoundError, objectStorageClient, signObjectURL } from "./objectStorage";
 import { ObjectPermission, ObjectAccessGroupType } from "./objectAcl";
 
 export async function registerRoutes(app: Express): Promise<Server> {
@@ -2578,11 +2578,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(500).send("Object storage not configured");
       }
 
-      const uploadURL = await objectStorageClient.generatePresignedUploadUrl(
-        bucketId,
-        objectPath,
-        contentType || "application/vnd.google-earth.kml+xml"
-      );
+      const uploadURL = await signObjectURL({
+        bucketName: bucketId,
+        objectName: objectPath,
+        method: "PUT",
+        ttlSec: 900,
+      });
 
       res.json({ uploadURL, objectPath: `/${bucketId}/${objectPath}` });
     } catch (error) {
@@ -2661,11 +2662,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(500).send("Object storage not configured");
       }
 
-      const uploadURL = await objectStorageClient.generatePresignedUploadUrl(
-        bucketId,
-        objectPath,
-        contentType || "application/pdf"
-      );
+      const uploadURL = await signObjectURL({
+        bucketName: bucketId,
+        objectName: objectPath,
+        method: "PUT",
+        ttlSec: 900,
+      });
 
       res.json({ uploadURL, objectPath: `/${bucketId}/${objectPath}` });
     } catch (error) {
