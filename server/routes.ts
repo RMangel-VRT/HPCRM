@@ -2570,7 +2570,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
     const timestamp = Date.now();
     const safeName = fileName.replace(/[^a-zA-Z0-9.-]/g, "_");
-    const objectPath = `.private/map-layers/${user.activeCompanyId}/${req.params.customerId}/${timestamp}_${safeName}`;
+    // The relative path within .private directory (without .private prefix)
+    const relativePath = `map-layers/${user.activeCompanyId}/${req.params.customerId}/${timestamp}_${safeName}`;
+    const objectPath = `.private/${relativePath}`;
 
     try {
       const bucketId = process.env.DEFAULT_OBJECT_STORAGE_BUCKET_ID;
@@ -2585,7 +2587,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
         ttlSec: 900,
       });
 
-      res.json({ uploadURL, objectPath: `/${bucketId}/${objectPath}` });
+      // Return path in format expected by /objects/:objectPath(*) endpoint
+      res.json({ uploadURL, objectPath: `/objects/${relativePath}` });
     } catch (error) {
       console.error("Error generating upload URL:", error);
       res.status(500).send("Failed to generate upload URL");

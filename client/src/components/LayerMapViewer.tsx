@@ -94,9 +94,8 @@ export default function LayerMapViewer({
         });
 
         try {
-          const kmlUrl = layer.kmlPath.startsWith("/")
-            ? `/api/object-storage${layer.kmlPath}`
-            : layer.kmlPath;
+          // The kmlPath should already be in /objects/... format
+          const kmlUrl = layer.kmlPath;
 
           const response = await fetch(kmlUrl);
           if (!response.ok) throw new Error("Failed to fetch KML");
