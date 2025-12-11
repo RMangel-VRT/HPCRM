@@ -11,7 +11,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Badge } from "@/components/ui/badge";
-import { Search, ChevronRight, Clock, User, MapPin, CalendarDays, Filter, Loader2, CheckCircle2 } from "lucide-react";
+import { Search, ChevronRight, Clock, User, MapPin, CalendarDays, Filter, Loader2, CheckCircle2, RefreshCw } from "lucide-react";
 import { Link } from "wouter";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import type { Ticket, TicketType, TicketTypeStatus, Customer, WorkType } from "@shared/schema";
@@ -36,16 +36,19 @@ export default function MyTickets() {
   const [workTypeFilter, setWorkTypeFilter] = useState("all");
   const [showFilters, setShowFilters] = useState(false);
 
-  const { data: tickets = [], isLoading: ticketsLoading } = useQuery<Ticket[]>({
+  const { data: tickets = [], isLoading: ticketsLoading, refetch, isFetching } = useQuery<Ticket[]>({
     queryKey: ["/api/tickets/my"],
+    refetchOnMount: "always",
   });
 
   const { data: ticketTypes = [] } = useQuery<TicketType[]>({
     queryKey: ["/api/ticket-types"],
+    refetchOnMount: "always",
   });
 
   const { data: customers = [] } = useQuery<Customer[]>({
     queryKey: ["/api/customers"],
+    refetchOnMount: "always",
   });
 
   const { data: allStatuses = [] } = useQuery({
@@ -61,6 +64,7 @@ export default function MyTickets() {
       return allStatusArrays.flat();
     },
     enabled: ticketTypes.length > 0,
+    refetchOnMount: "always",
   });
 
   const enrichedTickets: TicketWithDetails[] = tickets.map(ticket => ({
@@ -131,6 +135,16 @@ export default function MyTickets() {
             data-testid="input-search-my-tickets"
           />
         </div>
+        <Button 
+          variant="outline" 
+          size="icon" 
+          className="h-11 w-11 shrink-0"
+          onClick={() => refetch()}
+          disabled={isFetching}
+          data-testid="button-refresh-my-tickets"
+        >
+          <RefreshCw className={`w-4 h-4 ${isFetching ? "animate-spin" : ""}`} />
+        </Button>
         <Button 
           variant="outline" 
           size="icon" 
