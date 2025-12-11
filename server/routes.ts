@@ -6,7 +6,7 @@ import { setupAuth, type UserWithContext } from "./auth";
 import { storage } from "./storage";
 import { insertCustomerSchema, insertContactSchema, insertCompanySchema, insertCompanyUserSchema, insertSettingsSchema, insertNoteSchema, insertContractSchema, insertContractDocumentSchema, insertContractBuilderDocumentSchema, insertContractBuilderSectionSchema, insertContractBuilderVariableSchema, insertTicketTypeSchema, insertTicketTypeStatusSchema, insertTicketTypeFieldSchema, insertTicketSchema, insertTicketFieldValueSchema, insertTicketStatusHistorySchema, insertTicketCommentSchema, insertCustomerMapLayerSchema, insertCustomerMapDocumentSchema } from "@shared/schema";
 import { ObjectStorageService, ObjectNotFoundError, objectStorageClient, signObjectURL } from "./objectStorage";
-import { ObjectPermission, ObjectAccessGroupType } from "./objectAcl";
+import { ObjectPermission, ObjectAccessGroupType, setObjectAclPolicy } from "./objectAcl";
 
 export async function registerRoutes(app: Express): Promise<Server> {
   setupAuth(app);
@@ -2520,8 +2520,28 @@ export async function registerRoutes(app: Express): Promise<Server> {
       return res.status(400).send(result.error.message);
     }
 
-    const layer = await storage.createCustomerMapLayer(result.data);
-    res.json(layer);
+    try {
+      // Set ACL on the uploaded file to allow company members to read it
+      const objectStorageService = new ObjectStorageService();
+      const objectFile = await objectStorageService.getObjectEntityFile(result.data.kmlPath);
+      await setObjectAclPolicy(objectFile, {
+        owner: user.id,
+        visibility: "private",
+        aclRules: [{
+          group: {
+            type: ObjectAccessGroupType.COMPANY_MEMBER,
+            id: user.activeCompanyId,
+          },
+          permission: ObjectPermission.READ,
+        }],
+      });
+
+      const layer = await storage.createCustomerMapLayer(result.data);
+      res.json(layer);
+    } catch (error) {
+      console.error("Error creating map layer:", error);
+      res.status(500).send("Failed to create map layer");
+    }
   });
 
   app.patch("/api/customers/:customerId/map-layers/:id", async (req, res) => {
