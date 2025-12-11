@@ -79,8 +79,10 @@ export default function LoginPage() {
             </Button>
             <div className="text-xs text-muted-foreground text-center pt-2">
               <p className="font-medium mb-1">Demo Accounts:</p>
-              <p>admin@greenscape.com / admin123</p>
-              <p>office@greenscape.com / office123</p>
+              <p>admin@greenscape.com / admin123 (Admin)</p>
+              <p>office@greenscape.com / office123 (Office)</p>
+              <p>ops@greenscape.com / ops123 (Field Manager)</p>
+              <p>viewer@greenscape.com / viewer123 (Field)</p>
             </div>
           </form>
         </CardContent>
