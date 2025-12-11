@@ -199,42 +199,40 @@ export default function LayerMapViewer({
         <div className="absolute top-4 right-4 z-[1000]">
           <Button 
             variant="secondary" 
-            size="icon" 
-            className="bg-white text-black border border-gray-300 shadow-md hover:bg-gray-100 dark:bg-gray-800 dark:text-white dark:border-gray-600 dark:hover:bg-gray-700"
+            className="h-12 w-12 p-0 bg-white text-black border border-gray-300 shadow-lg hover:bg-gray-100 dark:bg-gray-800 dark:text-white dark:border-gray-600 dark:hover:bg-gray-700"
             onClick={onClose} 
             data-testid="button-close-map-viewer"
           >
-            <X className="w-4 h-4" />
+            <X className="w-6 h-6" />
           </Button>
         </div>
       )}
 
-      {/* Controls positioned at bottom-left to avoid zoom controls */}
-      <div className="absolute bottom-4 left-4 z-[1000] flex flex-col gap-2">
+      {/* Controls positioned at bottom-left to avoid zoom controls - mobile friendly sizing */}
+      <div className="absolute bottom-4 left-4 z-[1000] flex flex-col gap-3">
         <Button
           variant="secondary"
-          size="sm"
-          className="bg-white text-black border border-gray-300 shadow-md hover:bg-gray-100 dark:bg-gray-800 dark:text-white dark:border-gray-600 dark:hover:bg-gray-700"
+          className="h-12 px-4 text-base bg-white text-black border border-gray-300 shadow-lg hover:bg-gray-100 dark:bg-gray-800 dark:text-white dark:border-gray-600 dark:hover:bg-gray-700"
           onClick={() => setShowLayerPanel(!showLayerPanel)}
           data-testid="button-toggle-layers"
         >
-          {showLayerPanel ? <ChevronLeft className="w-4 h-4" /> : <ChevronRight className="w-4 h-4" />}
-          <Layers className="w-4 h-4 ml-1" />
+          {showLayerPanel ? <ChevronLeft className="w-5 h-5" /> : <ChevronRight className="w-5 h-5" />}
+          <Layers className="w-5 h-5 ml-2" />
+          <span className="ml-2">Layers</span>
         </Button>
         <Button
           variant="secondary"
-          size="sm"
-          className="bg-white text-black border border-gray-300 shadow-md hover:bg-gray-100 dark:bg-gray-800 dark:text-white dark:border-gray-600 dark:hover:bg-gray-700"
+          className="h-12 px-4 text-base bg-white text-black border border-gray-300 shadow-lg hover:bg-gray-100 dark:bg-gray-800 dark:text-white dark:border-gray-600 dark:hover:bg-gray-700"
           onClick={() => setUseSatellite(!useSatellite)}
           data-testid="button-toggle-satellite"
         >
-          {useSatellite ? <MapIcon className="w-4 h-4" /> : <Satellite className="w-4 h-4" />}
-          <span className="ml-1">{useSatellite ? "Street" : "Satellite"}</span>
+          {useSatellite ? <MapIcon className="w-5 h-5" /> : <Satellite className="w-5 h-5" />}
+          <span className="ml-2">{useSatellite ? "Street" : "Satellite"}</span>
         </Button>
       </div>
 
       {showLayerPanel && (
-        <Card className="absolute bottom-4 left-32 z-[1000] w-64 max-h-[60%] overflow-auto">
+        <Card className="absolute bottom-4 left-44 z-[1000] w-72 max-h-[60%] overflow-auto shadow-lg">
           <CardHeader className="py-3 px-4">
             <CardTitle className="text-sm">Map Layers</CardTitle>
           </CardHeader>
