@@ -42,16 +42,16 @@ async function seed() {
       role: "office" as const,
     },
     {
-      email: "ops@greenscape.com",
-      password: "ops123",
+      email: "fieldmanager@greenscape.com",
+      password: "fieldmanager123",
       name: "John Doe",
-      role: "ops" as const,
+      role: "field_manager" as const,
     },
     {
-      email: "viewer@greenscape.com",
-      password: "viewer123",
+      email: "field@greenscape.com",
+      password: "field123",
       name: "Jane Smith",
-      role: "viewer" as const,
+      role: "field" as const,
     },
   ];
 
