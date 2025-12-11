@@ -55,8 +55,10 @@ export default function AppSidebar({
     
     const items: Array<{ title: string; url: string; icon: typeof LayoutDashboard }> = [];
     
-    // Dashboard - everyone sees this
-    items.push({ title: "Dashboard", url: "/dashboard", icon: LayoutDashboard });
+    // Dashboard - Admin, Office, Field Manager only (not Field)
+    if (userRole === "admin" || userRole === "office" || userRole === "field_manager") {
+      items.push({ title: "Dashboard", url: "/dashboard", icon: LayoutDashboard });
+    }
     
     // Customers - Admin, Office, Field Manager (Field Manager gets limited view)
     if (userRole === "admin" || userRole === "office" || userRole === "field_manager") {

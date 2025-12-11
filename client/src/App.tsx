@@ -70,7 +70,7 @@ function Router() {
           <main className="flex-1 overflow-y-auto p-6 md:p-8">
             <Switch>
               <ProtectedRoute path="/admin" component={SuperAdminHome} superAdminOnly />
-              <ProtectedRoute path="/dashboard" component={Dashboard} />
+              <ProtectedRoute path="/dashboard" component={Dashboard} allowedRoles={["admin", "office", "field_manager"]} />
               <ProtectedRoute path="/dashboard/customers/:id" component={CustomerDetail} allowedRoles={["admin", "office", "field_manager"]} />
               <ProtectedRoute path="/dashboard/customers" component={CustomersList} allowedRoles={["admin", "office", "field_manager"]} />
               <ProtectedRoute path="/dashboard/tickets/new" component={NewTicket} allowedRoles={["admin"]} />
@@ -93,10 +93,22 @@ function Router() {
               />
               <Route path="/access-denied" component={AccessDenied} />
               <Route path="/">
-                {user.isSuperAdminBool ? <Redirect to="/admin" /> : <Redirect to="/dashboard" />}
+                {user.isSuperAdminBool ? (
+                  <Redirect to="/admin" />
+                ) : user.activeRole === "field" ? (
+                  <Redirect to="/dashboard/tickets/my" />
+                ) : (
+                  <Redirect to="/dashboard" />
+                )}
               </Route>
               <Route>
-                {user.isSuperAdminBool ? <Redirect to="/admin" /> : <Redirect to="/dashboard" />}
+                {user.isSuperAdminBool ? (
+                  <Redirect to="/admin" />
+                ) : user.activeRole === "field" ? (
+                  <Redirect to="/dashboard/tickets/my" />
+                ) : (
+                  <Redirect to="/dashboard" />
+                )}
               </Route>
             </Switch>
           </main>

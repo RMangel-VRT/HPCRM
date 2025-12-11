@@ -12,7 +12,14 @@ Preferred communication style: Simple, everyday language.
 The frontend utilizes React 18+, TypeScript, Vite, Wouter for routing, and TanStack Query for state management. It employs Shadcn/ui and Radix UI primitives, styled with Tailwind CSS, supporting custom theming and light/dark modes.
 
 ### Technical Implementation
-The backend is built with Express.js and TypeScript. Authentication is handled by Passport.js with session-based management, storing sessions in PostgreSQL. It supports multi-tenancy with roles: admin, office, ops, viewer (company-specific), and super admin (system-wide). The API is RESTful, uses JSON, and includes comprehensive error handling.
+The backend is built with Express.js and TypeScript. Authentication is handled by Passport.js with session-based management, storing sessions in PostgreSQL. It supports multi-tenancy with role-based access control and super admin (system-wide). The API is RESTful, uses JSON, and includes comprehensive error handling.
+
+#### Role-Based Access Control
+Company-specific roles with different permissions:
+- **Admin:** Full access to all features including user management, settings, all tickets, customers, contracts, revenue, and tools
+- **Office:** Same as Admin except no user management or settings access
+- **Field Manager:** Dashboard, customers (view-only with limited tabs - no contracts/rate-sheet/revenue), My Tickets, Property Maps, and Tools
+- **Field:** Minimal access - only My Tickets and Property Maps (default landing page is My Tickets)
 
 ### Data Storage
 PostgreSQL (Neon serverless) with Drizzle ORM is used for data persistence. The multi-tenant schema includes tables for `Companies`, `Company_users`, `Users`, `Customers`, `Contacts`, `Contracts`, `Contract_documents`, `Contract_services`, `Settings`, `contract_templates`, `contract_builder_documents`, `contract_builder_sections`, `contract_builder_variables`, `ticket_types`, `ticket_type_statuses`, `ticket_type_fields`, `tickets`, `ticket_field_values`, `ticket_status_history`, and `ticket_comments`. UUIDs are used as primary keys, and Drizzle Kit manages migrations.
