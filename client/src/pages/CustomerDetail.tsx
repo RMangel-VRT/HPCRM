@@ -2511,7 +2511,7 @@ function RateSheetSection({ customerId }: { customerId: string }) {
 // Layer type configuration - bright colors for satellite visibility
 const LAYER_TYPES = {
   base: [
-    { value: "community_outline", label: "Community Outline", color: "#FFFFFF" }, // White outline
+    { value: "community_outline", label: "Community Outline", color: "#00FFFF" }, // Bright cyan
   ],
   community: [
     { value: "mowing", label: "Mowing Zones", color: "#00FF00" },      // Bright green
@@ -2520,7 +2520,7 @@ const LAYER_TYPES = {
     { value: "pet_stations", label: "Pet Stations", color: "#FF00FF" },       // Magenta
   ],
   snow: [
-    { value: "atv_route", label: "ATV Routes", color: "#00FFFF" },     // Cyan
+    { value: "atv_route", label: "ATV Routes", color: "#FFD700" },     // Bright orangish yellow (gold)
     { value: "truck_plow", label: "Truck Plow", color: "#FFFF00" },    // Yellow
     { value: "hand_shovel", label: "Hand Shovel", color: "#FF69B4" },  // Hot pink
     { value: "ice_melt", label: "Ice Melt", color: "#FF0000" },        // Bright red
