@@ -350,15 +350,16 @@ export default function LayerMapViewer({
 
         {Array.from(layerData.values()).map((data) => {
           if (!data.geoJson || !enabledLayers.has(data.layer.id)) return null;
+          const isOutlineOnly = data.layer.layerType === "community_outline";
           return (
             <GeoJSON
               key={data.layer.id}
               data={data.geoJson}
               style={{
                 color: data.layer.color || "#3388ff",
-                weight: 2,
-                opacity: 0.8,
-                fillOpacity: 0.3,
+                weight: isOutlineOnly ? 3 : 2,
+                opacity: 1,
+                fillOpacity: isOutlineOnly ? 0 : 0.3,
               }}
             />
           );
