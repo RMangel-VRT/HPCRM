@@ -28,7 +28,7 @@ import { Link, useLocation } from "wouter";
 import logoImage from "@assets/generated_images/Landscaping_CRM_company_logo_b2cf0b31.png";
 
 interface AppSidebarProps {
-  userRole?: "admin" | "office" | "ops" | "viewer";
+  userRole?: "admin" | "office" | "field_manager" | "field";
   isSuperAdmin?: boolean;
   userName?: string;
   onLogout?: () => void;
@@ -49,18 +49,45 @@ export default function AppSidebar({
       ]
     : [];
 
-  // Regular users see CRM navigation
-  const crmItems = !isSuperAdmin
-    ? [
-        { title: "Dashboard", url: "/dashboard", icon: LayoutDashboard },
-        { title: "Customers", url: "/dashboard/customers", icon: Building2 },
-        { title: "Tickets", url: "/dashboard/tickets", icon: ClipboardList },
-        { title: "My Tickets", url: "/dashboard/tickets/my", icon: UserCheck },
-        { title: "Property Maps", url: "/dashboard/maps", icon: Map },
-        { title: "Tools", url: "/dashboard/tools", icon: Wrench },
-        { title: "Revenue", url: "/dashboard/revenue", icon: DollarSign },
-      ]
-    : [];
+  // Build CRM items based on role
+  const getCrmItems = () => {
+    if (isSuperAdmin) return [];
+    
+    const items: Array<{ title: string; url: string; icon: typeof LayoutDashboard }> = [];
+    
+    // Dashboard - everyone sees this
+    items.push({ title: "Dashboard", url: "/dashboard", icon: LayoutDashboard });
+    
+    // Customers - Admin, Office, Field Manager (Field Manager gets limited view)
+    if (userRole === "admin" || userRole === "office" || userRole === "field_manager") {
+      items.push({ title: "Customers", url: "/dashboard/customers", icon: Building2 });
+    }
+    
+    // Tickets (all tickets view) - Admin only
+    if (userRole === "admin") {
+      items.push({ title: "Tickets", url: "/dashboard/tickets", icon: ClipboardList });
+    }
+    
+    // My Tickets - everyone
+    items.push({ title: "My Tickets", url: "/dashboard/tickets/my", icon: UserCheck });
+    
+    // Property Maps - everyone
+    items.push({ title: "Property Maps", url: "/dashboard/maps", icon: Map });
+    
+    // Tools - Admin, Office, Field Manager
+    if (userRole === "admin" || userRole === "office" || userRole === "field_manager") {
+      items.push({ title: "Tools", url: "/dashboard/tools", icon: Wrench });
+    }
+    
+    // Revenue - Admin and Office only
+    if (userRole === "admin" || userRole === "office") {
+      items.push({ title: "Revenue", url: "/dashboard/revenue", icon: DollarSign });
+    }
+    
+    return items;
+  };
+
+  const crmItems = getCrmItems();
 
   const managementItems = (!isSuperAdmin && userRole === "admin")
     ? [{ title: "Team", url: "/dashboard/users", icon: Users }]

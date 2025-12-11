@@ -133,7 +133,7 @@ export default function NewTicket() {
 
   const teamMembers = useMemo(() => {
     return companyUsersData
-      .filter(item => item.companyUser.role === "admin" || item.companyUser.role === "office" || item.companyUser.role === "ops")
+      .filter(item => item.companyUser.role === "admin" || item.companyUser.role === "office" || item.companyUser.role === "field_manager")
       .map(item => ({
         id: item.companyUser.userId,
         name: item.user?.name || item.user?.email || item.companyUser.userId,

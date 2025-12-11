@@ -71,16 +71,16 @@ function Router() {
             <Switch>
               <ProtectedRoute path="/admin" component={SuperAdminHome} superAdminOnly />
               <ProtectedRoute path="/dashboard" component={Dashboard} />
-              <ProtectedRoute path="/dashboard/customers/:id" component={CustomerDetail} />
-              <ProtectedRoute path="/dashboard/customers" component={CustomersList} />
+              <ProtectedRoute path="/dashboard/customers/:id" component={CustomerDetail} allowedRoles={["admin", "office", "field_manager"]} />
+              <ProtectedRoute path="/dashboard/customers" component={CustomersList} allowedRoles={["admin", "office", "field_manager"]} />
               <ProtectedRoute path="/dashboard/tickets/new" component={NewTicket} allowedRoles={["admin"]} />
               <ProtectedRoute path="/dashboard/tickets/my" component={MyTickets} />
               <ProtectedRoute path="/dashboard/tickets/:id" component={TicketDetail} />
-              <ProtectedRoute path="/dashboard/tickets" component={TicketsList} />
+              <ProtectedRoute path="/dashboard/tickets" component={TicketsList} allowedRoles={["admin"]} />
               <ProtectedRoute path="/dashboard/maps" component={PropertyMapsPage} />
-              <ProtectedRoute path="/dashboard/tools/contract-builder" component={ContractBuilderPage} />
-              <ProtectedRoute path="/dashboard/tools" component={ToolsPage} />
-              <ProtectedRoute path="/dashboard/revenue" component={RevenueOverview} />
+              <ProtectedRoute path="/dashboard/tools/contract-builder" component={ContractBuilderPage} allowedRoles={["admin", "office"]} />
+              <ProtectedRoute path="/dashboard/tools" component={ToolsPage} allowedRoles={["admin", "office", "field_manager"]} />
+              <ProtectedRoute path="/dashboard/revenue" component={RevenueOverview} allowedRoles={["admin", "office"]} />
               <ProtectedRoute
                 path="/dashboard/users"
                 component={UsersPage}

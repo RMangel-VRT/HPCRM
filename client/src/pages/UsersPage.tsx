@@ -37,13 +37,13 @@ const createUserSchema = z.object({
   email: z.string().email("Invalid email address"),
   name: z.string().min(1, "Name is required"),
   password: z.string().min(8, "Password must be at least 8 characters"),
-  role: z.enum(["admin", "office", "ops", "viewer"]),
+  role: z.enum(["admin", "office", "field_manager", "field"]),
 });
 
 type CreateUserForm = z.infer<typeof createUserSchema>;
 
 const editUserSchema = z.object({
-  role: z.enum(["admin", "office", "ops", "viewer"]),
+  role: z.enum(["admin", "office", "field_manager", "field"]),
   status: z.enum(["active", "invited", "suspended"]),
   password: z.string().min(8, "Password must be at least 8 characters").optional().or(z.literal("")),
 });
@@ -64,7 +64,7 @@ export default function UsersPage() {
   const createUserForm = useForm<CreateUserForm>({
     resolver: zodResolver(createUserSchema),
     defaultValues: {
-      role: "viewer",
+      role: "field",
       email: "",
       name: "",
       password: "",
@@ -144,7 +144,7 @@ export default function UsersPage() {
   const handleEdit = (user: CompanyUserWithDetails) => {
     setSelectedUser(user);
     editUserForm.reset({
-      role: user.companyUser.role as "admin" | "office" | "ops" | "viewer",
+      role: user.companyUser.role as "admin" | "office" | "field_manager" | "field",
       status: user.companyUser.status as "active" | "invited" | "suspended",
     });
     setEditDialogOpen(true);
@@ -246,8 +246,8 @@ export default function UsersPage() {
                           <SelectContent>
                             <SelectItem value="admin">Admin</SelectItem>
                             <SelectItem value="office">Office</SelectItem>
-                            <SelectItem value="ops">Operations</SelectItem>
-                            <SelectItem value="viewer">Viewer</SelectItem>
+                            <SelectItem value="field_manager">Field Manager</SelectItem>
+                            <SelectItem value="field">Field</SelectItem>
                           </SelectContent>
                         </Select>
                         <FormMessage />
@@ -278,7 +278,7 @@ export default function UsersPage() {
                 <div className="flex justify-between items-center">
                   <span className="text-sm text-muted-foreground">Role:</span>
                   <RoleBadge 
-                    role={userItem.companyUser.role as "admin" | "office" | "ops" | "viewer"} 
+                    role={userItem.companyUser.role as "admin" | "office" | "field_manager" | "field"} 
                     isSuperAdmin={userItem.isSuperAdmin}
                   />
                 </div>
@@ -357,8 +357,8 @@ export default function UsersPage() {
                           <SelectContent>
                             <SelectItem value="admin">Admin</SelectItem>
                             <SelectItem value="office">Office</SelectItem>
-                            <SelectItem value="ops">Operations</SelectItem>
-                            <SelectItem value="viewer">Viewer</SelectItem>
+                            <SelectItem value="field_manager">Field Manager</SelectItem>
+                            <SelectItem value="field">Field</SelectItem>
                           </SelectContent>
                         </Select>
                         <FormMessage />
