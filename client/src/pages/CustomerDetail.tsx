@@ -2508,19 +2508,19 @@ function RateSheetSection({ customerId }: { customerId: string }) {
   );
 }
 
-// Layer type configuration
+// Layer type configuration - bright colors for satellite visibility
 const LAYER_TYPES = {
   community: [
-    { value: "mowing", label: "Mowing Zones", color: "#22c55e" },
-    { value: "native_grass", label: "Native Grass Areas", color: "#84cc16" },
-    { value: "landscape_beds", label: "Landscape Beds", color: "#f97316" },
-    { value: "pet_stations", label: "Pet Stations", color: "#8b5cf6" },
+    { value: "mowing", label: "Mowing Zones", color: "#00FF00" },      // Bright green
+    { value: "native_grass", label: "Native Grass Areas", color: "#ADFF2F" }, // Green-yellow
+    { value: "landscape_beds", label: "Landscape Beds", color: "#FF6600" },   // Bright orange
+    { value: "pet_stations", label: "Pet Stations", color: "#FF00FF" },       // Magenta
   ],
   snow: [
-    { value: "atv_route", label: "ATV Routes", color: "#3b82f6" },
-    { value: "truck_plow", label: "Truck Plow", color: "#06b6d4" },
-    { value: "hand_shovel", label: "Hand Shovel", color: "#f59e0b" },
-    { value: "ice_melt", label: "Ice Melt", color: "#ef4444" },
+    { value: "atv_route", label: "ATV Routes", color: "#00FFFF" },     // Cyan
+    { value: "truck_plow", label: "Truck Plow", color: "#FFFF00" },    // Yellow
+    { value: "hand_shovel", label: "Hand Shovel", color: "#FF69B4" },  // Hot pink
+    { value: "ice_melt", label: "Ice Melt", color: "#FF0000" },        // Bright red
   ],
 };
 
