@@ -1199,15 +1199,19 @@ export default function CustomerDetail() {
           <TabsTrigger value="notes" data-testid="tab-notes">
             Notes ({notes.length})
           </TabsTrigger>
-          <TabsTrigger value="contracts" data-testid="tab-contracts">
-            Contracts ({contracts.length})
-          </TabsTrigger>
-          <TabsTrigger value="rate-sheet" data-testid="tab-rate-sheet">
-            Rate Sheet
-          </TabsTrigger>
-          <TabsTrigger value="revenue" data-testid="tab-revenue">
-            Revenue
-          </TabsTrigger>
+          {(user?.activeRole === "admin" || user?.activeRole === "office") && (
+            <>
+              <TabsTrigger value="contracts" data-testid="tab-contracts">
+                Contracts ({contracts.length})
+              </TabsTrigger>
+              <TabsTrigger value="rate-sheet" data-testid="tab-rate-sheet">
+                Rate Sheet
+              </TabsTrigger>
+              <TabsTrigger value="revenue" data-testid="tab-revenue">
+                Revenue
+              </TabsTrigger>
+            </>
+          )}
           <TabsTrigger value="maps" data-testid="tab-maps">
             <Map className="w-4 h-4 mr-1" />
             Maps
@@ -1505,109 +1509,115 @@ export default function CustomerDetail() {
           )}
         </TabsContent>
 
-        <TabsContent value="contracts" className="space-y-4">
-          <div className="flex justify-between items-center gap-4">
-            <div className="flex items-center gap-2">
-              <Checkbox 
-                id="show-ended-contracts"
-                checked={showEndedContracts}
-                onCheckedChange={(checked) => setShowEndedContracts(checked as boolean)}
-                data-testid="toggle-show-ended-contracts"
-              />
-              <label 
-                htmlFor="show-ended-contracts"
-                className="text-sm font-medium cursor-pointer"
-              >
-                Show Ended Contracts
-              </label>
+        {(user?.activeRole === "admin" || user?.activeRole === "office") && (
+          <TabsContent value="contracts" className="space-y-4">
+            <div className="flex justify-between items-center gap-4">
+              <div className="flex items-center gap-2">
+                <Checkbox 
+                  id="show-ended-contracts"
+                  checked={showEndedContracts}
+                  onCheckedChange={(checked) => setShowEndedContracts(checked as boolean)}
+                  data-testid="toggle-show-ended-contracts"
+                />
+                <label 
+                  htmlFor="show-ended-contracts"
+                  className="text-sm font-medium cursor-pointer"
+                >
+                  Show Ended Contracts
+                </label>
+              </div>
+              {canEditContracts && (
+                <Button size="sm" onClick={() => setIsAddContractDialogOpen(true)} data-testid="button-add-contract">
+                  <Plus className="w-4 h-4 mr-2" />
+                  Add Contract
+                </Button>
+              )}
             </div>
-            {canEditContracts && (
-              <Button size="sm" onClick={() => setIsAddContractDialogOpen(true)} data-testid="button-add-contract">
-                <Plus className="w-4 h-4 mr-2" />
-                Add Contract
-              </Button>
-            )}
-          </div>
           
-          <input
-            ref={fileInputRef}
-            type="file"
-            accept="application/pdf"
-            className="hidden"
-            onChange={() => uploadingContractId && handleFileSelect(uploadingContractId, showReplaceConfirm !== null)}
-          />
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept="application/pdf"
+              className="hidden"
+              onChange={() => uploadingContractId && handleFileSelect(uploadingContractId, showReplaceConfirm !== null)}
+            />
           
-          {isLoadingContracts ? (
-            <div className="space-y-3">
-              {[1, 2, 3].map((i) => (
-                <Skeleton key={i} className="h-32 w-full" />
-              ))}
-            </div>
-          ) : (() => {
-            const filteredContracts = showEndedContracts 
-              ? contracts 
-              : contracts.filter(c => c.status === "active" || c.status === "paused");
-            
-            return filteredContracts.length === 0 ? (
-              <Card>
-                <CardContent className="flex items-center justify-center p-12">
-                  <div className="text-center">
-                    <FileText className="w-12 h-12 mx-auto text-muted-foreground mb-3" />
-                    <p className="text-sm text-muted-foreground">
-                      {showEndedContracts ? "No contracts yet" : "No active or paused contracts"}
-                    </p>
-                  </div>
-                </CardContent>
-              </Card>
-            ) : (
+            {isLoadingContracts ? (
               <div className="space-y-3">
-                {filteredContracts.map((contract) => (
-                  <ContractCard 
-                    key={contract.id} 
-                    contract={contract}
-                    customerId={params?.id!}
-                    canUploadDocuments={canUploadDocuments}
-                    onUploadClick={handleUploadClick}
-                    uploadingFile={uploadingFile}
-                    formatFileSize={formatFileSize}
-                    setShowVersionHistory={setShowVersionHistory}
-                  />
+                {[1, 2, 3].map((i) => (
+                  <Skeleton key={i} className="h-32 w-full" />
                 ))}
               </div>
-            );
-          })()}
+            ) : (() => {
+              const filteredContracts = showEndedContracts 
+                ? contracts 
+                : contracts.filter(c => c.status === "active" || c.status === "paused");
+              
+              return filteredContracts.length === 0 ? (
+                <Card>
+                  <CardContent className="flex items-center justify-center p-12">
+                    <div className="text-center">
+                      <FileText className="w-12 h-12 mx-auto text-muted-foreground mb-3" />
+                      <p className="text-sm text-muted-foreground">
+                        {showEndedContracts ? "No contracts yet" : "No active or paused contracts"}
+                      </p>
+                    </div>
+                  </CardContent>
+                </Card>
+              ) : (
+                <div className="space-y-3">
+                  {filteredContracts.map((contract) => (
+                    <ContractCard 
+                      key={contract.id} 
+                      contract={contract}
+                      customerId={params?.id!}
+                      canUploadDocuments={canUploadDocuments}
+                      onUploadClick={handleUploadClick}
+                      uploadingFile={uploadingFile}
+                      formatFileSize={formatFileSize}
+                      setShowVersionHistory={setShowVersionHistory}
+                    />
+                  ))}
+                </div>
+              );
+            })()}
 
-          <AlertDialog open={showReplaceConfirm !== null} onOpenChange={(open) => !open && setShowReplaceConfirm(null)}>
-            <AlertDialogContent>
-              <AlertDialogHeader>
-                <AlertDialogTitle>Replace signed agreement?</AlertDialogTitle>
-                <AlertDialogDescription>
-                  This will supersede the current signed agreement. The old file will remain in version history. Continue?
-                </AlertDialogDescription>
-              </AlertDialogHeader>
-              <AlertDialogFooter>
-                <AlertDialogCancel>Cancel</AlertDialogCancel>
-                <AlertDialogAction onClick={() => showReplaceConfirm && confirmReplace(showReplaceConfirm)}>
-                  Continue
-                </AlertDialogAction>
-              </AlertDialogFooter>
-            </AlertDialogContent>
-          </AlertDialog>
+            <AlertDialog open={showReplaceConfirm !== null} onOpenChange={(open) => !open && setShowReplaceConfirm(null)}>
+              <AlertDialogContent>
+                <AlertDialogHeader>
+                  <AlertDialogTitle>Replace signed agreement?</AlertDialogTitle>
+                  <AlertDialogDescription>
+                    This will supersede the current signed agreement. The old file will remain in version history. Continue?
+                  </AlertDialogDescription>
+                </AlertDialogHeader>
+                <AlertDialogFooter>
+                  <AlertDialogCancel>Cancel</AlertDialogCancel>
+                  <AlertDialogAction onClick={() => showReplaceConfirm && confirmReplace(showReplaceConfirm)}>
+                    Continue
+                  </AlertDialogAction>
+                </AlertDialogFooter>
+              </AlertDialogContent>
+            </AlertDialog>
 
-          <VersionHistoryDialog 
-            contractId={showVersionHistory}
-            onClose={() => setShowVersionHistory(null)}
-            formatFileSize={formatFileSize}
-          />
-        </TabsContent>
+            <VersionHistoryDialog 
+              contractId={showVersionHistory}
+              onClose={() => setShowVersionHistory(null)}
+              formatFileSize={formatFileSize}
+            />
+          </TabsContent>
+        )}
 
-        <TabsContent value="rate-sheet" className="space-y-4">
-          <RateSheetSection customerId={params?.id!} />
-        </TabsContent>
+        {(user?.activeRole === "admin" || user?.activeRole === "office") && (
+          <TabsContent value="rate-sheet" className="space-y-4">
+            <RateSheetSection customerId={params?.id!} />
+          </TabsContent>
+        )}
 
-        <TabsContent value="revenue" className="space-y-4">
-          <RevenueSection customerId={params?.id!} />
-        </TabsContent>
+        {(user?.activeRole === "admin" || user?.activeRole === "office") && (
+          <TabsContent value="revenue" className="space-y-4">
+            <RevenueSection customerId={params?.id!} />
+          </TabsContent>
+        )}
 
         <TabsContent value="maps" className="space-y-4">
           <CustomerMapsSection customerId={params?.id!} />
