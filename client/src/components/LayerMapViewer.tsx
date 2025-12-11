@@ -195,133 +195,142 @@ export default function LayerMapViewer({
 
   return (
     <div className={fullScreen ? "fixed inset-0 bg-background z-50" : "h-[500px] relative"}>
-      {fullScreen && onClose && (
-        <div className="absolute top-4 right-4 z-[1000]">
+      {/* Top toolbar - compact horizontal strip */}
+      <div className="absolute top-3 left-3 right-3 z-[1000] flex items-center justify-between pointer-events-none">
+        {/* Left controls - layers and map type */}
+        <div className="flex items-center gap-1 pointer-events-auto">
+          <Button
+            variant="secondary"
+            size="icon"
+            className="h-9 w-9 bg-white/90 backdrop-blur-sm text-black shadow-md border-0 hover:bg-white dark:bg-black/80 dark:text-white dark:hover:bg-black"
+            onClick={() => setShowLayerPanel(!showLayerPanel)}
+            data-testid="button-toggle-layers"
+          >
+            <Layers className="w-4 h-4" />
+          </Button>
+          <Button
+            variant="secondary"
+            size="icon"
+            className="h-9 w-9 bg-white/90 backdrop-blur-sm text-black shadow-md border-0 hover:bg-white dark:bg-black/80 dark:text-white dark:hover:bg-black"
+            onClick={() => setUseSatellite(!useSatellite)}
+            data-testid="button-toggle-satellite"
+          >
+            {useSatellite ? <MapIcon className="w-4 h-4" /> : <Satellite className="w-4 h-4" />}
+          </Button>
+        </div>
+        
+        {/* Right control - close button */}
+        {fullScreen && onClose && (
           <Button 
-            variant="secondary" 
-            className="h-12 w-12 p-0 bg-white text-black border border-gray-300 shadow-lg hover:bg-gray-100 dark:bg-gray-800 dark:text-white dark:border-gray-600 dark:hover:bg-gray-700"
+            variant="secondary"
+            size="icon"
+            className="h-9 w-9 bg-white/90 backdrop-blur-sm text-black shadow-md border-0 hover:bg-white dark:bg-black/80 dark:text-white dark:hover:bg-black pointer-events-auto"
             onClick={onClose} 
             data-testid="button-close-map-viewer"
           >
-            <X className="w-6 h-6" />
+            <X className="w-4 h-4" />
           </Button>
-        </div>
-      )}
-
-      {/* Controls positioned at bottom-left to avoid zoom controls - mobile friendly sizing */}
-      <div className="absolute bottom-4 left-4 z-[1000] flex flex-col gap-3">
-        <Button
-          variant="secondary"
-          className="h-12 px-4 text-base bg-white text-black border border-gray-300 shadow-lg hover:bg-gray-100 dark:bg-gray-800 dark:text-white dark:border-gray-600 dark:hover:bg-gray-700"
-          onClick={() => setShowLayerPanel(!showLayerPanel)}
-          data-testid="button-toggle-layers"
-        >
-          {showLayerPanel ? <ChevronLeft className="w-5 h-5" /> : <ChevronRight className="w-5 h-5" />}
-          <Layers className="w-5 h-5 ml-2" />
-          <span className="ml-2">Layers</span>
-        </Button>
-        <Button
-          variant="secondary"
-          className="h-12 px-4 text-base bg-white text-black border border-gray-300 shadow-lg hover:bg-gray-100 dark:bg-gray-800 dark:text-white dark:border-gray-600 dark:hover:bg-gray-700"
-          onClick={() => setUseSatellite(!useSatellite)}
-          data-testid="button-toggle-satellite"
-        >
-          {useSatellite ? <MapIcon className="w-5 h-5" /> : <Satellite className="w-5 h-5" />}
-          <span className="ml-2">{useSatellite ? "Street" : "Satellite"}</span>
-        </Button>
+        )}
       </div>
 
+      {/* Layer panel - slides down from top */}
       {showLayerPanel && (
-        <Card className="absolute bottom-4 left-44 z-[1000] w-72 max-h-[60%] overflow-auto shadow-lg">
-          <CardHeader className="py-3 px-4">
-            <CardTitle className="text-sm">Map Layers</CardTitle>
-          </CardHeader>
-          <CardContent className="py-2 px-4 space-y-4">
+        <div className="absolute top-14 left-3 right-3 z-[1000] max-h-[50vh] overflow-auto bg-white/95 backdrop-blur-sm dark:bg-black/90 rounded-lg shadow-lg">
+          <div className="p-3 space-y-3">
             {baseLayers.length > 0 && (
-              <div className="space-y-2">
-                <p className="text-xs font-medium text-muted-foreground uppercase">Base Layers</p>
-                {baseLayers.map((layer) => {
-                  const data = layerData.get(layer.id);
-                  return (
-                    <div key={layer.id} className="flex items-center gap-2">
-                      <Checkbox
-                        id={`layer-${layer.id}`}
-                        checked={enabledLayers.has(layer.id)}
-                        onCheckedChange={() => toggleLayer(layer.id)}
-                        data-testid={`checkbox-layer-${layer.id}`}
-                      />
-                      <div
-                        className="w-3 h-3 rounded border border-gray-400"
-                        style={{ backgroundColor: layer.color || "#FFFFFF" }}
-                      />
-                      <Label htmlFor={`layer-${layer.id}`} className="text-sm cursor-pointer flex-1">
-                        {layer.name}
-                      </Label>
-                      {data?.loading && <Badge variant="outline" className="text-xs">Loading</Badge>}
-                      {data?.error && <Badge variant="destructive" className="text-xs">Error</Badge>}
-                    </div>
-                  );
-                })}
+              <div className="space-y-1.5">
+                <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">Base</p>
+                <div className="flex flex-wrap gap-2">
+                  {baseLayers.map((layer) => {
+                    const data = layerData.get(layer.id);
+                    const isEnabled = enabledLayers.has(layer.id);
+                    return (
+                      <button
+                        key={layer.id}
+                        onClick={() => toggleLayer(layer.id)}
+                        className={`flex items-center gap-1.5 px-2 py-1 rounded-full text-xs transition-all ${
+                          isEnabled 
+                            ? 'bg-primary text-primary-foreground shadow-sm' 
+                            : 'bg-muted/50 text-muted-foreground hover:bg-muted'
+                        }`}
+                        data-testid={`chip-layer-${layer.id}`}
+                      >
+                        <div
+                          className="w-2.5 h-2.5 rounded-full border border-current/30"
+                          style={{ backgroundColor: layer.color || "#FFFFFF" }}
+                        />
+                        <span className="truncate max-w-[100px]">{layer.name}</span>
+                        {data?.loading && <span className="text-[8px]">...</span>}
+                      </button>
+                    );
+                  })}
+                </div>
               </div>
             )}
 
             {communityLayers.length > 0 && (
-              <div className="space-y-2">
-                <p className="text-xs font-medium text-muted-foreground uppercase">Community Season</p>
-                {communityLayers.map((layer) => {
-                  const data = layerData.get(layer.id);
-                  return (
-                    <div key={layer.id} className="flex items-center gap-2">
-                      <Checkbox
-                        id={`layer-${layer.id}`}
-                        checked={enabledLayers.has(layer.id)}
-                        onCheckedChange={() => toggleLayer(layer.id)}
-                        data-testid={`checkbox-layer-${layer.id}`}
-                      />
-                      <div
-                        className="w-3 h-3 rounded"
-                        style={{ backgroundColor: layer.color || "#22c55e" }}
-                      />
-                      <Label htmlFor={`layer-${layer.id}`} className="text-sm cursor-pointer flex-1">
-                        {layer.name}
-                      </Label>
-                      {data?.loading && <Badge variant="outline" className="text-xs">Loading</Badge>}
-                      {data?.error && <Badge variant="destructive" className="text-xs">Error</Badge>}
-                    </div>
-                  );
-                })}
+              <div className="space-y-1.5">
+                <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">Community</p>
+                <div className="flex flex-wrap gap-2">
+                  {communityLayers.map((layer) => {
+                    const data = layerData.get(layer.id);
+                    const isEnabled = enabledLayers.has(layer.id);
+                    return (
+                      <button
+                        key={layer.id}
+                        onClick={() => toggleLayer(layer.id)}
+                        className={`flex items-center gap-1.5 px-2 py-1 rounded-full text-xs transition-all ${
+                          isEnabled 
+                            ? 'bg-primary text-primary-foreground shadow-sm' 
+                            : 'bg-muted/50 text-muted-foreground hover:bg-muted'
+                        }`}
+                        data-testid={`chip-layer-${layer.id}`}
+                      >
+                        <div
+                          className="w-2.5 h-2.5 rounded-full"
+                          style={{ backgroundColor: layer.color || "#22c55e" }}
+                        />
+                        <span className="truncate max-w-[100px]">{layer.name}</span>
+                        {data?.loading && <span className="text-[8px]">...</span>}
+                      </button>
+                    );
+                  })}
+                </div>
               </div>
             )}
 
             {snowLayers.length > 0 && (
-              <div className="space-y-2">
-                <p className="text-xs font-medium text-muted-foreground uppercase">Snow Season</p>
-                {snowLayers.map((layer) => {
-                  const data = layerData.get(layer.id);
-                  return (
-                    <div key={layer.id} className="flex items-center gap-2">
-                      <Checkbox
-                        id={`layer-${layer.id}`}
-                        checked={enabledLayers.has(layer.id)}
-                        onCheckedChange={() => toggleLayer(layer.id)}
-                        data-testid={`checkbox-layer-${layer.id}`}
-                      />
-                      <div
-                        className="w-3 h-3 rounded"
-                        style={{ backgroundColor: layer.color || "#3b82f6" }}
-                      />
-                      <Label htmlFor={`layer-${layer.id}`} className="text-sm cursor-pointer flex-1">
-                        {layer.name}
-                      </Label>
-                      {data?.loading && <Badge variant="outline" className="text-xs">Loading</Badge>}
-                      {data?.error && <Badge variant="destructive" className="text-xs">Error</Badge>}
-                    </div>
-                  );
-                })}
+              <div className="space-y-1.5">
+                <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">Snow</p>
+                <div className="flex flex-wrap gap-2">
+                  {snowLayers.map((layer) => {
+                    const data = layerData.get(layer.id);
+                    const isEnabled = enabledLayers.has(layer.id);
+                    return (
+                      <button
+                        key={layer.id}
+                        onClick={() => toggleLayer(layer.id)}
+                        className={`flex items-center gap-1.5 px-2 py-1 rounded-full text-xs transition-all ${
+                          isEnabled 
+                            ? 'bg-primary text-primary-foreground shadow-sm' 
+                            : 'bg-muted/50 text-muted-foreground hover:bg-muted'
+                        }`}
+                        data-testid={`chip-layer-${layer.id}`}
+                      >
+                        <div
+                          className="w-2.5 h-2.5 rounded-full"
+                          style={{ backgroundColor: layer.color || "#3b82f6" }}
+                        />
+                        <span className="truncate max-w-[100px]">{layer.name}</span>
+                        {data?.loading && <span className="text-[8px]">...</span>}
+                      </button>
+                    );
+                  })}
+                </div>
               </div>
             )}
-          </CardContent>
-        </Card>
+          </div>
+        </div>
       )}
 
       <MapContainer
