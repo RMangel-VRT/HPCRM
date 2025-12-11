@@ -20,6 +20,9 @@ L.Icon.Default.mergeOptions({
 });
 
 const LAYER_TYPES = {
+  base: [
+    { value: "community_outline", label: "Community Outline", color: "#FFFFFF" }, // White outline
+  ],
   community: [
     { value: "mowing", label: "Mowing Zones", color: "#00FF00" },      // Bright green
     { value: "native_grass", label: "Native Grass Areas", color: "#ADFF2F" }, // Green-yellow
@@ -153,6 +156,7 @@ export default function LayerMapViewer({
     });
   };
 
+  const baseLayers = mapLayers.filter((l) => l.category === "base");
   const communityLayers = mapLayers.filter((l) => l.category === "community");
   const snowLayers = mapLayers.filter((l) => l.category === "snow");
 
@@ -235,6 +239,34 @@ export default function LayerMapViewer({
             <CardTitle className="text-sm">Map Layers</CardTitle>
           </CardHeader>
           <CardContent className="py-2 px-4 space-y-4">
+            {baseLayers.length > 0 && (
+              <div className="space-y-2">
+                <p className="text-xs font-medium text-muted-foreground uppercase">Base Layers</p>
+                {baseLayers.map((layer) => {
+                  const data = layerData.get(layer.id);
+                  return (
+                    <div key={layer.id} className="flex items-center gap-2">
+                      <Checkbox
+                        id={`layer-${layer.id}`}
+                        checked={enabledLayers.has(layer.id)}
+                        onCheckedChange={() => toggleLayer(layer.id)}
+                        data-testid={`checkbox-layer-${layer.id}`}
+                      />
+                      <div
+                        className="w-3 h-3 rounded border border-gray-400"
+                        style={{ backgroundColor: layer.color || "#FFFFFF" }}
+                      />
+                      <Label htmlFor={`layer-${layer.id}`} className="text-sm cursor-pointer flex-1">
+                        {layer.name}
+                      </Label>
+                      {data?.loading && <Badge variant="outline" className="text-xs">Loading</Badge>}
+                      {data?.error && <Badge variant="destructive" className="text-xs">Error</Badge>}
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+
             {communityLayers.length > 0 && (
               <div className="space-y-2">
                 <p className="text-xs font-medium text-muted-foreground uppercase">Community Season</p>

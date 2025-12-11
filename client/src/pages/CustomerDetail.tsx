@@ -2510,6 +2510,9 @@ function RateSheetSection({ customerId }: { customerId: string }) {
 
 // Layer type configuration - bright colors for satellite visibility
 const LAYER_TYPES = {
+  base: [
+    { value: "community_outline", label: "Community Outline", color: "#FFFFFF" }, // White outline
+  ],
   community: [
     { value: "mowing", label: "Mowing Zones", color: "#00FF00" },      // Bright green
     { value: "native_grass", label: "Native Grass Areas", color: "#ADFF2F" }, // Green-yellow
@@ -2530,7 +2533,7 @@ function CustomerMapsSection({ customerId }: { customerId: string }) {
   const [uploadingLayer, setUploadingLayer] = useState(false);
   const [showUploadDialog, setShowUploadDialog] = useState(false);
   const [showMapViewer, setShowMapViewer] = useState(false);
-  const [selectedCategory, setSelectedCategory] = useState<"community" | "snow">("community");
+  const [selectedCategory, setSelectedCategory] = useState<"base" | "community" | "snow">("community");
   const [selectedLayerType, setSelectedLayerType] = useState<string>("");
   const [customName, setCustomName] = useState("");
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -2797,6 +2800,7 @@ function CustomerMapsSection({ customerId }: { customerId: string }) {
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
+                  <SelectItem value="base">Base Layers</SelectItem>
                   <SelectItem value="community">Community Season</SelectItem>
                   <SelectItem value="snow">Snow Season</SelectItem>
                 </SelectContent>
