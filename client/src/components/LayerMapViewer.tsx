@@ -1,7 +1,7 @@
 import { useState, useEffect } from "react";
 import { useQuery } from "@tanstack/react-query";
 import type { CustomerMapLayer } from "@shared/schema";
-import { MapContainer, TileLayer, GeoJSON, useMap } from "react-leaflet";
+import { MapContainer, TileLayer, GeoJSON, useMap, ZoomControl } from "react-leaflet";
 import L from "leaflet";
 import "leaflet/dist/leaflet.css";
 import { Button } from "@/components/ui/button";
@@ -337,9 +337,11 @@ export default function LayerMapViewer({
         center={mapCenter}
         zoom={initialZoom}
         maxZoom={21}
+        zoomControl={false}
         style={{ height: "100%", width: "100%" }}
-        className="z-0"
+        className="z-0 [&_.leaflet-control-zoom]:!left-3 [&_.leaflet-control-zoom]:!bottom-3 [&_.leaflet-control-zoom]:!top-auto"
       >
+        <ZoomControl position="bottomleft" />
         {useSatellite ? (
           <TileLayer
             attribution='&copy; Google Maps'
