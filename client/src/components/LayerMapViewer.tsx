@@ -9,7 +9,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Label } from "@/components/ui/label";
 import { Skeleton } from "@/components/ui/skeleton";
-import { Layers, X, ChevronLeft, ChevronRight } from "lucide-react";
+import { Layers, X, ChevronLeft, ChevronRight, Map as MapIcon, Satellite } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 
 delete (L.Icon.Default.prototype as any)._getIconUrl;
@@ -70,6 +70,7 @@ export default function LayerMapViewer({
   const [layerData, setLayerData] = useState<Map<string, LayerData>>(new Map());
   const [showLayerPanel, setShowLayerPanel] = useState(true);
   const [bounds, setBounds] = useState<L.LatLngBounds | null>(null);
+  const [useSatellite, setUseSatellite] = useState(true); // Default to satellite view
 
   const { data: mapLayers = [], isLoading: loadingLayers } = useQuery<CustomerMapLayer[]>({
     queryKey: ["/api/customers", customerId, "map-layers"],
@@ -198,7 +199,8 @@ export default function LayerMapViewer({
         </div>
       )}
 
-      <div className="absolute top-4 left-4 z-[1000]">
+      {/* Controls positioned at bottom-left to avoid zoom controls */}
+      <div className="absolute bottom-4 left-4 z-[1000] flex flex-col gap-2">
         <Button
           variant="outline"
           size="sm"
@@ -208,10 +210,19 @@ export default function LayerMapViewer({
           {showLayerPanel ? <ChevronLeft className="w-4 h-4" /> : <ChevronRight className="w-4 h-4" />}
           <Layers className="w-4 h-4 ml-1" />
         </Button>
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={() => setUseSatellite(!useSatellite)}
+          data-testid="button-toggle-satellite"
+        >
+          {useSatellite ? <MapIcon className="w-4 h-4" /> : <Satellite className="w-4 h-4" />}
+          <span className="ml-1">{useSatellite ? "Street" : "Satellite"}</span>
+        </Button>
       </div>
 
       {showLayerPanel && (
-        <Card className="absolute top-4 left-16 z-[1000] w-64 max-h-[80%] overflow-auto">
+        <Card className="absolute bottom-4 left-32 z-[1000] w-64 max-h-[60%] overflow-auto">
           <CardHeader className="py-3 px-4">
             <CardTitle className="text-sm">Map Layers</CardTitle>
           </CardHeader>
@@ -278,13 +289,23 @@ export default function LayerMapViewer({
       <MapContainer
         center={mapCenter}
         zoom={initialZoom}
+        maxZoom={21}
         style={{ height: "100%", width: "100%" }}
         className="z-0"
       >
-        <TileLayer
-          attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
-          url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
-        />
+        {useSatellite ? (
+          <TileLayer
+            attribution='Tiles &copy; Esri &mdash; Source: Esri, i-cubed, USDA, USGS, AEX, GeoEye, Getmapping, Aerogrid, IGN, IGP, UPR-EGP, and the GIS User Community'
+            url="https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}"
+            maxZoom={21}
+          />
+        ) : (
+          <TileLayer
+            attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
+            url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
+            maxZoom={19}
+          />
+        )}
         <FitBounds bounds={bounds} />
 
         {Array.from(layerData.values()).map((data) => {
