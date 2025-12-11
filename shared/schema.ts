@@ -679,8 +679,10 @@ export type InsertTicketSource = z.infer<typeof insertTicketSourceSchema>;
 export type TicketSource = typeof ticketSources.$inferSelect;
 
 // Customer Map Layers - KML files for property mapping
-export type MapLayerCategory = "community" | "snow";
+export type MapLayerCategory = "base" | "community" | "snow";
 export type MapLayerType = 
+  // Base layers
+  | "community_outline"
   // Community season layers
   | "mowing" | "native_grass" | "landscape_beds" | "pet_stations"
   // Snow season layers
@@ -706,8 +708,8 @@ export const insertCustomerMapLayerSchema = createInsertSchema(customerMapLayers
   createdAt: true,
   updatedAt: true,
 }).extend({
-  category: z.enum(["community", "snow"]),
-  layerType: z.enum(["mowing", "native_grass", "landscape_beds", "pet_stations", "atv_route", "truck_plow", "hand_shovel", "ice_melt"]),
+  category: z.enum(["base", "community", "snow"]),
+  layerType: z.enum(["community_outline", "mowing", "native_grass", "landscape_beds", "pet_stations", "atv_route", "truck_plow", "hand_shovel", "ice_melt"]),
   color: z.string().regex(/^#[0-9A-Fa-f]{6}$/).default("#3B82F6"),
   isActive: z.enum(["true", "false"]).default("true"),
   displayOrder: z.number().int().default(0),
