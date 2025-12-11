@@ -33,6 +33,7 @@ const priorityConfig: Record<string, { label: string; variant: "default" | "seco
 export default function MyTicketsPreview() {
   const { data: myTickets = [], isLoading } = useQuery<Ticket[]>({
     queryKey: ["/api/tickets/my"],
+    refetchOnMount: "always",
   });
 
   const activeTickets = myTickets.filter(t => 
