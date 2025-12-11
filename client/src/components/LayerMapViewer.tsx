@@ -193,7 +193,13 @@ export default function LayerMapViewer({
     <div className={fullScreen ? "fixed inset-0 bg-background z-50" : "h-[500px] relative"}>
       {fullScreen && onClose && (
         <div className="absolute top-4 right-4 z-[1000]">
-          <Button variant="outline" size="icon" onClick={onClose} data-testid="button-close-map-viewer">
+          <Button 
+            variant="secondary" 
+            size="icon" 
+            className="bg-white text-black border border-gray-300 shadow-md hover:bg-gray-100 dark:bg-gray-800 dark:text-white dark:border-gray-600 dark:hover:bg-gray-700"
+            onClick={onClose} 
+            data-testid="button-close-map-viewer"
+          >
             <X className="w-4 h-4" />
           </Button>
         </div>
@@ -202,8 +208,9 @@ export default function LayerMapViewer({
       {/* Controls positioned at bottom-left to avoid zoom controls */}
       <div className="absolute bottom-4 left-4 z-[1000] flex flex-col gap-2">
         <Button
-          variant="outline"
+          variant="secondary"
           size="sm"
+          className="bg-white text-black border border-gray-300 shadow-md hover:bg-gray-100 dark:bg-gray-800 dark:text-white dark:border-gray-600 dark:hover:bg-gray-700"
           onClick={() => setShowLayerPanel(!showLayerPanel)}
           data-testid="button-toggle-layers"
         >
@@ -211,8 +218,9 @@ export default function LayerMapViewer({
           <Layers className="w-4 h-4 ml-1" />
         </Button>
         <Button
-          variant="outline"
+          variant="secondary"
           size="sm"
+          className="bg-white text-black border border-gray-300 shadow-md hover:bg-gray-100 dark:bg-gray-800 dark:text-white dark:border-gray-600 dark:hover:bg-gray-700"
           onClick={() => setUseSatellite(!useSatellite)}
           data-testid="button-toggle-satellite"
         >
