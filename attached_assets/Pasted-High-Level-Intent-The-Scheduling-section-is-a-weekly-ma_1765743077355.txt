@@ -1,0 +1,242 @@
+High-Level Intent
+
+The Scheduling section is a weekly maintenance planner that lets you design and visualize your mowing schedule for the whole season. Each property’s weekly mowing visit becomes a block of time (duration + crew size) that can be dragged and dropped into a weekly grid. That “template week” is then applied consistently from the first two weeks of April through the second week of October.
+
+1. Core Concepts
+
+Maintenance Visit Block
+
+Represents a single weekly mowing visit for a property.
+
+Has: property, estimated duration, crew size, day-of-week, optional start time, and notes.
+
+Maintenance Crew
+
+A named crew (e.g., Crew 1, Crew 2, East Route).
+
+Each crew has:
+
+Default working hours per day (e.g., 8 hours).
+
+Optional days off or special schedules.
+
+Weekly Template
+
+One “ideal” week showing all properties and their mowing visits.
+
+This template is repeated over all mowing weeks (2 weeks in April → 2 weeks in October).
+
+Mowing Season
+
+Global season settings already exist (months).
+
+Scheduler uses these to know which weeks to repeat the template over.
+
+2. Setup Phase — Per-Property Maintenance Configuration
+
+Before using the drag-and-drop planner, each property needs a simple configuration for mowing:
+
+For each maintenance customer/property:
+
+Set Weekly Mowing Settings:
+
+Estimated visit duration (in minutes/hours).
+
+Typical crew size (number of people).
+
+Preferred day of week (Mon–Fri).
+
+Optional crew preference (e.g., “Crew 1 preferred”).
+
+Notes (e.g., “avoid school pickup times,” “do backyards first”).
+
+Behavior:
+
+This lives under either:
+
+The Customer page, or
+
+The Maintenance contract for that customer.
+
+Once saved, this property now shows up as an available block in the Weekly Scheduler.
+
+Validation:
+
+Duration must be > 0.
+
+Crew size must be ≥ 1.
+
+Day-of-week required for properties that are active maintenance customers.
+
+3. Weekly Maintenance Scheduler (Drag & Drop)
+View
+
+New “Scheduling” section on the main nav.
+
+Within it, a “Weekly Maintenance Planner” view:
+
+Columns: days of the week (Mon–Fri; optionally Sat).
+
+Rows: crews (Crew 1, Crew 2, etc.) or a single crew if you run one crew.
+
+Each block = one property’s weekly mowing visit:
+
+Shows property name.
+
+Shows estimated time + crew size (e.g., “2.5 hrs — 3-person crew”).
+
+Interactions
+
+A side panel or drawer lists:
+
+“Unscheduled properties” (properties with mowing config but not yet placed).
+
+You can:
+
+Drag a property block from the unscheduled list onto a day/crew slot.
+
+Drag blocks between days/crews to reorganize routes.
+
+Optionally reorder blocks within a day to suggest route order.
+
+Capacity feedback (optional but nice)
+
+Each crew/day shows a total scheduled hours:
+
+Sum of all blocks’ durations for that crew on that day.
+
+If total hours exceed a threshold (e.g., 8 hrs), visually highlight the overage (e.g., red bar or warning icon).
+
+This helps you balance workloads across crews and days.
+
+Save as Template
+
+When you are happy with the weekly layout:
+
+Click “Save as Season Template”.
+
+This becomes the default weekly schedule for the mowing season.
+
+4. Season Repetition (April–October)
+
+Business rule you gave:
+
+“This schedule would remain consistent for 2 weeks in April through 2 weeks in October.”
+
+Implementation behavior:
+
+Season window:
+
+Use existing mowing-season settings, but specifically:
+
+Start: 2nd week of April (or first week you choose).
+
+End: 2nd week of October.
+
+The system uses the Weekly Template and repeats it across each week in that window:
+
+Crew 1 / Monday assignments → same properties every Monday in that period.
+
+Crew 2 / Tuesday assignments → same pattern, etc.
+
+For now (planning stage):
+
+You don’t need to generate daily tickets yet.
+
+You just need the template and the concept of:
+
+“In each week of the mowing season, this is who goes where and for how long.”
+
+Later:
+
+A future slice can say: “Generate weekly mowing tickets for each week based on this template.”
+
+5. Integration with Existing CRM Pieces
+
+Customers / Contracts
+
+Only properties with an active Maintenance contract should appear in the Weekly Scheduler by default.
+
+Optionally allow a toggle: “Show properties without active maintenance contracts” for edge cases.
+
+Tickets (future)
+
+Each Maintenance Visit Block will eventually become:
+
+A recurring Onsite Maintenance Task ticket per week.
+
+For now, no ticket generation; just save the template and structure.
+
+Services Included
+
+The Weekly Template should be consistent with the mowing frequency defined in Services Included:
+
+If a property is set to 26 mowings per year, the system should:
+
+Assume weekly mowing across the season window, matching your template.
+
+(This can be validated later; for now, just design so they can match.)
+
+6. Permissions & Roles
+
+Admin / Office
+
+Can create, edit, and save weekly templates.
+
+Can adjust per-property durations and crew sizes.
+
+Can assign properties to crews and days.
+
+Ops
+
+Read-only view of the Weekly Template (so crew leaders can see their route).
+
+Optionally, limited ability to propose changes (e.g., suggest swaps) but not save the master template.
+
+Viewer
+
+Read-only view of the weekly schedule.
+
+7. Testing / Acceptance Checklist (for Replit to verify when built)
+
+Ask them to validate:
+
+Per-Property Setup
+
+For 5–10 maintenance customers, set durations, crew sizes, and preferred days.
+
+Confirm these properties appear as blocks in the scheduler.
+
+Drag & Drop Planner
+
+Drag each property to a crew/day.
+
+Check that total hours per crew/day are calculated and visible.
+
+Move properties between days/crews and verify totals update correctly.
+
+Season Template
+
+Save the weekly layout as the season template.
+
+Confirm it is:
+
+Persisted.
+
+Reloaded correctly when you revisit the scheduler.
+
+Season Window Logic
+
+Confirm that the system understands the mowing season is “2 weeks in April through 2 weeks in October” (even if it’s just stored as a config for now, not generating dates/tickets yet).
+
+Role Behavior
+
+Admin/Office: can edit and save the template.
+
+Ops/Viewer: can view but not change the master template.
+
+Consistency with CRM
+
+Remove maintenance contract from a customer and confirm:
+
+Their block no longer appears by default in the Weekly Planner (or is flagged as out-of-contract)
