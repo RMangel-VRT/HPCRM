@@ -1,6 +1,6 @@
-import { type User, type InsertUser, type Customer, type InsertCustomer, type Contact, type InsertContact, type Company, type InsertCompany, type CompanyUser, type InsertCompanyUser, type Settings, type InsertSettings, type Note, type InsertNote, type Contract, type InsertContract, type ContractStatusHistory, type InsertContractStatusHistory, type ContractDocument, type InsertContractDocument, type ContractMonthlyAmount, type InsertContractMonthlyAmount, type CustomerRateSheet, type InsertCustomerRateSheet, type ContractService, type InsertContractService, type ContractTemplate, type InsertContractTemplate, type ContractBuilderDocument, type InsertContractBuilderDocument, type ContractBuilderSection, type InsertContractBuilderSection, type ContractBuilderVariable, type InsertContractBuilderVariable, type TicketType, type InsertTicketType, type TicketTypeStatus, type InsertTicketTypeStatus, type TicketTypeField, type InsertTicketTypeField, type Ticket, type InsertTicket, type TicketFieldValue, type InsertTicketFieldValue, type TicketStatusHistory, type InsertTicketStatusHistory, type TicketComment, type InsertTicketComment, type TicketSource, type InsertTicketSource, type TicketTypeCategory, type CustomerMapLayer, type InsertCustomerMapLayer, type CustomerMapDocument, type InsertCustomerMapDocument } from "@shared/schema";
+import { type User, type InsertUser, type Customer, type InsertCustomer, type Contact, type InsertContact, type Company, type InsertCompany, type CompanyUser, type InsertCompanyUser, type Settings, type InsertSettings, type Note, type InsertNote, type Contract, type InsertContract, type ContractStatusHistory, type InsertContractStatusHistory, type ContractDocument, type InsertContractDocument, type ContractMonthlyAmount, type InsertContractMonthlyAmount, type CustomerRateSheet, type InsertCustomerRateSheet, type ContractService, type InsertContractService, type ContractTemplate, type InsertContractTemplate, type ContractBuilderDocument, type InsertContractBuilderDocument, type ContractBuilderSection, type InsertContractBuilderSection, type ContractBuilderVariable, type InsertContractBuilderVariable, type TicketType, type InsertTicketType, type TicketTypeStatus, type InsertTicketTypeStatus, type TicketTypeField, type InsertTicketTypeField, type Ticket, type InsertTicket, type TicketFieldValue, type InsertTicketFieldValue, type TicketStatusHistory, type InsertTicketStatusHistory, type TicketComment, type InsertTicketComment, type TicketSource, type InsertTicketSource, type TicketTypeCategory, type CustomerMapLayer, type InsertCustomerMapLayer, type CustomerMapDocument, type InsertCustomerMapDocument, type MaintenanceCrew, type InsertMaintenanceCrew, type MaintenanceVisitConfig, type InsertMaintenanceVisitConfig, type WeeklyScheduleTemplate, type InsertWeeklyScheduleTemplate, type ScheduleBlock, type InsertScheduleBlock } from "@shared/schema";
 import { db } from "./db";
-import { users, customers, contacts, companies, companyUsers, settings, notes, contracts, contractStatusHistory, contractDocuments, contractMonthlyAmounts, customerRateSheets, contractServices, contractTemplates, contractBuilderDocuments, contractBuilderSections, contractBuilderVariables, ticketTypes, ticketTypeStatuses, ticketTypeFields, tickets, ticketFieldValues, ticketStatusHistory, ticketComments, ticketSources, customerMapLayers, customerMapDocuments } from "@shared/schema";
+import { users, customers, contacts, companies, companyUsers, settings, notes, contracts, contractStatusHistory, contractDocuments, contractMonthlyAmounts, customerRateSheets, contractServices, contractTemplates, contractBuilderDocuments, contractBuilderSections, contractBuilderVariables, ticketTypes, ticketTypeStatuses, ticketTypeFields, tickets, ticketFieldValues, ticketStatusHistory, ticketComments, ticketSources, customerMapLayers, customerMapDocuments, maintenanceCrews, maintenanceVisitConfigs, weeklyScheduleTemplates, scheduleBlocks } from "@shared/schema";
 import { eq, and, sql, desc } from "drizzle-orm";
 import session from "express-session";
 import connectPg from "connect-pg-simple";
@@ -147,6 +147,30 @@ export interface IStorage {
   getCustomerMapDocumentById(id: string, companyId: string): Promise<CustomerMapDocument | undefined>;
   createCustomerMapDocument(document: InsertCustomerMapDocument): Promise<CustomerMapDocument>;
   deleteCustomerMapDocument(id: string, companyId: string): Promise<void>;
+  
+  // Maintenance Scheduling
+  getMaintenanceCrews(companyId: string): Promise<MaintenanceCrew[]>;
+  getMaintenanceCrewById(id: string, companyId: string): Promise<MaintenanceCrew | undefined>;
+  createMaintenanceCrew(crew: InsertMaintenanceCrew): Promise<MaintenanceCrew>;
+  updateMaintenanceCrew(id: string, companyId: string, updates: Partial<InsertMaintenanceCrew>): Promise<MaintenanceCrew | undefined>;
+  deleteMaintenanceCrew(id: string, companyId: string): Promise<void>;
+  
+  getMaintenanceVisitConfig(customerId: string, companyId: string): Promise<MaintenanceVisitConfig | undefined>;
+  createMaintenanceVisitConfig(config: InsertMaintenanceVisitConfig): Promise<MaintenanceVisitConfig>;
+  updateMaintenanceVisitConfig(id: string, companyId: string, updates: Partial<InsertMaintenanceVisitConfig>): Promise<MaintenanceVisitConfig | undefined>;
+  getMaintenanceVisitConfigs(companyId: string): Promise<MaintenanceVisitConfig[]>;
+  
+  getWeeklyScheduleTemplates(companyId: string): Promise<WeeklyScheduleTemplate[]>;
+  getWeeklyScheduleTemplateById(id: string, companyId: string): Promise<WeeklyScheduleTemplate | undefined>;
+  createWeeklyScheduleTemplate(template: InsertWeeklyScheduleTemplate): Promise<WeeklyScheduleTemplate>;
+  updateWeeklyScheduleTemplate(id: string, companyId: string, updates: Partial<InsertWeeklyScheduleTemplate>): Promise<WeeklyScheduleTemplate | undefined>;
+  deleteWeeklyScheduleTemplate(id: string, companyId: string): Promise<void>;
+  
+  getScheduleBlocks(templateId: string): Promise<ScheduleBlock[]>;
+  createScheduleBlock(block: InsertScheduleBlock): Promise<ScheduleBlock>;
+  updateScheduleBlock(id: string, updates: Partial<InsertScheduleBlock>): Promise<ScheduleBlock | undefined>;
+  deleteScheduleBlock(id: string): Promise<void>;
+  deleteScheduleBlocksByTemplate(templateId: string): Promise<void>;
   
   sessionStore: session.Store;
 }
@@ -1183,6 +1207,121 @@ export class PgStorage implements IStorage {
   async deleteCustomerMapDocument(id: string, companyId: string): Promise<void> {
     await db.delete(customerMapDocuments)
       .where(and(eq(customerMapDocuments.id, id), eq(customerMapDocuments.companyId, companyId)));
+  }
+
+  // Maintenance Scheduling
+  async getMaintenanceCrews(companyId: string): Promise<MaintenanceCrew[]> {
+    return await db.select().from(maintenanceCrews)
+      .where(eq(maintenanceCrews.companyId, companyId))
+      .orderBy(maintenanceCrews.name);
+  }
+
+  async getMaintenanceCrewById(id: string, companyId: string): Promise<MaintenanceCrew | undefined> {
+    const result = await db.select().from(maintenanceCrews)
+      .where(and(eq(maintenanceCrews.id, id), eq(maintenanceCrews.companyId, companyId)))
+      .limit(1);
+    return result[0];
+  }
+
+  async createMaintenanceCrew(insertCrew: InsertMaintenanceCrew): Promise<MaintenanceCrew> {
+    const result = await db.insert(maintenanceCrews).values([insertCrew]).returning();
+    return result[0];
+  }
+
+  async updateMaintenanceCrew(id: string, companyId: string, updates: Partial<InsertMaintenanceCrew>): Promise<MaintenanceCrew | undefined> {
+    const result = await db.update(maintenanceCrews)
+      .set(updates)
+      .where(and(eq(maintenanceCrews.id, id), eq(maintenanceCrews.companyId, companyId)))
+      .returning();
+    return result[0];
+  }
+
+  async deleteMaintenanceCrew(id: string, companyId: string): Promise<void> {
+    await db.delete(maintenanceCrews)
+      .where(and(eq(maintenanceCrews.id, id), eq(maintenanceCrews.companyId, companyId)));
+  }
+
+  async getMaintenanceVisitConfig(customerId: string, companyId: string): Promise<MaintenanceVisitConfig | undefined> {
+    const result = await db.select().from(maintenanceVisitConfigs)
+      .where(and(eq(maintenanceVisitConfigs.customerId, customerId), eq(maintenanceVisitConfigs.companyId, companyId)))
+      .limit(1);
+    return result[0];
+  }
+
+  async createMaintenanceVisitConfig(insertConfig: InsertMaintenanceVisitConfig): Promise<MaintenanceVisitConfig> {
+    const result = await db.insert(maintenanceVisitConfigs).values([insertConfig]).returning();
+    return result[0];
+  }
+
+  async updateMaintenanceVisitConfig(id: string, companyId: string, updates: Partial<InsertMaintenanceVisitConfig>): Promise<MaintenanceVisitConfig | undefined> {
+    const result = await db.update(maintenanceVisitConfigs)
+      .set({ ...updates, updatedAt: new Date() })
+      .where(and(eq(maintenanceVisitConfigs.id, id), eq(maintenanceVisitConfigs.companyId, companyId)))
+      .returning();
+    return result[0];
+  }
+
+  async getMaintenanceVisitConfigs(companyId: string): Promise<MaintenanceVisitConfig[]> {
+    return await db.select().from(maintenanceVisitConfigs)
+      .where(eq(maintenanceVisitConfigs.companyId, companyId));
+  }
+
+  async getWeeklyScheduleTemplates(companyId: string): Promise<WeeklyScheduleTemplate[]> {
+    return await db.select().from(weeklyScheduleTemplates)
+      .where(eq(weeklyScheduleTemplates.companyId, companyId))
+      .orderBy(desc(weeklyScheduleTemplates.createdAt));
+  }
+
+  async getWeeklyScheduleTemplateById(id: string, companyId: string): Promise<WeeklyScheduleTemplate | undefined> {
+    const result = await db.select().from(weeklyScheduleTemplates)
+      .where(and(eq(weeklyScheduleTemplates.id, id), eq(weeklyScheduleTemplates.companyId, companyId)))
+      .limit(1);
+    return result[0];
+  }
+
+  async createWeeklyScheduleTemplate(insertTemplate: InsertWeeklyScheduleTemplate): Promise<WeeklyScheduleTemplate> {
+    const result = await db.insert(weeklyScheduleTemplates).values([insertTemplate]).returning();
+    return result[0];
+  }
+
+  async updateWeeklyScheduleTemplate(id: string, companyId: string, updates: Partial<InsertWeeklyScheduleTemplate>): Promise<WeeklyScheduleTemplate | undefined> {
+    const result = await db.update(weeklyScheduleTemplates)
+      .set({ ...updates, updatedAt: new Date() })
+      .where(and(eq(weeklyScheduleTemplates.id, id), eq(weeklyScheduleTemplates.companyId, companyId)))
+      .returning();
+    return result[0];
+  }
+
+  async deleteWeeklyScheduleTemplate(id: string, companyId: string): Promise<void> {
+    await db.delete(weeklyScheduleTemplates)
+      .where(and(eq(weeklyScheduleTemplates.id, id), eq(weeklyScheduleTemplates.companyId, companyId)));
+  }
+
+  async getScheduleBlocks(templateId: string): Promise<ScheduleBlock[]> {
+    return await db.select().from(scheduleBlocks)
+      .where(eq(scheduleBlocks.templateId, templateId))
+      .orderBy(scheduleBlocks.dayOfWeek, scheduleBlocks.sortOrder);
+  }
+
+  async createScheduleBlock(insertBlock: InsertScheduleBlock): Promise<ScheduleBlock> {
+    const result = await db.insert(scheduleBlocks).values([insertBlock]).returning();
+    return result[0];
+  }
+
+  async updateScheduleBlock(id: string, updates: Partial<InsertScheduleBlock>): Promise<ScheduleBlock | undefined> {
+    const result = await db.update(scheduleBlocks)
+      .set(updates)
+      .where(eq(scheduleBlocks.id, id))
+      .returning();
+    return result[0];
+  }
+
+  async deleteScheduleBlock(id: string): Promise<void> {
+    await db.delete(scheduleBlocks).where(eq(scheduleBlocks.id, id));
+  }
+
+  async deleteScheduleBlocksByTemplate(templateId: string): Promise<void> {
+    await db.delete(scheduleBlocks).where(eq(scheduleBlocks.templateId, templateId));
   }
 }
 

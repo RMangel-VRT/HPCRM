@@ -1,5 +1,5 @@
 import { sql } from "drizzle-orm";
-import { pgTable, text, varchar, timestamp, unique, integer, jsonb, real } from "drizzle-orm/pg-core";
+import { pgTable, text, varchar, timestamp, unique, integer, jsonb, real, boolean } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
 
@@ -740,3 +740,113 @@ export const insertCustomerMapDocumentSchema = createInsertSchema(customerMapDoc
 
 export type InsertCustomerMapDocument = z.infer<typeof insertCustomerMapDocumentSchema>;
 export type CustomerMapDocument = typeof customerMapDocuments.$inferSelect;
+
+// ==================== SCHEDULING SYSTEM ====================
+
+// Day of week type for scheduling
+export type DayOfWeek = "monday" | "tuesday" | "wednesday" | "thursday" | "friday" | "saturday";
+
+// Maintenance Crews
+export const maintenanceCrews = pgTable("maintenance_crews", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  companyId: varchar("company_id").notNull().references(() => companies.id, { onDelete: "cascade" }),
+  name: text("name").notNull(),
+  defaultHoursPerDay: real("default_hours_per_day").default(8),
+  isActive: boolean("is_active").default(true),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+});
+
+export const insertMaintenanceCrewSchema = createInsertSchema(maintenanceCrews).omit({
+  id: true,
+  createdAt: true,
+}).extend({
+  defaultHoursPerDay: z.number().min(0).max(24).default(8),
+  isActive: z.boolean().default(true),
+});
+
+export type InsertMaintenanceCrew = z.infer<typeof insertMaintenanceCrewSchema>;
+export type MaintenanceCrew = typeof maintenanceCrews.$inferSelect;
+
+// Per-property mowing/maintenance visit configuration
+export const maintenanceVisitConfigs = pgTable("maintenance_visit_configs", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  companyId: varchar("company_id").notNull().references(() => companies.id, { onDelete: "cascade" }),
+  customerId: varchar("customer_id").notNull().references(() => customers.id, { onDelete: "cascade" }),
+  estimatedDurationMinutes: integer("estimated_duration_minutes").notNull(),
+  crewSize: integer("crew_size").notNull().default(2),
+  preferredDay: text("preferred_day").$type<DayOfWeek>(),
+  preferredCrewId: varchar("preferred_crew_id").references(() => maintenanceCrews.id, { onDelete: "set null" }),
+  notes: text("notes"),
+  isActive: boolean("is_active").default(true),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  updatedAt: timestamp("updated_at").notNull().defaultNow(),
+}, (table) => ({
+  customerUnique: unique().on(table.customerId, table.companyId),
+}));
+
+export const insertMaintenanceVisitConfigSchema = createInsertSchema(maintenanceVisitConfigs).omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+}).extend({
+  estimatedDurationMinutes: z.number().int().min(1),
+  crewSize: z.number().int().min(1).max(10).default(2),
+  preferredDay: z.enum(["monday", "tuesday", "wednesday", "thursday", "friday", "saturday"]).optional(),
+  isActive: z.boolean().default(true),
+});
+
+export type InsertMaintenanceVisitConfig = z.infer<typeof insertMaintenanceVisitConfigSchema>;
+export type MaintenanceVisitConfig = typeof maintenanceVisitConfigs.$inferSelect;
+
+// Weekly schedule template (repeats April-October by default)
+export const weeklyScheduleTemplates = pgTable("weekly_schedule_templates", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  companyId: varchar("company_id").notNull().references(() => companies.id, { onDelete: "cascade" }),
+  name: text("name").notNull().default("Season Template"),
+  seasonStartMonth: integer("season_start_month").default(4), // April
+  seasonStartWeek: integer("season_start_week").default(2),
+  seasonEndMonth: integer("season_end_month").default(10), // October
+  seasonEndWeek: integer("season_end_week").default(2),
+  isActive: boolean("is_active").default(true),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  updatedAt: timestamp("updated_at").notNull().defaultNow(),
+});
+
+export const insertWeeklyScheduleTemplateSchema = createInsertSchema(weeklyScheduleTemplates).omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+}).extend({
+  seasonStartMonth: z.number().int().min(1).max(12).default(4),
+  seasonStartWeek: z.number().int().min(1).max(5).default(2),
+  seasonEndMonth: z.number().int().min(1).max(12).default(10),
+  seasonEndWeek: z.number().int().min(1).max(5).default(2),
+  isActive: z.boolean().default(true),
+});
+
+export type InsertWeeklyScheduleTemplate = z.infer<typeof insertWeeklyScheduleTemplateSchema>;
+export type WeeklyScheduleTemplate = typeof weeklyScheduleTemplates.$inferSelect;
+
+// Schedule blocks - property placements on the weekly grid
+export const scheduleBlocks = pgTable("schedule_blocks", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  templateId: varchar("template_id").notNull().references(() => weeklyScheduleTemplates.id, { onDelete: "cascade" }),
+  visitConfigId: varchar("visit_config_id").notNull().references(() => maintenanceVisitConfigs.id, { onDelete: "cascade" }),
+  crewId: varchar("crew_id").notNull().references(() => maintenanceCrews.id, { onDelete: "cascade" }),
+  dayOfWeek: text("day_of_week").notNull().$type<DayOfWeek>(),
+  sortOrder: integer("sort_order").default(0),
+  startTime: text("start_time"), // Optional HH:MM format
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+});
+
+export const insertScheduleBlockSchema = createInsertSchema(scheduleBlocks).omit({
+  id: true,
+  createdAt: true,
+}).extend({
+  dayOfWeek: z.enum(["monday", "tuesday", "wednesday", "thursday", "friday", "saturday"]),
+  sortOrder: z.number().int().default(0),
+  startTime: z.string().regex(/^([01]\d|2[0-3]):([0-5]\d)$/).optional(),
+});
+
+export type InsertScheduleBlock = z.infer<typeof insertScheduleBlockSchema>;
+export type ScheduleBlock = typeof scheduleBlocks.$inferSelect;
