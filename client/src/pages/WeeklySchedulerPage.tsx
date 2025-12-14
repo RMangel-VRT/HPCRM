@@ -1,4 +1,4 @@
-import { useState, useMemo, Fragment } from "react";
+import { useState, useMemo, Fragment, useEffect } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import {
   DndContext,
@@ -255,12 +255,18 @@ export default function WeeklySchedulerPage() {
 
   const activeTemplate = templates.find((t) => t.id === selectedTemplateId) || templates.find((t) => t.isActive) || templates[0];
 
+  const activeCrews = crews.filter((c) => c.isActive);
+
+  useEffect(() => {
+    if (!templatesLoading && templates.length === 0 && canEdit && activeCrews.length > 0) {
+      createTemplateMutation.mutate();
+    }
+  }, [templatesLoading, templates.length, canEdit, activeCrews.length]);
+
   const { data: blocks = [], isLoading: blocksLoading } = useQuery<ScheduleBlock[]>({
     queryKey: ["/api/schedule-templates", activeTemplate?.id, "blocks"],
     enabled: !!activeTemplate?.id,
   });
-
-  const activeCrews = crews.filter((c) => c.isActive);
 
   const visitConfigsWithCustomers: VisitConfigWithCustomer[] = useMemo(() =>
     visitConfigs.map((vc) => ({
