@@ -6,6 +6,7 @@ import { useQuery } from "@tanstack/react-query";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Link } from "wouter";
 import { format, parseISO } from "date-fns";
+import { useAuth } from "@/hooks/use-auth";
 
 interface Ticket {
   id: string;
@@ -31,9 +32,12 @@ const priorityConfig: Record<string, { label: string; variant: "default" | "seco
 };
 
 export default function MyTicketsPreview() {
+  const { user } = useAuth();
+  
   const { data: myTickets = [], isLoading } = useQuery<Ticket[]>({
-    queryKey: ["/api/tickets/my"],
+    queryKey: ["/api/tickets/my", user?.id],
     refetchOnMount: "always",
+    staleTime: 0,
   });
 
   const activeTickets = myTickets.filter(t => 

@@ -16,6 +16,7 @@ import { Link } from "wouter";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import type { Ticket, TicketType, TicketTypeStatus, Customer, WorkType } from "@shared/schema";
 import { WORK_TYPE_CATALOG } from "@shared/workTypeCatalog";
+import { useAuth } from "@/hooks/use-auth";
 
 interface TicketWithDetails extends Ticket {
   ticketType?: TicketType;
@@ -31,14 +32,16 @@ const priorityConfig = {
 };
 
 export default function MyTickets() {
+  const { user } = useAuth();
   const [search, setSearch] = useState("");
   const [priorityFilter, setPriorityFilter] = useState("all");
   const [workTypeFilter, setWorkTypeFilter] = useState("all");
   const [showFilters, setShowFilters] = useState(false);
 
   const { data: tickets = [], isLoading: ticketsLoading, refetch, isFetching } = useQuery<Ticket[]>({
-    queryKey: ["/api/tickets/my"],
+    queryKey: ["/api/tickets/my", user?.id],
     refetchOnMount: "always",
+    staleTime: 0,
   });
 
   const { data: ticketTypes = [] } = useQuery<TicketType[]>({
