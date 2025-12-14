@@ -1,4 +1,4 @@
-import { useState, useMemo } from "react";
+import { useState, useMemo, Fragment } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import {
   DndContext,
@@ -795,8 +795,8 @@ export default function WeeklySchedulerPage() {
                 ))}
 
                 {activeCrews.map((crew) => (
-                  <>
-                    <div key={`crew-${crew.id}`} className="p-2 flex items-start">
+                  <Fragment key={crew.id}>
+                    <div className="p-2 flex items-start">
                       <div>
                         <div className="font-medium text-sm" data-testid={`text-crew-name-${crew.id}`}>
                           {crew.name}
@@ -827,7 +827,7 @@ export default function WeeklySchedulerPage() {
                         />
                       );
                     })}
-                  </>
+                  </Fragment>
                 ))}
               </div>
             </div>
