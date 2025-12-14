@@ -21,6 +21,7 @@ import {
   ClipboardList,
   UserCheck,
   Map,
+  CalendarDays,
 } from "lucide-react";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import RoleBadge from "./RoleBadge";
@@ -75,6 +76,11 @@ export default function AppSidebar({
     
     // Property Maps - everyone
     items.push({ title: "Property Maps", url: "/dashboard/maps", icon: Map });
+    
+    // Weekly Scheduler - Admin and Office only
+    if (userRole === "admin" || userRole === "office") {
+      items.push({ title: "Scheduler", url: "/dashboard/scheduler", icon: CalendarDays });
+    }
     
     // Tools - Admin, Office, Field Manager
     if (userRole === "admin" || userRole === "office" || userRole === "field_manager") {

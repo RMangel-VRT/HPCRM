@@ -25,6 +25,7 @@ import UsersPage from "@/pages/UsersPage";
 import SettingsPage from "@/pages/SettingsPage";
 import SuperAdminHome from "@/pages/SuperAdminHome";
 import PropertyMapsPage from "@/pages/PropertyMapsPage";
+import WeeklySchedulerPage from "@/pages/WeeklySchedulerPage";
 import NotFound from "@/pages/not-found";
 
 function Router() {
@@ -78,6 +79,7 @@ function Router() {
               <ProtectedRoute path="/dashboard/tickets/:id" component={TicketDetail} />
               <ProtectedRoute path="/dashboard/tickets" component={TicketsList} allowedRoles={["admin"]} />
               <ProtectedRoute path="/dashboard/maps" component={PropertyMapsPage} />
+              <ProtectedRoute path="/dashboard/scheduler" component={WeeklySchedulerPage} allowedRoles={["admin", "office"]} />
               <ProtectedRoute path="/dashboard/tools/contract-builder" component={ContractBuilderPage} allowedRoles={["admin", "office"]} />
               <ProtectedRoute path="/dashboard/tools" component={ToolsPage} allowedRoles={["admin", "office", "field_manager"]} />
               <ProtectedRoute path="/dashboard/revenue" component={RevenueOverview} allowedRoles={["admin", "office"]} />
