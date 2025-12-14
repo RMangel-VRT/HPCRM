@@ -1,5 +1,19 @@
-import { useState } from "react";
+import { useState, useMemo } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
+import {
+  DndContext,
+  DragOverlay,
+  closestCenter,
+  KeyboardSensor,
+  PointerSensor,
+  useSensor,
+  useSensors,
+  DragStartEvent,
+  DragEndEvent,
+  useDroppable,
+  useDraggable,
+} from "@dnd-kit/core";
+import { CSS } from "@dnd-kit/utilities";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -19,7 +33,7 @@ import {
   DialogFooter,
 } from "@/components/ui/dialog";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import { Loader2, Plus, GripVertical, Clock, Users, Calendar, X, Trash2, ChevronRight } from "lucide-react";
+import { Loader2, Plus, GripVertical, Clock, Users, Calendar, X, ChevronRight } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { queryClient, apiRequest } from "@/lib/queryClient";
 import { useAuth } from "@/hooks/use-auth";
@@ -49,6 +63,132 @@ interface ScheduleBlockWithDetails extends ScheduleBlock {
   visitConfig?: VisitConfigWithCustomer;
 }
 
+interface DraggableBlockProps {
+  block: ScheduleBlockWithDetails;
+  canEdit: boolean;
+  onRemove: () => void;
+}
+
+function DraggableBlock({ block, canEdit, onRemove }: DraggableBlockProps) {
+  const { attributes, listeners, setNodeRef, transform, isDragging } = useDraggable({
+    id: block.id,
+    disabled: !canEdit,
+  });
+
+  const style = {
+    transform: CSS.Translate.toString(transform),
+    opacity: isDragging ? 0.5 : 1,
+  };
+
+  return (
+    <div
+      ref={setNodeRef}
+      style={style}
+      className="group bg-accent/50 rounded p-1.5 text-xs relative touch-none"
+      data-testid={`block-${block.id}`}
+    >
+      <div className="flex items-start gap-1">
+        <div
+          {...attributes}
+          {...listeners}
+          className={canEdit ? "cursor-grab active:cursor-grabbing" : ""}
+        >
+          <GripVertical className="h-3 w-3 text-muted-foreground shrink-0 mt-0.5" />
+        </div>
+        <div className="flex-1 min-w-0">
+          <div className="font-medium truncate">
+            {block.visitConfig?.customer?.name || "Unknown"}
+          </div>
+          <div className="flex items-center gap-1 text-muted-foreground mt-0.5">
+            <Clock className="h-3 w-3" />
+            {block.visitConfig?.estimatedDurationMinutes || 0}m
+          </div>
+        </div>
+        {canEdit && (
+          <Button
+            size="icon"
+            variant="ghost"
+            className="h-5 w-5 opacity-0 group-hover:opacity-100 transition-opacity"
+            onClick={(e) => {
+              e.stopPropagation();
+              onRemove();
+            }}
+            data-testid={`button-remove-block-${block.id}`}
+          >
+            <X className="h-3 w-3" />
+          </Button>
+        )}
+      </div>
+    </div>
+  );
+}
+
+interface DroppableCellProps {
+  crewId: string;
+  day: DayOfWeek;
+  blocks: ScheduleBlockWithDetails[];
+  canEdit: boolean;
+  onAddClick: () => void;
+  onRemoveBlock: (blockId: string) => void;
+  isOver: boolean;
+}
+
+function DroppableCell({ crewId, day, blocks, canEdit, onAddClick, onRemoveBlock, isOver }: DroppableCellProps) {
+  const { setNodeRef } = useDroppable({
+    id: `${crewId}::${day}`,
+  });
+
+  return (
+    <Card
+      ref={setNodeRef}
+      className={`min-h-[100px] p-1 transition-colors ${isOver ? "ring-2 ring-primary bg-accent/30" : ""}`}
+      data-testid={`cell-${crewId}-${day}`}
+    >
+      <div className="space-y-1">
+        {blocks.map((block) => (
+          <DraggableBlock
+            key={block.id}
+            block={block}
+            canEdit={canEdit}
+            onRemove={() => onRemoveBlock(block.id)}
+          />
+        ))}
+        {canEdit && (
+          <Button
+            variant="ghost"
+            size="sm"
+            className="w-full h-7 text-xs text-muted-foreground"
+            onClick={onAddClick}
+            data-testid={`button-add-${crewId}-${day}`}
+          >
+            <Plus className="h-3 w-3 mr-1" />
+            Add
+          </Button>
+        )}
+      </div>
+    </Card>
+  );
+}
+
+function BlockOverlay({ block }: { block: ScheduleBlockWithDetails }) {
+  return (
+    <div className="bg-accent rounded p-1.5 text-xs shadow-lg border">
+      <div className="flex items-start gap-1">
+        <GripVertical className="h-3 w-3 text-muted-foreground shrink-0 mt-0.5" />
+        <div className="flex-1 min-w-0">
+          <div className="font-medium truncate">
+            {block.visitConfig?.customer?.name || "Unknown"}
+          </div>
+          <div className="flex items-center gap-1 text-muted-foreground mt-0.5">
+            <Clock className="h-3 w-3" />
+            {block.visitConfig?.estimatedDurationMinutes || 0}m
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export default function WeeklySchedulerPage() {
   const { user } = useAuth();
   const { toast } = useToast();
@@ -56,8 +196,19 @@ export default function WeeklySchedulerPage() {
   const [showAddPropertyDialog, setShowAddPropertyDialog] = useState(false);
   const [addPropertyTarget, setAddPropertyTarget] = useState<{ crewId: string; day: DayOfWeek } | null>(null);
   const [searchProperty, setSearchProperty] = useState("");
+  const [activeBlockId, setActiveBlockId] = useState<string | null>(null);
+  const [overCellId, setOverCellId] = useState<string | null>(null);
 
   const canEdit = user?.activeRole === "admin" || user?.activeRole === "office";
+
+  const sensors = useSensors(
+    useSensor(PointerSensor, {
+      activationConstraint: {
+        distance: 8,
+      },
+    }),
+    useSensor(KeyboardSensor)
+  );
 
   const { data: crews = [], isLoading: crewsLoading } = useQuery<MaintenanceCrew[]>({
     queryKey: ["/api/maintenance-crews"],
@@ -84,15 +235,21 @@ export default function WeeklySchedulerPage() {
 
   const activeCrews = crews.filter((c) => c.isActive);
 
-  const visitConfigsWithCustomers: VisitConfigWithCustomer[] = visitConfigs.map((vc) => ({
-    ...vc,
-    customer: customers.find((c) => c.id === vc.customerId),
-  }));
+  const visitConfigsWithCustomers: VisitConfigWithCustomer[] = useMemo(() =>
+    visitConfigs.map((vc) => ({
+      ...vc,
+      customer: customers.find((c) => c.id === vc.customerId),
+    })),
+    [visitConfigs, customers]
+  );
 
-  const blocksWithDetails: ScheduleBlockWithDetails[] = blocks.map((block) => ({
-    ...block,
-    visitConfig: visitConfigsWithCustomers.find((vc) => vc.id === block.visitConfigId),
-  }));
+  const blocksWithDetails: ScheduleBlockWithDetails[] = useMemo(() =>
+    blocks.map((block) => ({
+      ...block,
+      visitConfig: visitConfigsWithCustomers.find((vc) => vc.id === block.visitConfigId),
+    })),
+    [blocks, visitConfigsWithCustomers]
+  );
 
   const scheduledConfigIds = new Set(blocks.map((b) => b.visitConfigId));
   const unscheduledConfigs = visitConfigsWithCustomers.filter(
@@ -133,6 +290,22 @@ export default function WeeklySchedulerPage() {
     },
   });
 
+  const moveBlockMutation = useMutation({
+    mutationFn: async (data: { blockId: string; crewId: string; dayOfWeek: DayOfWeek }) => {
+      return apiRequest("PATCH", `/api/schedule-blocks/${data.blockId}`, {
+        crewId: data.crewId,
+        dayOfWeek: data.dayOfWeek,
+      });
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/schedule-templates", activeTemplate?.id, "blocks"] });
+      toast({ title: "Property moved" });
+    },
+    onError: () => {
+      toast({ title: "Failed to move property", variant: "destructive" });
+    },
+  });
+
   const createTemplateMutation = useMutation({
     mutationFn: async () => {
       const res = await apiRequest("POST", "/api/schedule-templates", { name: "New Schedule Template" });
@@ -168,9 +341,47 @@ export default function WeeklySchedulerPage() {
     });
   };
 
+  const handleDragStart = (event: DragStartEvent) => {
+    setActiveBlockId(event.active.id as string);
+  };
+
+  const handleDragOver = (event: { over: { id: string } | null }) => {
+    setOverCellId(event.over?.id as string || null);
+  };
+
+  const handleDragEnd = (event: DragEndEvent) => {
+    const { active, over } = event;
+    setActiveBlockId(null);
+    setOverCellId(null);
+
+    if (!over || !canEdit) return;
+
+    const blockId = active.id as string;
+    const targetCellId = over.id as string;
+
+    if (!targetCellId.includes("::")) return;
+
+    const [newCrewId, newDay] = targetCellId.split("::");
+    const block = blocksWithDetails.find((b) => b.id === blockId);
+
+    if (!block) return;
+
+    if (block.crewId === newCrewId && block.dayOfWeek === newDay) {
+      return;
+    }
+
+    moveBlockMutation.mutate({
+      blockId,
+      crewId: newCrewId,
+      dayOfWeek: newDay as DayOfWeek,
+    });
+  };
+
   const filteredUnscheduled = unscheduledConfigs.filter((vc) =>
     vc.customer?.name?.toLowerCase().includes(searchProperty.toLowerCase())
   );
+
+  const activeBlock = activeBlockId ? blocksWithDetails.find((b) => b.id === activeBlockId) : null;
 
   const isLoading = crewsLoading || templatesLoading || configsLoading || blocksLoading;
 
@@ -248,140 +459,112 @@ export default function WeeklySchedulerPage() {
         </div>
       </div>
 
-      <div className="flex gap-6 flex-col lg:flex-row">
-        <div className="flex-1 overflow-x-auto">
-          <div className="min-w-[800px]">
-            <div className="grid gap-2" style={{ gridTemplateColumns: `180px repeat(${DAYS_OF_WEEK.length}, 1fr)` }}>
-              <div className="p-2 font-medium text-sm text-muted-foreground">Crew</div>
-              {DAYS_OF_WEEK.map((day) => (
-                <div key={day.key} className="p-2 font-medium text-center text-sm">
-                  <span className="hidden sm:inline">{day.label}</span>
-                  <span className="sm:hidden">{day.short}</span>
-                </div>
-              ))}
+      <DndContext
+        sensors={sensors}
+        collisionDetection={closestCenter}
+        onDragStart={handleDragStart}
+        onDragOver={handleDragOver}
+        onDragEnd={handleDragEnd}
+      >
+        <div className="flex gap-6 flex-col lg:flex-row">
+          <div className="flex-1 overflow-x-auto">
+            <div className="min-w-[800px]">
+              <div className="grid gap-2" style={{ gridTemplateColumns: `180px repeat(${DAYS_OF_WEEK.length}, 1fr)` }}>
+                <div className="p-2 font-medium text-sm text-muted-foreground">Crew</div>
+                {DAYS_OF_WEEK.map((day) => (
+                  <div key={day.key} className="p-2 font-medium text-center text-sm">
+                    <span className="hidden sm:inline">{day.label}</span>
+                    <span className="sm:hidden">{day.short}</span>
+                  </div>
+                ))}
 
-              {activeCrews.map((crew) => (
-                <>
-                  <div key={`crew-${crew.id}`} className="p-2 flex items-start">
-                    <div>
-                      <div className="font-medium text-sm" data-testid={`text-crew-name-${crew.id}`}>
-                        {crew.name}
-                      </div>
-                      <div className="text-xs text-muted-foreground flex items-center gap-1 mt-0.5">
-                        <Clock className="h-3 w-3" />
-                        {crew.defaultHoursPerDay}h/day
+                {activeCrews.map((crew) => (
+                  <>
+                    <div key={`crew-${crew.id}`} className="p-2 flex items-start">
+                      <div>
+                        <div className="font-medium text-sm" data-testid={`text-crew-name-${crew.id}`}>
+                          {crew.name}
+                        </div>
+                        <div className="text-xs text-muted-foreground flex items-center gap-1 mt-0.5">
+                          <Clock className="h-3 w-3" />
+                          {crew.defaultHoursPerDay}h/day
+                        </div>
                       </div>
                     </div>
-                  </div>
-                  {DAYS_OF_WEEK.map((day) => {
-                    const cellBlocks = getBlocksForCell(crew.id, day.key);
-                    return (
-                      <Card
-                        key={`${crew.id}-${day.key}`}
-                        className="min-h-[100px] p-1"
-                        data-testid={`cell-${crew.id}-${day.key}`}
-                      >
-                        <div className="space-y-1">
-                          {cellBlocks.map((block) => (
-                            <div
-                              key={block.id}
-                              className="group bg-accent/50 rounded p-1.5 text-xs relative"
-                              data-testid={`block-${block.id}`}
-                            >
-                              <div className="flex items-start gap-1">
-                                <GripVertical className="h-3 w-3 text-muted-foreground shrink-0 mt-0.5" />
-                                <div className="flex-1 min-w-0">
-                                  <div className="font-medium truncate">
-                                    {block.visitConfig?.customer?.name || "Unknown"}
-                                  </div>
-                                  <div className="flex items-center gap-1 text-muted-foreground mt-0.5">
-                                    <Clock className="h-3 w-3" />
-                                    {block.visitConfig?.estimatedDurationMinutes || 0}m
-                                  </div>
-                                </div>
-                                {canEdit && (
-                                  <Button
-                                    size="icon"
-                                    variant="ghost"
-                                    className="h-5 w-5 opacity-0 group-hover:opacity-100 transition-opacity"
-                                    onClick={() => deleteBlockMutation.mutate(block.id)}
-                                    data-testid={`button-remove-block-${block.id}`}
-                                  >
-                                    <X className="h-3 w-3" />
-                                  </Button>
-                                )}
-                              </div>
-                            </div>
-                          ))}
-                          {canEdit && (
-                            <Button
-                              variant="ghost"
-                              size="sm"
-                              className="w-full h-7 text-xs text-muted-foreground"
-                              onClick={() => handleAddPropertyClick(crew.id, day.key)}
-                              data-testid={`button-add-${crew.id}-${day.key}`}
-                            >
-                              <Plus className="h-3 w-3 mr-1" />
-                              Add
-                            </Button>
-                          )}
-                        </div>
-                      </Card>
-                    );
-                  })}
-                </>
-              ))}
+                    {DAYS_OF_WEEK.map((day) => {
+                      const cellBlocks = getBlocksForCell(crew.id, day.key);
+                      const cellId = `${crew.id}::${day.key}`;
+                      return (
+                        <DroppableCell
+                          key={cellId}
+                          crewId={crew.id}
+                          day={day.key}
+                          blocks={cellBlocks}
+                          canEdit={canEdit}
+                          onAddClick={() => handleAddPropertyClick(crew.id, day.key)}
+                          onRemoveBlock={(blockId) => deleteBlockMutation.mutate(blockId)}
+                          isOver={overCellId === cellId}
+                        />
+                      );
+                    })}
+                  </>
+                ))}
+              </div>
             </div>
           </div>
+
+          <Card className="w-full lg:w-80 shrink-0">
+            <CardHeader className="pb-2">
+              <CardTitle className="text-base flex items-center gap-2">
+                <Calendar className="h-4 w-4" />
+                Unscheduled Properties
+              </CardTitle>
+            </CardHeader>
+            <CardContent>
+              {unscheduledConfigs.length === 0 ? (
+                <p className="text-sm text-muted-foreground text-center py-4">
+                  All configured properties are scheduled
+                </p>
+              ) : (
+                <ScrollArea className="h-[400px] pr-3">
+                  <div className="space-y-2">
+                    {unscheduledConfigs.map((vc) => (
+                      <div
+                        key={vc.id}
+                        className="p-2 rounded border bg-card hover-elevate cursor-pointer"
+                        data-testid={`unscheduled-${vc.id}`}
+                      >
+                        <div className="font-medium text-sm truncate">
+                          {vc.customer?.name || "Unknown Customer"}
+                        </div>
+                        <div className="flex items-center gap-3 text-xs text-muted-foreground mt-1">
+                          <span className="flex items-center gap-1">
+                            <Clock className="h-3 w-3" />
+                            {vc.estimatedDurationMinutes}m
+                          </span>
+                          <span className="flex items-center gap-1">
+                            <Users className="h-3 w-3" />
+                            {vc.crewSize}
+                          </span>
+                          {vc.preferredDay && (
+                            <Badge variant="outline" className="text-xs capitalize">
+                              {vc.preferredDay.slice(0, 3)}
+                            </Badge>
+                          )}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </ScrollArea>
+              )}
+            </CardContent>
+          </Card>
         </div>
 
-        <Card className="w-full lg:w-80 shrink-0">
-          <CardHeader className="pb-2">
-            <CardTitle className="text-base flex items-center gap-2">
-              <Calendar className="h-4 w-4" />
-              Unscheduled Properties
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            {unscheduledConfigs.length === 0 ? (
-              <p className="text-sm text-muted-foreground text-center py-4">
-                All configured properties are scheduled
-              </p>
-            ) : (
-              <ScrollArea className="h-[400px] pr-3">
-                <div className="space-y-2">
-                  {unscheduledConfigs.map((vc) => (
-                    <div
-                      key={vc.id}
-                      className="p-2 rounded border bg-card hover-elevate cursor-pointer"
-                      data-testid={`unscheduled-${vc.id}`}
-                    >
-                      <div className="font-medium text-sm truncate">
-                        {vc.customer?.name || "Unknown Customer"}
-                      </div>
-                      <div className="flex items-center gap-3 text-xs text-muted-foreground mt-1">
-                        <span className="flex items-center gap-1">
-                          <Clock className="h-3 w-3" />
-                          {vc.estimatedDurationMinutes}m
-                        </span>
-                        <span className="flex items-center gap-1">
-                          <Users className="h-3 w-3" />
-                          {vc.crewSize}
-                        </span>
-                        {vc.preferredDay && (
-                          <Badge variant="outline" className="text-xs capitalize">
-                            {vc.preferredDay.slice(0, 3)}
-                          </Badge>
-                        )}
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              </ScrollArea>
-            )}
-          </CardContent>
-        </Card>
-      </div>
+        <DragOverlay>
+          {activeBlock ? <BlockOverlay block={activeBlock} /> : null}
+        </DragOverlay>
+      </DndContext>
 
       <Dialog open={showAddPropertyDialog} onOpenChange={setShowAddPropertyDialog}>
         <DialogContent>
