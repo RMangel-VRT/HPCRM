@@ -220,6 +220,11 @@ export default function WeeklySchedulerPage() {
   const [templateName, setTemplateName] = useState("");
   const [seasonStartMonth, setSeasonStartMonth] = useState(4);
   const [seasonEndMonth, setSeasonEndMonth] = useState(10);
+  const [showCrewManager, setShowCrewManager] = useState(false);
+  const [editingCrew, setEditingCrew] = useState<MaintenanceCrew | null>(null);
+  const [newCrewName, setNewCrewName] = useState("");
+  const [newCrewHours, setNewCrewHours] = useState(8);
+  const [newCrewActive, setNewCrewActive] = useState(true);
 
   const canEdit = user?.activeRole === "admin" || user?.activeRole === "office";
 
@@ -376,6 +381,92 @@ export default function WeeklySchedulerPage() {
     },
   });
 
+  const createCrewMutation = useMutation({
+    mutationFn: async (data: { name: string; defaultHoursPerDay: number; isActive: boolean }) => {
+      return apiRequest("POST", "/api/maintenance-crews", data);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/maintenance-crews"] });
+      setNewCrewName("");
+      setNewCrewHours(8);
+      setNewCrewActive(true);
+      toast({ title: "Crew created" });
+    },
+    onError: () => {
+      toast({ title: "Failed to create crew", variant: "destructive" });
+    },
+  });
+
+  const updateCrewMutation = useMutation({
+    mutationFn: async (data: { id: string; name: string; defaultHoursPerDay: number; isActive: boolean }) => {
+      return apiRequest("PATCH", `/api/maintenance-crews/${data.id}`, {
+        name: data.name,
+        defaultHoursPerDay: data.defaultHoursPerDay,
+        isActive: data.isActive,
+      });
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/maintenance-crews"] });
+      setEditingCrew(null);
+      toast({ title: "Crew updated" });
+    },
+    onError: () => {
+      toast({ title: "Failed to update crew", variant: "destructive" });
+    },
+  });
+
+  const deleteCrewMutation = useMutation({
+    mutationFn: async (id: string) => {
+      return apiRequest("DELETE", `/api/maintenance-crews/${id}`);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/maintenance-crews"] });
+      toast({ title: "Crew deleted" });
+    },
+    onError: () => {
+      toast({ title: "Failed to delete crew", variant: "destructive" });
+    },
+  });
+
+  const openCrewManager = () => {
+    setNewCrewName("");
+    setNewCrewHours(8);
+    setNewCrewActive(true);
+    setEditingCrew(null);
+    setShowCrewManager(true);
+  };
+
+  const startEditCrew = (crew: MaintenanceCrew) => {
+    setEditingCrew(crew);
+    setNewCrewName(crew.name);
+    setNewCrewHours(crew.defaultHoursPerDay || 8);
+    setNewCrewActive(crew.isActive ?? true);
+  };
+
+  const handleSaveCrew = () => {
+    if (editingCrew) {
+      updateCrewMutation.mutate({
+        id: editingCrew.id,
+        name: newCrewName,
+        defaultHoursPerDay: newCrewHours,
+        isActive: newCrewActive,
+      });
+    } else {
+      createCrewMutation.mutate({
+        name: newCrewName,
+        defaultHoursPerDay: newCrewHours,
+        isActive: newCrewActive,
+      });
+    }
+  };
+
+  const cancelEditCrew = () => {
+    setEditingCrew(null);
+    setNewCrewName("");
+    setNewCrewHours(8);
+    setNewCrewActive(true);
+  };
+
   const getBlocksForCell = (crewId: string, day: DayOfWeek) => {
     return blocksWithDetails.filter((b) => b.crewId === crewId && b.dayOfWeek === day);
   };
@@ -505,10 +596,118 @@ export default function WeeklySchedulerPage() {
             <Users className="h-12 w-12 mx-auto text-muted-foreground mb-4" />
             <h3 className="text-lg font-medium mb-2">No Crews Configured</h3>
             <p className="text-muted-foreground mb-4">
-              Create maintenance crews in Settings before building a schedule.
+              Create maintenance crews before building a schedule.
             </p>
+            {canEdit && (
+              <Button onClick={openCrewManager} data-testid="button-add-first-crew">
+                <Plus className="h-4 w-4 mr-2" />
+                Add First Crew
+              </Button>
+            )}
           </CardContent>
         </Card>
+
+        <Dialog open={showCrewManager} onOpenChange={setShowCrewManager}>
+          <DialogContent className="sm:max-w-lg">
+            <DialogHeader>
+              <DialogTitle>Manage Crews</DialogTitle>
+            </DialogHeader>
+            <div className="space-y-4">
+              <div className="space-y-3 border rounded-md p-3">
+                <div className="text-sm font-medium">{editingCrew ? "Edit Crew" : "Add New Crew"}</div>
+                <div className="grid grid-cols-[1fr,100px] gap-2">
+                  <Input
+                    placeholder="Crew name"
+                    value={newCrewName}
+                    onChange={(e) => setNewCrewName(e.target.value)}
+                    data-testid="input-crew-name"
+                  />
+                  <Input
+                    type="number"
+                    min={1}
+                    max={24}
+                    placeholder="Hours"
+                    value={newCrewHours}
+                    onChange={(e) => setNewCrewHours(Number(e.target.value))}
+                    data-testid="input-crew-hours"
+                  />
+                </div>
+                <div className="flex items-center justify-between">
+                  <Label className="flex items-center gap-2 text-sm">
+                    <input
+                      type="checkbox"
+                      checked={newCrewActive}
+                      onChange={(e) => setNewCrewActive(e.target.checked)}
+                      className="rounded border-input"
+                      data-testid="checkbox-crew-active"
+                    />
+                    Active
+                  </Label>
+                  <div className="flex gap-2">
+                    {editingCrew && (
+                      <Button size="sm" variant="ghost" onClick={cancelEditCrew}>
+                        Cancel
+                      </Button>
+                    )}
+                    <Button
+                      size="sm"
+                      onClick={handleSaveCrew}
+                      disabled={!newCrewName.trim() || createCrewMutation.isPending || updateCrewMutation.isPending}
+                      data-testid="button-save-crew"
+                    >
+                      {editingCrew ? "Update" : "Add Crew"}
+                    </Button>
+                  </div>
+                </div>
+              </div>
+
+              {crews.length > 0 && (
+                <div className="space-y-2">
+                  <div className="text-sm font-medium">Existing Crews</div>
+                  {crews.map((crew) => (
+                    <div
+                      key={crew.id}
+                      className="flex items-center justify-between p-2 rounded border bg-card"
+                      data-testid={`crew-item-${crew.id}`}
+                    >
+                      <div className="flex items-center gap-2">
+                        <span className="font-medium text-sm">{crew.name}</span>
+                        <Badge variant={crew.isActive ? "default" : "secondary"} className="text-xs">
+                          {crew.isActive ? "Active" : "Inactive"}
+                        </Badge>
+                        <span className="text-xs text-muted-foreground">{crew.defaultHoursPerDay}h/day</span>
+                      </div>
+                      <div className="flex gap-1">
+                        <Button
+                          size="icon"
+                          variant="ghost"
+                          onClick={() => startEditCrew(crew)}
+                          data-testid={`button-edit-crew-${crew.id}`}
+                        >
+                          <Settings className="h-4 w-4" />
+                        </Button>
+                        <Button
+                          size="icon"
+                          variant="ghost"
+                          onClick={() => deleteCrewMutation.mutate(crew.id)}
+                          disabled={deleteCrewMutation.isPending}
+                          data-testid={`button-delete-crew-${crew.id}`}
+                        >
+                          <Trash2 className="h-4 w-4" />
+                        </Button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+            <DialogFooter>
+              <Button variant="outline" onClick={() => setShowCrewManager(false)}>
+                Close
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
       </div>
     );
   }
@@ -560,6 +759,17 @@ export default function WeeklySchedulerPage() {
             >
               <Plus className="h-4 w-4 mr-1" />
               New Template
+            </Button>
+          )}
+          {canEdit && (
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={openCrewManager}
+              data-testid="button-manage-crews"
+            >
+              <Users className="h-4 w-4 mr-1" />
+              Manage Crews
             </Button>
           )}
         </div>
@@ -808,6 +1018,112 @@ export default function WeeklySchedulerPage() {
                 Save Changes
               </Button>
             </div>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={showCrewManager} onOpenChange={setShowCrewManager}>
+        <DialogContent className="sm:max-w-lg">
+          <DialogHeader>
+            <DialogTitle>Manage Crews</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4">
+            <div className="space-y-3 border rounded-md p-3">
+              <div className="text-sm font-medium">{editingCrew ? "Edit Crew" : "Add New Crew"}</div>
+              <div className="grid grid-cols-[1fr,100px] gap-2">
+                <Input
+                  placeholder="Crew name"
+                  value={newCrewName}
+                  onChange={(e) => setNewCrewName(e.target.value)}
+                  data-testid="input-crew-name"
+                />
+                <Input
+                  type="number"
+                  min={1}
+                  max={24}
+                  placeholder="Hours"
+                  value={newCrewHours}
+                  onChange={(e) => setNewCrewHours(Number(e.target.value))}
+                  data-testid="input-crew-hours"
+                />
+              </div>
+              <div className="flex items-center justify-between">
+                <Label className="flex items-center gap-2 text-sm">
+                  <input
+                    type="checkbox"
+                    checked={newCrewActive}
+                    onChange={(e) => setNewCrewActive(e.target.checked)}
+                    className="rounded border-input"
+                    data-testid="checkbox-crew-active"
+                  />
+                  Active
+                </Label>
+                <div className="flex gap-2">
+                  {editingCrew && (
+                    <Button size="sm" variant="ghost" onClick={cancelEditCrew}>
+                      Cancel
+                    </Button>
+                  )}
+                  <Button
+                    size="sm"
+                    onClick={handleSaveCrew}
+                    disabled={!newCrewName.trim() || createCrewMutation.isPending || updateCrewMutation.isPending}
+                    data-testid="button-save-crew"
+                  >
+                    {editingCrew ? "Update" : "Add Crew"}
+                  </Button>
+                </div>
+              </div>
+            </div>
+
+            {crews.length > 0 && (
+              <div className="space-y-2">
+                <div className="text-sm font-medium">Existing Crews</div>
+                <ScrollArea className="max-h-[250px]">
+                  <div className="space-y-2 pr-2">
+                    {crews.map((crew) => (
+                      <div
+                        key={crew.id}
+                        className="flex items-center justify-between p-2 rounded border bg-card"
+                        data-testid={`crew-item-${crew.id}`}
+                      >
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <span className="font-medium text-sm">{crew.name}</span>
+                          <Badge variant={crew.isActive ? "default" : "secondary"} className="text-xs">
+                            {crew.isActive ? "Active" : "Inactive"}
+                          </Badge>
+                          <span className="text-xs text-muted-foreground">{crew.defaultHoursPerDay}h/day</span>
+                        </div>
+                        <div className="flex gap-1">
+                          <Button
+                            size="icon"
+                            variant="ghost"
+                            onClick={() => startEditCrew(crew)}
+                            data-testid={`button-edit-crew-${crew.id}`}
+                          >
+                            <Settings className="h-4 w-4" />
+                          </Button>
+                          <Button
+                            size="icon"
+                            variant="ghost"
+                            onClick={() => deleteCrewMutation.mutate(crew.id)}
+                            disabled={deleteCrewMutation.isPending}
+                            data-testid={`button-delete-crew-${crew.id}`}
+                          >
+                            <Trash2 className="h-4 w-4" />
+                          </Button>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </ScrollArea>
+              </div>
+            )}
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setShowCrewManager(false)}>
+              Close
+            </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
