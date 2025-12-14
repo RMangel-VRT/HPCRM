@@ -10,6 +10,7 @@ import {
   useSensors,
   DragStartEvent,
   DragEndEvent,
+  DragOverEvent,
   useDroppable,
   useDraggable,
 } from "@dnd-kit/core";
@@ -33,7 +34,8 @@ import {
   DialogFooter,
 } from "@/components/ui/dialog";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import { Loader2, Plus, GripVertical, Clock, Users, Calendar, X, ChevronRight } from "lucide-react";
+import { Loader2, Plus, GripVertical, Clock, Users, Calendar, X, ChevronRight, AlertTriangle, Settings, Trash2 } from "lucide-react";
+import { Label } from "@/components/ui/label";
 import { useToast } from "@/hooks/use-toast";
 import { queryClient, apiRequest } from "@/lib/queryClient";
 import { useAuth } from "@/hooks/use-auth";
@@ -131,12 +133,19 @@ interface DroppableCellProps {
   onAddClick: () => void;
   onRemoveBlock: (blockId: string) => void;
   isOver: boolean;
+  totalMinutes: number;
+  capacityMinutes: number;
 }
 
-function DroppableCell({ crewId, day, blocks, canEdit, onAddClick, onRemoveBlock, isOver }: DroppableCellProps) {
+function DroppableCell({ crewId, day, blocks, canEdit, onAddClick, onRemoveBlock, isOver, totalMinutes, capacityMinutes }: DroppableCellProps) {
   const { setNodeRef } = useDroppable({
     id: `${crewId}::${day}`,
   });
+
+  const isOverCapacity = totalMinutes > capacityMinutes;
+  const utilizationPercent = capacityMinutes > 0 ? Math.round((totalMinutes / capacityMinutes) * 100) : 0;
+  const totalHours = (totalMinutes / 60).toFixed(1);
+  const capacityHours = (capacityMinutes / 60).toFixed(1);
 
   return (
     <Card
@@ -166,6 +175,15 @@ function DroppableCell({ crewId, day, blocks, canEdit, onAddClick, onRemoveBlock
           </Button>
         )}
       </div>
+      {blocks.length > 0 && (
+        <div className={`mt-1 pt-1 border-t text-xs flex items-center justify-between ${isOverCapacity ? "text-destructive" : "text-muted-foreground"}`}>
+          <span className="flex items-center gap-1">
+            {isOverCapacity && <AlertTriangle className="h-3 w-3" />}
+            {totalHours}h / {capacityHours}h
+          </span>
+          <span className={isOverCapacity ? "font-medium" : ""}>{utilizationPercent}%</span>
+        </div>
+      )}
     </Card>
   );
 }
@@ -198,6 +216,10 @@ export default function WeeklySchedulerPage() {
   const [searchProperty, setSearchProperty] = useState("");
   const [activeBlockId, setActiveBlockId] = useState<string | null>(null);
   const [overCellId, setOverCellId] = useState<string | null>(null);
+  const [showTemplateSettings, setShowTemplateSettings] = useState(false);
+  const [templateName, setTemplateName] = useState("");
+  const [seasonStartMonth, setSeasonStartMonth] = useState(4);
+  const [seasonEndMonth, setSeasonEndMonth] = useState(10);
 
   const canEdit = user?.activeRole === "admin" || user?.activeRole === "office";
 
@@ -321,8 +343,49 @@ export default function WeeklySchedulerPage() {
     },
   });
 
+  const updateTemplateMutation = useMutation({
+    mutationFn: async (data: { id: string; name: string; seasonStartMonth: number; seasonEndMonth: number }) => {
+      return apiRequest("PATCH", `/api/schedule-templates/${data.id}`, {
+        name: data.name,
+        seasonStartMonth: data.seasonStartMonth,
+        seasonEndMonth: data.seasonEndMonth,
+      });
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/schedule-templates"] });
+      setShowTemplateSettings(false);
+      toast({ title: "Template updated" });
+    },
+    onError: () => {
+      toast({ title: "Failed to update template", variant: "destructive" });
+    },
+  });
+
+  const deleteTemplateMutation = useMutation({
+    mutationFn: async (id: string) => {
+      return apiRequest("DELETE", `/api/schedule-templates/${id}`);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/schedule-templates"] });
+      setShowTemplateSettings(false);
+      setSelectedTemplateId(null);
+      toast({ title: "Template deleted" });
+    },
+    onError: () => {
+      toast({ title: "Failed to delete template", variant: "destructive" });
+    },
+  });
+
   const getBlocksForCell = (crewId: string, day: DayOfWeek) => {
     return blocksWithDetails.filter((b) => b.crewId === crewId && b.dayOfWeek === day);
+  };
+
+  const getCellMinutes = (blocks: ScheduleBlockWithDetails[]) => {
+    return blocks.reduce((sum, block) => sum + (block.visitConfig?.estimatedDurationMinutes || 0), 0);
+  };
+
+  const getCrewCapacityMinutes = (crew: MaintenanceCrew) => {
+    return (crew.defaultHoursPerDay || 8) * 60;
   };
 
   const handleAddPropertyClick = (crewId: string, day: DayOfWeek) => {
@@ -330,6 +393,39 @@ export default function WeeklySchedulerPage() {
     setAddPropertyTarget({ crewId, day });
     setShowAddPropertyDialog(true);
   };
+
+  const openTemplateSettings = () => {
+    if (!activeTemplate) return;
+    setTemplateName(activeTemplate.name);
+    setSeasonStartMonth(activeTemplate.seasonStartMonth || 4);
+    setSeasonEndMonth(activeTemplate.seasonEndMonth || 10);
+    setShowTemplateSettings(true);
+  };
+
+  const handleSaveTemplate = () => {
+    if (!activeTemplate) return;
+    updateTemplateMutation.mutate({
+      id: activeTemplate.id,
+      name: templateName,
+      seasonStartMonth,
+      seasonEndMonth,
+    });
+  };
+
+  const MONTHS = [
+    { value: 1, label: "January" },
+    { value: 2, label: "February" },
+    { value: 3, label: "March" },
+    { value: 4, label: "April" },
+    { value: 5, label: "May" },
+    { value: 6, label: "June" },
+    { value: 7, label: "July" },
+    { value: 8, label: "August" },
+    { value: 9, label: "September" },
+    { value: 10, label: "October" },
+    { value: 11, label: "November" },
+    { value: 12, label: "December" },
+  ];
 
   const handleAddProperty = (configId: string) => {
     if (!activeTemplate || !addPropertyTarget) return;
@@ -345,7 +441,7 @@ export default function WeeklySchedulerPage() {
     setActiveBlockId(event.active.id as string);
   };
 
-  const handleDragOver = (event: { over: { id: string } | null }) => {
+  const handleDragOver = (event: DragOverEvent) => {
     setOverCellId(event.over?.id as string || null);
   };
 
@@ -444,6 +540,16 @@ export default function WeeklySchedulerPage() {
               ))}
             </SelectContent>
           </Select>
+          {canEdit && activeTemplate && (
+            <Button
+              size="icon"
+              variant="ghost"
+              onClick={openTemplateSettings}
+              data-testid="button-template-settings"
+            >
+              <Settings className="h-4 w-4" />
+            </Button>
+          )}
           {canEdit && (
             <Button
               size="sm"
@@ -494,6 +600,8 @@ export default function WeeklySchedulerPage() {
                     {DAYS_OF_WEEK.map((day) => {
                       const cellBlocks = getBlocksForCell(crew.id, day.key);
                       const cellId = `${crew.id}::${day.key}`;
+                      const totalMinutes = getCellMinutes(cellBlocks);
+                      const capacityMinutes = getCrewCapacityMinutes(crew);
                       return (
                         <DroppableCell
                           key={cellId}
@@ -504,6 +612,8 @@ export default function WeeklySchedulerPage() {
                           onAddClick={() => handleAddPropertyClick(crew.id, day.key)}
                           onRemoveBlock={(blockId) => deleteBlockMutation.mutate(blockId)}
                           isOver={overCellId === cellId}
+                          totalMinutes={totalMinutes}
+                          capacityMinutes={capacityMinutes}
                         />
                       );
                     })}
@@ -617,6 +727,87 @@ export default function WeeklySchedulerPage() {
             <Button variant="outline" onClick={() => setShowAddPropertyDialog(false)}>
               Cancel
             </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={showTemplateSettings} onOpenChange={setShowTemplateSettings}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Template Settings</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4">
+            <div className="space-y-2">
+              <Label htmlFor="template-name">Template Name</Label>
+              <Input
+                id="template-name"
+                value={templateName}
+                onChange={(e) => setTemplateName(e.target.value)}
+                placeholder="Enter template name"
+                data-testid="input-template-name"
+              />
+            </div>
+            <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <Label>Season Start</Label>
+                <Select
+                  value={String(seasonStartMonth)}
+                  onValueChange={(val) => setSeasonStartMonth(Number(val))}
+                >
+                  <SelectTrigger data-testid="select-season-start">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {MONTHS.map((m) => (
+                      <SelectItem key={m.value} value={String(m.value)}>
+                        {m.label}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-2">
+                <Label>Season End</Label>
+                <Select
+                  value={String(seasonEndMonth)}
+                  onValueChange={(val) => setSeasonEndMonth(Number(val))}
+                >
+                  <SelectTrigger data-testid="select-season-end">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {MONTHS.map((m) => (
+                      <SelectItem key={m.value} value={String(m.value)}>
+                        {m.label}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+          </div>
+          <DialogFooter className="flex justify-between gap-2">
+            <Button
+              variant="destructive"
+              onClick={() => activeTemplate && deleteTemplateMutation.mutate(activeTemplate.id)}
+              disabled={deleteTemplateMutation.isPending || templates.length <= 1}
+              data-testid="button-delete-template"
+            >
+              <Trash2 className="h-4 w-4 mr-1" />
+              Delete
+            </Button>
+            <div className="flex gap-2">
+              <Button variant="outline" onClick={() => setShowTemplateSettings(false)}>
+                Cancel
+              </Button>
+              <Button
+                onClick={handleSaveTemplate}
+                disabled={updateTemplateMutation.isPending || !templateName.trim()}
+                data-testid="button-save-template"
+              >
+                Save Changes
+              </Button>
+            </div>
           </DialogFooter>
         </DialogContent>
       </Dialog>
