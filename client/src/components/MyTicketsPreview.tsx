@@ -35,7 +35,12 @@ export default function MyTicketsPreview() {
   const { user } = useAuth();
   
   const { data: myTickets = [], isLoading } = useQuery<Ticket[]>({
-    queryKey: ["/api/tickets/my", user?.id],
+    queryKey: ["/api/tickets/my", { userId: user?.id }],
+    queryFn: async () => {
+      const res = await fetch("/api/tickets/my", { credentials: "include" });
+      if (!res.ok) throw new Error("Failed to fetch tickets");
+      return res.json();
+    },
     refetchOnMount: "always",
     staleTime: 0,
   });
