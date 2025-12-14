@@ -34,7 +34,7 @@ import {
   DialogFooter,
 } from "@/components/ui/dialog";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import { Loader2, Plus, GripVertical, Clock, Users, Calendar, X, ChevronRight, AlertTriangle, Settings, Trash2 } from "lucide-react";
+import { Loader2, Plus, GripVertical, Clock, Users, Calendar, X, ChevronRight, AlertTriangle, Settings, Trash2, Lock, LockOpen } from "lucide-react";
 import { Label } from "@/components/ui/label";
 import { useToast } from "@/hooks/use-toast";
 import { queryClient, apiRequest } from "@/lib/queryClient";
@@ -225,8 +225,10 @@ export default function WeeklySchedulerPage() {
   const [newCrewName, setNewCrewName] = useState("");
   const [newCrewHours, setNewCrewHours] = useState(8);
   const [newCrewActive, setNewCrewActive] = useState(true);
+  const [isLocked, setIsLocked] = useState(true);
 
   const canEdit = user?.activeRole === "admin" || user?.activeRole === "office";
+  const allowEdit = canEdit && !isLocked;
 
   const sensors = useSensors(
     useSensor(PointerSensor, {
@@ -486,7 +488,7 @@ export default function WeeklySchedulerPage() {
   };
 
   const handleAddPropertyClick = (crewId: string, day: DayOfWeek) => {
-    if (!canEdit) return;
+    if (!allowEdit) return;
     setAddPropertyTarget({ crewId, day });
     setShowAddPropertyDialog(true);
   };
@@ -525,7 +527,7 @@ export default function WeeklySchedulerPage() {
   ];
 
   const handleAddProperty = (configId: string) => {
-    if (!activeTemplate || !addPropertyTarget) return;
+    if (!activeTemplate || !addPropertyTarget || !allowEdit) return;
     addBlockMutation.mutate({
       templateId: activeTemplate.id,
       visitConfigId: configId,
@@ -547,7 +549,7 @@ export default function WeeklySchedulerPage() {
     setActiveBlockId(null);
     setOverCellId(null);
 
-    if (!over || !canEdit) return;
+    if (!over || !allowEdit) return;
 
     const blockId = active.id as string;
     const targetCellId = over.id as string;
@@ -778,8 +780,41 @@ export default function WeeklySchedulerPage() {
               Manage Crews
             </Button>
           )}
+          {canEdit && (
+            <Button
+              size="sm"
+              variant={isLocked ? "secondary" : "default"}
+              onClick={() => {
+                if (!isLocked) {
+                  setShowAddPropertyDialog(false);
+                  setAddPropertyTarget(null);
+                }
+                setIsLocked(!isLocked);
+              }}
+              data-testid="button-toggle-lock"
+            >
+              {isLocked ? (
+                <>
+                  <Lock className="h-4 w-4 mr-1" />
+                  Locked
+                </>
+              ) : (
+                <>
+                  <LockOpen className="h-4 w-4 mr-1" />
+                  Editing
+                </>
+              )}
+            </Button>
+          )}
         </div>
       </div>
+
+      {canEdit && !isLocked && (
+        <div className="flex items-center gap-2 p-2 rounded-md bg-amber-500/10 border border-amber-500/30 text-amber-600 dark:text-amber-400 text-sm">
+          <LockOpen className="h-4 w-4" />
+          <span>Schedule unlocked - you can now drag properties and make changes</span>
+        </div>
+      )}
 
       <DndContext
         sensors={sensors}
@@ -824,7 +859,7 @@ export default function WeeklySchedulerPage() {
                           crewId={crew.id}
                           day={day.key}
                           blocks={cellBlocks}
-                          canEdit={canEdit}
+                          canEdit={allowEdit}
                           onAddClick={() => handleAddPropertyClick(crew.id, day.key)}
                           onRemoveBlock={(blockId) => deleteBlockMutation.mutate(blockId)}
                           isOver={overCellId === cellId}
