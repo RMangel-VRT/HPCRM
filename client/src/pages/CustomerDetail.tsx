@@ -43,6 +43,7 @@ import { zodResolver } from "@hookform/resolvers/zod";
 import ContractServices from "@/components/ContractServices";
 import ScheduleSummary from "@/components/ScheduleSummary";
 import LayerMapViewer from "@/components/LayerMapViewer";
+import CustomerSchedulingSection from "@/components/CustomerSchedulingSection";
 
 interface ContractCardProps {
   contract: Contract;
@@ -1210,6 +1211,9 @@ export default function CustomerDetail() {
               <TabsTrigger value="revenue" data-testid="tab-revenue">
                 Revenue
               </TabsTrigger>
+              <TabsTrigger value="scheduling" data-testid="tab-scheduling">
+                Scheduling
+              </TabsTrigger>
             </>
           )}
           <TabsTrigger value="maps" data-testid="tab-maps">
@@ -1616,6 +1620,12 @@ export default function CustomerDetail() {
         {(user?.activeRole === "admin" || user?.activeRole === "office") && (
           <TabsContent value="revenue" className="space-y-4">
             <RevenueSection customerId={params?.id!} />
+          </TabsContent>
+        )}
+
+        {(user?.activeRole === "admin" || user?.activeRole === "office") && (
+          <TabsContent value="scheduling" className="space-y-4">
+            <CustomerSchedulingSection customerId={params?.id!} />
           </TabsContent>
         )}
 
