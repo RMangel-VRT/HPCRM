@@ -57,6 +57,25 @@ A mobile-first system for field crews to track and manage work at customer prope
 
 **Ticket Sources:** The `ticket_sources` table tracks ticket origin (manual creation vs. future auto-generated from service blueprints) to distinguish between user-created tickets and system-generated service tickets.
 
+#### Weekly Schedule System
+A comprehensive scheduling system for assigning properties to crews on specific days of the week. It uses a template-based approach with drag-and-drop functionality.
+
+- **Database Tables:**
+  - `weekly_schedule_templates` - Templates defining schedule configurations (name, season start/end months)
+  - `maintenance_crews` - Crew definitions with name, color (hex), hours per day, and active status
+  - `maintenance_visit_configs` - Per-customer visit configurations (duration, frequency, preferred day)
+  - `schedule_blocks` - Individual assignments linking templates, crews, visit configs, and days
+- **Pages:**
+  - `/dashboard/schedule` - Unified page with Builder/Viewer tabs (legacy `/dashboard/scheduler` redirects here)
+  - **Builder Tab:** Full drag-and-drop editor with crew capacity indicators, lock/unlock toggle, template management
+  - **Viewer Tab:** Read-only color-coded schedule view with crew legend
+- **Components:**
+  - `SchedulePreview` - Dashboard widget showing today's schedule with color-coded crew assignments and detail modal
+  - `WeeklySchedulerPage` - The schedule builder with DnD, crew manager, and template controls
+  - `ScheduleViewer` - Read-only viewer with crew-colored blocks organized by day
+- **Crew Colors:** 10-color preset palette stored in `CREW_COLORS` (shared/schema.ts); each crew can be assigned a color via the crew manager
+- **Access Control:** Admin and Office roles only
+
 #### Property Maps System
 A KML-based layer mapping system for field crews to view property zones and service areas. The system stores customer-specific map layers with the following structure:
 - **Database Tables:** `customer_map_layers` stores layer metadata (customerId, layerType, objectPath, customName, color) and `customer_map_documents` for document uploads.
