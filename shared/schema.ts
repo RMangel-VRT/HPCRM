@@ -747,10 +747,25 @@ export type CustomerMapDocument = typeof customerMapDocuments.$inferSelect;
 export type DayOfWeek = "monday" | "tuesday" | "wednesday" | "thursday" | "friday" | "saturday";
 
 // Maintenance Crews
+// Preset crew colors for visual differentiation
+export const CREW_COLORS = [
+  "#2563eb", // blue
+  "#16a34a", // green
+  "#ea580c", // orange
+  "#7c3aed", // violet
+  "#0891b2", // cyan
+  "#dc2626", // red
+  "#ca8a04", // yellow
+  "#db2777", // pink
+  "#059669", // emerald
+  "#6366f1", // indigo
+] as const;
+
 export const maintenanceCrews = pgTable("maintenance_crews", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
   companyId: varchar("company_id").notNull().references(() => companies.id, { onDelete: "cascade" }),
   name: text("name").notNull(),
+  color: text("color").default("#2563eb"), // Crew color for schedule display
   defaultHoursPerDay: real("default_hours_per_day").default(8),
   isActive: boolean("is_active").default(true),
   createdAt: timestamp("created_at").notNull().defaultNow(),
@@ -760,6 +775,7 @@ export const insertMaintenanceCrewSchema = createInsertSchema(maintenanceCrews).
   id: true,
   createdAt: true,
 }).extend({
+  color: z.string().default("#2563eb"),
   defaultHoursPerDay: z.number().min(0).max(24).default(8),
   isActive: z.boolean().default(true),
 });
