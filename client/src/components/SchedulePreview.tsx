@@ -7,12 +7,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Calendar, ArrowRight, Clock, MapPin, Users } from "lucide-react";
 import { Link } from "wouter";
 import { useMemo, useState } from "react";
-import type { MaintenanceCrew, WeeklyScheduleTemplate, ScheduleBlock, MaintenanceVisitConfig, Customer } from "@shared/schema";
-
-const CREW_COLORS = [
-  "#2563eb", "#16a34a", "#ea580c", "#7c3aed", "#0891b2",
-  "#dc2626", "#ca8a04", "#db2777", "#059669", "#6366f1",
-];
+import { CREW_COLORS, type MaintenanceCrew, type WeeklyScheduleTemplate, type ScheduleBlock, type MaintenanceVisitConfig, type Customer } from "@shared/schema";
 
 type DayOfWeek = "monday" | "tuesday" | "wednesday" | "thursday" | "friday" | "saturday";
 

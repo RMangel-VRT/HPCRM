@@ -79,6 +79,9 @@ function Router() {
               <ProtectedRoute path="/dashboard/tickets/:id" component={TicketDetail} />
               <ProtectedRoute path="/dashboard/tickets" component={TicketsList} allowedRoles={["admin"]} />
               <ProtectedRoute path="/dashboard/maps" component={PropertyMapsPage} />
+              <Route path="/dashboard/scheduler">
+                <Redirect to="/dashboard/schedule" />
+              </Route>
               <ProtectedRoute path="/dashboard/schedule" component={SchedulePage} allowedRoles={["admin", "office"]} />
               <ProtectedRoute path="/dashboard/tools/contract-builder" component={ContractBuilderPage} allowedRoles={["admin", "office"]} />
               <ProtectedRoute path="/dashboard/tools" component={ToolsPage} allowedRoles={["admin", "office", "field_manager"]} />

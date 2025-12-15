@@ -7,12 +7,7 @@ import { ScrollArea, ScrollBar } from "@/components/ui/scroll-area";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useState, useMemo } from "react";
 import { AlertCircle, Clock } from "lucide-react";
-import type { MaintenanceCrew, WeeklyScheduleTemplate, ScheduleBlock, MaintenanceVisitConfig, Customer } from "@shared/schema";
-
-const CREW_COLORS = [
-  "#2563eb", "#16a34a", "#ea580c", "#7c3aed", "#0891b2",
-  "#dc2626", "#ca8a04", "#db2777", "#059669", "#6366f1",
-];
+import { CREW_COLORS, type MaintenanceCrew, type WeeklyScheduleTemplate, type ScheduleBlock, type MaintenanceVisitConfig, type Customer } from "@shared/schema";
 
 const DAYS_OF_WEEK = ["monday", "tuesday", "wednesday", "thursday", "friday"] as const;
 type DayOfWeek = (typeof DAYS_OF_WEEK)[number];
