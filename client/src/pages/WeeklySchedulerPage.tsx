@@ -47,6 +47,7 @@ import type {
   Customer,
   DayOfWeek,
 } from "@shared/schema";
+import { CREW_COLORS } from "@shared/schema";
 
 const DAYS_OF_WEEK: { key: DayOfWeek; label: string; short: string }[] = [
   { key: "monday", label: "Monday", short: "Mon" },
@@ -225,6 +226,7 @@ export default function WeeklySchedulerPage() {
   const [newCrewName, setNewCrewName] = useState("");
   const [newCrewHours, setNewCrewHours] = useState(8);
   const [newCrewActive, setNewCrewActive] = useState(true);
+  const [newCrewColor, setNewCrewColor] = useState<string>(CREW_COLORS[0]);
   const [isLocked, setIsLocked] = useState(true);
 
   const canEdit = user?.activeRole === "admin" || user?.activeRole === "office";
@@ -390,12 +392,13 @@ export default function WeeklySchedulerPage() {
   });
 
   const createCrewMutation = useMutation({
-    mutationFn: async (data: { name: string; defaultHoursPerDay: number; isActive: boolean }) => {
+    mutationFn: async (data: { name: string; color: string; defaultHoursPerDay: number; isActive: boolean }) => {
       return apiRequest("POST", "/api/maintenance-crews", data);
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/maintenance-crews"] });
       setNewCrewName("");
+      setNewCrewColor(CREW_COLORS[0]);
       setNewCrewHours(8);
       setNewCrewActive(true);
       toast({ title: "Crew created" });
@@ -406,9 +409,10 @@ export default function WeeklySchedulerPage() {
   });
 
   const updateCrewMutation = useMutation({
-    mutationFn: async (data: { id: string; name: string; defaultHoursPerDay: number; isActive: boolean }) => {
+    mutationFn: async (data: { id: string; name: string; color: string; defaultHoursPerDay: number; isActive: boolean }) => {
       return apiRequest("PATCH", `/api/maintenance-crews/${data.id}`, {
         name: data.name,
+        color: data.color,
         defaultHoursPerDay: data.defaultHoursPerDay,
         isActive: data.isActive,
       });
@@ -438,6 +442,7 @@ export default function WeeklySchedulerPage() {
 
   const openCrewManager = () => {
     setNewCrewName("");
+    setNewCrewColor(CREW_COLORS[0]);
     setNewCrewHours(8);
     setNewCrewActive(true);
     setEditingCrew(null);
@@ -447,6 +452,7 @@ export default function WeeklySchedulerPage() {
   const startEditCrew = (crew: MaintenanceCrew) => {
     setEditingCrew(crew);
     setNewCrewName(crew.name);
+    setNewCrewColor(crew.color || CREW_COLORS[0]);
     setNewCrewHours(crew.defaultHoursPerDay || 8);
     setNewCrewActive(crew.isActive ?? true);
   };
@@ -456,12 +462,14 @@ export default function WeeklySchedulerPage() {
       updateCrewMutation.mutate({
         id: editingCrew.id,
         name: newCrewName,
+        color: newCrewColor,
         defaultHoursPerDay: newCrewHours,
         isActive: newCrewActive,
       });
     } else {
       createCrewMutation.mutate({
         name: newCrewName,
+        color: newCrewColor,
         defaultHoursPerDay: newCrewHours,
         isActive: newCrewActive,
       });
@@ -471,6 +479,7 @@ export default function WeeklySchedulerPage() {
   const cancelEditCrew = () => {
     setEditingCrew(null);
     setNewCrewName("");
+    setNewCrewColor(CREW_COLORS[0]);
     setNewCrewHours(8);
     setNewCrewActive(true);
   };
@@ -1088,6 +1097,25 @@ export default function WeeklySchedulerPage() {
                   data-testid="input-crew-hours"
                 />
               </div>
+              <div className="space-y-1.5">
+                <Label className="text-xs text-muted-foreground">Crew Color</Label>
+                <div className="flex flex-wrap gap-1.5">
+                  {CREW_COLORS.map((color) => (
+                    <button
+                      key={color}
+                      type="button"
+                      onClick={() => setNewCrewColor(color)}
+                      className={`w-7 h-7 rounded-md border-2 transition-all ${
+                        newCrewColor === color 
+                          ? "border-foreground scale-110" 
+                          : "border-transparent hover:scale-105"
+                      }`}
+                      style={{ backgroundColor: color }}
+                      data-testid={`color-${color}`}
+                    />
+                  ))}
+                </div>
+              </div>
               <div className="flex items-center justify-between">
                 <Label className="flex items-center gap-2 text-sm">
                   <input
@@ -1129,6 +1157,10 @@ export default function WeeklySchedulerPage() {
                         data-testid={`crew-item-${crew.id}`}
                       >
                         <div className="flex items-center gap-2 flex-wrap">
+                          <div 
+                            className="w-4 h-4 rounded-full shrink-0" 
+                            style={{ backgroundColor: crew.color || CREW_COLORS[0] }}
+                          />
                           <span className="font-medium text-sm">{crew.name}</span>
                           <Badge variant={crew.isActive ? "default" : "secondary"} className="text-xs">
                             {crew.isActive ? "Active" : "Inactive"}
