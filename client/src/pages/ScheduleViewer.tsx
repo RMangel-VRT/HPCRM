@@ -37,25 +37,25 @@ export default function ScheduleViewer() {
     queryKey: ["/api/maintenance-crews"],
   });
 
-  const { data: blocks = [], isLoading: loadingBlocks } = useQuery<ScheduleBlock[]>({
-    queryKey: ["/api/schedule-blocks"],
-  });
-
-  const { data: visitConfigs = [] } = useQuery<MaintenanceVisitConfig[]>({
-    queryKey: ["/api/customer-visit-configs"],
-  });
-
   const { data: customers = [] } = useQuery<Customer[]>({
     queryKey: ["/api/customers"],
   });
 
   const activeTemplate = templates.find((t) => t.id === selectedTemplateId) || templates[0];
+
+  const { data: blocks = [], isLoading: loadingBlocks } = useQuery<ScheduleBlock[]>({
+    queryKey: ["/api/schedule-templates", activeTemplate?.id, "blocks"],
+    enabled: !!activeTemplate?.id,
+  });
+
+  const { data: visitConfigs = [] } = useQuery<MaintenanceVisitConfig[]>({
+    queryKey: ["/api/maintenance-visit-configs"],
+  });
   const activeCrews = crews.filter((c) => c.isActive);
 
   const blocksWithDetails: ScheduleBlockWithDetails[] = useMemo(() => {
     if (!activeTemplate) return [];
     return blocks
-      .filter((b) => b.templateId === activeTemplate.id)
       .map((block) => {
         const config = visitConfigs.find((v) => v.id === block.visitConfigId);
         const customer = customers.find((c) => c.id === config?.customerId);
