@@ -8,6 +8,88 @@ import { insertCustomerSchema, insertContactSchema, insertCompanySchema, insertC
 import { ObjectStorageService, ObjectNotFoundError, objectStorageClient, signObjectURL } from "./objectStorage";
 import { ObjectPermission, ObjectAccessGroupType, setObjectAclPolicy } from "./objectAcl";
 
+// Helper to ensure Invoice ticket type exists for a company
+async function ensureInvoiceTicketType(companyId: string): Promise<{ 
+  typeId: string; 
+  pendingStatusId: string;
+} | null> {
+  const ticketTypes = await storage.getTicketTypes(companyId);
+  let invoiceType = ticketTypes.find(tt => tt.name === "Invoice");
+  
+  if (!invoiceType) {
+    // Create the Invoice ticket type
+    invoiceType = await storage.createTicketType({
+      companyId,
+      name: "Invoice",
+      description: "Tracks work that needs to be invoiced in QuickBooks",
+      category: "service",
+      icon: "file-text",
+      color: "#f59e0b",
+      isActive: "true",
+    });
+    console.log(`Created Invoice ticket type for company ${companyId}`);
+    
+    // Create Invoice statuses
+    const pendingStatus = await storage.createTicketTypeStatus({
+      ticketTypeId: invoiceType.id,
+      name: "Pending Invoice",
+      description: "Work completed, awaiting invoice creation in QuickBooks",
+      displayOrder: 0,
+      color: "#f59e0b",
+      isFinal: "false",
+    });
+    
+    await storage.createTicketTypeStatus({
+      ticketTypeId: invoiceType.id,
+      name: "Invoiced",
+      description: "Invoice created in QuickBooks",
+      displayOrder: 1,
+      color: "#22c55e",
+      isFinal: "true",
+    });
+    
+    // Create Invoice fields
+    const invoiceStatuses = await storage.getTicketTypeStatuses(invoiceType.id);
+    const invoicedStatus = invoiceStatuses.find(s => s.name === "Invoiced");
+    if (invoicedStatus) {
+      await storage.createTicketTypeField({
+        ticketTypeId: invoiceType.id,
+        statusId: invoicedStatus.id,
+        fieldKey: "invoice_number",
+        fieldLabel: "Invoice Number",
+        fieldType: "text",
+        isRequired: "true",
+        options: [],
+        displayOrder: 0,
+      });
+      
+      await storage.createTicketTypeField({
+        ticketTypeId: invoiceType.id,
+        statusId: invoicedStatus.id,
+        fieldKey: "invoice_amount",
+        fieldLabel: "Invoice Amount",
+        fieldType: "currency",
+        isRequired: "false",
+        options: [],
+        displayOrder: 1,
+      });
+    }
+    
+    console.log(`Created Invoice workflow with 2 statuses`);
+    return { typeId: invoiceType.id, pendingStatusId: pendingStatus.id };
+  }
+  
+  // Invoice type exists, get the pending status
+  const invoiceStatuses = await storage.getTicketTypeStatuses(invoiceType.id);
+  const pendingStatus = invoiceStatuses.find(s => s.displayOrder === 0);
+  
+  if (!pendingStatus) {
+    return null;
+  }
+  
+  return { typeId: invoiceType.id, pendingStatusId: pendingStatus.id };
+}
+
 export async function registerRoutes(app: Express): Promise<Server> {
   setupAuth(app);
 
@@ -2259,41 +2341,34 @@ export async function registerRoutes(app: Express): Promise<Server> {
         // Auto-create Invoice ticket if billable work is completed
         if (existingTicket.billingBehavior === "invoice_required") {
           try {
-            // Find the Invoice ticket type for this company
-            const ticketTypes = await storage.getTicketTypes(user.activeCompanyId);
-            const invoiceType = ticketTypes.find(tt => tt.name === "Invoice");
+            // Ensure Invoice ticket type exists for this company
+            const invoiceTypeInfo = await ensureInvoiceTicketType(user.activeCompanyId);
             
-            if (invoiceType) {
-              // Get the first status (Pending Invoice)
-              const invoiceStatuses = await storage.getTicketTypeStatuses(invoiceType.id);
-              const pendingStatus = invoiceStatuses.find(s => s.displayOrder === 0);
+            if (invoiceTypeInfo) {
+              // Create Invoice ticket (unassigned - for Admin/Office to process)
+              const invoiceTicket = await storage.createTicket({
+                companyId: user.activeCompanyId,
+                customerId: existingTicket.customerId,
+                contractId: existingTicket.contractId,
+                ticketTypeId: invoiceTypeInfo.typeId,
+                currentStatusId: invoiceTypeInfo.pendingStatusId,
+                workType: "admin",
+                billingBehavior: "internal",
+                title: `Invoice: ${existingTicket.title}`,
+                description: `Invoice required for completed work: ${existingTicket.title}\n\nOriginal description: ${existingTicket.description || "N/A"}`,
+                priority: "normal",
+                assignedToId: null, // Unassigned - for Admin/Office
+                createdById: user.id,
+              });
               
-              if (pendingStatus) {
-                // Create Invoice ticket (unassigned - for Admin/Office to process)
-                const invoiceTicket = await storage.createTicket({
-                  companyId: user.activeCompanyId,
-                  customerId: existingTicket.customerId,
-                  contractId: existingTicket.contractId,
-                  ticketTypeId: invoiceType.id,
-                  currentStatusId: pendingStatus.id,
-                  workType: "admin",
-                  billingBehavior: "internal",
-                  title: `Invoice: ${existingTicket.title}`,
-                  description: `Invoice required for completed work: ${existingTicket.title}\n\nOriginal description: ${existingTicket.description || "N/A"}`,
-                  priority: "normal",
-                  assignedToId: null, // Unassigned - for Admin/Office
-                  createdById: user.id,
-                });
-                
-                // Link the tickets
-                await storage.createTicketLink({
-                  sourceTicketId: existingTicket.id,
-                  targetTicketId: invoiceTicket.id,
-                  linkType: "invoice_for",
-                });
-                
-                console.log(`Auto-created Invoice ticket ${invoiceTicket.id} for completed billable work ${existingTicket.id}`);
-              }
+              // Link the tickets
+              await storage.createTicketLink({
+                sourceTicketId: existingTicket.id,
+                targetTicketId: invoiceTicket.id,
+                linkType: "invoice_for",
+              });
+              
+              console.log(`Auto-created Invoice ticket ${invoiceTicket.id} for completed billable work ${existingTicket.id}`);
             }
           } catch (err) {
             console.error("Failed to auto-create invoice ticket:", err);
