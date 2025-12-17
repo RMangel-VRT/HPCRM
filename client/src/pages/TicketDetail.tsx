@@ -34,10 +34,11 @@ import {
   Briefcase,
   ClipboardList,
   Layers,
+  Link2,
 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { queryClient, apiRequest } from "@/lib/queryClient";
-import type { Ticket, TicketType, TicketTypeStatus, TicketTypeField, TicketFieldValue, TicketComment, TicketStatusHistory, Customer, Contract, ContractService, WorkType } from "@shared/schema";
+import type { Ticket, TicketType, TicketTypeStatus, TicketTypeField, TicketFieldValue, TicketComment, TicketStatusHistory, Customer, Contract, ContractService, WorkType, TicketLink } from "@shared/schema";
 import { WORK_TYPE_CATALOG } from "@shared/workTypeCatalog";
 import { format, formatDistanceToNow } from "date-fns";
 import { MapContainer, TileLayer, Marker } from "react-leaflet";
@@ -52,6 +53,14 @@ L.Icon.Default.mergeOptions({
   shadowUrl: "https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/images/marker-shadow.png",
 });
 
+interface LinkedTicketInfo {
+  link: TicketLink;
+  ticket: Ticket | null;
+  ticketType: TicketType | null;
+  currentStatus: TicketTypeStatus | null;
+  relationship: "source" | "target";
+}
+
 interface TicketDetails {
   ticket: Ticket;
   ticketType: TicketType;
@@ -63,6 +72,7 @@ interface TicketDetails {
   contract: Contract | null;
   contractServices: ContractService[];
   assignedUser: { id: string; email: string } | null;
+  linkedTickets: LinkedTicketInfo[];
 }
 
 const priorityConfig = {
@@ -144,7 +154,7 @@ export default function TicketDetail() {
     );
   }
 
-  const { ticket, ticketType, statuses, fieldValues, statusHistory, comments, customer, contract, contractServices = [], assignedUser } = details;
+  const { ticket, ticketType, statuses, fieldValues, statusHistory, comments, customer, contract, contractServices = [], assignedUser, linkedTickets = [] } = details;
   const priority = priorityConfig[ticket.priority as keyof typeof priorityConfig] || priorityConfig.normal;
   const currentStatus = statuses.find(s => s.id === ticket.currentStatusId);
   const currentStatusIndex = statuses.findIndex(s => s.id === ticket.currentStatusId);
@@ -390,6 +400,55 @@ export default function TicketDetail() {
               )}
             </CardContent>
           </Card>
+
+          {linkedTickets && linkedTickets.length > 0 && (
+            <Card data-testid="card-linked-tickets">
+              <CardHeader className="pb-2">
+                <CardTitle className="text-sm flex items-center gap-2">
+                  <Link2 className="w-4 h-4" />
+                  Linked Tickets
+                </CardTitle>
+              </CardHeader>
+              <CardContent className="pt-0 space-y-2">
+                {linkedTickets.map((linked) => {
+                  if (!linked.ticket) return null;
+                  const linkLabel = linked.link.linkType === "invoice_for"
+                    ? linked.relationship === "source" 
+                      ? "Invoice for this work" 
+                      : "Source work"
+                    : linked.link.linkType;
+                  return (
+                    <Link 
+                      key={linked.link.id} 
+                      href={`/dashboard/tickets/${linked.ticket.id}`}
+                    >
+                      <div className="flex items-center justify-between p-2 rounded-md border hover-elevate cursor-pointer" data-testid={`link-ticket-${linked.ticket.id}`}>
+                        <div className="flex items-center gap-2 min-w-0">
+                          <div 
+                            className="w-2 h-2 rounded-full shrink-0" 
+                            style={{ backgroundColor: linked.ticketType?.color || "#6b7280" }} 
+                          />
+                          <div className="min-w-0">
+                            <p className="text-sm font-medium truncate">{linked.ticket.title}</p>
+                            <p className="text-xs text-muted-foreground">{linkLabel}</p>
+                          </div>
+                        </div>
+                        <Badge 
+                          variant="outline" 
+                          style={{ 
+                            borderColor: linked.currentStatus?.color || undefined, 
+                            color: linked.currentStatus?.color || undefined 
+                          }}
+                        >
+                          {linked.currentStatus?.name || "Unknown"}
+                        </Badge>
+                      </div>
+                    </Link>
+                  );
+                })}
+              </CardContent>
+            </Card>
+          )}
 
           {ticket.locationLat && ticket.locationLng && (
             <Card className="overflow-hidden" data-testid="card-location">
