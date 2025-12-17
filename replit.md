@@ -22,7 +22,7 @@ Company-specific roles with different permissions:
 - **Field:** Minimal access - only My Tickets and Property Maps (default landing page is My Tickets)
 
 ### Data Storage
-PostgreSQL (Neon serverless) with Drizzle ORM is used for data persistence. The multi-tenant schema includes tables for `Companies`, `Company_users`, `Users`, `Customers`, `Contacts`, `Contracts`, `Contract_documents`, `Contract_services`, `Settings`, `contract_templates`, `contract_builder_documents`, `contract_builder_sections`, `contract_builder_variables`, `ticket_types`, `ticket_type_statuses`, `ticket_type_fields`, `tickets`, `ticket_field_values`, `ticket_status_history`, and `ticket_comments`. UUIDs are used as primary keys, and Drizzle Kit manages migrations.
+PostgreSQL (Neon serverless) with Drizzle ORM is used for data persistence. The multi-tenant schema includes tables for `Companies`, `Company_users`, `Users`, `Customers`, `Contacts`, `Contracts`, `Contract_documents`, `Contract_services`, `Settings`, `contract_templates`, `contract_builder_documents`, `contract_builder_sections`, `contract_builder_variables`, `ticket_types`, `ticket_type_statuses`, `ticket_type_fields`, `tickets`, `ticket_field_values`, `ticket_status_history`, `ticket_comments`, and `ticket_links`. UUIDs are used as primary keys, and Drizzle Kit manages migrations.
 
 #### Contract Management
 This module provides full contract lifecycle management, including stateful editing of monthly billing amounts, validation, and permission-based access. It supports ending or deleting contracts based on roles and enforces unique contract types per customer. A coverage indicator badge shows current service coverage based on active contracts.
@@ -56,6 +56,14 @@ A mobile-first system for field crews to track and manage work at customer prope
 **Ticket Categories:** Ticket types are categorized as quick_task, project, or service for filtering and reporting purposes.
 
 **Ticket Sources:** The `ticket_sources` table tracks ticket origin (manual creation vs. future auto-generated from service blueprints) to distinguish between user-created tickets and system-generated service tickets.
+
+**Invoice Workflow Automation:**
+When tickets with billingBehavior "invoice_required" (Extra Billable or Project work types) reach their final status, an Invoice ticket is automatically created:
+- **Auto-Creation Trigger:** When a billable ticket's status changes to a final status (isFinal === "true")
+- **Invoice Ticket Type:** Auto-created if needed via `ensureInvoiceTicketType()` helper function with Pending Invoice → Invoiced workflow
+- **Ticket Linking:** The `ticket_links` table connects source (billable) tickets to their Invoice tickets via "invoice_for" relationship
+- **Dashboard Widget:** `PendingInvoices` component shows unassigned Invoice tickets in "Pending Invoice" status for Admin/Office roles
+- **Linked Tickets Display:** `TicketDetail` page shows related tickets in a "Linked Tickets" section with navigation
 
 #### Weekly Schedule System
 A comprehensive scheduling system for assigning properties to crews on specific days of the week. It uses a template-based approach with drag-and-drop functionality.

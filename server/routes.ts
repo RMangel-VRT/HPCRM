@@ -8,7 +8,7 @@ import { insertCustomerSchema, insertContactSchema, insertCompanySchema, insertC
 import { ObjectStorageService, ObjectNotFoundError, objectStorageClient, signObjectURL } from "./objectStorage";
 import { ObjectPermission, ObjectAccessGroupType, setObjectAclPolicy } from "./objectAcl";
 
-// Helper to ensure Invoice ticket type exists for a company
+// Helper to ensure Invoice ticket type exists for a company with required statuses
 async function ensureInvoiceTicketType(companyId: string): Promise<{ 
   typeId: string; 
   pendingStatusId: string;
@@ -28,9 +28,15 @@ async function ensureInvoiceTicketType(companyId: string): Promise<{
       isActive: "true",
     });
     console.log(`Created Invoice ticket type for company ${companyId}`);
-    
-    // Create Invoice statuses
-    const pendingStatus = await storage.createTicketTypeStatus({
+  }
+  
+  // Check if statuses exist, create if missing
+  let invoiceStatuses = await storage.getTicketTypeStatuses(invoiceType.id);
+  let pendingStatus = invoiceStatuses.find(s => s.name === "Pending Invoice");
+  let invoicedStatus = invoiceStatuses.find(s => s.name === "Invoiced");
+  
+  if (!pendingStatus) {
+    pendingStatus = await storage.createTicketTypeStatus({
       ticketTypeId: invoiceType.id,
       name: "Pending Invoice",
       description: "Work completed, awaiting invoice creation in QuickBooks",
@@ -38,8 +44,11 @@ async function ensureInvoiceTicketType(companyId: string): Promise<{
       color: "#f59e0b",
       isFinal: "false",
     });
-    
-    await storage.createTicketTypeStatus({
+    console.log(`Created Pending Invoice status for Invoice type`);
+  }
+  
+  if (!invoicedStatus) {
+    invoicedStatus = await storage.createTicketTypeStatus({
       ticketTypeId: invoiceType.id,
       name: "Invoiced",
       description: "Invoice created in QuickBooks",
@@ -47,44 +56,31 @@ async function ensureInvoiceTicketType(companyId: string): Promise<{
       color: "#22c55e",
       isFinal: "true",
     });
+    console.log(`Created Invoiced status for Invoice type`);
     
-    // Create Invoice fields
-    const invoiceStatuses = await storage.getTicketTypeStatuses(invoiceType.id);
-    const invoicedStatus = invoiceStatuses.find(s => s.name === "Invoiced");
-    if (invoicedStatus) {
-      await storage.createTicketTypeField({
-        ticketTypeId: invoiceType.id,
-        statusId: invoicedStatus.id,
-        fieldKey: "invoice_number",
-        fieldLabel: "Invoice Number",
-        fieldType: "text",
-        isRequired: "true",
-        options: [],
-        displayOrder: 0,
-      });
-      
-      await storage.createTicketTypeField({
-        ticketTypeId: invoiceType.id,
-        statusId: invoicedStatus.id,
-        fieldKey: "invoice_amount",
-        fieldLabel: "Invoice Amount",
-        fieldType: "currency",
-        isRequired: "false",
-        options: [],
-        displayOrder: 1,
-      });
-    }
+    // Create Invoice fields for the Invoiced status
+    await storage.createTicketTypeField({
+      ticketTypeId: invoiceType.id,
+      statusId: invoicedStatus.id,
+      fieldKey: "invoice_number",
+      fieldLabel: "Invoice Number",
+      fieldType: "text",
+      isRequired: "true",
+      options: [],
+      displayOrder: 0,
+    });
     
-    console.log(`Created Invoice workflow with 2 statuses`);
-    return { typeId: invoiceType.id, pendingStatusId: pendingStatus.id };
-  }
-  
-  // Invoice type exists, get the pending status
-  const invoiceStatuses = await storage.getTicketTypeStatuses(invoiceType.id);
-  const pendingStatus = invoiceStatuses.find(s => s.displayOrder === 0);
-  
-  if (!pendingStatus) {
-    return null;
+    await storage.createTicketTypeField({
+      ticketTypeId: invoiceType.id,
+      statusId: invoicedStatus.id,
+      fieldKey: "invoice_amount",
+      fieldLabel: "Invoice Amount",
+      fieldType: "currency",
+      isRequired: "false",
+      options: [],
+      displayOrder: 1,
+    });
+    console.log(`Created Invoice fields for Invoiced status`);
   }
   
   return { typeId: invoiceType.id, pendingStatusId: pendingStatus.id };
