@@ -573,6 +573,9 @@ export const tickets = pgTable("tickets", {
   assignedToId: varchar("assigned_to_id").references(() => users.id, { onDelete: "set null" }),
   dueDate: timestamp("due_date"),
   completedAt: timestamp("completed_at"),
+  // Invoice/External reference fields
+  invoiceNumber: text("invoice_number"), // QuickBooks invoice number
+  estimateNumber: text("estimate_number"), // QuickBooks estimate number
   createdById: varchar("created_by_id").notNull().references(() => users.id, { onDelete: "cascade" }),
   createdAt: timestamp("created_at").notNull().defaultNow(),
   updatedAt: timestamp("updated_at").notNull().defaultNow(),
@@ -596,6 +599,8 @@ export const insertTicketSchema = createInsertSchema(tickets).omit({
   assignedToId: z.string().min(1, "Assignment is required"), // Required - tickets must be assigned
   dueDate: z.coerce.date().nullable().optional(), // Coerce ISO string to Date
   completedAt: z.coerce.date().nullable().optional(), // Coerce ISO string to Date
+  invoiceNumber: z.string().nullable().optional(), // QuickBooks invoice number
+  estimateNumber: z.string().nullable().optional(), // QuickBooks estimate number
 });
 
 export type InsertTicket = z.infer<typeof insertTicketSchema>;
@@ -677,6 +682,29 @@ export const insertTicketSourceSchema = createInsertSchema(ticketSources).omit({
 
 export type InsertTicketSource = z.infer<typeof insertTicketSourceSchema>;
 export type TicketSource = typeof ticketSources.$inferSelect;
+
+// Ticket Links - connects related tickets (e.g., billable → invoice, estimate → project)
+export type TicketLinkType = "source_of" | "invoice_for" | "project_for";
+
+export const ticketLinks = pgTable("ticket_links", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  sourceTicketId: varchar("source_ticket_id").notNull().references(() => tickets.id, { onDelete: "cascade" }),
+  targetTicketId: varchar("target_ticket_id").notNull().references(() => tickets.id, { onDelete: "cascade" }),
+  linkType: text("link_type").notNull().$type<TicketLinkType>(), // "invoice_for" = target is invoice for source
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+}, (table) => ({
+  uniqueLink: unique().on(table.sourceTicketId, table.targetTicketId, table.linkType),
+}));
+
+export const insertTicketLinkSchema = createInsertSchema(ticketLinks).omit({
+  id: true,
+  createdAt: true,
+}).extend({
+  linkType: z.enum(["source_of", "invoice_for", "project_for"]),
+});
+
+export type InsertTicketLink = z.infer<typeof insertTicketLinkSchema>;
+export type TicketLink = typeof ticketLinks.$inferSelect;
 
 // Customer Map Layers - KML files for property mapping
 export type MapLayerCategory = "base" | "community" | "snow";
