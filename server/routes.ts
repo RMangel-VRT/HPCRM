@@ -2474,6 +2474,142 @@ export async function registerRoutes(app: Express): Promise<Server> {
     res.status(200).send("Deleted");
   });
 
+  // Ticket Links routes
+  app.get("/api/tickets/:ticketId/links", async (req, res) => {
+    if (!req.isAuthenticated()) {
+      return res.status(401).send("Not authenticated");
+    }
+
+    const user = req.user as UserWithContext;
+    const ticket = await storage.getTicketById(req.params.ticketId, user.activeCompanyId);
+    
+    if (!ticket) {
+      return res.status(404).send("Ticket not found");
+    }
+
+    const links = await storage.getTicketLinks(req.params.ticketId);
+    
+    // Get full details for each linked ticket
+    const linkedTickets = await Promise.all(
+      links.map(async (link) => {
+        const linkedId = link.sourceTicketId === req.params.ticketId 
+          ? link.targetTicketId 
+          : link.sourceTicketId;
+        const linkedTicket = await storage.getTicketById(linkedId, user.activeCompanyId);
+        const ticketType = linkedTicket 
+          ? await storage.getTicketTypeById(linkedTicket.ticketTypeId, user.activeCompanyId)
+          : null;
+        const currentStatus = linkedTicket 
+          ? await storage.getTicketTypeStatuses(linkedTicket.ticketTypeId)
+              .then(statuses => statuses.find(s => s.id === linkedTicket.currentStatusId))
+          : null;
+        return {
+          link,
+          ticket: linkedTicket,
+          ticketType,
+          currentStatus,
+          relationship: link.sourceTicketId === req.params.ticketId ? "target" : "source",
+        };
+      })
+    );
+
+    res.json(linkedTickets);
+  });
+
+  app.post("/api/tickets/:ticketId/links", async (req, res) => {
+    if (!req.isAuthenticated()) {
+      return res.status(401).send("Not authenticated");
+    }
+
+    const user = req.user as UserWithContext;
+    
+    // Only admin/office can create ticket links
+    if (user.activeRole === "field_manager" || user.activeRole === "field") {
+      return res.status(403).send("Insufficient permissions - admin or office role required");
+    }
+
+    const result = insertTicketLinkSchema.safeParse(req.body);
+    if (!result.success) {
+      return res.status(400).send(result.error.message);
+    }
+
+    const link = await storage.createTicketLink(result.data);
+    res.json(link);
+  });
+
+  app.delete("/api/ticket-links/:id", async (req, res) => {
+    if (!req.isAuthenticated()) {
+      return res.status(401).send("Not authenticated");
+    }
+
+    const user = req.user as UserWithContext;
+    
+    // Only admin/office can delete ticket links
+    if (user.activeRole === "field_manager" || user.activeRole === "field") {
+      return res.status(403).send("Insufficient permissions - admin or office role required");
+    }
+
+    await storage.deleteTicketLink(req.params.id);
+    res.status(200).send("Deleted");
+  });
+
+  // Pending Invoices dashboard endpoint
+  app.get("/api/pending-invoices", async (req, res) => {
+    if (!req.isAuthenticated()) {
+      return res.status(401).send("Not authenticated");
+    }
+
+    const user = req.user as UserWithContext;
+    
+    // Only admin/office can see pending invoices
+    if (user.activeRole === "field_manager" || user.activeRole === "field") {
+      return res.status(403).send("Insufficient permissions - admin or office role required");
+    }
+
+    // Get all tickets and filter for Invoice tickets in "Pending Invoice" status
+    const allTickets = await storage.getTickets(user.activeCompanyId, {});
+    const ticketTypes = await storage.getTicketTypes(user.activeCompanyId);
+    const invoiceType = ticketTypes.find(tt => tt.name === "Invoice");
+    
+    if (!invoiceType) {
+      return res.json([]);
+    }
+
+    const invoiceStatuses = await storage.getTicketTypeStatuses(invoiceType.id);
+    const pendingStatus = invoiceStatuses.find(s => s.name === "Pending Invoice");
+    
+    if (!pendingStatus) {
+      return res.json([]);
+    }
+
+    const pendingInvoices = allTickets.filter(
+      t => t.ticketTypeId === invoiceType.id && t.currentStatusId === pendingStatus.id
+    );
+
+    // Enrich with customer info and linked source ticket
+    const enrichedInvoices = await Promise.all(
+      pendingInvoices.map(async (invoice) => {
+        const customer = await storage.getCustomerById(invoice.customerId, user.activeCompanyId);
+        const links = await storage.getTicketLinks(invoice.id);
+        
+        // Find the source (billable) ticket
+        let sourceTicket = null;
+        const sourceLink = links.find(l => l.linkType === "invoice_for" && l.targetTicketId === invoice.id);
+        if (sourceLink) {
+          sourceTicket = await storage.getTicketById(sourceLink.sourceTicketId, user.activeCompanyId);
+        }
+        
+        return {
+          ...invoice,
+          customer,
+          sourceTicket,
+        };
+      })
+    );
+
+    res.json(enrichedInvoices);
+  });
+
   // Get ticket with full details (type, statuses, fields)
   app.get("/api/tickets/:id/details", async (req, res) => {
     if (!req.isAuthenticated()) {
@@ -2523,6 +2659,31 @@ export async function registerRoutes(app: Express): Promise<Server> {
       contractServices = await storage.getContractServices(ticket.contractId, user.activeCompanyId);
     }
 
+    // Get linked tickets
+    const links = await storage.getTicketLinks(ticket.id);
+    const linkedTickets = await Promise.all(
+      links.map(async (link) => {
+        const linkedId = link.sourceTicketId === ticket.id 
+          ? link.targetTicketId 
+          : link.sourceTicketId;
+        const linkedTicket = await storage.getTicketById(linkedId, user.activeCompanyId);
+        const linkedType = linkedTicket 
+          ? await storage.getTicketTypeById(linkedTicket.ticketTypeId, user.activeCompanyId)
+          : null;
+        const linkedStatus = linkedTicket 
+          ? await storage.getTicketTypeStatuses(linkedTicket.ticketTypeId)
+              .then(statuses => statuses.find(s => s.id === linkedTicket.currentStatusId))
+          : null;
+        return {
+          link,
+          ticket: linkedTicket,
+          ticketType: linkedType,
+          currentStatus: linkedStatus,
+          relationship: link.sourceTicketId === ticket.id ? "target" : "source",
+        };
+      })
+    );
+
     res.json({
       ticket,
       ticketType,
@@ -2534,6 +2695,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       contract,
       contractServices,
       assignedUser: assignedUser ? { id: assignedUser.id, email: assignedUser.email } : null,
+      linkedTickets,
     });
   });
 
