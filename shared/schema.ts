@@ -596,7 +596,7 @@ export const insertTicketSchema = createInsertSchema(tickets).omit({
   locationLabel: z.string().nullable().optional(),
   locationDescription: z.string().nullable().optional(),
   photos: z.array(z.string()).nullable().optional(),
-  assignedToId: z.string().min(1, "Assignment is required"), // Required - tickets must be assigned
+  assignedToId: z.string().nullable().optional(), // Optional - Invoice tickets can be unassigned
   dueDate: z.coerce.date().nullable().optional(), // Coerce ISO string to Date
   completedAt: z.coerce.date().nullable().optional(), // Coerce ISO string to Date
   invoiceNumber: z.string().nullable().optional(), // QuickBooks invoice number

@@ -4,7 +4,7 @@ import path from "path";
 import { promises as fs } from "fs";
 import { setupAuth, type UserWithContext } from "./auth";
 import { storage } from "./storage";
-import { insertCustomerSchema, insertContactSchema, insertCompanySchema, insertCompanyUserSchema, insertSettingsSchema, insertNoteSchema, insertContractSchema, insertContractDocumentSchema, insertContractBuilderDocumentSchema, insertContractBuilderSectionSchema, insertContractBuilderVariableSchema, insertTicketTypeSchema, insertTicketTypeStatusSchema, insertTicketTypeFieldSchema, insertTicketSchema, insertTicketFieldValueSchema, insertTicketStatusHistorySchema, insertTicketCommentSchema, insertCustomerMapLayerSchema, insertCustomerMapDocumentSchema, insertMaintenanceCrewSchema, insertMaintenanceVisitConfigSchema, insertWeeklyScheduleTemplateSchema, insertScheduleBlockSchema } from "@shared/schema";
+import { insertCustomerSchema, insertContactSchema, insertCompanySchema, insertCompanyUserSchema, insertSettingsSchema, insertNoteSchema, insertContractSchema, insertContractDocumentSchema, insertContractBuilderDocumentSchema, insertContractBuilderSectionSchema, insertContractBuilderVariableSchema, insertTicketTypeSchema, insertTicketTypeStatusSchema, insertTicketTypeFieldSchema, insertTicketSchema, insertTicketFieldValueSchema, insertTicketStatusHistorySchema, insertTicketCommentSchema, insertTicketLinkSchema, insertCustomerMapLayerSchema, insertCustomerMapDocumentSchema, insertMaintenanceCrewSchema, insertMaintenanceVisitConfigSchema, insertWeeklyScheduleTemplateSchema, insertScheduleBlockSchema } from "@shared/schema";
 import { ObjectStorageService, ObjectNotFoundError, objectStorageClient, signObjectURL } from "./objectStorage";
 import { ObjectPermission, ObjectAccessGroupType, setObjectAclPolicy } from "./objectAcl";
 
@@ -2255,6 +2255,51 @@ export async function registerRoutes(app: Express): Promise<Server> {
       
       if (newStatus?.isFinal === "true") {
         req.body.completedAt = new Date();
+        
+        // Auto-create Invoice ticket if billable work is completed
+        if (existingTicket.billingBehavior === "invoice_required") {
+          try {
+            // Find the Invoice ticket type for this company
+            const ticketTypes = await storage.getTicketTypes(user.activeCompanyId);
+            const invoiceType = ticketTypes.find(tt => tt.name === "Invoice");
+            
+            if (invoiceType) {
+              // Get the first status (Pending Invoice)
+              const invoiceStatuses = await storage.getTicketTypeStatuses(invoiceType.id);
+              const pendingStatus = invoiceStatuses.find(s => s.displayOrder === 0);
+              
+              if (pendingStatus) {
+                // Create Invoice ticket (unassigned - for Admin/Office to process)
+                const invoiceTicket = await storage.createTicket({
+                  companyId: user.activeCompanyId,
+                  customerId: existingTicket.customerId,
+                  contractId: existingTicket.contractId,
+                  ticketTypeId: invoiceType.id,
+                  currentStatusId: pendingStatus.id,
+                  workType: "admin",
+                  billingBehavior: "internal",
+                  title: `Invoice: ${existingTicket.title}`,
+                  description: `Invoice required for completed work: ${existingTicket.title}\n\nOriginal description: ${existingTicket.description || "N/A"}`,
+                  priority: "normal",
+                  assignedToId: null, // Unassigned - for Admin/Office
+                  createdById: user.id,
+                });
+                
+                // Link the tickets
+                await storage.createTicketLink({
+                  sourceTicketId: existingTicket.id,
+                  targetTicketId: invoiceTicket.id,
+                  linkType: "invoice_for",
+                });
+                
+                console.log(`Auto-created Invoice ticket ${invoiceTicket.id} for completed billable work ${existingTicket.id}`);
+              }
+            }
+          } catch (err) {
+            console.error("Failed to auto-create invoice ticket:", err);
+            // Don't fail the update - invoice creation is secondary
+          }
+        }
       }
     }
 

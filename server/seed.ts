@@ -539,6 +539,62 @@ async function seed() {
   });
   console.log("✓ Created Project fields");
 
+  // Invoice Ticket - Used to track billable work that needs invoicing
+  const invoiceType = await storage.createTicketType({
+    companyId: company.id,
+    name: "Invoice",
+    description: "Tracks work that needs to be invoiced in QuickBooks",
+    category: "service",
+    icon: "file-text",
+    color: "#f59e0b",
+    isActive: "true",
+  });
+  console.log(`✓ Created ticket type: ${invoiceType.name}`);
+
+  // Invoice ticket statuses
+  const invPending = await storage.createTicketTypeStatus({
+    ticketTypeId: invoiceType.id,
+    name: "Pending Invoice",
+    description: "Work completed, awaiting invoice creation in QuickBooks",
+    displayOrder: 0,
+    color: "#f59e0b",
+    isFinal: "false",
+  });
+
+  const invInvoiced = await storage.createTicketTypeStatus({
+    ticketTypeId: invoiceType.id,
+    name: "Invoiced",
+    description: "Invoice created in QuickBooks",
+    displayOrder: 1,
+    color: "#22c55e",
+    isFinal: "true",
+  });
+  console.log("✓ Created Invoice workflow (2 steps)");
+
+  // Invoice ticket fields
+  await storage.createTicketTypeField({
+    ticketTypeId: invoiceType.id,
+    statusId: invInvoiced.id,
+    fieldKey: "invoice_number",
+    fieldLabel: "Invoice Number",
+    fieldType: "text",
+    isRequired: "true",
+    options: [],
+    displayOrder: 0,
+  });
+
+  await storage.createTicketTypeField({
+    ticketTypeId: invoiceType.id,
+    statusId: invInvoiced.id,
+    fieldKey: "invoice_amount",
+    fieldLabel: "Invoice Amount",
+    fieldType: "currency",
+    isRequired: "false",
+    options: [],
+    displayOrder: 1,
+  });
+  console.log("✓ Created Invoice fields");
+
   // Create a sample Onsite Maintenance Task ticket
   console.log("\nCreating sample tickets...");
   const opsUser = await storage.getUserByEmail("ops@greenscape.com");
@@ -587,7 +643,7 @@ async function seed() {
   console.log("  • 2 contacts (property managers)");
   console.log("  • 1 note (customer communication)");
   console.log("  • 2 contracts (maintenance services)");
-  console.log("  • 2 ticket types (Onsite Maintenance Task, Project)");
+  console.log("  • 3 ticket types (Onsite Maintenance Task, Project, Invoice)");
   console.log("  • 1 sample ticket (sprinkler repair)");
   
   console.log("\n✨ Super admin has platform access to the /admin portal");
