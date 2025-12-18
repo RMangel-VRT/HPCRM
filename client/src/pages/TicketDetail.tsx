@@ -401,22 +401,18 @@ export default function TicketDetail() {
             </CardContent>
           </Card>
 
-          {linkedTickets && linkedTickets.length > 0 && (
+          {linkedTickets && linkedTickets.length > 0 && ticketType?.name === "Invoice" && (
             <Card data-testid="card-linked-tickets">
               <CardHeader className="pb-2">
                 <CardTitle className="text-sm flex items-center gap-2">
                   <Link2 className="w-4 h-4" />
-                  Linked Tickets
+                  Source Work
                 </CardTitle>
               </CardHeader>
               <CardContent className="pt-0 space-y-2">
                 {linkedTickets.map((linked) => {
                   if (!linked.ticket) return null;
-                  const linkLabel = linked.link.linkType === "invoice_for"
-                    ? linked.relationship === "source" 
-                      ? "Invoice for this work" 
-                      : "Source work"
-                    : linked.link.linkType;
+                  const linkLabel = "Original billable work";
                   return (
                     <Link 
                       key={linked.link.id} 

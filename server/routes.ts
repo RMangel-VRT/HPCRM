@@ -2364,7 +2364,17 @@ export async function registerRoutes(app: Express): Promise<Server> {
                 linkType: "invoice_for",
               });
               
-              console.log(`Auto-created Invoice ticket ${invoiceTicket.id} for completed billable work ${existingTicket.id}`);
+              // Copy notes from source ticket to invoice ticket
+              const sourceComments = await storage.getTicketComments(existingTicket.id);
+              for (const comment of sourceComments) {
+                await storage.createTicketComment({
+                  ticketId: invoiceTicket.id,
+                  authorId: comment.authorId,
+                  body: comment.body,
+                });
+              }
+              
+              console.log(`Auto-created Invoice ticket ${invoiceTicket.id} for completed billable work ${existingTicket.id} with ${sourceComments.length} notes copied`);
             }
           } catch (err) {
             console.error("Failed to auto-create invoice ticket:", err);
