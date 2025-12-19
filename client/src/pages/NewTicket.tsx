@@ -200,6 +200,10 @@ export default function NewTicket() {
       return apiRequest("POST", "/api/customers", {
         name: newProspectName,
         status: "prospect",
+        street: "",
+        city: "",
+        state: "",
+        zip: "",
       });
     },
     onSuccess: async (res) => {
