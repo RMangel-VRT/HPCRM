@@ -159,7 +159,30 @@ export default function TicketDetail() {
   const currentStatus = statuses.find(s => s.id === ticket.currentStatusId);
   const currentStatusIndex = statuses.findIndex(s => s.id === ticket.currentStatusId);
   const sortedStatuses = [...statuses].sort((a, b) => a.displayOrder - b.displayOrder);
-  const nextStatus = sortedStatuses[currentStatusIndex + 1];
+  
+  // Handle RFP Request branching at "Decision Received" status
+  const getNextStatus = () => {
+    const defaultNext = sortedStatuses[currentStatusIndex + 1];
+    
+    // Check if this is RFP Request at Decision Received - need to branch based on outcome
+    if (currentStatus?.name === "Decision Received" && ticketType.name === "RFP Request") {
+      // Find the decision_outcome field value
+      const decisionField = currentStatus.fields?.find(f => f.fieldKey === "decision_outcome");
+      const decisionValue = decisionField ? fieldValues.find(fv => fv.fieldId === decisionField.id)?.value : null;
+      
+      if (decisionValue === "Awarded") {
+        // Go to Awarded status
+        return statuses.find(s => s.name === "Awarded") || defaultNext;
+      } else if (decisionValue === "Lost") {
+        // Go to Closed - Lost status
+        return statuses.find(s => s.name === "Closed - Lost") || defaultNext;
+      }
+    }
+    
+    return defaultNext;
+  };
+  
+  const nextStatus = getNextStatus();
   const isComplete = !!ticket.completedAt;
 
   const handleAdvanceStatus = () => {
@@ -205,13 +228,30 @@ export default function TicketDetail() {
       }
     }
     
-    // Validate NEXT status required fields
-    const targetStatus = statuses.find(s => s.id === pendingStatusId);
-    const nextRequiredFields = targetStatus?.fields?.filter(f => f.isRequired === "true") || [];
-    for (const field of nextRequiredFields) {
-      if (!fieldInputs[field.id]?.trim()) {
-        toast({ title: `Please fill in ${field.fieldLabel}`, variant: "destructive" });
-        return;
+    // Determine actual target status (handle RFP branching based on dialog inputs)
+    let actualTargetStatusId = pendingStatusId;
+    if (currentStatus?.name === "Decision Received" && ticketType.name === "RFP Request") {
+      const decisionField = currentStatusFields.find(f => f.fieldKey === "decision_outcome");
+      const decisionValue = decisionField ? fieldInputs[decisionField.id] : null;
+      
+      if (decisionValue === "Awarded") {
+        const awardedStatus = statuses.find(s => s.name === "Awarded");
+        if (awardedStatus) actualTargetStatusId = awardedStatus.id;
+      } else if (decisionValue === "Lost") {
+        const lostStatus = statuses.find(s => s.name === "Closed - Lost");
+        if (lostStatus) actualTargetStatusId = lostStatus.id;
+      }
+    }
+    
+    // Validate target status required fields (only if not branching to a different status)
+    const targetStatus = statuses.find(s => s.id === actualTargetStatusId);
+    if (actualTargetStatusId === pendingStatusId) {
+      const nextRequiredFields = targetStatus?.fields?.filter(f => f.isRequired === "true") || [];
+      for (const field of nextRequiredFields) {
+        if (!fieldInputs[field.id]?.trim()) {
+          toast({ title: `Please fill in ${field.fieldLabel}`, variant: "destructive" });
+          return;
+        }
       }
     }
 
@@ -222,7 +262,7 @@ export default function TicketDetail() {
       }
     }
 
-    updateStatusMutation.mutate({ statusId: pendingStatusId, notes: statusNotes });
+    updateStatusMutation.mutate({ statusId: actualTargetStatusId, notes: statusNotes });
   };
 
   const getFieldValue = (fieldId: string) => {
@@ -783,7 +823,9 @@ export default function TicketDetail() {
               <Loader2 className="w-5 h-5 animate-spin" />
             ) : (
               <>
-                Move to: {nextStatus.name}
+                {currentStatus?.name === "Decision Received" && ticketType.name === "RFP Request"
+                  ? "Record Decision"
+                  : `Move to: ${nextStatus.name}`}
                 <ChevronRight className="w-5 h-5" />
               </>
             )}
@@ -804,10 +846,14 @@ export default function TicketDetail() {
         <DialogContent className="sm:max-w-md max-h-[85vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle>
-              Move to: {statuses.find(s => s.id === pendingStatusId)?.name}
+              {currentStatus?.name === "Decision Received" && ticketType.name === "RFP Request" 
+                ? "Record Decision Outcome" 
+                : `Move to: ${statuses.find(s => s.id === pendingStatusId)?.name}`}
             </DialogTitle>
             <DialogDescription>
-              Fill in the required information to proceed.
+              {currentStatus?.name === "Decision Received" && ticketType.name === "RFP Request"
+                ? "Select Awarded or Lost to proceed to the appropriate workflow."
+                : "Fill in the required information to proceed."}
             </DialogDescription>
           </DialogHeader>
           
@@ -862,8 +908,9 @@ export default function TicketDetail() {
               </div>
             )}
             
-            {/* Next status fields section */}
-            {statuses.find(s => s.id === pendingStatusId)?.fields && statuses.find(s => s.id === pendingStatusId)!.fields!.length > 0 && (
+            {/* Next status fields section - hide for Decision Received since target is determined by outcome */}
+            {!(currentStatus?.name === "Decision Received" && ticketType.name === "RFP Request") && 
+             statuses.find(s => s.id === pendingStatusId)?.fields && statuses.find(s => s.id === pendingStatusId)!.fields!.length > 0 && (
               <div className="space-y-4">
                 <div className="flex items-center gap-2">
                   <div className="h-px flex-1 bg-border" />
