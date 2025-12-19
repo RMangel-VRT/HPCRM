@@ -19,6 +19,7 @@ import {
   DialogContent,
   DialogHeader,
   DialogTitle,
+  DialogFooter,
 } from "@/components/ui/dialog";
 import { 
   ArrowLeft, 
@@ -38,6 +39,8 @@ import {
   Pencil,
   Camera,
   Image as ImageIcon,
+  FilePlus,
+  UserPlus,
 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { queryClient, apiRequest } from "@/lib/queryClient";
@@ -97,6 +100,14 @@ export default function NewTicket() {
   const [showCustomerDialog, setShowCustomerDialog] = useState(false);
   const [showLocationDialog, setShowLocationDialog] = useState(false);
   
+  // RFP Request specific state
+  const [isRFPRequest, setIsRFPRequest] = useState(false);
+  const [showCreateProspectDialog, setShowCreateProspectDialog] = useState(false);
+  const [newProspectName, setNewProspectName] = useState("");
+  const [newProspectContactName, setNewProspectContactName] = useState("");
+  const [newProspectContactEmail, setNewProspectContactEmail] = useState("");
+  const [newProspectContactPhone, setNewProspectContactPhone] = useState("");
+  
   const [locationLat, setLocationLat] = useState<number | null>(null);
   const [locationLng, setLocationLng] = useState<number | null>(null);
   const [locationLabel, setLocationLabel] = useState("");
@@ -153,6 +164,12 @@ export default function NewTicket() {
   const getTicketTypeForWorkType = (workType: WorkType): string | null => {
     const activeTypes = ticketTypes.filter(t => t.isActive === "true");
     
+    // For RFP Request, find the specific RFP Request ticket type
+    if (isRFPRequest) {
+      const rfpType = activeTypes.find(t => t.name === "RFP Request");
+      return rfpType?.id || null;
+    }
+    
     if (workType === "project") {
       const projectType = activeTypes.find(t => t.category === "project" || t.name.toLowerCase().includes("project"));
       return projectType?.id || activeTypes[0]?.id || null;
@@ -166,6 +183,56 @@ export default function NewTicket() {
     );
     return quickTaskType?.id || activeTypes[0]?.id || null;
   };
+  
+  // Initialize RFP Request ticket type if needed
+  const initRFPMutation = useMutation({
+    mutationFn: async () => {
+      return apiRequest("POST", "/api/ticket-types/init-rfp", {});
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/ticket-types"] });
+    },
+  });
+  
+  // Create prospect customer mutation
+  const createProspectMutation = useMutation({
+    mutationFn: async () => {
+      return apiRequest("POST", "/api/customers", {
+        name: newProspectName,
+        status: "prospect",
+      });
+    },
+    onSuccess: async (res) => {
+      const customer = await res.json();
+      queryClient.invalidateQueries({ queryKey: ["/api/customers"] });
+      
+      // Create contact if provided
+      if (newProspectContactName || newProspectContactEmail || newProspectContactPhone) {
+        try {
+          await apiRequest("POST", `/api/customers/${customer.id}/contacts`, {
+            name: newProspectContactName || "Primary Contact",
+            email: newProspectContactEmail || null,
+            phone: newProspectContactPhone || null,
+            title: "Primary Contact",
+            isPrimary: "true",
+          });
+        } catch (e) {
+          console.error("Failed to create contact:", e);
+        }
+      }
+      
+      setShowCreateProspectDialog(false);
+      setNewProspectName("");
+      setNewProspectContactName("");
+      setNewProspectContactEmail("");
+      setNewProspectContactPhone("");
+      handleSelectCustomer(customer.id);
+      toast({ title: "Prospect created successfully" });
+    },
+    onError: (error: Error) => {
+      toast({ title: "Failed to create prospect", description: error.message, variant: "destructive" });
+    },
+  });
 
   const createTicketMutation = useMutation({
     mutationFn: async () => {
@@ -206,6 +273,18 @@ export default function NewTicket() {
 
   const handleSelectWorkType = (workType: WorkType) => {
     setSelectedWorkType(workType);
+    setIsRFPRequest(false);
+    setStep("customer");
+  };
+  
+  const handleSelectRFPRequest = async () => {
+    // Initialize RFP Request ticket type if not exists
+    const rfpType = ticketTypes.find(t => t.name === "RFP Request");
+    if (!rfpType) {
+      await initRFPMutation.mutateAsync();
+    }
+    setSelectedWorkType("admin"); // RFP Request uses admin work type (non-billable)
+    setIsRFPRequest(true);
     setStep("customer");
   };
 
@@ -419,6 +498,33 @@ export default function NewTicket() {
                 </Card>
               );
             })}
+            
+            {/* RFP Request - Special ticket type for proposal tracking */}
+            <Card 
+              className="hover-elevate active-elevate-2 cursor-pointer border-dashed"
+              onClick={handleSelectRFPRequest}
+              data-testid="card-worktype-rfp"
+            >
+              <CardContent className="p-4 flex items-center gap-4">
+                <div 
+                  className="w-10 h-10 rounded-lg flex items-center justify-center"
+                  style={{ backgroundColor: "#8b5cf620" }}
+                >
+                  <FilePlus className="w-5 h-5" style={{ color: "#8b5cf6" }} />
+                </div>
+                <div className="flex-1">
+                  <div className="flex items-center gap-2">
+                    <h3 className="font-medium">RFP Request</h3>
+                    <Badge variant="outline" className="text-xs">
+                      Pipeline
+                    </Badge>
+                  </div>
+                  <p className="text-sm text-muted-foreground line-clamp-1">
+                    Track a proposal request from first contact through award
+                  </p>
+                </div>
+              </CardContent>
+            </Card>
           </div>
         </div>
       )}
@@ -430,7 +536,7 @@ export default function NewTicket() {
               className="hover:text-foreground cursor-pointer"
               onClick={() => setStep("workType")}
             >
-              {selectedWorkTypeConfig?.name}
+              {isRFPRequest ? "RFP Request" : selectedWorkTypeConfig?.name}
             </span>
             <span>/</span>
             <span>Select Customer</span>
@@ -465,6 +571,22 @@ export default function NewTicket() {
                   data-testid="input-customer-search"
                 />
               </div>
+              
+              {/* Create New Prospect button - shown for RFP Requests */}
+              {isRFPRequest && (
+                <Button
+                  variant="outline"
+                  className="w-full"
+                  onClick={() => {
+                    setShowCustomerDialog(false);
+                    setShowCreateProspectDialog(true);
+                  }}
+                  data-testid="button-create-prospect"
+                >
+                  <UserPlus className="w-4 h-4 mr-2" />
+                  Create New Prospect
+                </Button>
+              )}
               
               <div className="flex-1 overflow-y-auto -mx-6 px-6 space-y-2 min-h-[200px] max-h-[400px]">
                 {filteredCustomers.length === 0 ? (
@@ -501,6 +623,86 @@ export default function NewTicket() {
               </div>
             </DialogContent>
           </Dialog>
+          
+          {/* Create Prospect Dialog */}
+          <Dialog open={showCreateProspectDialog} onOpenChange={setShowCreateProspectDialog}>
+            <DialogContent className="sm:max-w-md">
+              <DialogHeader>
+                <DialogTitle>Create New Prospect</DialogTitle>
+              </DialogHeader>
+              
+              <div className="space-y-4">
+                <div className="space-y-2">
+                  <Label htmlFor="prospect-name">
+                    Community Name <span className="text-red-500">*</span>
+                  </Label>
+                  <Input
+                    id="prospect-name"
+                    value={newProspectName}
+                    onChange={(e) => setNewProspectName(e.target.value)}
+                    placeholder="e.g., Oak Valley HOA"
+                    data-testid="input-prospect-name"
+                  />
+                </div>
+                
+                <div className="space-y-2">
+                  <Label htmlFor="prospect-contact-name">Primary Contact Name</Label>
+                  <Input
+                    id="prospect-contact-name"
+                    value={newProspectContactName}
+                    onChange={(e) => setNewProspectContactName(e.target.value)}
+                    placeholder="e.g., John Smith"
+                    data-testid="input-prospect-contact-name"
+                  />
+                </div>
+                
+                <div className="space-y-2">
+                  <Label htmlFor="prospect-contact-email">Contact Email</Label>
+                  <Input
+                    id="prospect-contact-email"
+                    type="email"
+                    value={newProspectContactEmail}
+                    onChange={(e) => setNewProspectContactEmail(e.target.value)}
+                    placeholder="e.g., john@example.com"
+                    data-testid="input-prospect-contact-email"
+                  />
+                </div>
+                
+                <div className="space-y-2">
+                  <Label htmlFor="prospect-contact-phone">Contact Phone</Label>
+                  <Input
+                    id="prospect-contact-phone"
+                    type="tel"
+                    value={newProspectContactPhone}
+                    onChange={(e) => setNewProspectContactPhone(e.target.value)}
+                    placeholder="e.g., (555) 123-4567"
+                    data-testid="input-prospect-contact-phone"
+                  />
+                </div>
+              </div>
+              
+              <DialogFooter className="gap-2">
+                <Button
+                  variant="outline"
+                  onClick={() => setShowCreateProspectDialog(false)}
+                >
+                  Cancel
+                </Button>
+                <Button
+                  onClick={() => createProspectMutation.mutate()}
+                  disabled={!newProspectName.trim() || createProspectMutation.isPending}
+                  data-testid="button-create-prospect-submit"
+                >
+                  {createProspectMutation.isPending ? (
+                    <Loader2 className="w-4 h-4 animate-spin mr-2" />
+                  ) : (
+                    <UserPlus className="w-4 h-4 mr-2" />
+                  )}
+                  Create Prospect
+                </Button>
+              </DialogFooter>
+            </DialogContent>
+          </Dialog>
         </div>
       )}
 
@@ -511,7 +713,7 @@ export default function NewTicket() {
               className="hover:text-foreground cursor-pointer"
               onClick={() => setStep("workType")}
             >
-              {selectedWorkTypeConfig?.name}
+              {isRFPRequest ? "RFP Request" : selectedWorkTypeConfig?.name}
             </span>
             <span>/</span>
             <span 

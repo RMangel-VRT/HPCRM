@@ -86,6 +86,221 @@ async function ensureInvoiceTicketType(companyId: string): Promise<{
   return { typeId: invoiceType.id, pendingStatusId: pendingStatus.id };
 }
 
+// Helper to ensure RFP Request ticket type exists for a company with full workflow
+async function ensureRFPRequestTicketType(companyId: string): Promise<{ 
+  typeId: string; 
+  statuses: Map<string, string>;
+} | null> {
+  const ticketTypes = await storage.getTicketTypes(companyId);
+  let rfpType = ticketTypes.find(tt => tt.name === "RFP Request");
+  
+  if (!rfpType) {
+    rfpType = await storage.createTicketType({
+      companyId,
+      name: "RFP Request",
+      description: "Track the full lifecycle of a community requesting a proposal for maintenance services",
+      category: "project",
+      icon: "file-plus",
+      color: "#8b5cf6",
+      isActive: "true",
+    });
+    console.log(`Created RFP Request ticket type for company ${companyId}`);
+  }
+  
+  // Define all RFP workflow statuses
+  const rfpStatuses = [
+    { name: "Request Received", description: "RFP logged and ticket created", color: "#6366f1", order: 0, isFinal: "false" as const },
+    { name: "Review Requirements", description: "Reviewing RFP requirements and scope", color: "#8b5cf6", order: 1, isFinal: "false" as const },
+    { name: "Request Missing Info", description: "Requesting additional information from prospect", color: "#f59e0b", order: 2, isFinal: "false" as const },
+    { name: "Pre-Proposal Walk", description: "Property walk scheduled or completed", color: "#06b6d4", order: 3, isFinal: "false" as const },
+    { name: "Proposal Drafted", description: "Proposal is being prepared", color: "#3b82f6", order: 4, isFinal: "false" as const },
+    { name: "Proposal Submitted", description: "Proposal has been sent to prospect", color: "#10b981", order: 5, isFinal: "false" as const },
+    { name: "Awaiting Response", description: "Waiting for decision from prospect", color: "#f97316", order: 6, isFinal: "false" as const },
+    { name: "Decision Received", description: "Decision has been received - select outcome", color: "#eab308", order: 7, isFinal: "false" as const },
+    { name: "Closed - Lost", description: "RFP was not awarded", color: "#ef4444", order: 8, isFinal: "true" as const },
+    { name: "Awarded", description: "RFP was awarded - begin onboarding", color: "#22c55e", order: 9, isFinal: "false" as const },
+    { name: "Contract Executed", description: "Contract has been signed", color: "#14b8a6", order: 10, isFinal: "false" as const },
+    { name: "CRM Setup Complete", description: "Contract and customer details entered in CRM", color: "#0ea5e9", order: 11, isFinal: "false" as const },
+    { name: "Maps Requested", description: "Property maps requested from customer", color: "#a855f7", order: 12, isFinal: "false" as const },
+    { name: "Maps Uploaded", description: "Property maps created and uploaded", color: "#d946ef", order: 13, isFinal: "false" as const },
+    { name: "Contacts Collected", description: "Board and PM contacts collected", color: "#ec4899", order: 14, isFinal: "false" as const },
+    { name: "Post-Award Kickoff", description: "Kickoff walk or meeting completed", color: "#f43f5e", order: 15, isFinal: "false" as const },
+    { name: "Handoff to Operations", description: "Ready for scheduling and operations", color: "#84cc16", order: 16, isFinal: "false" as const },
+    { name: "Closed - Won", description: "RFP complete - customer onboarded", color: "#22c55e", order: 17, isFinal: "true" as const },
+  ];
+  
+  // Get existing statuses
+  let existingStatuses = await storage.getTicketTypeStatuses(rfpType.id);
+  const statusMap = new Map<string, string>();
+  
+  // Create missing statuses
+  for (const statusDef of rfpStatuses) {
+    let status = existingStatuses.find(s => s.name === statusDef.name);
+    if (!status) {
+      status = await storage.createTicketTypeStatus({
+        ticketTypeId: rfpType.id,
+        name: statusDef.name,
+        description: statusDef.description,
+        displayOrder: statusDef.order,
+        color: statusDef.color,
+        isFinal: statusDef.isFinal,
+      });
+      console.log(`Created RFP status: ${statusDef.name}`);
+    }
+    statusMap.set(statusDef.name, status.id);
+  }
+  
+  // Get existing fields to avoid duplicates
+  const existingFields = await storage.getTicketTypeFields(rfpType.id);
+  const existingFieldKeys = new Set(existingFields.map(f => f.fieldKey));
+  
+  // Define step-specific fields
+  const fieldDefinitions: Array<{
+    statusName: string;
+    fields: Array<{
+      fieldKey: string;
+      fieldLabel: string;
+      fieldType: "text" | "number" | "date" | "currency" | "select" | "textarea";
+      isRequired: "true" | "false";
+      options?: string[];
+    }>;
+  }> = [
+    {
+      statusName: "Request Received",
+      fields: [
+        { fieldKey: "request_source", fieldLabel: "Source of Request", fieldType: "select", isRequired: "true", options: ["Email", "Phone", "Referral", "Property Manager", "City", "Website", "Other"] },
+        { fieldKey: "service_scope", fieldLabel: "Requested Service Scope", fieldType: "textarea", isRequired: "true" },
+        { fieldKey: "desired_start_date", fieldLabel: "Desired Start Date", fieldType: "date", isRequired: "false" },
+        { fieldKey: "proposal_due_date", fieldLabel: "Proposal Due Date", fieldType: "date", isRequired: "false" },
+      ]
+    },
+    {
+      statusName: "Review Requirements",
+      fields: [
+        { fieldKey: "rfp_documents_received", fieldLabel: "RFP Documents Received?", fieldType: "select", isRequired: "true", options: ["Yes", "No", "Partial"] },
+        { fieldKey: "requirements_notes", fieldLabel: "Notes on Requirements", fieldType: "textarea", isRequired: "true" },
+      ]
+    },
+    {
+      statusName: "Request Missing Info",
+      fields: [
+        { fieldKey: "missing_items", fieldLabel: "Missing Items Checklist", fieldType: "textarea", isRequired: "true" },
+        { fieldKey: "info_requested_date", fieldLabel: "Date Requested", fieldType: "date", isRequired: "true" },
+      ]
+    },
+    {
+      statusName: "Pre-Proposal Walk",
+      fields: [
+        { fieldKey: "walk_date", fieldLabel: "Walk Date/Time", fieldType: "date", isRequired: "true" },
+        { fieldKey: "walk_notes", fieldLabel: "Walk Notes", fieldType: "textarea", isRequired: "false" },
+      ]
+    },
+    {
+      statusName: "Proposal Drafted",
+      fields: [
+        { fieldKey: "proposal_version", fieldLabel: "Proposal Version", fieldType: "text", isRequired: "true" },
+        { fieldKey: "draft_notes", fieldLabel: "Draft Notes", fieldType: "textarea", isRequired: "false" },
+      ]
+    },
+    {
+      statusName: "Proposal Submitted",
+      fields: [
+        { fieldKey: "submitted_date", fieldLabel: "Submitted Date", fieldType: "date", isRequired: "true" },
+        { fieldKey: "delivery_method", fieldLabel: "Delivery Method", fieldType: "select", isRequired: "true", options: ["Email", "Portal", "Hard Copy", "Other"] },
+      ]
+    },
+    {
+      statusName: "Decision Received",
+      fields: [
+        { fieldKey: "decision_outcome", fieldLabel: "Decision", fieldType: "select", isRequired: "true", options: ["Awarded", "Lost"] },
+        { fieldKey: "decision_date", fieldLabel: "Decision Date", fieldType: "date", isRequired: "true" },
+      ]
+    },
+    {
+      statusName: "Closed - Lost",
+      fields: [
+        { fieldKey: "loss_reason", fieldLabel: "Reason for Loss", fieldType: "select", isRequired: "true", options: ["Price", "Incumbent", "Scope Mismatch", "Timing", "Other"] },
+        { fieldKey: "loss_notes", fieldLabel: "Additional Notes", fieldType: "textarea", isRequired: "false" },
+      ]
+    },
+    {
+      statusName: "Contract Executed",
+      fields: [
+        { fieldKey: "contract_signed_date", fieldLabel: "Contract Signed Date", fieldType: "date", isRequired: "true" },
+        { fieldKey: "contract_notes", fieldLabel: "Contract Notes", fieldType: "textarea", isRequired: "false" },
+      ]
+    },
+    {
+      statusName: "CRM Setup Complete",
+      fields: [
+        { fieldKey: "contract_dates_entered", fieldLabel: "Contract Dates Entered?", fieldType: "select", isRequired: "true", options: ["Yes", "No"] },
+        { fieldKey: "monthly_amounts_entered", fieldLabel: "Monthly Amounts Entered?", fieldType: "select", isRequired: "true", options: ["Yes", "No"] },
+        { fieldKey: "services_configured", fieldLabel: "Services Configured?", fieldType: "select", isRequired: "true", options: ["Yes", "No"] },
+      ]
+    },
+    {
+      statusName: "Maps Requested",
+      fields: [
+        { fieldKey: "maps_requested_date", fieldLabel: "Maps Requested Date", fieldType: "date", isRequired: "true" },
+        { fieldKey: "maps_received", fieldLabel: "Maps Received?", fieldType: "select", isRequired: "false", options: ["Yes", "No", "Pending"] },
+      ]
+    },
+    {
+      statusName: "Maps Uploaded",
+      fields: [
+        { fieldKey: "maps_created", fieldLabel: "Maps Created?", fieldType: "select", isRequired: "true", options: ["Yes", "No"] },
+        { fieldKey: "map_upload_notes", fieldLabel: "Map Notes", fieldType: "textarea", isRequired: "false" },
+      ]
+    },
+    {
+      statusName: "Contacts Collected",
+      fields: [
+        { fieldKey: "board_contacts_collected", fieldLabel: "Board/PM Contacts Collected?", fieldType: "select", isRequired: "true", options: ["Yes", "No", "Partial"] },
+        { fieldKey: "contacts_notes", fieldLabel: "Contact Notes", fieldType: "textarea", isRequired: "false" },
+      ]
+    },
+    {
+      statusName: "Post-Award Kickoff",
+      fields: [
+        { fieldKey: "kickoff_date", fieldLabel: "Kickoff Date", fieldType: "date", isRequired: "true" },
+        { fieldKey: "kickoff_notes", fieldLabel: "Kickoff Notes", fieldType: "textarea", isRequired: "false" },
+      ]
+    },
+    {
+      statusName: "Handoff to Operations",
+      fields: [
+        { fieldKey: "handoff_notes", fieldLabel: "Handoff Notes", fieldType: "textarea", isRequired: "false" },
+        { fieldKey: "ready_for_scheduling", fieldLabel: "Ready for Scheduling?", fieldType: "select", isRequired: "true", options: ["Yes", "No"] },
+      ]
+    },
+  ];
+  
+  // Create fields for each status
+  for (const statusFields of fieldDefinitions) {
+    const statusId = statusMap.get(statusFields.statusName);
+    if (!statusId) continue;
+    
+    for (let i = 0; i < statusFields.fields.length; i++) {
+      const fieldDef = statusFields.fields[i];
+      if (existingFieldKeys.has(fieldDef.fieldKey)) continue;
+      
+      await storage.createTicketTypeField({
+        ticketTypeId: rfpType.id,
+        statusId: statusId,
+        fieldKey: fieldDef.fieldKey,
+        fieldLabel: fieldDef.fieldLabel,
+        fieldType: fieldDef.fieldType,
+        isRequired: fieldDef.isRequired,
+        options: fieldDef.options || [],
+        displayOrder: i,
+      });
+    }
+  }
+  
+  console.log(`RFP Request ticket type setup complete for company ${companyId}`);
+  return { typeId: rfpType.id, statuses: statusMap };
+}
+
 export async function registerRoutes(app: Express): Promise<Server> {
   setupAuth(app);
 
@@ -1860,6 +2075,31 @@ export async function registerRoutes(app: Express): Promise<Server> {
     const user = req.user as UserWithContext;
     const ticketTypes = await storage.getTicketTypes(user.activeCompanyId);
     res.json(ticketTypes);
+  });
+
+  // Initialize RFP Request ticket type for a company
+  app.post("/api/ticket-types/init-rfp", async (req, res) => {
+    if (!req.isAuthenticated()) {
+      return res.status(401).send("Not authenticated");
+    }
+
+    const user = req.user as UserWithContext;
+    
+    if (user.activeRole !== "admin" && user.activeRole !== "office" && !user.isSuperAdminBool) {
+      return res.status(403).send("Insufficient permissions - admin or office role required");
+    }
+
+    try {
+      const result = await ensureRFPRequestTicketType(user.activeCompanyId);
+      if (result) {
+        res.json({ success: true, typeId: result.typeId });
+      } else {
+        res.status(500).send("Failed to initialize RFP Request ticket type");
+      }
+    } catch (err) {
+      console.error("Failed to initialize RFP Request ticket type:", err);
+      res.status(500).send("Failed to initialize RFP Request ticket type");
+    }
   });
 
   app.get("/api/ticket-types/:id", async (req, res) => {
