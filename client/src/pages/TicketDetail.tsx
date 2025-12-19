@@ -165,29 +165,27 @@ export default function TicketDetail() {
   const handleAdvanceStatus = () => {
     if (!nextStatus) return;
     
-    // Check if all required fields for the CURRENT status are filled before advancing
+    // Check if current status has unfilled required fields
     const currentStatusFields = currentStatus?.fields || [];
-    const missingCurrentFields: string[] = [];
-    for (const field of currentStatusFields) {
+    const missingCurrentFields = currentStatusFields.filter(field => {
       if (field.isRequired === "true") {
         const fieldVal = getFieldValue(field.id);
-        if (!fieldVal || fieldVal.trim() === "") {
-          missingCurrentFields.push(field.fieldLabel);
-        }
+        return !fieldVal || fieldVal.trim() === "";
       }
-    }
-    
-    if (missingCurrentFields.length > 0) {
-      toast({ 
-        title: "Required fields missing", 
-        description: `Please fill in: ${missingCurrentFields.join(", ")}`,
-        variant: "destructive" 
-      });
-      return;
-    }
+      return false;
+    });
     
     const nextStatusFields = nextStatus.fields || [];
-    if (nextStatusFields.length > 0) {
+    
+    // If we have unfilled current status fields OR next status has fields, show the dialog
+    if (missingCurrentFields.length > 0 || nextStatusFields.length > 0) {
+      // Pre-populate fieldInputs with existing values for current status fields
+      const existingValues: Record<string, string> = {};
+      for (const field of currentStatusFields) {
+        const val = getFieldValue(field.id);
+        if (val) existingValues[field.id] = val;
+      }
+      setFieldInputs(existingValues);
       setPendingStatusId(nextStatus.id);
       setShowStatusDialog(true);
     } else {
@@ -198,16 +196,26 @@ export default function TicketDetail() {
   const handleConfirmStatusChange = async () => {
     if (!pendingStatusId) return;
     
-    const targetStatus = statuses.find(s => s.id === pendingStatusId);
-    const requiredFields = targetStatus?.fields?.filter(f => f.isRequired === "true") || [];
+    // Validate CURRENT status required fields first
+    const currentStatusFields = currentStatus?.fields || [];
+    for (const field of currentStatusFields) {
+      if (field.isRequired === "true" && !fieldInputs[field.id]?.trim()) {
+        toast({ title: `Please fill in ${field.fieldLabel}`, variant: "destructive" });
+        return;
+      }
+    }
     
-    for (const field of requiredFields) {
-      if (!fieldInputs[field.id]) {
+    // Validate NEXT status required fields
+    const targetStatus = statuses.find(s => s.id === pendingStatusId);
+    const nextRequiredFields = targetStatus?.fields?.filter(f => f.isRequired === "true") || [];
+    for (const field of nextRequiredFields) {
+      if (!fieldInputs[field.id]?.trim()) {
         toast({ title: `Please fill in ${field.fieldLabel}`, variant: "destructive" });
         return;
       }
     }
 
+    // Save all field values
     for (const [fieldId, value] of Object.entries(fieldInputs)) {
       if (value) {
         await saveFieldValueMutation.mutateAsync({ fieldId, value });
@@ -793,7 +801,7 @@ export default function TicketDetail() {
       )}
 
       <Dialog open={showStatusDialog} onOpenChange={setShowStatusDialog}>
-        <DialogContent className="sm:max-w-md">
+        <DialogContent className="sm:max-w-md max-h-[85vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle>
               Move to: {statuses.find(s => s.id === pendingStatusId)?.name}
@@ -804,45 +812,105 @@ export default function TicketDetail() {
           </DialogHeader>
           
           <div className="space-y-4 py-4">
-            {statuses.find(s => s.id === pendingStatusId)?.fields?.map((field) => (
-              <div key={field.id} className="space-y-2">
-                <Label htmlFor={field.id}>
-                  {field.fieldLabel}
-                  {field.isRequired === "true" && <span className="text-red-500 ml-1">*</span>}
-                </Label>
-                {field.fieldType === "textarea" ? (
-                  <Textarea
-                    id={field.id}
-                    value={fieldInputs[field.id] || ""}
-                    onChange={(e) => setFieldInputs(prev => ({ ...prev, [field.id]: e.target.value }))}
-                    placeholder={`Enter ${field.fieldLabel.toLowerCase()}`}
-                    data-testid={`input-field-${field.fieldKey}`}
-                  />
-                ) : field.fieldType === "select" && field.options ? (
-                  <select
-                    id={field.id}
-                    value={fieldInputs[field.id] || ""}
-                    onChange={(e) => setFieldInputs(prev => ({ ...prev, [field.id]: e.target.value }))}
-                    className="w-full h-10 px-3 border rounded-md bg-background"
-                    data-testid={`select-field-${field.fieldKey}`}
-                  >
-                    <option value="">Select...</option>
-                    {field.options.map((opt) => (
-                      <option key={opt} value={opt}>{opt}</option>
-                    ))}
-                  </select>
-                ) : (
-                  <Input
-                    id={field.id}
-                    type={field.fieldType === "number" ? "number" : "text"}
-                    value={fieldInputs[field.id] || ""}
-                    onChange={(e) => setFieldInputs(prev => ({ ...prev, [field.id]: e.target.value }))}
-                    placeholder={`Enter ${field.fieldLabel.toLowerCase()}`}
-                    data-testid={`input-field-${field.fieldKey}`}
-                  />
-                )}
+            {/* Current status fields section */}
+            {currentStatus?.fields && currentStatus.fields.length > 0 && (
+              <div className="space-y-4">
+                <div className="flex items-center gap-2">
+                  <div className="h-px flex-1 bg-border" />
+                  <span className="text-xs text-muted-foreground font-medium">Complete: {currentStatus.name}</span>
+                  <div className="h-px flex-1 bg-border" />
+                </div>
+                {currentStatus.fields.map((field) => (
+                  <div key={field.id} className="space-y-2">
+                    <Label htmlFor={field.id}>
+                      {field.fieldLabel}
+                      {field.isRequired === "true" && <span className="text-red-500 ml-1">*</span>}
+                    </Label>
+                    {field.fieldType === "textarea" ? (
+                      <Textarea
+                        id={field.id}
+                        value={fieldInputs[field.id] || ""}
+                        onChange={(e) => setFieldInputs(prev => ({ ...prev, [field.id]: e.target.value }))}
+                        placeholder={`Enter ${field.fieldLabel.toLowerCase()}`}
+                        data-testid={`input-field-${field.fieldKey}`}
+                      />
+                    ) : field.fieldType === "select" && field.options ? (
+                      <select
+                        id={field.id}
+                        value={fieldInputs[field.id] || ""}
+                        onChange={(e) => setFieldInputs(prev => ({ ...prev, [field.id]: e.target.value }))}
+                        className="w-full h-10 px-3 border rounded-md bg-background"
+                        data-testid={`select-field-${field.fieldKey}`}
+                      >
+                        <option value="">Select...</option>
+                        {field.options.map((opt) => (
+                          <option key={opt} value={opt}>{opt}</option>
+                        ))}
+                      </select>
+                    ) : (
+                      <Input
+                        id={field.id}
+                        type={field.fieldType === "number" ? "number" : "text"}
+                        value={fieldInputs[field.id] || ""}
+                        onChange={(e) => setFieldInputs(prev => ({ ...prev, [field.id]: e.target.value }))}
+                        placeholder={`Enter ${field.fieldLabel.toLowerCase()}`}
+                        data-testid={`input-field-${field.fieldKey}`}
+                      />
+                    )}
+                  </div>
+                ))}
               </div>
-            ))}
+            )}
+            
+            {/* Next status fields section */}
+            {statuses.find(s => s.id === pendingStatusId)?.fields && statuses.find(s => s.id === pendingStatusId)!.fields!.length > 0 && (
+              <div className="space-y-4">
+                <div className="flex items-center gap-2">
+                  <div className="h-px flex-1 bg-border" />
+                  <span className="text-xs text-muted-foreground font-medium">For: {statuses.find(s => s.id === pendingStatusId)?.name}</span>
+                  <div className="h-px flex-1 bg-border" />
+                </div>
+                {statuses.find(s => s.id === pendingStatusId)?.fields?.map((field) => (
+                  <div key={field.id} className="space-y-2">
+                    <Label htmlFor={field.id}>
+                      {field.fieldLabel}
+                      {field.isRequired === "true" && <span className="text-red-500 ml-1">*</span>}
+                    </Label>
+                    {field.fieldType === "textarea" ? (
+                      <Textarea
+                        id={field.id}
+                        value={fieldInputs[field.id] || ""}
+                        onChange={(e) => setFieldInputs(prev => ({ ...prev, [field.id]: e.target.value }))}
+                        placeholder={`Enter ${field.fieldLabel.toLowerCase()}`}
+                        data-testid={`input-field-${field.fieldKey}`}
+                      />
+                    ) : field.fieldType === "select" && field.options ? (
+                      <select
+                        id={field.id}
+                        value={fieldInputs[field.id] || ""}
+                        onChange={(e) => setFieldInputs(prev => ({ ...prev, [field.id]: e.target.value }))}
+                        className="w-full h-10 px-3 border rounded-md bg-background"
+                        data-testid={`select-field-${field.fieldKey}`}
+                      >
+                        <option value="">Select...</option>
+                        {field.options.map((opt) => (
+                          <option key={opt} value={opt}>{opt}</option>
+                        ))}
+                      </select>
+                    ) : (
+                      <Input
+                        id={field.id}
+                        type={field.fieldType === "number" ? "number" : "text"}
+                        value={fieldInputs[field.id] || ""}
+                        onChange={(e) => setFieldInputs(prev => ({ ...prev, [field.id]: e.target.value }))}
+                        placeholder={`Enter ${field.fieldLabel.toLowerCase()}`}
+                        data-testid={`input-field-${field.fieldKey}`}
+                      />
+                    )}
+                  </div>
+                ))}
+              </div>
+            )}
             
             <div className="space-y-2">
               <Label htmlFor="statusNotes">Notes (optional)</Label>
