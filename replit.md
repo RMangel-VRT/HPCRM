@@ -65,6 +65,23 @@ When tickets with billingBehavior "invoice_required" (Extra Billable or Project 
 - **Dashboard Widget:** `PendingInvoices` component shows unassigned Invoice tickets in "Pending Invoice" status for Admin/Office roles
 - **Linked Tickets Display:** `TicketDetail` page shows related tickets in a "Linked Tickets" section with navigation
 
+**RFP Request Pipeline:**
+A specialized ticket type for tracking proposal requests from first contact through contract award or loss. The RFP Request workflow enables sales pipeline management within the ticketing system.
+
+- **Ticket Type:** RFP Request (auto-created via `ensureRFPRequestTicketType()` helper on first use)
+- **Work Type:** Uses "admin" work type (non-billable, internal)
+- **18-Status Workflow:**
+  1. Request Received → Under Review → Walk Scheduled → Walk Completed → 
+  2. Proposal Prep → Internal Review → Proposal Submitted → Follow Up → 
+  3. Decision Received → (branches to Awarded or Lost paths)
+  4. **Awarded Path:** Contract Awarded → Onboarding → Closed - Won
+  5. **Lost Path:** Lost - Competitor OR Lost - No Action → Closed - Lost
+
+- **Step-Specific Required Fields:** Each status has relevant required fields (e.g., Decision Received requires decisionOutcome, Final Walk requires walkDate)
+- **Inline Prospect Creation:** When creating an RFP Request, users can create new Prospect customers directly from the ticket wizard
+- **Status Advancement Validation:** Users cannot advance to the next status until all required fields for the current status are completed
+- **Filtering:** Tickets list supports filtering by ticket type (RFP Request) and individual status within the selected type
+
 #### Weekly Schedule System
 A comprehensive scheduling system for assigning properties to crews on specific days of the week. It uses a template-based approach with drag-and-drop functionality.
 
