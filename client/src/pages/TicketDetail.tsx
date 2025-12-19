@@ -165,6 +165,27 @@ export default function TicketDetail() {
   const handleAdvanceStatus = () => {
     if (!nextStatus) return;
     
+    // Check if all required fields for the CURRENT status are filled before advancing
+    const currentStatusFields = currentStatus?.fields || [];
+    const missingCurrentFields: string[] = [];
+    for (const field of currentStatusFields) {
+      if (field.isRequired === "true") {
+        const fieldVal = getFieldValue(field.id);
+        if (!fieldVal || fieldVal.trim() === "") {
+          missingCurrentFields.push(field.fieldLabel);
+        }
+      }
+    }
+    
+    if (missingCurrentFields.length > 0) {
+      toast({ 
+        title: "Required fields missing", 
+        description: `Please fill in: ${missingCurrentFields.join(", ")}`,
+        variant: "destructive" 
+      });
+      return;
+    }
+    
     const nextStatusFields = nextStatus.fields || [];
     if (nextStatusFields.length > 0) {
       setPendingStatusId(nextStatus.id);
