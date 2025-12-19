@@ -1,0 +1,315 @@
+Add a new Ticket Type: RFP Request
+
+Purpose: Track the full lifecycle of a community requesting a proposal for maintenance services, from first contact through award and onboarding into the CRM.
+
+This is a process ticket (multi-step), not a simple task.
+
+1) Ticket Type Definition (RFP Request)
+
+Ticket Type Name: RFP Request
+
+Ticket Work Type (classification): Admin (non-billable)
+
+Workflow Style: Step-based pipeline with required fields at each step
+
+Who can create: Admin / Office
+
+Who can view: Admin / Office / Ops / Viewer (Ops/Viewer read-only)
+
+Who can update status:
+
+Admin / Office: can move through all steps
+
+Ops: can add notes/photos when assigned steps allow it (optional)
+
+2) RFP Request Workflow Steps (Status Flow)
+
+Create a dedicated status flow for this ticket type:
+
+Request Received
+
+RFP Logged (Ticket Created)
+
+Review Requirements
+
+Request Missing Info (optional loop)
+
+Pre-Proposal Property Walk (optional but recommended)
+
+Proposal Drafted
+
+Proposal Submitted
+
+Awaiting Response
+
+Decision Received
+
+Branch:
+
+Closed – Lost
+
+Awarded
+
+Contract Executed (Signed)
+
+CRM Setup Complete
+
+Maps Requested / Received
+
+Map Created & Uploaded
+
+Contacts Collected (Board / PM)
+
+Post-Award Walk / Kickoff
+
+Handoff to Operations
+
+Closed – Won (Complete)
+
+Notes:
+
+“Request Missing Info” can repeat as needed before “Proposal Drafted.”
+
+“Decision Received” is a gate that forces choosing Lost vs Awarded.
+
+3) Ticket Creation Wizard Changes (for RFP Request)
+
+Add RFP Request to the ticket type selection list.
+
+Wizard flow:
+
+Type → Customer selection → Details
+
+Customer selection behavior:
+
+Allow selecting an existing customer OR creating a new Prospect customer directly in the wizard.
+
+If created from wizard:
+
+Customer status defaults to Prospect
+
+Minimum fields required: Community name + main contact name + email/phone
+
+4) Required Fields for the RFP Request Ticket
+Base Fields (always on the ticket)
+
+Community / customer (existing or new prospect)
+
+Primary contact name
+
+Primary contact email + phone
+
+Source of request (email / phone / referral / property manager / city / other)
+
+Requested service scope (checkboxes):
+
+Maintenance
+
+Chemical
+
+Irrigation
+
+Snow
+
+“Other” + notes
+
+Desired start date (optional)
+
+Proposal due date (optional but recommended)
+
+Assigned owner (internal)
+
+Step-Specific Required Fields
+
+Enforce required fields only when advancing steps:
+
+Review Requirements
+
+RFP documents received? (yes/no)
+
+Notes on requirements
+
+Request Missing Info
+
+Missing items checklist (maps, scope details, access rules, etc.)
+
+Date requested + notes
+
+Pre-Proposal Property Walk
+
+Walk date/time
+
+Notes + optional photos
+
+Proposal Drafted
+
+Proposal version label (v1, v2, etc.)
+
+Draft file attached OR link to generated PDF
+
+Proposal Submitted
+
+Submitted date
+
+Delivery method (email / portal / hard copy / other)
+
+Submitted file attached (proposal PDF)
+
+Decision Received
+
+Decision: Awarded / Lost
+
+Decision date
+
+If Lost: reason (price / incumbent / scope / timing / other)
+
+Contract Executed (Signed)
+
+Signed contract PDF attached (required)
+
+CRM Setup Complete
+
+Confirm contract details entered into CRM:
+
+contract dates
+
+monthly amounts
+
+services included blueprint
+
+rate sheet (if applicable)
+
+Maps Requested / Received
+
+Existing maps requested date
+
+Existing maps received? (yes/no)
+
+Files attached if received
+
+Map Created & Uploaded
+
+Map created? (yes/no)
+
+Map file uploaded (KML/KMZ/PDF/etc.)
+
+Contacts Collected
+
+Board contacts collected? (yes/no)
+
+Minimum required: Board president or PM contact
+
+Save contacts into customer profile
+
+Post-Award Walk / Kickoff
+
+Walk/kickoff date + notes + photos
+
+Handoff to Operations
+
+Handoff notes
+
+Confirm “ready for scheduling” flag (yes/no)
+
+5) Attachments + Location Requirements
+
+RFP tickets should support:
+
+Attachments (PDFs, images, maps)
+
+Photos (from mobile)
+
+Location pin (optional; property address is default)
+
+Strongly recommended:
+
+Require at least one attachment by “Proposal Submitted”
+
+Require signed contract PDF by “Contract Executed (Signed)”
+
+6) Automations (No heavy automation yet — just structured prompts)
+
+Add simple, non-invasive helpers:
+
+When status moves to Proposal Submitted:
+
+Prompt: “Set a follow-up date?”
+
+When status moves to Awarded:
+
+Prompt checklist: “Upload signed contract, populate CRM contracts, request maps, collect contacts, schedule kickoff walk.”
+
+No automatic ticket spawning yet (keep it manual for now).
+
+7) Ticket Detail Page UX
+
+Show a progress tracker across the workflow steps.
+
+Show a “Required for this step” section if something is missing.
+
+Show:
+
+Linked customer
+
+Status
+
+Owner
+
+Due date
+
+Attachments + photo gallery
+
+Location pin map preview
+
+Step-specific fields grouped by step
+
+8) Filters & Reporting (minimum viable)
+
+Add filters to ticket list:
+
+Ticket Type = RFP Request
+
+Status (pipeline step)
+
+Owner
+
+Customer
+
+Decision outcome (Awarded/Lost)
+
+Add a simple summary widget (optional):
+
+RFPs in pipeline
+awaiting response
+
+win/loss count
+
+9) Acceptance Tests (what “done” means)
+
+Admin/Office can create an RFP Request ticket and either:
+
+Link to existing customer OR create new Prospect customer in wizard
+
+Ticket can move through all steps, and step-required fields block advancement when missing
+
+Proposal PDF can be attached and tracked
+
+Decision gate forces Awarded vs Lost and closes correctly
+
+If Awarded:
+
+Signed contract must be attached
+
+CRM setup completion can be confirmed (checkboxes)
+
+Maps and contacts can be attached/saved
+
+Ticket can be closed as:
+
+Closed – Lost OR Closed – Won
+
+Ops/Viewer can view full history, attachments, and progress, but cannot change workflow unless allowed
+
+If you want, next I can provide a shortened “Replit prompt version” (super compact) that you can paste as a single message without sections—same content, just condensed.
+
+ChatGPT can make mistakes. Check important info.
