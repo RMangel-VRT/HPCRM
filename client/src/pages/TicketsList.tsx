@@ -37,6 +37,7 @@ export default function TicketsList() {
   const [priorityFilter, setPriorityFilter] = useState("all");
   const [typeFilter, setTypeFilter] = useState("all");
   const [workTypeFilter, setWorkTypeFilter] = useState("all");
+  const [statusFilter, setStatusFilter] = useState("all");
   const [showFilters, setShowFilters] = useState(false);
 
   const isAdmin = user?.activeRole === "admin";
@@ -87,8 +88,14 @@ export default function TicketsList() {
     const matchesPriority = priorityFilter === "all" || ticket.priority === priorityFilter;
     const matchesType = typeFilter === "all" || ticket.ticketTypeId === typeFilter;
     const matchesWorkType = workTypeFilter === "all" || ticket.workType === workTypeFilter;
-    return matchesSearch && matchesPriority && matchesType && matchesWorkType;
+    const matchesStatus = statusFilter === "all" || ticket.currentStatusId === statusFilter;
+    return matchesSearch && matchesPriority && matchesType && matchesWorkType && matchesStatus;
   });
+  
+  // Get statuses for currently selected ticket type
+  const selectedTypeStatuses = typeFilter !== "all" 
+    ? allStatuses.filter((s: TicketTypeStatus) => s.ticketTypeId === typeFilter)
+    : [];
 
   const openTickets = filteredTickets.filter(t => !t.completedAt);
   const completedTickets = filteredTickets.filter(t => t.completedAt);
@@ -172,7 +179,7 @@ export default function TicketsList() {
             </SelectContent>
           </Select>
 
-          <Select value={typeFilter} onValueChange={setTypeFilter}>
+          <Select value={typeFilter} onValueChange={(val) => { setTypeFilter(val); setStatusFilter("all"); }}>
             <SelectTrigger className="w-[140px] h-10" data-testid="select-type-filter">
               <SelectValue placeholder="Ticket Type" />
             </SelectTrigger>
@@ -197,6 +204,21 @@ export default function TicketsList() {
               <SelectItem value="estimate_request">Estimate Request</SelectItem>
             </SelectContent>
           </Select>
+          
+          {/* Status filter - only show when a ticket type is selected */}
+          {typeFilter !== "all" && selectedTypeStatuses.length > 0 && (
+            <Select value={statusFilter} onValueChange={setStatusFilter}>
+              <SelectTrigger className="w-[160px] h-10" data-testid="select-status-filter">
+                <SelectValue placeholder="Status" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">All Statuses</SelectItem>
+                {[...selectedTypeStatuses].sort((a, b) => a.displayOrder - b.displayOrder).map((status: TicketTypeStatus) => (
+                  <SelectItem key={status.id} value={status.id}>{status.name}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          )}
         </div>
       )}
 
