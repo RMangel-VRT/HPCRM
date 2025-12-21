@@ -894,3 +894,29 @@ export const insertScheduleBlockSchema = createInsertSchema(scheduleBlocks).omit
 
 export type InsertScheduleBlock = z.infer<typeof insertScheduleBlockSchema>;
 export type ScheduleBlock = typeof scheduleBlocks.$inferSelect;
+
+// Notification types for the ticket notification system
+export type NotificationType = "assigned" | "completed" | "due_tomorrow" | "due_today" | "overdue";
+
+// Ticket notifications table
+export const ticketNotifications = pgTable("ticket_notifications", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  companyId: varchar("company_id").notNull().references(() => companies.id, { onDelete: "cascade" }),
+  recipientId: varchar("recipient_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+  ticketId: varchar("ticket_id").notNull().references(() => tickets.id, { onDelete: "cascade" }),
+  type: text("type").notNull().$type<NotificationType>(),
+  message: text("message").notNull(),
+  isRead: boolean("is_read").notNull().default(false),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+});
+
+export const insertTicketNotificationSchema = createInsertSchema(ticketNotifications).omit({
+  id: true,
+  createdAt: true,
+}).extend({
+  type: z.enum(["assigned", "completed", "due_tomorrow", "due_today", "overdue"]),
+  isRead: z.boolean().default(false),
+});
+
+export type InsertTicketNotification = z.infer<typeof insertTicketNotificationSchema>;
+export type TicketNotification = typeof ticketNotifications.$inferSelect;

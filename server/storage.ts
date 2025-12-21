@@ -1,6 +1,6 @@
-import { type User, type InsertUser, type Customer, type InsertCustomer, type Contact, type InsertContact, type Company, type InsertCompany, type CompanyUser, type InsertCompanyUser, type Settings, type InsertSettings, type Note, type InsertNote, type Contract, type InsertContract, type ContractStatusHistory, type InsertContractStatusHistory, type ContractDocument, type InsertContractDocument, type ContractMonthlyAmount, type InsertContractMonthlyAmount, type CustomerRateSheet, type InsertCustomerRateSheet, type ContractService, type InsertContractService, type ContractTemplate, type InsertContractTemplate, type ContractBuilderDocument, type InsertContractBuilderDocument, type ContractBuilderSection, type InsertContractBuilderSection, type ContractBuilderVariable, type InsertContractBuilderVariable, type TicketType, type InsertTicketType, type TicketTypeStatus, type InsertTicketTypeStatus, type TicketTypeField, type InsertTicketTypeField, type Ticket, type InsertTicket, type TicketFieldValue, type InsertTicketFieldValue, type TicketStatusHistory, type InsertTicketStatusHistory, type TicketComment, type InsertTicketComment, type TicketSource, type InsertTicketSource, type TicketLink, type InsertTicketLink, type TicketTypeCategory, type CustomerMapLayer, type InsertCustomerMapLayer, type CustomerMapDocument, type InsertCustomerMapDocument, type MaintenanceCrew, type InsertMaintenanceCrew, type MaintenanceVisitConfig, type InsertMaintenanceVisitConfig, type WeeklyScheduleTemplate, type InsertWeeklyScheduleTemplate, type ScheduleBlock, type InsertScheduleBlock } from "@shared/schema";
+import { type User, type InsertUser, type Customer, type InsertCustomer, type Contact, type InsertContact, type Company, type InsertCompany, type CompanyUser, type InsertCompanyUser, type Settings, type InsertSettings, type Note, type InsertNote, type Contract, type InsertContract, type ContractStatusHistory, type InsertContractStatusHistory, type ContractDocument, type InsertContractDocument, type ContractMonthlyAmount, type InsertContractMonthlyAmount, type CustomerRateSheet, type InsertCustomerRateSheet, type ContractService, type InsertContractService, type ContractTemplate, type InsertContractTemplate, type ContractBuilderDocument, type InsertContractBuilderDocument, type ContractBuilderSection, type InsertContractBuilderSection, type ContractBuilderVariable, type InsertContractBuilderVariable, type TicketType, type InsertTicketType, type TicketTypeStatus, type InsertTicketTypeStatus, type TicketTypeField, type InsertTicketTypeField, type Ticket, type InsertTicket, type TicketFieldValue, type InsertTicketFieldValue, type TicketStatusHistory, type InsertTicketStatusHistory, type TicketComment, type InsertTicketComment, type TicketSource, type InsertTicketSource, type TicketLink, type InsertTicketLink, type TicketTypeCategory, type CustomerMapLayer, type InsertCustomerMapLayer, type CustomerMapDocument, type InsertCustomerMapDocument, type MaintenanceCrew, type InsertMaintenanceCrew, type MaintenanceVisitConfig, type InsertMaintenanceVisitConfig, type WeeklyScheduleTemplate, type InsertWeeklyScheduleTemplate, type ScheduleBlock, type InsertScheduleBlock, type TicketNotification, type InsertTicketNotification, type NotificationType } from "@shared/schema";
 import { db } from "./db";
-import { users, customers, contacts, companies, companyUsers, settings, notes, contracts, contractStatusHistory, contractDocuments, contractMonthlyAmounts, customerRateSheets, contractServices, contractTemplates, contractBuilderDocuments, contractBuilderSections, contractBuilderVariables, ticketTypes, ticketTypeStatuses, ticketTypeFields, tickets, ticketFieldValues, ticketStatusHistory, ticketComments, ticketSources, ticketLinks, customerMapLayers, customerMapDocuments, maintenanceCrews, maintenanceVisitConfigs, weeklyScheduleTemplates, scheduleBlocks } from "@shared/schema";
+import { users, customers, contacts, companies, companyUsers, settings, notes, contracts, contractStatusHistory, contractDocuments, contractMonthlyAmounts, customerRateSheets, contractServices, contractTemplates, contractBuilderDocuments, contractBuilderSections, contractBuilderVariables, ticketTypes, ticketTypeStatuses, ticketTypeFields, tickets, ticketFieldValues, ticketStatusHistory, ticketComments, ticketSources, ticketLinks, customerMapLayers, customerMapDocuments, maintenanceCrews, maintenanceVisitConfigs, weeklyScheduleTemplates, scheduleBlocks, ticketNotifications } from "@shared/schema";
 import { eq, and, sql, desc } from "drizzle-orm";
 import session from "express-session";
 import connectPg from "connect-pg-simple";
@@ -176,6 +176,14 @@ export interface IStorage {
   updateScheduleBlock(id: string, updates: Partial<InsertScheduleBlock>): Promise<ScheduleBlock | undefined>;
   deleteScheduleBlock(id: string): Promise<void>;
   deleteScheduleBlocksByTemplate(templateId: string): Promise<void>;
+  
+  // Ticket Notifications
+  getNotificationsByUser(userId: string, companyId: string): Promise<TicketNotification[]>;
+  getUnreadNotificationCount(userId: string, companyId: string): Promise<number>;
+  createNotification(notification: InsertTicketNotification): Promise<TicketNotification>;
+  markNotificationRead(id: string, userId: string): Promise<TicketNotification | undefined>;
+  markAllNotificationsRead(userId: string, companyId: string): Promise<void>;
+  getNotificationsWithDueDateType(ticketId: string, type: NotificationType): Promise<TicketNotification[]>;
   
   sessionStore: session.Store;
 }
@@ -1344,6 +1352,48 @@ export class PgStorage implements IStorage {
 
   async deleteScheduleBlocksByTemplate(templateId: string): Promise<void> {
     await db.delete(scheduleBlocks).where(eq(scheduleBlocks.templateId, templateId));
+  }
+
+  // Ticket Notifications
+  async getNotificationsByUser(userId: string, companyId: string): Promise<TicketNotification[]> {
+    return await db.select().from(ticketNotifications)
+      .where(and(eq(ticketNotifications.recipientId, userId), eq(ticketNotifications.companyId, companyId)))
+      .orderBy(desc(ticketNotifications.createdAt));
+  }
+
+  async getUnreadNotificationCount(userId: string, companyId: string): Promise<number> {
+    const result = await db.select({ count: sql<number>`COUNT(*)::int` })
+      .from(ticketNotifications)
+      .where(and(
+        eq(ticketNotifications.recipientId, userId),
+        eq(ticketNotifications.companyId, companyId),
+        eq(ticketNotifications.isRead, false)
+      ));
+    return result[0]?.count || 0;
+  }
+
+  async createNotification(insertNotification: InsertTicketNotification): Promise<TicketNotification> {
+    const result = await db.insert(ticketNotifications).values([insertNotification]).returning();
+    return result[0];
+  }
+
+  async markNotificationRead(id: string, userId: string): Promise<TicketNotification | undefined> {
+    const result = await db.update(ticketNotifications)
+      .set({ isRead: true })
+      .where(and(eq(ticketNotifications.id, id), eq(ticketNotifications.recipientId, userId)))
+      .returning();
+    return result[0];
+  }
+
+  async markAllNotificationsRead(userId: string, companyId: string): Promise<void> {
+    await db.update(ticketNotifications)
+      .set({ isRead: true })
+      .where(and(eq(ticketNotifications.recipientId, userId), eq(ticketNotifications.companyId, companyId)));
+  }
+
+  async getNotificationsWithDueDateType(ticketId: string, type: NotificationType): Promise<TicketNotification[]> {
+    return await db.select().from(ticketNotifications)
+      .where(and(eq(ticketNotifications.ticketId, ticketId), eq(ticketNotifications.type, type)));
   }
 }
 
