@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useMemo } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { useRoute, Link } from "wouter";
 import { Button } from "@/components/ui/button";
@@ -8,6 +8,8 @@ import { Textarea } from "@/components/ui/textarea";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { useAuth } from "@/hooks/use-auth";
 import {
   Dialog,
   DialogContent,
@@ -38,7 +40,7 @@ import {
 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { queryClient, apiRequest } from "@/lib/queryClient";
-import type { Ticket, TicketType, TicketTypeStatus, TicketTypeField, TicketFieldValue, TicketComment, TicketStatusHistory, Customer, Contract, ContractService, WorkType, TicketLink } from "@shared/schema";
+import type { Ticket, TicketType, TicketTypeStatus, TicketTypeField, TicketFieldValue, TicketComment, TicketStatusHistory, Customer, Contract, ContractService, WorkType, TicketLink, User as UserType, CompanyUser } from "@shared/schema";
 import { WORK_TYPE_CATALOG } from "@shared/workTypeCatalog";
 import { format, formatDistanceToNow } from "date-fns";
 import { MapContainer, TileLayer, Marker } from "react-leaflet";
@@ -82,10 +84,17 @@ const priorityConfig = {
   low: { color: "bg-gray-400", textColor: "text-gray-600 dark:text-gray-400", label: "Low", bgColor: "bg-gray-50 dark:bg-gray-900/20" },
 };
 
+interface CompanyUserWithDetails {
+  companyUser: CompanyUser;
+  user: UserType;
+  isSuperAdmin: boolean;
+}
+
 export default function TicketDetail() {
   const [, params] = useRoute("/dashboard/tickets/:id");
   const ticketId = params?.id;
   const { toast } = useToast();
+  const { user: currentUser } = useAuth();
   
   const [newComment, setNewComment] = useState("");
   const [showStatusDialog, setShowStatusDialog] = useState(false);
@@ -102,6 +111,9 @@ export default function TicketDetail() {
   // Invoice creation handoff state for Projects at Ready for Billing
   const [showInvoicePrompt, setShowInvoicePrompt] = useState(false);
   const [creatingInvoice, setCreatingInvoice] = useState(false);
+  
+  // Check if current user can reassign tickets (admin or super admin)
+  const canReassign = currentUser?.activeRole === "admin" || currentUser?.isSuperAdminBool;
 
   const { data: details, isLoading } = useQuery<TicketDetails>({
     queryKey: ["/api/tickets", ticketId, "details"],
@@ -111,6 +123,41 @@ export default function TicketDetail() {
       return res.json();
     },
     enabled: !!ticketId,
+  });
+
+  // Fetch company users for reassignment dropdown (admin/super admin only)
+  const { data: companyUsersData = [] } = useQuery<CompanyUserWithDetails[]>({
+    queryKey: ["/api/companies/users"],
+    enabled: canReassign,
+  });
+
+  // Build team members list for assignment dropdown - include all users
+  const teamMembers = useMemo(() => {
+    return companyUsersData
+      .filter(item => item.user)
+      .map(item => ({
+        id: item.user.id,
+        name: item.user.name || item.user.email,
+        email: item.user.email,
+        role: item.companyUser.role,
+      }));
+  }, [companyUsersData]);
+
+  // Mutation to reassign ticket
+  const reassignMutation = useMutation({
+    mutationFn: async (newAssigneeId: string | null) => {
+      return apiRequest("PATCH", `/api/tickets/${ticketId}`, {
+        assignedToId: newAssigneeId,
+      });
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/tickets", ticketId, "details"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/tickets"] });
+      toast({ title: "Ticket reassigned successfully" });
+    },
+    onError: (error: Error) => {
+      toast({ title: "Failed to reassign ticket", description: error.message, variant: "destructive" });
+    },
   });
 
   const updateStatusMutation = useMutation({
@@ -554,14 +601,46 @@ export default function TicketDetail() {
 
                 <div className="col-span-2 space-y-1">
                   <p className="text-xs text-muted-foreground uppercase tracking-wide">Assigned To</p>
-                  <div className="flex items-center gap-2">
-                    <Avatar className="w-6 h-6">
-                      <AvatarFallback className="text-xs">
-                        <User className="w-3 h-3" />
-                      </AvatarFallback>
-                    </Avatar>
-                    <span className="font-medium">{assignedUser?.email || "Unassigned"}</span>
-                  </div>
+                  {canReassign ? (
+                    <div className="flex items-center gap-2">
+                      <Avatar className="w-6 h-6">
+                        <AvatarFallback className="text-xs">
+                          <User className="w-3 h-3" />
+                        </AvatarFallback>
+                      </Avatar>
+                      <Select 
+                        value={ticket.assignedToId || "unassigned"} 
+                        onValueChange={(value) => {
+                          reassignMutation.mutate(value === "unassigned" ? null : value);
+                        }}
+                        disabled={reassignMutation.isPending}
+                      >
+                        <SelectTrigger className="w-[200px] h-8" data-testid="select-reassign-ticket">
+                          <SelectValue placeholder="Select assignee..." />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="unassigned">Unassigned</SelectItem>
+                          {teamMembers.map((member) => (
+                            <SelectItem key={member.id} value={member.id}>
+                              {member.name} ({member.role})
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                      {reassignMutation.isPending && (
+                        <Loader2 className="w-4 h-4 animate-spin text-muted-foreground" />
+                      )}
+                    </div>
+                  ) : (
+                    <div className="flex items-center gap-2">
+                      <Avatar className="w-6 h-6">
+                        <AvatarFallback className="text-xs">
+                          <User className="w-3 h-3" />
+                        </AvatarFallback>
+                      </Avatar>
+                      <span className="font-medium">{assignedUser?.email || "Unassigned"}</span>
+                    </div>
+                  )}
                 </div>
               </div>
             </CardContent>
