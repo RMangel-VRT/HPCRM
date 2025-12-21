@@ -157,12 +157,13 @@ export default function TicketDetail() {
   const { ticket, ticketType, statuses, fieldValues, statusHistory, comments, customer, contract, contractServices = [], assignedUser, linkedTickets = [] } = details;
   const priority = priorityConfig[ticket.priority as keyof typeof priorityConfig] || priorityConfig.normal;
   const currentStatus = statuses.find(s => s.id === ticket.currentStatusId);
-  const currentStatusIndex = statuses.findIndex(s => s.id === ticket.currentStatusId);
   const sortedStatuses = [...statuses].sort((a, b) => a.displayOrder - b.displayOrder);
+  const sortedCurrentIndex = sortedStatuses.findIndex(s => s.id === ticket.currentStatusId);
   
   // Handle RFP Request branching at "Decision Received" status
   const getNextStatus = () => {
-    const defaultNext = sortedStatuses[currentStatusIndex + 1];
+    // Use sorted index to find next status in order
+    const defaultNext = sortedStatuses[sortedCurrentIndex + 1];
     
     // Check if this is RFP Request at Decision Received - need to branch based on outcome
     if (currentStatus?.name === "Decision Received" && ticketType.name === "RFP Request") {
@@ -177,6 +178,9 @@ export default function TicketDetail() {
         // Go to Closed - Lost status
         return statuses.find(s => s.name === "Closed - Lost") || defaultNext;
       }
+      // No decision made yet - return Awarded as the default next for the button
+      // (The actual target will be determined in handleConfirmStatusChange based on dialog input)
+      return statuses.find(s => s.name === "Awarded") || defaultNext;
     }
     
     return defaultNext;
@@ -626,10 +630,47 @@ export default function TicketDetail() {
 
       {activeTab === "workflow" && (
         <div className="space-y-3">
-          {sortedStatuses.map((status, index) => {
-            const isCompleted = status.displayOrder < (currentStatus?.displayOrder || 0);
+          {(() => {
+            // For RFP Request, filter to show only relevant branch
+            const visitedStatusIds = new Set(statusHistory.map(h => h.toStatusId));
+            visitedStatusIds.add(ticket.currentStatusId); // Include current status
+            
+            // Determine which branch we're on for RFP Request
+            let filteredStatuses = sortedStatuses;
+            if (ticketType.name === "RFP Request") {
+              const decisionReceivedStatus = sortedStatuses.find(s => s.name === "Decision Received");
+              const currentOrder = currentStatus?.displayOrder || 0;
+              
+              // Check if we've passed Decision Received
+              if (decisionReceivedStatus && currentOrder > decisionReceivedStatus.displayOrder) {
+                // Determine which branch by checking if Awarded or Closed - Lost was visited
+                const isOnAwardedPath = visitedStatusIds.has(
+                  sortedStatuses.find(s => s.name === "Awarded")?.id || ""
+                );
+                const isOnLostPath = visitedStatusIds.has(
+                  sortedStatuses.find(s => s.name === "Closed - Lost")?.id || ""
+                );
+                
+                if (isOnAwardedPath) {
+                  // Filter out Closed - Lost
+                  filteredStatuses = sortedStatuses.filter(s => s.name !== "Closed - Lost");
+                } else if (isOnLostPath) {
+                  // Filter out the Awarded path (Awarded through Closed - Won)
+                  const awardedPathNames = ["Awarded", "Contract Executed", "CRM Setup Complete", 
+                    "Maps Requested", "Maps Uploaded", "Contacts Collected", 
+                    "Post-Award Kickoff", "Handoff to Operations", "Closed - Won"];
+                  filteredStatuses = sortedStatuses.filter(s => !awardedPathNames.includes(s.name));
+                }
+              }
+            }
+            
+            return filteredStatuses;
+          })().map((status, index) => {
+            // Use history to determine completion instead of just displayOrder
+            const visitedIds = new Set(statusHistory.map(h => h.toStatusId));
+            const isCompleted = visitedIds.has(status.id) && status.id !== ticket.currentStatusId;
             const isCurrent = status.id === ticket.currentStatusId;
-            const isPending = status.displayOrder > (currentStatus?.displayOrder || 0);
+            const isPending = !isCompleted && !isCurrent;
             const statusFields = status.fields || [];
             
             return (
