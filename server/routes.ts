@@ -2912,6 +2912,35 @@ export async function registerRoutes(app: Express): Promise<Server> {
       if (newStatus?.isFinal === "true") {
         req.body.completedAt = new Date();
         
+        // Create completion notification for main admin
+        try {
+          // Find the main admin for this company (first admin found)
+          const companyUsers = await storage.getCompanyUsersByCompanyId(user.activeCompanyId);
+          const mainAdmin = companyUsers.find(cu => cu.role === "admin");
+          
+          if (mainAdmin) {
+            const customer = existingTicket.customerId 
+              ? await storage.getCustomerById(existingTicket.customerId, user.activeCompanyId)
+              : null;
+            
+            const customerText = customer ? ` - ${customer.name}` : "";
+            const completedAt = new Date().toLocaleString();
+            
+            await storage.createNotification({
+              companyId: user.activeCompanyId,
+              recipientId: mainAdmin.userId,
+              ticketId: existingTicket.id,
+              type: "completed",
+              message: `Ticket completed: ${existingTicket.title}${customerText} (${completedAt})`,
+            });
+            
+            console.log(`Created completion notification for ticket ${existingTicket.id} to admin ${mainAdmin.userId}`);
+          }
+        } catch (err) {
+          console.error("Failed to create completion notification:", err);
+          // Don't fail the update - notification is secondary
+        }
+        
         // Auto-create Invoice ticket if billable work is completed
         if (existingTicket.billingBehavior === "invoice_required") {
           try {
@@ -3006,7 +3035,42 @@ export async function registerRoutes(app: Express): Promise<Server> {
       return res.status(400).send(result.error.message);
     }
 
+    // Check if assignment is changing for notification purposes
+    const assignmentChanged = req.body.assignedToId !== undefined && 
+                              req.body.assignedToId !== existingTicket.assignedToId;
+    const newAssigneeId = req.body.assignedToId;
+    const isBeingAssigned = assignmentChanged && newAssigneeId;
+
     const ticket = await storage.updateTicket(req.params.id, user.activeCompanyId, result.data);
+    
+    // Create notification for ticket assignment/reassignment
+    if (isBeingAssigned) {
+      try {
+        // Get customer name for the notification message
+        const customer = existingTicket.customerId 
+          ? await storage.getCustomerById(existingTicket.customerId, user.activeCompanyId)
+          : null;
+        
+        const dueDateText = existingTicket.dueDate 
+          ? ` (Due: ${new Date(existingTicket.dueDate).toLocaleDateString()})` 
+          : "";
+        const customerText = customer ? ` - ${customer.name}` : "";
+        
+        await storage.createNotification({
+          companyId: user.activeCompanyId,
+          recipientId: newAssigneeId,
+          ticketId: existingTicket.id,
+          type: "assigned",
+          message: `Ticket assigned: ${existingTicket.title}${customerText}${dueDateText}`,
+        });
+        
+        console.log(`Created assignment notification for ticket ${existingTicket.id} to user ${newAssigneeId}`);
+      } catch (err) {
+        console.error("Failed to create assignment notification:", err);
+        // Don't fail the update - notification is secondary
+      }
+    }
+
     res.json(ticket);
   });
 
@@ -4015,6 +4079,53 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
     await storage.deleteScheduleBlock(req.params.id);
     res.status(200).send("Deleted");
+  });
+
+  // =====================
+  // Ticket Notifications
+  // =====================
+  
+  // Get all notifications for current user
+  app.get("/api/notifications", async (req, res) => {
+    if (!req.isAuthenticated()) {
+      return res.status(401).send("Not authenticated");
+    }
+    const user = req.user as UserWithContext;
+    const notifications = await storage.getNotificationsByUser(user.id, user.activeCompanyId);
+    res.json(notifications);
+  });
+
+  // Get unread notification count
+  app.get("/api/notifications/unread-count", async (req, res) => {
+    if (!req.isAuthenticated()) {
+      return res.status(401).send("Not authenticated");
+    }
+    const user = req.user as UserWithContext;
+    const count = await storage.getUnreadNotificationCount(user.id, user.activeCompanyId);
+    res.json({ count });
+  });
+
+  // Mark single notification as read
+  app.patch("/api/notifications/:id/read", async (req, res) => {
+    if (!req.isAuthenticated()) {
+      return res.status(401).send("Not authenticated");
+    }
+    const user = req.user as UserWithContext;
+    const notification = await storage.markNotificationRead(req.params.id, user.id);
+    if (!notification) {
+      return res.status(404).send("Notification not found");
+    }
+    res.json(notification);
+  });
+
+  // Mark all notifications as read
+  app.post("/api/notifications/read-all", async (req, res) => {
+    if (!req.isAuthenticated()) {
+      return res.status(401).send("Not authenticated");
+    }
+    const user = req.user as UserWithContext;
+    await storage.markAllNotificationsRead(user.id, user.activeCompanyId);
+    res.json({ success: true });
   });
 
   const httpServer = createServer(app);

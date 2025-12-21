@@ -913,9 +913,10 @@ export const ticketNotifications = pgTable("ticket_notifications", {
 export const insertTicketNotificationSchema = createInsertSchema(ticketNotifications).omit({
   id: true,
   createdAt: true,
+  isRead: true,
 }).extend({
   type: z.enum(["assigned", "completed", "due_tomorrow", "due_today", "overdue"]),
-  isRead: z.boolean().default(false),
+  isRead: z.boolean().optional().default(false),
 });
 
 export type InsertTicketNotification = z.infer<typeof insertTicketNotificationSchema>;
