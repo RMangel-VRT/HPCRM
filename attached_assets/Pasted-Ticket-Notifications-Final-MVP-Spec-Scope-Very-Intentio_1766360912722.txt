@@ -1,0 +1,139 @@
+Ticket Notifications — Final MVP Spec
+Scope (Very Intentional)
+
+Notifications are created only for:
+
+Ticket assignment
+
+Ticket completion
+
+Ticket due date reminders
+
+No other notification types.
+
+Notification Recipients
+1) Ticket Assigned / Reassigned
+
+Recipient:
+
+Current assignee only
+
+When it fires:
+
+Ticket is assigned for the first time
+
+Ticket is reassigned to a different user
+
+Message:
+
+“Ticket assigned: [Ticket Title]”
+
+Includes customer name and due date (if set)
+
+2) Ticket Completed
+
+Recipient:
+
+Main Admin only
+
+When it fires:
+
+Ticket enters its final Completed state
+
+Rules:
+
+Fire once per completion event
+
+If reopened and completed again → notify again
+
+Message:
+
+“Ticket completed: [Ticket Title]”
+
+Includes customer name and completion timestamp
+
+3) Due Date Notifications
+
+Recipient:
+
+Current assignee only
+
+When it fires (if ticket is not completed):
+
+Due Tomorrow → 1 day before due date
+
+Due Today → on due date
+
+Overdue → once per day until completed
+
+Message:
+
+“Due tomorrow: [Ticket Title]”
+
+“Due today: [Ticket Title]”
+
+“Overdue: [Ticket Title]”
+
+Notification Delivery
+
+In-app only
+
+Bell icon with unread count
+
+Notifications list page
+
+Mark read / mark all read
+
+Each notification links directly to the ticket
+
+Notification Data (Minimal)
+
+Each notification stores:
+
+Recipient
+
+Ticket reference
+
+Type (Assigned / Completed / DueTomorrow / DueToday / Overdue)
+
+Read/unread
+
+Timestamp
+
+Message text
+
+Link to ticket
+
+System Rules
+
+No notifications for:
+
+Comments
+
+Status changes (other than completion)
+
+Attachments
+
+No actor-based filtering required
+
+No watchers
+
+No email or SMS
+
+No batching or grouping
+
+Acceptance Tests (Replit Must Pass)
+
+Assign ticket → assignee receives notification
+
+Reassign ticket → new assignee receives notification
+
+Complete ticket → main admin receives notification
+
+Ticket due tomorrow → assignee receives reminder
+
+Ticket overdue → assignee receives daily reminder
+
+Completing ticket immediately stops reminders
+
+Notifications persist and unread count updates correctly
