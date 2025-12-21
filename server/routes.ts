@@ -302,6 +302,250 @@ async function ensureRFPRequestTicketType(companyId: string): Promise<{
   return { typeId: rfpType.id, statuses: statusMap };
 }
 
+// Helper to ensure Project ticket type exists with the new 7-step workflow
+// This is Office-owned for sales/estimating/billing, with execution delegated to Execution Task
+async function ensureProjectTicketType(companyId: string): Promise<{ 
+  typeId: string; 
+  statuses: Map<string, string>;
+} | null> {
+  const ticketTypes = await storage.getTicketTypes(companyId);
+  let projectType = ticketTypes.find(tt => tt.name === "Project");
+  
+  if (!projectType) {
+    projectType = await storage.createTicketType({
+      companyId,
+      name: "Project",
+      description: "Large projects requiring estimates and approval - Office-owned workflow",
+      category: "project",
+      icon: "folder-kanban",
+      color: "#8b5cf6",
+      isActive: "true",
+    });
+    console.log(`Created Project ticket type for company ${companyId}`);
+  }
+  
+  // Define the new 7-step Project workflow
+  const projectStatuses = [
+    { name: "New", description: "Request captured - pending estimate", color: "#6366f1", order: 0, isFinal: "false" as const },
+    { name: "Estimating", description: "Estimate being prepared in QuickBooks", color: "#8b5cf6", order: 1, isFinal: "false" as const },
+    { name: "Estimate Sent", description: "Estimate sent to customer, awaiting response", color: "#f59e0b", order: 2, isFinal: "false" as const },
+    { name: "Decision Received", description: "Customer decision received", color: "#eab308", order: 3, isFinal: "false" as const },
+    { name: "Work Completed", description: "Execution task completed - ready for billing review", color: "#10b981", order: 4, isFinal: "false" as const },
+    { name: "Ready for Billing", description: "Work verified complete - create invoice", color: "#06b6d4", order: 5, isFinal: "false" as const },
+    { name: "Invoicing", description: "Invoice created in QuickBooks", color: "#22c55e", order: 6, isFinal: "true" as const },
+    { name: "Closed - Lost", description: "Project declined or cancelled", color: "#ef4444", order: 7, isFinal: "true" as const },
+  ];
+  
+  // Get existing statuses
+  let existingStatuses = await storage.getTicketTypeStatuses(projectType.id);
+  const statusMap = new Map<string, string>();
+  
+  // Create missing statuses (preserves existing ones to not break current tickets)
+  for (const statusDef of projectStatuses) {
+    let status = existingStatuses.find(s => s.name === statusDef.name);
+    if (!status) {
+      status = await storage.createTicketTypeStatus({
+        ticketTypeId: projectType.id,
+        name: statusDef.name,
+        description: statusDef.description,
+        displayOrder: statusDef.order,
+        color: statusDef.color,
+        isFinal: statusDef.isFinal,
+      });
+      console.log(`Created status "${statusDef.name}" for Project type`);
+    }
+    statusMap.set(status.name, status.id);
+  }
+  
+  // Get existing fields to avoid duplicates
+  const existingFields = await storage.getTicketTypeFields(projectType.id);
+  const existingFieldKeys = new Set(existingFields.map(f => f.fieldKey));
+  
+  // Define fields for each status
+  const fieldDefinitions = [
+    {
+      statusName: "Estimating",
+      fields: [
+        { fieldKey: "qb_estimate_number", fieldLabel: "QuickBooks Estimate #", fieldType: "text", isRequired: "true" },
+        { fieldKey: "estimate_notes", fieldLabel: "Estimate Notes", fieldType: "textarea", isRequired: "false" },
+      ]
+    },
+    {
+      statusName: "Estimate Sent",
+      fields: [
+        { fieldKey: "estimate_sent_date", fieldLabel: "Date Estimate Sent", fieldType: "date", isRequired: "true" },
+        { fieldKey: "delivery_method", fieldLabel: "Delivery Method", fieldType: "select", isRequired: "true", options: ["Email", "QBO Portal", "Hard Copy", "Other"] },
+      ]
+    },
+    {
+      statusName: "Decision Received",
+      fields: [
+        { fieldKey: "decision_outcome", fieldLabel: "Decision", fieldType: "select", isRequired: "true", options: ["Approved", "Denied"] },
+        { fieldKey: "decision_date", fieldLabel: "Decision Date", fieldType: "date", isRequired: "false" },
+        { fieldKey: "po_number", fieldLabel: "PO Number", fieldType: "text", isRequired: "false" },
+        { fieldKey: "denial_reason", fieldLabel: "Reason for Denial", fieldType: "textarea", isRequired: "false" },
+      ]
+    },
+    {
+      statusName: "Work Completed",
+      fields: [
+        { fieldKey: "completion_date", fieldLabel: "Completion Date", fieldType: "date", isRequired: "false" },
+        { fieldKey: "actual_hours", fieldLabel: "Actual Hours", fieldType: "number", isRequired: "false" },
+        { fieldKey: "completion_notes", fieldLabel: "Completion Notes", fieldType: "textarea", isRequired: "false" },
+      ]
+    },
+    {
+      statusName: "Ready for Billing",
+      fields: [
+        { fieldKey: "billing_confirmed", fieldLabel: "Work Complete & Ready for Invoice?", fieldType: "select", isRequired: "true", options: ["Yes", "No"] },
+      ]
+    },
+    {
+      statusName: "Invoicing",
+      fields: [
+        { fieldKey: "qb_invoice_number", fieldLabel: "QuickBooks Invoice #", fieldType: "text", isRequired: "true" },
+        { fieldKey: "invoice_amount", fieldLabel: "Invoice Amount", fieldType: "currency", isRequired: "true" },
+        { fieldKey: "invoice_date", fieldLabel: "Invoice Date", fieldType: "date", isRequired: "false" },
+      ]
+    },
+    {
+      statusName: "Closed - Lost",
+      fields: [
+        { fieldKey: "loss_reason", fieldLabel: "Reason", fieldType: "select", isRequired: "false", options: ["Price", "Timing", "Went with competitor", "No longer needed", "Other"] },
+        { fieldKey: "loss_notes", fieldLabel: "Additional Notes", fieldType: "textarea", isRequired: "false" },
+      ]
+    },
+  ];
+  
+  // Create fields for each status
+  for (const statusFields of fieldDefinitions) {
+    const statusId = statusMap.get(statusFields.statusName);
+    if (!statusId) continue;
+    
+    for (let i = 0; i < statusFields.fields.length; i++) {
+      const fieldDef = statusFields.fields[i];
+      if (existingFieldKeys.has(fieldDef.fieldKey)) continue;
+      
+      await storage.createTicketTypeField({
+        ticketTypeId: projectType.id,
+        statusId: statusId,
+        fieldKey: fieldDef.fieldKey,
+        fieldLabel: fieldDef.fieldLabel,
+        fieldType: fieldDef.fieldType as "text" | "number" | "date" | "currency" | "select" | "textarea",
+        isRequired: fieldDef.isRequired as "true" | "false",
+        options: fieldDef.options || [],
+        displayOrder: i,
+      });
+    }
+  }
+  
+  console.log(`Project ticket type setup complete for company ${companyId}`);
+  return { typeId: projectType.id, statuses: statusMap };
+}
+
+// Helper to ensure Execution Task ticket type exists - Crew-owned workflow for field work
+async function ensureExecutionTaskTicketType(companyId: string): Promise<{ 
+  typeId: string; 
+  statuses: Map<string, string>;
+} | null> {
+  const ticketTypes = await storage.getTicketTypes(companyId);
+  let execType = ticketTypes.find(tt => tt.name === "Execution Task");
+  
+  if (!execType) {
+    execType = await storage.createTicketType({
+      companyId,
+      name: "Execution Task",
+      description: "Field work execution - Crew-owned workflow linked to Projects",
+      category: "quick_task",
+      icon: "hard-hat",
+      color: "#22c55e",
+      isActive: "true",
+    });
+    console.log(`Created Execution Task ticket type for company ${companyId}`);
+  }
+  
+  // Define the simple 3-step Execution Task workflow
+  const execStatuses = [
+    { name: "Scheduled", description: "Work scheduled with crew", color: "#3b82f6", order: 0, isFinal: "false" as const },
+    { name: "In Progress", description: "Crew actively working on site", color: "#f59e0b", order: 1, isFinal: "false" as const },
+    { name: "Completed", description: "Work finished - returns control to Project", color: "#22c55e", order: 2, isFinal: "true" as const },
+  ];
+  
+  // Get existing statuses
+  let existingStatuses = await storage.getTicketTypeStatuses(execType.id);
+  const statusMap = new Map<string, string>();
+  
+  for (const statusDef of execStatuses) {
+    let status = existingStatuses.find(s => s.name === statusDef.name);
+    if (!status) {
+      status = await storage.createTicketTypeStatus({
+        ticketTypeId: execType.id,
+        name: statusDef.name,
+        description: statusDef.description,
+        displayOrder: statusDef.order,
+        color: statusDef.color,
+        isFinal: statusDef.isFinal,
+      });
+      console.log(`Created status "${statusDef.name}" for Execution Task type`);
+    }
+    statusMap.set(status.name, status.id);
+  }
+  
+  // Get existing fields
+  const existingFields = await storage.getTicketTypeFields(execType.id);
+  const existingFieldKeys = new Set(existingFields.map(f => f.fieldKey));
+  
+  // Define fields for each status
+  const fieldDefinitions = [
+    {
+      statusName: "Scheduled",
+      fields: [
+        { fieldKey: "scheduled_date", fieldLabel: "Scheduled Date", fieldType: "date", isRequired: "true" },
+        { fieldKey: "crew_size", fieldLabel: "Crew Size", fieldType: "number", isRequired: "false" },
+      ]
+    },
+    {
+      statusName: "In Progress",
+      fields: [
+        { fieldKey: "start_date", fieldLabel: "Actual Start Date", fieldType: "date", isRequired: "false" },
+      ]
+    },
+    {
+      statusName: "Completed",
+      fields: [
+        { fieldKey: "completion_date", fieldLabel: "Completion Date", fieldType: "date", isRequired: "true" },
+        { fieldKey: "actual_hours", fieldLabel: "Actual Hours", fieldType: "number", isRequired: "false" },
+        { fieldKey: "completion_photos", fieldLabel: "Completion Photos Uploaded?", fieldType: "select", isRequired: "false", options: ["Yes", "No"] },
+        { fieldKey: "completion_notes", fieldLabel: "Completion Notes", fieldType: "textarea", isRequired: "false" },
+      ]
+    },
+  ];
+  
+  for (const statusFields of fieldDefinitions) {
+    const statusId = statusMap.get(statusFields.statusName);
+    if (!statusId) continue;
+    
+    for (let i = 0; i < statusFields.fields.length; i++) {
+      const fieldDef = statusFields.fields[i];
+      if (existingFieldKeys.has(fieldDef.fieldKey)) continue;
+      
+      await storage.createTicketTypeField({
+        ticketTypeId: execType.id,
+        statusId: statusId,
+        fieldKey: fieldDef.fieldKey,
+        fieldLabel: fieldDef.fieldLabel,
+        fieldType: fieldDef.fieldType as "text" | "number" | "date" | "currency" | "select" | "textarea",
+        isRequired: fieldDef.isRequired as "true" | "false",
+        options: fieldDef.options || [],
+        displayOrder: i,
+      });
+    }
+  }
+  
+  console.log(`Execution Task ticket type setup complete for company ${companyId}`);
+  return { typeId: execType.id, statuses: statusMap };
+}
+
 export async function registerRoutes(app: Express): Promise<Server> {
   setupAuth(app);
 
@@ -2125,6 +2369,56 @@ export async function registerRoutes(app: Express): Promise<Server> {
     } catch (err) {
       console.error("Failed to initialize Invoice ticket type:", err);
       res.status(500).send("Failed to initialize Invoice ticket type");
+    }
+  });
+
+  // Initialize Project ticket type with new 7-step workflow
+  app.post("/api/ticket-types/init-project", async (req, res) => {
+    if (!req.isAuthenticated()) {
+      return res.status(401).send("Not authenticated");
+    }
+
+    const user = req.user as UserWithContext;
+    
+    if (user.activeRole !== "admin" && user.activeRole !== "office" && !user.isSuperAdminBool) {
+      return res.status(403).send("Insufficient permissions - admin or office role required");
+    }
+
+    try {
+      const result = await ensureProjectTicketType(user.activeCompanyId);
+      if (result) {
+        res.json({ success: true, typeId: result.typeId });
+      } else {
+        res.status(500).send("Failed to initialize Project ticket type");
+      }
+    } catch (err) {
+      console.error("Failed to initialize Project ticket type:", err);
+      res.status(500).send("Failed to initialize Project ticket type");
+    }
+  });
+
+  // Initialize Execution Task ticket type for field crew work
+  app.post("/api/ticket-types/init-execution-task", async (req, res) => {
+    if (!req.isAuthenticated()) {
+      return res.status(401).send("Not authenticated");
+    }
+
+    const user = req.user as UserWithContext;
+    
+    if (user.activeRole !== "admin" && user.activeRole !== "office" && !user.isSuperAdminBool) {
+      return res.status(403).send("Insufficient permissions - admin or office role required");
+    }
+
+    try {
+      const result = await ensureExecutionTaskTicketType(user.activeCompanyId);
+      if (result) {
+        res.json({ success: true, typeId: result.typeId });
+      } else {
+        res.status(500).send("Failed to initialize Execution Task ticket type");
+      }
+    } catch (err) {
+      console.error("Failed to initialize Execution Task ticket type:", err);
+      res.status(500).send("Failed to initialize Execution Task ticket type");
     }
   });
 
