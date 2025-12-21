@@ -684,7 +684,7 @@ export type InsertTicketSource = z.infer<typeof insertTicketSourceSchema>;
 export type TicketSource = typeof ticketSources.$inferSelect;
 
 // Ticket Links - connects related tickets (e.g., billable → invoice, estimate → project)
-export type TicketLinkType = "source_of" | "invoice_for" | "project_for";
+export type TicketLinkType = "source_of" | "invoice_for" | "project_for" | "execution_for";
 
 export const ticketLinks = pgTable("ticket_links", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
@@ -700,7 +700,7 @@ export const insertTicketLinkSchema = createInsertSchema(ticketLinks).omit({
   id: true,
   createdAt: true,
 }).extend({
-  linkType: z.enum(["source_of", "invoice_for", "project_for"]),
+  linkType: z.enum(["source_of", "invoice_for", "project_for", "execution_for"]),
 });
 
 export type InsertTicketLink = z.infer<typeof insertTicketLinkSchema>;

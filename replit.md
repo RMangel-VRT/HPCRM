@@ -39,7 +39,34 @@ Replit's object storage (Google Cloud Storage) is used for storing contract PDF 
 A document generation tool for landscape maintenance contracts using templates and variable substitution. It uses a dedicated database architecture for templates, documents, sections, and variables. The workflow allows users to select customers, include/exclude sections, fill variables (with auto-population), preview, auto-save, publish, and export to PDF. It integrates directly with the CRM's contract management by publishing documents and creating contract records, inferring service types and billing patterns.
 
 #### Ticketing System
-A mobile-first system for field crews to track and manage work at customer properties. It supports configurable ticket types with custom workflows, where tickets progress through multiple status steps with step-specific data capture. The system includes default ticket types ("Onsite Maintenance Task", "Project") and role-based access control. The UI is optimized for mobile with card-based layouts and workflow progress indicators.
+A mobile-first system for field crews to track and manage work at customer properties. It supports configurable ticket types with custom workflows, where tickets progress through multiple status steps with step-specific data capture. The system includes default ticket types ("Onsite Maintenance Task", "Project", "Execution Task", "Invoice") and role-based access control. The UI is optimized for mobile with card-based layouts and workflow progress indicators.
+
+**3-Phase Project Workflow:**
+Projects follow a three-phase lifecycle with different owners at each phase:
+
+1. **Phase 1: Sales/Estimating (Office-owned "Project" ticket)**
+   - Workflow: New → Estimating → Estimate Sent → Decision Received (branching) → Work Completed → Ready for Billing → Invoicing
+   - At "Decision Received", user selects Approved or Denied:
+     - Approved → advances to Work Completed + prompts to create Execution Task
+     - Denied → branches to Closed - Lost (terminal)
+   - Required fields: estimated_hours, quickbooks_estimate_id, decision_date, decision_outcome
+
+2. **Phase 2: Field Execution (Crew-owned "Execution Task" ticket)**
+   - Workflow: Scheduled → In Progress → Completed
+   - Created via handoff dialog when Project is approved
+   - Linked to parent Project via `ticket_links` table with `linkType: "execution_for"`
+   - When completed, automatically advances parent Project to "Work Completed"
+
+3. **Phase 3: Billing (Office-owned "Invoice" ticket)**
+   - Workflow: Pending Invoice → Invoiced
+   - Created via handoff dialog when Project reaches "Ready for Billing"
+   - Linked to parent Project via `ticket_links` table with `linkType: "invoice_for"`
+   - Creating invoice advances Project to "Invoicing" status
+
+**Ticket Link Types:**
+- `execution_for`: Project (source) → Execution Task (target)
+- `invoice_for`: Ticket (source) → Invoice (target)
+- `project_for`: RFP Request (source) → Project (target)
 
 **Work Types:** Every ticket has a work type classification that drives billing behavior:
 - **Contract Work** - Included in existing customer contract (no invoice required)

@@ -2959,6 +2959,45 @@ export async function registerRoutes(app: Express): Promise<Server> {
             // Don't fail the update - invoice creation is secondary
           }
         }
+        
+        // Auto-advance parent Project when Execution Task completes
+        const ticketType = await storage.getTicketTypeById(existingTicket.ticketTypeId, user.activeCompanyId);
+        if (ticketType?.name === "Execution Task") {
+          try {
+            // Find the parent Project ticket (Execution Task is the TARGET of an "execution_for" link)
+            const links = await storage.getTicketLinks(existingTicket.id);
+            const parentLink = links.find(l => l.targetTicketId === existingTicket.id && l.linkType === "execution_for");
+            
+            if (parentLink) {
+              const parentProject = await storage.getTicketById(parentLink.sourceTicketId, user.activeCompanyId);
+              if (parentProject) {
+                // Get Project ticket type and find "Work Completed" status
+                const projectStatuses = await storage.getTicketTypeStatuses(parentProject.ticketTypeId);
+                const workCompletedStatus = projectStatuses.find(s => s.name === "Work Completed");
+                
+                if (workCompletedStatus && parentProject.currentStatusId !== workCompletedStatus.id) {
+                  // Advance the parent Project to "Work Completed"
+                  await storage.createTicketStatusHistory({
+                    ticketId: parentProject.id,
+                    fromStatusId: parentProject.currentStatusId,
+                    toStatusId: workCompletedStatus.id,
+                    changedById: user.id,
+                    notes: `Auto-advanced: Linked Execution Task #${existingTicket.id} completed`,
+                  });
+                  
+                  await storage.updateTicket(parentProject.id, user.activeCompanyId, {
+                    currentStatusId: workCompletedStatus.id,
+                  });
+                  
+                  console.log(`Auto-advanced Project ${parentProject.id} to "Work Completed" after Execution Task ${existingTicket.id} completed`);
+                }
+              }
+            }
+          } catch (err) {
+            console.error("Failed to auto-advance parent Project:", err);
+            // Don't fail the update - auto-advance is secondary
+          }
+        }
       }
     }
 
@@ -2985,6 +3024,149 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
     await storage.deleteTicket(req.params.id, user.activeCompanyId);
     res.status(200).send("Deleted");
+  });
+
+  // Create Execution Task linked to a Project ticket
+  app.post("/api/tickets/create-execution-task", async (req, res) => {
+    if (!req.isAuthenticated()) {
+      return res.status(401).send("Not authenticated");
+    }
+
+    const user = req.user as UserWithContext;
+    
+    if (user.activeRole === "field_manager" || user.activeRole === "field") {
+      return res.status(403).send("Insufficient permissions - admin or office role required");
+    }
+
+    const { parentTicketId, customerId, title, description, priority, locationLat, locationLng, locationLabel, locationDescription, photos } = req.body;
+    
+    if (!parentTicketId || !customerId) {
+      return res.status(400).send("parentTicketId and customerId are required");
+    }
+
+    try {
+      // Ensure Execution Task ticket type exists
+      const execTypeInfo = await ensureExecutionTaskTicketType(user.activeCompanyId);
+      
+      if (!execTypeInfo) {
+        return res.status(500).send("Failed to initialize Execution Task ticket type");
+      }
+      
+      // Get the first status (Scheduled)
+      const scheduledStatus = execTypeInfo.statuses.get("Scheduled");
+      
+      if (!scheduledStatus) {
+        return res.status(500).send("Failed to find Scheduled status");
+      }
+      
+      // Create the Execution Task ticket
+      const execTicket = await storage.createTicket({
+        companyId: user.activeCompanyId,
+        customerId,
+        ticketTypeId: execTypeInfo.typeId,
+        currentStatusId: scheduledStatus,
+        workType: "contract", // Execution is typically covered by project scope
+        billingBehavior: "no_invoice",
+        title: title || "Execution Task",
+        description: description || null,
+        priority: priority || "normal",
+        assignedToId: null, // To be assigned later
+        createdById: user.id,
+        locationLat: locationLat || null,
+        locationLng: locationLng || null,
+        locationLabel: locationLabel || null,
+        locationDescription: locationDescription || null,
+        photos: photos || null,
+      });
+      
+      // Link the Execution Task to the parent Project ticket
+      await storage.createTicketLink({
+        sourceTicketId: parentTicketId,
+        targetTicketId: execTicket.id,
+        linkType: "execution_for", // New link type for Project → Execution Task
+      });
+      
+      console.log(`Created Execution Task ${execTicket.id} linked to Project ${parentTicketId}`);
+      
+      res.json(execTicket);
+    } catch (err) {
+      console.error("Failed to create Execution Task:", err);
+      res.status(500).send("Failed to create Execution Task");
+    }
+  });
+
+  // Create Invoice ticket linked to a Project at Ready for Billing
+  app.post("/api/tickets/create-invoice-from-project", async (req, res) => {
+    if (!req.isAuthenticated()) {
+      return res.status(401).send("Not authenticated");
+    }
+
+    const user = req.user as UserWithContext;
+    
+    if (user.activeRole === "field_manager" || user.activeRole === "field") {
+      return res.status(403).send("Insufficient permissions - admin or office role required");
+    }
+
+    const { parentTicketId, customerId, title, description, priority } = req.body;
+    
+    if (!parentTicketId || !customerId) {
+      return res.status(400).send("parentTicketId and customerId are required");
+    }
+
+    try {
+      // Get the parent Project ticket
+      const parentProject = await storage.getTicketById(parentTicketId, user.activeCompanyId);
+      if (!parentProject) {
+        return res.status(404).send("Parent project not found");
+      }
+      
+      // Ensure Invoice ticket type exists
+      const invoiceTypeInfo = await ensureInvoiceTicketType(user.activeCompanyId);
+      
+      if (!invoiceTypeInfo) {
+        return res.status(500).send("Failed to initialize Invoice ticket type");
+      }
+      
+      // Create the Invoice ticket
+      const invoiceTicket = await storage.createTicket({
+        companyId: user.activeCompanyId,
+        customerId,
+        contractId: parentProject.contractId,
+        ticketTypeId: invoiceTypeInfo.typeId,
+        currentStatusId: invoiceTypeInfo.pendingStatusId,
+        workType: "admin",
+        billingBehavior: "internal",
+        title: title || `Invoice: ${parentProject.title}`,
+        description: description || `Invoice for project: ${parentProject.title}\n\nOriginal description: ${parentProject.description || "N/A"}`,
+        priority: priority || "normal",
+        assignedToId: null, // Unassigned - for Admin/Office to process
+        createdById: user.id,
+      });
+      
+      // Link the Invoice to the parent Project ticket
+      await storage.createTicketLink({
+        sourceTicketId: parentTicketId,
+        targetTicketId: invoiceTicket.id,
+        linkType: "invoice_for",
+      });
+      
+      // Copy notes from source ticket to invoice ticket
+      const sourceComments = await storage.getTicketComments(parentTicketId);
+      for (const comment of sourceComments) {
+        await storage.createTicketComment({
+          ticketId: invoiceTicket.id,
+          authorId: comment.authorId,
+          body: comment.body,
+        });
+      }
+      
+      console.log(`Created Invoice ticket ${invoiceTicket.id} linked to Project ${parentTicketId} with ${sourceComments.length} notes copied`);
+      
+      res.json(invoiceTicket);
+    } catch (err) {
+      console.error("Failed to create Invoice from Project:", err);
+      res.status(500).send("Failed to create Invoice ticket");
+    }
   });
 
   // Ticket Field Values routes
