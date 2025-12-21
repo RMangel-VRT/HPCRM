@@ -107,6 +107,7 @@ export default function NewTicket() {
   const [newProspectContactName, setNewProspectContactName] = useState("");
   const [newProspectContactEmail, setNewProspectContactEmail] = useState("");
   const [newProspectContactPhone, setNewProspectContactPhone] = useState("");
+  const [serviceRequestType, setServiceRequestType] = useState<string>("");
   
   const [locationLat, setLocationLat] = useState<number | null>(null);
   const [locationLng, setLocationLng] = useState<number | null>(null);
@@ -247,12 +248,17 @@ export default function NewTicket() {
       
       const billingBehavior = WORK_TYPE_CATALOG[selectedWorkType!].billingBehavior;
       
+      // For RFP Request, use auto-generated title
+      const ticketTitle = isRFPRequest 
+        ? `Request for Proposal - ${selectedCustomer?.name}` 
+        : title;
+      
       return apiRequest("POST", "/api/tickets", {
         ticketTypeId,
         customerId: selectedCustomerId,
         workType: selectedWorkType,
         billingBehavior,
-        title,
+        title: ticketTitle,
         description: description || null,
         priority,
         assignedToId: assignedToId,
@@ -261,7 +267,11 @@ export default function NewTicket() {
         locationLng: locationLng,
         locationLabel: locationLabel || null,
         locationDescription: locationDescription || null,
-        photos: photos.length > 0 ? photos.map(p => p.path) : null,
+        photos: !isRFPRequest && photos.length > 0 ? photos.map(p => p.path) : null,
+        // RFP-specific fields to be saved after ticket creation
+        initialFieldValues: isRFPRequest ? {
+          service_request_type: serviceRequestType,
+        } : undefined,
       });
     },
     onSuccess: async (res) => {
@@ -438,15 +448,25 @@ export default function NewTicket() {
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     
-    if (!title.trim()) {
+    // RFP has auto-generated title, regular tickets need manual title
+    if (!isRFPRequest && !title.trim()) {
       toast({ title: "Please enter a title", variant: "destructive" });
+      return;
+    }
+    
+    // RFP requires service request type
+    if (isRFPRequest && !serviceRequestType) {
+      toast({ title: "Please select a service request type", variant: "destructive" });
       return;
     }
     
     createTicketMutation.mutate();
   };
 
-  const canSubmit = selectedWorkType && selectedCustomerId && title.trim() && assignedToId;
+  // RFP doesn't need manual title (auto-generated), but requires serviceRequestType
+  const canSubmit = isRFPRequest 
+    ? selectedWorkType && selectedCustomerId && serviceRequestType && assignedToId
+    : selectedWorkType && selectedCustomerId && title.trim() && assignedToId;
   const hasLocation = locationLat !== null && locationLng !== null;
 
   const workTypeOptions: WorkType[] = ["contract", "extra_work", "project", "admin", "estimate_request"];
@@ -746,19 +766,49 @@ export default function NewTicket() {
           )}
 
           <div className="space-y-4">
-            <div className="space-y-2">
-              <Label htmlFor="title">
-                Title <span className="text-red-500">*</span>
-              </Label>
-              <Input
-                id="title"
-                value={title}
-                onChange={(e) => setTitle(e.target.value)}
-                placeholder="Brief description of the work"
-                className="h-11"
-                data-testid="input-title"
-              />
-            </div>
+            {/* RFP Request has auto-generated title */}
+            {isRFPRequest ? (
+              <div className="space-y-2">
+                <Label>Title</Label>
+                <div className="h-11 px-3 flex items-center rounded-md border bg-muted/50 text-sm">
+                  Request for Proposal - {selectedCustomer?.name}
+                </div>
+              </div>
+            ) : (
+              <div className="space-y-2">
+                <Label htmlFor="title">
+                  Title <span className="text-red-500">*</span>
+                </Label>
+                <Input
+                  id="title"
+                  value={title}
+                  onChange={(e) => setTitle(e.target.value)}
+                  placeholder="Brief description of the work"
+                  className="h-11"
+                  data-testid="input-title"
+                />
+              </div>
+            )}
+
+            {/* Service Request Type - RFP only */}
+            {isRFPRequest && (
+              <div className="space-y-2">
+                <Label htmlFor="serviceRequestType">
+                  Service Request <span className="text-red-500">*</span>
+                </Label>
+                <Select value={serviceRequestType} onValueChange={setServiceRequestType}>
+                  <SelectTrigger id="serviceRequestType" className="h-11" data-testid="select-service-request-type">
+                    <SelectValue placeholder="Select service type..." />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="Maintenance only">Maintenance only</SelectItem>
+                    <SelectItem value="Snow Removal Only">Snow Removal Only</SelectItem>
+                    <SelectItem value="Maintenance & Snow Removal">Maintenance & Snow Removal</SelectItem>
+                    <SelectItem value="Custom">Custom</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+            )}
 
             <div className="space-y-2">
               <Label htmlFor="description">Description</Label>
@@ -822,87 +872,90 @@ export default function NewTicket() {
               )}
             </div>
 
-            <div className="space-y-2">
-              <Label>Photos (optional)</Label>
-              <div className="space-y-3">
-                {photos.length > 0 && (
-                  <div className="grid grid-cols-3 gap-2">
-                    {photos.map((photo, index) => (
-                      <div key={index} className="relative group aspect-square">
-                        <img
-                          src={photo.previewUrl}
-                          alt={`Photo ${index + 1}`}
-                          className="w-full h-full object-cover rounded-lg border"
-                        />
-                        <Button
-                          type="button"
-                          variant="ghost"
-                          size="icon"
-                          className="absolute top-1 right-1 h-6 w-6 bg-background/80 opacity-0 group-hover:opacity-100 transition-opacity"
-                          onClick={() => handleRemovePhoto(index)}
-                          data-testid={`button-remove-photo-${index}`}
-                        >
-                          <X className="w-3 h-3" />
-                        </Button>
-                      </div>
-                    ))}
+            {/* Photo upload - hidden for RFP requests */}
+            {!isRFPRequest && (
+              <div className="space-y-2">
+                <Label>Photos (optional)</Label>
+                <div className="space-y-3">
+                  {photos.length > 0 && (
+                    <div className="grid grid-cols-3 gap-2">
+                      {photos.map((photo, index) => (
+                        <div key={index} className="relative group aspect-square">
+                          <img
+                            src={photo.previewUrl}
+                            alt={`Photo ${index + 1}`}
+                            className="w-full h-full object-cover rounded-lg border"
+                          />
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="icon"
+                            className="absolute top-1 right-1 h-6 w-6 bg-background/80 opacity-0 group-hover:opacity-100 transition-opacity"
+                            onClick={() => handleRemovePhoto(index)}
+                            data-testid={`button-remove-photo-${index}`}
+                          >
+                            <X className="w-3 h-3" />
+                          </Button>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                  
+                  <div className="flex gap-2">
+                    <input
+                      type="file"
+                      accept="image/*"
+                      capture="environment"
+                      id="photo-capture"
+                      className="hidden"
+                      onChange={handlePhotoUpload}
+                      disabled={isUploadingPhoto}
+                    />
+                    <input
+                      type="file"
+                      accept="image/*"
+                      multiple
+                      id="photo-gallery"
+                      className="hidden"
+                      onChange={handlePhotoUpload}
+                      disabled={isUploadingPhoto}
+                    />
+                    
+                    <Button
+                      type="button"
+                      variant="outline"
+                      className="flex-1 gap-2 h-11"
+                      onClick={() => document.getElementById("photo-capture")?.click()}
+                      disabled={isUploadingPhoto}
+                      data-testid="button-take-photo"
+                    >
+                      {isUploadingPhoto ? (
+                        <Loader2 className="w-4 h-4 animate-spin" />
+                      ) : (
+                        <Camera className="w-4 h-4" />
+                      )}
+                      Take Photo
+                    </Button>
+                    
+                    <Button
+                      type="button"
+                      variant="outline"
+                      className="flex-1 gap-2 h-11"
+                      onClick={() => document.getElementById("photo-gallery")?.click()}
+                      disabled={isUploadingPhoto}
+                      data-testid="button-choose-photo"
+                    >
+                      {isUploadingPhoto ? (
+                        <Loader2 className="w-4 h-4 animate-spin" />
+                      ) : (
+                        <ImageIcon className="w-4 h-4" />
+                      )}
+                      Choose Photo
+                    </Button>
                   </div>
-                )}
-                
-                <div className="flex gap-2">
-                  <input
-                    type="file"
-                    accept="image/*"
-                    capture="environment"
-                    id="photo-capture"
-                    className="hidden"
-                    onChange={handlePhotoUpload}
-                    disabled={isUploadingPhoto}
-                  />
-                  <input
-                    type="file"
-                    accept="image/*"
-                    multiple
-                    id="photo-gallery"
-                    className="hidden"
-                    onChange={handlePhotoUpload}
-                    disabled={isUploadingPhoto}
-                  />
-                  
-                  <Button
-                    type="button"
-                    variant="outline"
-                    className="flex-1 gap-2 h-11"
-                    onClick={() => document.getElementById("photo-capture")?.click()}
-                    disabled={isUploadingPhoto}
-                    data-testid="button-take-photo"
-                  >
-                    {isUploadingPhoto ? (
-                      <Loader2 className="w-4 h-4 animate-spin" />
-                    ) : (
-                      <Camera className="w-4 h-4" />
-                    )}
-                    Take Photo
-                  </Button>
-                  
-                  <Button
-                    type="button"
-                    variant="outline"
-                    className="flex-1 gap-2 h-11"
-                    onClick={() => document.getElementById("photo-gallery")?.click()}
-                    disabled={isUploadingPhoto}
-                    data-testid="button-choose-photo"
-                  >
-                    {isUploadingPhoto ? (
-                      <Loader2 className="w-4 h-4 animate-spin" />
-                    ) : (
-                      <ImageIcon className="w-4 h-4" />
-                    )}
-                    Choose Photo
-                  </Button>
                 </div>
               </div>
-            </div>
+            )}
 
             <div className="grid grid-cols-2 gap-4">
               <div className="space-y-2">

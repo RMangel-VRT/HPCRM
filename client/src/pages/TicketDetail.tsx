@@ -413,6 +413,23 @@ export default function TicketDetail() {
             </CardContent>
           </Card>
 
+          {/* Service Request Type for RFP tickets */}
+          {ticketType.name === "RFP Request" && (
+            <Card data-testid="card-service-request">
+              <CardContent className="p-4">
+                <div className="space-y-1">
+                  <p className="text-xs text-muted-foreground uppercase tracking-wide">Service Request</p>
+                  <p className="font-medium">
+                    {fieldValues.find(fv => {
+                      const field = statuses.flatMap(s => s.fields || []).find(f => f.id === fv.fieldId);
+                      return field?.fieldKey === "service_request_type";
+                    })?.value || "Not specified"}
+                  </p>
+                </div>
+              </CardContent>
+            </Card>
+          )}
+
           {ticket.description && (
             <Card data-testid="card-description">
               <CardHeader className="pb-2">

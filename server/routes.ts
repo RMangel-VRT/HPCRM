@@ -168,8 +168,9 @@ async function ensureRFPRequestTicketType(companyId: string): Promise<{
     {
       statusName: "Request Received",
       fields: [
+        { fieldKey: "service_request_type", fieldLabel: "Service Request", fieldType: "select", isRequired: "true", options: ["Maintenance only", "Snow Removal Only", "Maintenance & Snow Removal", "Custom"] },
         { fieldKey: "request_source", fieldLabel: "Source of Request", fieldType: "select", isRequired: "true", options: ["Email", "Phone", "Referral", "Property Manager", "City", "Website", "Other"] },
-        { fieldKey: "service_scope", fieldLabel: "Requested Service Scope", fieldType: "textarea", isRequired: "true" },
+        { fieldKey: "service_scope", fieldLabel: "Requested Service Scope", fieldType: "textarea", isRequired: "false" },
         { fieldKey: "desired_start_date", fieldLabel: "Desired Start Date", fieldType: "date", isRequired: "false" },
         { fieldKey: "proposal_due_date", fieldLabel: "Proposal Due Date", fieldType: "date", isRequired: "false" },
       ]
@@ -2531,6 +2532,24 @@ export async function registerRoutes(app: Express): Promise<Server> {
       sourceType: "manual",
       sourceId: null,
     });
+
+    // Save initial field values if provided (e.g., for RFP Request)
+    if (req.body.initialFieldValues) {
+      const fields = await storage.getTicketTypeFields(ticketType.id);
+      for (const [fieldKey, value] of Object.entries(req.body.initialFieldValues)) {
+        if (value) {
+          const field = fields.find(f => f.fieldKey === fieldKey);
+          if (field) {
+            await storage.upsertTicketFieldValue({
+              ticketId: ticket.id,
+              fieldId: field.id,
+              value: String(value),
+              capturedById: user.id,
+            });
+          }
+        }
+      }
+    }
 
     res.json(ticket);
   });
