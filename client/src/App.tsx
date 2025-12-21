@@ -9,6 +9,7 @@ import { ProtectedRoute } from "@/lib/protected-route";
 import { Loader2 } from "lucide-react";
 import AppSidebar from "@/components/AppSidebar";
 import ThemeToggle from "@/components/ThemeToggle";
+import NotificationsDropdown from "@/components/NotificationsDropdown";
 import LoginPage from "@/pages/LoginPage";
 import AccessDenied from "@/pages/AccessDenied";
 import Dashboard from "@/pages/Dashboard";
@@ -66,7 +67,10 @@ function Router() {
         <div className="flex flex-col flex-1 overflow-hidden">
           <header className="flex items-center justify-between p-4 border-b bg-background">
             <SidebarTrigger data-testid="button-sidebar-toggle" />
-            <ThemeToggle />
+            <div className="flex items-center gap-2">
+              <NotificationsDropdown />
+              <ThemeToggle />
+            </div>
           </header>
           <main className="flex-1 overflow-y-auto p-6 md:p-8">
             <Switch>
