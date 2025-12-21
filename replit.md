@@ -64,6 +64,7 @@ When tickets with billingBehavior "invoice_required" (Extra Billable or Project 
 - **Ticket Linking:** The `ticket_links` table connects source (billable) tickets to their Invoice tickets via "invoice_for" relationship
 - **Dashboard Widget:** `PendingInvoices` component shows unassigned Invoice tickets in "Pending Invoice" status for Admin/Office roles
 - **Linked Tickets Display:** `TicketDetail` page shows related tickets in a "Linked Tickets" section with navigation
+- **Manual Invoice Creation:** Invoice tickets can also be created directly from the New Ticket page by selecting "Invoice" as a work type (shown with dashed border and "Billing" badge). This allows creating standalone invoices not linked to a specific billable ticket.
 
 **RFP Request Pipeline:**
 A specialized ticket type for tracking proposal requests from first contact through contract award or loss. The RFP Request workflow enables sales pipeline management within the ticketing system.
