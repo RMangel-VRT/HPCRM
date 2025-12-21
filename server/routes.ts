@@ -2103,6 +2103,31 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // Initialize Invoice ticket type for a company
+  app.post("/api/ticket-types/init-invoice", async (req, res) => {
+    if (!req.isAuthenticated()) {
+      return res.status(401).send("Not authenticated");
+    }
+
+    const user = req.user as UserWithContext;
+    
+    if (user.activeRole !== "admin" && user.activeRole !== "office" && !user.isSuperAdminBool) {
+      return res.status(403).send("Insufficient permissions - admin or office role required");
+    }
+
+    try {
+      const result = await ensureInvoiceTicketType(user.activeCompanyId);
+      if (result) {
+        res.json({ success: true, typeId: result.typeId });
+      } else {
+        res.status(500).send("Failed to initialize Invoice ticket type");
+      }
+    } catch (err) {
+      console.error("Failed to initialize Invoice ticket type:", err);
+      res.status(500).send("Failed to initialize Invoice ticket type");
+    }
+  });
+
   app.get("/api/ticket-types/:id", async (req, res) => {
     if (!req.isAuthenticated()) {
       return res.status(401).send("Not authenticated");

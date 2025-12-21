@@ -41,6 +41,7 @@ import {
   Image as ImageIcon,
   FilePlus,
   UserPlus,
+  FileText,
 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { queryClient, apiRequest } from "@/lib/queryClient";
@@ -102,6 +103,8 @@ export default function NewTicket() {
   
   // RFP Request specific state
   const [isRFPRequest, setIsRFPRequest] = useState(false);
+  // Invoice specific state
+  const [isInvoice, setIsInvoice] = useState(false);
   const [showCreateProspectDialog, setShowCreateProspectDialog] = useState(false);
   const [newProspectName, setNewProspectName] = useState("");
   const [newProspectContactName, setNewProspectContactName] = useState("");
@@ -171,6 +174,12 @@ export default function NewTicket() {
       return rfpType?.id || null;
     }
     
+    // For Invoice, find the Invoice ticket type
+    if (isInvoice) {
+      const invoiceType = activeTypes.find(t => t.name === "Invoice");
+      return invoiceType?.id || null;
+    }
+    
     if (workType === "project") {
       const projectType = activeTypes.find(t => t.category === "project" || t.name.toLowerCase().includes("project"));
       return projectType?.id || activeTypes[0]?.id || null;
@@ -189,6 +198,16 @@ export default function NewTicket() {
   const initRFPMutation = useMutation({
     mutationFn: async () => {
       return apiRequest("POST", "/api/ticket-types/init-rfp", {});
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/ticket-types"] });
+    },
+  });
+  
+  // Initialize Invoice ticket type if needed
+  const initInvoiceMutation = useMutation({
+    mutationFn: async () => {
+      return apiRequest("POST", "/api/ticket-types/init-invoice", {});
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/ticket-types"] });
@@ -267,7 +286,7 @@ export default function NewTicket() {
         locationLng: locationLng,
         locationLabel: locationLabel || null,
         locationDescription: locationDescription || null,
-        photos: !isRFPRequest && photos.length > 0 ? photos.map(p => p.path) : null,
+        photos: !isRFPRequest && !isInvoice && photos.length > 0 ? photos.map(p => p.path) : null,
         // RFP-specific fields to be saved after ticket creation
         initialFieldValues: isRFPRequest ? {
           service_request_type: serviceRequestType,
@@ -288,6 +307,7 @@ export default function NewTicket() {
   const handleSelectWorkType = (workType: WorkType) => {
     setSelectedWorkType(workType);
     setIsRFPRequest(false);
+    setIsInvoice(false);
     setStep("customer");
   };
   
@@ -299,6 +319,19 @@ export default function NewTicket() {
     }
     setSelectedWorkType("admin"); // RFP Request uses admin work type (non-billable)
     setIsRFPRequest(true);
+    setIsInvoice(false);
+    setStep("customer");
+  };
+  
+  const handleSelectInvoice = async () => {
+    // Initialize Invoice ticket type if not exists
+    const invoiceType = ticketTypes.find(t => t.name === "Invoice");
+    if (!invoiceType) {
+      await initInvoiceMutation.mutateAsync();
+    }
+    setSelectedWorkType("extra_work"); // Invoice uses extra_work type for billing
+    setIsInvoice(true);
+    setIsRFPRequest(false);
     setStep("customer");
   };
 
@@ -448,8 +481,8 @@ export default function NewTicket() {
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     
-    // RFP has auto-generated title, regular tickets need manual title
-    if (!isRFPRequest && !title.trim()) {
+    // RFP and Invoice have required titles, regular tickets need manual title
+    if (!isRFPRequest && !isInvoice && !title.trim()) {
       toast({ title: "Please enter a title", variant: "destructive" });
       return;
     }
@@ -460,10 +493,17 @@ export default function NewTicket() {
       return;
     }
     
+    // Invoice requires a title
+    if (isInvoice && !title.trim()) {
+      toast({ title: "Please enter a title or description for the invoice", variant: "destructive" });
+      return;
+    }
+    
     createTicketMutation.mutate();
   };
 
   // RFP doesn't need manual title (auto-generated), but requires serviceRequestType
+  // Invoice needs a title and customer
   const canSubmit = isRFPRequest 
     ? selectedWorkType && selectedCustomerId && serviceRequestType && assignedToId
     : selectedWorkType && selectedCustomerId && title.trim() && assignedToId;
@@ -549,6 +589,33 @@ export default function NewTicket() {
                 </div>
               </CardContent>
             </Card>
+            
+            {/* Invoice - Direct invoice creation */}
+            <Card 
+              className="hover-elevate active-elevate-2 cursor-pointer border-dashed"
+              onClick={handleSelectInvoice}
+              data-testid="card-worktype-invoice"
+            >
+              <CardContent className="p-4 flex items-center gap-4">
+                <div 
+                  className="w-10 h-10 rounded-lg flex items-center justify-center"
+                  style={{ backgroundColor: "#f59e0b20" }}
+                >
+                  <FileText className="w-5 h-5" style={{ color: "#f59e0b" }} />
+                </div>
+                <div className="flex-1">
+                  <div className="flex items-center gap-2">
+                    <h3 className="font-medium">Invoice</h3>
+                    <Badge variant="default" className="text-xs">
+                      Billing
+                    </Badge>
+                  </div>
+                  <p className="text-sm text-muted-foreground line-clamp-1">
+                    Create an invoice for billable work
+                  </p>
+                </div>
+              </CardContent>
+            </Card>
           </div>
         </div>
       )}
@@ -560,7 +627,7 @@ export default function NewTicket() {
               className="hover:text-foreground cursor-pointer"
               onClick={() => setStep("workType")}
             >
-              {isRFPRequest ? "RFP Request" : selectedWorkTypeConfig?.name}
+              {isRFPRequest ? "RFP Request" : isInvoice ? "Invoice" : selectedWorkTypeConfig?.name}
             </span>
             <span>/</span>
             <span>Select Customer</span>
@@ -737,7 +804,7 @@ export default function NewTicket() {
               className="hover:text-foreground cursor-pointer"
               onClick={() => setStep("workType")}
             >
-              {isRFPRequest ? "RFP Request" : selectedWorkTypeConfig?.name}
+              {isRFPRequest ? "RFP Request" : isInvoice ? "Invoice" : selectedWorkTypeConfig?.name}
             </span>
             <span>/</span>
             <span 
@@ -750,7 +817,8 @@ export default function NewTicket() {
             <span>Details</span>
           </div>
 
-          {selectedWorkTypeConfig && (
+          {/* Hide billing behavior for Invoice tickets since it's already clear it's for billing */}
+          {selectedWorkTypeConfig && !isInvoice && (
             <div className="flex items-center gap-2 p-3 rounded-lg bg-muted/50">
               <Badge variant={selectedWorkTypeConfig.badgeVariant}>
                 {selectedWorkTypeConfig.billingLabel}
@@ -872,8 +940,8 @@ export default function NewTicket() {
               )}
             </div>
 
-            {/* Photo upload - hidden for RFP requests */}
-            {!isRFPRequest && (
+            {/* Photo upload - hidden for RFP and Invoice requests */}
+            {!isRFPRequest && !isInvoice && (
               <div className="space-y-2">
                 <Label>Photos (optional)</Label>
                 <div className="space-y-3">
