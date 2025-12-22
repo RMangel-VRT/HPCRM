@@ -1697,7 +1697,7 @@ export default function CustomerDetail() {
                   control={contractForm.control}
                   name="startDate"
                   render={({ field }) => {
-                    const dateValue = field.value instanceof Date 
+                    const dateValue = field.value instanceof Date && !isNaN(field.value.getTime())
                       ? field.value.toISOString().split('T')[0] 
                       : '';
                     return (
@@ -1726,7 +1726,7 @@ export default function CustomerDetail() {
                   control={contractForm.control}
                   name="endDate"
                   render={({ field }) => {
-                    const dateValue = field.value instanceof Date 
+                    const dateValue = field.value instanceof Date && !isNaN(field.value.getTime())
                       ? field.value.toISOString().split('T')[0] 
                       : '';
                     return (
