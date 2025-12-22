@@ -305,4 +305,89 @@ export function setupAuth(app: Express) {
       });
     });
   });
+
+  // Check if system needs initial setup (no users exist)
+  app.get("/api/setup/status", async (req, res) => {
+    try {
+      const hasUsers = await storage.hasAnyUsers();
+      res.json({ needsSetup: !hasUsers });
+    } catch (error) {
+      console.error("Error checking setup status:", error);
+      res.status(500).json({ message: "Failed to check setup status" });
+    }
+  });
+
+  // Initial setup - create first company and admin user
+  app.post("/api/setup/initialize", async (req, res, next) => {
+    try {
+      // Verify no users exist (security check)
+      const hasUsers = await storage.hasAnyUsers();
+      if (hasUsers) {
+        return res.status(403).json({ message: "Setup has already been completed" });
+      }
+
+      const { companyName, adminName, adminEmail, adminPassword } = req.body;
+
+      // Validate required fields
+      if (!companyName || !adminName || !adminEmail || !adminPassword) {
+        return res.status(400).json({ message: "All fields are required" });
+      }
+
+      if (adminPassword.length < 6) {
+        return res.status(400).json({ message: "Password must be at least 6 characters" });
+      }
+
+      // Create the company
+      const company = await storage.createCompany({
+        name: companyName,
+        slug: companyName.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, ""),
+        subscriptionPlan: "pro",
+        subscriptionStatus: "active",
+        billingEmail: adminEmail,
+      });
+
+      // Create the admin user
+      const passwordHash = await hashPassword(adminPassword);
+      const user = await storage.createUser({
+        email: adminEmail,
+        passwordHash,
+        name: adminName,
+        isSuperAdmin: "false",
+        defaultCompanyId: company.id,
+      });
+
+      // Add user to company as admin
+      await storage.createCompanyUser({
+        userId: user.id,
+        companyId: company.id,
+        role: "admin",
+        status: "active",
+      });
+
+      // Create default settings for the company
+      await storage.createSettings({
+        companyId: company.id,
+      });
+
+      // Log in the new admin user
+      const userWithContext: UserWithContext = {
+        ...user,
+        activeCompanyId: company.id,
+        activeRole: "admin",
+        isSuperAdminBool: false,
+      };
+
+      req.login(userWithContext, (err) => {
+        if (err) return next(err);
+        const { passwordHash: _, ...userWithoutPassword } = userWithContext;
+        res.status(201).json({
+          ...userWithoutPassword,
+          activeCompany: company,
+        });
+      });
+    } catch (error) {
+      console.error("Error during initial setup:", error);
+      next(error);
+    }
+  });
 }

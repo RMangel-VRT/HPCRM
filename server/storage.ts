@@ -13,6 +13,7 @@ export interface IStorage {
   getUserByEmail(email: string): Promise<User | undefined>;
   createUser(user: InsertUser): Promise<User>;
   updateUserPassword(userId: string, passwordHash: string): Promise<void>;
+  hasAnyUsers(): Promise<boolean>;
   
   getCompanies(): Promise<Company[]>;
   getCompanyById(id: string): Promise<Company | undefined>;
@@ -251,6 +252,11 @@ export class PgStorage implements IStorage {
   async getUserByEmail(email: string): Promise<User | undefined> {
     const result = await db.select().from(users).where(eq(users.email, email)).limit(1);
     return result[0];
+  }
+
+  async hasAnyUsers(): Promise<boolean> {
+    const result = await db.select({ id: users.id }).from(users).limit(1);
+    return result.length > 0;
   }
 
   async createUser(insertUser: InsertUser): Promise<User> {
