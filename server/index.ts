@@ -79,7 +79,12 @@ app.use((req, res, next) => {
   }, () => {
     log(`serving on port ${port}`);
     
-    // Start the due date notification service
-    runDueDateNotifications();
+    // Start the due date notification service only in development
+    // Autoscale deployments cannot run background tasks
+    if (app.get("env") === "development") {
+      runDueDateNotifications();
+    } else {
+      log("Due date notification service disabled in production (Autoscale)");
+    }
   });
 })();
