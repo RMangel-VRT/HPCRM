@@ -1,6 +1,6 @@
 import { Switch, Route, Redirect } from "wouter";
 import { queryClient } from "./lib/queryClient";
-import { QueryClientProvider } from "@tanstack/react-query";
+import { QueryClientProvider, useQuery } from "@tanstack/react-query";
 import { Toaster } from "@/components/ui/toaster";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { SidebarProvider, SidebarTrigger } from "@/components/ui/sidebar";
@@ -10,6 +10,7 @@ import { Loader2 } from "lucide-react";
 import AppSidebar from "@/components/AppSidebar";
 import NotificationsDropdown from "@/components/NotificationsDropdown";
 import LoginPage from "@/pages/LoginPage";
+import SetupPage from "@/pages/SetupPage";
 import AccessDenied from "@/pages/AccessDenied";
 import Dashboard from "@/pages/Dashboard";
 import CustomersList from "@/pages/CustomersList";
@@ -30,8 +31,14 @@ import NotFound from "@/pages/not-found";
 
 function Router() {
   const { user, isLoading, logoutMutation } = useAuth();
+  
+  const { data: setupStatus, isLoading: setupLoading } = useQuery<{ needsSetup: boolean }>({
+    queryKey: ["/api/setup/status"],
+    enabled: !user && !isLoading,
+    staleTime: 1000 * 60 * 5,
+  });
 
-  if (isLoading) {
+  if (isLoading || (!user && setupLoading)) {
     return (
       <div className="flex items-center justify-center min-h-screen">
         <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
@@ -40,6 +47,17 @@ function Router() {
   }
 
   if (!user) {
+    if (setupStatus?.needsSetup) {
+      return (
+        <Switch>
+          <Route path="/setup" component={SetupPage} />
+          <Route>
+            <Redirect to="/setup" />
+          </Route>
+        </Switch>
+      );
+    }
+    
     return (
       <Switch>
         <Route path="/login" component={LoginPage} />
