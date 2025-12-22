@@ -1,7 +1,7 @@
-# Landscaping CRM
+# High Plains Property Maintenance CRM
 
 ## Overview
-A multi-tenant SaaS CRM for landscaping businesses, managing customers, contacts, notes, contracts (service types, billing), and company settings. It features role-based access control and a vertical slice architecture for data isolation. Key capabilities include a Contract Builder for generating maintenance contracts and a mobile-first Ticketing System for field crew task management. The project aims to streamline operations and enhance service delivery for landscaping companies.
+A CRM for High Plains Property Maintenance, managing customers, contacts, notes, contracts (service types, billing), and company settings. It features role-based access control and a vertical slice architecture for data isolation. Key capabilities include a Contract Builder for generating maintenance contracts and a mobile-first Ticketing System for field crew task management. The project aims to streamline operations and enhance service delivery for landscaping companies.
 
 ## User Preferences
 Preferred communication style: Simple, everyday language.
