@@ -261,18 +261,51 @@ export class PgStorage implements IStorage {
   }
 
   async deleteAllUsers(): Promise<void> {
-    // Delete in order to respect foreign key constraints
-    // First delete all user-related data that references users
+    // Complete reset - delete ALL data in proper order for foreign key constraints
+    // This enables a fresh first-time setup
+    // Uses table names exactly as defined in schema.ts
+    
+    // 1. Delete ticket-related data
     await db.execute(sql`DELETE FROM ticket_notifications`);
+    await db.execute(sql`DELETE FROM ticket_links`);
     await db.execute(sql`DELETE FROM ticket_comments`);
-    await db.execute(sql`DELETE FROM ticket_step_data`);
-    await db.execute(sql`DELETE FROM ticket_history`);
+    await db.execute(sql`DELETE FROM ticket_field_values`);
+    await db.execute(sql`DELETE FROM ticket_status_history`);
     await db.execute(sql`DELETE FROM tickets`);
+    
+    // 2. Delete ticket type configuration
+    await db.execute(sql`DELETE FROM ticket_type_fields`);
+    await db.execute(sql`DELETE FROM ticket_type_statuses`);
+    await db.execute(sql`DELETE FROM ticket_types`);
+    
+    // 3. Delete scheduling data
+    await db.execute(sql`DELETE FROM schedule_blocks`);
+    await db.execute(sql`DELETE FROM weekly_schedule_templates`);
+    await db.execute(sql`DELETE FROM maintenance_visit_configs`);
+    await db.execute(sql`DELETE FROM maintenance_crews`);
+    
+    // 4. Delete customer data
     await db.execute(sql`DELETE FROM customer_map_documents`);
-    await db.execute(sql`DELETE FROM customer_notes`);
-    await db.execute(sql`DELETE FROM contract_history`);
+    await db.execute(sql`DELETE FROM customer_map_layers`);
+    await db.execute(sql`DELETE FROM notes`);
+    await db.execute(sql`DELETE FROM contract_services`);
+    await db.execute(sql`DELETE FROM contract_status_history`);
     await db.execute(sql`DELETE FROM contract_documents`);
+    await db.execute(sql`DELETE FROM contracts`);
+    await db.execute(sql`DELETE FROM contacts`);
+    await db.execute(sql`DELETE FROM customers`);
+    
+    // 5. Delete contract builder data
+    await db.execute(sql`DELETE FROM contract_builder_variables`);
+    await db.execute(sql`DELETE FROM contract_builder_sections`);
+    await db.execute(sql`DELETE FROM contract_builder_documents`);
+    
+    // 6. Delete company data
+    await db.execute(sql`DELETE FROM settings`);
     await db.execute(sql`DELETE FROM company_users`);
+    await db.execute(sql`DELETE FROM companies`);
+    
+    // 7. Delete sessions and users
     await db.execute(sql`DELETE FROM session`);
     await db.execute(sql`DELETE FROM users`);
   }
