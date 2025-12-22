@@ -815,7 +815,29 @@ export default function CustomerDetail() {
 
   const updateCustomerMutation = useMutation({
     mutationFn: async (data: Omit<InsertCustomer, "companyId">) => {
-      return apiRequest("PATCH", `/api/customers/${id}`, data);
+      // Include the expectedUpdatedAt to detect conflicts
+      const payload = {
+        ...data,
+        expectedUpdatedAt: customer?.updatedAt,
+      };
+      const response = await fetch(`/api/customers/${id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+        credentials: "include",
+      });
+      
+      if (response.status === 409) {
+        const conflictData = await response.json();
+        throw new Error("CONFLICT:" + JSON.stringify(conflictData));
+      }
+      
+      if (!response.ok) {
+        const errorText = await response.text();
+        throw new Error(errorText || "Failed to update customer");
+      }
+      
+      return response.json();
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/customers", id] });
@@ -827,11 +849,23 @@ export default function CustomerDetail() {
       setIsEditCustomerDialogOpen(false);
     },
     onError: (error: Error) => {
-      toast({
-        title: "Error",
-        description: error.message || "Failed to update customer",
-        variant: "destructive",
-      });
+      // Check if it's a conflict error
+      if (error.message.startsWith("CONFLICT:")) {
+        toast({
+          title: "Update Conflict",
+          description: "This customer was modified by another user. The page will refresh to show the latest data.",
+          variant: "destructive",
+        });
+        // Refresh the data
+        queryClient.invalidateQueries({ queryKey: ["/api/customers", id] });
+        setIsEditCustomerDialogOpen(false);
+      } else {
+        toast({
+          title: "Error",
+          description: error.message || "Failed to update customer",
+          variant: "destructive",
+        });
+      }
     },
   });
 

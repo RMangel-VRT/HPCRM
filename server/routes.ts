@@ -607,15 +607,32 @@ export async function registerRoutes(app: Express): Promise<Server> {
       return res.status(403).send("Insufficient permissions - admin or office role required");
     }
 
-    const result = insertCustomerSchema.partial().omit({ companyId: true }).safeParse(req.body);
+    // Extract expectedUpdatedAt from body for conflict detection
+    const { expectedUpdatedAt, ...updateData } = req.body;
+    
+    const result = insertCustomerSchema.partial().omit({ companyId: true }).safeParse(updateData);
     if (!result.success) {
       return res.status(400).send(result.error.message);
     }
 
-    const customer = await storage.updateCustomer(req.params.id, user.activeCompanyId, result.data);
+    // Parse expectedUpdatedAt if provided
+    const expectedDate = expectedUpdatedAt ? new Date(expectedUpdatedAt) : undefined;
+    
+    const customer = await storage.updateCustomer(req.params.id, user.activeCompanyId, result.data, expectedDate);
+    
     if (!customer) {
       return res.status(404).send("Customer not found");
     }
+    
+    // Check if it's a conflict response
+    if ('conflict' in customer && customer.conflict) {
+      return res.status(409).json({
+        error: "Conflict",
+        message: "This record was modified by another user. Please refresh and try again.",
+        current: customer.current,
+      });
+    }
+    
     res.json(customer);
   });
 
