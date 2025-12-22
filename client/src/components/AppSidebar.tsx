@@ -22,7 +22,20 @@ import {
   UserCheck,
   Map,
   CalendarDays,
+  HelpCircle,
+  Mail,
+  Phone,
+  MessageSquare,
 } from "lucide-react";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
+} from "@/components/ui/dialog";
+import { Button } from "@/components/ui/button";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import RoleBadge from "./RoleBadge";
 import ThemeToggle from "./ThemeToggle";
@@ -213,6 +226,67 @@ export default function AppSidebar({
             <LogOut className="w-4 h-4" />
             <span>Log Out</span>
           </SidebarMenuButton>
+          <Dialog>
+            <DialogTrigger asChild>
+              <Button size="icon" variant="ghost" data-testid="button-help">
+                <HelpCircle className="w-4 h-4" />
+              </Button>
+            </DialogTrigger>
+            <DialogContent className="sm:max-w-md">
+              <DialogHeader>
+                <DialogTitle>Help & Support</DialogTitle>
+                <DialogDescription>
+                  Get help with GreenScape CRM
+                </DialogDescription>
+              </DialogHeader>
+              <div className="space-y-4 py-4">
+                <div className="space-y-3">
+                  <h4 className="text-sm font-medium">Contact Support</h4>
+                  <div className="space-y-2">
+                    <a 
+                      href="mailto:support@greenscapecrm.com"
+                      className="flex items-center gap-3 p-3 rounded-md bg-muted/50 hover-elevate transition-colors"
+                      data-testid="link-support-email"
+                    >
+                      <Mail className="w-4 h-4 text-muted-foreground" />
+                      <div>
+                        <p className="text-sm font-medium">Email Support</p>
+                        <p className="text-xs text-muted-foreground">support@greenscapecrm.com</p>
+                      </div>
+                    </a>
+                    <a 
+                      href="tel:+18005551234"
+                      className="flex items-center gap-3 p-3 rounded-md bg-muted/50 hover-elevate transition-colors"
+                      data-testid="link-support-phone"
+                    >
+                      <Phone className="w-4 h-4 text-muted-foreground" />
+                      <div>
+                        <p className="text-sm font-medium">Phone Support</p>
+                        <p className="text-xs text-muted-foreground">1-800-555-1234</p>
+                      </div>
+                    </a>
+                  </div>
+                </div>
+                <div className="space-y-3">
+                  <h4 className="text-sm font-medium">Quick Tips</h4>
+                  <div className="space-y-2 text-sm text-muted-foreground">
+                    <div className="flex items-start gap-2">
+                      <MessageSquare className="w-4 h-4 mt-0.5 shrink-0" />
+                      <p>Use the search bar on the Customers page to quickly find clients</p>
+                    </div>
+                    <div className="flex items-start gap-2">
+                      <MessageSquare className="w-4 h-4 mt-0.5 shrink-0" />
+                      <p>Create tickets from customer profiles for faster workflow</p>
+                    </div>
+                    <div className="flex items-start gap-2">
+                      <MessageSquare className="w-4 h-4 mt-0.5 shrink-0" />
+                      <p>Check your notifications for task assignments and due dates</p>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </DialogContent>
+          </Dialog>
           <ThemeToggle />
         </div>
       </SidebarFooter>
