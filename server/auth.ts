@@ -68,7 +68,8 @@ export function setupAuth(app: Express) {
       { usernameField: "email", passwordField: "password" },
       async (email, password, done) => {
         try {
-          const user = await storage.getUserByEmail(email);
+          // Case-insensitive email lookup
+          const user = await storage.getUserByEmail(email.toLowerCase());
           if (!user || !(await comparePasswords(password, user.passwordHash))) {
             return done(null, false);
           }
@@ -420,7 +421,8 @@ export function setupAuth(app: Express) {
         return res.status(400).json({ message: "Password must be at least 6 characters" });
       }
 
-      const user = await storage.getUserByEmail(email);
+      // Case-insensitive email lookup
+      const user = await storage.getUserByEmail(email.toLowerCase());
       if (!user) {
         return res.status(404).json({ message: "User not found" });
       }
