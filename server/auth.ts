@@ -368,6 +368,21 @@ export function setupAuth(app: Express) {
       // Create default settings for the company
       await storage.createSettings({
         companyId: company.id,
+        companyName: companyName,
+        mowingSeasonMonths: ["Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct"],
+        cleanupSeasonMonths: ["Mar", "Apr", "Nov", "Dec"],
+        hourlyRateBenchmarks: JSON.stringify({
+          residential: 45,
+          commercialSmall: 50,
+          commercialLarge: 55,
+          hoaStandard: 50,
+          hoaComplex: 55,
+        }),
+        featureFlags: JSON.stringify({
+          tickets_v2: true,
+          forecast_v2: false,
+          qbo_write: false,
+        }),
       });
 
       // Log in the new admin user

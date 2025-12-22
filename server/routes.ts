@@ -2932,6 +2932,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
               ticketId: existingTicket.id,
               type: "completed",
               message: `Ticket completed: ${existingTicket.title}${customerText} (${completedAt})`,
+              isRead: false,
             });
             
             console.log(`Created completion notification for ticket ${existingTicket.id} to admin ${mainAdmin.userId}`);
@@ -3062,6 +3063,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
           ticketId: existingTicket.id,
           type: "assigned",
           message: `Ticket assigned: ${existingTicket.title}${customerText}${dueDateText}`,
+          isRead: false,
         });
         
         console.log(`Created assignment notification for ticket ${existingTicket.id} to user ${newAssigneeId}`);
