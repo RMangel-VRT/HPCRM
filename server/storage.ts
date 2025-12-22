@@ -261,8 +261,20 @@ export class PgStorage implements IStorage {
   }
 
   async deleteAllUsers(): Promise<void> {
-    await db.delete(companyUsers);
-    await db.delete(users);
+    // Delete in order to respect foreign key constraints
+    // First delete all user-related data that references users
+    await db.execute(sql`DELETE FROM ticket_notifications`);
+    await db.execute(sql`DELETE FROM ticket_comments`);
+    await db.execute(sql`DELETE FROM ticket_step_data`);
+    await db.execute(sql`DELETE FROM ticket_history`);
+    await db.execute(sql`DELETE FROM tickets`);
+    await db.execute(sql`DELETE FROM customer_map_documents`);
+    await db.execute(sql`DELETE FROM customer_notes`);
+    await db.execute(sql`DELETE FROM contract_history`);
+    await db.execute(sql`DELETE FROM contract_documents`);
+    await db.execute(sql`DELETE FROM company_users`);
+    await db.execute(sql`DELETE FROM session`);
+    await db.execute(sql`DELETE FROM users`);
   }
 
   async createUser(insertUser: InsertUser): Promise<User> {
