@@ -33,7 +33,7 @@ export interface IStorage {
   getCustomers(companyId: string): Promise<Customer[]>;
   getCustomerById(id: string, companyId: string): Promise<Customer | undefined>;
   createCustomer(customer: InsertCustomer): Promise<Customer>;
-  updateCustomer(id: string, companyId: string, customer: Partial<InsertCustomer>): Promise<Customer | undefined>;
+  updateCustomer(id: string, companyId: string, customer: Partial<InsertCustomer>, expectedUpdatedAt?: Date): Promise<Customer | undefined | { conflict: true; current: Customer }>;
   deleteCustomer(id: string, companyId: string): Promise<void>;
   
   getContactsByCustomerId(customerId: string, companyId: string): Promise<Contact[]>;
@@ -402,7 +402,25 @@ export class PgStorage implements IStorage {
     return result[0];
   }
 
-  async updateCustomer(id: string, companyId: string, updates: Partial<InsertCustomer>): Promise<Customer | undefined> {
+  async updateCustomer(id: string, companyId: string, updates: Partial<InsertCustomer>, expectedUpdatedAt?: Date): Promise<Customer | undefined | { conflict: true; current: Customer }> {
+    // If expectedUpdatedAt is provided, check for conflicts
+    if (expectedUpdatedAt) {
+      const current = await db.select().from(customers)
+        .where(and(eq(customers.id, id), eq(customers.companyId, companyId)))
+        .limit(1);
+      
+      if (current.length === 0) {
+        return undefined;
+      }
+      
+      // Compare timestamps (allow 1 second tolerance for rounding)
+      const currentTime = current[0].updatedAt.getTime();
+      const expectedTime = expectedUpdatedAt.getTime();
+      if (Math.abs(currentTime - expectedTime) > 1000) {
+        return { conflict: true, current: current[0] };
+      }
+    }
+    
     const result = await db.update(customers)
       .set({ ...updates, updatedAt: new Date() })
       .where(and(eq(customers.id, id), eq(customers.companyId, companyId)))
