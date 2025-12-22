@@ -153,10 +153,11 @@ function PropertyCard({ property, onEdit }: { property: Property; onEdit: () => 
                   </AlertDialogDescription>
                 </AlertDialogHeader>
                 <AlertDialogFooter>
-                  <AlertDialogCancel>Cancel</AlertDialogCancel>
+                  <AlertDialogCancel data-testid={`button-cancel-delete-property-${property.id}`}>Cancel</AlertDialogCancel>
                   <AlertDialogAction
                     onClick={() => deleteMutation.mutate()}
                     className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                    data-testid={`button-confirm-delete-property-${property.id}`}
                   >
                     Delete
                   </AlertDialogAction>

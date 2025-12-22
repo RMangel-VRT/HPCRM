@@ -733,10 +733,11 @@ export default function WeeklySchedulerPage() {
                               </AlertDialogDescription>
                             </AlertDialogHeader>
                             <AlertDialogFooter>
-                              <AlertDialogCancel>Cancel</AlertDialogCancel>
+                              <AlertDialogCancel data-testid={`button-cancel-delete-crew-${crew.id}`}>Cancel</AlertDialogCancel>
                               <AlertDialogAction
                                 onClick={() => deleteCrewMutation.mutate(crew.id)}
                                 className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                                data-testid={`button-confirm-delete-crew-${crew.id}`}
                               >
                                 Delete
                               </AlertDialogAction>
