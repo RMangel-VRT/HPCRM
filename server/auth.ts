@@ -135,7 +135,8 @@ export function setupAuth(app: Express) {
         const activeMemberships = companyMemberships.filter(m => m.status === "active");
         
         if (activeMemberships.length === 0) {
-          return done(new Error("User has no active company memberships"));
+          // User has no memberships - treat as not authenticated (redirect to login)
+          return done(null, false);
         }
         
         const activeMembership = activeMemberships[0];
