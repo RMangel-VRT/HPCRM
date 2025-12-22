@@ -3,6 +3,7 @@ import { useQuery, useMutation } from "@tanstack/react-query";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
+import { useLocation } from "wouter";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -11,6 +12,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Switch } from "@/components/ui/switch";
 import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
+import { AlertTriangle } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import type { Settings } from "@shared/schema";
@@ -29,6 +31,7 @@ const benchmarksSchema = z.object({
 
 export default function SettingsPage() {
   const { toast } = useToast();
+  const [, setLocation] = useLocation();
   const [activeTab, setActiveTab] = useState("company");
   const [mowingMonths, setMowingMonths] = useState<string[]>([]);
   const [cleanupMonths, setCleanupMonths] = useState<string[]>([]);
@@ -37,6 +40,7 @@ export default function SettingsPage() {
     forecast_v2: false,
     qbo_write: false,
   });
+  const [resetConfirmText, setResetConfirmText] = useState("");
 
   const { data: settings, isLoading } = useQuery<Settings>({
     queryKey: ["/api/settings"],
@@ -57,6 +61,30 @@ export default function SettingsPage() {
       toast({
         title: "Error",
         description: "Failed to save settings. Please try again.",
+        variant: "destructive",
+      });
+    },
+  });
+
+  const resetForSetupMutation = useMutation({
+    mutationFn: async () => {
+      return await apiRequest("POST", "/api/admin/reset-for-setup", {});
+    },
+    onSuccess: () => {
+      toast({
+        title: "Reset Complete",
+        description: "All users deleted. Redirecting to setup page...",
+      });
+      queryClient.invalidateQueries({ queryKey: ["/api/auth/me"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/setup/status"] });
+      setTimeout(() => {
+        window.location.href = "/setup";
+      }, 1500);
+    },
+    onError: () => {
+      toast({
+        title: "Error",
+        description: "Failed to reset. Please try again.",
         variant: "destructive",
       });
     },
@@ -178,6 +206,7 @@ export default function SettingsPage() {
           <TabsTrigger value="seasons" data-testid="tab-seasons">Seasons</TabsTrigger>
           <TabsTrigger value="benchmarks" data-testid="tab-benchmarks">Benchmarks</TabsTrigger>
           <TabsTrigger value="features" data-testid="tab-features">Feature Flags</TabsTrigger>
+          <TabsTrigger value="danger" data-testid="tab-danger" className="text-destructive">Danger Zone</TabsTrigger>
         </TabsList>
 
         <TabsContent value="company" className="space-y-6">
@@ -423,6 +452,41 @@ export default function SettingsPage() {
                   {updateSettingsMutation.isPending ? "Saving..." : "Save Changes"}
                 </Button>
               </div>
+            </CardContent>
+          </Card>
+        </TabsContent>
+
+        <TabsContent value="danger" className="space-y-6">
+          <Card className="border-destructive">
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2 text-destructive">
+                <AlertTriangle className="h-5 w-5" />
+                Reset for First-Time Setup
+              </CardTitle>
+              <CardDescription>
+                This will delete ALL users and redirect to the first-time setup page. 
+                Use this only if you need to start fresh with a new admin account.
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <p className="text-sm text-muted-foreground">
+                Type <span className="font-mono font-bold">RESET</span> below to confirm:
+              </p>
+              <Input
+                placeholder="Type RESET to confirm"
+                value={resetConfirmText}
+                onChange={(e) => setResetConfirmText(e.target.value)}
+                className="max-w-xs"
+                data-testid="input-reset-confirm"
+              />
+              <Button
+                variant="destructive"
+                onClick={() => resetForSetupMutation.mutate()}
+                disabled={resetConfirmText !== "RESET" || resetForSetupMutation.isPending}
+                data-testid="button-reset-for-setup"
+              >
+                {resetForSetupMutation.isPending ? "Resetting..." : "Delete All Users & Reset"}
+              </Button>
             </CardContent>
           </Card>
         </TabsContent>

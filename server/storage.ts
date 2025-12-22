@@ -14,6 +14,7 @@ export interface IStorage {
   createUser(user: InsertUser): Promise<User>;
   updateUserPassword(userId: string, passwordHash: string): Promise<void>;
   hasAnyUsers(): Promise<boolean>;
+  deleteAllUsers(): Promise<void>;
   
   getCompanies(): Promise<Company[]>;
   getCompanyById(id: string): Promise<Company | undefined>;
@@ -257,6 +258,11 @@ export class PgStorage implements IStorage {
   async hasAnyUsers(): Promise<boolean> {
     const result = await db.select({ id: users.id }).from(users).limit(1);
     return result.length > 0;
+  }
+
+  async deleteAllUsers(): Promise<void> {
+    await db.delete(companyUsers);
+    await db.delete(users);
   }
 
   async createUser(insertUser: InsertUser): Promise<User> {

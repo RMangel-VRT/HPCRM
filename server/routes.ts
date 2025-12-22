@@ -4128,6 +4128,35 @@ export async function registerRoutes(app: Express): Promise<Server> {
     res.json({ success: true });
   });
 
+  // Reset for first-time setup (admin only) - clears all users so setup page appears
+  app.post("/api/admin/reset-for-setup", async (req, res) => {
+    if (!req.isAuthenticated()) {
+      return res.status(401).send("Not authenticated");
+    }
+    const user = req.user as UserWithContext;
+    
+    // Must be admin role
+    if (user.activeRole !== "admin") {
+      return res.status(403).send("Only admins can reset for setup");
+    }
+    
+    try {
+      // Delete all users and company memberships
+      await storage.deleteAllUsers();
+      
+      // Log the user out
+      req.logout((err) => {
+        if (err) {
+          console.error("Error logging out after reset:", err);
+        }
+        res.json({ success: true, message: "All users deleted. You can now access the setup page." });
+      });
+    } catch (error) {
+      console.error("Error resetting for setup:", error);
+      res.status(500).send("Failed to reset for setup");
+    }
+  });
+
   const httpServer = createServer(app);
 
   return httpServer;
