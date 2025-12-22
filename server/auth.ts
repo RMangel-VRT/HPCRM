@@ -408,32 +408,4 @@ export function setupAuth(app: Express) {
     }
   });
 
-  // Temporary password reset endpoint - REMOVE AFTER USE
-  app.post("/api/reset-password", async (req, res, next) => {
-    try {
-      const { email, newPassword } = req.body;
-
-      if (!email || !newPassword) {
-        return res.status(400).json({ message: "Email and new password are required" });
-      }
-
-      if (newPassword.length < 6) {
-        return res.status(400).json({ message: "Password must be at least 6 characters" });
-      }
-
-      // Case-insensitive email lookup
-      const user = await storage.getUserByEmail(email.toLowerCase());
-      if (!user) {
-        return res.status(404).json({ message: "User not found" });
-      }
-
-      const passwordHash = await hashPassword(newPassword);
-      await storage.updateUserPassword(user.id, passwordHash);
-
-      res.json({ message: "Password reset successfully" });
-    } catch (error) {
-      console.error("Error resetting password:", error);
-      next(error);
-    }
-  });
 }
