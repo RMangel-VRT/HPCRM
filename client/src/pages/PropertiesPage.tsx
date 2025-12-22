@@ -3,6 +3,17 @@ import { useQuery, useMutation } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from "@/components/ui/alert-dialog";
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
@@ -109,12 +120,6 @@ function PropertyCard({ property, onEdit }: { property: Property; onEdit: () => 
     },
   });
 
-  const handleDelete = () => {
-    if (confirm(`Are you sure you want to delete ${property.name}?`)) {
-      deleteMutation.mutate();
-    }
-  };
-
   return (
     <Card className="hover-elevate" data-testid={`card-property-${property.id}`}>
       <CardHeader className="gap-2 space-y-0 pb-4">
@@ -129,15 +134,35 @@ function PropertyCard({ property, onEdit }: { property: Property; onEdit: () => 
             >
               <Pencil className="w-4 h-4" />
             </Button>
-            <Button
-              size="icon"
-              variant="ghost"
-              onClick={handleDelete}
-              disabled={deleteMutation.isPending}
-              data-testid={`button-delete-property-${property.id}`}
-            >
-              <Trash2 className="w-4 h-4" />
-            </Button>
+            <AlertDialog>
+              <AlertDialogTrigger asChild>
+                <Button
+                  size="icon"
+                  variant="ghost"
+                  disabled={deleteMutation.isPending}
+                  data-testid={`button-delete-property-${property.id}`}
+                >
+                  <Trash2 className="w-4 h-4" />
+                </Button>
+              </AlertDialogTrigger>
+              <AlertDialogContent>
+                <AlertDialogHeader>
+                  <AlertDialogTitle>Delete Property</AlertDialogTitle>
+                  <AlertDialogDescription>
+                    Are you sure you want to delete "{property.name}"? This action cannot be undone.
+                  </AlertDialogDescription>
+                </AlertDialogHeader>
+                <AlertDialogFooter>
+                  <AlertDialogCancel>Cancel</AlertDialogCancel>
+                  <AlertDialogAction
+                    onClick={() => deleteMutation.mutate()}
+                    className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                  >
+                    Delete
+                  </AlertDialogAction>
+                </AlertDialogFooter>
+              </AlertDialogContent>
+            </AlertDialog>
           </div>
         </div>
       </CardHeader>

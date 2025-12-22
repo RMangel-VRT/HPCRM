@@ -33,6 +33,17 @@ import {
   DialogTitle,
   DialogFooter,
 } from "@/components/ui/dialog";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from "@/components/ui/alert-dialog";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Loader2, Plus, GripVertical, Clock, Users, Calendar, X, ChevronRight, AlertTriangle, Settings, Trash2, Lock, LockOpen } from "lucide-react";
 import { Label } from "@/components/ui/label";
@@ -703,15 +714,35 @@ export default function WeeklySchedulerPage() {
                         >
                           <Settings className="h-4 w-4" />
                         </Button>
-                        <Button
-                          size="icon"
-                          variant="ghost"
-                          onClick={() => deleteCrewMutation.mutate(crew.id)}
-                          disabled={deleteCrewMutation.isPending}
-                          data-testid={`button-delete-crew-${crew.id}`}
-                        >
-                          <Trash2 className="h-4 w-4" />
-                        </Button>
+                        <AlertDialog>
+                          <AlertDialogTrigger asChild>
+                            <Button
+                              size="icon"
+                              variant="ghost"
+                              disabled={deleteCrewMutation.isPending}
+                              data-testid={`button-delete-crew-${crew.id}`}
+                            >
+                              <Trash2 className="h-4 w-4" />
+                            </Button>
+                          </AlertDialogTrigger>
+                          <AlertDialogContent>
+                            <AlertDialogHeader>
+                              <AlertDialogTitle>Delete Crew</AlertDialogTitle>
+                              <AlertDialogDescription>
+                                Are you sure you want to delete "{crew.name}"? This action cannot be undone.
+                              </AlertDialogDescription>
+                            </AlertDialogHeader>
+                            <AlertDialogFooter>
+                              <AlertDialogCancel>Cancel</AlertDialogCancel>
+                              <AlertDialogAction
+                                onClick={() => deleteCrewMutation.mutate(crew.id)}
+                                className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                              >
+                                Delete
+                              </AlertDialogAction>
+                            </AlertDialogFooter>
+                          </AlertDialogContent>
+                        </AlertDialog>
                       </div>
                     </div>
                   ))}
