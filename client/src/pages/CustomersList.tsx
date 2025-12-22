@@ -38,7 +38,7 @@ import {
 } from "@/components/ui/form";
 import { Switch } from "@/components/ui/switch";
 import { Label } from "@/components/ui/label";
-import { Plus, Search, Eye, MapPin, Archive, ArchiveRestore } from "lucide-react";
+import { Plus, Search, Eye, MapPin, Archive, ArchiveRestore, ArrowUpDown, ArrowUp, ArrowDown } from "lucide-react";
 import StatusBadge from "@/components/StatusBadge";
 import EmptyState from "@/components/EmptyState";
 import emptyCustomersImage from "@assets/generated_images/Empty_customers_state_illustration_84171f59.png";
@@ -49,11 +49,52 @@ import { useToast } from "@/hooks/use-toast";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 
+type SortColumn = "name" | "city" | "status" | "acres" | "complexity" | null;
+type SortDirection = "asc" | "desc";
+
+function SortableHeader({ 
+  column, 
+  label, 
+  currentSort, 
+  currentDirection, 
+  onSort 
+}: { 
+  column: SortColumn; 
+  label: string; 
+  currentSort: SortColumn; 
+  currentDirection: SortDirection; 
+  onSort: (col: SortColumn) => void;
+}) {
+  const isActive = currentSort === column;
+  return (
+    <TableHead 
+      className="cursor-pointer select-none hover-elevate" 
+      onClick={() => onSort(column)}
+      data-testid={`sort-header-${column}`}
+    >
+      <div className="flex items-center gap-1">
+        {label}
+        {isActive ? (
+          currentDirection === "asc" ? (
+            <ArrowUp className="w-3.5 h-3.5" />
+          ) : (
+            <ArrowDown className="w-3.5 h-3.5" />
+          )
+        ) : (
+          <ArrowUpDown className="w-3.5 h-3.5 text-muted-foreground/50" />
+        )}
+      </div>
+    </TableHead>
+  );
+}
+
 export default function CustomersList() {
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState("all");
   const [showArchived, setShowArchived] = useState(false);
   const [isAddDialogOpen, setIsAddDialogOpen] = useState(false);
+  const [sortColumn, setSortColumn] = useState<SortColumn>("name");
+  const [sortDirection, setSortDirection] = useState<SortDirection>("asc");
   const { toast } = useToast();
 
   const { data: customers = [], isLoading } = useQuery<Customer[]>({
@@ -118,11 +159,54 @@ export default function CustomersList() {
     },
   });
 
+  const handleSort = (column: SortColumn) => {
+    if (sortColumn === column) {
+      setSortDirection(sortDirection === "asc" ? "desc" : "asc");
+    } else {
+      setSortColumn(column);
+      setSortDirection("asc");
+    }
+  };
+
   const filteredCustomers = customers.filter((customer) => {
     const matchesSearch = customer.name.toLowerCase().includes(search.toLowerCase());
     const matchesStatus = statusFilter === "all" || customer.status === statusFilter;
     const matchesArchived = showArchived || customer.active === "true";
     return matchesSearch && matchesStatus && matchesArchived;
+  });
+
+  const sortedCustomers = [...filteredCustomers].sort((a, b) => {
+    if (!sortColumn) return 0;
+    
+    let aVal: string | number = "";
+    let bVal: string | number = "";
+    
+    switch (sortColumn) {
+      case "name":
+        aVal = a.name.toLowerCase();
+        bVal = b.name.toLowerCase();
+        break;
+      case "city":
+        aVal = `${a.city}, ${a.state}`.toLowerCase();
+        bVal = `${b.city}, ${b.state}`.toLowerCase();
+        break;
+      case "status":
+        aVal = a.status.toLowerCase();
+        bVal = b.status.toLowerCase();
+        break;
+      case "acres":
+        aVal = parseFloat(a.acres || "0") || 0;
+        bVal = parseFloat(b.acres || "0") || 0;
+        break;
+      case "complexity":
+        aVal = parseInt(a.complexityScore || "0") || 0;
+        bVal = parseInt(b.complexityScore || "0") || 0;
+        break;
+    }
+    
+    if (aVal < bVal) return sortDirection === "asc" ? -1 : 1;
+    if (aVal > bVal) return sortDirection === "asc" ? 1 : -1;
+    return 0;
   });
 
   return (
@@ -196,16 +280,16 @@ export default function CustomersList() {
           <Table>
             <TableHeader>
               <TableRow>
-                <TableHead>Customer Name</TableHead>
-                <TableHead>Address</TableHead>
-                <TableHead>Status</TableHead>
-                <TableHead>Acres</TableHead>
-                <TableHead>Complexity</TableHead>
+                <SortableHeader column="name" label="Customer Name" currentSort={sortColumn} currentDirection={sortDirection} onSort={handleSort} />
+                <SortableHeader column="city" label="Address" currentSort={sortColumn} currentDirection={sortDirection} onSort={handleSort} />
+                <SortableHeader column="status" label="Status" currentSort={sortColumn} currentDirection={sortDirection} onSort={handleSort} />
+                <SortableHeader column="acres" label="Acres" currentSort={sortColumn} currentDirection={sortDirection} onSort={handleSort} />
+                <SortableHeader column="complexity" label="Complexity" currentSort={sortColumn} currentDirection={sortDirection} onSort={handleSort} />
                 <TableHead className="text-right">Actions</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
-              {filteredCustomers.map((customer) => (
+              {sortedCustomers.map((customer) => (
                 <TableRow key={customer.id} data-testid={`row-customer-${customer.id}`}>
                   <TableCell className="font-medium">{customer.name}</TableCell>
                   <TableCell className="text-muted-foreground">
