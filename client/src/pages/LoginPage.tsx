@@ -32,8 +32,18 @@ export default function LoginPage() {
   };
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-muted/30">
-      <Card className="w-full max-w-md">
+    <div className="min-h-screen flex items-center justify-center bg-muted/30 relative overflow-hidden">
+      <div 
+        className="absolute inset-0 flex items-center justify-center pointer-events-none"
+        style={{
+          backgroundImage: `url(${logoImage})`,
+          backgroundRepeat: 'no-repeat',
+          backgroundPosition: 'center',
+          backgroundSize: '60%',
+          opacity: 0.05,
+        }}
+      />
+      <Card className="w-full max-w-md relative z-10">
         <CardHeader className="text-center space-y-4">
           <div className="flex justify-center">
             <img src={logoImage} alt="High Plains Logo" className="w-16 h-16 rounded-full" />
