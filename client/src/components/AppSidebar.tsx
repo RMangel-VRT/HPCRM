@@ -25,6 +25,7 @@ import {
 } from "lucide-react";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import RoleBadge from "./RoleBadge";
+import ThemeToggle from "./ThemeToggle";
 import { Link, useLocation } from "wouter";
 import logoImage from "@assets/generated_images/Landscaping_CRM_company_logo_b2cf0b31.png";
 
@@ -203,14 +204,17 @@ export default function AppSidebar({
             <RoleBadge role={userRole} isSuperAdmin={isSuperAdmin} />
           </div>
         </div>
-        <SidebarMenuButton
-          onClick={onLogout}
-          className="w-full"
-          data-testid="button-logout"
-        >
-          <LogOut className="w-4 h-4" />
-          <span>Log Out</span>
-        </SidebarMenuButton>
+        <div className="flex items-center gap-2">
+          <SidebarMenuButton
+            onClick={onLogout}
+            className="flex-1"
+            data-testid="button-logout"
+          >
+            <LogOut className="w-4 h-4" />
+            <span>Log Out</span>
+          </SidebarMenuButton>
+          <ThemeToggle />
+        </div>
       </SidebarFooter>
     </Sidebar>
   );
