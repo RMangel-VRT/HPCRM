@@ -40,7 +40,7 @@ import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import RoleBadge from "./RoleBadge";
 import ThemeToggle from "./ThemeToggle";
 import { Link, useLocation } from "wouter";
-import logoImage from "@assets/generated_images/Landscaping_CRM_company_logo_b2cf0b31.png";
+import logoImage from "@assets/TRUCK_DECAL-06_1766432157419.png";
 
 interface AppSidebarProps {
   userRole?: "admin" | "office" | "field_manager" | "field";
@@ -123,10 +123,10 @@ export default function AppSidebar({
     <Sidebar data-testid="app-sidebar">
       <SidebarHeader className="p-4">
         <div className="flex items-center gap-3">
-          <img src={logoImage} alt="Logo" className="w-10 h-10" />
+          <img src={logoImage} alt="High Plains Logo" className="w-10 h-10 rounded-full" />
           <div>
-            <h2 className="text-lg font-semibold tracking-tight">GreenScape</h2>
-            <p className="text-xs text-muted-foreground">CRM System</p>
+            <h2 className="text-lg font-semibold tracking-tight">High Plains</h2>
+            <p className="text-xs text-muted-foreground">Property Maintenance</p>
           </div>
         </div>
       </SidebarHeader>
@@ -236,7 +236,7 @@ export default function AppSidebar({
               <DialogHeader>
                 <DialogTitle>Help & Support</DialogTitle>
                 <DialogDescription>
-                  Get help with GreenScape CRM
+                  Get help with High Plains Property Maintenance
                 </DialogDescription>
               </DialogHeader>
               <div className="space-y-4 py-4">
@@ -244,14 +244,14 @@ export default function AppSidebar({
                   <h4 className="text-sm font-medium">Contact Support</h4>
                   <div className="space-y-2">
                     <a 
-                      href="mailto:support@greenscapecrm.com"
+                      href="mailto:support@highplainsprop.com"
                       className="flex items-center gap-3 p-3 rounded-md bg-muted/50 hover-elevate transition-colors"
                       data-testid="link-support-email"
                     >
                       <Mail className="w-4 h-4 text-muted-foreground" />
                       <div>
                         <p className="text-sm font-medium">Email Support</p>
-                        <p className="text-xs text-muted-foreground">support@greenscapecrm.com</p>
+                        <p className="text-xs text-muted-foreground">support@highplainsprop.com</p>
                       </div>
                     </a>
                     <a 

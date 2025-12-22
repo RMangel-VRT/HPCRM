@@ -5,7 +5,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { useAuth } from "@/hooks/use-auth";
-import logoImage from "@assets/generated_images/Landscaping_CRM_company_logo_b2cf0b31.png";
+import logoImage from "@assets/TRUCK_DECAL-06_1766432157419.png";
 
 export default function LoginPage() {
   const { user, loginMutation } = useAuth();
@@ -36,11 +36,11 @@ export default function LoginPage() {
       <Card className="w-full max-w-md">
         <CardHeader className="text-center space-y-4">
           <div className="flex justify-center">
-            <img src={logoImage} alt="GreenScape Logo" className="w-16 h-16" />
+            <img src={logoImage} alt="High Plains Logo" className="w-16 h-16 rounded-full" />
           </div>
           <div>
             <CardTitle className="text-2xl">Welcome Back</CardTitle>
-            <CardDescription>Sign in to your GreenScape CRM account</CardDescription>
+            <CardDescription>Sign in to your High Plains account</CardDescription>
           </div>
         </CardHeader>
         <CardContent>
@@ -79,10 +79,10 @@ export default function LoginPage() {
             </Button>
             <div className="text-xs text-muted-foreground text-center pt-2">
               <p className="font-medium mb-1">Demo Accounts:</p>
-              <p>admin@greenscape.com / admin123 (Admin)</p>
-              <p>office@greenscape.com / office123 (Office)</p>
-              <p>ops@greenscape.com / ops123 (Field Manager)</p>
-              <p>viewer@greenscape.com / viewer123 (Field)</p>
+              <p>admin@highplainsprop.com / admin123 (Admin)</p>
+              <p>office@highplainsprop.com / office123 (Office)</p>
+              <p>ops@highplainsprop.com / ops123 (Field Manager)</p>
+              <p>viewer@highplainsprop.com / viewer123 (Field)</p>
             </div>
           </form>
         </CardContent>
