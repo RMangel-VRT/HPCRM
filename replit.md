@@ -32,6 +32,9 @@ A KML-based layer mapping system for field crews to view property zones and serv
 #### Ticket Notifications System
 An in-app notification system for ticket assignments, completions, and due date reminders. Notifications are stored in `ticket_notifications` and triggered by assignment, completion, and a background service for due dates. Users can view, mark as read, and navigate to related tickets from a header dropdown.
 
+#### First-Time Setup Flow
+When deployed to production with an empty database (no users), the app automatically shows a setup page instead of login. This allows the first admin to create their company and account. The setup page creates the company, admin user, company membership, and default settings, then auto-logs in. Once any user exists, the setup page becomes inaccessible for security.
+
 ## External Dependencies
 
 - **UI Component Libraries:** Radix UI, Shadcn/ui, Lucide React, CMDK
