@@ -4159,26 +4159,6 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  // PUBLIC reset endpoint - use with caution, requires confirmation code
-  // This is for emergency recovery when the database is in a corrupted state
-  app.post("/api/public/reset-for-setup", async (req, res) => {
-    const { confirmCode } = req.body;
-    
-    // Require confirmation code to prevent accidental use
-    if (confirmCode !== "RESET-NOW") {
-      return res.status(400).json({ message: "Invalid confirmation code. Type RESET-NOW to confirm." });
-    }
-    
-    try {
-      console.log("PUBLIC RESET initiated - clearing all data for fresh setup");
-      await storage.deleteAllUsers();
-      res.json({ success: true, message: "All data deleted. Refresh the page to see the setup form." });
-    } catch (error) {
-      console.error("Error in public reset:", error);
-      res.status(500).json({ message: "Failed to reset. Please try again." });
-    }
-  });
-
   const httpServer = createServer(app);
 
   return httpServer;
