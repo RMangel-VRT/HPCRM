@@ -1,7 +1,7 @@
 # Landscaping CRM
 
 ## Overview
-A multi-tenant SaaS Customer Relationship Management system designed for landscaping businesses. Its primary function is to manage customers, contacts, notes, contracts (including service types and billing), and company settings. The system implements role-based access control and a vertical slice architecture for data isolation. The aim is to provide a comprehensive CRM that streamlines operations and enhances service delivery for landscaping companies. Key capabilities include a Contract Builder for generating maintenance contracts and a mobile-first Ticketing System for field crew task management.
+A multi-tenant SaaS CRM for landscaping businesses, managing customers, contacts, notes, contracts (service types, billing), and company settings. It features role-based access control and a vertical slice architecture for data isolation. Key capabilities include a Contract Builder for generating maintenance contracts and a mobile-first Ticketing System for field crew task management. The project aims to streamline operations and enhance service delivery for landscaping companies.
 
 ## User Preferences
 Preferred communication style: Simple, everyday language.
@@ -9,167 +9,34 @@ Preferred communication style: Simple, everyday language.
 ## System Architecture
 
 ### UI/UX
-The frontend utilizes React 18+, TypeScript, Vite, Wouter for routing, and TanStack Query for state management. It employs Shadcn/ui and Radix UI primitives, styled with Tailwind CSS, supporting custom theming and light/dark modes.
+The frontend uses React 18+, TypeScript, Vite, Wouter, and TanStack Query. It's built with Shadcn/ui and Radix UI primitives, styled with Tailwind CSS, supporting custom theming and light/dark modes.
 
 ### Technical Implementation
-The backend is built with Express.js and TypeScript. Authentication is handled by Passport.js with session-based management, storing sessions in PostgreSQL. It supports multi-tenancy with role-based access control and super admin (system-wide). The API is RESTful, uses JSON, and includes comprehensive error handling.
-
-#### Role-Based Access Control
-Company-specific roles with different permissions:
-- **Admin:** Full access to all features including user management, settings, all tickets, customers, contracts, revenue, and tools
-- **Office:** Same as Admin except no user management or settings access
-- **Field Manager:** Dashboard, customers (view-only with limited tabs - no contracts/rate-sheet/revenue), My Tickets, Property Maps, and Tools
-- **Field:** Minimal access - only My Tickets and Property Maps (default landing page is My Tickets)
-
-### Data Storage
-PostgreSQL (Neon serverless) with Drizzle ORM is used for data persistence. The multi-tenant schema includes tables for `Companies`, `Company_users`, `Users`, `Customers`, `Contacts`, `Contracts`, `Contract_documents`, `Contract_services`, `Settings`, `contract_templates`, `contract_builder_documents`, `contract_builder_sections`, `contract_builder_variables`, `ticket_types`, `ticket_type_statuses`, `ticket_type_fields`, `tickets`, `ticket_field_values`, `ticket_status_history`, `ticket_comments`, and `ticket_links`. UUIDs are used as primary keys, and Drizzle Kit manages migrations.
+The backend uses Express.js and TypeScript. Authentication is handled by Passport.js with session-based management storing sessions in PostgreSQL. It supports multi-tenancy with role-based access control (Admin, Office, Field Manager, Field roles). The API is RESTful, uses JSON, and includes comprehensive error handling. PostgreSQL (Neon serverless) with Drizzle ORM is used for data persistence, with UUIDs as primary keys and Drizzle Kit for migrations. Replit's object storage (Google Cloud Storage) is used for contract PDF documents with company-scoped ACL and presigned URL uploads.
 
 #### Contract Management
-This module provides full contract lifecycle management, including stateful editing of monthly billing amounts, validation, and permission-based access. It supports ending or deleting contracts based on roles and enforces unique contract types per customer. A coverage indicator badge shows current service coverage based on active contracts.
-
-#### Contract Services
-The `Contract_services` table stores configurations for 8 pre-defined service types, including monthly distribution arrays for scheduled visits and auto-calculated annual counts. Service-specific parameters are stored as JSONB.
-
-### Object Storage
-Replit's object storage (Google Cloud Storage) is used for storing contract PDF documents. It features company-scoped ACL for access control and private visibility with direct client-side uploads via presigned URLs.
-
-### Feature Specifications
+Provides full contract lifecycle management, including stateful editing, validation, permission-based access, and support for ending/deleting contracts. It enforces unique contract types per customer and includes a coverage indicator. Contract services store configurations for 8 pre-defined service types with monthly distribution arrays and auto-calculated annual counts.
 
 #### Contract Builder
-A document generation tool for landscape maintenance contracts using templates and variable substitution. It uses a dedicated database architecture for templates, documents, sections, and variables. The workflow allows users to select customers, include/exclude sections, fill variables (with auto-population), preview, auto-save, publish, and export to PDF. It integrates directly with the CRM's contract management by publishing documents and creating contract records, inferring service types and billing patterns.
+A document generation tool for landscape maintenance contracts using templates and variable substitution. It supports customer selection, section inclusion/exclusion, variable filling (with auto-population), preview, auto-save, publish, and PDF export. It integrates with CRM contract management by publishing documents and creating contract records, inferring service types and billing patterns.
 
 #### Ticketing System
-A mobile-first system for field crews to track and manage work at customer properties. It supports configurable ticket types with custom workflows, where tickets progress through multiple status steps with step-specific data capture. The system includes default ticket types ("Onsite Maintenance Task", "Project", "Execution Task", "Invoice") and role-based access control. The UI is optimized for mobile with card-based layouts and workflow progress indicators.
-
-**3-Phase Project Workflow:**
-Projects follow a three-phase lifecycle with different owners at each phase:
-
-1. **Phase 1: Sales/Estimating (Office-owned "Project" ticket)**
-   - Workflow: New → Estimating → Estimate Sent → Decision Received (branching) → Work Completed → Ready for Billing → Invoicing
-   - At "Decision Received", user selects Approved or Denied:
-     - Approved → advances to Work Completed + prompts to create Execution Task
-     - Denied → branches to Closed - Lost (terminal)
-   - Required fields: estimated_hours, quickbooks_estimate_id, decision_date, decision_outcome
-
-2. **Phase 2: Field Execution (Crew-owned "Execution Task" ticket)**
-   - Workflow: Scheduled → In Progress → Completed
-   - Created via handoff dialog when Project is approved
-   - Linked to parent Project via `ticket_links` table with `linkType: "execution_for"`
-   - When completed, automatically advances parent Project to "Work Completed"
-
-3. **Phase 3: Billing (Office-owned "Invoice" ticket)**
-   - Workflow: Pending Invoice → Invoiced
-   - Created via handoff dialog when Project reaches "Ready for Billing"
-   - Linked to parent Project via `ticket_links` table with `linkType: "invoice_for"`
-   - Creating invoice advances Project to "Invoicing" status
-
-**Ticket Link Types:**
-- `execution_for`: Project (source) → Execution Task (target)
-- `invoice_for`: Ticket (source) → Invoice (target)
-- `project_for`: RFP Request (source) → Project (target)
-
-**Work Types:** Every ticket has a work type classification that drives billing behavior:
-- **Contract Work** - Included in existing customer contract (no invoice required)
-- **Extra Billable** - Work outside contract scope (invoice required)
-- **Project** - Larger scoped work with estimate/approval workflow (invoice required)
-- **Admin** - Internal office work like emails, meetings (internal - no invoice)
-- **Estimate Request** - Request to price work that may become a project (internal)
-
-**Ticket Creation Wizard:** A 3-step wizard flow:
-1. Work Type selection (determines billing behavior)
-2. Customer selection
-3. Details (title, description, priority, assignment)
-
-**Ticket Categories:** Ticket types are categorized as quick_task, project, or service for filtering and reporting purposes.
-
-**Ticket Sources:** The `ticket_sources` table tracks ticket origin (manual creation vs. future auto-generated from service blueprints) to distinguish between user-created tickets and system-generated service tickets.
-
-**Invoice Workflow Automation:**
-When tickets with billingBehavior "invoice_required" (Extra Billable or Project work types) reach their final status, an Invoice ticket is automatically created:
-- **Auto-Creation Trigger:** When a billable ticket's status changes to a final status (isFinal === "true")
-- **Invoice Ticket Type:** Auto-created if needed via `ensureInvoiceTicketType()` helper function with Pending Invoice → Invoiced workflow
-- **Ticket Linking:** The `ticket_links` table connects source (billable) tickets to their Invoice tickets via "invoice_for" relationship
-- **Dashboard Widget:** `PendingInvoices` component shows unassigned Invoice tickets in "Pending Invoice" status for Admin/Office roles
-- **Linked Tickets Display:** `TicketDetail` page shows related tickets in a "Linked Tickets" section with navigation
-- **Manual Invoice Creation:** Invoice tickets can also be created directly from the New Ticket page by selecting "Invoice" as a work type (shown with dashed border and "Billing" badge). This allows creating standalone invoices not linked to a specific billable ticket.
-
-**RFP Request Pipeline:**
-A specialized ticket type for tracking proposal requests from first contact through contract award or loss. The RFP Request workflow enables sales pipeline management within the ticketing system.
-
-- **Ticket Type:** RFP Request (auto-created via `ensureRFPRequestTicketType()` helper on first use)
-- **Work Type:** Uses "admin" work type (non-billable, internal)
-- **18-Status Workflow:**
-  1. Request Received → Under Review → Walk Scheduled → Walk Completed → 
-  2. Proposal Prep → Internal Review → Proposal Submitted → Follow Up → 
-  3. Decision Received → (branches to Awarded or Lost paths)
-  4. **Awarded Path:** Contract Awarded → Onboarding → Closed - Won
-  5. **Lost Path:** Lost - Competitor OR Lost - No Action → Closed - Lost
-
-- **Step-Specific Required Fields:** Each status has relevant required fields (e.g., Decision Received requires decisionOutcome, Final Walk requires walkDate)
-- **Inline Prospect Creation:** When creating an RFP Request, users can create new Prospect customers directly from the ticket wizard
-- **Status Advancement Validation:** Users cannot advance to the next status until all required fields for the current status are completed
-- **Filtering:** Tickets list supports filtering by ticket type (RFP Request) and individual status within the selected type
+A mobile-first system for field crews, supporting configurable ticket types with custom workflows and step-specific data capture. It includes default ticket types and role-based access. Projects follow a 3-phase workflow (Sales/Estimating, Field Execution, Billing) with specific ticket types and linking (`execution_for`, `invoice_for`). Tickets are classified by work type (Contract Work, Extra Billable, Project, Admin, Estimate Request) driving billing behavior. A 3-step wizard guides ticket creation (Work Type, Customer, Details). The system supports auto-creation of Invoice tickets for billable work and includes an RFP Request pipeline for sales management.
 
 #### Weekly Schedule System
-A comprehensive scheduling system for assigning properties to crews on specific days of the week. It uses a template-based approach with drag-and-drop functionality.
-
-- **Database Tables:**
-  - `weekly_schedule_templates` - Templates defining schedule configurations (name, season start/end months)
-  - `maintenance_crews` - Crew definitions with name, color (hex), hours per day, and active status
-  - `maintenance_visit_configs` - Per-customer visit configurations (duration, frequency, preferred day)
-  - `schedule_blocks` - Individual assignments linking templates, crews, visit configs, and days
-- **Pages:**
-  - `/dashboard/schedule` - Unified page with Builder/Viewer tabs (legacy `/dashboard/scheduler` redirects here)
-  - **Builder Tab:** Full drag-and-drop editor with crew capacity indicators, lock/unlock toggle, template management
-  - **Viewer Tab:** Read-only color-coded schedule view with crew legend
-- **Components:**
-  - `SchedulePreview` - Dashboard widget showing today's schedule with color-coded crew assignments and detail modal
-  - `WeeklySchedulerPage` - The schedule builder with DnD, crew manager, and template controls
-  - `ScheduleViewer` - Read-only viewer with crew-colored blocks organized by day
-- **Crew Colors:** 10-color preset palette stored in `CREW_COLORS` (shared/schema.ts); each crew can be assigned a color via the crew manager
-- **Access Control:** Admin and Office roles only
+A comprehensive scheduling system for assigning properties to crews. It uses a template-based approach with drag-and-drop functionality, crew capacity indicators, and a read-only viewer. Data is stored in `weekly_schedule_templates`, `maintenance_crews`, `maintenance_visit_configs`, and `schedule_blocks` tables.
 
 #### Property Maps System
-A KML-based layer mapping system for field crews to view property zones and service areas. The system stores customer-specific map layers with the following structure:
-- **Database Tables:** `customer_map_layers` stores layer metadata (customerId, layerType, objectPath, customName, color) and `customer_map_documents` for document uploads.
-- **Layer Categories:**
-  - **Community Season:** Mowing Zones (#22c55e), Native Grass Areas (#84cc16), Landscape Beds (#f97316), Pet Stations (#8b5cf6)
-  - **Snow Season:** ATV Routes (#3b82f6), Truck Plow (#06b6d4), Hand Shovel (#f59e0b), Ice Melt (#ef4444)
-- **Components:**
-  - `LayerMapViewer` - Full-screen map component using react-leaflet with leaflet-omnivore for KML parsing
-  - `CustomerMapsSection` - Layer upload/management interface in customer profile
-  - `PropertyMapsPage` - Mobile-optimized customer list with map access
-- **Access Points:**
-  - Customer Detail page → Maps tab → View Map button
-  - Ticket Detail page → Customer & Property card → Maps button
-  - Sidebar → Property Maps menu item
-- **Object Storage:** KML files stored in Replit object storage with presigned URL uploads
+A KML-based layer mapping system for field crews to view property zones and service areas. It stores customer-specific map layers with categories (e.g., Mowing Zones, ATV Routes) and uses `customer_map_layers` and `customer_map_documents` tables. KML files are stored in Replit object storage.
+
+#### Ticket Notifications System
+An in-app notification system for ticket assignments, completions, and due date reminders. Notifications are stored in `ticket_notifications` and triggered by assignment, completion, and a background service for due dates. Users can view, mark as read, and navigate to related tickets from a header dropdown.
 
 ## External Dependencies
 
-### UI Component Libraries
-- **Radix UI:** For accessible components.
-- **Shadcn/ui:** Design system.
-- **Lucide React:** Icons.
-- **CMDK:** Command palette.
-
-### Form & Validation
-- **React Hook Form:** Form state management.
-- **Zod:** Runtime schema validation.
-- **@hookform/resolvers:** Integration.
-- **Drizzle-Zod:** Schema conversion.
-
-### Date Handling
-- **date-fns:** Date manipulation.
-
-### Session & Security
-- **Passport.js** with **passport-local strategy:** Authentication.
-- **express-session:** Session management.
-- **connect-pg-simple:** PostgreSQL session storage.
-- **Node.js crypto module:** Password hashing.
-
-### Design System
-- **Google Fonts:** Inter, JetBrains Mono.
-
-### Third-Party Services
-- **QuickBooks Online Integration (Planned):** For customer data synchronization.
+- **UI Component Libraries:** Radix UI, Shadcn/ui, Lucide React, CMDK
+- **Form & Validation:** React Hook Form, Zod, @hookform/resolvers, Drizzle-Zod
+- **Date Handling:** date-fns
+- **Session & Security:** Passport.js (with passport-local), express-session, connect-pg-simple, Node.js crypto module
+- **Design System:** Google Fonts (Inter, JetBrains Mono)
+- **Third-Party Services:** QuickBooks Online Integration (Planned)
