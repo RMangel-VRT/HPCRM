@@ -1,6 +1,6 @@
 import { useState, useMemo } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
-import { useRoute, Link } from "wouter";
+import { useRoute, Link, useLocation } from "wouter";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -18,6 +18,16 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { 
   ArrowLeft, 
   Send, 
@@ -37,6 +47,7 @@ import {
   ClipboardList,
   Layers,
   Link2,
+  Trash2,
 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { queryClient, apiRequest } from "@/lib/queryClient";
@@ -112,8 +123,17 @@ export default function TicketDetail() {
   const [showInvoicePrompt, setShowInvoicePrompt] = useState(false);
   const [creatingInvoice, setCreatingInvoice] = useState(false);
   
+  // Delete ticket state
+  const [showDeleteDialog, setShowDeleteDialog] = useState(false);
+  
+  // Navigation for redirects
+  const [, setLocation] = useLocation();
+  
   // Check if current user can reassign tickets (admin or super admin)
   const canReassign = currentUser?.activeRole === "admin" || currentUser?.isSuperAdminBool;
+  
+  // Check if current user can delete tickets (admin or office)
+  const canDelete = currentUser?.activeRole === "admin" || currentUser?.activeRole === "office" || currentUser?.isSuperAdminBool;
 
   const { data: details, isLoading } = useQuery<TicketDetails>({
     queryKey: ["/api/tickets", ticketId, "details"],
@@ -157,6 +177,21 @@ export default function TicketDetail() {
     },
     onError: (error: Error) => {
       toast({ title: "Failed to reassign ticket", description: error.message, variant: "destructive" });
+    },
+  });
+
+  // Mutation to delete ticket
+  const deleteTicketMutation = useMutation({
+    mutationFn: async () => {
+      return apiRequest("DELETE", `/api/tickets/${ticketId}`);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/tickets"] });
+      toast({ title: "Ticket deleted successfully" });
+      setLocation("/dashboard/tickets");
+    },
+    onError: (error: Error) => {
+      toast({ title: "Failed to delete ticket", description: error.message, variant: "destructive" });
     },
   });
 
@@ -502,6 +537,17 @@ export default function TicketDetail() {
             {ticket.title}
           </h1>
         </div>
+        {canDelete && (
+          <Button 
+            variant="ghost" 
+            size="icon" 
+            className="text-destructive hover:text-destructive hover:bg-destructive/10"
+            onClick={() => setShowDeleteDialog(true)}
+            data-testid="button-delete-ticket"
+          >
+            <Trash2 className="w-5 h-5" />
+          </Button>
+        )}
       </div>
 
       <div className="flex border-b sticky top-0 bg-background z-10">
@@ -1408,6 +1454,33 @@ export default function TicketDetail() {
           onClose={() => setShowPropertyMaps(false)}
         />
       )}
+
+      {/* Delete Ticket Confirmation Dialog */}
+      <AlertDialog open={showDeleteDialog} onOpenChange={setShowDeleteDialog}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete Ticket</AlertDialogTitle>
+            <AlertDialogDescription>
+              Are you sure you want to delete this ticket? This action cannot be undone.
+              All comments, history, and linked data will be permanently removed.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel data-testid="button-cancel-delete">Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              onClick={() => deleteTicketMutation.mutate()}
+              disabled={deleteTicketMutation.isPending}
+              data-testid="button-confirm-delete"
+            >
+              {deleteTicketMutation.isPending ? (
+                <Loader2 className="w-4 h-4 animate-spin mr-2" />
+              ) : null}
+              Delete
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }
