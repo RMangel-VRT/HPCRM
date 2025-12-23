@@ -180,8 +180,9 @@ export default function NewTicket() {
       return invoiceType?.id || null;
     }
     
-    if (workType === "project") {
-      const projectType = activeTypes.find(t => t.category === "project" || t.name.toLowerCase().includes("project"));
+    if (workType === "project" || workType === "estimate_request") {
+      const projectType = activeTypes.find(t => t.name === "Project") 
+        || activeTypes.find(t => t.category === "project" || t.name.toLowerCase().includes("project"));
       return projectType?.id || activeTypes[0]?.id || null;
     }
     
@@ -208,6 +209,16 @@ export default function NewTicket() {
   const initInvoiceMutation = useMutation({
     mutationFn: async () => {
       return apiRequest("POST", "/api/ticket-types/init-invoice", {});
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/ticket-types"] });
+    },
+  });
+  
+  // Initialize Project ticket type if needed
+  const initProjectMutation = useMutation({
+    mutationFn: async () => {
+      return apiRequest("POST", "/api/ticket-types/init-project", {});
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/ticket-types"] });
@@ -304,7 +315,14 @@ export default function NewTicket() {
     },
   });
 
-  const handleSelectWorkType = (workType: WorkType) => {
+  const handleSelectWorkType = async (workType: WorkType) => {
+    // Initialize Project ticket type if needed for project or estimate_request
+    if (workType === "project" || workType === "estimate_request") {
+      const projectType = ticketTypes.find(t => t.name === "Project");
+      if (!projectType) {
+        await initProjectMutation.mutateAsync();
+      }
+    }
     setSelectedWorkType(workType);
     setIsRFPRequest(false);
     setIsInvoice(false);
@@ -439,7 +457,7 @@ export default function NewTicket() {
         }
 
         const uploadUrlResponse = await apiRequest("POST", "/api/tickets/photo-upload-url");
-        const { uploadURL } = await uploadUrlResponse.json();
+        const { uploadURL, objectPath } = await uploadUrlResponse.json();
 
         const uploadResponse = await fetch(uploadURL, {
           method: "PUT",
@@ -453,11 +471,8 @@ export default function NewTicket() {
           throw new Error("Failed to upload photo");
         }
 
-        const url = new URL(uploadURL);
-        const path = url.pathname;
-
         const previewUrl = URL.createObjectURL(file);
-        setPhotos((prev) => [...prev, { path, previewUrl }]);
+        setPhotos((prev) => [...prev, { path: objectPath, previewUrl }]);
         toast({ title: "Photo added" });
       }
     } catch (error) {
@@ -978,6 +993,7 @@ export default function NewTicket() {
                       className="hidden"
                       onChange={handlePhotoUpload}
                       disabled={isUploadingPhoto}
+                      data-testid="input-photo-capture"
                     />
                     <input
                       type="file"
@@ -987,6 +1003,7 @@ export default function NewTicket() {
                       className="hidden"
                       onChange={handlePhotoUpload}
                       disabled={isUploadingPhoto}
+                      data-testid="input-photo-gallery"
                     />
                     
                     <Button

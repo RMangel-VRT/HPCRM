@@ -2797,7 +2797,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
     try {
       const objectStorageService = new ObjectStorageService();
       const uploadURL = await objectStorageService.getObjectEntityUploadURL();
-      res.json({ uploadURL });
+      const normalizedPath = objectStorageService.normalizeObjectEntityPath(uploadURL);
+      res.json({ uploadURL, objectPath: normalizedPath });
     } catch (error) {
       console.error("Error getting photo upload URL:", error);
       res.status(500).send("Failed to get upload URL");
@@ -2852,6 +2853,28 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
 
     const ticket = await storage.createTicket(result.data);
+    
+    // Set ACL on uploaded photos to allow company members to read them
+    if (ticket.photos && ticket.photos.length > 0) {
+      const objectStorageService = new ObjectStorageService();
+      for (const photoPath of ticket.photos) {
+        try {
+          await objectStorageService.trySetObjectEntityAclPolicy(photoPath, {
+            owner: user.id,
+            visibility: "private",
+            aclRules: [{
+              group: {
+                type: ObjectAccessGroupType.COMPANY_MEMBER,
+                id: user.activeCompanyId,
+              },
+              permission: ObjectPermission.READ,
+            }],
+          });
+        } catch (error) {
+          console.error(`Failed to set ACL for photo ${photoPath}:`, error);
+        }
+      }
+    }
     
     // Create initial status history
     await storage.createTicketStatusHistory({

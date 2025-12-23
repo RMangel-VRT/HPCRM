@@ -849,22 +849,27 @@ export default function TicketDetail() {
               </CardHeader>
               <CardContent className="pb-3">
                 <div className="grid grid-cols-3 gap-2">
-                  {ticket.photos.map((photo, index) => (
-                    <a
-                      key={index}
-                      href={`/objects/${photo.replace(/^\/[^/]+\/[^/]+\//, "")}`}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="aspect-square rounded-lg overflow-hidden border hover:ring-2 hover:ring-primary transition-all"
-                      data-testid={`photo-thumbnail-${index}`}
-                    >
-                      <img
-                        src={`/objects/${photo.replace(/^\/[^/]+\/[^/]+\//, "")}`}
-                        alt={`Ticket photo ${index + 1}`}
-                        className="w-full h-full object-cover"
-                      />
-                    </a>
-                  ))}
+                  {ticket.photos.map((photo, index) => {
+                    const photoUrl = photo.startsWith("/objects/") 
+                      ? photo 
+                      : `/objects/${photo.replace(/^\/[^/]+\/[^/]+\//, "")}`;
+                    return (
+                      <a
+                        key={index}
+                        href={photoUrl}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="aspect-square rounded-lg overflow-hidden border hover:ring-2 hover:ring-primary transition-all"
+                        data-testid={`photo-thumbnail-${index}`}
+                      >
+                        <img
+                          src={photoUrl}
+                          alt={`Ticket photo ${index + 1}`}
+                          className="w-full h-full object-cover"
+                        />
+                      </a>
+                    );
+                  })}
                 </div>
               </CardContent>
             </Card>
