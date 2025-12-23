@@ -2347,6 +2347,40 @@ function RevenueSection({ customerId }: { customerId: string }) {
   );
 }
 
+// RateInput component defined outside to prevent focus loss on re-renders
+interface RateInputProps {
+  label: string;
+  field: string;
+  unit: string;
+  value: string;
+  onChange: (field: string, value: string) => void;
+  canEdit: boolean;
+  isPending: boolean;
+}
+
+function RateInput({ label, field, unit, value, onChange, canEdit, isPending }: RateInputProps) {
+  return (
+    <div>
+      <Label htmlFor={field} className="text-sm font-medium">{label}</Label>
+      <div className="flex items-center gap-2 mt-1">
+        <div className="relative flex-1">
+          <DollarSign className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
+          <Input
+            id={field}
+            data-testid={`input-rate-${field}`}
+            value={value}
+            onChange={(e) => onChange(field, e.target.value)}
+            placeholder={canEdit ? "Not set" : "—"}
+            disabled={!canEdit || isPending}
+            className="pl-8"
+          />
+        </div>
+        <span className="text-sm text-muted-foreground whitespace-nowrap">{unit}</span>
+      </div>
+    </div>
+  );
+}
+
 function RateSheetSection({ customerId }: { customerId: string }) {
   const { user } = useAuth();
   const { toast } = useToast();
@@ -2445,27 +2479,6 @@ function RateSheetSection({ customerId }: { customerId: string }) {
     },
   });
 
-  const RateInput = ({ label, field, unit }: { label: string; field: string; unit: string }) => (
-    <div>
-      <Label htmlFor={field} className="text-sm font-medium">{label}</Label>
-      <div className="flex items-center gap-2 mt-1">
-        <div className="relative flex-1">
-          <DollarSign className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
-          <Input
-            id={field}
-            data-testid={`input-rate-${field}`}
-            value={localRates[field] || ""}
-            onChange={(e) => handleRateChange(field, e.target.value)}
-            placeholder={canEdit ? "Not set" : "—"}
-            disabled={!canEdit || saveMutation.isPending}
-            className="pl-8"
-          />
-        </div>
-        <span className="text-sm text-muted-foreground whitespace-nowrap">{unit}</span>
-      </div>
-    </div>
-  );
-
   if (isLoading) {
     return (
       <div className="space-y-4">
@@ -2486,11 +2499,11 @@ function RateSheetSection({ customerId }: { customerId: string }) {
             <Card>
               <CardContent className="pt-6 space-y-4">
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  <RateInput label="General Labor" field="generalLabor" unit="per hour" />
-                  <RateInput label="Operator Labor" field="operatorLabor" unit="per hour" />
-                  <RateInput label="Irrigation Labor" field="irrigationLabor" unit="per hour" />
-                  <RateInput label="Emergency General Labor" field="emergencyGeneralLabor" unit="per hour" />
-                  <RateInput label="Emergency Irrigation Labor" field="emergencyIrrigationLabor" unit="per hour" />
+                  <RateInput label="General Labor" field="generalLabor" unit="per hour" value={localRates.generalLabor || ""} onChange={handleRateChange} canEdit={canEdit} isPending={saveMutation.isPending} />
+                  <RateInput label="Operator Labor" field="operatorLabor" unit="per hour" value={localRates.operatorLabor || ""} onChange={handleRateChange} canEdit={canEdit} isPending={saveMutation.isPending} />
+                  <RateInput label="Irrigation Labor" field="irrigationLabor" unit="per hour" value={localRates.irrigationLabor || ""} onChange={handleRateChange} canEdit={canEdit} isPending={saveMutation.isPending} />
+                  <RateInput label="Emergency General Labor" field="emergencyGeneralLabor" unit="per hour" value={localRates.emergencyGeneralLabor || ""} onChange={handleRateChange} canEdit={canEdit} isPending={saveMutation.isPending} />
+                  <RateInput label="Emergency Irrigation Labor" field="emergencyIrrigationLabor" unit="per hour" value={localRates.emergencyIrrigationLabor || ""} onChange={handleRateChange} canEdit={canEdit} isPending={saveMutation.isPending} />
                 </div>
               </CardContent>
             </Card>
@@ -2505,13 +2518,13 @@ function RateSheetSection({ customerId }: { customerId: string }) {
             <Card>
               <CardContent className="pt-6 space-y-4">
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  <RateInput label="Hand Shovel Labor" field="handShovelLabor" unit="per hour" />
-                  <RateInput label="Plow Truck" field="plowTruck" unit="per hour" />
-                  <RateInput label="ATV" field="atv" unit="per hour" />
-                  <RateInput label="Skid Steer" field="skidSteer" unit="per hour" />
-                  <RateInput label="Snow Blower" field="snowBlower" unit="per hour" />
-                  <RateInput label="Ice Melt Material" field="iceMeltMaterial" unit="per pound" />
-                  <RateInput label="Ice Melt Application Labor" field="iceMeltApplicationLabor" unit="per hour" />
+                  <RateInput label="Hand Shovel Labor" field="handShovelLabor" unit="per hour" value={localRates.handShovelLabor || ""} onChange={handleRateChange} canEdit={canEdit} isPending={saveMutation.isPending} />
+                  <RateInput label="Plow Truck" field="plowTruck" unit="per hour" value={localRates.plowTruck || ""} onChange={handleRateChange} canEdit={canEdit} isPending={saveMutation.isPending} />
+                  <RateInput label="ATV" field="atv" unit="per hour" value={localRates.atv || ""} onChange={handleRateChange} canEdit={canEdit} isPending={saveMutation.isPending} />
+                  <RateInput label="Skid Steer" field="skidSteer" unit="per hour" value={localRates.skidSteer || ""} onChange={handleRateChange} canEdit={canEdit} isPending={saveMutation.isPending} />
+                  <RateInput label="Snow Blower" field="snowBlower" unit="per hour" value={localRates.snowBlower || ""} onChange={handleRateChange} canEdit={canEdit} isPending={saveMutation.isPending} />
+                  <RateInput label="Ice Melt Material" field="iceMeltMaterial" unit="per pound" value={localRates.iceMeltMaterial || ""} onChange={handleRateChange} canEdit={canEdit} isPending={saveMutation.isPending} />
+                  <RateInput label="Ice Melt Application Labor" field="iceMeltApplicationLabor" unit="per hour" value={localRates.iceMeltApplicationLabor || ""} onChange={handleRateChange} canEdit={canEdit} isPending={saveMutation.isPending} />
                 </div>
               </CardContent>
             </Card>
