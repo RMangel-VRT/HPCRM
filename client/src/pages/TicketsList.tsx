@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
+import { useSetBreadcrumbs } from "@/hooks/use-breadcrumbs";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent } from "@/components/ui/card";
@@ -39,6 +40,10 @@ export default function TicketsList() {
   const [workTypeFilter, setWorkTypeFilter] = useState("all");
   const [statusFilter, setStatusFilter] = useState("all");
   const [showFilters, setShowFilters] = useState(false);
+
+  useSetBreadcrumbs([
+    { label: "Tickets" },
+  ], []);
 
   const isAdmin = user?.activeRole === "admin";
 

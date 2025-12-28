@@ -1,6 +1,7 @@
 import { useState, useMemo } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { useRoute, Link, useLocation } from "wouter";
+import { useSetBreadcrumbs } from "@/hooks/use-breadcrumbs";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -144,6 +145,11 @@ export default function TicketDetail() {
     },
     enabled: !!ticketId,
   });
+
+  useSetBreadcrumbs([
+    { label: "Tickets", href: "/dashboard/tickets" },
+    { label: details?.ticket?.title || "Loading..." },
+  ], [details?.ticket?.title]);
 
   // Fetch company users for reassignment dropdown (admin/super admin only)
   const { data: companyUsersData = [] } = useQuery<CompanyUserWithDetails[]>({

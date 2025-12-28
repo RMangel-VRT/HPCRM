@@ -4,6 +4,7 @@ import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
 import { useLocation } from "wouter";
+import { useSetBreadcrumbs } from "@/hooks/use-breadcrumbs";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -33,6 +34,10 @@ export default function SettingsPage() {
   const { toast } = useToast();
   const [, setLocation] = useLocation();
   const [activeTab, setActiveTab] = useState("company");
+
+  useSetBreadcrumbs([
+    { label: "Settings" },
+  ], []);
   const [mowingMonths, setMowingMonths] = useState<string[]>([]);
   const [cleanupMonths, setCleanupMonths] = useState<string[]>([]);
   const [featureFlags, setFeatureFlags] = useState({

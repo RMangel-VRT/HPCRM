@@ -1,6 +1,7 @@
 import { useState, useRef, useMemo, useEffect } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { useRoute, useLocation } from "wouter";
+import { useSetBreadcrumbs } from "@/hooks/use-breadcrumbs";
 import type { Customer, Contact, Note, Contract, ContractDocument, ContractMonthlyAmount, CustomerRateSheet, InsertContract, InsertContact, InsertNote, InsertCustomer, CustomerMapLayer } from "@shared/schema";
 import { insertContractSchema, insertContactSchema, insertNoteSchema, insertCustomerSchema } from "@shared/schema";
 import { Button } from "@/components/ui/button";
@@ -722,6 +723,11 @@ export default function CustomerDetail() {
 
   const canUploadDocuments = user?.activeRole === "admin" || user?.activeRole === "office";
   const canEditContracts = user?.activeRole === "admin" || user?.activeRole === "office";
+
+  useSetBreadcrumbs([
+    { label: "Customers", href: "/dashboard/customers" },
+    { label: customer?.name || "Loading..." },
+  ], [customer?.name]);
 
   const contractForm = useForm<Omit<InsertContract, "companyId" | "customerId">>({
     resolver: zodResolver(

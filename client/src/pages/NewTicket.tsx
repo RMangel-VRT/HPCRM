@@ -1,6 +1,7 @@
 import { useState, useMemo, useEffect } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { useLocation, Link } from "wouter";
+import { useSetBreadcrumbs } from "@/hooks/use-breadcrumbs";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -140,6 +141,11 @@ export default function NewTicket() {
   const { data: customers = [] } = useQuery<Customer[]>({
     queryKey: ["/api/customers"],
   });
+
+  useSetBreadcrumbs([
+    { label: "Tickets", href: "/dashboard/tickets" },
+    { label: "New Ticket" },
+  ], []);
 
   interface CompanyUserWithDetails {
     companyUser: CompanyUser;

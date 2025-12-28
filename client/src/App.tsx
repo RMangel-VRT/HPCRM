@@ -5,9 +5,11 @@ import { Toaster } from "@/components/ui/toaster";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { SidebarProvider, SidebarTrigger } from "@/components/ui/sidebar";
 import { AuthProvider, useAuth } from "@/hooks/use-auth";
+import { BreadcrumbsProvider } from "@/hooks/use-breadcrumbs";
 import { ProtectedRoute } from "@/lib/protected-route";
 import { Loader2 } from "lucide-react";
 import AppSidebar from "@/components/AppSidebar";
+import AppBreadcrumb from "@/components/AppBreadcrumb";
 import NotificationsDropdown from "@/components/NotificationsDropdown";
 import LoginPage from "@/pages/LoginPage";
 import SetupPage from "@/pages/SetupPage";
@@ -73,20 +75,22 @@ function Router() {
   };
 
   return (
-    <SidebarProvider style={style as React.CSSProperties}>
-      <div className="flex h-screen w-full">
-        <AppSidebar
-          userRole={user.activeRole}
-          isSuperAdmin={user.isSuperAdminBool}
-          userName={user.name}
-          onLogout={() => logoutMutation.mutate()}
-        />
-        <div className="flex flex-col flex-1 overflow-hidden">
-          <header className="flex items-center justify-between p-4 border-b bg-background">
-            <SidebarTrigger data-testid="button-sidebar-toggle" />
-            <NotificationsDropdown />
-          </header>
-          <main className="flex-1 overflow-y-auto p-6 md:p-8">
+    <BreadcrumbsProvider>
+      <SidebarProvider style={style as React.CSSProperties}>
+        <div className="flex h-screen w-full">
+          <AppSidebar
+            userRole={user.activeRole}
+            isSuperAdmin={user.isSuperAdminBool}
+            userName={user.name}
+            onLogout={() => logoutMutation.mutate()}
+          />
+          <div className="flex flex-col flex-1 overflow-hidden">
+            <header className="flex items-center justify-between p-4 border-b bg-background">
+              <SidebarTrigger data-testid="button-sidebar-toggle" />
+              <NotificationsDropdown />
+            </header>
+            <AppBreadcrumb />
+            <main className="flex-1 overflow-y-auto p-6 md:p-8">
             <Switch>
               <ProtectedRoute path="/admin" component={SuperAdminHome} superAdminOnly />
               <ProtectedRoute path="/dashboard" component={Dashboard} allowedRoles={["admin", "office", "field_manager"]} />
@@ -134,10 +138,11 @@ function Router() {
                 )}
               </Route>
             </Switch>
-          </main>
+            </main>
+          </div>
         </div>
-      </div>
-    </SidebarProvider>
+      </SidebarProvider>
+    </BreadcrumbsProvider>
   );
 }
 

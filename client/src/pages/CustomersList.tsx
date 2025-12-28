@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
+import { useSetBreadcrumbs } from "@/hooks/use-breadcrumbs";
 import type { Customer, InsertCustomer } from "@shared/schema";
 import { insertCustomerSchema } from "@shared/schema";
 import { Button } from "@/components/ui/button";
@@ -96,6 +97,10 @@ export default function CustomersList() {
   const [sortColumn, setSortColumn] = useState<SortColumn>("name");
   const [sortDirection, setSortDirection] = useState<SortDirection>("asc");
   const { toast } = useToast();
+
+  useSetBreadcrumbs([
+    { label: "Customers" },
+  ], []);
 
   const { data: customers = [], isLoading } = useQuery<Customer[]>({
     queryKey: ["/api/customers"],
