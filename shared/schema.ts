@@ -107,8 +107,8 @@ export const contacts = pgTable("contacts", {
   companyId: varchar("company_id").notNull().references(() => companies.id, { onDelete: "cascade" }),
   customerId: varchar("customer_id").notNull().references(() => customers.id, { onDelete: "cascade" }),
   name: text("name").notNull(),
-  phone: text("phone"),
-  email: text("email"),
+  phones: text("phones").array().default(sql`ARRAY[]::text[]`),
+  emails: text("emails").array().default(sql`ARRAY[]::text[]`),
   role: text("role"),
   isPrimary: text("is_primary").notNull().default("false").$type<"true" | "false">(),
   notes: text("notes"),
@@ -120,6 +120,8 @@ export const insertContactSchema = createInsertSchema(contacts).omit({
   createdAt: true,
 }).extend({
   isPrimary: z.enum(["true", "false"]).default("false"),
+  phones: z.array(z.string()).default([]),
+  emails: z.array(z.string()).default([]),
 });
 
 export type InsertContact = z.infer<typeof insertContactSchema>;
