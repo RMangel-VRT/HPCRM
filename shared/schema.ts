@@ -578,6 +578,7 @@ export const tickets = pgTable("tickets", {
   // Invoice/External reference fields
   invoiceNumber: text("invoice_number"), // QuickBooks invoice number
   estimateNumber: text("estimate_number"), // QuickBooks estimate number
+  workCompletedDate: timestamp("work_completed_date"), // Date work was completed (for billing reference)
   createdById: varchar("created_by_id").notNull().references(() => users.id, { onDelete: "cascade" }),
   createdAt: timestamp("created_at").notNull().defaultNow(),
   updatedAt: timestamp("updated_at").notNull().defaultNow(),
@@ -603,6 +604,7 @@ export const insertTicketSchema = createInsertSchema(tickets).omit({
   completedAt: z.coerce.date().nullable().optional(), // Coerce ISO string to Date
   invoiceNumber: z.string().nullable().optional(), // QuickBooks invoice number
   estimateNumber: z.string().nullable().optional(), // QuickBooks estimate number
+  workCompletedDate: z.coerce.date().nullable().optional(), // Date work was completed (for billing reference)
 });
 
 export type InsertTicket = z.infer<typeof insertTicketSchema>;
