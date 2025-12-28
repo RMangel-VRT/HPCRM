@@ -28,7 +28,7 @@ import {
   FormLabel,
   FormMessage,
 } from "@/components/ui/form";
-import { Edit, Plus, Users, FileText, MessageSquare, MapPin, BarChart3, Upload, Download, Eye, Paperclip, History, RefreshCw, DollarSign, Map, Layers, Trash2 } from "lucide-react";
+import { Edit, Plus, Users, FileText, MessageSquare, MapPin, BarChart3, Upload, Download, Eye, Paperclip, History, RefreshCw, DollarSign, Map, Layers, Trash2, X } from "lucide-react";
 import StatusBadge from "@/components/StatusBadge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion";
@@ -877,8 +877,8 @@ export default function CustomerDetail() {
     resolver: zodResolver(insertContactSchema.omit({ companyId: true, customerId: true })),
     defaultValues: {
       name: "",
-      phone: "",
-      email: "",
+      phones: [],
+      emails: [],
       role: "",
       isPrimary: "false",
       notes: "",
@@ -1390,11 +1390,19 @@ export default function CustomerDetail() {
                       {contact.role && (
                         <p className="text-sm text-muted-foreground">{contact.role}</p>
                       )}
-                      {contact.phone && (
-                        <p className="text-sm text-muted-foreground">{contact.phone}</p>
+                      {contact.phones && contact.phones.length > 0 && (
+                        <div className="text-sm text-muted-foreground">
+                          {contact.phones.map((phone, idx) => (
+                            <span key={idx}>{phone}{idx < contact.phones!.length - 1 ? ", " : ""}</span>
+                          ))}
+                        </div>
                       )}
-                      {contact.email && (
-                        <p className="text-sm text-muted-foreground">{contact.email}</p>
+                      {contact.emails && contact.emails.length > 0 && (
+                        <div className="text-sm text-muted-foreground">
+                          {contact.emails.map((email, idx) => (
+                            <span key={idx}>{email}{idx < contact.emails!.length - 1 ? ", " : ""}</span>
+                          ))}
+                        </div>
                       )}
                       {contact.notes && (
                         <p className="text-sm text-muted-foreground mt-2">{contact.notes}</p>
@@ -1408,8 +1416,8 @@ export default function CustomerDetail() {
                           setEditingContact(contact);
                           contactForm.reset({
                             name: contact.name,
-                            phone: contact.phone || "",
-                            email: contact.email || "",
+                            phones: contact.phones || [],
+                            emails: contact.emails || [],
                             role: contact.role || "",
                             isPrimary: contact.isPrimary,
                             notes: contact.notes || "",
@@ -1892,26 +1900,97 @@ export default function CustomerDetail() {
               />
               <FormField
                 control={contactForm.control}
-                name="phone"
+                name="phones"
                 render={({ field }) => (
                   <FormItem>
-                    <FormLabel>Phone</FormLabel>
-                    <FormControl>
-                      <Input placeholder="555-1234" {...field} value={field.value || ""} data-testid="input-contact-phone" />
-                    </FormControl>
+                    <FormLabel>Phone Numbers</FormLabel>
+                    <div className="space-y-2">
+                      {(field.value || []).map((phone: string, index: number) => (
+                        <div key={index} className="flex gap-2">
+                          <Input
+                            placeholder="555-1234"
+                            value={phone}
+                            onChange={(e) => {
+                              const newPhones = [...(field.value || [])];
+                              newPhones[index] = e.target.value;
+                              field.onChange(newPhones);
+                            }}
+                            data-testid={`input-contact-phone-${index}`}
+                          />
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="icon"
+                            onClick={() => {
+                              const newPhones = (field.value || []).filter((_: string, i: number) => i !== index);
+                              field.onChange(newPhones);
+                            }}
+                            data-testid={`button-remove-phone-${index}`}
+                          >
+                            <X className="w-4 h-4" />
+                          </Button>
+                        </div>
+                      ))}
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        onClick={() => field.onChange([...(field.value || []), ""])}
+                        data-testid="button-add-phone"
+                      >
+                        <Plus className="w-4 h-4 mr-2" />
+                        Add Phone
+                      </Button>
+                    </div>
                     <FormMessage />
                   </FormItem>
                 )}
               />
               <FormField
                 control={contactForm.control}
-                name="email"
+                name="emails"
                 render={({ field }) => (
                   <FormItem>
-                    <FormLabel>Email</FormLabel>
-                    <FormControl>
-                      <Input type="email" placeholder="john@example.com" {...field} value={field.value || ""} data-testid="input-contact-email" />
-                    </FormControl>
+                    <FormLabel>Email Addresses</FormLabel>
+                    <div className="space-y-2">
+                      {(field.value || []).map((email: string, index: number) => (
+                        <div key={index} className="flex gap-2">
+                          <Input
+                            type="email"
+                            placeholder="john@example.com"
+                            value={email}
+                            onChange={(e) => {
+                              const newEmails = [...(field.value || [])];
+                              newEmails[index] = e.target.value;
+                              field.onChange(newEmails);
+                            }}
+                            data-testid={`input-contact-email-${index}`}
+                          />
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="icon"
+                            onClick={() => {
+                              const newEmails = (field.value || []).filter((_: string, i: number) => i !== index);
+                              field.onChange(newEmails);
+                            }}
+                            data-testid={`button-remove-email-${index}`}
+                          >
+                            <X className="w-4 h-4" />
+                          </Button>
+                        </div>
+                      ))}
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        onClick={() => field.onChange([...(field.value || []), ""])}
+                        data-testid="button-add-email"
+                      >
+                        <Plus className="w-4 h-4 mr-2" />
+                        Add Email
+                      </Button>
+                    </div>
                     <FormMessage />
                   </FormItem>
                 )}
