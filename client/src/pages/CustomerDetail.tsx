@@ -1,6 +1,6 @@
 import { useState, useRef, useMemo, useEffect } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
-import { useRoute } from "wouter";
+import { useRoute, useLocation } from "wouter";
 import type { Customer, Contact, Note, Contract, ContractDocument, ContractMonthlyAmount, CustomerRateSheet, InsertContract, InsertContact, InsertNote, InsertCustomer, CustomerMapLayer } from "@shared/schema";
 import { insertContractSchema, insertContactSchema, insertNoteSchema, insertCustomerSchema } from "@shared/schema";
 import { Button } from "@/components/ui/button";
@@ -28,7 +28,7 @@ import {
   FormLabel,
   FormMessage,
 } from "@/components/ui/form";
-import { Edit, Plus, Users, FileText, MessageSquare, MapPin, BarChart3, Upload, Download, Eye, Paperclip, History, RefreshCw, DollarSign, Map, Layers, Trash2, X } from "lucide-react";
+import { Edit, Plus, Users, FileText, MessageSquare, MapPin, BarChart3, Upload, Download, Eye, Paperclip, History, RefreshCw, DollarSign, Map, Layers, Trash2, X, Ticket } from "lucide-react";
 import StatusBadge from "@/components/StatusBadge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion";
@@ -687,6 +687,7 @@ function VersionHistoryDialog({ contractId, onClose, formatFileSize }: VersionHi
 
 export default function CustomerDetail() {
   const [, params] = useRoute("/dashboard/customers/:id");
+  const [, navigate] = useLocation();
   const id = params?.id;
   const [activeTab, setActiveTab] = useState("overview");
   const [uploadingContractId, setUploadingContractId] = useState<string | null>(null);
@@ -1215,6 +1216,16 @@ export default function CustomerDetail() {
             <MessageSquare className="w-4 h-4 mr-2" />
             Add Note
           </Button>
+          {(user?.activeRole === "admin" || user?.activeRole === "office") && (
+            <Button 
+              variant="outline"
+              data-testid="button-add-ticket"
+              onClick={() => navigate(`/dashboard/tickets/new?customerId=${customer.id}`)}
+            >
+              <Ticket className="w-4 h-4 mr-2" />
+              Add Ticket
+            </Button>
+          )}
           <Button 
             data-testid="button-edit-customer"
             onClick={() => setIsEditCustomerDialogOpen(true)}

@@ -94,9 +94,13 @@ export default function NewTicket() {
   const [, navigate] = useLocation();
   const { toast } = useToast();
   
+  // Check for pre-selected customer from URL query param
+  const urlParams = new URLSearchParams(window.location.search);
+  const preselectedCustomerId = urlParams.get("customerId");
+  
   const [step, setStep] = useState<"workType" | "customer" | "details">("workType");
   const [selectedWorkType, setSelectedWorkType] = useState<WorkType | null>(null);
-  const [selectedCustomerId, setSelectedCustomerId] = useState<string | null>(null);
+  const [selectedCustomerId, setSelectedCustomerId] = useState<string | null>(preselectedCustomerId);
   const [customerSearch, setCustomerSearch] = useState("");
   const [showCustomerDialog, setShowCustomerDialog] = useState(false);
   const [showLocationDialog, setShowLocationDialog] = useState(false);
@@ -165,6 +169,9 @@ export default function NewTicket() {
 
   const selectedCustomer = customers.find(c => c.id === selectedCustomerId);
   const selectedWorkTypeConfig = selectedWorkType ? WORK_TYPE_CATALOG[selectedWorkType] : null;
+  
+  // Check if preselected customer is valid (exists in loaded customers list)
+  const isPreselectedCustomerValid = preselectedCustomerId && customers.length > 0 && customers.some(c => c.id === preselectedCustomerId);
 
   const getTicketTypeForWorkType = (workType: WorkType): string | null => {
     const activeTypes = ticketTypes.filter(t => t.isActive === "true");
@@ -329,7 +336,8 @@ export default function NewTicket() {
     setSelectedWorkType(workType);
     setIsRFPRequest(false);
     setIsInvoice(false);
-    setStep("customer");
+    // Skip to details if customer is pre-selected and valid
+    setStep(isPreselectedCustomerValid ? "details" : "customer");
   };
   
   const handleSelectRFPRequest = async () => {
@@ -341,7 +349,8 @@ export default function NewTicket() {
     setSelectedWorkType("admin"); // RFP Request uses admin work type (non-billable)
     setIsRFPRequest(true);
     setIsInvoice(false);
-    setStep("customer");
+    // Skip to details if customer is pre-selected and valid
+    setStep(isPreselectedCustomerValid ? "details" : "customer");
   };
   
   const handleSelectInvoice = async () => {
@@ -353,7 +362,8 @@ export default function NewTicket() {
     setSelectedWorkType("extra_work"); // Invoice uses extra_work type for billing
     setIsInvoice(true);
     setIsRFPRequest(false);
-    setStep("customer");
+    // Skip to details if customer is pre-selected and valid
+    setStep(isPreselectedCustomerValid ? "details" : "customer");
   };
 
   const handleSelectCustomer = (customerId: string) => {
