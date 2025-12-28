@@ -124,6 +124,7 @@ export default function NewTicket() {
   const [priority, setPriority] = useState("normal");
   const [assignedToId, setAssignedToId] = useState<string | null>(null);
   const [dueDate, setDueDate] = useState("");
+  const [workCompletedDate, setWorkCompletedDate] = useState("");
   
   const [photos, setPhotos] = useState<{ path: string; previewUrl: string }[]>([]);
   const [isUploadingPhoto, setIsUploadingPhoto] = useState(false);
@@ -298,6 +299,8 @@ export default function NewTicket() {
         locationLabel: locationLabel || null,
         locationDescription: locationDescription || null,
         photos: !isRFPRequest && !isInvoice && photos.length > 0 ? photos.map(p => p.path) : null,
+        // Invoice-specific fields
+        workCompletedDate: isInvoice && workCompletedDate ? new Date(workCompletedDate) : null,
         // RFP-specific fields to be saved after ticket creation
         initialFieldValues: isRFPRequest ? {
           service_request_type: serviceRequestType,
@@ -1070,6 +1073,24 @@ export default function NewTicket() {
                 />
               </div>
             </div>
+
+            {/* Work Completed Date - only for Invoice tickets */}
+            {isInvoice && (
+              <div className="space-y-2">
+                <Label htmlFor="workCompletedDate">Work Completed Date</Label>
+                <Input
+                  id="workCompletedDate"
+                  type="date"
+                  value={workCompletedDate}
+                  onChange={(e) => setWorkCompletedDate(e.target.value)}
+                  className="h-10"
+                  data-testid="input-work-completed-date"
+                />
+                <p className="text-xs text-muted-foreground">
+                  Reference date for when the work was completed (for billing purposes)
+                </p>
+              </div>
+            )}
 
             <div className="space-y-2">
               <Label htmlFor="assignedTo">Assign To <span className="text-destructive">*</span></Label>

@@ -645,6 +645,16 @@ export default function TicketDetail() {
                   )}
                 </div>
 
+                {ticket.workCompletedDate && (
+                  <div className="space-y-1">
+                    <p className="text-xs text-muted-foreground uppercase tracking-wide">Work Completed</p>
+                    <div className="flex items-center gap-1.5">
+                      <CalendarDays className="w-4 h-4 text-muted-foreground" />
+                      <span className="font-medium">{format(new Date(ticket.workCompletedDate), "MMM d, yyyy")}</span>
+                    </div>
+                  </div>
+                )}
+
                 <div className="col-span-2 space-y-1">
                   <p className="text-xs text-muted-foreground uppercase tracking-wide">Assigned To</p>
                   {canReassign ? (
