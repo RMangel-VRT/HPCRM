@@ -83,6 +83,7 @@ export const customers = pgTable("customers", {
   tags: text("tags").array().default(sql`ARRAY[]::text[]`),
   acres: text("acres"),
   complexityScore: text("complexity_score").$type<"1" | "2" | "3" | "4" | "5">(),
+  managementCompany: text("management_company"),
   active: text("active").notNull().default("true").$type<"true" | "false">(),
   createdAt: timestamp("created_at").notNull().defaultNow(),
   updatedAt: timestamp("updated_at").notNull().defaultNow(),
