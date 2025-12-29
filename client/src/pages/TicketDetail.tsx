@@ -373,8 +373,9 @@ export default function TicketDetail() {
         }
       }
       
-      // Check if advancing to Ready for Billing (Project)
-      if (nextStatus.name === "Ready for Billing" && ticketType.name === "Project") {
+      // Check if advancing to Ready for Billing - only prompt for invoice if billing is required
+      // Skip for internal work types (admin, estimate_request) and contract work (no_invoice)
+      if (nextStatus.name === "Ready for Billing" && ticketType.name === "Project" && ticket.billingBehavior === "invoice_required") {
         checkInvoicePrompt = true;
       }
       
@@ -432,8 +433,9 @@ export default function TicketDetail() {
     }
     
     // Check if advancing Project to Ready for Billing - prompt for Invoice creation
+    // Only prompt if billing is required (skip for internal work types and contract work)
     const targetStatusName = statuses.find(s => s.id === actualTargetStatusId)?.name;
-    if (targetStatusName === "Ready for Billing" && ticketType.name === "Project") {
+    if (targetStatusName === "Ready for Billing" && ticketType.name === "Project" && ticket.billingBehavior === "invoice_required") {
       shouldPromptInvoice = true;
     }
     
