@@ -51,7 +51,7 @@ export const companyUsers = pgTable("company_users", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
   userId: varchar("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
   companyId: varchar("company_id").notNull().references(() => companies.id, { onDelete: "cascade" }),
-  role: text("role").notNull().$type<"admin" | "office" | "field_manager" | "field">(),
+  role: text("role").notNull().$type<"admin" | "office" | "field_manager" | "field" | "irrigation_manager">(),
   status: text("status").notNull().$type<"active" | "invited" | "suspended">().default("active"),
   invitedAt: timestamp("invited_at"),
   joinedAt: timestamp("joined_at"),
@@ -64,7 +64,7 @@ export const insertCompanyUserSchema = createInsertSchema(companyUsers).omit({
   id: true,
   createdAt: true,
 }).extend({
-  role: z.enum(["admin", "office", "field_manager", "field"]),
+  role: z.enum(["admin", "office", "field_manager", "field", "irrigation_manager"]),
   status: z.enum(["active", "invited", "suspended"]).default("active"),
 });
 

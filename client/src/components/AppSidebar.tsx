@@ -43,7 +43,7 @@ import { Link, useLocation } from "wouter";
 import logoImage from "@assets/TRUCK_DECAL-06_1766432157419.png";
 
 interface AppSidebarProps {
-  userRole?: "admin" | "office" | "field_manager" | "field";
+  userRole?: "admin" | "office" | "field_manager" | "field" | "irrigation_manager";
   isSuperAdmin?: boolean;
   userName?: string;
   onLogout?: () => void;
@@ -91,8 +91,8 @@ export default function AppSidebar({
     // Property Maps - everyone
     items.push({ title: "Property Maps", url: "/dashboard/maps", icon: Map });
     
-    // Weekly Schedule - Admin and Office only
-    if (userRole === "admin" || userRole === "office") {
+    // Weekly Schedule - Admin, Office, and Irrigation Manager (view only for irrigation_manager)
+    if (userRole === "admin" || userRole === "office" || userRole === "irrigation_manager") {
       items.push({ title: "Schedule", url: "/dashboard/schedule", icon: CalendarDays });
     }
     

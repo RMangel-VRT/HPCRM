@@ -53,7 +53,7 @@ export default function Dashboard() {
     return <SuperAdminDashboard />;
   }
   
-  if (user?.activeRole === "field_manager" || user?.activeRole === "field") {
+  if (user?.activeRole === "field_manager" || user?.activeRole === "field" || user?.activeRole === "irrigation_manager") {
     return <FieldCrewDashboard />;
   }
   

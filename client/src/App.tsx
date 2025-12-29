@@ -104,7 +104,7 @@ function Router() {
               <Route path="/dashboard/scheduler">
                 <Redirect to="/dashboard/schedule" />
               </Route>
-              <ProtectedRoute path="/dashboard/schedule" component={SchedulePage} allowedRoles={["admin", "office"]} />
+              <ProtectedRoute path="/dashboard/schedule" component={SchedulePage} allowedRoles={["admin", "office", "irrigation_manager"]} />
               <ProtectedRoute path="/dashboard/tools/contract-builder" component={ContractBuilderPage} allowedRoles={["admin", "office"]} />
               <ProtectedRoute path="/dashboard/tools" component={ToolsPage} allowedRoles={["admin", "office", "field_manager"]} />
               <ProtectedRoute path="/dashboard/revenue" component={RevenueOverview} allowedRoles={["admin", "office"]} />
@@ -122,7 +122,7 @@ function Router() {
               <Route path="/">
                 {user.isSuperAdminBool ? (
                   <Redirect to="/admin" />
-                ) : user.activeRole === "field" ? (
+                ) : user.activeRole === "field" || user.activeRole === "irrigation_manager" ? (
                   <Redirect to="/dashboard/tickets/my" />
                 ) : (
                   <Redirect to="/dashboard" />
@@ -131,7 +131,7 @@ function Router() {
               <Route>
                 {user.isSuperAdminBool ? (
                   <Redirect to="/admin" />
-                ) : user.activeRole === "field" ? (
+                ) : user.activeRole === "field" || user.activeRole === "irrigation_manager" ? (
                   <Redirect to="/dashboard/tickets/my" />
                 ) : (
                   <Redirect to="/dashboard" />
