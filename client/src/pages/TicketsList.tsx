@@ -322,6 +322,20 @@ function TicketCard({ ticket, formatDueDate }: TicketCardProps) {
                         <span className="truncate max-w-[120px]">{ticket.customer.name}</span>
                       </span>
                     )}
+                    {ticket.ticketType && (
+                      <Badge 
+                        variant="outline"
+                        className="text-xs font-normal"
+                        style={{ 
+                          backgroundColor: ticket.ticketType.color ? `${ticket.ticketType.color}15` : undefined,
+                          borderColor: ticket.ticketType.color || undefined,
+                          color: ticket.ticketType.color || undefined,
+                        }}
+                        data-testid={`badge-tickettype-${ticket.id}`}
+                      >
+                        {ticket.ticketType.name}
+                      </Badge>
+                    )}
                     {ticket.workType && WORK_TYPE_CATALOG[ticket.workType as WorkType] && (
                       <Badge 
                         variant={WORK_TYPE_CATALOG[ticket.workType as WorkType].badgeVariant}

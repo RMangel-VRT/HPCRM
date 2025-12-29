@@ -593,7 +593,16 @@ export default function TicketDetail() {
         </Button>
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-2 mb-1">
-            <Badge variant="secondary" className="text-xs">
+            <Badge 
+              variant="secondary" 
+              className="text-xs"
+              style={{ 
+                backgroundColor: ticketType.color ? `${ticketType.color}20` : undefined,
+                borderColor: ticketType.color || undefined,
+                color: ticketType.color || undefined,
+              }}
+              data-testid="badge-ticket-type"
+            >
               {ticketType.name}
             </Badge>
             {isComplete && (

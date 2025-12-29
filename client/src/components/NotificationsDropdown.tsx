@@ -1,3 +1,4 @@
+import { useEffect, useRef } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { queryClient, apiRequest } from "@/lib/queryClient";
 import { Button } from "@/components/ui/button";
@@ -11,13 +12,60 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { Bell, Check, CheckCheck, AlertCircle, Clock, ClipboardCheck, User } from "lucide-react";
 import { formatDistanceToNow } from "date-fns";
 import { Link } from "wouter";
+import { useToast } from "@/hooks/use-toast";
 import type { TicketNotification } from "@shared/schema";
 
 export default function NotificationsDropdown() {
+  const { toast } = useToast();
+  const previousNotificationIds = useRef<Set<string>>(new Set());
+  const isInitialLoad = useRef(true);
+
   const { data: notifications = [], isLoading } = useQuery<TicketNotification[]>({
     queryKey: ["/api/notifications"],
-    refetchInterval: 30000,
+    refetchInterval: 10000,
   });
+
+  useEffect(() => {
+    // Wait for loading to complete before processing
+    if (isLoading) return;
+
+    const currentIds = new Set(notifications.map(n => n.id));
+    
+    // On initial load, just record the current state without showing toasts
+    if (isInitialLoad.current) {
+      previousNotificationIds.current = currentIds;
+      isInitialLoad.current = false;
+      return;
+    }
+
+    // Find notifications that are new (not in previous set) and unread
+    const newNotifications = notifications.filter(
+      n => !previousNotificationIds.current.has(n.id) && !n.isRead
+    );
+
+    // Show toast for each new notification
+    if (newNotifications.length > 0) {
+      newNotifications.forEach(notification => {
+        toast({
+          title: getNotificationTitle(notification.type),
+          description: notification.message,
+          duration: 8000,
+        });
+      });
+
+      // Try to vibrate on mobile devices
+      try {
+        if ('vibrate' in navigator) {
+          navigator.vibrate(200);
+        }
+      } catch (e) {
+        // Vibration not supported, ignore
+      }
+    }
+
+    // Update the previous set for next comparison
+    previousNotificationIds.current = currentIds;
+  }, [notifications, isLoading, toast]);
 
   const markReadMutation = useMutation({
     mutationFn: async (notificationId: string) => {
@@ -38,6 +86,23 @@ export default function NotificationsDropdown() {
   });
 
   const unreadCount = notifications.filter((n) => !n.isRead).length;
+
+  const getNotificationTitle = (type: string) => {
+    switch (type) {
+      case "assigned":
+        return "New Ticket Assigned";
+      case "completed":
+        return "Ticket Completed";
+      case "due_tomorrow":
+        return "Due Tomorrow";
+      case "due_today":
+        return "Due Today";
+      case "overdue":
+        return "Ticket Overdue";
+      default:
+        return "Notification";
+    }
+  };
 
   const getNotificationIcon = (type: string) => {
     switch (type) {
@@ -62,10 +127,10 @@ export default function NotificationsDropdown() {
         <Button
           variant="ghost"
           size="icon"
-          className="relative"
+          className={`relative ${unreadCount > 0 ? "animate-pulse" : ""}`}
           data-testid="button-notifications"
         >
-          <Bell className="h-5 w-5" />
+          <Bell className={`h-5 w-5 ${unreadCount > 0 ? "text-primary" : ""}`} />
           {unreadCount > 0 && (
             <Badge
               variant="destructive"

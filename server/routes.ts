@@ -2910,6 +2910,34 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
     }
 
+    // Create notification for initial ticket assignment
+    if (ticket.assignedToId && ticket.assignedToId !== user.id) {
+      try {
+        const customer = ticket.customerId 
+          ? await storage.getCustomerById(ticket.customerId, user.activeCompanyId)
+          : null;
+        
+        const dueDateText = ticket.dueDate 
+          ? ` (Due: ${new Date(ticket.dueDate).toLocaleDateString()})` 
+          : "";
+        const customerText = customer ? ` - ${customer.name}` : "";
+        
+        await storage.createNotification({
+          companyId: user.activeCompanyId,
+          recipientId: ticket.assignedToId,
+          ticketId: ticket.id,
+          type: "assigned",
+          message: `New ticket assigned: ${ticket.title}${customerText}${dueDateText}`,
+          isRead: false,
+        });
+        
+        console.log(`Created assignment notification for new ticket ${ticket.id} to user ${ticket.assignedToId}`);
+      } catch (err) {
+        console.error("Failed to create assignment notification:", err);
+        // Don't fail the creation - notification is secondary
+      }
+    }
+
     res.json(ticket);
   });
 
