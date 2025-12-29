@@ -49,6 +49,7 @@ import {
   Layers,
   Link2,
   Trash2,
+  Pencil,
 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { queryClient, apiRequest } from "@/lib/queryClient";
@@ -127,6 +128,16 @@ export default function TicketDetail() {
   // Delete ticket state
   const [showDeleteDialog, setShowDeleteDialog] = useState(false);
   
+  // Edit ticket state
+  const [showEditDialog, setShowEditDialog] = useState(false);
+  const [editForm, setEditForm] = useState({
+    title: "",
+    description: "",
+    priority: "normal" as "low" | "normal" | "high" | "urgent",
+    dueDate: "",
+    workCompletedDate: "",
+  });
+  
   // Navigation for redirects
   const [, setLocation] = useLocation();
   
@@ -135,6 +146,9 @@ export default function TicketDetail() {
   
   // Check if current user can delete tickets (admin or office)
   const canDelete = currentUser?.activeRole === "admin" || currentUser?.activeRole === "office" || currentUser?.isSuperAdminBool;
+  
+  // Check if current user can edit ticket details (admin only)
+  const canEdit = currentUser?.activeRole === "admin" || currentUser?.isSuperAdminBool;
 
   const { data: details, isLoading } = useQuery<TicketDetails>({
     queryKey: ["/api/tickets", ticketId, "details"],
@@ -198,6 +212,28 @@ export default function TicketDetail() {
     },
     onError: (error: Error) => {
       toast({ title: "Failed to delete ticket", description: error.message, variant: "destructive" });
+    },
+  });
+
+  // Mutation to edit ticket details
+  const editTicketMutation = useMutation({
+    mutationFn: async (updates: {
+      title?: string;
+      description?: string;
+      priority?: "low" | "normal" | "high" | "urgent";
+      dueDate?: Date | null;
+      workCompletedDate?: Date | null;
+    }) => {
+      return apiRequest("PATCH", `/api/tickets/${ticketId}`, updates);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/tickets", ticketId, "details"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/tickets"] });
+      setShowEditDialog(false);
+      toast({ title: "Ticket updated successfully" });
+    },
+    onError: (error: Error) => {
+      toast({ title: "Failed to update ticket", description: error.message, variant: "destructive" });
     },
   });
 
@@ -521,6 +557,32 @@ export default function TicketDetail() {
     toast({ title: "You can create an Invoice later from this ticket" });
   };
 
+  // Open edit dialog and populate form with current values
+  const handleOpenEdit = () => {
+    if (!details) return;
+    const { ticket } = details;
+    setEditForm({
+      title: ticket.title || "",
+      description: ticket.description || "",
+      priority: ticket.priority || "normal",
+      dueDate: ticket.dueDate ? format(new Date(ticket.dueDate), "yyyy-MM-dd") : "",
+      workCompletedDate: ticket.workCompletedDate ? format(new Date(ticket.workCompletedDate), "yyyy-MM-dd") : "",
+    });
+    setShowEditDialog(true);
+  };
+
+  // Save ticket edits
+  const handleSaveEdit = () => {
+    const updates: any = {
+      title: editForm.title,
+      description: editForm.description || null,
+      priority: editForm.priority,
+      dueDate: editForm.dueDate ? new Date(editForm.dueDate) : null,
+      workCompletedDate: editForm.workCompletedDate ? new Date(editForm.workCompletedDate) : null,
+    };
+    editTicketMutation.mutate(updates);
+  };
+
   return (
     <div className="space-y-4 pb-24">
       <div className="flex items-center gap-2">
@@ -543,6 +605,16 @@ export default function TicketDetail() {
             {ticket.title}
           </h1>
         </div>
+        {canEdit && (
+          <Button 
+            variant="ghost" 
+            size="icon" 
+            onClick={handleOpenEdit}
+            data-testid="button-edit-ticket"
+          >
+            <Pencil className="w-5 h-5" />
+          </Button>
+        )}
         {canDelete && (
           <Button 
             variant="ghost" 
@@ -1497,6 +1569,103 @@ export default function TicketDetail() {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      {/* Edit Ticket Dialog */}
+      <Dialog open={showEditDialog} onOpenChange={setShowEditDialog}>
+        <DialogContent className="sm:max-w-lg">
+          <DialogHeader>
+            <DialogTitle>Edit Ticket</DialogTitle>
+            <DialogDescription>
+              Update the ticket details below.
+            </DialogDescription>
+          </DialogHeader>
+          
+          <div className="space-y-4 py-4">
+            <div className="space-y-2">
+              <Label htmlFor="edit-title">Title</Label>
+              <Input
+                id="edit-title"
+                value={editForm.title}
+                onChange={(e) => setEditForm(prev => ({ ...prev, title: e.target.value }))}
+                placeholder="Ticket title"
+                data-testid="input-edit-title"
+              />
+            </div>
+            
+            <div className="space-y-2">
+              <Label htmlFor="edit-description">Description</Label>
+              <Textarea
+                id="edit-description"
+                value={editForm.description}
+                onChange={(e) => setEditForm(prev => ({ ...prev, description: e.target.value }))}
+                placeholder="Ticket description (optional)"
+                rows={3}
+                data-testid="input-edit-description"
+              />
+            </div>
+            
+            <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <Label htmlFor="edit-priority">Priority</Label>
+                <Select 
+                  value={editForm.priority} 
+                  onValueChange={(value: "low" | "normal" | "high" | "urgent") => 
+                    setEditForm(prev => ({ ...prev, priority: value }))
+                  }
+                >
+                  <SelectTrigger id="edit-priority" data-testid="select-edit-priority">
+                    <SelectValue placeholder="Select priority" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="low">Low</SelectItem>
+                    <SelectItem value="normal">Normal</SelectItem>
+                    <SelectItem value="high">High</SelectItem>
+                    <SelectItem value="urgent">Urgent</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              
+              <div className="space-y-2">
+                <Label htmlFor="edit-dueDate">Due Date</Label>
+                <Input
+                  id="edit-dueDate"
+                  type="date"
+                  value={editForm.dueDate}
+                  onChange={(e) => setEditForm(prev => ({ ...prev, dueDate: e.target.value }))}
+                  data-testid="input-edit-dueDate"
+                />
+              </div>
+            </div>
+            
+            <div className="space-y-2">
+              <Label htmlFor="edit-workCompletedDate">Work Completed Date</Label>
+              <Input
+                id="edit-workCompletedDate"
+                type="date"
+                value={editForm.workCompletedDate}
+                onChange={(e) => setEditForm(prev => ({ ...prev, workCompletedDate: e.target.value }))}
+                data-testid="input-edit-workCompletedDate"
+              />
+            </div>
+          </div>
+          
+          <DialogFooter className="gap-2">
+            <Button variant="outline" onClick={() => setShowEditDialog(false)}>
+              Cancel
+            </Button>
+            <Button 
+              onClick={handleSaveEdit}
+              disabled={editTicketMutation.isPending || !editForm.title.trim()}
+              data-testid="button-save-edit"
+            >
+              {editTicketMutation.isPending ? (
+                <Loader2 className="w-4 h-4 animate-spin mr-2" />
+              ) : null}
+              Save Changes
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
