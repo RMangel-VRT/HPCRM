@@ -30,6 +30,7 @@ import {
   FormMessage,
 } from "@/components/ui/form";
 import { Edit, Plus, Users, FileText, MessageSquare, MapPin, BarChart3, Upload, Download, Eye, Paperclip, History, RefreshCw, DollarSign, Map, Layers, Trash2, X, Ticket, Building, Check, Loader2 } from "lucide-react";
+import { Switch } from "@/components/ui/switch";
 import StatusBadge from "@/components/StatusBadge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion";
@@ -82,8 +83,27 @@ function ContractCard({ contract, customerId, canUploadDocuments, onUploadClick,
   const [localAmounts, setLocalAmounts] = useState<Record<number, string>>({});
   const [hasChanges, setHasChanges] = useState(false);
   const [isEditingAmounts, setIsEditingAmounts] = useState(false);
+  const [billingMode, setBillingMode] = useState<"variable" | "even">("variable");
+  const [evenMonthlyAmount, setEvenMonthlyAmount] = useState<string>("0.00");
   
   const monthNames = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+  
+  // Detect billing mode from existing amounts - if all non-zero amounts are the same, it's "even"
+  useEffect(() => {
+    if (monthlyAmounts.length > 0) {
+      const nonZeroAmounts = monthlyAmounts.filter(a => a.amount > 0);
+      if (nonZeroAmounts.length > 0) {
+        const firstAmount = nonZeroAmounts[0].amount;
+        const allSame = nonZeroAmounts.every(a => a.amount === firstAmount);
+        if (allSame && nonZeroAmounts.length === 12) {
+          setBillingMode("even");
+          setEvenMonthlyAmount((firstAmount / 100).toFixed(2));
+        } else {
+          setBillingMode("variable");
+        }
+      }
+    }
+  }, [monthlyAmounts]);
   
   const initializedAmounts = useMemo(() => {
     const amounts: Record<number, string> = {};
@@ -101,12 +121,16 @@ function ContractCard({ contract, customerId, canUploadDocuments, onUploadClick,
   }, [initializedAmounts, hasChanges, monthlyAmounts.length]);
   
   const annualTotal = useMemo(() => {
+    if (billingMode === "even") {
+      const monthlyVal = parseFloat(evenMonthlyAmount) || 0;
+      return monthlyVal * 12;
+    }
     const amounts = Object.keys(localAmounts).length > 0 ? localAmounts : initializedAmounts;
     return Object.values(amounts).reduce((sum, val) => {
       const num = parseFloat(val) || 0;
       return sum + num;
     }, 0);
-  }, [localAmounts, initializedAmounts]);
+  }, [localAmounts, initializedAmounts, billingMode, evenMonthlyAmount]);
   
   const handleAmountChange = (month: number, value: string) => {
     // Allow empty string during editing, or valid decimal numbers
@@ -127,8 +151,27 @@ function ContractCard({ contract, customerId, canUploadDocuments, onUploadClick,
     return true;
   };
 
+  const handleEvenAmountChange = (value: string) => {
+    if (value !== "" && !/^\d*\.?\d{0,2}$/.test(value)) return;
+    setEvenMonthlyAmount(value);
+    setHasChanges(true);
+  };
+
   const saveMutation = useMutation({
     mutationFn: async () => {
+      if (billingMode === "even") {
+        const evenVal = parseFloat(evenMonthlyAmount);
+        if (isNaN(evenVal) || evenVal < 0) {
+          throw new Error("Monthly amount must be a non-negative number");
+        }
+        const amountCents = Math.round(evenVal * 100);
+        const data = Array.from({ length: 12 }, (_, i) => ({
+          month: i + 1,
+          amount: amountCents,
+        }));
+        return await apiRequest("PUT", `/api/contracts/${contract.id}/monthly-amounts`, data);
+      }
+      
       if (!validateAmounts()) {
         throw new Error("All monthly amounts must be non-negative numbers");
       }
@@ -356,6 +399,22 @@ function ContractCard({ contract, customerId, canUploadDocuments, onUploadClick,
                     setLocalAmounts(initializedAmounts);
                     setHasChanges(false);
                     setIsEditingAmounts(false);
+                    // Reset billing mode to detected state
+                    if (monthlyAmounts.length > 0) {
+                      const nonZeroAmounts = monthlyAmounts.filter(a => a.amount > 0);
+                      if (nonZeroAmounts.length === 12) {
+                        const firstAmount = nonZeroAmounts[0].amount;
+                        const allSame = nonZeroAmounts.every(a => a.amount === firstAmount);
+                        if (allSame) {
+                          setBillingMode("even");
+                          setEvenMonthlyAmount((firstAmount / 100).toFixed(2));
+                        } else {
+                          setBillingMode("variable");
+                        }
+                      } else {
+                        setBillingMode("variable");
+                      }
+                    }
                   }}
                   data-testid="button-cancel-amounts"
                 >
@@ -364,7 +423,7 @@ function ContractCard({ contract, customerId, canUploadDocuments, onUploadClick,
                 <Button 
                   size="sm" 
                   onClick={() => {
-                    if (!validateAmounts()) {
+                    if (billingMode === "variable" && !validateAmounts()) {
                       toast({
                         title: "Invalid amounts",
                         description: "All monthly amounts must be non-negative numbers",
@@ -382,43 +441,98 @@ function ContractCard({ contract, customerId, canUploadDocuments, onUploadClick,
               </div>
             )}
           </div>
+          
+          {/* Billing Mode Toggle - only shown when editing */}
+          {isEditingAmounts && (
+            <div className="flex items-center gap-3 mb-3 p-2 bg-muted/30 rounded-md">
+              <span className={`text-sm ${billingMode === "variable" ? "font-medium" : "text-muted-foreground"}`}>
+                Variable
+              </span>
+              <Switch
+                checked={billingMode === "even"}
+                onCheckedChange={(checked) => {
+                  const newMode = checked ? "even" : "variable";
+                  setBillingMode(newMode);
+                  setHasChanges(true);
+                  // If switching to even, calculate from current amounts
+                  if (newMode === "even") {
+                    const currentTotal = Object.values(
+                      Object.keys(localAmounts).length > 0 ? localAmounts : initializedAmounts
+                    ).reduce((sum, val) => sum + (parseFloat(val) || 0), 0);
+                    setEvenMonthlyAmount((currentTotal / 12).toFixed(2));
+                  }
+                }}
+                data-testid="switch-billing-mode"
+              />
+              <span className={`text-sm ${billingMode === "even" ? "font-medium" : "text-muted-foreground"}`}>
+                Even
+              </span>
+            </div>
+          )}
+          
           {isLoadingAmounts ? (
             <Skeleton className="h-32 w-full" />
           ) : (
             <div className="space-y-3">
-              <div className="grid grid-cols-3 gap-2">
-                {monthNames.map((monthName, index) => {
-                  const month = index + 1;
-                  const amounts = Object.keys(localAmounts).length > 0 ? localAmounts : initializedAmounts;
-                  const value = amounts[month] || "0.00";
-                  
-                  return (
-                    <div key={month}>
-                      <label className="text-xs text-muted-foreground mb-1 block">
-                        {monthName}
-                      </label>
-                      {isEditingAmounts ? (
-                        <div className="relative">
-                          <span className="absolute left-2 top-1/2 -translate-y-1/2 text-sm text-muted-foreground">
-                            $
-                          </span>
-                          <Input
-                            type="text"
-                            value={value}
-                            onChange={(e) => handleAmountChange(month, e.target.value)}
-                            className="pl-5 text-sm"
-                            data-testid={`input-month-${month}`}
-                          />
-                        </div>
-                      ) : (
-                        <p className="text-sm font-medium" data-testid={`text-month-${month}`}>
-                          ${value}
-                        </p>
-                      )}
-                    </div>
-                  );
-                })}
-              </div>
+              {billingMode === "even" && isEditingAmounts ? (
+                /* Even mode - single input for all months */
+                <div className="p-3 border rounded-md">
+                  <label className="text-sm text-muted-foreground mb-2 block">
+                    Same amount for all 12 months
+                  </label>
+                  <div className="relative max-w-xs">
+                    <span className="absolute left-3 top-1/2 -translate-y-1/2 text-sm text-muted-foreground">
+                      $
+                    </span>
+                    <Input
+                      type="text"
+                      value={evenMonthlyAmount}
+                      onChange={(e) => handleEvenAmountChange(e.target.value)}
+                      className="pl-6 text-lg font-medium"
+                      placeholder="0.00"
+                      data-testid="input-even-amount"
+                    />
+                  </div>
+                  <p className="text-xs text-muted-foreground mt-2">
+                    This amount will be applied to each of the 12 months
+                  </p>
+                </div>
+              ) : (
+                /* Variable mode - grid of 12 inputs */
+                <div className="grid grid-cols-3 gap-2">
+                  {monthNames.map((monthName, index) => {
+                    const month = index + 1;
+                    const amounts = Object.keys(localAmounts).length > 0 ? localAmounts : initializedAmounts;
+                    const value = amounts[month] || "0.00";
+                    
+                    return (
+                      <div key={month}>
+                        <label className="text-xs text-muted-foreground mb-1 block">
+                          {monthName}
+                        </label>
+                        {isEditingAmounts ? (
+                          <div className="relative">
+                            <span className="absolute left-2 top-1/2 -translate-y-1/2 text-sm text-muted-foreground">
+                              $
+                            </span>
+                            <Input
+                              type="text"
+                              value={value}
+                              onChange={(e) => handleAmountChange(month, e.target.value)}
+                              className="pl-5 text-sm"
+                              data-testid={`input-month-${month}`}
+                            />
+                          </div>
+                        ) : (
+                          <p className="text-sm font-medium" data-testid={`text-month-${month}`}>
+                            ${value}
+                          </p>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
               <div className="flex items-center justify-between pt-2 border-t">
                 <p className="text-sm font-medium">Annual Total</p>
                 <p className="text-lg font-semibold" data-testid="text-annual-total">
