@@ -311,7 +311,7 @@ export default function NewTicket() {
         locationLng: locationLng,
         locationLabel: locationLabel || null,
         locationDescription: locationDescription || null,
-        photos: !isRFPRequest && !isInvoice && photos.length > 0 ? photos.map(p => p.path) : null,
+        photos: !isRFPRequest && photos.length > 0 ? photos.map(p => p.path) : null,
         // Invoice-specific fields
         workCompletedDate: isInvoice && workCompletedDate ? new Date(workCompletedDate) : null,
         // RFP-specific fields to be saved after ticket creation
@@ -974,8 +974,8 @@ export default function NewTicket() {
               )}
             </div>
 
-            {/* Photo upload - hidden for RFP and Invoice requests */}
-            {!isRFPRequest && !isInvoice && (
+            {/* Photo upload - hidden for RFP requests only */}
+            {!isRFPRequest && (
               <div className="space-y-2">
                 <Label>Photos (optional)</Label>
                 <div className="space-y-3">
