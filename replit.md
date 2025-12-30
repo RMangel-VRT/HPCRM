@@ -32,6 +32,15 @@ A KML-based layer mapping system for field crews to view property zones and serv
 #### Ticket Notifications System
 An in-app notification system for ticket assignments, completions, and due date reminders. Notifications are stored in `ticket_notifications` and triggered by assignment, completion, and a background service for due dates. Users can view, mark as read, and navigate to related tickets from a header dropdown.
 
+#### Property Management System
+Tracks Property Management Companies and Property Managers with full integration into the customer management system. Property Managers belong to Property Management Companies (many-to-one via `propertyManagementCompanyId`). Customers can optionally link to both a company and manager. The system includes:
+- Settings tab for managing Companies and Managers with add/edit/delete dialogs
+- Customer edit form with company/manager selection dropdowns (managers filtered by selected company)
+- Customer detail page displays linked property management info
+- Data integrity validation: Frontend clears manager selection when company changes; Backend auto-clears manager when company is cleared or changed to a different company, and validates manager/company relationships on all updates
+
+Tables: `property_management_companies`, `property_managers`
+
 #### First-Time Setup Flow
 When deployed to production with an empty database (no users), the app automatically shows a setup page instead of login. This allows the first admin to create their company and account. The setup page creates the company, admin user, company membership, and default settings, then auto-logs in. Once any user exists, the setup page becomes inaccessible for security.
 

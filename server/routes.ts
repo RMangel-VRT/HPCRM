@@ -629,7 +629,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       // Company is changing but no manager in payload - check if existing manager is valid
       const existingCustomer = await storage.getCustomer(req.params.id, user.activeCompanyId);
       if (existingCustomer?.propertyManagerId) {
-        const existingManager = await storage.getPropertyManager(existingCustomer.propertyManagerId, user.activeCompanyId);
+        const existingManager = await storage.getPropertyManagerById(existingCustomer.propertyManagerId, user.activeCompanyId);
         // If existing manager doesn't belong to new company, clear it
         if (!existingManager || existingManager.propertyManagementCompanyId !== result.data.propertyManagementCompanyId) {
           result.data.propertyManagerId = null;
@@ -653,7 +653,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(400).send("Cannot assign a property manager without a property management company");
       }
       
-      const manager = await storage.getPropertyManager(result.data.propertyManagerId, user.activeCompanyId);
+      const manager = await storage.getPropertyManagerById(result.data.propertyManagerId, user.activeCompanyId);
       if (!manager || manager.propertyManagementCompanyId !== companyIdToCheck) {
         return res.status(400).send("Property manager does not belong to the selected property management company");
       }
