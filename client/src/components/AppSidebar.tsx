@@ -115,7 +115,7 @@ export default function AppSidebar({
     ? [{ title: "Team", url: "/dashboard/users", icon: Users }]
     : [];
 
-  const adminItems = (!isSuperAdmin && userRole === "admin")
+  const adminItems = (!isSuperAdmin && (userRole === "admin" || userRole === "office"))
     ? [{ title: "Settings", url: "/dashboard/settings", icon: Settings }]
     : [];
 
