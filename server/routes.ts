@@ -627,7 +627,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     // If company is being changed (non-null), validate or clear the existing manager
     if (hasCompanyId && result.data.propertyManagementCompanyId && !hasManagerId) {
       // Company is changing but no manager in payload - check if existing manager is valid
-      const existingCustomer = await storage.getCustomer(req.params.id, user.activeCompanyId);
+      const existingCustomer = await storage.getCustomerById(req.params.id, user.activeCompanyId);
       if (existingCustomer?.propertyManagerId) {
         const existingManager = await storage.getPropertyManagerById(existingCustomer.propertyManagerId, user.activeCompanyId);
         // If existing manager doesn't belong to new company, clear it
@@ -643,7 +643,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       
       if (!hasCompanyId) {
         // propertyManagementCompanyId not in update payload - fetch from existing customer
-        const existingCustomer = await storage.getCustomer(req.params.id, user.activeCompanyId);
+        const existingCustomer = await storage.getCustomerById(req.params.id, user.activeCompanyId);
         if (existingCustomer) {
           companyIdToCheck = existingCustomer.propertyManagementCompanyId;
         }
@@ -4479,6 +4479,197 @@ export async function registerRoutes(app: Express): Promise<Server> {
     
     await storage.deletePropertyManager(req.params.id, user.activeCompanyId);
     res.json({ success: true });
+  });
+
+  // Get property manager with all contact info (emails and phones)
+  app.get("/api/property-managers/:id/contacts", async (req, res) => {
+    if (!req.isAuthenticated()) {
+      return res.status(401).send("Not authenticated");
+    }
+    const user = req.user as UserWithContext;
+    
+    const managerWithContacts = await storage.getPropertyManagerWithContacts(req.params.id, user.activeCompanyId);
+    if (!managerWithContacts) {
+      return res.status(404).send("Property manager not found");
+    }
+    res.json(managerWithContacts);
+  });
+
+  // Property Manager Emails
+  app.get("/api/property-managers/:managerId/emails", async (req, res) => {
+    if (!req.isAuthenticated()) {
+      return res.status(401).send("Not authenticated");
+    }
+    const user = req.user as UserWithContext;
+    
+    const emails = await storage.getPropertyManagerEmails(req.params.managerId, user.activeCompanyId);
+    res.json(emails);
+  });
+
+  app.post("/api/property-managers/:managerId/emails", async (req, res) => {
+    if (!req.isAuthenticated()) {
+      return res.status(401).send("Not authenticated");
+    }
+    const user = req.user as UserWithContext;
+    
+    if (user.activeRole !== "admin" && user.activeRole !== "office") {
+      return res.status(403).send("Insufficient permissions");
+    }
+    
+    const email = await storage.createPropertyManagerEmail({
+      ...req.body,
+      propertyManagerId: req.params.managerId,
+      companyId: user.activeCompanyId,
+    });
+    res.json(email);
+  });
+
+  app.patch("/api/property-manager-emails/:id", async (req, res) => {
+    if (!req.isAuthenticated()) {
+      return res.status(401).send("Not authenticated");
+    }
+    const user = req.user as UserWithContext;
+    
+    if (user.activeRole !== "admin" && user.activeRole !== "office") {
+      return res.status(403).send("Insufficient permissions");
+    }
+    
+    const email = await storage.updatePropertyManagerEmail(req.params.id, user.activeCompanyId, req.body);
+    if (!email) {
+      return res.status(404).send("Email not found");
+    }
+    res.json(email);
+  });
+
+  app.delete("/api/property-manager-emails/:id", async (req, res) => {
+    if (!req.isAuthenticated()) {
+      return res.status(401).send("Not authenticated");
+    }
+    const user = req.user as UserWithContext;
+    
+    if (user.activeRole !== "admin" && user.activeRole !== "office") {
+      return res.status(403).send("Insufficient permissions");
+    }
+    
+    await storage.deletePropertyManagerEmail(req.params.id, user.activeCompanyId);
+    res.json({ success: true });
+  });
+
+  // Property Manager Phones
+  app.get("/api/property-managers/:managerId/phones", async (req, res) => {
+    if (!req.isAuthenticated()) {
+      return res.status(401).send("Not authenticated");
+    }
+    const user = req.user as UserWithContext;
+    
+    const phones = await storage.getPropertyManagerPhones(req.params.managerId, user.activeCompanyId);
+    res.json(phones);
+  });
+
+  app.post("/api/property-managers/:managerId/phones", async (req, res) => {
+    if (!req.isAuthenticated()) {
+      return res.status(401).send("Not authenticated");
+    }
+    const user = req.user as UserWithContext;
+    
+    if (user.activeRole !== "admin" && user.activeRole !== "office") {
+      return res.status(403).send("Insufficient permissions");
+    }
+    
+    const phone = await storage.createPropertyManagerPhone({
+      ...req.body,
+      propertyManagerId: req.params.managerId,
+      companyId: user.activeCompanyId,
+    });
+    res.json(phone);
+  });
+
+  app.patch("/api/property-manager-phones/:id", async (req, res) => {
+    if (!req.isAuthenticated()) {
+      return res.status(401).send("Not authenticated");
+    }
+    const user = req.user as UserWithContext;
+    
+    if (user.activeRole !== "admin" && user.activeRole !== "office") {
+      return res.status(403).send("Insufficient permissions");
+    }
+    
+    const phone = await storage.updatePropertyManagerPhone(req.params.id, user.activeCompanyId, req.body);
+    if (!phone) {
+      return res.status(404).send("Phone not found");
+    }
+    res.json(phone);
+  });
+
+  app.delete("/api/property-manager-phones/:id", async (req, res) => {
+    if (!req.isAuthenticated()) {
+      return res.status(401).send("Not authenticated");
+    }
+    const user = req.user as UserWithContext;
+    
+    if (user.activeRole !== "admin" && user.activeRole !== "office") {
+      return res.status(403).send("Insufficient permissions");
+    }
+    
+    await storage.deletePropertyManagerPhone(req.params.id, user.activeCompanyId);
+    res.json({ success: true });
+  });
+
+  // Bulk update property manager contacts (replaces all emails and phones)
+  app.put("/api/property-managers/:id/contacts", async (req, res) => {
+    if (!req.isAuthenticated()) {
+      return res.status(401).send("Not authenticated");
+    }
+    const user = req.user as UserWithContext;
+    
+    if (user.activeRole !== "admin" && user.activeRole !== "office") {
+      return res.status(403).send("Insufficient permissions");
+    }
+    
+    const { emails, phones } = req.body;
+    const managerId = req.params.id;
+    const companyId = user.activeCompanyId;
+    
+    // Verify manager exists
+    const manager = await storage.getPropertyManagerById(managerId, companyId);
+    if (!manager) {
+      return res.status(404).send("Property manager not found");
+    }
+    
+    // Delete existing emails and phones
+    await storage.deletePropertyManagerEmailsByManager(managerId, companyId);
+    await storage.deletePropertyManagerPhonesByManager(managerId, companyId);
+    
+    // Create new emails
+    const createdEmails = [];
+    if (emails && Array.isArray(emails)) {
+      for (const email of emails) {
+        const created = await storage.createPropertyManagerEmail({
+          propertyManagerId: managerId,
+          companyId,
+          email: email.email,
+          isPrimary: email.isPrimary || "false",
+        });
+        createdEmails.push(created);
+      }
+    }
+    
+    // Create new phones
+    const createdPhones = [];
+    if (phones && Array.isArray(phones)) {
+      for (const phone of phones) {
+        const created = await storage.createPropertyManagerPhone({
+          propertyManagerId: managerId,
+          companyId,
+          phone: phone.phone,
+          phoneType: phone.phoneType || "company",
+          isPrimary: phone.isPrimary || "false",
+        });
+        createdPhones.push(created);
+      }
+    }
+    
+    res.json({ emails: createdEmails, phones: createdPhones });
   });
 
   const httpServer = createServer(app);
