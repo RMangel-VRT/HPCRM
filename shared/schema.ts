@@ -109,6 +109,7 @@ export const contacts = pgTable("contacts", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
   companyId: varchar("company_id").notNull().references(() => companies.id, { onDelete: "cascade" }),
   customerId: varchar("customer_id").notNull().references(() => customers.id, { onDelete: "cascade" }),
+  propertyManagerId: varchar("property_manager_id"),
   name: text("name").notNull(),
   phones: text("phones").array().default(sql`ARRAY[]::text[]`),
   emails: text("emails").array().default(sql`ARRAY[]::text[]`),
@@ -983,3 +984,51 @@ export const insertPropertyManagerSchema = createInsertSchema(propertyManagers).
 
 export type InsertPropertyManager = z.infer<typeof insertPropertyManagerSchema>;
 export type PropertyManager = typeof propertyManagers.$inferSelect;
+
+// Property Manager Emails - multiple emails per manager
+export const propertyManagerEmails = pgTable("property_manager_emails", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  companyId: varchar("company_id").notNull().references(() => companies.id, { onDelete: "cascade" }),
+  propertyManagerId: varchar("property_manager_id").notNull().references(() => propertyManagers.id, { onDelete: "cascade" }),
+  email: text("email").notNull(),
+  isPrimary: text("is_primary").notNull().default("false").$type<"true" | "false">(),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+});
+
+export const insertPropertyManagerEmailSchema = createInsertSchema(propertyManagerEmails).omit({
+  id: true,
+  createdAt: true,
+}).extend({
+  isPrimary: z.enum(["true", "false"]).default("false"),
+});
+
+export type InsertPropertyManagerEmail = z.infer<typeof insertPropertyManagerEmailSchema>;
+export type PropertyManagerEmail = typeof propertyManagerEmails.$inferSelect;
+
+// Property Manager Phones - multiple phones per manager with type (personal/company)
+export const propertyManagerPhones = pgTable("property_manager_phones", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  companyId: varchar("company_id").notNull().references(() => companies.id, { onDelete: "cascade" }),
+  propertyManagerId: varchar("property_manager_id").notNull().references(() => propertyManagers.id, { onDelete: "cascade" }),
+  phone: text("phone").notNull(),
+  phoneType: text("phone_type").notNull().default("company").$type<"personal" | "company">(),
+  isPrimary: text("is_primary").notNull().default("false").$type<"true" | "false">(),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+});
+
+export const insertPropertyManagerPhoneSchema = createInsertSchema(propertyManagerPhones).omit({
+  id: true,
+  createdAt: true,
+}).extend({
+  phoneType: z.enum(["personal", "company"]).default("company"),
+  isPrimary: z.enum(["true", "false"]).default("false"),
+});
+
+export type InsertPropertyManagerPhone = z.infer<typeof insertPropertyManagerPhoneSchema>;
+export type PropertyManagerPhone = typeof propertyManagerPhones.$inferSelect;
+
+// Extended type for property manager with emails and phones
+export type PropertyManagerWithContacts = PropertyManager & {
+  emails: PropertyManagerEmail[];
+  phones: PropertyManagerPhone[];
+};
