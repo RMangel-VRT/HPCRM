@@ -615,6 +615,50 @@ export async function registerRoutes(app: Express): Promise<Server> {
       return res.status(400).send(result.error.message);
     }
 
+    // Validate property manager belongs to property management company
+    const hasManagerId = result.data.propertyManagerId !== undefined;
+    const hasCompanyId = result.data.propertyManagementCompanyId !== undefined;
+    
+    // If company is being cleared to null, also clear the manager
+    if (hasCompanyId && result.data.propertyManagementCompanyId === null) {
+      result.data.propertyManagerId = null;
+    }
+    
+    // If company is being changed (non-null), validate or clear the existing manager
+    if (hasCompanyId && result.data.propertyManagementCompanyId && !hasManagerId) {
+      // Company is changing but no manager in payload - check if existing manager is valid
+      const existingCustomer = await storage.getCustomer(req.params.id, user.activeCompanyId);
+      if (existingCustomer?.propertyManagerId) {
+        const existingManager = await storage.getPropertyManager(existingCustomer.propertyManagerId, user.activeCompanyId);
+        // If existing manager doesn't belong to new company, clear it
+        if (!existingManager || existingManager.propertyManagementCompanyId !== result.data.propertyManagementCompanyId) {
+          result.data.propertyManagerId = null;
+        }
+      }
+    }
+    
+    if (hasManagerId && result.data.propertyManagerId) {
+      // Get the company ID - either from the update data or from existing customer
+      let companyIdToCheck = result.data.propertyManagementCompanyId;
+      
+      if (!hasCompanyId) {
+        // propertyManagementCompanyId not in update payload - fetch from existing customer
+        const existingCustomer = await storage.getCustomer(req.params.id, user.activeCompanyId);
+        if (existingCustomer) {
+          companyIdToCheck = existingCustomer.propertyManagementCompanyId;
+        }
+      }
+      
+      if (!companyIdToCheck) {
+        return res.status(400).send("Cannot assign a property manager without a property management company");
+      }
+      
+      const manager = await storage.getPropertyManager(result.data.propertyManagerId, user.activeCompanyId);
+      if (!manager || manager.propertyManagementCompanyId !== companyIdToCheck) {
+        return res.status(400).send("Property manager does not belong to the selected property management company");
+      }
+    }
+
     // Parse expectedUpdatedAt if provided
     const expectedDate = expectedUpdatedAt ? new Date(expectedUpdatedAt) : undefined;
     

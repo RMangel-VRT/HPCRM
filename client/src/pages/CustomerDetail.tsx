@@ -2,7 +2,7 @@ import { useState, useRef, useMemo, useEffect } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { useRoute, useLocation } from "wouter";
 import { useSetBreadcrumbs } from "@/hooks/use-breadcrumbs";
-import type { Customer, Contact, Note, Contract, ContractDocument, ContractMonthlyAmount, CustomerRateSheet, InsertContract, InsertContact, InsertNote, InsertCustomer, CustomerMapLayer } from "@shared/schema";
+import type { Customer, Contact, Note, Contract, ContractDocument, ContractMonthlyAmount, CustomerRateSheet, InsertContract, InsertContact, InsertNote, InsertCustomer, CustomerMapLayer, PropertyManagementCompany, PropertyManager } from "@shared/schema";
 import { insertContractSchema, insertContactSchema, insertNoteSchema, insertCustomerSchema } from "@shared/schema";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -905,6 +905,15 @@ export default function CustomerDetail() {
     queryKey: ["/api/customers", id, "contracts"],
     enabled: !!id,
   });
+  
+  // Property Management queries
+  const { data: pmCompanies = [] } = useQuery<PropertyManagementCompany[]>({
+    queryKey: ["/api/property-management-companies"],
+  });
+  
+  const { data: pmManagers = [] } = useQuery<PropertyManager[]>({
+    queryKey: ["/api/property-managers"],
+  });
 
   const canUploadDocuments = user?.activeRole === "admin" || user?.activeRole === "office";
   const canEditContracts = user?.activeRole === "admin" || user?.activeRole === "office";
@@ -984,6 +993,8 @@ export default function CustomerDetail() {
       acres: customer?.acres || "",
       complexityScore: customer?.complexityScore || undefined,
       active: customer?.active || "true",
+      propertyManagementCompanyId: customer?.propertyManagementCompanyId || null,
+      propertyManagerId: customer?.propertyManagerId || null,
     },
   });
 
@@ -1001,9 +1012,23 @@ export default function CustomerDetail() {
         acres: customer.acres || "",
         complexityScore: customer.complexityScore || undefined,
         active: customer.active,
+        propertyManagementCompanyId: customer.propertyManagementCompanyId || null,
+        propertyManagerId: customer.propertyManagerId || null,
       });
     }
   }, [customer, customerForm, isEditCustomerDialogOpen]);
+  
+  // Clear property manager when company changes
+  const watchedPmCompanyId = customerForm.watch("propertyManagementCompanyId");
+  const prevPmCompanyIdRef = useRef(watchedPmCompanyId);
+  useEffect(() => {
+    // Only clear if the company ID actually changed (not on initial load)
+    if (prevPmCompanyIdRef.current !== undefined && prevPmCompanyIdRef.current !== watchedPmCompanyId) {
+      // Always clear manager when company changes to prevent stale data
+      customerForm.setValue("propertyManagerId", null);
+    }
+    prevPmCompanyIdRef.current = watchedPmCompanyId;
+  }, [watchedPmCompanyId, customerForm]);
 
   const updateCustomerMutation = useMutation({
     mutationFn: async (data: Omit<InsertCustomer, "companyId">) => {
@@ -1480,16 +1505,26 @@ export default function CustomerDetail() {
                   </div>
                 </div>
                 <Separator />
-                {customer.managementCompany && (
+                {(customer.propertyManagementCompanyId || customer.propertyManagerId) && (
                   <>
-                    <div>
-                      <p className="text-sm font-medium text-muted-foreground">Management Company</p>
-                      <div className="flex items-center gap-1.5 mt-1">
-                        <Building className="w-4 h-4 text-muted-foreground" />
-                        <p className="text-sm" data-testid="text-management-company">
-                          {customer.managementCompany}
-                        </p>
-                      </div>
+                    <div className="space-y-2">
+                      <p className="text-sm font-medium text-muted-foreground">Property Management</p>
+                      {customer.propertyManagementCompanyId && (
+                        <div className="flex items-center gap-1.5">
+                          <Building className="w-4 h-4 text-muted-foreground" />
+                          <p className="text-sm" data-testid="text-pm-company">
+                            {pmCompanies.find(c => c.id === customer.propertyManagementCompanyId)?.name || "Unknown Company"}
+                          </p>
+                        </div>
+                      )}
+                      {customer.propertyManagerId && (
+                        <div className="flex items-center gap-1.5 ml-5">
+                          <Users className="w-4 h-4 text-muted-foreground" />
+                          <p className="text-sm" data-testid="text-pm-manager">
+                            {pmManagers.find(m => m.id === customer.propertyManagerId)?.name || "Unknown Manager"}
+                          </p>
+                        </div>
+                      )}
                     </div>
                     <Separator />
                   </>
@@ -2470,6 +2505,70 @@ export default function CustomerDetail() {
                   </FormItem>
                 )}
               />
+              <div className="grid grid-cols-2 gap-4">
+                <FormField
+                  control={customerForm.control}
+                  name="propertyManagementCompanyId"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Property Management Company</FormLabel>
+                      <Select 
+                        onValueChange={(value) => field.onChange(value === "_none" ? null : value)} 
+                        value={field.value || "_none"}
+                      >
+                        <FormControl>
+                          <SelectTrigger data-testid="select-customer-pm-company">
+                            <SelectValue placeholder="Select company" />
+                          </SelectTrigger>
+                        </FormControl>
+                        <SelectContent>
+                          <SelectItem value="_none">None</SelectItem>
+                          {pmCompanies.map((company) => (
+                            <SelectItem key={company.id} value={company.id}>
+                              {company.name}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+                <FormField
+                  control={customerForm.control}
+                  name="propertyManagerId"
+                  render={({ field }) => {
+                    const selectedPmCompanyId = customerForm.watch("propertyManagementCompanyId");
+                    const filteredManagers = selectedPmCompanyId 
+                      ? pmManagers.filter(m => m.propertyManagementCompanyId === selectedPmCompanyId)
+                      : pmManagers;
+                    return (
+                      <FormItem>
+                        <FormLabel>Property Manager</FormLabel>
+                        <Select 
+                          onValueChange={(value) => field.onChange(value === "_none" ? null : value)} 
+                          value={field.value || "_none"}
+                        >
+                          <FormControl>
+                            <SelectTrigger data-testid="select-customer-pm-manager">
+                              <SelectValue placeholder="Select manager" />
+                            </SelectTrigger>
+                          </FormControl>
+                          <SelectContent>
+                            <SelectItem value="_none">None</SelectItem>
+                            {filteredManagers.map((manager) => (
+                              <SelectItem key={manager.id} value={manager.id}>
+                                {manager.name}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                        <FormMessage />
+                      </FormItem>
+                    );
+                  }}
+                />
+              </div>
               <DialogFooter>
                 <Button 
                   type="button" 

@@ -13,10 +13,14 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Switch } from "@/components/ui/switch";
 import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
-import { AlertTriangle } from "lucide-react";
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
+import { AlertTriangle, Building2, User, Plus, Pencil, Trash2 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest, queryClient } from "@/lib/queryClient";
-import type { Settings } from "@shared/schema";
+import type { Settings, PropertyManagementCompany, PropertyManager } from "@shared/schema";
 
 const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
 
@@ -28,6 +32,25 @@ const benchmarksSchema = z.object({
   smallPad: z.number().min(0),
   hoaStandard: z.number().min(0),
   hoaComplex: z.number().min(0),
+});
+
+const pmCompanySchema = z.object({
+  name: z.string().min(1, "Name is required"),
+  phone: z.string().optional(),
+  email: z.string().email().optional().or(z.literal("")),
+  street: z.string().optional(),
+  city: z.string().optional(),
+  state: z.string().optional(),
+  zip: z.string().optional(),
+  notes: z.string().optional(),
+});
+
+const pmManagerSchema = z.object({
+  name: z.string().min(1, "Name is required"),
+  propertyManagementCompanyId: z.string().min(1, "Company is required"),
+  phone: z.string().optional(),
+  email: z.string().email().optional().or(z.literal("")),
+  notes: z.string().optional(),
 });
 
 export default function SettingsPage() {
@@ -46,9 +69,24 @@ export default function SettingsPage() {
     qbo_write: false,
   });
   const [resetConfirmText, setResetConfirmText] = useState("");
+  
+  // Property Management state
+  const [pmCompanyDialogOpen, setPmCompanyDialogOpen] = useState(false);
+  const [pmManagerDialogOpen, setPmManagerDialogOpen] = useState(false);
+  const [editingPmCompany, setEditingPmCompany] = useState<PropertyManagementCompany | null>(null);
+  const [editingPmManager, setEditingPmManager] = useState<PropertyManager | null>(null);
 
   const { data: settings, isLoading } = useQuery<Settings>({
     queryKey: ["/api/settings"],
+  });
+  
+  // Property Management queries
+  const { data: pmCompanies = [] } = useQuery<PropertyManagementCompany[]>({
+    queryKey: ["/api/property-management-companies"],
+  });
+  
+  const { data: pmManagers = [] } = useQuery<PropertyManager[]>({
+    queryKey: ["/api/property-managers"],
   });
 
   const updateSettingsMutation = useMutation({
@@ -109,6 +147,163 @@ export default function SettingsPage() {
       hoaStandard: 45,
       hoaComplex: 55,
     },
+  });
+  
+  // Property Management forms
+  const pmCompanyForm = useForm<z.infer<typeof pmCompanySchema>>({
+    resolver: zodResolver(pmCompanySchema),
+    defaultValues: { name: "", phone: "", email: "", street: "", city: "", state: "", zip: "", notes: "" },
+  });
+  
+  const pmManagerForm = useForm<z.infer<typeof pmManagerSchema>>({
+    resolver: zodResolver(pmManagerSchema),
+    defaultValues: { name: "", propertyManagementCompanyId: "", phone: "", email: "", notes: "" },
+  });
+  
+  // Property Management mutations
+  const createPmCompanyMutation = useMutation({
+    mutationFn: async (data: z.infer<typeof pmCompanySchema>) => {
+      return await apiRequest("POST", "/api/property-management-companies", data);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/property-management-companies"] });
+      setPmCompanyDialogOpen(false);
+      setEditingPmCompany(null);
+      pmCompanyForm.reset();
+      toast({ title: "Success", description: "Property management company created." });
+    },
+    onError: () => {
+      toast({ title: "Error", description: "Failed to create company.", variant: "destructive" });
+    },
+  });
+  
+  const updatePmCompanyMutation = useMutation({
+    mutationFn: async ({ id, data }: { id: string; data: z.infer<typeof pmCompanySchema> }) => {
+      return await apiRequest("PATCH", `/api/property-management-companies/${id}`, data);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/property-management-companies"] });
+      setPmCompanyDialogOpen(false);
+      setEditingPmCompany(null);
+      pmCompanyForm.reset();
+      toast({ title: "Success", description: "Company updated." });
+    },
+    onError: () => {
+      toast({ title: "Error", description: "Failed to update company.", variant: "destructive" });
+    },
+  });
+  
+  const deletePmCompanyMutation = useMutation({
+    mutationFn: async (id: string) => {
+      return await apiRequest("DELETE", `/api/property-management-companies/${id}`);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/property-management-companies"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/property-managers"] });
+      toast({ title: "Deleted", description: "Company deleted." });
+    },
+    onError: () => {
+      toast({ title: "Error", description: "Failed to delete company.", variant: "destructive" });
+    },
+  });
+  
+  const createPmManagerMutation = useMutation({
+    mutationFn: async (data: z.infer<typeof pmManagerSchema>) => {
+      return await apiRequest("POST", "/api/property-managers", data);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/property-managers"] });
+      setPmManagerDialogOpen(false);
+      setEditingPmManager(null);
+      pmManagerForm.reset();
+      toast({ title: "Success", description: "Property manager created." });
+    },
+    onError: () => {
+      toast({ title: "Error", description: "Failed to create manager.", variant: "destructive" });
+    },
+  });
+  
+  const updatePmManagerMutation = useMutation({
+    mutationFn: async ({ id, data }: { id: string; data: z.infer<typeof pmManagerSchema> }) => {
+      return await apiRequest("PATCH", `/api/property-managers/${id}`, data);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/property-managers"] });
+      setPmManagerDialogOpen(false);
+      setEditingPmManager(null);
+      pmManagerForm.reset();
+      toast({ title: "Success", description: "Manager updated." });
+    },
+    onError: () => {
+      toast({ title: "Error", description: "Failed to update manager.", variant: "destructive" });
+    },
+  });
+  
+  const deletePmManagerMutation = useMutation({
+    mutationFn: async (id: string) => {
+      return await apiRequest("DELETE", `/api/property-managers/${id}`);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/property-managers"] });
+      toast({ title: "Deleted", description: "Manager deleted." });
+    },
+    onError: () => {
+      toast({ title: "Error", description: "Failed to delete manager.", variant: "destructive" });
+    },
+  });
+  
+  // Property Management handlers
+  const handleOpenPmCompanyDialog = (company?: PropertyManagementCompany) => {
+    if (company) {
+      setEditingPmCompany(company);
+      pmCompanyForm.reset({
+        name: company.name,
+        phone: company.phone || "",
+        email: company.email || "",
+        street: company.street || "",
+        city: company.city || "",
+        state: company.state || "",
+        zip: company.zip || "",
+        notes: company.notes || "",
+      });
+    } else {
+      setEditingPmCompany(null);
+      pmCompanyForm.reset({ name: "", phone: "", email: "", street: "", city: "", state: "", zip: "", notes: "" });
+    }
+    setPmCompanyDialogOpen(true);
+  };
+  
+  const handleOpenPmManagerDialog = (manager?: PropertyManager) => {
+    if (manager) {
+      setEditingPmManager(manager);
+      pmManagerForm.reset({
+        name: manager.name,
+        propertyManagementCompanyId: manager.propertyManagementCompanyId,
+        phone: manager.phone || "",
+        email: manager.email || "",
+        notes: manager.notes || "",
+      });
+    } else {
+      setEditingPmManager(null);
+      pmManagerForm.reset({ name: "", propertyManagementCompanyId: "", phone: "", email: "", notes: "" });
+    }
+    setPmManagerDialogOpen(true);
+  };
+  
+  const handlePmCompanySubmit = pmCompanyForm.handleSubmit((data) => {
+    if (editingPmCompany) {
+      updatePmCompanyMutation.mutate({ id: editingPmCompany.id, data });
+    } else {
+      createPmCompanyMutation.mutate(data);
+    }
+  });
+  
+  const handlePmManagerSubmit = pmManagerForm.handleSubmit((data) => {
+    if (editingPmManager) {
+      updatePmManagerMutation.mutate({ id: editingPmManager.id, data });
+    } else {
+      createPmManagerMutation.mutate(data);
+    }
   });
 
   // Initialize form values when settings load
@@ -206,10 +401,11 @@ export default function SettingsPage() {
       </div>
 
       <Tabs value={activeTab} onValueChange={setActiveTab}>
-        <TabsList>
+        <TabsList className="flex-wrap">
           <TabsTrigger value="company" data-testid="tab-company">Company</TabsTrigger>
           <TabsTrigger value="seasons" data-testid="tab-seasons">Seasons</TabsTrigger>
           <TabsTrigger value="benchmarks" data-testid="tab-benchmarks">Benchmarks</TabsTrigger>
+          <TabsTrigger value="property-management" data-testid="tab-property-management">Property Management</TabsTrigger>
           <TabsTrigger value="features" data-testid="tab-features">Feature Flags</TabsTrigger>
           <TabsTrigger value="danger" data-testid="tab-danger" className="text-destructive">Danger Zone</TabsTrigger>
         </TabsList>
@@ -389,6 +585,119 @@ export default function SettingsPage() {
           </Card>
         </TabsContent>
 
+        <TabsContent value="property-management" className="space-y-6">
+          <Card>
+            <CardHeader className="flex flex-row items-center justify-between gap-4">
+              <div>
+                <CardTitle className="flex items-center gap-2">
+                  <Building2 className="h-5 w-5" />
+                  Property Management Companies
+                </CardTitle>
+                <CardDescription>
+                  Manage companies that oversee multiple properties
+                </CardDescription>
+              </div>
+              <Button onClick={() => handleOpenPmCompanyDialog()} data-testid="button-add-pm-company">
+                <Plus className="h-4 w-4 mr-2" />
+                Add Company
+              </Button>
+            </CardHeader>
+            <CardContent>
+              {pmCompanies.length === 0 ? (
+                <p className="text-muted-foreground text-center py-4">No property management companies yet.</p>
+              ) : (
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>Name</TableHead>
+                      <TableHead>Phone</TableHead>
+                      <TableHead>Email</TableHead>
+                      <TableHead className="text-right">Actions</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {pmCompanies.map((company) => (
+                      <TableRow key={company.id} data-testid={`row-pm-company-${company.id}`}>
+                        <TableCell className="font-medium">{company.name}</TableCell>
+                        <TableCell>{company.phone || "-"}</TableCell>
+                        <TableCell>{company.email || "-"}</TableCell>
+                        <TableCell className="text-right">
+                          <div className="flex justify-end gap-2">
+                            <Button size="icon" variant="ghost" onClick={() => handleOpenPmCompanyDialog(company)} data-testid={`button-edit-pm-company-${company.id}`}>
+                              <Pencil className="h-4 w-4" />
+                            </Button>
+                            <Button size="icon" variant="ghost" onClick={() => deletePmCompanyMutation.mutate(company.id)} data-testid={`button-delete-pm-company-${company.id}`}>
+                              <Trash2 className="h-4 w-4" />
+                            </Button>
+                          </div>
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              )}
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader className="flex flex-row items-center justify-between gap-4">
+              <div>
+                <CardTitle className="flex items-center gap-2">
+                  <User className="h-5 w-5" />
+                  Property Managers
+                </CardTitle>
+                <CardDescription>
+                  Individual managers who handle specific properties
+                </CardDescription>
+              </div>
+              <Button onClick={() => handleOpenPmManagerDialog()} data-testid="button-add-pm-manager">
+                <Plus className="h-4 w-4 mr-2" />
+                Add Manager
+              </Button>
+            </CardHeader>
+            <CardContent>
+              {pmManagers.length === 0 ? (
+                <p className="text-muted-foreground text-center py-4">No property managers yet.</p>
+              ) : (
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>Name</TableHead>
+                      <TableHead>Company</TableHead>
+                      <TableHead>Phone</TableHead>
+                      <TableHead>Email</TableHead>
+                      <TableHead className="text-right">Actions</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {pmManagers.map((manager) => {
+                      const company = pmCompanies.find((c) => c.id === manager.propertyManagementCompanyId);
+                      return (
+                        <TableRow key={manager.id} data-testid={`row-pm-manager-${manager.id}`}>
+                          <TableCell className="font-medium">{manager.name}</TableCell>
+                          <TableCell>{company?.name || "-"}</TableCell>
+                          <TableCell>{manager.phone || "-"}</TableCell>
+                          <TableCell>{manager.email || "-"}</TableCell>
+                          <TableCell className="text-right">
+                            <div className="flex justify-end gap-2">
+                              <Button size="icon" variant="ghost" onClick={() => handleOpenPmManagerDialog(manager)} data-testid={`button-edit-pm-manager-${manager.id}`}>
+                                <Pencil className="h-4 w-4" />
+                              </Button>
+                              <Button size="icon" variant="ghost" onClick={() => deletePmManagerMutation.mutate(manager.id)} data-testid={`button-delete-pm-manager-${manager.id}`}>
+                                <Trash2 className="h-4 w-4" />
+                              </Button>
+                            </div>
+                          </TableCell>
+                        </TableRow>
+                      );
+                    })}
+                  </TableBody>
+                </Table>
+              )}
+            </CardContent>
+          </Card>
+        </TabsContent>
+
         <TabsContent value="features" className="space-y-6">
           <Card>
             <CardHeader>
@@ -496,6 +805,236 @@ export default function SettingsPage() {
           </Card>
         </TabsContent>
       </Tabs>
+
+      {/* Property Management Company Dialog */}
+      <Dialog open={pmCompanyDialogOpen} onOpenChange={setPmCompanyDialogOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>{editingPmCompany ? "Edit Company" : "Add Property Management Company"}</DialogTitle>
+            <DialogDescription>
+              {editingPmCompany ? "Update the company details below." : "Enter the details for the new property management company."}
+            </DialogDescription>
+          </DialogHeader>
+          <Form {...pmCompanyForm}>
+            <form onSubmit={handlePmCompanySubmit} className="space-y-4">
+              <FormField
+                control={pmCompanyForm.control}
+                name="name"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Company Name *</FormLabel>
+                    <FormControl>
+                      <Input {...field} data-testid="input-pm-company-name" />
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+              <div className="grid grid-cols-2 gap-4">
+                <FormField
+                  control={pmCompanyForm.control}
+                  name="phone"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Phone</FormLabel>
+                      <FormControl>
+                        <Input {...field} data-testid="input-pm-company-phone" />
+                      </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+                <FormField
+                  control={pmCompanyForm.control}
+                  name="email"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Email</FormLabel>
+                      <FormControl>
+                        <Input type="email" {...field} data-testid="input-pm-company-email" />
+                      </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+              </div>
+              <FormField
+                control={pmCompanyForm.control}
+                name="street"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Street Address</FormLabel>
+                    <FormControl>
+                      <Input {...field} data-testid="input-pm-company-street" />
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+              <div className="grid grid-cols-3 gap-4">
+                <FormField
+                  control={pmCompanyForm.control}
+                  name="city"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>City</FormLabel>
+                      <FormControl>
+                        <Input {...field} data-testid="input-pm-company-city" />
+                      </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+                <FormField
+                  control={pmCompanyForm.control}
+                  name="state"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>State</FormLabel>
+                      <FormControl>
+                        <Input {...field} data-testid="input-pm-company-state" />
+                      </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+                <FormField
+                  control={pmCompanyForm.control}
+                  name="zip"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>ZIP</FormLabel>
+                      <FormControl>
+                        <Input {...field} data-testid="input-pm-company-zip" />
+                      </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+              </div>
+              <FormField
+                control={pmCompanyForm.control}
+                name="notes"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Notes</FormLabel>
+                    <FormControl>
+                      <Input {...field} data-testid="input-pm-company-notes" />
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+              <DialogFooter>
+                <Button type="button" variant="outline" onClick={() => setPmCompanyDialogOpen(false)}>Cancel</Button>
+                <Button type="submit" disabled={createPmCompanyMutation.isPending || updatePmCompanyMutation.isPending} data-testid="button-save-pm-company">
+                  {createPmCompanyMutation.isPending || updatePmCompanyMutation.isPending ? "Saving..." : "Save"}
+                </Button>
+              </DialogFooter>
+            </form>
+          </Form>
+        </DialogContent>
+      </Dialog>
+
+      {/* Property Manager Dialog */}
+      <Dialog open={pmManagerDialogOpen} onOpenChange={setPmManagerDialogOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>{editingPmManager ? "Edit Manager" : "Add Property Manager"}</DialogTitle>
+            <DialogDescription>
+              {editingPmManager ? "Update the manager details below." : "Enter the details for the new property manager."}
+            </DialogDescription>
+          </DialogHeader>
+          <Form {...pmManagerForm}>
+            <form onSubmit={handlePmManagerSubmit} className="space-y-4">
+              <FormField
+                control={pmManagerForm.control}
+                name="name"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Manager Name *</FormLabel>
+                    <FormControl>
+                      <Input {...field} data-testid="input-pm-manager-name" />
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+              <FormField
+                control={pmManagerForm.control}
+                name="propertyManagementCompanyId"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Property Management Company</FormLabel>
+                    <Select value={field.value || ""} onValueChange={field.onChange}>
+                      <FormControl>
+                        <SelectTrigger data-testid="select-pm-manager-company">
+                          <SelectValue placeholder="Select a company (optional)" />
+                        </SelectTrigger>
+                      </FormControl>
+                      <SelectContent>
+                        {pmCompanies.map((company) => (
+                          <SelectItem key={company.id} value={company.id}>
+                            {company.name}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+              <div className="grid grid-cols-2 gap-4">
+                <FormField
+                  control={pmManagerForm.control}
+                  name="phone"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Phone</FormLabel>
+                      <FormControl>
+                        <Input {...field} data-testid="input-pm-manager-phone" />
+                      </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+                <FormField
+                  control={pmManagerForm.control}
+                  name="email"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Email</FormLabel>
+                      <FormControl>
+                        <Input type="email" {...field} data-testid="input-pm-manager-email" />
+                      </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+              </div>
+              <FormField
+                control={pmManagerForm.control}
+                name="notes"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Notes</FormLabel>
+                    <FormControl>
+                      <Input {...field} data-testid="input-pm-manager-notes" />
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+              <DialogFooter>
+                <Button type="button" variant="outline" onClick={() => setPmManagerDialogOpen(false)}>Cancel</Button>
+                <Button type="submit" disabled={createPmManagerMutation.isPending || updatePmManagerMutation.isPending} data-testid="button-save-pm-manager">
+                  {createPmManagerMutation.isPending || updatePmManagerMutation.isPending ? "Saving..." : "Save"}
+                </Button>
+              </DialogFooter>
+            </form>
+          </Form>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
