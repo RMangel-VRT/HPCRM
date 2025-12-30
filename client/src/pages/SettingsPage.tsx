@@ -17,10 +17,21 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
-import { AlertTriangle, Building2, User, Plus, Pencil, Trash2 } from "lucide-react";
+import { AlertTriangle, Building2, User, Plus, Pencil, Trash2, X, Phone, Mail } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest, queryClient } from "@/lib/queryClient";
-import type { Settings, PropertyManagementCompany, PropertyManager } from "@shared/schema";
+import type { Settings, PropertyManagementCompany, PropertyManager, PropertyManagerEmail, PropertyManagerPhone, PropertyManagerWithContacts } from "@shared/schema";
+
+interface ManagerEmailInput {
+  email: string;
+  isPrimary: "true" | "false";
+}
+
+interface ManagerPhoneInput {
+  phone: string;
+  phoneType: "personal" | "company";
+  isPrimary: "true" | "false";
+}
 
 const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
 
@@ -75,6 +86,8 @@ export default function SettingsPage() {
   const [pmManagerDialogOpen, setPmManagerDialogOpen] = useState(false);
   const [editingPmCompany, setEditingPmCompany] = useState<PropertyManagementCompany | null>(null);
   const [editingPmManager, setEditingPmManager] = useState<PropertyManager | null>(null);
+  const [managerEmails, setManagerEmails] = useState<ManagerEmailInput[]>([]);
+  const [managerPhones, setManagerPhones] = useState<ManagerPhoneInput[]>([]);
 
   const { data: settings, isLoading } = useQuery<Settings>({
     queryKey: ["/api/settings"],
@@ -208,14 +221,22 @@ export default function SettingsPage() {
   });
   
   const createPmManagerMutation = useMutation({
-    mutationFn: async (data: z.infer<typeof pmManagerSchema>) => {
-      return await apiRequest("POST", "/api/property-managers", data);
+    mutationFn: async (data: z.infer<typeof pmManagerSchema> & { emails: ManagerEmailInput[]; phones: ManagerPhoneInput[] }) => {
+      const { emails, phones, ...managerData } = data;
+      const response = await apiRequest("POST", "/api/property-managers", managerData);
+      const manager = await response.json() as PropertyManager;
+      if (emails.length > 0 || phones.length > 0) {
+        await apiRequest("PUT", `/api/property-managers/${manager.id}/contacts`, { emails, phones });
+      }
+      return manager;
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/property-managers"] });
       setPmManagerDialogOpen(false);
       setEditingPmManager(null);
       pmManagerForm.reset();
+      setManagerEmails([]);
+      setManagerPhones([]);
       toast({ title: "Success", description: "Property manager created." });
     },
     onError: () => {
@@ -224,14 +245,19 @@ export default function SettingsPage() {
   });
   
   const updatePmManagerMutation = useMutation({
-    mutationFn: async ({ id, data }: { id: string; data: z.infer<typeof pmManagerSchema> }) => {
-      return await apiRequest("PATCH", `/api/property-managers/${id}`, data);
+    mutationFn: async ({ id, data }: { id: string; data: z.infer<typeof pmManagerSchema> & { emails: ManagerEmailInput[]; phones: ManagerPhoneInput[] } }) => {
+      const { emails, phones, ...managerData } = data;
+      const manager = await apiRequest("PATCH", `/api/property-managers/${id}`, managerData);
+      await apiRequest("PUT", `/api/property-managers/${id}/contacts`, { emails, phones });
+      return manager;
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/property-managers"] });
       setPmManagerDialogOpen(false);
       setEditingPmManager(null);
       pmManagerForm.reset();
+      setManagerEmails([]);
+      setManagerPhones([]);
       toast({ title: "Success", description: "Manager updated." });
     },
     onError: () => {
@@ -273,7 +299,7 @@ export default function SettingsPage() {
     setPmCompanyDialogOpen(true);
   };
   
-  const handleOpenPmManagerDialog = (manager?: PropertyManager) => {
+  const handleOpenPmManagerDialog = async (manager?: PropertyManager) => {
     if (manager) {
       setEditingPmManager(manager);
       pmManagerForm.reset({
@@ -283,9 +309,22 @@ export default function SettingsPage() {
         email: manager.email || "",
         notes: manager.notes || "",
       });
+      try {
+        const response = await fetch(`/api/property-managers/${manager.id}/contacts`, { credentials: "include" });
+        if (response.ok) {
+          const data = await response.json() as PropertyManagerWithContacts;
+          setManagerEmails(data.emails.map(e => ({ email: e.email, isPrimary: e.isPrimary })));
+          setManagerPhones(data.phones.map(p => ({ phone: p.phone, phoneType: p.phoneType, isPrimary: p.isPrimary })));
+        }
+      } catch {
+        setManagerEmails([]);
+        setManagerPhones([]);
+      }
     } else {
       setEditingPmManager(null);
       pmManagerForm.reset({ name: "", propertyManagementCompanyId: "", phone: "", email: "", notes: "" });
+      setManagerEmails([]);
+      setManagerPhones([]);
     }
     setPmManagerDialogOpen(true);
   };
@@ -299,10 +338,11 @@ export default function SettingsPage() {
   });
   
   const handlePmManagerSubmit = pmManagerForm.handleSubmit((data) => {
+    const submitData = { ...data, emails: managerEmails, phones: managerPhones };
     if (editingPmManager) {
-      updatePmManagerMutation.mutate({ id: editingPmManager.id, data });
+      updatePmManagerMutation.mutate({ id: editingPmManager.id, data: submitData });
     } else {
-      createPmManagerMutation.mutate(data);
+      createPmManagerMutation.mutate(submitData);
     }
   });
 
@@ -984,33 +1024,111 @@ export default function SettingsPage() {
                   </FormItem>
                 )}
               />
-              <div className="grid grid-cols-2 gap-4">
-                <FormField
-                  control={pmManagerForm.control}
-                  name="phone"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>Phone</FormLabel>
-                      <FormControl>
-                        <Input {...field} data-testid="input-pm-manager-phone" />
-                      </FormControl>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
-                <FormField
-                  control={pmManagerForm.control}
-                  name="email"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>Email</FormLabel>
-                      <FormControl>
-                        <Input type="email" {...field} data-testid="input-pm-manager-email" />
-                      </FormControl>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
+              <div className="space-y-3">
+                <div className="flex items-center justify-between">
+                  <Label className="text-sm font-medium flex items-center gap-1"><Mail className="h-4 w-4" /> Email Addresses</Label>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => setManagerEmails([...managerEmails, { email: "", isPrimary: "false" }])}
+                    data-testid="button-add-manager-email"
+                  >
+                    <Plus className="h-4 w-4 mr-1" /> Add Email
+                  </Button>
+                </div>
+                {managerEmails.length === 0 ? (
+                  <p className="text-sm text-muted-foreground">No email addresses added</p>
+                ) : (
+                  <div className="space-y-2">
+                    {managerEmails.map((emailItem, index) => (
+                      <div key={index} className="flex items-center gap-2">
+                        <Input
+                          type="email"
+                          value={emailItem.email}
+                          onChange={(e) => {
+                            const updated = [...managerEmails];
+                            updated[index].email = e.target.value;
+                            setManagerEmails(updated);
+                          }}
+                          placeholder="email@example.com"
+                          className="flex-1"
+                          data-testid={`input-manager-email-${index}`}
+                        />
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="icon"
+                          onClick={() => setManagerEmails(managerEmails.filter((_, i) => i !== index))}
+                          data-testid={`button-remove-manager-email-${index}`}
+                        >
+                          <X className="h-4 w-4" />
+                        </Button>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+              
+              <div className="space-y-3">
+                <div className="flex items-center justify-between">
+                  <Label className="text-sm font-medium flex items-center gap-1"><Phone className="h-4 w-4" /> Phone Numbers</Label>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => setManagerPhones([...managerPhones, { phone: "", phoneType: "company", isPrimary: "false" }])}
+                    data-testid="button-add-manager-phone"
+                  >
+                    <Plus className="h-4 w-4 mr-1" /> Add Phone
+                  </Button>
+                </div>
+                {managerPhones.length === 0 ? (
+                  <p className="text-sm text-muted-foreground">No phone numbers added</p>
+                ) : (
+                  <div className="space-y-2">
+                    {managerPhones.map((phoneItem, index) => (
+                      <div key={index} className="flex items-center gap-2">
+                        <Input
+                          value={phoneItem.phone}
+                          onChange={(e) => {
+                            const updated = [...managerPhones];
+                            updated[index].phone = e.target.value;
+                            setManagerPhones(updated);
+                          }}
+                          placeholder="(555) 123-4567"
+                          className="flex-1"
+                          data-testid={`input-manager-phone-${index}`}
+                        />
+                        <Select
+                          value={phoneItem.phoneType}
+                          onValueChange={(value: "personal" | "company") => {
+                            const updated = [...managerPhones];
+                            updated[index].phoneType = value;
+                            setManagerPhones(updated);
+                          }}
+                        >
+                          <SelectTrigger className="w-28" data-testid={`select-phone-type-${index}`}>
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="company">Company</SelectItem>
+                            <SelectItem value="personal">Personal</SelectItem>
+                          </SelectContent>
+                        </Select>
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="icon"
+                          onClick={() => setManagerPhones(managerPhones.filter((_, i) => i !== index))}
+                          data-testid={`button-remove-manager-phone-${index}`}
+                        >
+                          <X className="h-4 w-4" />
+                        </Button>
+                      </div>
+                    ))}
+                  </div>
+                )}
               </div>
               <FormField
                 control={pmManagerForm.control}
