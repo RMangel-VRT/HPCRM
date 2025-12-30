@@ -69,7 +69,10 @@ export default function SettingsPage() {
   const { toast } = useToast();
   const { user: currentUser } = useAuth();
   const [, setLocation] = useLocation();
-  const [activeTab, setActiveTab] = useState("company");
+  
+  // Check if user is admin (can see all tabs) vs office (can only see Property Management)
+  const isAdmin = currentUser?.activeRole === "admin" || currentUser?.isSuperAdminBool;
+  const [activeTab, setActiveTab] = useState(isAdmin ? "company" : "property-management");
 
   useSetBreadcrumbs([
     { label: "Settings" },
@@ -422,13 +425,19 @@ export default function SettingsPage() {
 
       <Tabs value={activeTab} onValueChange={setActiveTab}>
         <TabsList className="flex-wrap">
-          <TabsTrigger value="company" data-testid="tab-company">Company</TabsTrigger>
-          <TabsTrigger value="seasons" data-testid="tab-seasons">Seasons</TabsTrigger>
-          <TabsTrigger value="benchmarks" data-testid="tab-benchmarks">Benchmarks</TabsTrigger>
+          {isAdmin && (
+            <>
+              <TabsTrigger value="company" data-testid="tab-company">Company</TabsTrigger>
+              <TabsTrigger value="seasons" data-testid="tab-seasons">Seasons</TabsTrigger>
+              <TabsTrigger value="benchmarks" data-testid="tab-benchmarks">Benchmarks</TabsTrigger>
+            </>
+          )}
           {canAccessPropertyManagement && (
             <TabsTrigger value="property-management" data-testid="tab-property-management">Property Management</TabsTrigger>
           )}
-          <TabsTrigger value="features" data-testid="tab-features">Feature Flags</TabsTrigger>
+          {isAdmin && (
+            <TabsTrigger value="features" data-testid="tab-features">Feature Flags</TabsTrigger>
+          )}
         </TabsList>
 
         <TabsContent value="company" className="space-y-6">
