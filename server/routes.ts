@@ -4414,7 +4414,17 @@ export async function registerRoutes(app: Express): Promise<Server> {
     } else {
       managers = await storage.getPropertyManagers(user.activeCompanyId);
     }
-    res.json(managers);
+    
+    // Enrich managers with first email and phone from normalized tables
+    const enrichedManagers = await Promise.all(managers.map(async (manager) => {
+      const emails = await storage.getPropertyManagerEmails(manager.id, user.activeCompanyId);
+      const phones = await storage.getPropertyManagerPhones(manager.id, user.activeCompanyId);
+      const firstEmail = emails.length > 0 ? emails[0].email : manager.email;
+      const firstPhone = phones.length > 0 ? phones[0].phone : manager.phone;
+      return { ...manager, email: firstEmail, phone: firstPhone };
+    }));
+    
+    res.json(enrichedManagers);
   });
 
   // Get single property manager
