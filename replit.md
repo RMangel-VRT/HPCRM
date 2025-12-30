@@ -38,8 +38,10 @@ Tracks Property Management Companies and Property Managers with full integration
 - Customer edit form with company/manager selection dropdowns (managers filtered by selected company)
 - Customer detail page displays linked property management info
 - Data integrity validation: Frontend clears manager selection when company changes; Backend auto-clears manager when company is cleared or changed to a different company, and validates manager/company relationships on all updates
+- Multi-contact support: Property managers support multiple emails and phone numbers with type designations (personal/company)
+- Auto-contact sync: When a property manager is assigned to a customer, their contact information automatically syncs to customer contacts
 
-Tables: `property_management_companies`, `property_managers`
+Tables: `property_management_companies`, `property_managers`, `property_manager_emails`, `property_manager_phones`
 
 #### First-Time Setup Flow
 When deployed to production with an empty database (no users), the app automatically shows a setup page instead of login. This allows the first admin to create their company and account. The setup page creates the company, admin user, company membership, and default settings, then auto-logs in. Once any user exists, the setup page becomes inaccessible for security.
