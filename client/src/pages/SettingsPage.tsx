@@ -5,6 +5,7 @@ import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
 import { useLocation } from "wouter";
 import { useSetBreadcrumbs } from "@/hooks/use-breadcrumbs";
+import { useAuth } from "@/hooks/use-auth";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -17,7 +18,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
-import { AlertTriangle, Building2, User, Plus, Pencil, Trash2, X, Phone, Mail } from "lucide-react";
+import { Building2, User, Plus, Pencil, Trash2, X, Phone, Mail } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import type { Settings, PropertyManagementCompany, PropertyManager, PropertyManagerEmail, PropertyManagerPhone, PropertyManagerWithContacts } from "@shared/schema";
@@ -66,6 +67,7 @@ const pmManagerSchema = z.object({
 
 export default function SettingsPage() {
   const { toast } = useToast();
+  const { user: currentUser } = useAuth();
   const [, setLocation] = useLocation();
   const [activeTab, setActiveTab] = useState("company");
 
@@ -79,7 +81,9 @@ export default function SettingsPage() {
     forecast_v2: false,
     qbo_write: false,
   });
-  const [resetConfirmText, setResetConfirmText] = useState("");
+  
+  // Check if user has access to Property Management (admin or office)
+  const canAccessPropertyManagement = currentUser?.activeRole === "admin" || currentUser?.activeRole === "office" || currentUser?.isSuperAdminBool;
   
   // Property Management state
   const [pmCompanyDialogOpen, setPmCompanyDialogOpen] = useState(false);
@@ -117,30 +121,6 @@ export default function SettingsPage() {
       toast({
         title: "Error",
         description: "Failed to save settings. Please try again.",
-        variant: "destructive",
-      });
-    },
-  });
-
-  const resetForSetupMutation = useMutation({
-    mutationFn: async () => {
-      return await apiRequest("POST", "/api/admin/reset-for-setup", {});
-    },
-    onSuccess: () => {
-      toast({
-        title: "Reset Complete",
-        description: "All users deleted. Redirecting to setup page...",
-      });
-      queryClient.invalidateQueries({ queryKey: ["/api/auth/me"] });
-      queryClient.invalidateQueries({ queryKey: ["/api/setup/status"] });
-      setTimeout(() => {
-        window.location.href = "/setup";
-      }, 1500);
-    },
-    onError: () => {
-      toast({
-        title: "Error",
-        description: "Failed to reset. Please try again.",
         variant: "destructive",
       });
     },
@@ -445,9 +425,10 @@ export default function SettingsPage() {
           <TabsTrigger value="company" data-testid="tab-company">Company</TabsTrigger>
           <TabsTrigger value="seasons" data-testid="tab-seasons">Seasons</TabsTrigger>
           <TabsTrigger value="benchmarks" data-testid="tab-benchmarks">Benchmarks</TabsTrigger>
-          <TabsTrigger value="property-management" data-testid="tab-property-management">Property Management</TabsTrigger>
+          {canAccessPropertyManagement && (
+            <TabsTrigger value="property-management" data-testid="tab-property-management">Property Management</TabsTrigger>
+          )}
           <TabsTrigger value="features" data-testid="tab-features">Feature Flags</TabsTrigger>
-          <TabsTrigger value="danger" data-testid="tab-danger" className="text-destructive">Danger Zone</TabsTrigger>
         </TabsList>
 
         <TabsContent value="company" className="space-y-6">
@@ -625,6 +606,7 @@ export default function SettingsPage() {
           </Card>
         </TabsContent>
 
+        {canAccessPropertyManagement && (
         <TabsContent value="property-management" className="space-y-6">
           <Card>
             <CardHeader className="flex flex-row items-center justify-between gap-4">
@@ -737,6 +719,7 @@ export default function SettingsPage() {
             </CardContent>
           </Card>
         </TabsContent>
+        )}
 
         <TabsContent value="features" className="space-y-6">
           <Card>
@@ -810,40 +793,6 @@ export default function SettingsPage() {
           </Card>
         </TabsContent>
 
-        <TabsContent value="danger" className="space-y-6">
-          <Card className="border-destructive">
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2 text-destructive">
-                <AlertTriangle className="h-5 w-5" />
-                Reset for First-Time Setup
-              </CardTitle>
-              <CardDescription>
-                This will delete ALL users and redirect to the first-time setup page. 
-                Use this only if you need to start fresh with a new admin account.
-              </CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              <p className="text-sm text-muted-foreground">
-                Type <span className="font-mono font-bold">RESET</span> below to confirm:
-              </p>
-              <Input
-                placeholder="Type RESET to confirm"
-                value={resetConfirmText}
-                onChange={(e) => setResetConfirmText(e.target.value)}
-                className="max-w-xs"
-                data-testid="input-reset-confirm"
-              />
-              <Button
-                variant="destructive"
-                onClick={() => resetForSetupMutation.mutate()}
-                disabled={resetConfirmText !== "RESET" || resetForSetupMutation.isPending}
-                data-testid="button-reset-for-setup"
-              >
-                {resetForSetupMutation.isPending ? "Resetting..." : "Delete All Users & Reset"}
-              </Button>
-            </CardContent>
-          </Card>
-        </TabsContent>
       </Tabs>
 
       {/* Property Management Company Dialog */}
