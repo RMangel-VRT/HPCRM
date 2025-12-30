@@ -84,6 +84,8 @@ export const customers = pgTable("customers", {
   acres: text("acres"),
   complexityScore: text("complexity_score").$type<"1" | "2" | "3" | "4" | "5">(),
   managementCompany: text("management_company"),
+  propertyManagementCompanyId: varchar("property_management_company_id"),
+  propertyManagerId: varchar("property_manager_id"),
   active: text("active").notNull().default("true").$type<"true" | "false">(),
   createdAt: timestamp("created_at").notNull().defaultNow(),
   updatedAt: timestamp("updated_at").notNull().defaultNow(),
@@ -926,3 +928,58 @@ export const insertTicketNotificationSchema = createInsertSchema(ticketNotificat
 
 export type InsertTicketNotification = z.infer<typeof insertTicketNotificationSchema>;
 export type TicketNotification = typeof ticketNotifications.$inferSelect;
+
+// Property Management Companies - companies that manage multiple properties
+export const propertyManagementCompanies = pgTable("property_management_companies", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  companyId: varchar("company_id").notNull().references(() => companies.id, { onDelete: "cascade" }),
+  name: text("name").notNull(),
+  status: text("status").notNull().$type<"active" | "inactive">().default("active"),
+  phone: text("phone"),
+  email: text("email"),
+  street: text("street"),
+  city: text("city"),
+  state: text("state"),
+  zip: text("zip"),
+  website: text("website"),
+  notes: text("notes"),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  updatedAt: timestamp("updated_at").notNull().defaultNow(),
+});
+
+export const insertPropertyManagementCompanySchema = createInsertSchema(propertyManagementCompanies).omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+}).extend({
+  status: z.enum(["active", "inactive"]).default("active"),
+});
+
+export type InsertPropertyManagementCompany = z.infer<typeof insertPropertyManagementCompanySchema>;
+export type PropertyManagementCompany = typeof propertyManagementCompanies.$inferSelect;
+
+// Property Managers - individuals who work for property management companies
+export const propertyManagers = pgTable("property_managers", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  companyId: varchar("company_id").notNull().references(() => companies.id, { onDelete: "cascade" }),
+  propertyManagementCompanyId: varchar("property_management_company_id").notNull().references(() => propertyManagementCompanies.id, { onDelete: "cascade" }),
+  name: text("name").notNull(),
+  title: text("title"),
+  phone: text("phone"),
+  email: text("email"),
+  isPrimary: text("is_primary").notNull().default("false").$type<"true" | "false">(),
+  notes: text("notes"),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  updatedAt: timestamp("updated_at").notNull().defaultNow(),
+});
+
+export const insertPropertyManagerSchema = createInsertSchema(propertyManagers).omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+}).extend({
+  isPrimary: z.enum(["true", "false"]).default("false"),
+});
+
+export type InsertPropertyManager = z.infer<typeof insertPropertyManagerSchema>;
+export type PropertyManager = typeof propertyManagers.$inferSelect;
