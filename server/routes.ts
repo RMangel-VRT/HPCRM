@@ -677,6 +677,51 @@ export async function registerRoutes(app: Express): Promise<Server> {
       });
     }
     
+    // Auto-create contact when propertyManagerId is assigned
+    if (hasManagerId && result.data.propertyManagerId) {
+      try {
+        // Check if a contact linked to this manager already exists for this customer
+        const existingContacts = await storage.getContactsByCustomerId(req.params.id, user.activeCompanyId);
+        const existingManagerContact = existingContacts.find(c => c.propertyManagerId === result.data.propertyManagerId);
+        
+        if (!existingManagerContact) {
+          // Get the manager with their contact info
+          const managerWithContacts = await storage.getPropertyManagerWithContacts(result.data.propertyManagerId, user.activeCompanyId);
+          
+          if (managerWithContacts) {
+            // Collect all emails and phones from the manager
+            const managerEmails = managerWithContacts.emails.map(e => e.email);
+            // Fallback to legacy single email if no normalized emails exist
+            if (managerEmails.length === 0 && managerWithContacts.email) {
+              managerEmails.push(managerWithContacts.email);
+            }
+            
+            const managerPhones = managerWithContacts.phones.map(p => p.phone);
+            // Fallback to legacy single phone if no normalized phones exist
+            if (managerPhones.length === 0 && managerWithContacts.phone) {
+              managerPhones.push(managerWithContacts.phone);
+            }
+            
+            // Create the contact linked to this property manager
+            await storage.createContact({
+              companyId: user.activeCompanyId,
+              customerId: req.params.id,
+              propertyManagerId: result.data.propertyManagerId,
+              name: managerWithContacts.name,
+              role: managerWithContacts.title || "Property Manager",
+              emails: managerEmails,
+              phones: managerPhones,
+              isPrimary: "false",
+              notes: `Auto-created from Property Manager assignment`,
+            });
+          }
+        }
+      } catch (error) {
+        // Log but don't fail the update if contact creation fails
+        console.error("Failed to auto-create contact from property manager:", error);
+      }
+    }
+    
     res.json(customer);
   });
 
