@@ -1,6 +1,6 @@
-import { type User, type InsertUser, type Customer, type InsertCustomer, type Contact, type InsertContact, type Company, type InsertCompany, type CompanyUser, type InsertCompanyUser, type Settings, type InsertSettings, type Note, type InsertNote, type Contract, type InsertContract, type ContractStatusHistory, type InsertContractStatusHistory, type ContractDocument, type InsertContractDocument, type ContractMonthlyAmount, type InsertContractMonthlyAmount, type CustomerRateSheet, type InsertCustomerRateSheet, type ContractService, type InsertContractService, type ContractTemplate, type InsertContractTemplate, type ContractBuilderDocument, type InsertContractBuilderDocument, type ContractBuilderSection, type InsertContractBuilderSection, type ContractBuilderVariable, type InsertContractBuilderVariable, type TicketType, type InsertTicketType, type TicketTypeStatus, type InsertTicketTypeStatus, type TicketTypeField, type InsertTicketTypeField, type Ticket, type InsertTicket, type TicketFieldValue, type InsertTicketFieldValue, type TicketStatusHistory, type InsertTicketStatusHistory, type TicketComment, type InsertTicketComment, type TicketSource, type InsertTicketSource, type TicketLink, type InsertTicketLink, type TicketTypeCategory, type CustomerMapLayer, type InsertCustomerMapLayer, type CustomerMapDocument, type InsertCustomerMapDocument, type MaintenanceCrew, type InsertMaintenanceCrew, type MaintenanceVisitConfig, type InsertMaintenanceVisitConfig, type WeeklyScheduleTemplate, type InsertWeeklyScheduleTemplate, type ScheduleBlock, type InsertScheduleBlock, type TicketNotification, type InsertTicketNotification, type NotificationType } from "@shared/schema";
+import { type User, type InsertUser, type Customer, type InsertCustomer, type Contact, type InsertContact, type Company, type InsertCompany, type CompanyUser, type InsertCompanyUser, type Settings, type InsertSettings, type Note, type InsertNote, type Contract, type InsertContract, type ContractStatusHistory, type InsertContractStatusHistory, type ContractDocument, type InsertContractDocument, type ContractMonthlyAmount, type InsertContractMonthlyAmount, type CustomerRateSheet, type InsertCustomerRateSheet, type ContractService, type InsertContractService, type ContractTemplate, type InsertContractTemplate, type ContractBuilderDocument, type InsertContractBuilderDocument, type ContractBuilderSection, type InsertContractBuilderSection, type ContractBuilderVariable, type InsertContractBuilderVariable, type TicketType, type InsertTicketType, type TicketTypeStatus, type InsertTicketTypeStatus, type TicketTypeField, type InsertTicketTypeField, type Ticket, type InsertTicket, type TicketFieldValue, type InsertTicketFieldValue, type TicketStatusHistory, type InsertTicketStatusHistory, type TicketComment, type InsertTicketComment, type TicketSource, type InsertTicketSource, type TicketLink, type InsertTicketLink, type TicketTypeCategory, type CustomerMapLayer, type InsertCustomerMapLayer, type CustomerMapDocument, type InsertCustomerMapDocument, type MaintenanceCrew, type InsertMaintenanceCrew, type MaintenanceVisitConfig, type InsertMaintenanceVisitConfig, type WeeklyScheduleTemplate, type InsertWeeklyScheduleTemplate, type ScheduleBlock, type InsertScheduleBlock, type TicketNotification, type InsertTicketNotification, type NotificationType, type PropertyManagementCompany, type InsertPropertyManagementCompany, type PropertyManager, type InsertPropertyManager } from "@shared/schema";
 import { db } from "./db";
-import { users, customers, contacts, companies, companyUsers, settings, notes, contracts, contractStatusHistory, contractDocuments, contractMonthlyAmounts, customerRateSheets, contractServices, contractTemplates, contractBuilderDocuments, contractBuilderSections, contractBuilderVariables, ticketTypes, ticketTypeStatuses, ticketTypeFields, tickets, ticketFieldValues, ticketStatusHistory, ticketComments, ticketSources, ticketLinks, customerMapLayers, customerMapDocuments, maintenanceCrews, maintenanceVisitConfigs, weeklyScheduleTemplates, scheduleBlocks, ticketNotifications } from "@shared/schema";
+import { users, customers, contacts, companies, companyUsers, settings, notes, contracts, contractStatusHistory, contractDocuments, contractMonthlyAmounts, customerRateSheets, contractServices, contractTemplates, contractBuilderDocuments, contractBuilderSections, contractBuilderVariables, ticketTypes, ticketTypeStatuses, ticketTypeFields, tickets, ticketFieldValues, ticketStatusHistory, ticketComments, ticketSources, ticketLinks, customerMapLayers, customerMapDocuments, maintenanceCrews, maintenanceVisitConfigs, weeklyScheduleTemplates, scheduleBlocks, ticketNotifications, propertyManagementCompanies, propertyManagers } from "@shared/schema";
 import { eq, and, sql, desc } from "drizzle-orm";
 import session from "express-session";
 import connectPg from "connect-pg-simple";
@@ -186,6 +186,21 @@ export interface IStorage {
   markNotificationRead(id: string, userId: string): Promise<TicketNotification | undefined>;
   markAllNotificationsRead(userId: string, companyId: string): Promise<void>;
   getNotificationsWithDueDateType(ticketId: string, type: NotificationType): Promise<TicketNotification[]>;
+  
+  // Property Management Companies
+  getPropertyManagementCompanies(companyId: string): Promise<PropertyManagementCompany[]>;
+  getPropertyManagementCompanyById(id: string, companyId: string): Promise<PropertyManagementCompany | undefined>;
+  createPropertyManagementCompany(company: InsertPropertyManagementCompany): Promise<PropertyManagementCompany>;
+  updatePropertyManagementCompany(id: string, companyId: string, updates: Partial<InsertPropertyManagementCompany>): Promise<PropertyManagementCompany | undefined>;
+  deletePropertyManagementCompany(id: string, companyId: string): Promise<void>;
+  
+  // Property Managers
+  getPropertyManagers(companyId: string): Promise<PropertyManager[]>;
+  getPropertyManagersByCompany(propertyManagementCompanyId: string, companyId: string): Promise<PropertyManager[]>;
+  getPropertyManagerById(id: string, companyId: string): Promise<PropertyManager | undefined>;
+  createPropertyManager(manager: InsertPropertyManager): Promise<PropertyManager>;
+  updatePropertyManager(id: string, companyId: string, updates: Partial<InsertPropertyManager>): Promise<PropertyManager | undefined>;
+  deletePropertyManager(id: string, companyId: string): Promise<void>;
   
   sessionStore: session.Store;
 }
@@ -1469,6 +1484,79 @@ export class PgStorage implements IStorage {
   async getNotificationsWithDueDateType(ticketId: string, type: NotificationType): Promise<TicketNotification[]> {
     return await db.select().from(ticketNotifications)
       .where(and(eq(ticketNotifications.ticketId, ticketId), eq(ticketNotifications.type, type)));
+  }
+
+  // Property Management Companies
+  async getPropertyManagementCompanies(companyId: string): Promise<PropertyManagementCompany[]> {
+    return await db.select().from(propertyManagementCompanies)
+      .where(eq(propertyManagementCompanies.companyId, companyId))
+      .orderBy(propertyManagementCompanies.name);
+  }
+
+  async getPropertyManagementCompanyById(id: string, companyId: string): Promise<PropertyManagementCompany | undefined> {
+    const result = await db.select().from(propertyManagementCompanies)
+      .where(and(eq(propertyManagementCompanies.id, id), eq(propertyManagementCompanies.companyId, companyId)))
+      .limit(1);
+    return result[0];
+  }
+
+  async createPropertyManagementCompany(insertCompany: InsertPropertyManagementCompany): Promise<PropertyManagementCompany> {
+    const result = await db.insert(propertyManagementCompanies).values([insertCompany]).returning();
+    return result[0];
+  }
+
+  async updatePropertyManagementCompany(id: string, companyId: string, updates: Partial<InsertPropertyManagementCompany>): Promise<PropertyManagementCompany | undefined> {
+    const result = await db.update(propertyManagementCompanies)
+      .set({ ...updates, updatedAt: new Date() })
+      .where(and(eq(propertyManagementCompanies.id, id), eq(propertyManagementCompanies.companyId, companyId)))
+      .returning();
+    return result[0];
+  }
+
+  async deletePropertyManagementCompany(id: string, companyId: string): Promise<void> {
+    await db.delete(propertyManagementCompanies)
+      .where(and(eq(propertyManagementCompanies.id, id), eq(propertyManagementCompanies.companyId, companyId)));
+  }
+
+  // Property Managers
+  async getPropertyManagers(companyId: string): Promise<PropertyManager[]> {
+    return await db.select().from(propertyManagers)
+      .where(eq(propertyManagers.companyId, companyId))
+      .orderBy(propertyManagers.name);
+  }
+
+  async getPropertyManagersByCompany(propertyManagementCompanyId: string, companyId: string): Promise<PropertyManager[]> {
+    return await db.select().from(propertyManagers)
+      .where(and(
+        eq(propertyManagers.propertyManagementCompanyId, propertyManagementCompanyId),
+        eq(propertyManagers.companyId, companyId)
+      ))
+      .orderBy(propertyManagers.name);
+  }
+
+  async getPropertyManagerById(id: string, companyId: string): Promise<PropertyManager | undefined> {
+    const result = await db.select().from(propertyManagers)
+      .where(and(eq(propertyManagers.id, id), eq(propertyManagers.companyId, companyId)))
+      .limit(1);
+    return result[0];
+  }
+
+  async createPropertyManager(insertManager: InsertPropertyManager): Promise<PropertyManager> {
+    const result = await db.insert(propertyManagers).values([insertManager]).returning();
+    return result[0];
+  }
+
+  async updatePropertyManager(id: string, companyId: string, updates: Partial<InsertPropertyManager>): Promise<PropertyManager | undefined> {
+    const result = await db.update(propertyManagers)
+      .set({ ...updates, updatedAt: new Date() })
+      .where(and(eq(propertyManagers.id, id), eq(propertyManagers.companyId, companyId)))
+      .returning();
+    return result[0];
+  }
+
+  async deletePropertyManager(id: string, companyId: string): Promise<void> {
+    await db.delete(propertyManagers)
+      .where(and(eq(propertyManagers.id, id), eq(propertyManagers.companyId, companyId)));
   }
 }
 

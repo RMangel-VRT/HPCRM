@@ -4227,6 +4227,171 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // =====================
+  // Property Management Companies
+  // =====================
+  
+  // Get all property management companies
+  app.get("/api/property-management-companies", async (req, res) => {
+    if (!req.isAuthenticated()) {
+      return res.status(401).send("Not authenticated");
+    }
+    const user = req.user as UserWithContext;
+    const companies = await storage.getPropertyManagementCompanies(user.activeCompanyId);
+    res.json(companies);
+  });
+
+  // Get single property management company
+  app.get("/api/property-management-companies/:id", async (req, res) => {
+    if (!req.isAuthenticated()) {
+      return res.status(401).send("Not authenticated");
+    }
+    const user = req.user as UserWithContext;
+    const company = await storage.getPropertyManagementCompanyById(req.params.id, user.activeCompanyId);
+    if (!company) {
+      return res.status(404).send("Property management company not found");
+    }
+    res.json(company);
+  });
+
+  // Create property management company
+  app.post("/api/property-management-companies", async (req, res) => {
+    if (!req.isAuthenticated()) {
+      return res.status(401).send("Not authenticated");
+    }
+    const user = req.user as UserWithContext;
+    
+    if (user.activeRole !== "admin" && user.activeRole !== "office") {
+      return res.status(403).send("Insufficient permissions");
+    }
+    
+    const company = await storage.createPropertyManagementCompany({
+      ...req.body,
+      companyId: user.activeCompanyId,
+    });
+    res.json(company);
+  });
+
+  // Update property management company
+  app.patch("/api/property-management-companies/:id", async (req, res) => {
+    if (!req.isAuthenticated()) {
+      return res.status(401).send("Not authenticated");
+    }
+    const user = req.user as UserWithContext;
+    
+    if (user.activeRole !== "admin" && user.activeRole !== "office") {
+      return res.status(403).send("Insufficient permissions");
+    }
+    
+    const company = await storage.updatePropertyManagementCompany(req.params.id, user.activeCompanyId, req.body);
+    if (!company) {
+      return res.status(404).send("Property management company not found");
+    }
+    res.json(company);
+  });
+
+  // Delete property management company
+  app.delete("/api/property-management-companies/:id", async (req, res) => {
+    if (!req.isAuthenticated()) {
+      return res.status(401).send("Not authenticated");
+    }
+    const user = req.user as UserWithContext;
+    
+    if (user.activeRole !== "admin") {
+      return res.status(403).send("Insufficient permissions");
+    }
+    
+    await storage.deletePropertyManagementCompany(req.params.id, user.activeCompanyId);
+    res.json({ success: true });
+  });
+
+  // =====================
+  // Property Managers
+  // =====================
+  
+  // Get all property managers
+  app.get("/api/property-managers", async (req, res) => {
+    if (!req.isAuthenticated()) {
+      return res.status(401).send("Not authenticated");
+    }
+    const user = req.user as UserWithContext;
+    
+    // Optionally filter by property management company
+    const propertyManagementCompanyId = req.query.propertyManagementCompanyId as string | undefined;
+    
+    let managers;
+    if (propertyManagementCompanyId) {
+      managers = await storage.getPropertyManagersByCompany(propertyManagementCompanyId, user.activeCompanyId);
+    } else {
+      managers = await storage.getPropertyManagers(user.activeCompanyId);
+    }
+    res.json(managers);
+  });
+
+  // Get single property manager
+  app.get("/api/property-managers/:id", async (req, res) => {
+    if (!req.isAuthenticated()) {
+      return res.status(401).send("Not authenticated");
+    }
+    const user = req.user as UserWithContext;
+    const manager = await storage.getPropertyManagerById(req.params.id, user.activeCompanyId);
+    if (!manager) {
+      return res.status(404).send("Property manager not found");
+    }
+    res.json(manager);
+  });
+
+  // Create property manager
+  app.post("/api/property-managers", async (req, res) => {
+    if (!req.isAuthenticated()) {
+      return res.status(401).send("Not authenticated");
+    }
+    const user = req.user as UserWithContext;
+    
+    if (user.activeRole !== "admin" && user.activeRole !== "office") {
+      return res.status(403).send("Insufficient permissions");
+    }
+    
+    const manager = await storage.createPropertyManager({
+      ...req.body,
+      companyId: user.activeCompanyId,
+    });
+    res.json(manager);
+  });
+
+  // Update property manager
+  app.patch("/api/property-managers/:id", async (req, res) => {
+    if (!req.isAuthenticated()) {
+      return res.status(401).send("Not authenticated");
+    }
+    const user = req.user as UserWithContext;
+    
+    if (user.activeRole !== "admin" && user.activeRole !== "office") {
+      return res.status(403).send("Insufficient permissions");
+    }
+    
+    const manager = await storage.updatePropertyManager(req.params.id, user.activeCompanyId, req.body);
+    if (!manager) {
+      return res.status(404).send("Property manager not found");
+    }
+    res.json(manager);
+  });
+
+  // Delete property manager
+  app.delete("/api/property-managers/:id", async (req, res) => {
+    if (!req.isAuthenticated()) {
+      return res.status(401).send("Not authenticated");
+    }
+    const user = req.user as UserWithContext;
+    
+    if (user.activeRole !== "admin") {
+      return res.status(403).send("Insufficient permissions");
+    }
+    
+    await storage.deletePropertyManager(req.params.id, user.activeCompanyId);
+    res.json({ success: true });
+  });
+
   const httpServer = createServer(app);
 
   return httpServer;
