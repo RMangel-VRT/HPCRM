@@ -800,77 +800,6 @@ function VersionHistoryDialog({ contractId, onClose, formatFileSize }: VersionHi
   );
 }
 
-function ManagementCompanyField({ customerId, currentValue }: { customerId: string; currentValue: string }) {
-  const [value, setValue] = useState(currentValue);
-  const [isSaving, setIsSaving] = useState(false);
-  const { toast } = useToast();
-
-  useEffect(() => {
-    setValue(currentValue);
-  }, [currentValue]);
-
-  const handleSave = async () => {
-    if (value === currentValue) return;
-    
-    setIsSaving(true);
-    try {
-      await apiRequest("PATCH", `/api/customers/${customerId}`, { 
-        managementCompany: value || null 
-      });
-      queryClient.invalidateQueries({ queryKey: ["/api/customers", customerId] });
-      toast({
-        title: "Saved",
-        description: "Management company updated",
-      });
-    } catch (error) {
-      toast({
-        title: "Error",
-        description: "Failed to save management company",
-        variant: "destructive",
-      });
-    } finally {
-      setIsSaving(false);
-    }
-  };
-
-  const hasChanged = value !== currentValue;
-
-  return (
-    <Card>
-      <CardContent className="p-4">
-        <div className="flex items-center gap-2">
-          <Building className="w-4 h-4 text-muted-foreground" />
-          <Label htmlFor="management-company" className="text-sm font-medium">
-            Management Company
-          </Label>
-        </div>
-        <div className="flex gap-2 mt-2">
-          <Input
-            id="management-company"
-            placeholder="Enter management company name"
-            value={value}
-            onChange={(e) => setValue(e.target.value)}
-            className="flex-1"
-            data-testid="input-management-company"
-          />
-          <Button
-            size="sm"
-            onClick={handleSave}
-            disabled={!hasChanged || isSaving}
-            data-testid="button-save-management-company"
-          >
-            {isSaving ? (
-              <Loader2 className="w-4 h-4 animate-spin" />
-            ) : (
-              <Check className="w-4 h-4" />
-            )}
-          </Button>
-        </div>
-      </CardContent>
-    </Card>
-  );
-}
-
 export default function CustomerDetail() {
   const [, params] = useRoute("/dashboard/customers/:id");
   const [, navigate] = useLocation();
@@ -1601,10 +1530,6 @@ export default function CustomerDetail() {
         </TabsContent>
 
         <TabsContent value="contacts" className="space-y-4">
-          <ManagementCompanyField 
-            customerId={id!} 
-            currentValue={customer.managementCompany || ""} 
-          />
           <div className="flex justify-end">
             <Button 
               size="sm" 
