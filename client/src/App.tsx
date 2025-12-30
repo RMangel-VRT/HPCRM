@@ -116,7 +116,7 @@ function Router() {
               <ProtectedRoute
                 path="/dashboard/settings"
                 component={SettingsPage}
-                allowedRoles={["admin"]}
+                allowedRoles={["admin", "office"]}
               />
               <Route path="/access-denied" component={AccessDenied} />
               <Route path="/">
