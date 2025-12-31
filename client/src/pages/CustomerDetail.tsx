@@ -24,6 +24,7 @@ import {
 import {
   Form,
   FormControl,
+  FormDescription,
   FormField,
   FormItem,
   FormLabel,
@@ -1018,6 +1019,7 @@ export default function CustomerDetail() {
   // Contact management
   const [isAddContactDialogOpen, setIsAddContactDialogOpen] = useState(false);
   const [editingContact, setEditingContact] = useState<Contact | null>(null);
+  const [selectedPmCompanyForContact, setSelectedPmCompanyForContact] = useState<string | null>(null);
 
   const contactForm = useForm<Omit<InsertContact, "companyId" | "customerId">>({
     resolver: zodResolver(insertContactSchema.omit({ companyId: true, customerId: true })),
@@ -1042,6 +1044,7 @@ export default function CustomerDetail() {
         description: "Contact created successfully",
       });
       setIsAddContactDialogOpen(false);
+      setSelectedPmCompanyForContact(null);
       contactForm.reset();
     },
     onError: (error: Error) => {
@@ -1059,11 +1062,13 @@ export default function CustomerDetail() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/customers", id, "contacts"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/property-managers"] });
       toast({
         title: "Success",
         description: "Contact updated successfully",
       });
       setEditingContact(null);
+      setSelectedPmCompanyForContact(null);
       contactForm.reset();
     },
     onError: (error: Error) => {
@@ -2047,6 +2052,7 @@ export default function CustomerDetail() {
         if (!open) {
           setIsAddContactDialogOpen(false);
           setEditingContact(null);
+          setSelectedPmCompanyForContact(null);
           contactForm.reset();
         }
       }}>
@@ -2059,10 +2065,14 @@ export default function CustomerDetail() {
           </DialogHeader>
           <Form {...contactForm}>
             <form onSubmit={contactForm.handleSubmit((data) => {
+              const payload = {
+                ...data,
+                selectedPmCompanyId: data.role === "Property Manager" ? selectedPmCompanyForContact : null,
+              };
               if (editingContact) {
-                updateContactMutation.mutate({ contactId: editingContact.id, data });
+                updateContactMutation.mutate({ contactId: editingContact.id, data: payload });
               } else {
-                createContactMutation.mutate(data);
+                createContactMutation.mutate(payload);
               }
             })} className="space-y-4">
               <FormField
@@ -2181,13 +2191,47 @@ export default function CustomerDetail() {
                 render={({ field }) => (
                   <FormItem>
                     <FormLabel>Role</FormLabel>
-                    <FormControl>
-                      <Input placeholder="Manager" {...field} value={field.value || ""} data-testid="input-contact-role" />
-                    </FormControl>
+                    <Select onValueChange={field.onChange} value={field.value || ""}>
+                      <FormControl>
+                        <SelectTrigger data-testid="select-contact-role">
+                          <SelectValue placeholder="Select a role" />
+                        </SelectTrigger>
+                      </FormControl>
+                      <SelectContent>
+                        <SelectItem value="Property Manager">Property Manager</SelectItem>
+                        <SelectItem value="Board President">Board President</SelectItem>
+                        <SelectItem value="HOA Contact">HOA Contact</SelectItem>
+                      </SelectContent>
+                    </Select>
                     <FormMessage />
                   </FormItem>
                 )}
               />
+              {contactForm.watch("role") === "Property Manager" && (
+                <FormItem>
+                  <FormLabel>Property Management Company</FormLabel>
+                  <Select 
+                    value={selectedPmCompanyForContact || ""} 
+                    onValueChange={setSelectedPmCompanyForContact}
+                  >
+                    <FormControl>
+                      <SelectTrigger data-testid="select-pm-company-for-contact">
+                        <SelectValue placeholder="Select a company" />
+                      </SelectTrigger>
+                    </FormControl>
+                    <SelectContent>
+                      {pmCompanies.map((company) => (
+                        <SelectItem key={company.id} value={company.id}>
+                          {company.name}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  <FormDescription>
+                    Select the property management company this contact belongs to
+                  </FormDescription>
+                </FormItem>
+              )}
               <FormField
                 control={contactForm.control}
                 name="isPrimary"
@@ -2221,6 +2265,7 @@ export default function CustomerDetail() {
                 <Button type="button" variant="outline" onClick={() => {
                   setIsAddContactDialogOpen(false);
                   setEditingContact(null);
+                  setSelectedPmCompanyForContact(null);
                   contactForm.reset();
                 }} data-testid="button-cancel-contact">
                   Cancel

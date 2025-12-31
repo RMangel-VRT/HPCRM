@@ -37,6 +37,7 @@ export interface IStorage {
   deleteCustomer(id: string, companyId: string): Promise<void>;
   
   getContactsByCustomerId(customerId: string, companyId: string): Promise<Contact[]>;
+  getContactById(id: string, companyId: string): Promise<Contact | undefined>;
   createContact(contact: InsertContact): Promise<Contact>;
   updateContact(id: string, companyId: string, contact: Partial<InsertContact>): Promise<Contact | undefined>;
   deleteContact(id: string, companyId: string): Promise<void>;
@@ -465,6 +466,12 @@ export class PgStorage implements IStorage {
   async getContactsByCustomerId(customerId: string, companyId: string): Promise<Contact[]> {
     return await db.select().from(contacts)
       .where(and(eq(contacts.customerId, customerId), eq(contacts.companyId, companyId)));
+  }
+
+  async getContactById(id: string, companyId: string): Promise<Contact | undefined> {
+    const result = await db.select().from(contacts)
+      .where(and(eq(contacts.id, id), eq(contacts.companyId, companyId)));
+    return result[0];
   }
 
   async createContact(insertContact: InsertContact): Promise<Contact> {
