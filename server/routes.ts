@@ -3908,6 +3908,15 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
 
     try {
+      // Validate that the color is not already in use for this customer
+      const existingLayers = await storage.getCustomerMapLayers(req.params.customerId, user.activeCompanyId);
+      const colorInUse = existingLayers.some(
+        (layer) => layer.color.toUpperCase() === result.data.color.toUpperCase()
+      );
+      if (colorInUse) {
+        return res.status(400).send("This color is already in use for another layer. Please select a different color.");
+      }
+
       // Set ACL on the uploaded file to allow company members to read it
       const objectStorageService = new ObjectStorageService();
       const objectFile = await objectStorageService.getObjectEntityFile(result.data.kmlPath);
