@@ -771,7 +771,58 @@ export async function registerRoutes(app: Express): Promise<Server> {
       return res.status(400).send(result.error.message);
     }
 
-    const contact = await storage.createContact(result.data);
+    let contact = await storage.createContact(result.data);
+    
+    // Auto-promote to property manager if role is "Property Manager"
+    if (result.data.role?.toLowerCase() === "property manager" && !contact.propertyManagerId) {
+      const customer = await storage.getCustomerById(req.params.customerId, user.activeCompanyId);
+      if (customer?.propertyManagementCompanyId) {
+        // Create property manager
+        const propertyManager = await storage.createPropertyManager({
+          companyId: user.activeCompanyId,
+          propertyManagementCompanyId: customer.propertyManagementCompanyId,
+          name: contact.name,
+          title: "Property Manager",
+          notes: contact.notes || undefined,
+          isPrimary: "false",
+        });
+        
+        // Copy emails
+        const contactEmails = contact.emails || [];
+        for (let i = 0; i < contactEmails.length; i++) {
+          const email = contactEmails[i];
+          if (email && email.trim()) {
+            await storage.createPropertyManagerEmail({
+              companyId: user.activeCompanyId,
+              propertyManagerId: propertyManager.id,
+              email: email.trim(),
+              isPrimary: i === 0 ? "true" : "false",
+            });
+          }
+        }
+        
+        // Copy phones
+        const contactPhones = contact.phones || [];
+        for (let i = 0; i < contactPhones.length; i++) {
+          const phone = contactPhones[i];
+          if (phone && phone.trim()) {
+            await storage.createPropertyManagerPhone({
+              companyId: user.activeCompanyId,
+              propertyManagerId: propertyManager.id,
+              phone: phone.trim(),
+              phoneType: "company",
+              isPrimary: i === 0 ? "true" : "false",
+            });
+          }
+        }
+        
+        // Update contact to link to property manager
+        contact = await storage.updateContact(contact.id, user.activeCompanyId, {
+          propertyManagerId: propertyManager.id,
+        }) || contact;
+      }
+    }
+    
     res.json(contact);
   });
 
@@ -791,10 +842,71 @@ export async function registerRoutes(app: Express): Promise<Server> {
       return res.status(400).send(result.error.message);
     }
 
-    const contact = await storage.updateContact(req.params.id, user.activeCompanyId, result.data);
+    // Get existing contact to check for role change
+    const existingContact = await storage.getContactById(req.params.id, user.activeCompanyId);
+    if (!existingContact) {
+      return res.status(404).send("Contact not found");
+    }
+
+    let contact = await storage.updateContact(req.params.id, user.activeCompanyId, result.data);
     if (!contact) {
       return res.status(404).send("Contact not found");
     }
+    
+    // Auto-promote to property manager if role was changed to "Property Manager"
+    const newRole = result.data.role?.toLowerCase();
+    const oldRole = existingContact.role?.toLowerCase();
+    const isNewPropertyManager = newRole === "property manager" && oldRole !== "property manager";
+    
+    if (isNewPropertyManager && !contact.propertyManagerId) {
+      const customer = await storage.getCustomerById(existingContact.customerId, user.activeCompanyId);
+      if (customer?.propertyManagementCompanyId) {
+        // Create property manager
+        const propertyManager = await storage.createPropertyManager({
+          companyId: user.activeCompanyId,
+          propertyManagementCompanyId: customer.propertyManagementCompanyId,
+          name: contact.name,
+          title: "Property Manager",
+          notes: contact.notes || undefined,
+          isPrimary: "false",
+        });
+        
+        // Copy emails
+        const contactEmails = contact.emails || [];
+        for (let i = 0; i < contactEmails.length; i++) {
+          const email = contactEmails[i];
+          if (email && email.trim()) {
+            await storage.createPropertyManagerEmail({
+              companyId: user.activeCompanyId,
+              propertyManagerId: propertyManager.id,
+              email: email.trim(),
+              isPrimary: i === 0 ? "true" : "false",
+            });
+          }
+        }
+        
+        // Copy phones
+        const contactPhones = contact.phones || [];
+        for (let i = 0; i < contactPhones.length; i++) {
+          const phone = contactPhones[i];
+          if (phone && phone.trim()) {
+            await storage.createPropertyManagerPhone({
+              companyId: user.activeCompanyId,
+              propertyManagerId: propertyManager.id,
+              phone: phone.trim(),
+              phoneType: "company",
+              isPrimary: i === 0 ? "true" : "false",
+            });
+          }
+        }
+        
+        // Update contact to link to property manager
+        contact = await storage.updateContact(contact.id, user.activeCompanyId, {
+          propertyManagerId: propertyManager.id,
+        }) || contact;
+      }
+    }
+    
     res.json(contact);
   });
 
@@ -4680,6 +4792,131 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
     
     res.json({ emails: createdEmails, phones: createdPhones });
+  });
+
+  // =====================
+  // Contact to Property Manager Migration
+  // =====================
+  
+  // Migrate contacts with "Property Manager" role to property managers
+  app.post("/api/migrate-contacts-to-property-managers", async (req, res) => {
+    if (!req.isAuthenticated()) {
+      return res.status(401).send("Not authenticated");
+    }
+    const user = req.user as UserWithContext;
+    
+    if (user.activeRole !== "admin" && user.activeRole !== "office") {
+      return res.status(403).send("Insufficient permissions");
+    }
+    
+    const companyId = user.activeCompanyId;
+    
+    // Get all contacts with "Property Manager" role
+    const propertyManagerContacts = await storage.getContactsByRole("Property Manager", companyId);
+    
+    const results = {
+      migrated: [] as { contactId: string; contactName: string; propertyManagerId: string }[],
+      skipped: [] as { contactId: string; contactName: string; reason: string }[],
+      errors: [] as { contactId: string; contactName: string; error: string }[],
+    };
+    
+    for (const contact of propertyManagerContacts) {
+      try {
+        // Skip if contact is already linked to a property manager
+        if (contact.propertyManagerId) {
+          results.skipped.push({
+            contactId: contact.id,
+            contactName: contact.name,
+            reason: "Already linked to a property manager",
+          });
+          continue;
+        }
+        
+        // Get the customer to check for propertyManagementCompanyId
+        const customer = await storage.getCustomerById(contact.customerId, companyId);
+        if (!customer) {
+          results.skipped.push({
+            contactId: contact.id,
+            contactName: contact.name,
+            reason: "Customer not found",
+          });
+          continue;
+        }
+        
+        if (!customer.propertyManagementCompanyId) {
+          results.skipped.push({
+            contactId: contact.id,
+            contactName: contact.name,
+            reason: "Customer has no Property Management Company assigned",
+          });
+          continue;
+        }
+        
+        // Create the property manager
+        const propertyManager = await storage.createPropertyManager({
+          companyId,
+          propertyManagementCompanyId: customer.propertyManagementCompanyId,
+          name: contact.name,
+          title: "Property Manager",
+          notes: contact.notes || undefined,
+          isPrimary: "false",
+        });
+        
+        // Copy emails to property_manager_emails
+        const contactEmails = contact.emails || [];
+        for (let i = 0; i < contactEmails.length; i++) {
+          const email = contactEmails[i];
+          if (email && email.trim()) {
+            await storage.createPropertyManagerEmail({
+              companyId,
+              propertyManagerId: propertyManager.id,
+              email: email.trim(),
+              isPrimary: i === 0 ? "true" : "false",
+            });
+          }
+        }
+        
+        // Copy phones to property_manager_phones
+        const contactPhones = contact.phones || [];
+        for (let i = 0; i < contactPhones.length; i++) {
+          const phone = contactPhones[i];
+          if (phone && phone.trim()) {
+            await storage.createPropertyManagerPhone({
+              companyId,
+              propertyManagerId: propertyManager.id,
+              phone: phone.trim(),
+              phoneType: "company",
+              isPrimary: i === 0 ? "true" : "false",
+            });
+          }
+        }
+        
+        // Update the contact to link to the property manager
+        await storage.updateContact(contact.id, companyId, {
+          propertyManagerId: propertyManager.id,
+        });
+        
+        results.migrated.push({
+          contactId: contact.id,
+          contactName: contact.name,
+          propertyManagerId: propertyManager.id,
+        });
+      } catch (error) {
+        results.errors.push({
+          contactId: contact.id,
+          contactName: contact.name,
+          error: error instanceof Error ? error.message : "Unknown error",
+        });
+      }
+    }
+    
+    res.json({
+      totalFound: propertyManagerContacts.length,
+      migrated: results.migrated.length,
+      skipped: results.skipped.length,
+      errors: results.errors.length,
+      details: results,
+    });
   });
 
   const httpServer = createServer(app);

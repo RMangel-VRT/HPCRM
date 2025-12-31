@@ -18,7 +18,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
-import { Building2, User, Plus, Pencil, Trash2, X, Phone, Mail } from "lucide-react";
+import { Building2, User, Plus, Pencil, Trash2, X, Phone, Mail, Upload, CheckCircle, AlertCircle, XCircle } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import type { Settings, PropertyManagementCompany, PropertyManager, PropertyManagerEmail, PropertyManagerPhone, PropertyManagerWithContacts } from "@shared/schema";
@@ -258,6 +258,37 @@ export default function SettingsPage() {
     },
     onError: () => {
       toast({ title: "Error", description: "Failed to delete manager.", variant: "destructive" });
+    },
+  });
+  
+  // Contact to Property Manager migration
+  const [migrationResult, setMigrationResult] = useState<{
+    totalFound: number;
+    migrated: number;
+    skipped: number;
+    errors: number;
+    details: {
+      migrated: { contactId: string; contactName: string; propertyManagerId: string }[];
+      skipped: { contactId: string; contactName: string; reason: string }[];
+      errors: { contactId: string; contactName: string; error: string }[];
+    };
+  } | null>(null);
+  
+  const migrateContactsMutation = useMutation({
+    mutationFn: async () => {
+      const res = await apiRequest("POST", "/api/migrate-contacts-to-property-managers");
+      return await res.json();
+    },
+    onSuccess: (data: typeof migrationResult) => {
+      setMigrationResult(data);
+      queryClient.invalidateQueries({ queryKey: ["/api/property-managers"] });
+      toast({ 
+        title: "Migration Complete", 
+        description: `Migrated ${data?.migrated ?? 0} contacts to property managers.` 
+      });
+    },
+    onError: () => {
+      toast({ title: "Error", description: "Failed to run migration.", variant: "destructive" });
     },
   });
   
@@ -724,6 +755,99 @@ export default function SettingsPage() {
                     })}
                   </TableBody>
                 </Table>
+              )}
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <Upload className="h-5 w-5" />
+                Migrate Contacts
+              </CardTitle>
+              <CardDescription>
+                Import existing contacts with "Property Manager" role into the Property Managers list. 
+                Only contacts whose customers have a Property Management Company assigned will be migrated.
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <Button 
+                onClick={() => migrateContactsMutation.mutate()}
+                disabled={migrateContactsMutation.isPending}
+                data-testid="button-migrate-contacts"
+              >
+                {migrateContactsMutation.isPending ? "Migrating..." : "Run Migration"}
+              </Button>
+              
+              {migrationResult && (
+                <div className="space-y-4 mt-4">
+                  <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                    <div className="text-center p-3 bg-muted rounded-md">
+                      <div className="text-2xl font-bold">{migrationResult.totalFound}</div>
+                      <div className="text-sm text-muted-foreground">Found</div>
+                    </div>
+                    <div className="text-center p-3 bg-green-100 dark:bg-green-900/30 rounded-md">
+                      <div className="text-2xl font-bold text-green-700 dark:text-green-400">{migrationResult.migrated}</div>
+                      <div className="text-sm text-green-600 dark:text-green-500">Migrated</div>
+                    </div>
+                    <div className="text-center p-3 bg-yellow-100 dark:bg-yellow-900/30 rounded-md">
+                      <div className="text-2xl font-bold text-yellow-700 dark:text-yellow-400">{migrationResult.skipped}</div>
+                      <div className="text-sm text-yellow-600 dark:text-yellow-500">Skipped</div>
+                    </div>
+                    <div className="text-center p-3 bg-red-100 dark:bg-red-900/30 rounded-md">
+                      <div className="text-2xl font-bold text-red-700 dark:text-red-400">{migrationResult.errors}</div>
+                      <div className="text-sm text-red-600 dark:text-red-500">Errors</div>
+                    </div>
+                  </div>
+                  
+                  {migrationResult.details.migrated.length > 0 && (
+                    <div>
+                      <h4 className="font-medium flex items-center gap-2 mb-2">
+                        <CheckCircle className="h-4 w-4 text-green-600" />
+                        Successfully Migrated
+                      </h4>
+                      <ul className="text-sm space-y-1 ml-6">
+                        {migrationResult.details.migrated.map((item) => (
+                          <li key={item.contactId}>{item.contactName}</li>
+                        ))}
+                      </ul>
+                    </div>
+                  )}
+                  
+                  {migrationResult.details.skipped.length > 0 && (
+                    <div>
+                      <h4 className="font-medium flex items-center gap-2 mb-2">
+                        <AlertCircle className="h-4 w-4 text-yellow-600" />
+                        Skipped
+                      </h4>
+                      <ul className="text-sm space-y-1 ml-6">
+                        {migrationResult.details.skipped.map((item) => (
+                          <li key={item.contactId}>
+                            <span className="font-medium">{item.contactName}</span>
+                            <span className="text-muted-foreground"> - {item.reason}</span>
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  )}
+                  
+                  {migrationResult.details.errors.length > 0 && (
+                    <div>
+                      <h4 className="font-medium flex items-center gap-2 mb-2">
+                        <XCircle className="h-4 w-4 text-red-600" />
+                        Errors
+                      </h4>
+                      <ul className="text-sm space-y-1 ml-6">
+                        {migrationResult.details.errors.map((item) => (
+                          <li key={item.contactId}>
+                            <span className="font-medium">{item.contactName}</span>
+                            <span className="text-muted-foreground"> - {item.error}</span>
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  )}
+                </div>
               )}
             </CardContent>
           </Card>
