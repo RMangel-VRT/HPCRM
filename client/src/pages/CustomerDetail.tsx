@@ -2960,7 +2960,27 @@ const LAYER_TYPES = {
     { value: "hand_shovel", label: "Hand Shovel", color: "#FF69B4" },  // Hot pink
     { value: "ice_melt", label: "Ice Melt", color: "#FF0000" },        // Bright red
   ],
+  custom: [] as { value: string; label: string; color: string }[],
 };
+
+// Preset colors optimized for satellite map visibility
+const PRESET_COLORS = [
+  { hex: "#FF0000", name: "Red" },
+  { hex: "#00FF00", name: "Lime" },
+  { hex: "#FFFF00", name: "Yellow" },
+  { hex: "#FF00FF", name: "Magenta" },
+  { hex: "#00FFFF", name: "Cyan" },
+  { hex: "#FF6600", name: "Orange" },
+  { hex: "#FF69B4", name: "Hot Pink" },
+  { hex: "#ADFF2F", name: "Green Yellow" },
+  { hex: "#FFD700", name: "Gold" },
+  { hex: "#7FFF00", name: "Chartreuse" },
+  { hex: "#FF1493", name: "Deep Pink" },
+  { hex: "#00FF7F", name: "Spring Green" },
+  { hex: "#FF4500", name: "Orange Red" },
+  { hex: "#1E90FF", name: "Dodger Blue" },
+  { hex: "#FFFFFF", name: "White" },
+];
 
 function CustomerMapsSection({ customerId }: { customerId: string }) {
   const { user } = useAuth();
@@ -2968,9 +2988,10 @@ function CustomerMapsSection({ customerId }: { customerId: string }) {
   const [uploadingLayer, setUploadingLayer] = useState(false);
   const [showUploadDialog, setShowUploadDialog] = useState(false);
   const [showMapViewer, setShowMapViewer] = useState(false);
-  const [selectedCategory, setSelectedCategory] = useState<"base" | "community" | "snow">("community");
+  const [selectedCategory, setSelectedCategory] = useState<"base" | "community" | "snow" | "custom">("community");
   const [selectedLayerType, setSelectedLayerType] = useState<string>("");
   const [customName, setCustomName] = useState("");
+  const [selectedColor, setSelectedColor] = useState<string>("");
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const canEdit = user?.activeRole === "admin" || user?.activeRole === "office";
@@ -3011,14 +3032,30 @@ function CustomerMapsSection({ customerId }: { customerId: string }) {
     setSelectedCategory("community");
     setSelectedLayerType("");
     setCustomName("");
+    setSelectedColor("");
     if (fileInputRef.current) {
       fileInputRef.current.value = "";
     }
   };
 
+  // Get colors already in use by existing layers for this customer
+  const usedColors = new Set(mapLayers.map((l) => l.color.toUpperCase()));
+
+  // Get available colors (not already used)
+  const availableColors = PRESET_COLORS.filter((c) => !usedColors.has(c.hex.toUpperCase()));
+
   const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
-    if (!file || !selectedLayerType) return;
+    
+    // For custom layers, require name and color
+    if (selectedCategory === "custom") {
+      if (!file || !customName.trim() || !selectedColor) {
+        toast({ title: "Please provide a layer name and select a color", variant: "destructive" });
+        return;
+      }
+    } else {
+      if (!file || !selectedLayerType) return;
+    }
 
     setUploadingLayer(true);
 
@@ -3037,19 +3074,30 @@ function CustomerMapsSection({ customerId }: { customerId: string }) {
         headers: { "Content-Type": file.type || "application/vnd.google-earth.kml+xml" },
       });
 
-      // Find the layer config
-      const layerConfig = [...LAYER_TYPES.community, ...LAYER_TYPES.snow].find(
-        (l) => l.value === selectedLayerType
-      );
+      if (selectedCategory === "custom") {
+        // Create custom layer record
+        await createLayerMutation.mutateAsync({
+          name: customName.trim(),
+          layerType: "custom",
+          category: "custom",
+          kmlPath: objectPath,
+          color: selectedColor,
+        });
+      } else {
+        // Find the layer config for preset types
+        const layerConfig = [...LAYER_TYPES.base, ...LAYER_TYPES.community, ...LAYER_TYPES.snow].find(
+          (l) => l.value === selectedLayerType
+        );
 
-      // Create the layer record
-      await createLayerMutation.mutateAsync({
-        name: customName || layerConfig?.label || selectedLayerType,
-        layerType: selectedLayerType,
-        category: selectedCategory,
-        kmlPath: objectPath,
-        color: layerConfig?.color || "#6b7280",
-      });
+        // Create the layer record
+        await createLayerMutation.mutateAsync({
+          name: customName || layerConfig?.label || selectedLayerType,
+          layerType: selectedLayerType,
+          category: selectedCategory,
+          kmlPath: objectPath,
+          color: selectedColor || layerConfig?.color || "#6b7280",
+        });
+      }
     } catch (error) {
       console.error("Upload error:", error);
       toast({ title: "Failed to upload file", variant: "destructive" });
@@ -3060,6 +3108,7 @@ function CustomerMapsSection({ customerId }: { customerId: string }) {
 
   const communityLayers = mapLayers.filter((l) => l.category === "community");
   const snowLayers = mapLayers.filter((l) => l.category === "snow");
+  const customLayers = mapLayers.filter((l) => l.category === "custom");
 
   if (isLoading) {
     return (
@@ -3212,9 +3261,60 @@ function CustomerMapsSection({ customerId }: { customerId: string }) {
         </CardContent>
       </Card>
 
+      {/* Custom Layers */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-base flex items-center gap-2">
+            <Layers className="w-4 h-4" />
+            Custom Layers
+          </CardTitle>
+        </CardHeader>
+        <CardContent>
+          {customLayers.length === 0 ? (
+            <p className="text-sm text-muted-foreground text-center py-4">
+              No custom layers uploaded
+            </p>
+          ) : (
+            <div className="space-y-2">
+              {customLayers.map((layer) => (
+                <div
+                  key={layer.id}
+                  className="flex items-center justify-between p-3 border rounded-md"
+                  data-testid={`layer-item-${layer.id}`}
+                >
+                  <div className="flex items-center gap-3">
+                    <div
+                      className="w-4 h-4 rounded"
+                      style={{ backgroundColor: layer.color || "#6b7280" }}
+                    />
+                    <div>
+                      <p className="font-medium text-sm">{layer.name}</p>
+                      <p className="text-xs text-muted-foreground">
+                        Custom Layer
+                      </p>
+                    </div>
+                  </div>
+                  {canEdit && (
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      data-testid={`button-delete-layer-${layer.id}`}
+                      onClick={() => deleteLayerMutation.mutate(layer.id)}
+                      disabled={deleteLayerMutation.isPending}
+                    >
+                      <Trash2 className="w-4 h-4 text-muted-foreground" />
+                    </Button>
+                  )}
+                </div>
+              ))}
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
       {/* Upload Dialog */}
       <Dialog open={showUploadDialog} onOpenChange={setShowUploadDialog}>
-        <DialogContent>
+        <DialogContent className="max-w-md">
           <DialogHeader>
             <DialogTitle>Add Map Layer</DialogTitle>
             <DialogDescription>
@@ -3223,12 +3323,13 @@ function CustomerMapsSection({ customerId }: { customerId: string }) {
           </DialogHeader>
           <div className="space-y-4">
             <div className="space-y-2">
-              <Label>Season Category</Label>
+              <Label>Layer Category</Label>
               <Select
                 value={selectedCategory}
                 onValueChange={(v) => {
-                  setSelectedCategory(v as "community" | "snow");
+                  setSelectedCategory(v as "base" | "community" | "snow" | "custom");
                   setSelectedLayerType("");
+                  setSelectedColor("");
                 }}
               >
                 <SelectTrigger data-testid="select-layer-category">
@@ -3238,40 +3339,107 @@ function CustomerMapsSection({ customerId }: { customerId: string }) {
                   <SelectItem value="base">Base Layers</SelectItem>
                   <SelectItem value="community">Community Season</SelectItem>
                   <SelectItem value="snow">Snow Season</SelectItem>
+                  <SelectItem value="custom">Custom Layer</SelectItem>
                 </SelectContent>
               </Select>
             </div>
 
-            <div className="space-y-2">
-              <Label>Layer Type</Label>
-              <Select value={selectedLayerType} onValueChange={setSelectedLayerType}>
-                <SelectTrigger data-testid="select-layer-type">
-                  <SelectValue placeholder="Select layer type" />
-                </SelectTrigger>
-                <SelectContent>
-                  {LAYER_TYPES[selectedCategory].map((type) => (
-                    <SelectItem key={type.value} value={type.value}>
-                      <div className="flex items-center gap-2">
-                        <div
-                          className="w-3 h-3 rounded"
-                          style={{ backgroundColor: type.color }}
-                        />
-                        {type.label}
-                      </div>
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
+            {selectedCategory !== "custom" && (
+              <div className="space-y-2">
+                <Label>Layer Type</Label>
+                <Select value={selectedLayerType} onValueChange={(v) => {
+                  setSelectedLayerType(v);
+                  // Auto-select the color for preset types
+                  const config = [...LAYER_TYPES.base, ...LAYER_TYPES.community, ...LAYER_TYPES.snow].find(l => l.value === v);
+                  if (config) setSelectedColor(config.color);
+                }}>
+                  <SelectTrigger data-testid="select-layer-type">
+                    <SelectValue placeholder="Select layer type" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {LAYER_TYPES[selectedCategory].map((type) => (
+                      <SelectItem key={type.value} value={type.value}>
+                        <div className="flex items-center gap-2">
+                          <div
+                            className="w-3 h-3 rounded"
+                            style={{ backgroundColor: type.color }}
+                          />
+                          {type.label}
+                        </div>
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            )}
 
+            {selectedCategory === "custom" && (
+              <div className="space-y-2">
+                <Label>Layer Name <span className="text-destructive">*</span></Label>
+                <Input
+                  data-testid="input-custom-layer-name"
+                  value={customName}
+                  onChange={(e) => setCustomName(e.target.value)}
+                  placeholder="Enter a name for this layer"
+                />
+              </div>
+            )}
+
+            {selectedCategory !== "custom" && (
+              <div className="space-y-2">
+                <Label>Custom Name (Optional)</Label>
+                <Input
+                  data-testid="input-layer-name"
+                  value={customName}
+                  onChange={(e) => setCustomName(e.target.value)}
+                  placeholder="Override the default layer name"
+                />
+              </div>
+            )}
+
+            {/* Color Selection - always show for custom, optionally for others */}
             <div className="space-y-2">
-              <Label>Custom Name (Optional)</Label>
-              <Input
-                data-testid="input-layer-name"
-                value={customName}
-                onChange={(e) => setCustomName(e.target.value)}
-                placeholder="Enter a custom name for this layer"
-              />
+              <Label>
+                Layer Color {selectedCategory === "custom" && <span className="text-destructive">*</span>}
+              </Label>
+              <p className="text-xs text-muted-foreground mb-2">
+                {availableColors.length === 0 
+                  ? "All colors are in use. Delete a layer to free up a color."
+                  : "Select a color (already used colors are disabled)"}
+              </p>
+              <div className="flex flex-wrap gap-2">
+                {PRESET_COLORS.map((color) => {
+                  const isUsed = usedColors.has(color.hex.toUpperCase());
+                  const isSelected = selectedColor === color.hex;
+                  return (
+                    <button
+                      key={color.hex}
+                      type="button"
+                      disabled={isUsed}
+                      onClick={() => setSelectedColor(color.hex)}
+                      className={`w-8 h-8 rounded-md border-2 transition-all ${
+                        isSelected 
+                          ? "border-primary ring-2 ring-primary ring-offset-2" 
+                          : isUsed 
+                            ? "border-muted opacity-30 cursor-not-allowed" 
+                            : "border-transparent hover:border-muted-foreground"
+                      }`}
+                      style={{ backgroundColor: color.hex }}
+                      title={isUsed ? `${color.name} (in use)` : color.name}
+                      data-testid={`color-${color.hex.slice(1)}`}
+                    >
+                      {isUsed && (
+                        <X className="w-4 h-4 mx-auto text-black/50" />
+                      )}
+                    </button>
+                  );
+                })}
+              </div>
+              {selectedColor && (
+                <p className="text-xs text-muted-foreground">
+                  Selected: {PRESET_COLORS.find(c => c.hex === selectedColor)?.name || selectedColor}
+                </p>
+              )}
             </div>
 
             <div className="space-y-2">
@@ -3282,7 +3450,12 @@ function CustomerMapsSection({ customerId }: { customerId: string }) {
                 accept=".kml,.kmz"
                 data-testid="input-layer-file"
                 onChange={handleFileUpload}
-                disabled={!selectedLayerType || uploadingLayer}
+                disabled={
+                  uploadingLayer || 
+                  (selectedCategory === "custom" 
+                    ? (!customName.trim() || !selectedColor)
+                    : !selectedLayerType)
+                }
               />
               <p className="text-xs text-muted-foreground">
                 Accepts .kml or .kmz files

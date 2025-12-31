@@ -715,14 +715,35 @@ export type InsertTicketLink = z.infer<typeof insertTicketLinkSchema>;
 export type TicketLink = typeof ticketLinks.$inferSelect;
 
 // Customer Map Layers - KML files for property mapping
-export type MapLayerCategory = "base" | "community" | "snow";
+export type MapLayerCategory = "base" | "community" | "snow" | "custom";
 export type MapLayerType = 
   // Base layers
   | "community_outline"
   // Community season layers
   | "mowing" | "native_grass" | "landscape_beds" | "pet_stations"
   // Snow season layers
-  | "atv_route" | "truck_plow" | "hand_shovel" | "ice_melt";
+  | "atv_route" | "truck_plow" | "hand_shovel" | "ice_melt"
+  // Custom layer type
+  | "custom";
+
+// Preset colors optimized for satellite map visibility - high contrast, vibrant colors
+export const MAP_LAYER_PRESET_COLORS = [
+  { hex: "#FF0000", name: "Red" },           // Bright red
+  { hex: "#00FF00", name: "Lime" },          // Bright lime green
+  { hex: "#FFFF00", name: "Yellow" },        // Bright yellow
+  { hex: "#FF00FF", name: "Magenta" },       // Magenta/fuchsia
+  { hex: "#00FFFF", name: "Cyan" },          // Bright cyan
+  { hex: "#FF6600", name: "Orange" },        // Bright orange
+  { hex: "#FF69B4", name: "Hot Pink" },      // Hot pink
+  { hex: "#ADFF2F", name: "Green Yellow" },  // Green-yellow
+  { hex: "#FFD700", name: "Gold" },          // Gold
+  { hex: "#7FFF00", name: "Chartreuse" },    // Chartreuse
+  { hex: "#FF1493", name: "Deep Pink" },     // Deep pink
+  { hex: "#00FF7F", name: "Spring Green" },  // Spring green
+  { hex: "#FF4500", name: "Orange Red" },    // Orange red
+  { hex: "#1E90FF", name: "Dodger Blue" },   // Dodger blue (still visible on satellite)
+  { hex: "#FFFFFF", name: "White" },         // White for outlines
+] as const;
 
 export const customerMapLayers = pgTable("customer_map_layers", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
@@ -744,8 +765,8 @@ export const insertCustomerMapLayerSchema = createInsertSchema(customerMapLayers
   createdAt: true,
   updatedAt: true,
 }).extend({
-  category: z.enum(["base", "community", "snow"]),
-  layerType: z.enum(["community_outline", "mowing", "native_grass", "landscape_beds", "pet_stations", "atv_route", "truck_plow", "hand_shovel", "ice_melt"]),
+  category: z.enum(["base", "community", "snow", "custom"]),
+  layerType: z.enum(["community_outline", "mowing", "native_grass", "landscape_beds", "pet_stations", "atv_route", "truck_plow", "hand_shovel", "ice_melt", "custom"]),
   color: z.string().regex(/^#[0-9A-Fa-f]{6}$/).default("#3B82F6"),
   isActive: z.enum(["true", "false"]).default("true"),
   displayOrder: z.number().int().default(0),

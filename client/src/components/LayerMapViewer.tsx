@@ -35,6 +35,7 @@ const LAYER_TYPES = {
     { value: "hand_shovel", label: "Hand Shovel", color: "#FF69B4" },  // Hot pink
     { value: "ice_melt", label: "Ice Melt", color: "#FF0000" },        // Bright red
   ],
+  custom: [] as { value: string; label: string; color: string }[],
 };
 
 interface LayerData {
@@ -159,6 +160,7 @@ export default function LayerMapViewer({
   const baseLayers = mapLayers.filter((l) => l.category === "base");
   const communityLayers = mapLayers.filter((l) => l.category === "community");
   const snowLayers = mapLayers.filter((l) => l.category === "snow");
+  const customLayers = mapLayers.filter((l) => l.category === "custom");
 
   const mapCenter: [number, number] = initialCenter;
 
@@ -320,6 +322,37 @@ export default function LayerMapViewer({
                         <div
                           className="w-2.5 h-2.5 rounded-full"
                           style={{ backgroundColor: layer.color || "#3b82f6" }}
+                        />
+                        <span className="truncate max-w-[100px]">{layer.name}</span>
+                        {data?.loading && <span className="text-[8px]">...</span>}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+
+            {customLayers.length > 0 && (
+              <div className="space-y-1.5">
+                <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">Custom</p>
+                <div className="flex flex-wrap gap-2">
+                  {customLayers.map((layer) => {
+                    const data = layerData.get(layer.id);
+                    const isEnabled = enabledLayers.has(layer.id);
+                    return (
+                      <button
+                        key={layer.id}
+                        onClick={() => toggleLayer(layer.id)}
+                        className={`flex items-center gap-1.5 px-2 py-1 rounded-full text-xs transition-all ${
+                          isEnabled 
+                            ? 'bg-primary text-primary-foreground shadow-sm' 
+                            : 'bg-muted/50 text-muted-foreground hover:bg-muted'
+                        }`}
+                        data-testid={`chip-layer-${layer.id}`}
+                      >
+                        <div
+                          className="w-2.5 h-2.5 rounded-full"
+                          style={{ backgroundColor: layer.color || "#6b7280" }}
                         />
                         <span className="truncate max-w-[100px]">{layer.name}</span>
                         {data?.loading && <span className="text-[8px]">...</span>}
