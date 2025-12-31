@@ -4843,19 +4843,33 @@ export async function registerRoutes(app: Express): Promise<Server> {
           continue;
         }
         
-        if (!customer.propertyManagementCompanyId) {
-          results.skipped.push({
-            contactId: contact.id,
-            contactName: contact.name,
-            reason: "Customer has no Property Management Company assigned",
+        let pmCompanyId = customer.propertyManagementCompanyId;
+        
+        // Auto-create a PM company if customer doesn't have one
+        if (!pmCompanyId) {
+          const newPmCompany = await storage.createPropertyManagementCompany({
+            companyId,
+            name: `${customer.name} - Property Management`,
+            phone: null,
+            email: null,
+            street: null,
+            city: null,
+            state: null,
+            zip: null,
+            notes: "Auto-created during contact migration",
           });
-          continue;
+          pmCompanyId = newPmCompany.id;
+          
+          // Update customer to link to the new PM company
+          await storage.updateCustomer(customer.id, companyId, {
+            propertyManagementCompanyId: pmCompanyId,
+          });
         }
         
         // Create the property manager
         const propertyManager = await storage.createPropertyManager({
           companyId,
-          propertyManagementCompanyId: customer.propertyManagementCompanyId,
+          propertyManagementCompanyId: pmCompanyId,
           name: contact.name,
           title: "Property Manager",
           notes: contact.notes || undefined,
