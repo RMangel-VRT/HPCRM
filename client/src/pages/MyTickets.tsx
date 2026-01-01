@@ -24,12 +24,6 @@ interface TicketWithDetails extends Ticket {
   customer?: Customer;
 }
 
-const priorityConfig = {
-  urgent: { color: "bg-red-500", textColor: "text-red-700 dark:text-red-400", label: "Urgent" },
-  high: { color: "bg-orange-500", textColor: "text-orange-700 dark:text-orange-400", label: "High" },
-  normal: { color: "bg-blue-500", textColor: "text-blue-700 dark:text-blue-400", label: "Normal" },
-  low: { color: "bg-gray-400", textColor: "text-gray-600 dark:text-gray-400", label: "Low" },
-};
 
 export default function MyTickets() {
   const { user } = useAuth();
@@ -253,8 +247,12 @@ interface TicketCardProps {
 }
 
 function TicketCard({ ticket, formatDueDate }: TicketCardProps) {
-  const priority = priorityConfig[ticket.priority as keyof typeof priorityConfig] || priorityConfig.normal;
   const dueInfo = formatDueDate(ticket.dueDate);
+  
+  // Bar color: green for completed, ticket type color for open tickets
+  const barColor = ticket.completedAt 
+    ? "#22c55e" // green-500
+    : (ticket.ticketType?.color || "#6b7280"); // gray-500 fallback
 
   return (
     <Link href={`/dashboard/tickets/${ticket.id}`}>
@@ -264,7 +262,10 @@ function TicketCard({ ticket, formatDueDate }: TicketCardProps) {
       >
         <CardContent className="p-4">
           <div className="flex items-start gap-3">
-            <div className={`w-1 self-stretch rounded-full ${priority.color}`} />
+            <div 
+              className="w-1 self-stretch rounded-full" 
+              style={{ backgroundColor: barColor }}
+            />
             
             <div className="flex-1 min-w-0">
               <div className="flex items-start justify-between gap-2">
