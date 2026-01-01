@@ -3288,7 +3288,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
         }
         
         // Auto-create Invoice ticket if billable work is completed
-        if (existingTicket.billingBehavior === "invoice_required") {
+        // But NOT if this ticket is already an Invoice ticket (prevents duplicates)
+        const currentTicketType = await storage.getTicketTypeById(existingTicket.ticketTypeId, user.activeCompanyId);
+        const isInvoiceTicket = currentTicketType?.name === "Invoice";
+        
+        if (existingTicket.billingBehavior === "invoice_required" && !isInvoiceTicket) {
           try {
             // Ensure Invoice ticket type exists for this company
             const invoiceTypeInfo = await ensureInvoiceTicketType(user.activeCompanyId);
