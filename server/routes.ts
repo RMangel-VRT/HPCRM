@@ -1699,7 +1699,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       await storage.createCompanyUser({
         userId: newUser.id,
         companyId: currentUser.activeCompanyId,
-        role: role as "admin" | "office" | "field_manager" | "field" | "irrigation_manager",
+        role: role as "admin" | "office" | "field_manager" | "field" | "irrigation_manager" | "shop_manager",
         status: "active",
       });
 
@@ -3429,7 +3429,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
     
     // Ops users can update their assigned tickets (for status changes and field values)
-    if ((user.activeRole === "field_manager" || user.activeRole === "irrigation_manager") && existingTicket.assignedToId !== user.id) {
+    if ((user.activeRole === "field_manager" || user.activeRole === "irrigation_manager" || user.activeRole === "shop_manager") && existingTicket.assignedToId !== user.id) {
       return res.status(403).send("Access denied - not assigned to this ticket");
     }
     
@@ -3684,7 +3684,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     const user = req.user as UserWithContext;
     
     // Only admin and office can delete tickets
-    if (user.activeRole === "field_manager" || user.activeRole === "field" || user.activeRole === "irrigation_manager") {
+    if (user.activeRole === "field_manager" || user.activeRole === "field" || user.activeRole === "irrigation_manager" || user.activeRole === "shop_manager") {
       return res.status(403).send("Insufficient permissions - admin or office role required");
     }
 

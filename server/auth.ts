@@ -9,7 +9,7 @@ import { User as SelectUser } from "@shared/schema";
 
 export interface UserWithContext extends SelectUser {
   activeCompanyId: string;
-  activeRole: "admin" | "office" | "field_manager" | "field" | "irrigation_manager";
+  activeRole: "admin" | "office" | "field_manager" | "field" | "irrigation_manager" | "shop_manager";
   isSuperAdminBool: boolean;
 }
 
@@ -76,7 +76,7 @@ export function setupAuth(app: Express) {
 
           const isSuperAdminBool = user.isSuperAdmin === "true";
           let activeCompanyId: string;
-          let activeRole: "admin" | "office" | "field_manager" | "field" | "irrigation_manager";
+          let activeRole: "admin" | "office" | "field_manager" | "field" | "irrigation_manager" | "shop_manager";
 
           if (isSuperAdminBool) {
             if (!user.defaultCompanyId) {
@@ -94,7 +94,7 @@ export function setupAuth(app: Express) {
             
             const activeMembership = activeMemberships[0];
             activeCompanyId = activeMembership.companyId;
-            activeRole = activeMembership.role as "admin" | "office" | "field_manager" | "field" | "irrigation_manager";
+            activeRole = activeMembership.role as "admin" | "office" | "field_manager" | "field" | "irrigation_manager" | "shop_manager";
           }
 
           const userWithContext: UserWithContext = {
@@ -123,7 +123,7 @@ export function setupAuth(app: Express) {
       const isSuperAdminBool = user.isSuperAdmin === "true";
       
       let activeCompanyId: string;
-      let activeRole: "admin" | "office" | "field_manager" | "field" | "irrigation_manager";
+      let activeRole: "admin" | "office" | "field_manager" | "field" | "irrigation_manager" | "shop_manager";
 
       if (isSuperAdminBool) {
         if (!user.defaultCompanyId) {
@@ -142,7 +142,7 @@ export function setupAuth(app: Express) {
         
         const activeMembership = activeMemberships[0];
         activeCompanyId = activeMembership.companyId;
-        activeRole = activeMembership.role as "admin" | "office" | "field_manager" | "field" | "irrigation_manager";
+        activeRole = activeMembership.role as "admin" | "office" | "field_manager" | "field" | "irrigation_manager" | "shop_manager";
       }
 
       const userWithContext: UserWithContext = {
@@ -172,7 +172,7 @@ export function setupAuth(app: Express) {
 
       const isSuperAdminBool = user.isSuperAdmin === "true";
       let activeCompanyId: string;
-      let activeRole: "admin" | "office" | "field_manager" | "field" | "irrigation_manager";
+      let activeRole: "admin" | "office" | "field_manager" | "field" | "irrigation_manager" | "shop_manager";
 
       if (isSuperAdminBool) {
         if (!user.defaultCompanyId) {
@@ -190,7 +190,7 @@ export function setupAuth(app: Express) {
         
         const activeMembership = activeMemberships[0];
         activeCompanyId = activeMembership.companyId;
-        activeRole = activeMembership.role as "admin" | "office" | "field_manager" | "field" | "irrigation_manager";
+        activeRole = activeMembership.role as "admin" | "office" | "field_manager" | "field" | "irrigation_manager" | "shop_manager";
       }
 
       const userWithContext: UserWithContext = {
@@ -280,11 +280,11 @@ export function setupAuth(app: Express) {
       return res.status(404).json({ message: "User not found" });
     }
 
-    let activeRole: "admin" | "office" | "field_manager" | "field" | "irrigation_manager" = "admin";
+    let activeRole: "admin" | "office" | "field_manager" | "field" | "irrigation_manager" | "shop_manager" = "admin";
     if (!isSuperAdmin) {
       const membership = await storage.getCompanyUser(user.id, companyId);
       if (membership && membership.status === "active") {
-        activeRole = membership.role as "admin" | "office" | "field_manager" | "field" | "irrigation_manager";
+        activeRole = membership.role as "admin" | "office" | "field_manager" | "field" | "irrigation_manager" | "shop_manager";
       }
     }
 
