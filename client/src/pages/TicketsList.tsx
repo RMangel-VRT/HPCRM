@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { useSetBreadcrumbs } from "@/hooks/use-breadcrumbs";
 import { Button } from "@/components/ui/button";
@@ -12,7 +12,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Badge } from "@/components/ui/badge";
-import { Plus, Search, ChevronRight, Clock, User, MapPin, CalendarDays, Filter, Loader2 } from "lucide-react";
+import { Plus, Search, ChevronRight, ChevronLeft, Clock, User, MapPin, CalendarDays, Filter, Loader2 } from "lucide-react";
 import { Link } from "wouter";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import type { Ticket, TicketType, TicketTypeStatus, Customer, WorkType } from "@shared/schema";
@@ -34,6 +34,8 @@ export default function TicketsList() {
   const [workTypeFilter, setWorkTypeFilter] = useState("all");
   const [statusFilter, setStatusFilter] = useState("all");
   const [showFilters, setShowFilters] = useState(false);
+  const [completedPage, setCompletedPage] = useState(1);
+  const completedPerPage = 10;
 
   useSetBreadcrumbs([
     { label: "Tickets" },
@@ -98,6 +100,19 @@ export default function TicketsList() {
 
   const openTickets = filteredTickets.filter(t => !t.completedAt);
   const completedTickets = filteredTickets.filter(t => t.completedAt);
+  
+  // Reset completed page when filters change
+  useEffect(() => {
+    setCompletedPage(1);
+  }, [search, priorityFilter, typeFilter, workTypeFilter, statusFilter]);
+  
+  // Clamp page when data changes (e.g., after refetch)
+  useEffect(() => {
+    const totalPages = Math.ceil(completedTickets.length / completedPerPage);
+    if (completedPage > totalPages && totalPages > 0) {
+      setCompletedPage(totalPages);
+    }
+  }, [completedTickets.length, completedPage, completedPerPage]);
 
   const formatDueDate = (date: Date | null | undefined) => {
     if (!date) return null;
@@ -260,23 +275,51 @@ export default function TicketsList() {
             </div>
           )}
 
-          {completedTickets.length > 0 && (
-            <div className="space-y-2 mt-6">
-              <h2 className="text-sm font-medium text-muted-foreground px-1">
-                Completed ({completedTickets.length})
-              </h2>
-              <div className="space-y-2 opacity-75">
-                {completedTickets.slice(0, 5).map((ticket) => (
-                  <TicketCard key={ticket.id} ticket={ticket} formatDueDate={formatDueDate} />
-                ))}
-                {completedTickets.length > 5 && (
-                  <p className="text-sm text-muted-foreground text-center py-2">
-                    +{completedTickets.length - 5} more completed tickets
-                  </p>
+          {completedTickets.length > 0 && (() => {
+            const totalPages = Math.ceil(completedTickets.length / completedPerPage);
+            const startIdx = (completedPage - 1) * completedPerPage;
+            const paginatedCompleted = completedTickets.slice(startIdx, startIdx + completedPerPage);
+            
+            return (
+              <div className="space-y-2 mt-6">
+                <h2 className="text-sm font-medium text-muted-foreground px-1">
+                  Completed ({completedTickets.length})
+                </h2>
+                <div className="space-y-2 opacity-75">
+                  {paginatedCompleted.map((ticket) => (
+                    <TicketCard key={ticket.id} ticket={ticket} formatDueDate={formatDueDate} />
+                  ))}
+                </div>
+                {totalPages > 1 && (
+                  <div className="flex items-center justify-center gap-4 pt-3">
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => setCompletedPage(p => Math.max(1, p - 1))}
+                      disabled={completedPage === 1}
+                      data-testid="button-completed-prev"
+                    >
+                      <ChevronLeft className="w-4 h-4 mr-1" />
+                      Previous
+                    </Button>
+                    <span className="text-sm text-muted-foreground">
+                      Page {completedPage} of {totalPages}
+                    </span>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => setCompletedPage(p => Math.min(totalPages, p + 1))}
+                      disabled={completedPage === totalPages}
+                      data-testid="button-completed-next"
+                    >
+                      Next
+                      <ChevronRight className="w-4 h-4 ml-1" />
+                    </Button>
+                  </div>
                 )}
               </div>
-            </div>
-          )}
+            );
+          })()}
         </div>
       )}
     </div>
