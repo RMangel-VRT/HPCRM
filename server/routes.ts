@@ -547,9 +547,11 @@ async function ensureExecutionTaskTicketType(companyId: string): Promise<{
 }
 
 // Helper to ensure To-Do ticket type exists with simple Open/Done workflow
+// Also creates an "Internal Tasks" customer for non-customer-related to-dos
 async function ensureToDoTicketType(companyId: string): Promise<{ 
   typeId: string; 
   statuses: Map<string, string>;
+  internalCustomerId: string;
 } | null> {
   const ticketTypes = await storage.getTicketTypes(companyId);
   let todoType = ticketTypes.find(tt => tt.name === "To-Do");
@@ -593,8 +595,27 @@ async function ensureToDoTicketType(companyId: string): Promise<{
     statusMap.set(status.name, status.id);
   }
   
+  // Ensure "Internal Tasks" customer exists for non-customer-related to-dos
+  const customers = await storage.getCustomers(companyId);
+  let internalCustomer = customers.find(c => c.name === "Internal Tasks");
+  
+  if (!internalCustomer) {
+    internalCustomer = await storage.createCustomer({
+      companyId,
+      name: "Internal Tasks",
+      street: "N/A",
+      city: "N/A",
+      state: "N/A",
+      zip: "00000",
+      status: "active",
+      active: "true",
+      tags: [],
+    });
+    console.log(`Created "Internal Tasks" customer for company ${companyId}`);
+  }
+  
   console.log(`To-Do ticket type setup complete for company ${companyId}`);
-  return { typeId: todoType.id, statuses: statusMap };
+  return { typeId: todoType.id, statuses: statusMap, internalCustomerId: internalCustomer.id };
 }
 
 export async function registerRoutes(app: Express): Promise<Server> {
@@ -2706,7 +2727,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
     try {
       const result = await ensureToDoTicketType(user.activeCompanyId);
       if (result) {
-        res.json({ success: true, typeId: result.typeId, statuses: Object.fromEntries(result.statuses) });
+        res.json({ 
+          success: true, 
+          typeId: result.typeId, 
+          statuses: Object.fromEntries(result.statuses),
+          internalCustomerId: result.internalCustomerId 
+        });
       } else {
         res.status(500).send("Failed to initialize To-Do ticket type");
       }

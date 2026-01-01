@@ -26,9 +26,10 @@ import {
 import { Calendar } from "@/components/ui/calendar";
 import { CheckSquare, Plus, Loader2, CalendarIcon } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
+import { useAuth } from "@/hooks/use-auth";
 import { queryClient, apiRequest } from "@/lib/queryClient";
 import { format } from "date-fns";
-import type { TicketType, TicketTypeStatus, CompanyUser, User } from "@shared/schema";
+import type { TicketType, TicketTypeStatus, CompanyUser, User, Customer } from "@shared/schema";
 
 interface CompanyUserWithDetails {
   companyUser: CompanyUser;
@@ -40,6 +41,7 @@ interface InitTodoResponse {
   success: boolean;
   typeId: string;
   statuses: Record<string, string>;
+  internalCustomerId: string;
 }
 
 interface QuickAddToDoProps {
@@ -48,6 +50,7 @@ interface QuickAddToDoProps {
 
 export default function QuickAddToDo({ variant = "ghost" }: QuickAddToDoProps) {
   const { toast } = useToast();
+  const { user } = useAuth();
   const [open, setOpen] = useState(false);
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
@@ -58,6 +61,7 @@ export default function QuickAddToDo({ variant = "ghost" }: QuickAddToDoProps) {
   
   const [cachedTodoTypeId, setCachedTodoTypeId] = useState<string | null>(null);
   const [cachedOpenStatusId, setCachedOpenStatusId] = useState<string | null>(null);
+  const [cachedInternalCustomerId, setCachedInternalCustomerId] = useState<string | null>(null);
 
   const { data: ticketTypes = [], refetch: refetchTicketTypes } = useQuery<TicketType[]>({
     queryKey: ["/api/ticket-types"],
@@ -67,7 +71,12 @@ export default function QuickAddToDo({ variant = "ghost" }: QuickAddToDoProps) {
     queryKey: ["/api/companies/users"],
   });
 
+  const { data: customers = [] } = useQuery<Customer[]>({
+    queryKey: ["/api/customers"],
+  });
+
   const todoType = ticketTypes.find(tt => tt.name === "To-Do");
+  const internalCustomer = customers.find(c => c.name === "Internal Tasks");
 
   const { data: todoStatuses = [], refetch: refetchStatuses } = useQuery<TicketTypeStatus[]>({
     queryKey: ["/api/ticket-types", todoType?.id || cachedTodoTypeId, "statuses"],
@@ -87,7 +96,8 @@ export default function QuickAddToDo({ variant = "ghost" }: QuickAddToDoProps) {
       description: string | null;
       ticketTypeId: string;
       currentStatusId: string;
-      assignedToId: string | null;
+      customerId: string;
+      assignedToId: string;
       dueDate: string | null;
       priority: string;
       workType: string;
@@ -128,16 +138,22 @@ export default function QuickAddToDo({ variant = "ghost" }: QuickAddToDoProps) {
   const handleOpen = async () => {
     setIsInitializing(true);
     try {
+      // Always call init-todo to ensure To-Do type and Internal Tasks customer exist
+      // This is idempotent - it only creates them if they don't exist
+      const result = await initTodoMutation.mutateAsync();
+      setCachedTodoTypeId(result.typeId);
+      setCachedOpenStatusId(result.statuses["Open"]);
+      setCachedInternalCustomerId(result.internalCustomerId);
+      
       if (!todoType) {
-        const result = await initTodoMutation.mutateAsync();
-        setCachedTodoTypeId(result.typeId);
-        setCachedOpenStatusId(result.statuses["Open"]);
         await queryClient.invalidateQueries({ queryKey: ["/api/ticket-types"] });
         await refetchTicketTypes();
-      } else {
-        if (todoStatuses.length === 0) {
-          await refetchStatuses();
-        }
+      }
+      if (!internalCustomer) {
+        await queryClient.invalidateQueries({ queryKey: ["/api/customers"] });
+      }
+      if (todoStatuses.length === 0) {
+        await refetchStatuses();
       }
       setOpen(true);
     } catch (error) {
@@ -167,12 +183,28 @@ export default function QuickAddToDo({ variant = "ghost" }: QuickAddToDoProps) {
       return;
     }
 
+    // Auto-assign to current user if no assignee selected
+    const finalAssignedToId = assignedToId || user?.id || null;
+    
+    if (!finalAssignedToId) {
+      toast({ title: "Unable to determine assignee. Please select one.", variant: "destructive" });
+      return;
+    }
+
+    // Get internal customer ID
+    const customerId = internalCustomer?.id || cachedInternalCustomerId;
+    if (!customerId) {
+      toast({ title: "Internal Tasks customer not found. Please try again.", variant: "destructive" });
+      return;
+    }
+
     await createTicketMutation.mutateAsync({
       title: title.trim(),
       description: description.trim() || null,
       ticketTypeId: typeId,
       currentStatusId: statusId,
-      assignedToId,
+      customerId: customerId,
+      assignedToId: finalAssignedToId,
       dueDate: dueDate ? format(dueDate, "yyyy-MM-dd") : null,
       priority: "normal",
       workType: "admin",
