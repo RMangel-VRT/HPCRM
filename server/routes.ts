@@ -546,6 +546,57 @@ async function ensureExecutionTaskTicketType(companyId: string): Promise<{
   return { typeId: execType.id, statuses: statusMap };
 }
 
+// Helper to ensure To-Do ticket type exists with simple Open/Done workflow
+async function ensureToDoTicketType(companyId: string): Promise<{ 
+  typeId: string; 
+  statuses: Map<string, string>;
+} | null> {
+  const ticketTypes = await storage.getTicketTypes(companyId);
+  let todoType = ticketTypes.find(tt => tt.name === "To-Do");
+  
+  if (!todoType) {
+    todoType = await storage.createTicketType({
+      companyId,
+      name: "To-Do",
+      description: "Quick personal or team tasks",
+      category: "quick_task",
+      icon: "check-square",
+      color: "#6366f1",
+      isActive: "true",
+    });
+    console.log(`Created To-Do ticket type for company ${companyId}`);
+  }
+  
+  // Define simple 2-step To-Do workflow
+  const todoStatuses = [
+    { name: "Open", description: "Task needs to be done", color: "#3b82f6", order: 0, isFinal: "false" as const },
+    { name: "Done", description: "Task completed", color: "#22c55e", order: 1, isFinal: "true" as const },
+  ];
+  
+  // Get existing statuses
+  let existingStatuses = await storage.getTicketTypeStatuses(todoType.id);
+  const statusMap = new Map<string, string>();
+  
+  for (const statusDef of todoStatuses) {
+    let status = existingStatuses.find(s => s.name === statusDef.name);
+    if (!status) {
+      status = await storage.createTicketTypeStatus({
+        ticketTypeId: todoType.id,
+        name: statusDef.name,
+        description: statusDef.description,
+        displayOrder: statusDef.order,
+        color: statusDef.color,
+        isFinal: statusDef.isFinal,
+      });
+      console.log(`Created status "${statusDef.name}" for To-Do type`);
+    }
+    statusMap.set(status.name, status.id);
+  }
+  
+  console.log(`To-Do ticket type setup complete for company ${companyId}`);
+  return { typeId: todoType.id, statuses: statusMap };
+}
+
 export async function registerRoutes(app: Express): Promise<Server> {
   setupAuth(app);
 
@@ -2641,6 +2692,27 @@ export async function registerRoutes(app: Express): Promise<Server> {
     } catch (err) {
       console.error("Failed to initialize Execution Task ticket type:", err);
       res.status(500).send("Failed to initialize Execution Task ticket type");
+    }
+  });
+
+  // Initialize To-Do ticket type with simple Open/Done workflow
+  app.post("/api/ticket-types/init-todo", async (req, res) => {
+    if (!req.isAuthenticated()) {
+      return res.status(401).send("Not authenticated");
+    }
+
+    const user = req.user as UserWithContext;
+
+    try {
+      const result = await ensureToDoTicketType(user.activeCompanyId);
+      if (result) {
+        res.json({ success: true, typeId: result.typeId, statuses: Object.fromEntries(result.statuses) });
+      } else {
+        res.status(500).send("Failed to initialize To-Do ticket type");
+      }
+    } catch (err) {
+      console.error("Failed to initialize To-Do ticket type:", err);
+      res.status(500).send("Failed to initialize To-Do ticket type");
     }
   });
 

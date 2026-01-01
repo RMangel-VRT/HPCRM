@@ -11,6 +11,7 @@ import { Loader2 } from "lucide-react";
 import AppSidebar from "@/components/AppSidebar";
 import AppBreadcrumb from "@/components/AppBreadcrumb";
 import NotificationsDropdown from "@/components/NotificationsDropdown";
+import QuickAddToDo from "@/components/QuickAddToDo";
 import LoginPage from "@/pages/LoginPage";
 import SetupPage from "@/pages/SetupPage";
 import AccessDenied from "@/pages/AccessDenied";
@@ -87,7 +88,10 @@ function Router() {
           <div className="flex flex-col flex-1 overflow-hidden">
             <header className="flex items-center justify-between p-4 border-b bg-background">
               <SidebarTrigger data-testid="button-sidebar-toggle" />
-              <NotificationsDropdown />
+              <div className="flex items-center gap-1">
+                <QuickAddToDo />
+                <NotificationsDropdown />
+              </div>
             </header>
             <AppBreadcrumb />
             <main className="flex-1 overflow-y-auto p-6 md:p-8">
