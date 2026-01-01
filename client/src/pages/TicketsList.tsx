@@ -19,6 +19,8 @@ import type { Ticket, TicketType, TicketTypeStatus, Customer, WorkType } from "@
 import { WORK_TYPE_CATALOG } from "@shared/workTypeCatalog";
 import { useAuth } from "@/hooks/use-auth";
 import QuickAddToDo from "@/components/QuickAddToDo";
+import BatchTicketDialog from "@/components/BatchTicketDialog";
+import { Layers } from "lucide-react";
 
 interface TicketWithDetails extends Ticket {
   ticketType?: TicketType;
@@ -37,6 +39,8 @@ export default function TicketsList() {
   const [showFilters, setShowFilters] = useState(false);
   const [completedPage, setCompletedPage] = useState(1);
   const completedPerPage = 10;
+  const [batchToDoOpen, setBatchToDoOpen] = useState(false);
+  const [batchInvoiceOpen, setBatchInvoiceOpen] = useState(false);
 
   useSetBreadcrumbs([
     { label: "Tickets" },
@@ -150,12 +154,34 @@ export default function TicketsList() {
         <div className="flex items-center gap-2">
           <QuickAddToDo variant="outline" />
           {isAdmin && (
-            <Link href="/dashboard/tickets/new">
-              <Button size="default" data-testid="button-add-ticket" className="gap-2">
-                <Plus className="w-4 h-4" />
-                <span className="hidden sm:inline">New Ticket</span>
+            <>
+              <Button 
+                variant="outline" 
+                size="default" 
+                onClick={() => setBatchToDoOpen(true)}
+                data-testid="button-batch-todo" 
+                className="gap-2"
+              >
+                <Layers className="w-4 h-4" />
+                <span className="hidden sm:inline">Batch To-Do</span>
               </Button>
-            </Link>
+              <Button 
+                variant="outline" 
+                size="default" 
+                onClick={() => setBatchInvoiceOpen(true)}
+                data-testid="button-batch-invoice" 
+                className="gap-2"
+              >
+                <Layers className="w-4 h-4" />
+                <span className="hidden sm:inline">Batch Invoice</span>
+              </Button>
+              <Link href="/dashboard/tickets/new">
+                <Button size="default" data-testid="button-add-ticket" className="gap-2">
+                  <Plus className="w-4 h-4" />
+                  <span className="hidden sm:inline">New Ticket</span>
+                </Button>
+              </Link>
+            </>
           )}
         </div>
       </div>
@@ -326,6 +352,18 @@ export default function TicketsList() {
           })()}
         </div>
       )}
+
+      {/* Batch Ticket Dialogs */}
+      <BatchTicketDialog 
+        open={batchToDoOpen} 
+        onOpenChange={setBatchToDoOpen} 
+        ticketTypeName="To-Do" 
+      />
+      <BatchTicketDialog 
+        open={batchInvoiceOpen} 
+        onOpenChange={setBatchInvoiceOpen} 
+        ticketTypeName="Invoice" 
+      />
     </div>
   );
 }

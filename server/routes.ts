@@ -3244,6 +3244,178 @@ export async function registerRoutes(app: Express): Promise<Server> {
     res.json(ticket);
   });
 
+  // Batch create tickets - creates one ticket per selected customer
+  app.post("/api/tickets/batch", async (req, res) => {
+    if (!req.isAuthenticated()) {
+      return res.status(401).send("Not authenticated");
+    }
+
+    const user = req.user as UserWithContext;
+    
+    // Only admin, office, and irrigation_manager can batch create tickets
+    if (!["admin", "office", "irrigation_manager"].includes(user.activeRole)) {
+      return res.status(403).send("Insufficient permissions - admin, office, or irrigation_manager role required");
+    }
+
+    const { customerIds, title, description, ticketTypeId, assignedToId, dueDate, priority, workType, skipDuplicates = true } = req.body;
+
+    // Validate required fields
+    if (!customerIds || !Array.isArray(customerIds) || customerIds.length === 0) {
+      return res.status(400).send("At least one customer must be selected");
+    }
+    if (!title || typeof title !== "string" || !title.trim()) {
+      return res.status(400).send("Title is required");
+    }
+    if (!ticketTypeId) {
+      return res.status(400).send("Ticket type is required");
+    }
+    if (!assignedToId) {
+      return res.status(400).send("Assignee is required");
+    }
+
+    // Validate assignee belongs to company
+    const companyUsers = await storage.getCompanyUsersByCompanyId(user.activeCompanyId);
+    const isValidAssignee = companyUsers.some(cu => cu.userId === assignedToId);
+    if (!isValidAssignee) {
+      return res.status(400).send("Invalid assignee - user must belong to this company");
+    }
+
+    // Validate ticket type and get initial status
+    const ticketType = await storage.getTicketTypeById(ticketTypeId, user.activeCompanyId);
+    if (!ticketType) {
+      return res.status(400).send("Invalid ticket type");
+    }
+
+    const statuses = await storage.getTicketTypeStatuses(ticketType.id);
+    if (statuses.length === 0) {
+      return res.status(400).send("Ticket type has no statuses defined");
+    }
+    const initialStatus = statuses.sort((a, b) => a.displayOrder - b.displayOrder)[0];
+
+    // Get all customers and validate they belong to this company
+    const allCustomers = await storage.getCustomers(user.activeCompanyId);
+    const customerMap = new Map(allCustomers.map(c => [c.id, c]));
+    
+    const invalidCustomers: string[] = [];
+    for (const custId of customerIds) {
+      if (!customerMap.has(custId)) {
+        invalidCustomers.push(custId);
+      }
+    }
+    if (invalidCustomers.length > 0) {
+      return res.status(400).send(`Invalid customer IDs: ${invalidCustomers.join(", ")}`);
+    }
+
+    // Check for duplicates if skipDuplicates is enabled
+    const existingTickets = await storage.getTickets(user.activeCompanyId);
+    const nonFinalStatuses = statuses.filter(s => s.isFinal !== "true").map(s => s.id);
+    
+    const duplicateCustomerIds: string[] = [];
+    if (skipDuplicates) {
+      const normalizedTitle = title.trim().toLowerCase();
+      for (const custId of customerIds) {
+        const hasDuplicate = existingTickets.some(t => 
+          t.customerId === custId && 
+          t.ticketTypeId === ticketTypeId &&
+          t.title.toLowerCase() === normalizedTitle &&
+          nonFinalStatuses.includes(t.currentStatusId)
+        );
+        if (hasDuplicate) {
+          duplicateCustomerIds.push(custId);
+        }
+      }
+    }
+
+    // Filter out duplicates
+    const customersToCreate = customerIds.filter((id: string) => !duplicateCustomerIds.includes(id));
+
+    // Create tickets for each customer
+    const created: Array<{ id: string; customerId: string; customerName: string }> = [];
+    const failed: Array<{ customerId: string; error: string }> = [];
+
+    for (const custId of customersToCreate) {
+      try {
+        const customer = customerMap.get(custId)!;
+        const ticket = await storage.createTicket({
+          companyId: user.activeCompanyId,
+          customerId: custId,
+          ticketTypeId,
+          currentStatusId: initialStatus.id,
+          title: title.trim(),
+          description: description?.trim() || null,
+          priority: priority || "normal",
+          workType: workType || "admin",
+          billingBehavior: "no_invoice",
+          assignedToId,
+          dueDate: dueDate ? new Date(dueDate) : null,
+          createdById: user.id,
+        });
+
+        // Create status history
+        await storage.createTicketStatusHistory({
+          ticketId: ticket.id,
+          fromStatusId: null,
+          toStatusId: initialStatus.id,
+          changedById: user.id,
+          notes: "Batch created",
+        });
+
+        // Create assignment notification if assigned to someone else
+        if (assignedToId !== user.id) {
+          try {
+            const dueDateText = ticket.dueDate 
+              ? ` (Due: ${new Date(ticket.dueDate).toLocaleDateString()})` 
+              : "";
+            
+            await storage.createNotification({
+              companyId: user.activeCompanyId,
+              recipientId: assignedToId,
+              ticketId: ticket.id,
+              type: "assigned",
+              message: `New ticket assigned: ${ticket.title} - ${customer.name}${dueDateText}`,
+              isRead: false,
+            });
+          } catch (err) {
+            console.error("Failed to create assignment notification for batch ticket:", err);
+          }
+        }
+
+        created.push({ 
+          id: ticket.id, 
+          customerId: custId, 
+          customerName: customer.name 
+        });
+      } catch (err) {
+        console.error(`Failed to create batch ticket for customer ${custId}:`, err);
+        failed.push({ 
+          customerId: custId, 
+          error: err instanceof Error ? err.message : "Unknown error" 
+        });
+      }
+    }
+
+    const skipped = duplicateCustomerIds.map(id => ({
+      customerId: id,
+      customerName: customerMap.get(id)?.name || "Unknown",
+      reason: "Duplicate - open ticket with same title exists"
+    }));
+
+    console.log(`Batch ticket creation: ${created.length} created, ${skipped.length} skipped, ${failed.length} failed`);
+
+    res.json({
+      success: true,
+      created,
+      skipped,
+      failed,
+      summary: {
+        total: customerIds.length,
+        createdCount: created.length,
+        skippedCount: skipped.length,
+        failedCount: failed.length,
+      }
+    });
+  });
+
   app.patch("/api/tickets/:id", async (req, res) => {
     if (!req.isAuthenticated()) {
       return res.status(401).send("Not authenticated");
