@@ -42,7 +42,11 @@ interface InitTodoResponse {
   statuses: Record<string, string>;
 }
 
-export default function QuickAddToDo() {
+interface QuickAddToDoProps {
+  variant?: "ghost" | "outline" | "default";
+}
+
+export default function QuickAddToDo({ variant = "ghost" }: QuickAddToDoProps) {
   const { toast } = useToast();
   const [open, setOpen] = useState(false);
   const [title, setTitle] = useState("");
@@ -180,18 +184,20 @@ export default function QuickAddToDo() {
   return (
     <>
       <Button
-        variant="ghost"
-        size="icon"
+        variant={variant}
+        size={variant === "ghost" ? "icon" : "default"}
         onClick={handleOpen}
         disabled={isInitializing}
         data-testid="button-quick-add-todo"
         title="Quick Add To-Do"
+        className={variant !== "ghost" ? "gap-2" : ""}
       >
         {isInitializing ? (
           <Loader2 className="h-5 w-5 animate-spin" />
         ) : (
           <CheckSquare className="h-5 w-5" />
         )}
+        {variant !== "ghost" && <span className="hidden sm:inline">To-Do</span>}
       </Button>
 
       <Dialog open={open} onOpenChange={setOpen}>

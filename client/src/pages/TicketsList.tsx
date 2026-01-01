@@ -18,6 +18,7 @@ import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import type { Ticket, TicketType, TicketTypeStatus, Customer, WorkType } from "@shared/schema";
 import { WORK_TYPE_CATALOG } from "@shared/workTypeCatalog";
 import { useAuth } from "@/hooks/use-auth";
+import QuickAddToDo from "@/components/QuickAddToDo";
 
 interface TicketWithDetails extends Ticket {
   ticketType?: TicketType;
@@ -146,14 +147,17 @@ export default function TicketsList() {
             Manage work orders and service tasks
           </p>
         </div>
-        {isAdmin && (
-          <Link href="/dashboard/tickets/new">
-            <Button size="default" data-testid="button-add-ticket" className="gap-2">
-              <Plus className="w-4 h-4" />
-              <span className="hidden sm:inline">New Ticket</span>
-            </Button>
-          </Link>
-        )}
+        <div className="flex items-center gap-2">
+          <QuickAddToDo variant="outline" />
+          {isAdmin && (
+            <Link href="/dashboard/tickets/new">
+              <Button size="default" data-testid="button-add-ticket" className="gap-2">
+                <Plus className="w-4 h-4" />
+                <span className="hidden sm:inline">New Ticket</span>
+              </Button>
+            </Link>
+          )}
+        </div>
       </div>
 
       <div className="flex gap-2 items-center">
