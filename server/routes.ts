@@ -3639,6 +3639,59 @@ export async function registerRoutes(app: Express): Promise<Server> {
     res.status(200).send("Deleted");
   });
 
+  // Batch delete tickets - admin only
+  app.delete("/api/tickets/batch", async (req, res) => {
+    if (!req.isAuthenticated()) {
+      return res.status(401).send("Not authenticated");
+    }
+
+    const user = req.user as UserWithContext;
+    
+    // Only admin can batch delete tickets (destructive operation)
+    if (user.activeRole !== "admin") {
+      return res.status(403).send("Insufficient permissions - admin role required for batch deletion");
+    }
+
+    const { ticketIds } = req.body;
+
+    if (!Array.isArray(ticketIds) || ticketIds.length === 0) {
+      return res.status(400).send("ticketIds array is required");
+    }
+
+    if (ticketIds.length > 100) {
+      return res.status(400).send("Cannot delete more than 100 tickets at once");
+    }
+
+    const deleted: string[] = [];
+    const failed: Array<{ id: string; error: string }> = [];
+
+    for (const ticketId of ticketIds) {
+      try {
+        await storage.deleteTicket(ticketId, user.activeCompanyId);
+        deleted.push(ticketId);
+      } catch (err) {
+        console.error(`Failed to delete ticket ${ticketId}:`, err);
+        failed.push({ 
+          id: ticketId, 
+          error: err instanceof Error ? err.message : "Unknown error" 
+        });
+      }
+    }
+
+    console.log(`Batch ticket deletion: ${deleted.length} deleted, ${failed.length} failed`);
+
+    res.json({
+      success: true,
+      deleted,
+      failed,
+      summary: {
+        total: ticketIds.length,
+        deletedCount: deleted.length,
+        failedCount: failed.length,
+      }
+    });
+  });
+
   // Create Execution Task linked to a Project ticket
   app.post("/api/tickets/create-execution-task", async (req, res) => {
     if (!req.isAuthenticated()) {

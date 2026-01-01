@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useMutation } from "@tanstack/react-query";
 import { useSetBreadcrumbs } from "@/hooks/use-breadcrumbs";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -12,15 +12,27 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Badge } from "@/components/ui/badge";
-import { Plus, Search, ChevronRight, ChevronLeft, Clock, User, MapPin, CalendarDays, Filter, Loader2 } from "lucide-react";
+import { Checkbox } from "@/components/ui/checkbox";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
+import { Plus, Search, ChevronRight, ChevronLeft, Clock, User, MapPin, CalendarDays, Filter, Loader2, Trash2, X, Layers } from "lucide-react";
 import { Link } from "wouter";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import type { Ticket, TicketType, TicketTypeStatus, Customer, WorkType } from "@shared/schema";
 import { WORK_TYPE_CATALOG } from "@shared/workTypeCatalog";
 import { useAuth } from "@/hooks/use-auth";
+import { useToast } from "@/hooks/use-toast";
+import { apiRequest, queryClient } from "@/lib/queryClient";
 import QuickAddToDo from "@/components/QuickAddToDo";
 import BatchTicketDialog from "@/components/BatchTicketDialog";
-import { Layers } from "lucide-react";
 
 interface TicketWithDetails extends Ticket {
   ticketType?: TicketType;
@@ -31,6 +43,7 @@ interface TicketWithDetails extends Ticket {
 
 export default function TicketsList() {
   const { user } = useAuth();
+  const { toast } = useToast();
   const [search, setSearch] = useState("");
   const [priorityFilter, setPriorityFilter] = useState("all");
   const [typeFilter, setTypeFilter] = useState("all");
@@ -41,6 +54,11 @@ export default function TicketsList() {
   const completedPerPage = 10;
   const [batchToDoOpen, setBatchToDoOpen] = useState(false);
   const [batchInvoiceOpen, setBatchInvoiceOpen] = useState(false);
+  
+  // Selection state for bulk operations
+  const [selectedTicketIds, setSelectedTicketIds] = useState<Set<string>>(new Set());
+  const [selectionMode, setSelectionMode] = useState(false);
+  const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
 
   useSetBreadcrumbs([
     { label: "Tickets" },
@@ -119,6 +137,63 @@ export default function TicketsList() {
     }
   }, [completedTickets.length, completedPage, completedPerPage]);
 
+  // Clear selection when exiting selection mode
+  useEffect(() => {
+    if (!selectionMode) {
+      setSelectedTicketIds(new Set());
+    }
+  }, [selectionMode]);
+
+  // Batch delete mutation
+  const batchDeleteMutation = useMutation({
+    mutationFn: async (ticketIds: string[]) => {
+      const res = await apiRequest("DELETE", "/api/tickets/batch", { ticketIds });
+      return res.json();
+    },
+    onSuccess: (result) => {
+      queryClient.invalidateQueries({ queryKey: ["/api/tickets"] });
+      const { summary } = result;
+      toast({
+        title: `Deleted ${summary.deletedCount} ticket${summary.deletedCount !== 1 ? "s" : ""}`,
+        description: summary.failedCount > 0 
+          ? `${summary.failedCount} failed to delete` 
+          : undefined,
+      });
+      setSelectionMode(false);
+      setDeleteConfirmOpen(false);
+    },
+    onError: () => {
+      toast({ title: "Failed to delete tickets", variant: "destructive" });
+    },
+  });
+
+  const toggleTicketSelection = (ticketId: string) => {
+    setSelectedTicketIds(prev => {
+      const newSet = new Set(prev);
+      if (newSet.has(ticketId)) {
+        newSet.delete(ticketId);
+      } else {
+        newSet.add(ticketId);
+      }
+      return newSet;
+    });
+  };
+
+  const selectAllVisible = () => {
+    const allVisibleIds = [...openTickets, ...completedTickets].map(t => t.id);
+    setSelectedTicketIds(new Set(allVisibleIds));
+  };
+
+  const clearSelection = () => {
+    setSelectedTicketIds(new Set());
+  };
+
+  const handleBatchDelete = () => {
+    if (selectedTicketIds.size > 0) {
+      batchDeleteMutation.mutate(Array.from(selectedTicketIds));
+    }
+  };
+
   const formatDueDate = (date: Date | null | undefined) => {
     if (!date) return null;
     const d = new Date(date);
@@ -155,6 +230,29 @@ export default function TicketsList() {
           <QuickAddToDo variant="outline" />
           {isAdmin && (
             <>
+              {!selectionMode ? (
+                <Button 
+                  variant="outline" 
+                  size="default" 
+                  onClick={() => setSelectionMode(true)}
+                  data-testid="button-enter-select-mode" 
+                  className="gap-2"
+                >
+                  <Checkbox className="w-4 h-4" />
+                  <span className="hidden sm:inline">Select</span>
+                </Button>
+              ) : (
+                <Button 
+                  variant="outline" 
+                  size="default" 
+                  onClick={() => setSelectionMode(false)}
+                  data-testid="button-exit-select-mode" 
+                  className="gap-2"
+                >
+                  <X className="w-4 h-4" />
+                  <span className="hidden sm:inline">Cancel</span>
+                </Button>
+              )}
               <Button 
                 variant="outline" 
                 size="default" 
@@ -292,6 +390,47 @@ export default function TicketsList() {
         </Card>
       ) : (
         <div className="space-y-4">
+          {/* Selection mode header */}
+          {selectionMode && (
+            <div className="flex items-center justify-between gap-3 py-2 px-3 bg-muted/50 rounded-lg">
+              <div className="flex items-center gap-3">
+                <span className="text-sm font-medium">
+                  {selectedTicketIds.size} selected
+                </span>
+                <Button 
+                  variant="ghost" 
+                  size="sm" 
+                  onClick={selectAllVisible}
+                  data-testid="button-select-all"
+                >
+                  Select All ({filteredTickets.length})
+                </Button>
+                {selectedTicketIds.size > 0 && (
+                  <Button 
+                    variant="ghost" 
+                    size="sm" 
+                    onClick={clearSelection}
+                    data-testid="button-clear-selection"
+                  >
+                    Clear
+                  </Button>
+                )}
+              </div>
+              {selectedTicketIds.size > 0 && (
+                <Button 
+                  variant="destructive" 
+                  size="sm"
+                  onClick={() => setDeleteConfirmOpen(true)}
+                  data-testid="button-delete-selected"
+                  className="gap-2"
+                >
+                  <Trash2 className="w-4 h-4" />
+                  Delete ({selectedTicketIds.size})
+                </Button>
+              )}
+            </div>
+          )}
+
           {openTickets.length > 0 && (
             <div className="space-y-2">
               <h2 className="text-sm font-medium text-muted-foreground px-1">
@@ -299,7 +438,14 @@ export default function TicketsList() {
               </h2>
               <div className="space-y-2">
                 {openTickets.map((ticket) => (
-                  <TicketCard key={ticket.id} ticket={ticket} formatDueDate={formatDueDate} />
+                  <TicketCard 
+                    key={ticket.id} 
+                    ticket={ticket} 
+                    formatDueDate={formatDueDate}
+                    selectionMode={selectionMode}
+                    isSelected={selectedTicketIds.has(ticket.id)}
+                    onToggleSelect={() => toggleTicketSelection(ticket.id)}
+                  />
                 ))}
               </div>
             </div>
@@ -317,7 +463,14 @@ export default function TicketsList() {
                 </h2>
                 <div className="space-y-2 opacity-75">
                   {paginatedCompleted.map((ticket) => (
-                    <TicketCard key={ticket.id} ticket={ticket} formatDueDate={formatDueDate} />
+                    <TicketCard 
+                      key={ticket.id} 
+                      ticket={ticket} 
+                      formatDueDate={formatDueDate}
+                      selectionMode={selectionMode}
+                      isSelected={selectedTicketIds.has(ticket.id)}
+                      onToggleSelect={() => toggleTicketSelection(ticket.id)}
+                    />
                   ))}
                 </div>
                 {totalPages > 1 && (
@@ -364,6 +517,39 @@ export default function TicketsList() {
         onOpenChange={setBatchInvoiceOpen} 
         ticketTypeName="Invoice" 
       />
+
+      {/* Delete Confirmation Dialog */}
+      <AlertDialog open={deleteConfirmOpen} onOpenChange={setDeleteConfirmOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete {selectedTicketIds.size} ticket{selectedTicketIds.size !== 1 ? "s" : ""}?</AlertDialogTitle>
+            <AlertDialogDescription>
+              This action cannot be undone. The selected tickets and all their associated data will be permanently deleted.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel data-testid="button-cancel-delete">Cancel</AlertDialogCancel>
+            <AlertDialogAction 
+              onClick={handleBatchDelete}
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              disabled={batchDeleteMutation.isPending}
+              data-testid="button-confirm-delete"
+            >
+              {batchDeleteMutation.isPending ? (
+                <>
+                  <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                  Deleting...
+                </>
+              ) : (
+                <>
+                  <Trash2 className="w-4 h-4 mr-2" />
+                  Delete
+                </>
+              )}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }
@@ -371,9 +557,12 @@ export default function TicketsList() {
 interface TicketCardProps {
   ticket: TicketWithDetails;
   formatDueDate: (date: Date | null | undefined) => { text: string; className: string } | null;
+  selectionMode?: boolean;
+  isSelected?: boolean;
+  onToggleSelect?: () => void;
 }
 
-function TicketCard({ ticket, formatDueDate }: TicketCardProps) {
+function TicketCard({ ticket, formatDueDate, selectionMode, isSelected, onToggleSelect }: TicketCardProps) {
   const dueInfo = formatDueDate(ticket.dueDate);
   
   // Bar color: green for completed, ticket type color for open tickets
@@ -381,96 +570,127 @@ function TicketCard({ ticket, formatDueDate }: TicketCardProps) {
     ? "#22c55e" // green-500
     : (ticket.ticketType?.color || "#6b7280"); // gray-500 fallback
 
-  return (
-    <Link href={`/dashboard/tickets/${ticket.id}`}>
-      <Card 
-        className="hover-elevate active-elevate-2 cursor-pointer transition-colors"
-        data-testid={`card-ticket-${ticket.id}`}
-      >
-        <CardContent className="p-4">
-          <div className="flex items-start gap-3">
+  const cardInner = (
+    <Card 
+      className={`hover-elevate active-elevate-2 cursor-pointer transition-colors ${isSelected ? "ring-2 ring-primary" : ""}`}
+      data-testid={`card-ticket-${ticket.id}`}
+    >
+      <CardContent className="p-4">
+        <div className="flex items-start gap-3">
+          {selectionMode && (
             <div 
-              className="w-1 self-stretch rounded-full" 
-              style={{ backgroundColor: barColor }}
-            />
-            
-            <div className="flex-1 min-w-0">
-              <div className="flex items-start justify-between gap-2">
-                <div className="min-w-0 flex-1">
-                  <h3 className="font-medium text-base leading-tight line-clamp-2" data-testid={`text-ticket-title-${ticket.id}`}>
-                    {ticket.title}
-                  </h3>
-                  
-                  <div className="flex items-center gap-3 mt-2 text-sm text-muted-foreground flex-wrap">
-                    <span className="font-mono text-xs" data-testid={`text-ticket-id-${ticket.id}`}>
-                      #{ticket.id.slice(0, 8)}
-                    </span>
-                    {ticket.customer && (
-                      <span className="flex items-center gap-1">
-                        <MapPin className="w-3.5 h-3.5" />
-                        <span className="truncate max-w-[120px]">{ticket.customer.name}</span>
-                      </span>
-                    )}
-                    {ticket.ticketType && (
-                      <Badge 
-                        variant="outline"
-                        className="text-xs font-normal"
-                        style={{ 
-                          backgroundColor: ticket.ticketType.color ? `${ticket.ticketType.color}15` : undefined,
-                          borderColor: ticket.ticketType.color || undefined,
-                          color: ticket.ticketType.color || undefined,
-                        }}
-                        data-testid={`badge-tickettype-${ticket.id}`}
-                      >
-                        {ticket.ticketType.name}
-                      </Badge>
-                    )}
-                    {ticket.workType && WORK_TYPE_CATALOG[ticket.workType as WorkType] && (
-                      <Badge 
-                        variant={WORK_TYPE_CATALOG[ticket.workType as WorkType].badgeVariant}
-                        className="text-xs font-normal"
-                        data-testid={`badge-worktype-${ticket.id}`}
-                      >
-                        {WORK_TYPE_CATALOG[ticket.workType as WorkType].billingLabel}
-                      </Badge>
-                    )}
-                  </div>
-                </div>
+              className="flex items-center justify-center pt-1"
+              onClick={(e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                onToggleSelect?.();
+              }}
+            >
+              <Checkbox 
+                checked={isSelected}
+                data-testid={`checkbox-ticket-${ticket.id}`}
+              />
+            </div>
+          )}
+          <div 
+            className="w-1 self-stretch rounded-full" 
+            style={{ backgroundColor: barColor }}
+          />
+          
+          <div className="flex-1 min-w-0">
+            <div className="flex items-start justify-between gap-2">
+              <div className="min-w-0 flex-1">
+                <h3 className="font-medium text-base leading-tight line-clamp-2" data-testid={`text-ticket-title-${ticket.id}`}>
+                  {ticket.title}
+                </h3>
                 
-                <ChevronRight className="w-5 h-5 text-muted-foreground shrink-0 mt-0.5" />
-              </div>
-
-              <div className="flex items-center justify-between mt-3 pt-3 border-t">
-                <div className="flex items-center gap-3">
-                  {ticket.currentStatus && (
+                <div className="flex items-center gap-3 mt-2 text-sm text-muted-foreground flex-wrap">
+                  <span className="font-mono text-xs" data-testid={`text-ticket-id-${ticket.id}`}>
+                    #{ticket.id.slice(0, 8)}
+                  </span>
+                  {ticket.customer && (
+                    <span className="flex items-center gap-1">
+                      <MapPin className="w-3.5 h-3.5" />
+                      <span className="truncate max-w-[120px]">{ticket.customer.name}</span>
+                    </span>
+                  )}
+                  {ticket.ticketType && (
                     <Badge 
-                      variant="outline" 
-                      className="text-xs"
-                      style={{ borderColor: ticket.currentStatus.color || undefined }}
+                      variant="outline"
+                      className="text-xs font-normal"
+                      style={{ 
+                        backgroundColor: ticket.ticketType.color ? `${ticket.ticketType.color}15` : undefined,
+                        borderColor: ticket.ticketType.color || undefined,
+                        color: ticket.ticketType.color || undefined,
+                      }}
+                      data-testid={`badge-tickettype-${ticket.id}`}
                     >
-                      {ticket.currentStatus.name}
+                      {ticket.ticketType.name}
                     </Badge>
                   )}
-                  {dueInfo && (
-                    <span className={`text-xs flex items-center gap-1 ${dueInfo.className}`}>
-                      <CalendarDays className="w-3 h-3" />
-                      {dueInfo.text}
-                    </span>
+                  {ticket.workType && WORK_TYPE_CATALOG[ticket.workType as WorkType] && (
+                    <Badge 
+                      variant={WORK_TYPE_CATALOG[ticket.workType as WorkType].badgeVariant}
+                      className="text-xs font-normal"
+                      data-testid={`badge-worktype-${ticket.id}`}
+                    >
+                      {WORK_TYPE_CATALOG[ticket.workType as WorkType].billingLabel}
+                    </Badge>
                   )}
                 </div>
+              </div>
+              
+              {!selectionMode && (
+                <ChevronRight className="w-5 h-5 text-muted-foreground shrink-0 mt-0.5" />
+              )}
+            </div>
 
-                {ticket.assignedToId && (
-                  <Avatar className="w-6 h-6">
-                    <AvatarFallback className="text-[10px] bg-muted">
-                      <User className="w-3 h-3" />
-                    </AvatarFallback>
-                  </Avatar>
+            <div className="flex items-center justify-between mt-3 pt-3 border-t">
+              <div className="flex items-center gap-3">
+                {ticket.currentStatus && (
+                  <Badge 
+                    variant="outline" 
+                    className="text-xs"
+                    style={{ borderColor: ticket.currentStatus.color || undefined }}
+                  >
+                    {ticket.currentStatus.name}
+                  </Badge>
+                )}
+                {dueInfo && (
+                  <span className={`text-xs flex items-center gap-1 ${dueInfo.className}`}>
+                    <CalendarDays className="w-3 h-3" />
+                    {dueInfo.text}
+                  </span>
                 )}
               </div>
+
+              {ticket.assignedToId && (
+                <Avatar className="w-6 h-6">
+                  <AvatarFallback className="text-[10px] bg-muted">
+                    <User className="w-3 h-3" />
+                  </AvatarFallback>
+                </Avatar>
+              )}
             </div>
           </div>
-        </CardContent>
-      </Card>
+        </div>
+      </CardContent>
+    </Card>
+  );
+
+  // In selection mode, clicking the card toggles selection
+  // Otherwise, clicking navigates to ticket detail
+  if (selectionMode) {
+    return (
+      <div onClick={() => onToggleSelect?.()}>
+        {cardInner}
+      </div>
+    );
+  }
+
+  return (
+    <Link href={`/dashboard/tickets/${ticket.id}`}>
+      {cardInner}
     </Link>
   );
 }
