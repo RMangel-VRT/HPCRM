@@ -1,7 +1,7 @@
 import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
 
-type Role = "admin" | "office" | "field_manager" | "field" | "irrigation_manager";
+type Role = "admin" | "office" | "field_manager" | "field" | "irrigation_manager" | "shop_manager";
 
 interface RoleBadgeProps {
   role: Role;
@@ -29,6 +29,10 @@ const roleConfig: Record<Role, { label: string; className: string }> = {
   irrigation_manager: {
     label: "Irrigation Manager",
     className: "bg-cyan-100 text-cyan-800 dark:bg-cyan-900/30 dark:text-cyan-400",
+  },
+  shop_manager: {
+    label: "Shop Manager",
+    className: "bg-orange-100 text-orange-800 dark:bg-orange-900/30 dark:text-orange-400",
   },
 };
 

@@ -43,7 +43,7 @@ import { Link, useLocation } from "wouter";
 import logoImage from "@assets/TRUCK_DECAL-06_1766432157419.png";
 
 interface AppSidebarProps {
-  userRole?: "admin" | "office" | "field_manager" | "field" | "irrigation_manager";
+  userRole?: "admin" | "office" | "field_manager" | "field" | "irrigation_manager" | "shop_manager";
   isSuperAdmin?: boolean;
   userName?: string;
   onLogout?: () => void;
@@ -70,6 +70,12 @@ export default function AppSidebar({
     
     const items: Array<{ title: string; url: string; icon: typeof LayoutDashboard }> = [];
     
+    // Shop Manager only sees My Tickets
+    if (userRole === "shop_manager") {
+      items.push({ title: "My Tickets", url: "/dashboard/tickets/my", icon: UserCheck });
+      return items;
+    }
+    
     // Dashboard - Admin, Office, Field Manager only (not Field)
     if (userRole === "admin" || userRole === "office" || userRole === "field_manager") {
       items.push({ title: "Dashboard", url: "/dashboard", icon: LayoutDashboard });
@@ -85,10 +91,10 @@ export default function AppSidebar({
       items.push({ title: "Tickets", url: "/dashboard/tickets", icon: ClipboardList });
     }
     
-    // My Tickets - everyone
+    // My Tickets - everyone except shop_manager (handled above)
     items.push({ title: "My Tickets", url: "/dashboard/tickets/my", icon: UserCheck });
     
-    // Property Maps - everyone
+    // Property Maps - everyone except shop_manager
     items.push({ title: "Property Maps", url: "/dashboard/maps", icon: Map });
     
     // Weekly Schedule - Admin, Office, and Irrigation Manager (view only for irrigation_manager)
