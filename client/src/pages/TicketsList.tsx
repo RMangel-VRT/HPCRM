@@ -162,8 +162,12 @@ export default function TicketsList() {
       setSelectionMode(false);
       setDeleteConfirmOpen(false);
     },
-    onError: () => {
-      toast({ title: "Failed to delete tickets", variant: "destructive" });
+    onError: (error: Error) => {
+      toast({ 
+        title: "Failed to delete tickets", 
+        description: error.message || "An unexpected error occurred",
+        variant: "destructive" 
+      });
     },
   });
 
@@ -416,11 +420,17 @@ export default function TicketsList() {
                   </Button>
                 )}
               </div>
+              {selectedTicketIds.size > 100 && (
+                <span className="text-xs text-destructive font-medium">
+                  Max 100 at once
+                </span>
+              )}
               {selectedTicketIds.size > 0 && (
                 <Button 
                   variant="destructive" 
                   size="sm"
                   onClick={() => setDeleteConfirmOpen(true)}
+                  disabled={selectedTicketIds.size > 100}
                   data-testid="button-delete-selected"
                   className="gap-2"
                 >
