@@ -249,6 +249,7 @@ export default function TicketDetail() {
     onSuccess: ({ checkProjectApproval, checkInvoicePrompt }) => {
       queryClient.invalidateQueries({ queryKey: ["/api/tickets", ticketId, "details"] });
       queryClient.invalidateQueries({ queryKey: ["/api/tickets"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/pending-invoices"] });
       setShowStatusDialog(false);
       setPendingStatusId(null);
       setFieldInputs({});

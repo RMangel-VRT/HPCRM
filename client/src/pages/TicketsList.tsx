@@ -311,9 +311,14 @@ function TicketCard({ ticket, formatDueDate }: TicketCardProps) {
             <div className="flex-1 min-w-0">
               <div className="flex items-start justify-between gap-2">
                 <div className="min-w-0 flex-1">
-                  <h3 className="font-medium text-base leading-tight line-clamp-2" data-testid={`text-ticket-title-${ticket.id}`}>
-                    {ticket.title}
-                  </h3>
+                  <div className="flex items-center gap-2">
+                    <span className="text-xs font-mono text-muted-foreground" data-testid={`text-ticket-id-${ticket.id}`}>
+                      #{ticket.id.slice(0, 8)}
+                    </span>
+                    <h3 className="font-medium text-base leading-tight line-clamp-2" data-testid={`text-ticket-title-${ticket.id}`}>
+                      {ticket.title}
+                    </h3>
+                  </div>
                   
                   <div className="flex items-center gap-3 mt-2 text-sm text-muted-foreground flex-wrap">
                     {ticket.customer && (
