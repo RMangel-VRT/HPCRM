@@ -3623,23 +3623,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     res.json(ticket);
   });
 
-  app.delete("/api/tickets/:id", async (req, res) => {
-    if (!req.isAuthenticated()) {
-      return res.status(401).send("Not authenticated");
-    }
-
-    const user = req.user as UserWithContext;
-    
-    // Only admin and office can delete tickets
-    if (user.activeRole === "field_manager" || user.activeRole === "field" || user.activeRole === "irrigation_manager") {
-      return res.status(403).send("Insufficient permissions - admin or office role required");
-    }
-
-    await storage.deleteTicket(req.params.id, user.activeCompanyId);
-    res.status(200).send("Deleted");
-  });
-
-  // Batch delete tickets - admin only
+  // Batch delete tickets - admin only (MUST be before /:id route)
   app.delete("/api/tickets/batch", async (req, res) => {
     if (!req.isAuthenticated()) {
       return res.status(401).send("Not authenticated");
@@ -3690,6 +3674,22 @@ export async function registerRoutes(app: Express): Promise<Server> {
         failedCount: failed.length,
       }
     });
+  });
+
+  app.delete("/api/tickets/:id", async (req, res) => {
+    if (!req.isAuthenticated()) {
+      return res.status(401).send("Not authenticated");
+    }
+
+    const user = req.user as UserWithContext;
+    
+    // Only admin and office can delete tickets
+    if (user.activeRole === "field_manager" || user.activeRole === "field" || user.activeRole === "irrigation_manager") {
+      return res.status(403).send("Insufficient permissions - admin or office role required");
+    }
+
+    await storage.deleteTicket(req.params.id, user.activeCompanyId);
+    res.status(200).send("Deleted");
   });
 
   // Create Execution Task linked to a Project ticket
