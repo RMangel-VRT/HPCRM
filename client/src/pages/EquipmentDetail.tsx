@@ -4,7 +4,7 @@ import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
 import { format } from "date-fns";
-import { ArrowLeft, Save, Edit2, X, CheckCircle, WrenchIcon, XCircle, Loader2 } from "lucide-react";
+import { ArrowLeft, Save, Edit2, X, CheckCircle, WrenchIcon, XCircle, Loader2, Upload, FileText, Trash2, Download, Image as ImageIcon } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -31,7 +31,18 @@ import { useToast } from "@/hooks/use-toast";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useState } from "react";
 import { useAuth } from "@/hooks/use-auth";
-import type { Equipment, User } from "@shared/schema";
+import type { Equipment, User, EquipmentFile } from "@shared/schema";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
+import { useRef } from "react";
 
 const EQUIPMENT_TYPES = [
   { value: "truck", label: "Truck" },
@@ -193,6 +204,83 @@ export default function EquipmentDetail() {
       toast({ title: "Failed to update equipment", description: error.message, variant: "destructive" });
     },
   });
+
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const [isUploading, setIsUploading] = useState(false);
+  const [fileToDelete, setFileToDelete] = useState<EquipmentFile | null>(null);
+
+  const { data: files, isLoading: filesLoading } = useQuery<EquipmentFile[]>({
+    queryKey: ["/api/equipment", id, "files"],
+    enabled: !!id,
+  });
+
+  const uploadFileMutation = useMutation({
+    mutationFn: async (file: File) => {
+      setIsUploading(true);
+      const uploadUrlRes = await apiRequest("POST", `/api/equipment/${id}/files/upload-url`);
+      const { uploadURL } = await uploadUrlRes.json();
+      
+      await fetch(uploadURL, {
+        method: "PUT",
+        body: file,
+        headers: { "Content-Type": file.type },
+      });
+      
+      const fileRes = await apiRequest("POST", `/api/equipment/${id}/files`, {
+        fileName: file.name,
+        fileType: file.type.startsWith("image/") ? "photo" : "document",
+        mimeType: file.type,
+        fileSize: file.size,
+        objectPath: uploadURL,
+      });
+      return fileRes.json();
+    },
+    onSuccess: () => {
+      setIsUploading(false);
+      queryClient.invalidateQueries({ queryKey: ["/api/equipment", id, "files"] });
+      toast({ title: "File uploaded successfully" });
+      if (fileInputRef.current) fileInputRef.current.value = "";
+    },
+    onError: (error: Error) => {
+      setIsUploading(false);
+      toast({ title: "Failed to upload file", description: error.message, variant: "destructive" });
+    },
+  });
+
+  const deleteFileMutation = useMutation({
+    mutationFn: async (fileId: string) => {
+      return apiRequest("DELETE", `/api/equipment/${id}/files/${fileId}`);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/equipment", id, "files"] });
+      setFileToDelete(null);
+      toast({ title: "File deleted successfully" });
+    },
+    onError: (error: Error) => {
+      toast({ title: "Failed to delete file", description: error.message, variant: "destructive" });
+    },
+  });
+
+  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) {
+      uploadFileMutation.mutate(file);
+    }
+  };
+
+  const getFileIcon = (mimeType: string | null) => {
+    if (mimeType?.startsWith("image/")) {
+      return <ImageIcon className="w-5 h-5 text-blue-500" />;
+    }
+    return <FileText className="w-5 h-5 text-muted-foreground" />;
+  };
+
+  const formatFileSize = (bytes: number | null) => {
+    if (!bytes) return "-";
+    if (bytes < 1024) return `${bytes} B`;
+    if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+    return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+  };
 
   const startEditing = () => {
     if (!equipment) return;
@@ -887,13 +975,116 @@ export default function EquipmentDetail() {
 
         <TabsContent value="files" className="mt-6">
           <Card>
-            <CardHeader>
+            <CardHeader className="flex flex-row items-center justify-between gap-4 space-y-0">
               <CardTitle>Files & Attachments</CardTitle>
+              {canModify && (
+                <div>
+                  <input
+                    type="file"
+                    ref={fileInputRef}
+                    onChange={handleFileChange}
+                    className="hidden"
+                    accept="image/*,.pdf,.doc,.docx,.xls,.xlsx,.txt"
+                    data-testid="input-file-upload"
+                  />
+                  <Button
+                    onClick={() => fileInputRef.current?.click()}
+                    disabled={isUploading}
+                    data-testid="button-upload-file"
+                  >
+                    {isUploading ? (
+                      <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                    ) : (
+                      <Upload className="w-4 h-4 mr-2" />
+                    )}
+                    Upload File
+                  </Button>
+                </div>
+              )}
             </CardHeader>
             <CardContent>
-              <p className="text-muted-foreground text-center py-8">Files tab coming soon...</p>
+              {filesLoading ? (
+                <div className="space-y-2">
+                  {[...Array(3)].map((_, i) => (
+                    <Skeleton key={i} className="h-12 w-full" />
+                  ))}
+                </div>
+              ) : files?.length === 0 ? (
+                <div className="text-center py-8 text-muted-foreground">
+                  <FileText className="w-12 h-12 mx-auto mb-4 opacity-50" />
+                  <p>No files attached</p>
+                  {canModify && (
+                    <p className="text-sm mt-2">Upload photos, manuals, registration documents, or other files</p>
+                  )}
+                </div>
+              ) : (
+                <div className="space-y-2">
+                  {files?.map((file) => (
+                    <div
+                      key={file.id}
+                      className="flex items-center justify-between p-3 rounded-lg border bg-card hover-elevate"
+                      data-testid={`row-file-${file.id}`}
+                    >
+                      <div className="flex items-center gap-3">
+                        {getFileIcon(file.mimeType)}
+                        <div>
+                          <p className="font-medium">{file.fileName}</p>
+                          <p className="text-sm text-muted-foreground">
+                            {formatFileSize(file.fileSize)} • {format(new Date(file.createdAt), "MMM d, yyyy")}
+                          </p>
+                        </div>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        {file.objectPath && (
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            asChild
+                            data-testid={`button-download-${file.id}`}
+                          >
+                            <a href={file.objectPath} target="_blank" rel="noopener noreferrer">
+                              <Download className="w-4 h-4" />
+                            </a>
+                          </Button>
+                        )}
+                        {canModify && (
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            onClick={() => setFileToDelete(file)}
+                            data-testid={`button-delete-file-${file.id}`}
+                          >
+                            <Trash2 className="w-4 h-4 text-destructive" />
+                          </Button>
+                        )}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
             </CardContent>
           </Card>
+
+          <AlertDialog open={!!fileToDelete} onOpenChange={() => setFileToDelete(null)}>
+            <AlertDialogContent>
+              <AlertDialogHeader>
+                <AlertDialogTitle>Delete File</AlertDialogTitle>
+                <AlertDialogDescription>
+                  Are you sure you want to delete "{fileToDelete?.fileName}"? This action cannot be undone.
+                </AlertDialogDescription>
+              </AlertDialogHeader>
+              <AlertDialogFooter>
+                <AlertDialogCancel data-testid="button-cancel-delete">Cancel</AlertDialogCancel>
+                <AlertDialogAction
+                  onClick={() => fileToDelete && deleteFileMutation.mutate(fileToDelete.id)}
+                  className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                  data-testid="button-confirm-delete"
+                >
+                  Delete
+                </AlertDialogAction>
+              </AlertDialogFooter>
+            </AlertDialogContent>
+          </AlertDialog>
         </TabsContent>
 
         <TabsContent value="tickets" className="mt-6">
