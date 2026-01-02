@@ -4,7 +4,7 @@ import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
 import { format } from "date-fns";
-import { ArrowLeft, Save, Edit2, X, CheckCircle, WrenchIcon, XCircle, Loader2, Upload, FileText, Trash2, Download, Image as ImageIcon } from "lucide-react";
+import { ArrowLeft, Save, Edit2, X, CheckCircle, WrenchIcon, XCircle, Loader2, Upload, FileText, Trash2, Download, Image as ImageIcon, Plus, Clock, AlertTriangle, CircleDot } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -31,7 +31,7 @@ import { useToast } from "@/hooks/use-toast";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useState } from "react";
 import { useAuth } from "@/hooks/use-auth";
-import type { Equipment, User, EquipmentFile } from "@shared/schema";
+import type { Equipment, User, EquipmentFile, EquipmentTicket } from "@shared/schema";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -42,7 +42,73 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { useRef } from "react";
+
+const TICKET_CATEGORIES = [
+  { value: "preventative_maintenance", label: "Preventative Maintenance" },
+  { value: "repair", label: "Repair" },
+  { value: "inspection", label: "Inspection" },
+  { value: "safety", label: "Safety" },
+  { value: "breakdown", label: "Breakdown" },
+];
+
+const TICKET_PRIORITIES = [
+  { value: "low", label: "Low" },
+  { value: "normal", label: "Normal" },
+  { value: "high", label: "High" },
+  { value: "urgent", label: "Urgent" },
+];
+
+function getTicketStatusBadge(status: string) {
+  switch (status) {
+    case "new":
+      return <Badge variant="default"><CircleDot className="w-3 h-3 mr-1" />New</Badge>;
+    case "diagnosing":
+      return <Badge variant="default" className="bg-blue-600 hover:bg-blue-600"><Clock className="w-3 h-3 mr-1" />Diagnosing</Badge>;
+    case "waiting_on_parts":
+      return <Badge variant="default" className="bg-yellow-600 hover:bg-yellow-600"><Clock className="w-3 h-3 mr-1" />Waiting on Parts</Badge>;
+    case "in_repair":
+      return <Badge variant="default" className="bg-orange-600 hover:bg-orange-600"><WrenchIcon className="w-3 h-3 mr-1" />In Repair</Badge>;
+    case "completed":
+      return <Badge variant="default" className="bg-green-600 hover:bg-green-600"><CheckCircle className="w-3 h-3 mr-1" />Completed</Badge>;
+    case "closed":
+      return <Badge variant="secondary"><CheckCircle className="w-3 h-3 mr-1" />Closed</Badge>;
+    default:
+      return <Badge variant="outline">{status}</Badge>;
+  }
+}
+
+function getPriorityBadge(priority: string) {
+  switch (priority) {
+    case "low":
+      return <Badge variant="outline">Low</Badge>;
+    case "normal":
+      return <Badge variant="outline">Normal</Badge>;
+    case "high":
+      return <Badge variant="default" className="bg-orange-600 hover:bg-orange-600">High</Badge>;
+    case "urgent":
+      return <Badge variant="default" className="bg-red-600 hover:bg-red-600"><AlertTriangle className="w-3 h-3 mr-1" />Urgent</Badge>;
+    default:
+      return <Badge variant="outline">{priority}</Badge>;
+  }
+}
+
+const newTicketFormSchema = z.object({
+  category: z.enum(["preventative_maintenance", "repair", "inspection", "safety", "breakdown"]),
+  priority: z.enum(["low", "normal", "high", "urgent"]),
+  title: z.string().min(1, "Title is required"),
+  description: z.string().min(1, "Description is required"),
+  assignedToId: z.string().nullable().optional(),
+  dueDate: z.string().optional(),
+});
+
+type NewTicketFormData = z.infer<typeof newTicketFormSchema>;
 
 const EQUIPMENT_TYPES = [
   { value: "truck", label: "Truck" },
@@ -228,10 +294,9 @@ export default function EquipmentDetail() {
       
       const fileRes = await apiRequest("POST", `/api/equipment/${id}/files`, {
         fileName: file.name,
-        fileType: file.type.startsWith("image/") ? "photo" : "document",
-        mimeType: file.type,
+        fileType: file.type.startsWith("image/") ? "image" : "document",
         fileSize: file.size,
-        objectPath: uploadURL,
+        storagePath: uploadURL,
       });
       return fileRes.json();
     },
@@ -268,8 +333,8 @@ export default function EquipmentDetail() {
     }
   };
 
-  const getFileIcon = (mimeType: string | null) => {
-    if (mimeType?.startsWith("image/")) {
+  const getFileIcon = (fileType: string) => {
+    if (fileType === "image") {
       return <ImageIcon className="w-5 h-5 text-blue-500" />;
     }
     return <FileText className="w-5 h-5 text-muted-foreground" />;
@@ -280,6 +345,58 @@ export default function EquipmentDetail() {
     if (bytes < 1024) return `${bytes} B`;
     if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
     return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+  };
+
+  const [isNewTicketOpen, setIsNewTicketOpen] = useState(false);
+
+  const { data: tickets, isLoading: ticketsLoading } = useQuery<EquipmentTicket[]>({
+    queryKey: ["/api/equipment", id, "tickets"],
+    enabled: !!id,
+  });
+
+  const newTicketForm = useForm<NewTicketFormData>({
+    resolver: zodResolver(newTicketFormSchema),
+    defaultValues: {
+      category: "repair",
+      priority: "normal",
+      title: "",
+      description: "",
+      assignedToId: null,
+      dueDate: "",
+    },
+  });
+
+  const createTicketMutation = useMutation({
+    mutationFn: async (data: NewTicketFormData) => {
+      const res = await apiRequest("POST", "/api/equipment-tickets", {
+        equipmentId: id,
+        category: data.category,
+        priority: data.priority,
+        title: data.title,
+        description: data.description,
+        assignedToId: data.assignedToId === "none" || !data.assignedToId ? null : data.assignedToId,
+        dueDate: data.dueDate || null,
+      });
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/equipment", id, "tickets"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/equipment", id] });
+      queryClient.invalidateQueries({ queryKey: ["/api/equipment"] });
+      setIsNewTicketOpen(false);
+      newTicketForm.reset();
+      toast({ title: "Ticket created successfully" });
+    },
+    onError: (error: Error) => {
+      toast({ title: "Failed to create ticket", description: error.message, variant: "destructive" });
+    },
+  });
+
+  const openTickets = tickets?.filter(t => !["completed", "closed"].includes(t.status)) || [];
+  const completedTickets = tickets?.filter(t => ["completed", "closed"].includes(t.status)) || [];
+
+  const getCategoryLabel = (category: string) => {
+    return TICKET_CATEGORIES.find(c => c.value === category)?.label || category;
   };
 
   const startEditing = () => {
@@ -1026,7 +1143,7 @@ export default function EquipmentDetail() {
                       data-testid={`row-file-${file.id}`}
                     >
                       <div className="flex items-center gap-3">
-                        {getFileIcon(file.mimeType)}
+                        {getFileIcon(file.fileType)}
                         <div>
                           <p className="font-medium">{file.fileName}</p>
                           <p className="text-sm text-muted-foreground">
@@ -1035,14 +1152,14 @@ export default function EquipmentDetail() {
                         </div>
                       </div>
                       <div className="flex items-center gap-2">
-                        {file.objectPath && (
+                        {file.storagePath && (
                           <Button
                             variant="ghost"
                             size="icon"
                             asChild
                             data-testid={`button-download-${file.id}`}
                           >
-                            <a href={file.objectPath} target="_blank" rel="noopener noreferrer">
+                            <a href={file.storagePath} target="_blank" rel="noopener noreferrer">
                               <Download className="w-4 h-4" />
                             </a>
                           </Button>
@@ -1089,22 +1206,266 @@ export default function EquipmentDetail() {
 
         <TabsContent value="tickets" className="mt-6">
           <Card>
-            <CardHeader>
-              <CardTitle>Open Tickets</CardTitle>
+            <CardHeader className="flex flex-row items-center justify-between gap-4 space-y-0">
+              <CardTitle>Open Tickets ({openTickets.length})</CardTitle>
+              {canModify && (
+                <Button onClick={() => setIsNewTicketOpen(true)} data-testid="button-new-ticket">
+                  <Plus className="w-4 h-4 mr-2" />
+                  New Ticket
+                </Button>
+              )}
             </CardHeader>
             <CardContent>
-              <p className="text-muted-foreground text-center py-8">Tickets tab coming soon...</p>
+              {ticketsLoading ? (
+                <div className="space-y-2">
+                  {[...Array(3)].map((_, i) => (
+                    <Skeleton key={i} className="h-16 w-full" />
+                  ))}
+                </div>
+              ) : openTickets.length === 0 ? (
+                <div className="text-center py-8 text-muted-foreground">
+                  <WrenchIcon className="w-12 h-12 mx-auto mb-4 opacity-50" />
+                  <p>No open tickets</p>
+                  {canModify && (
+                    <p className="text-sm mt-2">Create a ticket for repairs, maintenance, or inspections</p>
+                  )}
+                </div>
+              ) : (
+                <div className="space-y-3">
+                  {openTickets.map((ticket) => (
+                    <div
+                      key={ticket.id}
+                      className="p-4 rounded-lg border bg-card hover-elevate"
+                      data-testid={`row-ticket-${ticket.id}`}
+                    >
+                      <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3">
+                        <div className="space-y-1 flex-1">
+                          <div className="flex items-center gap-2 flex-wrap">
+                            <span className="font-medium">{ticket.title}</span>
+                            {getTicketStatusBadge(ticket.status)}
+                            {getPriorityBadge(ticket.priority)}
+                          </div>
+                          <p className="text-sm text-muted-foreground line-clamp-2">{ticket.description}</p>
+                          <div className="flex items-center gap-4 text-sm text-muted-foreground">
+                            <span>{getCategoryLabel(ticket.category)}</span>
+                            {ticket.dueDate && (
+                              <span className="flex items-center gap-1">
+                                <Clock className="w-3 h-3" />
+                                Due: {format(new Date(ticket.dueDate), "MMM d, yyyy")}
+                              </span>
+                            )}
+                            <span>Created: {format(new Date(ticket.createdAt), "MMM d, yyyy")}</span>
+                          </div>
+                        </div>
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          asChild
+                          data-testid={`button-view-ticket-${ticket.id}`}
+                        >
+                          <Link href={`/dashboard/equipment-tickets/${ticket.id}`}>View</Link>
+                        </Button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
             </CardContent>
           </Card>
+
+          <Dialog open={isNewTicketOpen} onOpenChange={setIsNewTicketOpen}>
+            <DialogContent className="max-w-lg">
+              <DialogHeader>
+                <DialogTitle>Create Equipment Ticket</DialogTitle>
+              </DialogHeader>
+              <Form {...newTicketForm}>
+                <form onSubmit={newTicketForm.handleSubmit((data) => createTicketMutation.mutate(data))} className="space-y-4">
+                  <FormField
+                    control={newTicketForm.control}
+                    name="title"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>Title *</FormLabel>
+                        <FormControl>
+                          <Input {...field} placeholder="Brief description of the issue" data-testid="input-ticket-title" />
+                        </FormControl>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+                  <div className="grid grid-cols-2 gap-4">
+                    <FormField
+                      control={newTicketForm.control}
+                      name="category"
+                      render={({ field }) => (
+                        <FormItem>
+                          <FormLabel>Category</FormLabel>
+                          <Select value={field.value} onValueChange={field.onChange}>
+                            <FormControl>
+                              <SelectTrigger data-testid="select-ticket-category">
+                                <SelectValue />
+                              </SelectTrigger>
+                            </FormControl>
+                            <SelectContent>
+                              {TICKET_CATEGORIES.map((cat) => (
+                                <SelectItem key={cat.value} value={cat.value}>{cat.label}</SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                          <FormMessage />
+                        </FormItem>
+                      )}
+                    />
+                    <FormField
+                      control={newTicketForm.control}
+                      name="priority"
+                      render={({ field }) => (
+                        <FormItem>
+                          <FormLabel>Priority</FormLabel>
+                          <Select value={field.value} onValueChange={field.onChange}>
+                            <FormControl>
+                              <SelectTrigger data-testid="select-ticket-priority">
+                                <SelectValue />
+                              </SelectTrigger>
+                            </FormControl>
+                            <SelectContent>
+                              {TICKET_PRIORITIES.map((pri) => (
+                                <SelectItem key={pri.value} value={pri.value}>{pri.label}</SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                          <FormMessage />
+                        </FormItem>
+                      )}
+                    />
+                  </div>
+                  <FormField
+                    control={newTicketForm.control}
+                    name="description"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>Description *</FormLabel>
+                        <FormControl>
+                          <Textarea {...field} rows={3} placeholder="Detailed description of the issue or work needed" data-testid="input-ticket-description" />
+                        </FormControl>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+                  <div className="grid grid-cols-2 gap-4">
+                    <FormField
+                      control={newTicketForm.control}
+                      name="assignedToId"
+                      render={({ field }) => (
+                        <FormItem>
+                          <FormLabel>Assign To</FormLabel>
+                          <Select value={field.value || "none"} onValueChange={field.onChange}>
+                            <FormControl>
+                              <SelectTrigger data-testid="select-ticket-assigned">
+                                <SelectValue />
+                              </SelectTrigger>
+                            </FormControl>
+                            <SelectContent>
+                              <SelectItem value="none">Unassigned</SelectItem>
+                              {users?.map((u) => (
+                                <SelectItem key={u.id} value={u.id}>{u.name}</SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                          <FormMessage />
+                        </FormItem>
+                      )}
+                    />
+                    <FormField
+                      control={newTicketForm.control}
+                      name="dueDate"
+                      render={({ field }) => (
+                        <FormItem>
+                          <FormLabel>Due Date</FormLabel>
+                          <FormControl>
+                            <Input type="date" {...field} data-testid="input-ticket-due" />
+                          </FormControl>
+                          <FormMessage />
+                        </FormItem>
+                      )}
+                    />
+                  </div>
+                  <div className="flex justify-end gap-2 pt-4">
+                    <Button type="button" variant="outline" onClick={() => setIsNewTicketOpen(false)}>
+                      Cancel
+                    </Button>
+                    <Button type="submit" disabled={createTicketMutation.isPending} data-testid="button-create-ticket">
+                      {createTicketMutation.isPending ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : null}
+                      Create Ticket
+                    </Button>
+                  </div>
+                </form>
+              </Form>
+            </DialogContent>
+          </Dialog>
         </TabsContent>
 
         <TabsContent value="history" className="mt-6">
           <Card>
             <CardHeader>
-              <CardTitle>Service History</CardTitle>
+              <CardTitle>Service History ({completedTickets.length})</CardTitle>
             </CardHeader>
             <CardContent>
-              <p className="text-muted-foreground text-center py-8">Service history coming soon...</p>
+              {ticketsLoading ? (
+                <div className="space-y-2">
+                  {[...Array(3)].map((_, i) => (
+                    <Skeleton key={i} className="h-16 w-full" />
+                  ))}
+                </div>
+              ) : completedTickets.length === 0 ? (
+                <div className="text-center py-8 text-muted-foreground">
+                  <CheckCircle className="w-12 h-12 mx-auto mb-4 opacity-50" />
+                  <p>No completed service records</p>
+                  <p className="text-sm mt-2">Completed tickets will appear here</p>
+                </div>
+              ) : (
+                <div className="space-y-3">
+                  {completedTickets.map((ticket) => (
+                    <div
+                      key={ticket.id}
+                      className="p-4 rounded-lg border bg-card"
+                      data-testid={`row-history-${ticket.id}`}
+                    >
+                      <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3">
+                        <div className="space-y-1 flex-1">
+                          <div className="flex items-center gap-2 flex-wrap">
+                            <span className="font-medium">{ticket.title}</span>
+                            {getTicketStatusBadge(ticket.status)}
+                          </div>
+                          <p className="text-sm text-muted-foreground line-clamp-2">
+                            {ticket.workPerformedNotes || ticket.description}
+                          </p>
+                          <div className="flex items-center gap-4 text-sm text-muted-foreground">
+                            <span>{getCategoryLabel(ticket.category)}</span>
+                            {ticket.completedAt && (
+                              <span>Completed: {format(new Date(ticket.completedAt), "MMM d, yyyy")}</span>
+                            )}
+                            {ticket.laborTime && (
+                              <span>{ticket.laborTime} hrs labor</span>
+                            )}
+                            {ticket.totalCost && (
+                              <span>${(ticket.totalCost / 100).toFixed(2)} total</span>
+                            )}
+                          </div>
+                        </div>
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          asChild
+                          data-testid={`button-view-history-${ticket.id}`}
+                        >
+                          <Link href={`/dashboard/equipment-tickets/${ticket.id}`}>View</Link>
+                        </Button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
             </CardContent>
           </Card>
         </TabsContent>
