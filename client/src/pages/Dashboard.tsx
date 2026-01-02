@@ -10,6 +10,7 @@ import PendingInvoices from "@/components/PendingInvoices";
 import { useAuth } from "@/hooks/use-auth";
 import SuperAdminDashboard from "./SuperAdminDashboard";
 import FieldCrewDashboard from "./FieldCrewDashboard";
+import ShopManagerDashboard from "./ShopManagerDashboard";
 
 interface DashboardStats {
   customersCount: number;
@@ -55,6 +56,10 @@ export default function Dashboard() {
   
   if (user?.activeRole === "field_manager" || user?.activeRole === "field" || user?.activeRole === "irrigation_manager") {
     return <FieldCrewDashboard />;
+  }
+  
+  if (user?.activeRole === "shop_manager") {
+    return <ShopManagerDashboard />;
   }
   
   return <AdminOfficeDashboard />;

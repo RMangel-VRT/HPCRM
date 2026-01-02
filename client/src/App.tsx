@@ -95,7 +95,7 @@ function Router() {
             <main className="flex-1 overflow-y-auto p-6 md:p-8">
             <Switch>
               <ProtectedRoute path="/admin" component={SuperAdminHome} superAdminOnly />
-              <ProtectedRoute path="/dashboard" component={Dashboard} allowedRoles={["admin", "office", "field_manager"]} />
+              <ProtectedRoute path="/dashboard" component={Dashboard} allowedRoles={["admin", "office", "field_manager", "shop_manager"]} />
               <ProtectedRoute path="/dashboard/customers/:id" component={CustomerDetail} allowedRoles={["admin", "office", "field_manager"]} />
               <ProtectedRoute path="/dashboard/customers" component={CustomersList} allowedRoles={["admin", "office", "field_manager"]} />
               <ProtectedRoute path="/dashboard/tickets/new" component={NewTicket} allowedRoles={["admin"]} />
@@ -124,7 +124,7 @@ function Router() {
               <Route path="/">
                 {user.isSuperAdminBool ? (
                   <Redirect to="/admin" />
-                ) : user.activeRole === "field" || user.activeRole === "irrigation_manager" || user.activeRole === "shop_manager" ? (
+                ) : user.activeRole === "field" || user.activeRole === "irrigation_manager" ? (
                   <Redirect to="/dashboard/tickets/my" />
                 ) : (
                   <Redirect to="/dashboard" />
@@ -133,7 +133,7 @@ function Router() {
               <Route>
                 {user.isSuperAdminBool ? (
                   <Redirect to="/admin" />
-                ) : user.activeRole === "field" || user.activeRole === "irrigation_manager" || user.activeRole === "shop_manager" ? (
+                ) : user.activeRole === "field" || user.activeRole === "irrigation_manager" ? (
                   <Redirect to="/dashboard/tickets/my" />
                 ) : (
                   <Redirect to="/dashboard" />

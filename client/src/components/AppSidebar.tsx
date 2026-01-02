@@ -70,8 +70,9 @@ export default function AppSidebar({
     
     const items: Array<{ title: string; url: string; icon: typeof LayoutDashboard }> = [];
     
-    // Shop Manager only sees My Tickets
+    // Shop Manager sees Dashboard and My Tickets
     if (userRole === "shop_manager") {
+      items.push({ title: "Dashboard", url: "/dashboard", icon: LayoutDashboard });
       items.push({ title: "My Tickets", url: "/dashboard/tickets/my", icon: UserCheck });
       return items;
     }
