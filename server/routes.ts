@@ -4,7 +4,7 @@ import path from "path";
 import { promises as fs } from "fs";
 import { setupAuth, type UserWithContext } from "./auth";
 import { storage } from "./storage";
-import { insertCustomerSchema, insertContactSchema, insertCompanySchema, insertCompanyUserSchema, insertSettingsSchema, insertNoteSchema, insertContractSchema, insertContractDocumentSchema, insertContractBuilderDocumentSchema, insertContractBuilderSectionSchema, insertContractBuilderVariableSchema, insertTicketTypeSchema, insertTicketTypeStatusSchema, insertTicketTypeFieldSchema, insertTicketSchema, insertTicketFieldValueSchema, insertTicketStatusHistorySchema, insertTicketCommentSchema, insertTicketLinkSchema, insertCustomerMapLayerSchema, insertCustomerMapDocumentSchema, insertMaintenanceCrewSchema, insertMaintenanceVisitConfigSchema, insertWeeklyScheduleTemplateSchema, insertScheduleBlockSchema } from "@shared/schema";
+import { insertCustomerSchema, insertContactSchema, insertCompanySchema, insertCompanyUserSchema, insertSettingsSchema, insertNoteSchema, insertContractSchema, insertContractDocumentSchema, insertContractBuilderDocumentSchema, insertContractBuilderSectionSchema, insertContractBuilderVariableSchema, insertTicketTypeSchema, insertTicketTypeStatusSchema, insertTicketTypeFieldSchema, insertTicketSchema, insertTicketFieldValueSchema, insertTicketStatusHistorySchema, insertTicketCommentSchema, insertTicketLinkSchema, insertCustomerMapLayerSchema, insertCustomerMapDocumentSchema, insertMaintenanceCrewSchema, insertMaintenanceVisitConfigSchema, insertWeeklyScheduleTemplateSchema, insertScheduleBlockSchema, insertEquipmentSchema, insertEquipmentFileSchema, insertEquipmentTicketSchema, insertEquipmentTicketStatusHistorySchema } from "@shared/schema";
 import { ObjectStorageService, ObjectNotFoundError, objectStorageClient, signObjectURL } from "./objectStorage";
 import { ObjectPermission, ObjectAccessGroupType, setObjectAclPolicy } from "./objectAcl";
 
@@ -5132,6 +5132,368 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
     
     res.json({ emails: createdEmails, phones: createdPhones });
+  });
+
+  // =============================================================================
+  // EQUIPMENT MANAGEMENT ROUTES
+  // =============================================================================
+  
+  // Helper function to check equipment access permissions
+  const canAccessEquipment = (role: string) => ["admin", "shop_manager", "office"].includes(role);
+  const canModifyEquipment = (role: string) => ["admin", "shop_manager"].includes(role);
+
+  // Get all equipment (Admin, Shop Manager, Office)
+  app.get("/api/equipment", async (req, res) => {
+    if (!req.isAuthenticated()) {
+      return res.status(401).send("Not authenticated");
+    }
+    const user = req.user as UserWithContext;
+    
+    if (!canAccessEquipment(user.activeRole)) {
+      return res.status(403).send("Insufficient permissions");
+    }
+    
+    const equipmentList = await storage.getEquipmentWithTicketCounts(user.activeCompanyId);
+    res.json(equipmentList);
+  });
+
+  // Get single equipment by ID (Admin, Shop Manager, Office)
+  app.get("/api/equipment/:id", async (req, res) => {
+    if (!req.isAuthenticated()) {
+      return res.status(401).send("Not authenticated");
+    }
+    const user = req.user as UserWithContext;
+    
+    if (!canAccessEquipment(user.activeRole)) {
+      return res.status(403).send("Insufficient permissions");
+    }
+    
+    const equipmentItem = await storage.getEquipmentById(req.params.id, user.activeCompanyId);
+    if (!equipmentItem) {
+      return res.status(404).send("Equipment not found");
+    }
+    res.json(equipmentItem);
+  });
+
+  // Create equipment (Admin, Shop Manager only)
+  app.post("/api/equipment", async (req, res) => {
+    if (!req.isAuthenticated()) {
+      return res.status(401).send("Not authenticated");
+    }
+    const user = req.user as UserWithContext;
+    
+    if (!canModifyEquipment(user.activeRole)) {
+      return res.status(403).send("Insufficient permissions");
+    }
+    
+    const parsed = insertEquipmentSchema.safeParse({
+      ...req.body,
+      companyId: user.activeCompanyId,
+    });
+    
+    if (!parsed.success) {
+      return res.status(400).json({ error: parsed.error.errors });
+    }
+    
+    const equipmentItem = await storage.createEquipment(parsed.data);
+    res.status(201).json(equipmentItem);
+  });
+
+  // Update equipment (Admin, Shop Manager only)
+  app.patch("/api/equipment/:id", async (req, res) => {
+    if (!req.isAuthenticated()) {
+      return res.status(401).send("Not authenticated");
+    }
+    const user = req.user as UserWithContext;
+    
+    if (!canModifyEquipment(user.activeRole)) {
+      return res.status(403).send("Insufficient permissions");
+    }
+    
+    const equipmentItem = await storage.updateEquipment(req.params.id, user.activeCompanyId, req.body);
+    if (!equipmentItem) {
+      return res.status(404).send("Equipment not found");
+    }
+    res.json(equipmentItem);
+  });
+
+  // Delete equipment (Admin, Shop Manager only)
+  app.delete("/api/equipment/:id", async (req, res) => {
+    if (!req.isAuthenticated()) {
+      return res.status(401).send("Not authenticated");
+    }
+    const user = req.user as UserWithContext;
+    
+    if (!canModifyEquipment(user.activeRole)) {
+      return res.status(403).send("Insufficient permissions");
+    }
+    
+    await storage.deleteEquipment(req.params.id, user.activeCompanyId);
+    res.json({ success: true });
+  });
+
+  // Equipment Files - Get files for equipment
+  app.get("/api/equipment/:equipmentId/files", async (req, res) => {
+    if (!req.isAuthenticated()) {
+      return res.status(401).send("Not authenticated");
+    }
+    const user = req.user as UserWithContext;
+    
+    if (!canAccessEquipment(user.activeRole)) {
+      return res.status(403).send("Insufficient permissions");
+    }
+    
+    const files = await storage.getEquipmentFiles(req.params.equipmentId, user.activeCompanyId);
+    res.json(files);
+  });
+
+  // Equipment Files - Upload URL generation
+  app.post("/api/equipment/:equipmentId/files/upload-url", async (req, res) => {
+    if (!req.isAuthenticated()) {
+      return res.status(401).send("Not authenticated");
+    }
+    const user = req.user as UserWithContext;
+    
+    if (!canModifyEquipment(user.activeRole)) {
+      return res.status(403).send("Insufficient permissions");
+    }
+    
+    try {
+      const objectStorageService = new ObjectStorageService();
+      const uploadURL = await objectStorageService.getObjectEntityUploadURL();
+      const normalizedPath = objectStorageService.normalizeObjectEntityPath(uploadURL);
+      res.json({ uploadUrl: uploadURL, storagePath: normalizedPath });
+    } catch (error) {
+      console.error("Error getting equipment file upload URL:", error);
+      res.status(500).send("Failed to get upload URL");
+    }
+  });
+
+  // Equipment Files - Create file record after upload
+  app.post("/api/equipment/:equipmentId/files", async (req, res) => {
+    if (!req.isAuthenticated()) {
+      return res.status(401).send("Not authenticated");
+    }
+    const user = req.user as UserWithContext;
+    
+    if (!canModifyEquipment(user.activeRole)) {
+      return res.status(403).send("Insufficient permissions");
+    }
+    
+    const parsed = insertEquipmentFileSchema.safeParse({
+      ...req.body,
+      equipmentId: req.params.equipmentId,
+      companyId: user.activeCompanyId,
+      uploadedById: user.id,
+    });
+    
+    if (!parsed.success) {
+      return res.status(400).json({ error: parsed.error.errors });
+    }
+    
+    try {
+      // Set ACL for the file
+      const objectStorageService = new ObjectStorageService();
+      const objectFile = await objectStorageService.getObjectEntityFile(parsed.data.storagePath);
+      await setObjectAclPolicy(objectFile, {
+        owner: user.id,
+        visibility: "private",
+        aclRules: [{
+          group: {
+            type: ObjectAccessGroupType.COMPANY_MEMBER,
+            id: user.activeCompanyId,
+          },
+          permission: ObjectPermission.READ,
+        }],
+      });
+      
+      const file = await storage.createEquipmentFile(parsed.data);
+      res.status(201).json(file);
+    } catch (error) {
+      console.error("Error creating equipment file:", error);
+      res.status(500).send("Failed to create equipment file");
+    }
+  });
+
+  // Equipment Files - Delete file
+  app.delete("/api/equipment/:equipmentId/files/:fileId", async (req, res) => {
+    if (!req.isAuthenticated()) {
+      return res.status(401).send("Not authenticated");
+    }
+    const user = req.user as UserWithContext;
+    
+    if (!canModifyEquipment(user.activeRole)) {
+      return res.status(403).send("Insufficient permissions");
+    }
+    
+    await storage.deleteEquipmentFile(req.params.fileId, user.activeCompanyId);
+    res.json({ success: true });
+  });
+
+  // Equipment Tickets - Get all tickets (with optional filters)
+  app.get("/api/equipment-tickets", async (req, res) => {
+    if (!req.isAuthenticated()) {
+      return res.status(401).send("Not authenticated");
+    }
+    const user = req.user as UserWithContext;
+    
+    if (!canAccessEquipment(user.activeRole)) {
+      return res.status(403).send("Insufficient permissions");
+    }
+    
+    const filters: { equipmentId?: string; status?: string; assignedToId?: string } = {};
+    if (req.query.equipmentId) filters.equipmentId = req.query.equipmentId as string;
+    if (req.query.status) filters.status = req.query.status as string;
+    if (req.query.assignedToId) filters.assignedToId = req.query.assignedToId as string;
+    
+    const tickets = await storage.getEquipmentTickets(user.activeCompanyId, filters);
+    res.json(tickets);
+  });
+
+  // Equipment Tickets - Get by equipment ID
+  app.get("/api/equipment/:equipmentId/tickets", async (req, res) => {
+    if (!req.isAuthenticated()) {
+      return res.status(401).send("Not authenticated");
+    }
+    const user = req.user as UserWithContext;
+    
+    if (!canAccessEquipment(user.activeRole)) {
+      return res.status(403).send("Insufficient permissions");
+    }
+    
+    const tickets = await storage.getEquipmentTicketsByEquipmentId(req.params.equipmentId, user.activeCompanyId);
+    res.json(tickets);
+  });
+
+  // Equipment Tickets - Get single ticket
+  app.get("/api/equipment-tickets/:id", async (req, res) => {
+    if (!req.isAuthenticated()) {
+      return res.status(401).send("Not authenticated");
+    }
+    const user = req.user as UserWithContext;
+    
+    if (!canAccessEquipment(user.activeRole)) {
+      return res.status(403).send("Insufficient permissions");
+    }
+    
+    const ticket = await storage.getEquipmentTicketById(req.params.id, user.activeCompanyId);
+    if (!ticket) {
+      return res.status(404).send("Ticket not found");
+    }
+    res.json(ticket);
+  });
+
+  // Equipment Tickets - Create ticket
+  app.post("/api/equipment-tickets", async (req, res) => {
+    if (!req.isAuthenticated()) {
+      return res.status(401).send("Not authenticated");
+    }
+    const user = req.user as UserWithContext;
+    
+    if (!canModifyEquipment(user.activeRole)) {
+      return res.status(403).send("Insufficient permissions");
+    }
+    
+    const parsed = insertEquipmentTicketSchema.safeParse({
+      ...req.body,
+      companyId: user.activeCompanyId,
+      reportedById: user.id,
+    });
+    
+    if (!parsed.success) {
+      return res.status(400).json({ error: parsed.error.errors });
+    }
+    
+    const ticket = await storage.createEquipmentTicket(parsed.data);
+    
+    // Create initial status history
+    await storage.createEquipmentTicketStatusHistory({
+      ticketId: ticket.id,
+      fromStatus: null,
+      toStatus: ticket.status,
+      changedById: user.id,
+      notes: "Ticket created",
+    });
+    
+    res.status(201).json(ticket);
+  });
+
+  // Equipment Tickets - Update ticket
+  app.patch("/api/equipment-tickets/:id", async (req, res) => {
+    if (!req.isAuthenticated()) {
+      return res.status(401).send("Not authenticated");
+    }
+    const user = req.user as UserWithContext;
+    
+    if (!canModifyEquipment(user.activeRole)) {
+      return res.status(403).send("Insufficient permissions");
+    }
+    
+    // Get current ticket to track status changes
+    const currentTicket = await storage.getEquipmentTicketById(req.params.id, user.activeCompanyId);
+    if (!currentTicket) {
+      return res.status(404).send("Ticket not found");
+    }
+    
+    // If status is changing to completed or closed, require workPerformedNotes
+    const newStatus = req.body.status;
+    if ((newStatus === "completed" || newStatus === "closed") && !req.body.workPerformedNotes && !currentTicket.workPerformedNotes) {
+      return res.status(400).json({ error: "Work performed notes are required when completing or closing a ticket" });
+    }
+    
+    // Set timestamps for status changes
+    const updates = { ...req.body };
+    if (newStatus === "completed" && !currentTicket.completedAt) {
+      updates.completedAt = new Date();
+    }
+    if (newStatus === "closed" && !currentTicket.closedAt) {
+      updates.closedAt = new Date();
+    }
+    
+    const ticket = await storage.updateEquipmentTicket(req.params.id, user.activeCompanyId, updates);
+    
+    // Create status history if status changed
+    if (newStatus && newStatus !== currentTicket.status) {
+      await storage.createEquipmentTicketStatusHistory({
+        ticketId: ticket!.id,
+        fromStatus: currentTicket.status,
+        toStatus: newStatus,
+        changedById: user.id,
+        notes: req.body.statusChangeNotes || null,
+      });
+    }
+    
+    res.json(ticket);
+  });
+
+  // Equipment Tickets - Delete ticket
+  app.delete("/api/equipment-tickets/:id", async (req, res) => {
+    if (!req.isAuthenticated()) {
+      return res.status(401).send("Not authenticated");
+    }
+    const user = req.user as UserWithContext;
+    
+    if (!canModifyEquipment(user.activeRole)) {
+      return res.status(403).send("Insufficient permissions");
+    }
+    
+    await storage.deleteEquipmentTicket(req.params.id, user.activeCompanyId);
+    res.json({ success: true });
+  });
+
+  // Equipment Ticket Status History
+  app.get("/api/equipment-tickets/:ticketId/history", async (req, res) => {
+    if (!req.isAuthenticated()) {
+      return res.status(401).send("Not authenticated");
+    }
+    const user = req.user as UserWithContext;
+    
+    if (!canAccessEquipment(user.activeRole)) {
+      return res.status(403).send("Insufficient permissions");
+    }
+    
+    const history = await storage.getEquipmentTicketStatusHistory(req.params.ticketId);
+    res.json(history);
   });
 
   const httpServer = createServer(app);

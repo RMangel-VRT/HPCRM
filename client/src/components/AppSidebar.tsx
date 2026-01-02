@@ -26,6 +26,7 @@ import {
   Mail,
   Phone,
   MessageSquare,
+  Truck,
 } from "lucide-react";
 import {
   Dialog,
@@ -70,10 +71,11 @@ export default function AppSidebar({
     
     const items: Array<{ title: string; url: string; icon: typeof LayoutDashboard }> = [];
     
-    // Shop Manager sees Dashboard and My Tickets
+    // Shop Manager sees Dashboard, My Tickets, and Equipment
     if (userRole === "shop_manager") {
       items.push({ title: "Dashboard", url: "/dashboard", icon: LayoutDashboard });
       items.push({ title: "My Tickets", url: "/dashboard/tickets/my", icon: UserCheck });
+      items.push({ title: "Equipment", url: "/dashboard/equipment", icon: Truck });
       return items;
     }
     
@@ -101,6 +103,11 @@ export default function AppSidebar({
     // Weekly Schedule - Admin, Office, and Irrigation Manager (view only for irrigation_manager)
     if (userRole === "admin" || userRole === "office" || userRole === "irrigation_manager") {
       items.push({ title: "Schedule", url: "/dashboard/schedule", icon: CalendarDays });
+    }
+    
+    // Equipment - Admin, Office (view-only), and Shop Manager (handled above)
+    if (userRole === "admin" || userRole === "office") {
+      items.push({ title: "Equipment", url: "/dashboard/equipment", icon: Truck });
     }
     
     // Tools - Admin, Office, Field Manager
