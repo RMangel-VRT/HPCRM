@@ -45,7 +45,7 @@ const STATUS_OPTIONS = [
 ];
 
 const FUEL_TYPES = [
-  { value: "", label: "Not specified" },
+  { value: "not_specified", label: "Not specified" },
   { value: "gasoline", label: "Gasoline" },
   { value: "diesel", label: "Diesel" },
   { value: "propane", label: "Propane" },
@@ -91,7 +91,7 @@ export default function NewEquipment() {
       year: null,
       serialNumber: "",
       licensePlate: "",
-      fuelType: "",
+      fuelType: "not_specified",
       notes: "",
     },
   });
