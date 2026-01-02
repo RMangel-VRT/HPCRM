@@ -124,7 +124,7 @@ function Router() {
               <Route path="/">
                 {user.isSuperAdminBool ? (
                   <Redirect to="/admin" />
-                ) : user.activeRole === "field" || user.activeRole === "irrigation_manager" ? (
+                ) : user.activeRole === "field" || user.activeRole === "irrigation_manager" || user.activeRole === "shop_manager" ? (
                   <Redirect to="/dashboard/tickets/my" />
                 ) : (
                   <Redirect to="/dashboard" />
@@ -133,7 +133,7 @@ function Router() {
               <Route>
                 {user.isSuperAdminBool ? (
                   <Redirect to="/admin" />
-                ) : user.activeRole === "field" || user.activeRole === "irrigation_manager" ? (
+                ) : user.activeRole === "field" || user.activeRole === "irrigation_manager" || user.activeRole === "shop_manager" ? (
                   <Redirect to="/dashboard/tickets/my" />
                 ) : (
                   <Redirect to="/dashboard" />
