@@ -43,6 +43,19 @@ Tracks Property Management Companies and Property Managers with full integration
 
 Tables: `property_management_companies`, `property_managers`, `property_manager_emails`, `property_manager_phones`
 
+#### Equipment Tracking Module
+A comprehensive equipment management system for tracking trucks, mowers, trailers, and other equipment. Features include:
+- Equipment CRUD with types (truck, mower, trailer, skid_steer, atv_utv, specialty, other_vehicle) and statuses (active, in_repair, out_of_service, retired)
+- Equipment list with search, type/status filters, and sortable table
+- Equipment detail page with tabs: Details (edit form), Files (attachments), Tickets (open tickets), Service History (completed tickets)
+- Equipment ticketing system separate from customer tickets with categories (preventative_maintenance, repair, inspection, safety, breakdown)
+- Ticket status workflow: new → diagnosing → waiting_on_parts → in_repair → completed → closed
+- Completion notes capture: workPerformedNotes (required), laborTime, partsUsed, vendorUsed, totalCost
+- File attachments stored in object storage with equipment-scoped paths
+- Access control: Admin and Shop Manager have full access, Office has view-only access, other roles have no access
+
+Tables: `equipment`, `equipment_tickets`, `equipment_files`
+
 #### First-Time Setup Flow
 When deployed to production with an empty database (no users), the app automatically shows a setup page instead of login. This allows the first admin to create their company and account. The setup page creates the company, admin user, company membership, and default settings, then auto-logs in. Once any user exists, the setup page becomes inaccessible for security.
 
