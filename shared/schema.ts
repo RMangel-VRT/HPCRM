@@ -1053,3 +1053,174 @@ export type PropertyManagerWithContacts = PropertyManager & {
   emails: PropertyManagerEmail[];
   phones: PropertyManagerPhone[];
 };
+
+// ==================== EQUIPMENT TRACKING MODULE ====================
+
+// Equipment types for categorization
+export type EquipmentType = "truck" | "mower" | "trailer" | "skid_steer" | "atv_utv" | "specialty" | "other_vehicle";
+
+// Equipment status for lifecycle tracking
+export type EquipmentStatus = "active" | "in_repair" | "out_of_service" | "retired";
+
+// Equipment table - core equipment assets
+export const equipment = pgTable("equipment", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  companyId: varchar("company_id").notNull().references(() => companies.id, { onDelete: "cascade" }),
+  equipmentType: text("equipment_type").notNull().$type<EquipmentType>(),
+  name: text("name").notNull(), // e.g., "Truck 12", "Wright Stand-On #3"
+  status: text("status").notNull().$type<EquipmentStatus>().default("active"),
+  assignedToId: varchar("assigned_to_id").references(() => users.id, { onDelete: "set null" }),
+  location: text("location"), // Shop, Yard, In-field, etc.
+  make: text("make"), // Manufacturer/brand
+  model: text("model"),
+  year: integer("year"),
+  serialNumber: text("serial_number"), // VIN for vehicles
+  licensePlate: text("license_plate"),
+  registrationExpiration: timestamp("registration_expiration"),
+  insuranceExpiration: timestamp("insurance_expiration"),
+  purchaseDate: timestamp("purchase_date"),
+  warrantyExpiration: timestamp("warranty_expiration"),
+  // For vehicles - mileage tracking
+  currentMileage: integer("current_mileage"),
+  serviceMileageInterval: integer("service_mileage_interval"), // e.g., 5000 for oil change
+  // For equipment with hours - engine hours tracking
+  currentHours: real("current_hours"),
+  serviceHoursInterval: real("service_hours_interval"), // e.g., 250 for mower service
+  // Mower-specific
+  deckSize: text("deck_size"),
+  // Trailer-specific
+  axleCount: integer("axle_count"),
+  loadRating: text("load_rating"),
+  tireSize: text("tire_size"),
+  // General
+  fuelType: text("fuel_type"),
+  notes: text("notes"),
+  lastServiceDate: timestamp("last_service_date"),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  updatedAt: timestamp("updated_at").notNull().defaultNow(),
+});
+
+export const insertEquipmentSchema = createInsertSchema(equipment).omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+}).extend({
+  equipmentType: z.enum(["truck", "mower", "trailer", "skid_steer", "atv_utv", "specialty", "other_vehicle"]),
+  status: z.enum(["active", "in_repair", "out_of_service", "retired"]).default("active"),
+  year: z.number().int().min(1900).max(2100).optional().nullable(),
+  currentMileage: z.number().int().min(0).optional().nullable(),
+  serviceMileageInterval: z.number().int().min(0).optional().nullable(),
+  currentHours: z.number().min(0).optional().nullable(),
+  serviceHoursInterval: z.number().min(0).optional().nullable(),
+  axleCount: z.number().int().min(1).optional().nullable(),
+  registrationExpiration: z.coerce.date().optional().nullable(),
+  insuranceExpiration: z.coerce.date().optional().nullable(),
+  purchaseDate: z.coerce.date().optional().nullable(),
+  warrantyExpiration: z.coerce.date().optional().nullable(),
+  lastServiceDate: z.coerce.date().optional().nullable(),
+});
+
+export type InsertEquipment = z.infer<typeof insertEquipmentSchema>;
+export type Equipment = typeof equipment.$inferSelect;
+
+// Equipment Files - attachments like photos, manuals, registrations
+export const equipmentFiles = pgTable("equipment_files", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  equipmentId: varchar("equipment_id").notNull().references(() => equipment.id, { onDelete: "cascade" }),
+  companyId: varchar("company_id").notNull().references(() => companies.id, { onDelete: "cascade" }),
+  fileName: text("file_name").notNull(),
+  fileType: text("file_type").notNull(), // pdf, image, etc.
+  fileSize: integer("file_size"),
+  storagePath: text("storage_path").notNull(), // Object storage path
+  uploadedById: varchar("uploaded_by_id").notNull().references(() => users.id),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+});
+
+export const insertEquipmentFileSchema = createInsertSchema(equipmentFiles).omit({
+  id: true,
+  createdAt: true,
+}).extend({
+  fileSize: z.number().int().optional().nullable(),
+});
+
+export type InsertEquipmentFile = z.infer<typeof insertEquipmentFileSchema>;
+export type EquipmentFile = typeof equipmentFiles.$inferSelect;
+
+// Equipment Ticket Categories
+export type EquipmentTicketCategory = "preventative_maintenance" | "repair" | "inspection" | "safety" | "breakdown";
+
+// Equipment Ticket Status
+export type EquipmentTicketStatus = "new" | "diagnosing" | "waiting_on_parts" | "in_repair" | "completed" | "closed";
+
+// Equipment Tickets - maintenance/repair tickets linked to equipment
+export const equipmentTickets = pgTable("equipment_tickets", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  companyId: varchar("company_id").notNull().references(() => companies.id, { onDelete: "cascade" }),
+  equipmentId: varchar("equipment_id").notNull().references(() => equipment.id, { onDelete: "cascade" }),
+  category: text("category").notNull().$type<EquipmentTicketCategory>(),
+  priority: text("priority").notNull().$type<"low" | "normal" | "high" | "urgent">().default("normal"),
+  status: text("status").notNull().$type<EquipmentTicketStatus>().default("new"),
+  title: text("title").notNull(),
+  description: text("description").notNull(),
+  reportedById: varchar("reported_by_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+  assignedToId: varchar("assigned_to_id").references(() => users.id, { onDelete: "set null" }),
+  dueDate: timestamp("due_date"),
+  // Photos - array of object storage paths
+  photos: text("photos").array(),
+  // Completion fields
+  workPerformedNotes: text("work_performed_notes"),
+  laborTime: real("labor_time"), // Hours
+  partsUsed: text("parts_used"),
+  vendorUsed: text("vendor_used"),
+  totalCost: integer("total_cost"), // In cents
+  completedAt: timestamp("completed_at"),
+  closedAt: timestamp("closed_at"),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  updatedAt: timestamp("updated_at").notNull().defaultNow(),
+});
+
+export const insertEquipmentTicketSchema = createInsertSchema(equipmentTickets).omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+}).extend({
+  category: z.enum(["preventative_maintenance", "repair", "inspection", "safety", "breakdown"]),
+  priority: z.enum(["low", "normal", "high", "urgent"]).default("normal"),
+  status: z.enum(["new", "diagnosing", "waiting_on_parts", "in_repair", "completed", "closed"]).default("new"),
+  dueDate: z.coerce.date().optional().nullable(),
+  photos: z.array(z.string()).optional().nullable(),
+  laborTime: z.number().min(0).optional().nullable(),
+  totalCost: z.number().int().min(0).optional().nullable(),
+  completedAt: z.coerce.date().optional().nullable(),
+  closedAt: z.coerce.date().optional().nullable(),
+});
+
+export type InsertEquipmentTicket = z.infer<typeof insertEquipmentTicketSchema>;
+export type EquipmentTicket = typeof equipmentTickets.$inferSelect;
+
+// Equipment Ticket Status History - audit trail
+export const equipmentTicketStatusHistory = pgTable("equipment_ticket_status_history", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  ticketId: varchar("ticket_id").notNull().references(() => equipmentTickets.id, { onDelete: "cascade" }),
+  fromStatus: text("from_status").$type<EquipmentTicketStatus>(),
+  toStatus: text("to_status").notNull().$type<EquipmentTicketStatus>(),
+  changedById: varchar("changed_by_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+  notes: text("notes"),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+});
+
+export const insertEquipmentTicketStatusHistorySchema = createInsertSchema(equipmentTicketStatusHistory).omit({
+  id: true,
+  createdAt: true,
+}).extend({
+  fromStatus: z.enum(["new", "diagnosing", "waiting_on_parts", "in_repair", "completed", "closed"]).optional().nullable(),
+  toStatus: z.enum(["new", "diagnosing", "waiting_on_parts", "in_repair", "completed", "closed"]),
+});
+
+export type InsertEquipmentTicketStatusHistory = z.infer<typeof insertEquipmentTicketStatusHistorySchema>;
+export type EquipmentTicketStatusHistory = typeof equipmentTicketStatusHistory.$inferSelect;
+
+// Extended type for equipment with ticket count
+export type EquipmentWithTicketCount = Equipment & {
+  openTicketCount: number;
+};

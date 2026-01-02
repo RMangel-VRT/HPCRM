@@ -1,6 +1,6 @@
-import { type User, type InsertUser, type Customer, type InsertCustomer, type Contact, type InsertContact, type Company, type InsertCompany, type CompanyUser, type InsertCompanyUser, type Settings, type InsertSettings, type Note, type InsertNote, type Contract, type InsertContract, type ContractStatusHistory, type InsertContractStatusHistory, type ContractDocument, type InsertContractDocument, type ContractMonthlyAmount, type InsertContractMonthlyAmount, type CustomerRateSheet, type InsertCustomerRateSheet, type ContractService, type InsertContractService, type ContractTemplate, type InsertContractTemplate, type ContractBuilderDocument, type InsertContractBuilderDocument, type ContractBuilderSection, type InsertContractBuilderSection, type ContractBuilderVariable, type InsertContractBuilderVariable, type TicketType, type InsertTicketType, type TicketTypeStatus, type InsertTicketTypeStatus, type TicketTypeField, type InsertTicketTypeField, type Ticket, type InsertTicket, type TicketFieldValue, type InsertTicketFieldValue, type TicketStatusHistory, type InsertTicketStatusHistory, type TicketComment, type InsertTicketComment, type TicketSource, type InsertTicketSource, type TicketLink, type InsertTicketLink, type TicketTypeCategory, type CustomerMapLayer, type InsertCustomerMapLayer, type CustomerMapDocument, type InsertCustomerMapDocument, type MaintenanceCrew, type InsertMaintenanceCrew, type MaintenanceVisitConfig, type InsertMaintenanceVisitConfig, type WeeklyScheduleTemplate, type InsertWeeklyScheduleTemplate, type ScheduleBlock, type InsertScheduleBlock, type TicketNotification, type InsertTicketNotification, type NotificationType, type PropertyManagementCompany, type InsertPropertyManagementCompany, type PropertyManager, type InsertPropertyManager, type PropertyManagerEmail, type InsertPropertyManagerEmail, type PropertyManagerPhone, type InsertPropertyManagerPhone, type PropertyManagerWithContacts } from "@shared/schema";
+import { type User, type InsertUser, type Customer, type InsertCustomer, type Contact, type InsertContact, type Company, type InsertCompany, type CompanyUser, type InsertCompanyUser, type Settings, type InsertSettings, type Note, type InsertNote, type Contract, type InsertContract, type ContractStatusHistory, type InsertContractStatusHistory, type ContractDocument, type InsertContractDocument, type ContractMonthlyAmount, type InsertContractMonthlyAmount, type CustomerRateSheet, type InsertCustomerRateSheet, type ContractService, type InsertContractService, type ContractTemplate, type InsertContractTemplate, type ContractBuilderDocument, type InsertContractBuilderDocument, type ContractBuilderSection, type InsertContractBuilderSection, type ContractBuilderVariable, type InsertContractBuilderVariable, type TicketType, type InsertTicketType, type TicketTypeStatus, type InsertTicketTypeStatus, type TicketTypeField, type InsertTicketTypeField, type Ticket, type InsertTicket, type TicketFieldValue, type InsertTicketFieldValue, type TicketStatusHistory, type InsertTicketStatusHistory, type TicketComment, type InsertTicketComment, type TicketSource, type InsertTicketSource, type TicketLink, type InsertTicketLink, type TicketTypeCategory, type CustomerMapLayer, type InsertCustomerMapLayer, type CustomerMapDocument, type InsertCustomerMapDocument, type MaintenanceCrew, type InsertMaintenanceCrew, type MaintenanceVisitConfig, type InsertMaintenanceVisitConfig, type WeeklyScheduleTemplate, type InsertWeeklyScheduleTemplate, type ScheduleBlock, type InsertScheduleBlock, type TicketNotification, type InsertTicketNotification, type NotificationType, type PropertyManagementCompany, type InsertPropertyManagementCompany, type PropertyManager, type InsertPropertyManager, type PropertyManagerEmail, type InsertPropertyManagerEmail, type PropertyManagerPhone, type InsertPropertyManagerPhone, type PropertyManagerWithContacts, type Equipment, type InsertEquipment, type EquipmentFile, type InsertEquipmentFile, type EquipmentTicket, type InsertEquipmentTicket, type EquipmentTicketStatusHistory, type InsertEquipmentTicketStatusHistory, type EquipmentWithTicketCount } from "@shared/schema";
 import { db } from "./db";
-import { users, customers, contacts, companies, companyUsers, settings, notes, contracts, contractStatusHistory, contractDocuments, contractMonthlyAmounts, customerRateSheets, contractServices, contractTemplates, contractBuilderDocuments, contractBuilderSections, contractBuilderVariables, ticketTypes, ticketTypeStatuses, ticketTypeFields, tickets, ticketFieldValues, ticketStatusHistory, ticketComments, ticketSources, ticketLinks, customerMapLayers, customerMapDocuments, maintenanceCrews, maintenanceVisitConfigs, weeklyScheduleTemplates, scheduleBlocks, ticketNotifications, propertyManagementCompanies, propertyManagers, propertyManagerEmails, propertyManagerPhones } from "@shared/schema";
+import { users, customers, contacts, companies, companyUsers, settings, notes, contracts, contractStatusHistory, contractDocuments, contractMonthlyAmounts, customerRateSheets, contractServices, contractTemplates, contractBuilderDocuments, contractBuilderSections, contractBuilderVariables, ticketTypes, ticketTypeStatuses, ticketTypeFields, tickets, ticketFieldValues, ticketStatusHistory, ticketComments, ticketSources, ticketLinks, customerMapLayers, customerMapDocuments, maintenanceCrews, maintenanceVisitConfigs, weeklyScheduleTemplates, scheduleBlocks, ticketNotifications, propertyManagementCompanies, propertyManagers, propertyManagerEmails, propertyManagerPhones, equipment, equipmentFiles, equipmentTickets, equipmentTicketStatusHistory } from "@shared/schema";
 import { eq, and, sql, desc } from "drizzle-orm";
 import session from "express-session";
 import connectPg from "connect-pg-simple";
@@ -217,6 +217,32 @@ export interface IStorage {
   updatePropertyManagerPhone(id: string, companyId: string, updates: Partial<InsertPropertyManagerPhone>): Promise<PropertyManagerPhone | undefined>;
   deletePropertyManagerPhone(id: string, companyId: string): Promise<void>;
   deletePropertyManagerPhonesByManager(propertyManagerId: string, companyId: string): Promise<void>;
+  
+  // Equipment
+  getEquipment(companyId: string): Promise<Equipment[]>;
+  getEquipmentById(id: string, companyId: string): Promise<Equipment | undefined>;
+  getEquipmentWithTicketCounts(companyId: string): Promise<EquipmentWithTicketCount[]>;
+  createEquipment(equipment: InsertEquipment): Promise<Equipment>;
+  updateEquipment(id: string, companyId: string, updates: Partial<InsertEquipment>): Promise<Equipment | undefined>;
+  deleteEquipment(id: string, companyId: string): Promise<void>;
+  
+  // Equipment Files
+  getEquipmentFiles(equipmentId: string, companyId: string): Promise<EquipmentFile[]>;
+  getEquipmentFileById(id: string, companyId: string): Promise<EquipmentFile | undefined>;
+  createEquipmentFile(file: InsertEquipmentFile): Promise<EquipmentFile>;
+  deleteEquipmentFile(id: string, companyId: string): Promise<void>;
+  
+  // Equipment Tickets
+  getEquipmentTickets(companyId: string, filters?: { equipmentId?: string; status?: string; assignedToId?: string }): Promise<EquipmentTicket[]>;
+  getEquipmentTicketById(id: string, companyId: string): Promise<EquipmentTicket | undefined>;
+  getEquipmentTicketsByEquipmentId(equipmentId: string, companyId: string): Promise<EquipmentTicket[]>;
+  createEquipmentTicket(ticket: InsertEquipmentTicket): Promise<EquipmentTicket>;
+  updateEquipmentTicket(id: string, companyId: string, updates: Partial<InsertEquipmentTicket>): Promise<EquipmentTicket | undefined>;
+  deleteEquipmentTicket(id: string, companyId: string): Promise<void>;
+  
+  // Equipment Ticket Status History
+  createEquipmentTicketStatusHistory(history: InsertEquipmentTicketStatusHistory): Promise<EquipmentTicketStatusHistory>;
+  getEquipmentTicketStatusHistory(ticketId: string): Promise<EquipmentTicketStatusHistory[]>;
   
   sessionStore: session.Store;
 }
@@ -1659,6 +1685,156 @@ export class PgStorage implements IStorage {
         eq(propertyManagerPhones.propertyManagerId, propertyManagerId),
         eq(propertyManagerPhones.companyId, companyId)
       ));
+  }
+
+  // Equipment
+  async getEquipment(companyId: string): Promise<Equipment[]> {
+    return await db.select().from(equipment)
+      .where(eq(equipment.companyId, companyId))
+      .orderBy(desc(equipment.createdAt));
+  }
+
+  async getEquipmentById(id: string, companyId: string): Promise<Equipment | undefined> {
+    const result = await db.select().from(equipment)
+      .where(and(eq(equipment.id, id), eq(equipment.companyId, companyId)))
+      .limit(1);
+    return result[0];
+  }
+
+  async getEquipmentWithTicketCounts(companyId: string): Promise<EquipmentWithTicketCount[]> {
+    const equipmentList = await this.getEquipment(companyId);
+    const result: EquipmentWithTicketCount[] = [];
+    
+    for (const eq of equipmentList) {
+      const openTickets = await db.select({ count: sql<number>`count(*)` })
+        .from(equipmentTickets)
+        .where(and(
+          sql`${equipmentTickets.equipmentId} = ${eq.id}`,
+          sql`${equipmentTickets.status} NOT IN ('completed', 'closed')`
+        ));
+      result.push({
+        ...eq,
+        openTicketCount: Number(openTickets[0]?.count || 0)
+      });
+    }
+    return result;
+  }
+
+  async createEquipment(insertEquipment: InsertEquipment): Promise<Equipment> {
+    const result = await db.insert(equipment).values([insertEquipment]).returning();
+    return result[0];
+  }
+
+  async updateEquipment(id: string, companyId: string, updates: Partial<InsertEquipment>): Promise<Equipment | undefined> {
+    const result = await db.update(equipment)
+      .set({ ...updates, updatedAt: new Date() })
+      .where(and(eq(equipment.id, id), eq(equipment.companyId, companyId)))
+      .returning();
+    return result[0];
+  }
+
+  async deleteEquipment(id: string, companyId: string): Promise<void> {
+    await db.delete(equipment)
+      .where(and(eq(equipment.id, id), eq(equipment.companyId, companyId)));
+  }
+
+  // Equipment Files
+  async getEquipmentFiles(equipmentId: string, companyId: string): Promise<EquipmentFile[]> {
+    return await db.select().from(equipmentFiles)
+      .where(and(
+        eq(equipmentFiles.equipmentId, equipmentId),
+        eq(equipmentFiles.companyId, companyId)
+      ))
+      .orderBy(desc(equipmentFiles.createdAt));
+  }
+
+  async getEquipmentFileById(id: string, companyId: string): Promise<EquipmentFile | undefined> {
+    const result = await db.select().from(equipmentFiles)
+      .where(and(eq(equipmentFiles.id, id), eq(equipmentFiles.companyId, companyId)))
+      .limit(1);
+    return result[0];
+  }
+
+  async createEquipmentFile(insertFile: InsertEquipmentFile): Promise<EquipmentFile> {
+    const result = await db.insert(equipmentFiles).values([insertFile]).returning();
+    return result[0];
+  }
+
+  async deleteEquipmentFile(id: string, companyId: string): Promise<void> {
+    await db.delete(equipmentFiles)
+      .where(and(eq(equipmentFiles.id, id), eq(equipmentFiles.companyId, companyId)));
+  }
+
+  // Equipment Tickets
+  async getEquipmentTickets(companyId: string, filters?: { equipmentId?: string; status?: string; assignedToId?: string }): Promise<EquipmentTicket[]> {
+    let query = db.select().from(equipmentTickets).where(eq(equipmentTickets.companyId, companyId));
+    
+    if (filters?.equipmentId) {
+      query = db.select().from(equipmentTickets).where(and(
+        eq(equipmentTickets.companyId, companyId),
+        eq(equipmentTickets.equipmentId, filters.equipmentId)
+      ));
+    }
+    if (filters?.status) {
+      query = db.select().from(equipmentTickets).where(and(
+        eq(equipmentTickets.companyId, companyId),
+        sql`${equipmentTickets.status} = ${filters.status}`
+      ));
+    }
+    if (filters?.assignedToId) {
+      query = db.select().from(equipmentTickets).where(and(
+        eq(equipmentTickets.companyId, companyId),
+        eq(equipmentTickets.assignedToId, filters.assignedToId)
+      ));
+    }
+    
+    return await query.orderBy(desc(equipmentTickets.createdAt));
+  }
+
+  async getEquipmentTicketById(id: string, companyId: string): Promise<EquipmentTicket | undefined> {
+    const result = await db.select().from(equipmentTickets)
+      .where(and(eq(equipmentTickets.id, id), eq(equipmentTickets.companyId, companyId)))
+      .limit(1);
+    return result[0];
+  }
+
+  async getEquipmentTicketsByEquipmentId(equipmentId: string, companyId: string): Promise<EquipmentTicket[]> {
+    return await db.select().from(equipmentTickets)
+      .where(and(
+        eq(equipmentTickets.equipmentId, equipmentId),
+        eq(equipmentTickets.companyId, companyId)
+      ))
+      .orderBy(desc(equipmentTickets.createdAt));
+  }
+
+  async createEquipmentTicket(insertTicket: InsertEquipmentTicket): Promise<EquipmentTicket> {
+    const result = await db.insert(equipmentTickets).values([insertTicket]).returning();
+    return result[0];
+  }
+
+  async updateEquipmentTicket(id: string, companyId: string, updates: Partial<InsertEquipmentTicket>): Promise<EquipmentTicket | undefined> {
+    const result = await db.update(equipmentTickets)
+      .set({ ...updates, updatedAt: new Date() })
+      .where(and(eq(equipmentTickets.id, id), eq(equipmentTickets.companyId, companyId)))
+      .returning();
+    return result[0];
+  }
+
+  async deleteEquipmentTicket(id: string, companyId: string): Promise<void> {
+    await db.delete(equipmentTickets)
+      .where(and(eq(equipmentTickets.id, id), eq(equipmentTickets.companyId, companyId)));
+  }
+
+  // Equipment Ticket Status History
+  async createEquipmentTicketStatusHistory(history: InsertEquipmentTicketStatusHistory): Promise<EquipmentTicketStatusHistory> {
+    const result = await db.insert(equipmentTicketStatusHistory).values([history]).returning();
+    return result[0];
+  }
+
+  async getEquipmentTicketStatusHistory(ticketId: string): Promise<EquipmentTicketStatusHistory[]> {
+    return await db.select().from(equipmentTicketStatusHistory)
+      .where(eq(equipmentTicketStatusHistory.ticketId, ticketId))
+      .orderBy(desc(equipmentTicketStatusHistory.createdAt));
   }
 }
 
