@@ -30,6 +30,8 @@ import SuperAdminHome from "@/pages/SuperAdminHome";
 import PropertyMapsPage from "@/pages/PropertyMapsPage";
 import SchedulePage from "@/pages/SchedulePage";
 import EquipmentList from "@/pages/EquipmentList";
+import EquipmentDetail from "@/pages/EquipmentDetail";
+import NewEquipment from "@/pages/NewEquipment";
 import NotFound from "@/pages/not-found";
 
 function Router() {
@@ -108,6 +110,8 @@ function Router() {
                 <Redirect to="/dashboard/schedule" />
               </Route>
               <ProtectedRoute path="/dashboard/schedule" component={SchedulePage} allowedRoles={["admin", "office", "irrigation_manager"]} />
+              <ProtectedRoute path="/dashboard/equipment/new" component={NewEquipment} allowedRoles={["admin", "shop_manager"]} />
+              <ProtectedRoute path="/dashboard/equipment/:id" component={EquipmentDetail} allowedRoles={["admin", "office", "shop_manager"]} />
               <ProtectedRoute path="/dashboard/equipment" component={EquipmentList} allowedRoles={["admin", "office", "shop_manager"]} />
               <ProtectedRoute path="/dashboard/tools/contract-builder" component={ContractBuilderPage} allowedRoles={["admin", "office"]} />
               <ProtectedRoute path="/dashboard/tools" component={ToolsPage} allowedRoles={["admin", "office", "field_manager"]} />
