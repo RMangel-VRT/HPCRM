@@ -119,7 +119,8 @@ export default function QuickAddToDo({ variant = "ghost" }: QuickAddToDoProps) {
       item.companyUser.role === "admin" || 
       item.companyUser.role === "office" || 
       item.companyUser.role === "field_manager" ||
-      item.companyUser.role === "irrigation_manager"
+      item.companyUser.role === "irrigation_manager" ||
+      item.companyUser.role === "shop_manager"
     )
     .map(item => ({
       id: item.companyUser.userId,
