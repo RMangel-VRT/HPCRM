@@ -1,0 +1,192 @@
+Equipment Module — Slice Plan (Shop Manager role already exists)
+Permissions (Global Rule)
+
+Admin + Shop Manager: create/edit everything in Equipment module
+
+Office: view-only
+
+Ops + Viewer: no access (no nav + blocked direct routes)
+
+Slice E1 — Equipment List + Database + Access Control
+Build
+
+Add Equipment to main navigation (visible to Admin, Shop Manager, Office only).
+
+Block access for Ops/Viewer (403 or redirect).
+
+Create Equipment database with core fields:
+
+Equipment ID (internal)
+
+Type (Truck, Mower, Trailer, Skid Steer, ATV/UTV, Specialty, Other Vehicle)
+
+Name/Label
+
+Status (Active / In Repair / Out of Service / Retired)
+
+Assigned To (optional)
+
+Location (optional)
+
+Make/Brand, Model, Year
+
+Serial/VIN (optional)
+
+Notes
+
+Equipment List page:
+
+Search (Name/Label, VIN/Serial)
+
+Filters (Type, Status, Assigned To)
+
+Table columns: Name, Type, Status, Assigned, Year/Make/Model
+
+Tests
+
+Admin can access Equipment page + create/edit.
+
+Shop Manager can access Equipment page + create/edit.
+
+Office can access Equipment page but cannot create/edit.
+
+Ops/Viewer cannot see Equipment nav and cannot access the route directly.
+
+Create 3 equipment records → refresh persists.
+
+Search and filters work.
+
+Slice E2 — Equipment Detail Page + Files/Attachments
+Build
+
+Equipment detail view (click from list).
+
+Tabs: Details, Files
+
+Files tab supports uploading:
+
+Photos, manuals, registrations, receipts, etc.
+
+Editing rights:
+
+Admin + Shop Manager: edit fields + upload/delete files
+
+Office: view/download only
+
+Tests
+
+Upload a PDF + photo to an equipment record.
+
+File persists after refresh; download works.
+
+Office can download but cannot upload/edit.
+
+Slice E3 — Equipment Tickets (Create/List/Link to Equipment)
+Build
+
+Add new ticket type: Equipment Ticket
+
+Required: must select Equipment item (not customer-based).
+
+Equipment Ticket fields:
+
+Category (Preventative Maintenance / Repair / Inspection / Safety / Breakdown)
+
+Priority (Low / Normal / High / Urgent)
+
+Description (required)
+
+Due date (optional)
+
+Photos/attachments (optional)
+
+Assigned to (default Shop Manager, editable by Admin/Shop Manager)
+
+Add:
+
+Equipment Tickets list view (inside Equipment section)
+
+Tickets tab on Equipment Detail page (“Create Equipment Ticket” button)
+
+Tests
+
+Create ticket from equipment detail page.
+
+Ticket shows on:
+
+Equipment → Tickets tab
+
+Equipment Tickets list page
+
+Office can view but cannot create/edit.
+
+Ops/Viewer blocked from all equipment ticket routes.
+
+Slice E4 — Equipment Ticket Workflow + Service History
+Build
+
+Status flow:
+
+New
+
+Diagnosing
+
+Waiting on Parts
+
+In Repair
+
+Completed
+
+Closed / Verified
+
+Require at completion/close:
+
+Work performed notes (required)
+
+Optional: labor time, parts used, vendor, total cost
+
+Add Service History tab on Equipment Detail:
+
+List completed/closed equipment tickets as history
+
+Tests
+
+Move ticket through statuses; status history logs correctly.
+
+Try to complete without “Work performed notes” → blocked.
+
+Completed/Closed tickets appear in Service History.
+
+Office can view history but not edit.
+
+Slice E5 — Indicators + Simple Dashboard Summary
+Build
+
+Equipment list shows:
+
+Open equipment ticket count badge
+
+Status badge
+
+Optional Equipment summary panel:
+
+In Repair
+Open Tickets
+Overdue Tickets
+Tests
+
+Create 2 open tickets on one asset → badge shows “2”
+
+Close one → badge updates to “1”
+
+Overdue tickets counted correctly (due date past + not closed)
+
+Final “Ready to Use” Validation
+
+Admin creates: 10 equipment assets, uploads files, logs 2 tickets each, closes a few
+
+Shop Manager can do the same independently
+
+Office can view everything and download files
+
+Ops/Viewer cannot access anything Equipment-related
