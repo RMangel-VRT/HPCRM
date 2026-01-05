@@ -46,13 +46,15 @@ Tables: `property_management_companies`, `property_managers`, `property_manager_
 #### Equipment Tracking Module
 A comprehensive equipment management system for tracking trucks, mowers, trailers, and other equipment. Features include:
 - Equipment CRUD with types (truck, mower, trailer, skid_steer, atv_utv, specialty, other_vehicle) and statuses (active, in_repair, out_of_service, retired)
+- Type-specific fields: VIN/serial number, license plate, odometer (currentMileage), engine hours (currentHours), deck size (mowers), axle count/load rating/tire size (trailers), customSpecs JSON (specialty equipment)
 - Equipment list with search, type/status filters, and sortable table
-- Equipment detail page with tabs: Details (edit form), Files (attachments), Tickets (open tickets), Service History (completed tickets)
+- Equipment detail page with tabs: Details (edit form with type-specific sections), Files (attachments), Tickets (open tickets), Service History (completed tickets)
+- Dynamic form sections: Mower shows deck size, Trailer shows axle count/load rating/tire size, Specialty shows custom key-value specifications
 - Equipment ticketing system separate from customer tickets with categories (preventative_maintenance, repair, inspection, safety, breakdown)
 - Ticket status workflow: new → diagnosing → waiting_on_parts → in_repair → completed → closed
 - Completion notes capture: workPerformedNotes (required), laborTime, partsUsed, vendorUsed, totalCost
 - File attachments stored in object storage with equipment-scoped paths
-- Access control: Admin and Shop Manager have full access, Office has view-only access, other roles have no access
+- Access control: Admin and Shop Manager have full access; Office has create/edit access but cannot retire or delete equipment; other roles have no access
 
 Tables: `equipment`, `equipment_tickets`, `equipment_files`
 

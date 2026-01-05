@@ -161,6 +161,7 @@ const equipmentFormSchema = z.object({
   tireSize: z.string().optional(),
   fuelType: z.string().optional(),
   notes: z.string().optional(),
+  customSpecs: z.record(z.string(), z.string()).optional().nullable(),
 });
 
 type EquipmentFormData = z.infer<typeof equipmentFormSchema>;
@@ -202,7 +203,10 @@ export default function EquipmentDetail() {
   const { user } = useAuth();
   const [isEditing, setIsEditing] = useState(false);
 
-  const canModify = user?.activeRole === "admin" || user?.activeRole === "shop_manager";
+  // Office can edit equipment but cannot retire or delete
+  const canEdit = user?.activeRole === "admin" || user?.activeRole === "shop_manager" || user?.activeRole === "office";
+  // Only Admin and Shop Manager can retire or delete equipment
+  const canRetireOrDelete = user?.activeRole === "admin" || user?.activeRole === "shop_manager";
 
   const { data: equipment, isLoading } = useQuery<Equipment>({
     queryKey: ["/api/equipment", id],
@@ -239,6 +243,7 @@ export default function EquipmentDetail() {
       tireSize: "",
       fuelType: "",
       notes: "",
+      customSpecs: null,
     },
   });
 
@@ -257,6 +262,7 @@ export default function EquipmentDetail() {
         currentHours: data.currentHours || null,
         serviceHoursInterval: data.serviceHoursInterval || null,
         axleCount: data.axleCount || null,
+        customSpecs: data.customSpecs || null,
       };
       return apiRequest("PATCH", `/api/equipment/${id}`, payload);
     },
@@ -426,6 +432,7 @@ export default function EquipmentDetail() {
       tireSize: equipment.tireSize || "",
       fuelType: equipment.fuelType || "",
       notes: equipment.notes || "",
+      customSpecs: (equipment as any).customSpecs || null,
     });
     setIsEditing(true);
   };
@@ -483,7 +490,7 @@ export default function EquipmentDetail() {
             <p className="text-muted-foreground">{getEquipmentTypeLabel(equipment.equipmentType)}</p>
           </div>
         </div>
-        {canModify && !isEditing && (
+        {canEdit && !isEditing && (
           <Button onClick={startEditing} data-testid="button-edit">
             <Edit2 className="w-4 h-4 mr-2" />
             Edit
@@ -569,7 +576,9 @@ export default function EquipmentDetail() {
                                 </SelectTrigger>
                               </FormControl>
                               <SelectContent>
-                                {STATUS_OPTIONS.map((status) => (
+                                {STATUS_OPTIONS.filter((status) => 
+                                  status.value !== "retired" || canRetireOrDelete
+                                ).map((status) => (
                                   <SelectItem key={status.value} value={status.value}>{status.label}</SelectItem>
                                 ))}
                               </SelectContent>
@@ -903,6 +912,95 @@ export default function EquipmentDetail() {
                       </CardContent>
                     </Card>
                   )}
+
+                  {(form.watch("equipmentType") === "specialty" || equipment.equipmentType === "specialty") && (
+                    <Card className="md:col-span-2">
+                      <CardHeader>
+                        <CardTitle>Custom Specifications</CardTitle>
+                      </CardHeader>
+                      <CardContent className="space-y-4">
+                        <p className="text-sm text-muted-foreground mb-4">
+                          Add custom specifications for this specialty equipment (e.g., pump capacity, spray width, hopper size).
+                        </p>
+                        <FormField
+                          control={form.control}
+                          name="customSpecs"
+                          render={({ field }) => {
+                            const specs = field.value || {};
+                            const specEntries = Object.entries(specs);
+                            
+                            const addSpec = () => {
+                              const newKey = `Specification ${specEntries.length + 1}`;
+                              field.onChange({ ...specs, [newKey]: "" });
+                            };
+                            
+                            const updateSpecKey = (oldKey: string, newKey: string) => {
+                              if (oldKey === newKey) return;
+                              const newSpecs = { ...specs };
+                              const value = newSpecs[oldKey];
+                              delete newSpecs[oldKey];
+                              newSpecs[newKey] = value;
+                              field.onChange(newSpecs);
+                            };
+                            
+                            const updateSpecValue = (key: string, value: string) => {
+                              field.onChange({ ...specs, [key]: value });
+                            };
+                            
+                            const removeSpec = (key: string) => {
+                              const newSpecs = { ...specs };
+                              delete newSpecs[key];
+                              field.onChange(newSpecs);
+                            };
+                            
+                            return (
+                              <FormItem>
+                                <div className="space-y-3">
+                                  {specEntries.map(([key, value], index) => (
+                                    <div key={index} className="flex items-center gap-2">
+                                      <Input
+                                        placeholder="Name"
+                                        value={key}
+                                        onChange={(e) => updateSpecKey(key, e.target.value)}
+                                        className="flex-1"
+                                        data-testid={`input-spec-name-${index}`}
+                                      />
+                                      <Input
+                                        placeholder="Value"
+                                        value={value}
+                                        onChange={(e) => updateSpecValue(key, e.target.value)}
+                                        className="flex-1"
+                                        data-testid={`input-spec-value-${index}`}
+                                      />
+                                      <Button
+                                        type="button"
+                                        variant="ghost"
+                                        size="icon"
+                                        onClick={() => removeSpec(key)}
+                                        data-testid={`button-remove-spec-${index}`}
+                                      >
+                                        <X className="w-4 h-4" />
+                                      </Button>
+                                    </div>
+                                  ))}
+                                  <Button
+                                    type="button"
+                                    variant="outline"
+                                    onClick={addSpec}
+                                    data-testid="button-add-spec"
+                                  >
+                                    <Plus className="w-4 h-4 mr-2" />
+                                    Add Specification
+                                  </Button>
+                                </div>
+                                <FormMessage />
+                              </FormItem>
+                            );
+                          }}
+                        />
+                      </CardContent>
+                    </Card>
+                  )}
                 </div>
 
                 <Card>
@@ -1076,6 +1174,22 @@ export default function EquipmentDetail() {
                 </Card>
               )}
 
+              {equipment.equipmentType === "specialty" && (equipment as any).customSpecs && Object.keys((equipment as any).customSpecs).length > 0 && (
+                <Card className="md:col-span-2">
+                  <CardHeader>
+                    <CardTitle>Custom Specifications</CardTitle>
+                  </CardHeader>
+                  <CardContent className="space-y-3">
+                    {Object.entries((equipment as any).customSpecs).map(([key, value]) => (
+                      <div key={key} className="flex justify-between">
+                        <span className="text-muted-foreground">{key}</span>
+                        <span>{value as string || "-"}</span>
+                      </div>
+                    ))}
+                  </CardContent>
+                </Card>
+              )}
+
               {equipment.notes && (
                 <Card className="md:col-span-2">
                   <CardHeader>
@@ -1094,7 +1208,7 @@ export default function EquipmentDetail() {
           <Card>
             <CardHeader className="flex flex-row items-center justify-between gap-4 space-y-0">
               <CardTitle>Files & Attachments</CardTitle>
-              {canModify && (
+              {canEdit && (
                 <div>
                   <input
                     type="file"
@@ -1130,7 +1244,7 @@ export default function EquipmentDetail() {
                 <div className="text-center py-8 text-muted-foreground">
                   <FileText className="w-12 h-12 mx-auto mb-4 opacity-50" />
                   <p>No files attached</p>
-                  {canModify && (
+                  {canEdit && (
                     <p className="text-sm mt-2">Upload photos, manuals, registration documents, or other files</p>
                   )}
                 </div>
@@ -1164,7 +1278,7 @@ export default function EquipmentDetail() {
                             </a>
                           </Button>
                         )}
-                        {canModify && (
+                        {canEdit && (
                           <Button
                             variant="ghost"
                             size="icon"
@@ -1208,7 +1322,7 @@ export default function EquipmentDetail() {
           <Card>
             <CardHeader className="flex flex-row items-center justify-between gap-4 space-y-0">
               <CardTitle>Open Tickets ({openTickets.length})</CardTitle>
-              {canModify && (
+              {canEdit && (
                 <Button onClick={() => setIsNewTicketOpen(true)} data-testid="button-new-ticket">
                   <Plus className="w-4 h-4 mr-2" />
                   New Ticket
@@ -1226,7 +1340,7 @@ export default function EquipmentDetail() {
                 <div className="text-center py-8 text-muted-foreground">
                   <WrenchIcon className="w-12 h-12 mx-auto mb-4 opacity-50" />
                   <p>No open tickets</p>
-                  {canModify && (
+                  {canEdit && (
                     <p className="text-sm mt-2">Create a ticket for repairs, maintenance, or inspections</p>
                   )}
                 </div>

@@ -70,7 +70,8 @@ export default function EquipmentList() {
   const [typeFilter, setTypeFilter] = useState("all");
   const [statusFilter, setStatusFilter] = useState("all");
 
-  const canModify = user?.activeRole === "admin" || user?.activeRole === "shop_manager";
+  // Office can also add equipment (but not retire/delete)
+  const canEdit = user?.activeRole === "admin" || user?.activeRole === "shop_manager" || user?.activeRole === "office";
 
   const { data: equipment, isLoading } = useQuery<EquipmentWithTicketCount[]>({
     queryKey: ["/api/equipment"],
@@ -105,7 +106,7 @@ export default function EquipmentList() {
           <h1 className="text-2xl font-bold" data-testid="text-page-title">Equipment</h1>
           <p className="text-muted-foreground">Manage trucks, mowers, trailers, and other equipment</p>
         </div>
-        {canModify && (
+        {canEdit && (
           <Button asChild data-testid="button-add-equipment">
             <Link href="/dashboard/equipment/new">
               <Plus className="w-4 h-4 mr-2" />

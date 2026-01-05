@@ -5205,7 +5205,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
   
   // Helper function to check equipment access permissions
   const canAccessEquipment = (role: string) => ["admin", "shop_manager", "office"].includes(role);
-  const canModifyEquipment = (role: string) => ["admin", "shop_manager"].includes(role);
+  // Office can create and edit equipment (but not retire or delete)
+  const canEditEquipment = (role: string) => ["admin", "shop_manager", "office"].includes(role);
+  // Only Admin and Shop Manager can retire or delete equipment
+  const canRetireOrDeleteEquipment = (role: string) => ["admin", "shop_manager"].includes(role);
 
   // Get all equipment (Admin, Shop Manager, Office)
   app.get("/api/equipment", async (req, res) => {
@@ -5240,15 +5243,20 @@ export async function registerRoutes(app: Express): Promise<Server> {
     res.json(equipmentItem);
   });
 
-  // Create equipment (Admin, Shop Manager only)
+  // Create equipment (Admin, Shop Manager, Office)
   app.post("/api/equipment", async (req, res) => {
     if (!req.isAuthenticated()) {
       return res.status(401).send("Not authenticated");
     }
     const user = req.user as UserWithContext;
     
-    if (!canModifyEquipment(user.activeRole)) {
+    if (!canEditEquipment(user.activeRole)) {
       return res.status(403).send("Insufficient permissions");
+    }
+    
+    // Office cannot create equipment with retired status
+    if (req.body.status === "retired" && !canRetireOrDeleteEquipment(user.activeRole)) {
+      return res.status(403).send("Only Admin and Shop Manager can create equipment with retired status");
     }
     
     const parsed = insertEquipmentSchema.safeParse({
@@ -5264,15 +5272,20 @@ export async function registerRoutes(app: Express): Promise<Server> {
     res.status(201).json(equipmentItem);
   });
 
-  // Update equipment (Admin, Shop Manager only)
+  // Update equipment (Admin, Shop Manager, Office - but Office cannot set status to retired)
   app.patch("/api/equipment/:id", async (req, res) => {
     if (!req.isAuthenticated()) {
       return res.status(401).send("Not authenticated");
     }
     const user = req.user as UserWithContext;
     
-    if (!canModifyEquipment(user.activeRole)) {
+    if (!canEditEquipment(user.activeRole)) {
       return res.status(403).send("Insufficient permissions");
+    }
+    
+    // Office cannot change status to retired
+    if (req.body.status === "retired" && !canRetireOrDeleteEquipment(user.activeRole)) {
+      return res.status(403).send("Only Admin and Shop Manager can retire equipment");
     }
     
     const equipmentItem = await storage.updateEquipment(req.params.id, user.activeCompanyId, req.body);
@@ -5289,7 +5302,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
     const user = req.user as UserWithContext;
     
-    if (!canModifyEquipment(user.activeRole)) {
+    if (!canRetireOrDeleteEquipment(user.activeRole)) {
       return res.status(403).send("Insufficient permissions");
     }
     
@@ -5319,7 +5332,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
     const user = req.user as UserWithContext;
     
-    if (!canModifyEquipment(user.activeRole)) {
+    if (!canEditEquipment(user.activeRole)) {
       return res.status(403).send("Insufficient permissions");
     }
     
@@ -5341,7 +5354,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
     const user = req.user as UserWithContext;
     
-    if (!canModifyEquipment(user.activeRole)) {
+    if (!canEditEquipment(user.activeRole)) {
       return res.status(403).send("Insufficient permissions");
     }
     
@@ -5387,7 +5400,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
     const user = req.user as UserWithContext;
     
-    if (!canModifyEquipment(user.activeRole)) {
+    if (!canEditEquipment(user.activeRole)) {
       return res.status(403).send("Insufficient permissions");
     }
     
@@ -5455,7 +5468,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
     const user = req.user as UserWithContext;
     
-    if (!canModifyEquipment(user.activeRole)) {
+    if (!canEditEquipment(user.activeRole)) {
       return res.status(403).send("Insufficient permissions");
     }
     
@@ -5490,7 +5503,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
     const user = req.user as UserWithContext;
     
-    if (!canModifyEquipment(user.activeRole)) {
+    if (!canEditEquipment(user.activeRole)) {
       return res.status(403).send("Insufficient permissions");
     }
     
@@ -5538,7 +5551,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
     const user = req.user as UserWithContext;
     
-    if (!canModifyEquipment(user.activeRole)) {
+    if (!canEditEquipment(user.activeRole)) {
       return res.status(403).send("Insufficient permissions");
     }
     

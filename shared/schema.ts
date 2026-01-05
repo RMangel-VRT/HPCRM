@@ -1115,6 +1115,8 @@ export const equipment = pgTable("equipment", {
   fuelType: text("fuel_type"),
   notes: text("notes"),
   lastServiceDate: timestamp("last_service_date"),
+  // Specialty equipment - custom key/value specifications
+  customSpecs: jsonb("custom_specs").$type<Record<string, string>>(),
   createdAt: timestamp("created_at").notNull().defaultNow(),
   updatedAt: timestamp("updated_at").notNull().defaultNow(),
 });
@@ -1137,6 +1139,7 @@ export const insertEquipmentSchema = createInsertSchema(equipment).omit({
   purchaseDate: z.coerce.date().optional().nullable(),
   warrantyExpiration: z.coerce.date().optional().nullable(),
   lastServiceDate: z.coerce.date().optional().nullable(),
+  customSpecs: z.record(z.string(), z.string()).optional().nullable(),
 });
 
 export type InsertEquipment = z.infer<typeof insertEquipmentSchema>;
