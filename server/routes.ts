@@ -3956,12 +3956,52 @@ export async function registerRoutes(app: Express): Promise<Server> {
       ticketId: req.params.ticketId,
       authorId: user.id,
       body: req.body.body,
+      parentCommentId: req.body.parentCommentId || null,
     });
     if (!result.success) {
       return res.status(400).send(result.error.message);
     }
 
     const comment = await storage.createTicketComment(result.data);
+    
+    // Parse @mentions from comment body and create mentions + notifications
+    // Format: @[userId] or @{userId}
+    const mentionRegex = /@\[([a-f0-9-]+)\]|@\{([a-f0-9-]+)\}/g;
+    const mentions: string[] = [];
+    let match;
+    while ((match = mentionRegex.exec(result.data.body)) !== null) {
+      const userId = match[1] || match[2];
+      if (userId && userId !== user.id && !mentions.includes(userId)) {
+        mentions.push(userId);
+      }
+    }
+    
+    // Create mention records and notifications
+    for (const mentionedUserId of mentions) {
+      try {
+        // Create mention record
+        await storage.createTicketCommentMention({
+          commentId: comment.id,
+          mentionedUserId,
+        });
+        
+        // Create notification for mentioned user
+        const mentionedUser = await storage.getUserById(mentionedUserId);
+        if (mentionedUser) {
+          await storage.createNotification({
+            companyId: user.activeCompanyId,
+            recipientId: mentionedUserId,
+            ticketId: ticket.id,
+            type: "mentioned",
+            message: `${user.name} mentioned you in ticket "${ticket.title}"`,
+            isRead: false,
+          });
+        }
+      } catch (err) {
+        console.error("Failed to create mention/notification:", err);
+      }
+    }
+    
     res.json(comment);
   });
 
