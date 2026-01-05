@@ -111,7 +111,7 @@ function Router() {
                 <Redirect to="/dashboard/schedule" />
               </Route>
               <ProtectedRoute path="/dashboard/schedule" component={SchedulePage} allowedRoles={["admin", "office", "irrigation_manager"]} />
-              <ProtectedRoute path="/dashboard/equipment/new" component={NewEquipment} allowedRoles={["admin", "shop_manager"]} />
+              <ProtectedRoute path="/dashboard/equipment/new" component={NewEquipment} allowedRoles={["admin", "office", "shop_manager"]} />
               <ProtectedRoute path="/dashboard/equipment/:id" component={EquipmentDetail} allowedRoles={["admin", "office", "shop_manager"]} />
               <ProtectedRoute path="/dashboard/equipment" component={EquipmentList} allowedRoles={["admin", "office", "shop_manager"]} />
               <ProtectedRoute path="/dashboard/equipment-tickets/:id" component={EquipmentTicketDetail} allowedRoles={["admin", "office", "shop_manager"]} />

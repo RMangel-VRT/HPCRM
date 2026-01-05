@@ -3,7 +3,7 @@ import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
 import { Link, useLocation } from "wouter";
-import { ArrowLeft, Save, Loader2 } from "lucide-react";
+import { ArrowLeft, Save, Loader2, Plus, X } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -25,6 +25,7 @@ import {
 } from "@/components/ui/select";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest, queryClient } from "@/lib/queryClient";
+import { useAuth } from "@/hooks/use-auth";
 import type { User } from "@shared/schema";
 
 const EQUIPMENT_TYPES = [
@@ -66,6 +67,7 @@ const equipmentFormSchema = z.object({
   licensePlate: z.string().optional(),
   fuelType: z.string().optional(),
   notes: z.string().optional(),
+  customSpecs: z.record(z.string(), z.string()).optional().nullable(),
 });
 
 type EquipmentFormData = z.infer<typeof equipmentFormSchema>;
@@ -73,6 +75,9 @@ type EquipmentFormData = z.infer<typeof equipmentFormSchema>;
 export default function NewEquipment() {
   const [, navigate] = useLocation();
   const { toast } = useToast();
+  const { user } = useAuth();
+  
+  const canRetireOrDelete = user?.activeRole === "admin" || user?.activeRole === "shop_manager";
 
   const { data: users } = useQuery<User[]>({
     queryKey: ["/api/users"],
@@ -93,6 +98,7 @@ export default function NewEquipment() {
       licensePlate: "",
       fuelType: "not_specified",
       notes: "",
+      customSpecs: null,
     },
   });
 
@@ -102,6 +108,7 @@ export default function NewEquipment() {
         ...data,
         assignedToId: data.assignedToId === "none" ? null : data.assignedToId || null,
         year: data.year || null,
+        customSpecs: data.customSpecs || null,
       };
       const res = await apiRequest("POST", "/api/equipment", payload);
       return res.json() as Promise<{ id: string }>;
@@ -192,7 +199,9 @@ export default function NewEquipment() {
                           </SelectTrigger>
                         </FormControl>
                         <SelectContent>
-                          {STATUS_OPTIONS.map((status) => (
+                          {STATUS_OPTIONS.filter((status) => 
+                            status.value !== "retired" || canRetireOrDelete
+                          ).map((status) => (
                             <SelectItem key={status.value} value={status.value}>{status.label}</SelectItem>
                           ))}
                         </SelectContent>
@@ -335,6 +344,95 @@ export default function NewEquipment() {
               </CardContent>
             </Card>
           </div>
+
+          {equipmentType === "specialty" && (
+            <Card>
+              <CardHeader>
+                <CardTitle>Custom Specifications</CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                <p className="text-sm text-muted-foreground mb-4">
+                  Add custom specifications for this specialty equipment (e.g., pump capacity, spray width, hopper size).
+                </p>
+                <FormField
+                  control={form.control}
+                  name="customSpecs"
+                  render={({ field }) => {
+                    const specs = field.value || {};
+                    const specEntries = Object.entries(specs);
+                    
+                    const addSpec = () => {
+                      const newKey = `Specification ${specEntries.length + 1}`;
+                      field.onChange({ ...specs, [newKey]: "" });
+                    };
+                    
+                    const updateSpecKey = (oldKey: string, newKey: string) => {
+                      if (oldKey === newKey) return;
+                      const newSpecs = { ...specs };
+                      const value = newSpecs[oldKey];
+                      delete newSpecs[oldKey];
+                      newSpecs[newKey] = value;
+                      field.onChange(newSpecs);
+                    };
+                    
+                    const updateSpecValue = (key: string, value: string) => {
+                      field.onChange({ ...specs, [key]: value });
+                    };
+                    
+                    const removeSpec = (key: string) => {
+                      const newSpecs = { ...specs };
+                      delete newSpecs[key];
+                      field.onChange(newSpecs);
+                    };
+                    
+                    return (
+                      <FormItem>
+                        <div className="space-y-3">
+                          {specEntries.map(([key, value], index) => (
+                            <div key={index} className="flex items-center gap-2">
+                              <Input
+                                placeholder="Name"
+                                value={key}
+                                onChange={(e) => updateSpecKey(key, e.target.value)}
+                                className="flex-1"
+                                data-testid={`input-spec-name-${index}`}
+                              />
+                              <Input
+                                placeholder="Value"
+                                value={value}
+                                onChange={(e) => updateSpecValue(key, e.target.value)}
+                                className="flex-1"
+                                data-testid={`input-spec-value-${index}`}
+                              />
+                              <Button
+                                type="button"
+                                variant="ghost"
+                                size="icon"
+                                onClick={() => removeSpec(key)}
+                                data-testid={`button-remove-spec-${index}`}
+                              >
+                                <X className="w-4 h-4" />
+                              </Button>
+                            </div>
+                          ))}
+                          <Button
+                            type="button"
+                            variant="outline"
+                            onClick={addSpec}
+                            data-testid="button-add-spec"
+                          >
+                            <Plus className="w-4 h-4 mr-2" />
+                            Add Specification
+                          </Button>
+                        </div>
+                        <FormMessage />
+                      </FormItem>
+                    );
+                  }}
+                />
+              </CardContent>
+            </Card>
+          )}
 
           <Card>
             <CardHeader>
