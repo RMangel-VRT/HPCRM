@@ -914,6 +914,7 @@ export default function CustomerDetail() {
     resolver: zodResolver(insertCustomerSchema.omit({ companyId: true })),
     defaultValues: {
       name: customer?.name || "",
+      customerNumber: customer?.customerNumber || "",
       street: customer?.street || "",
       city: customer?.city || "",
       state: customer?.state || "",
@@ -933,6 +934,7 @@ export default function CustomerDetail() {
     if (customer && isEditCustomerDialogOpen) {
       customerForm.reset({
         name: customer.name,
+        customerNumber: customer.customerNumber || "",
         street: customer.street,
         city: customer.city,
         state: customer.state,
@@ -1338,6 +1340,11 @@ export default function CustomerDetail() {
             <h1 className="text-3xl font-semibold tracking-tight" data-testid="text-customer-name">
               {customer.name}
             </h1>
+            {customer.customerNumber && (
+              <span className="text-lg text-muted-foreground font-medium" data-testid="text-customer-number">
+                #{customer.customerNumber}
+              </span>
+            )}
             <StatusBadge status={customer.status} />
             <Badge 
               variant={coverage === "Maintenance & Snow" ? "default" : coverage === "No Coverage" ? "outline" : "secondary"}
@@ -2387,19 +2394,34 @@ export default function CustomerDetail() {
           </DialogHeader>
           <Form {...customerForm}>
             <form onSubmit={customerForm.handleSubmit((data) => updateCustomerMutation.mutate(data))} className="space-y-4">
-              <FormField
-                control={customerForm.control}
-                name="name"
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>Customer Name *</FormLabel>
-                    <FormControl>
-                      <Input placeholder="ABC Corporation" {...field} data-testid="input-customer-name" />
-                    </FormControl>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
+              <div className="grid grid-cols-2 gap-4">
+                <FormField
+                  control={customerForm.control}
+                  name="name"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Customer Name *</FormLabel>
+                      <FormControl>
+                        <Input placeholder="ABC Corporation" {...field} data-testid="input-customer-name" />
+                      </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+                <FormField
+                  control={customerForm.control}
+                  name="customerNumber"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Customer Number</FormLabel>
+                      <FormControl>
+                        <Input placeholder="CUST-001" {...field} value={field.value || ""} data-testid="input-customer-number" />
+                      </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+              </div>
               <div className="grid grid-cols-2 gap-4">
                 <FormField
                   control={customerForm.control}
