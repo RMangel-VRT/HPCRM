@@ -1711,6 +1711,31 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // Team Members endpoint for @mention autocomplete (any authenticated user)
+  app.get("/api/team-members", async (req, res) => {
+    if (!req.isAuthenticated()) {
+      return res.status(401).send("Not authenticated");
+    }
+
+    const user = req.user as UserWithContext;
+    const companyUsers = await storage.getCompanyUsersByCompanyId(user.activeCompanyId);
+    const teamMembers = await Promise.all(
+      companyUsers
+        .filter(cu => cu.status === "active")
+        .map(async (cu) => {
+          const userDetails = await storage.getUserById(cu.userId);
+          return {
+            id: cu.userId,
+            name: userDetails?.name || "Unknown",
+            email: userDetails?.email || "",
+            role: cu.role,
+          };
+        })
+    );
+    
+    res.json(teamMembers);
+  });
+
   app.post("/api/companies/users", async (req, res) => {
     if (!req.isAuthenticated()) {
       return res.status(401).send("Not authenticated");
@@ -3965,12 +3990,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
     const comment = await storage.createTicketComment(result.data);
     
     // Parse @mentions from comment body and create mentions + notifications
-    // Format: @[userId] or @{userId}
-    const mentionRegex = /@\[([a-f0-9-]+)\]|@\{([a-f0-9-]+)\}/g;
+    // Format: @[userId:userName] (with display name) or @[userId] or @{userId}
+    const mentionRegex = /@\[([a-f0-9-]+):[^\]]+\]|@\[([a-f0-9-]+)\]|@\{([a-f0-9-]+)\}/g;
     const mentions: string[] = [];
     let match;
     while ((match = mentionRegex.exec(result.data.body)) !== null) {
-      const userId = match[1] || match[2];
+      const userId = match[1] || match[2] || match[3];
       if (userId && userId !== user.id && !mentions.includes(userId)) {
         mentions.push(userId);
       }

@@ -99,6 +99,8 @@ export default function NotificationsDropdown() {
         return "Due Today";
       case "overdue":
         return "Ticket Overdue";
+      case "mentioned":
+        return "You Were Mentioned";
       default:
         return "Notification";
     }
@@ -116,6 +118,8 @@ export default function NotificationsDropdown() {
         return <AlertCircle className="h-4 w-4 text-orange-500" />;
       case "overdue":
         return <AlertCircle className="h-4 w-4 text-red-500" />;
+      case "mentioned":
+        return <User className="h-4 w-4 text-purple-500" />;
       default:
         return <Bell className="h-4 w-4" />;
     }

@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Textarea } from "@/components/ui/textarea";
+import { MentionTextarea, renderMentionedText } from "@/components/MentionTextarea";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
@@ -1182,7 +1183,7 @@ export default function TicketDetail() {
                             })}
                           </span>
                         </div>
-                        <p className="text-sm whitespace-pre-wrap">{comment.body}</p>
+                        <p className="text-sm whitespace-pre-wrap">{renderMentionedText(comment.body)}</p>
                       </div>
                     </div>
                   </CardContent>
@@ -1193,10 +1194,10 @@ export default function TicketDetail() {
 
           <Card>
             <CardContent className="p-3">
-              <Textarea
-                placeholder="Add a comment..."
+              <MentionTextarea
+                placeholder="Add a comment... Type @ to mention someone"
                 value={newComment}
-                onChange={(e) => setNewComment(e.target.value)}
+                onChange={setNewComment}
                 rows={2}
                 className="resize-none border-0 focus-visible:ring-0"
                 data-testid="input-comment"
