@@ -68,6 +68,15 @@ const equipmentFormSchema = z.object({
   fuelType: z.string().optional(),
   notes: z.string().optional(),
   customSpecs: z.record(z.string(), z.string()).optional().nullable(),
+  // Type-specific fields
+  currentMileage: z.coerce.number().nullable().optional(),
+  currentHours: z.coerce.number().nullable().optional(),
+  deckSize: z.string().optional(),
+  axleCount: z.coerce.number().nullable().optional(),
+  loadRating: z.string().optional(),
+  tireSize: z.string().optional(),
+  registrationExpiration: z.string().optional(),
+  insuranceExpiration: z.string().optional(),
 });
 
 type EquipmentFormData = z.infer<typeof equipmentFormSchema>;
@@ -99,6 +108,15 @@ export default function NewEquipment() {
       fuelType: "not_specified",
       notes: "",
       customSpecs: null,
+      // Type-specific fields
+      currentMileage: null,
+      currentHours: null,
+      deckSize: "",
+      axleCount: null,
+      loadRating: "",
+      tireSize: "",
+      registrationExpiration: "",
+      insuranceExpiration: "",
     },
   });
 
@@ -107,8 +125,17 @@ export default function NewEquipment() {
       const payload = {
         ...data,
         assignedToId: data.assignedToId === "none" ? null : data.assignedToId || null,
-        year: data.year || null,
+        year: data.year ?? null,
         customSpecs: data.customSpecs || null,
+        // Type-specific fields - use nullish coalescing (??) to preserve 0 values
+        currentMileage: data.currentMileage ?? null,
+        currentHours: data.currentHours ?? null,
+        deckSize: data.deckSize || null,
+        axleCount: data.axleCount ?? null,
+        loadRating: data.loadRating || null,
+        tireSize: data.tireSize || null,
+        registrationExpiration: data.registrationExpiration || null,
+        insuranceExpiration: data.insuranceExpiration || null,
       };
       const res = await apiRequest("POST", "/api/equipment", payload);
       return res.json() as Promise<{ id: string }>;
@@ -345,6 +372,168 @@ export default function NewEquipment() {
             </Card>
           </div>
 
+          {/* Truck & Other Vehicle: Mileage + Registration */}
+          {(equipmentType === "truck" || equipmentType === "other_vehicle") && (
+            <Card>
+              <CardHeader>
+                <CardTitle>{equipmentType === "truck" ? "Truck Details" : "Vehicle Details"}</CardTitle>
+              </CardHeader>
+              <CardContent className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                <FormField
+                  control={form.control}
+                  name="currentMileage"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Current Mileage</FormLabel>
+                      <FormControl>
+                        <Input type="number" {...field} value={field.value || ""} placeholder="e.g., 45000" data-testid="input-mileage" />
+                      </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+                <FormField
+                  control={form.control}
+                  name="registrationExpiration"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Registration Expiration</FormLabel>
+                      <FormControl>
+                        <Input type="date" {...field} data-testid="input-reg-exp" />
+                      </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+                <FormField
+                  control={form.control}
+                  name="insuranceExpiration"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Insurance Expiration</FormLabel>
+                      <FormControl>
+                        <Input type="date" {...field} data-testid="input-ins-exp" />
+                      </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+              </CardContent>
+            </Card>
+          )}
+
+          {/* Mower: Deck Size + Engine Hours */}
+          {equipmentType === "mower" && (
+            <Card>
+              <CardHeader>
+                <CardTitle>Mower Details</CardTitle>
+              </CardHeader>
+              <CardContent className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <FormField
+                  control={form.control}
+                  name="deckSize"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Deck Size</FormLabel>
+                      <FormControl>
+                        <Input {...field} placeholder='e.g., 60"' data-testid="input-deck" />
+                      </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+                <FormField
+                  control={form.control}
+                  name="currentHours"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Engine Hours</FormLabel>
+                      <FormControl>
+                        <Input type="number" step="0.1" {...field} value={field.value || ""} placeholder="e.g., 1250" data-testid="input-hours" />
+                      </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+              </CardContent>
+            </Card>
+          )}
+
+          {/* Trailer: Axle Count, Load Rating, Tire Size */}
+          {equipmentType === "trailer" && (
+            <Card>
+              <CardHeader>
+                <CardTitle>Trailer Details</CardTitle>
+              </CardHeader>
+              <CardContent className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                <FormField
+                  control={form.control}
+                  name="axleCount"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Axle Count</FormLabel>
+                      <FormControl>
+                        <Input type="number" {...field} value={field.value || ""} placeholder="e.g., 2" data-testid="input-axle" />
+                      </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+                <FormField
+                  control={form.control}
+                  name="loadRating"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Load Rating</FormLabel>
+                      <FormControl>
+                        <Input {...field} placeholder="e.g., 7,000 lbs" data-testid="input-load" />
+                      </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+                <FormField
+                  control={form.control}
+                  name="tireSize"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Tire Size</FormLabel>
+                      <FormControl>
+                        <Input {...field} placeholder="e.g., 205/75R15" data-testid="input-tire" />
+                      </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+              </CardContent>
+            </Card>
+          )}
+
+          {/* Skid Steer & ATV/UTV: Engine Hours */}
+          {(equipmentType === "skid_steer" || equipmentType === "atv_utv") && (
+            <Card>
+              <CardHeader>
+                <CardTitle>{equipmentType === "skid_steer" ? "Skid Steer Details" : "ATV/UTV Details"}</CardTitle>
+              </CardHeader>
+              <CardContent>
+                <FormField
+                  control={form.control}
+                  name="currentHours"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Engine Hours</FormLabel>
+                      <FormControl>
+                        <Input type="number" step="0.1" {...field} value={field.value || ""} placeholder="e.g., 500" data-testid="input-hours" />
+                      </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+              </CardContent>
+            </Card>
+          )}
+
+          {/* Specialty Equipment: Custom Specifications */}
           {equipmentType === "specialty" && (
             <Card>
               <CardHeader>
