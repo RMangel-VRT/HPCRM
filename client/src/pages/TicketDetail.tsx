@@ -194,6 +194,7 @@ export default function TicketDetail() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/tickets", ticketId, "details"] });
       queryClient.invalidateQueries({ queryKey: ["/api/tickets"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/tickets/my"] });
       toast({ title: "Ticket reassigned successfully" });
     },
     onError: (error: Error) => {
@@ -208,6 +209,7 @@ export default function TicketDetail() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/tickets"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/tickets/my"] });
       toast({ title: "Ticket deleted successfully" });
       setLocation("/dashboard/tickets");
     },
@@ -230,6 +232,7 @@ export default function TicketDetail() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/tickets", ticketId, "details"] });
       queryClient.invalidateQueries({ queryKey: ["/api/tickets"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/tickets/my"] });
       setShowEditDialog(false);
       toast({ title: "Ticket updated successfully" });
     },
@@ -250,6 +253,7 @@ export default function TicketDetail() {
     onSuccess: ({ checkProjectApproval, checkInvoicePrompt }) => {
       queryClient.invalidateQueries({ queryKey: ["/api/tickets", ticketId, "details"] });
       queryClient.invalidateQueries({ queryKey: ["/api/tickets"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/tickets/my"] });
       queryClient.invalidateQueries({ queryKey: ["/api/pending-invoices"] });
       setShowStatusDialog(false);
       setPendingStatusId(null);
@@ -505,6 +509,7 @@ export default function TicketDetail() {
         toast({ title: "Execution Task created successfully" });
         queryClient.invalidateQueries({ queryKey: ["/api/tickets", ticketId, "details"] });
         queryClient.invalidateQueries({ queryKey: ["/api/tickets"] });
+        queryClient.invalidateQueries({ queryKey: ["/api/tickets/my"] });
       }
     } catch (error) {
       toast({ title: "Failed to create Execution Task", variant: "destructive" });
@@ -538,6 +543,7 @@ export default function TicketDetail() {
         toast({ title: "Invoice ticket created successfully" });
         queryClient.invalidateQueries({ queryKey: ["/api/tickets", ticketId, "details"] });
         queryClient.invalidateQueries({ queryKey: ["/api/tickets"] });
+        queryClient.invalidateQueries({ queryKey: ["/api/tickets/my"] });
         
         // Advance project to Invoicing status
         const invoicingStatus = statuses.find(s => s.name === "Invoicing");
