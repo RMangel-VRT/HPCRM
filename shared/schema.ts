@@ -659,6 +659,7 @@ export const ticketComments = pgTable("ticket_comments", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
   ticketId: varchar("ticket_id").notNull().references(() => tickets.id, { onDelete: "cascade" }),
   authorId: varchar("author_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+  parentCommentId: varchar("parent_comment_id"),
   body: text("body").notNull(),
   createdAt: timestamp("created_at").notNull().defaultNow(),
 });
@@ -668,10 +669,27 @@ export const insertTicketCommentSchema = createInsertSchema(ticketComments).omit
   createdAt: true,
 }).extend({
   body: z.string().min(1).max(5000),
+  parentCommentId: z.string().nullable().optional(),
 });
 
 export type InsertTicketComment = z.infer<typeof insertTicketCommentSchema>;
 export type TicketComment = typeof ticketComments.$inferSelect;
+
+// Ticket Comment Mentions - tracks @mentions in comments
+export const ticketCommentMentions = pgTable("ticket_comment_mentions", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  commentId: varchar("comment_id").notNull().references(() => ticketComments.id, { onDelete: "cascade" }),
+  mentionedUserId: varchar("mentioned_user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+});
+
+export const insertTicketCommentMentionSchema = createInsertSchema(ticketCommentMentions).omit({
+  id: true,
+  createdAt: true,
+});
+
+export type InsertTicketCommentMention = z.infer<typeof insertTicketCommentMentionSchema>;
+export type TicketCommentMention = typeof ticketCommentMentions.$inferSelect;
 
 // Ticket Sources - tracks origin of tickets for future service occurrence linking
 export const ticketSources = pgTable("ticket_sources", {
@@ -926,7 +944,7 @@ export type InsertScheduleBlock = z.infer<typeof insertScheduleBlockSchema>;
 export type ScheduleBlock = typeof scheduleBlocks.$inferSelect;
 
 // Notification types for the ticket notification system
-export type NotificationType = "assigned" | "completed" | "due_tomorrow" | "due_today" | "overdue";
+export type NotificationType = "assigned" | "completed" | "due_tomorrow" | "due_today" | "overdue" | "mentioned";
 
 // Ticket notifications table
 export const ticketNotifications = pgTable("ticket_notifications", {
@@ -945,7 +963,7 @@ export const insertTicketNotificationSchema = createInsertSchema(ticketNotificat
   createdAt: true,
   isRead: true,
 }).extend({
-  type: z.enum(["assigned", "completed", "due_tomorrow", "due_today", "overdue"]),
+  type: z.enum(["assigned", "completed", "due_tomorrow", "due_today", "overdue", "mentioned"]),
   isRead: z.boolean().optional().default(false),
 });
 
