@@ -1,0 +1,157 @@
+1) Different data structures vs. one structure with conditional fields
+
+I’d keep one core “Equipment” record for everything, and use type-specific fields that show/hide based on equipment type. That gives you the best mix of simplicity and scalability.
+
+Why this is usually better than separate tables per type:
+
+One list, one search, one permissions model, one ticket link model (super important).
+
+You avoid messy edge cases later (e.g., a “truck” that becomes a “specialty vehicle,” or a mower that needs a trailer-style registration field).
+
+Reporting stays easy (“show all equipment in repair”, “open tickets by equipment type”, etc.).
+
+When separate data structures make sense:
+Only if each type has wildly different data and you need strict requirements per type. Even then, you typically still keep a base equipment table + one optional “detail” table per type. That’s more complexity than you need right now.
+
+✅ Recommendation:
+
+Base Equipment fields for all types (always visible)
+
+Type-specific sections (shown only when relevant)
+
+Fields not relevant are simply left blank and not shown in the form UI.
+
+2) How to design the type-specific fields (clean and simple)
+Base Fields (always present)
+
+Equipment ID
+
+Type
+
+Name/Label
+
+Status (Active/In Repair/Out of Service/Retired)
+
+Assigned To (optional)
+
+Location (optional)
+
+Make/Brand, Model, Year
+
+Notes
+
+Attachments
+
+Type-specific sections (shown based on type)
+
+Trucks / Vehicles
+
+VIN (required)
+
+License plate
+
+Current odometer
+
+Registration expiration
+
+Insurance expiration (optional)
+
+Fuel type (optional)
+
+Mowers
+
+Serial (optional)
+
+Current engine hours
+
+Deck size (optional)
+
+Service interval hours (optional)
+
+Skid Steers / Heavy Equipment
+
+Serial
+
+Current engine hours
+
+Attachments list (optional)
+
+Service interval hours (optional)
+
+Trailers
+
+VIN/Serial
+
+Plate (if applicable)
+
+Registration expiration
+
+Load rating (optional)
+
+Axle count (optional)
+
+ATV/UTV
+
+Serial
+
+Hours/mileage
+
+Registration (if applicable)
+
+Specialty
+
+Custom “specs” section (key/value pairs) so you can record anything oddball without redesigning.
+
+Form behavior rules
+
+Switching equipment type:
+
+Keep any already-entered type-specific values (don’t delete them), just hide them if not relevant.
+
+Optional: warning if switching from Truck → Mower (because VIN might no longer display).
+
+3) Office users need create access (not view-only)
+
+Got it. Update permissions to:
+
+Admin + Shop Manager + Office: create/edit equipment records + upload files
+
+Ops + Viewer: no access
+
+Two implementation details I’d strongly recommend for Office:
+
+Office can create/edit equipment records and attachments
+
+Office should NOT be able to delete equipment (optional), only Admin/Shop Manager can retire/delete
+
+This prevents accidental nukes while still letting office staff manage inventory.
+
+✅ Updated rule set you can send Replit:
+
+Office can add and edit equipment, upload/download attachments.
+
+Only Admin/Shop Manager can change equipment status to Retired or delete equipment (if delete exists).
+
+Quick “Replit task list” for these adjustments (no code)
+
+Update Equipment permission rules:
+
+Office role gains create/edit access across Equipment module.
+
+Update Equipment form UI:
+
+Show/hide type-specific field sections based on equipment type selection.
+
+Define required fields by type:
+
+Example: Truck requires VIN; others do not.
+
+Ensure type switching does not erase hidden data (unless explicitly chosen).
+
+Regression tests:
+
+Office can add/edit equipment.
+
+Mower form is minimal; truck form is expanded.
+
+Equipment list/search still works and is unified across types.
