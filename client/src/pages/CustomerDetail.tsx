@@ -2,7 +2,7 @@ import { useState, useRef, useMemo, useEffect } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { useRoute, useLocation } from "wouter";
 import { useSetBreadcrumbs } from "@/hooks/use-breadcrumbs";
-import type { Customer, Contact, Note, Contract, ContractDocument, ContractMonthlyAmount, CustomerRateSheet, InsertContract, InsertContact, InsertNote, InsertCustomer, CustomerMapLayer, PropertyManagementCompany, PropertyManager } from "@shared/schema";
+import type { Customer, Contact, Note, Contract, ContractDocument, ContractMonthlyAmount, CustomerRateSheet, InsertContract, InsertContact, InsertNote, InsertCustomer, CustomerMapLayer, PropertyManagementCompany, PropertyManager, Ticket } from "@shared/schema";
 import { insertContractSchema, insertContactSchema, insertNoteSchema, insertCustomerSchema } from "@shared/schema";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -30,7 +30,7 @@ import {
   FormLabel,
   FormMessage,
 } from "@/components/ui/form";
-import { Edit, Plus, Users, FileText, MessageSquare, MapPin, BarChart3, Upload, Download, Eye, Paperclip, History, RefreshCw, DollarSign, Map, Layers, Trash2, X, Ticket, Building, Check, Loader2, Copy, Mail } from "lucide-react";
+import { Edit, Plus, Users, FileText, MessageSquare, MapPin, BarChart3, Upload, Download, Eye, Paperclip, History, RefreshCw, DollarSign, Map, Layers, Trash2, X, Ticket as TicketIcon, Building, Check, Loader2, Copy, Mail, Clock, AlertCircle, CheckCircle2 } from "lucide-react";
 import { Switch } from "@/components/ui/switch";
 import StatusBadge from "@/components/StatusBadge";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -835,6 +835,11 @@ export default function CustomerDetail() {
     queryKey: ["/api/customers", id, "contracts"],
     enabled: !!id,
   });
+
+  const { data: tickets = [], isLoading: isLoadingTickets } = useQuery<Ticket[]>({
+    queryKey: ["/api/customers", id, "tickets"],
+    enabled: !!id,
+  });
   
   // Property Management queries
   const { data: pmCompanies = [] } = useQuery<PropertyManagementCompany[]>({
@@ -1379,7 +1384,7 @@ export default function CustomerDetail() {
               data-testid="button-add-ticket"
               onClick={() => navigate(`/dashboard/tickets/new?customerId=${customer.id}`)}
             >
-              <Ticket className="w-4 h-4 mr-2" />
+              <TicketIcon className="w-4 h-4 mr-2" />
               Add Ticket
             </Button>
           )}
@@ -1401,6 +1406,9 @@ export default function CustomerDetail() {
           </TabsTrigger>
           <TabsTrigger value="notes" data-testid="tab-notes">
             Notes ({notes.length})
+          </TabsTrigger>
+          <TabsTrigger value="tickets" data-testid="tab-tickets">
+            Tickets ({tickets.length})
           </TabsTrigger>
           {(user?.activeRole === "admin" || user?.activeRole === "office") && (
             <>
@@ -1778,6 +1786,96 @@ export default function CustomerDetail() {
                             </AlertDialogFooter>
                           </AlertDialogContent>
                         </AlertDialog>
+                      </div>
+                    </div>
+                  </CardContent>
+                </Card>
+              ))}
+            </div>
+          )}
+        </TabsContent>
+
+        <TabsContent value="tickets" className="space-y-4">
+          {isLoadingTickets ? (
+            <div className="space-y-3">
+              {[1, 2, 3].map((i) => (
+                <Skeleton key={i} className="h-20 w-full" />
+              ))}
+            </div>
+          ) : tickets.length === 0 ? (
+            <Card>
+              <CardContent className="flex items-center justify-center p-12">
+                <div className="text-center">
+                  <TicketIcon className="w-12 h-12 mx-auto text-muted-foreground mb-3" />
+                  <p className="text-sm text-muted-foreground">No tickets for this customer</p>
+                  {(user?.activeRole === "admin" || user?.activeRole === "office") && (
+                    <Button 
+                      variant="outline" 
+                      className="mt-4"
+                      onClick={() => navigate(`/dashboard/tickets/new?customerId=${customer.id}`)}
+                      data-testid="button-create-first-ticket"
+                    >
+                      <Plus className="w-4 h-4 mr-2" />
+                      Create First Ticket
+                    </Button>
+                  )}
+                </div>
+              </CardContent>
+            </Card>
+          ) : (
+            <div className="space-y-3">
+              {tickets.map((ticket) => (
+                <Card 
+                  key={ticket.id} 
+                  className="cursor-pointer hover-elevate"
+                  onClick={() => navigate(`/dashboard/tickets/${ticket.id}`)}
+                  data-testid={`card-ticket-${ticket.id}`}
+                >
+                  <CardContent className="p-4">
+                    <div className="flex items-start justify-between gap-4">
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-2 mb-1">
+                          <h4 className="font-medium truncate" data-testid={`text-ticket-title-${ticket.id}`}>
+                            {ticket.title}
+                          </h4>
+                          <Badge 
+                            variant={
+                              ticket.status === "completed" || ticket.status === "closed" 
+                                ? "secondary" 
+                                : ticket.status === "in_progress" 
+                                  ? "default" 
+                                  : "outline"
+                            }
+                            data-testid={`badge-ticket-status-${ticket.id}`}
+                          >
+                            {(ticket.status || "pending").replace(/_/g, " ")}
+                          </Badge>
+                        </div>
+                        {ticket.description && (
+                          <p className="text-sm text-muted-foreground line-clamp-2" data-testid={`text-ticket-description-${ticket.id}`}>
+                            {ticket.description}
+                          </p>
+                        )}
+                        <div className="flex items-center gap-4 mt-2 text-xs text-muted-foreground">
+                          {ticket.dueDate && (
+                            <div className="flex items-center gap-1">
+                              <Clock className="w-3 h-3" />
+                              <span>Due: {new Date(ticket.dueDate).toLocaleDateString()}</span>
+                            </div>
+                          )}
+                          {ticket.createdAt && (
+                            <div className="flex items-center gap-1">
+                              <span>Created: {new Date(ticket.createdAt).toLocaleDateString()}</span>
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                      <div className="flex items-center">
+                        {ticket.status === "completed" || ticket.status === "closed" ? (
+                          <CheckCircle2 className="w-5 h-5 text-green-500" />
+                        ) : ticket.priority === "high" || ticket.priority === "urgent" ? (
+                          <AlertCircle className="w-5 h-5 text-destructive" />
+                        ) : null}
                       </div>
                     </div>
                   </CardContent>
