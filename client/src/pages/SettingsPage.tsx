@@ -18,7 +18,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
-import { Building2, User, Plus, Pencil, Trash2, X, Phone, Mail } from "lucide-react";
+import { Building2, User, Plus, Pencil, Trash2, X, Phone, Mail, Copy } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import type { Settings, PropertyManagementCompany, PropertyManager, PropertyManagerEmail, PropertyManagerPhone, PropertyManagerWithContacts } from "@shared/schema";
@@ -681,10 +681,33 @@ export default function SettingsPage() {
                   Individual managers who handle specific properties
                 </CardDescription>
               </div>
-              <Button onClick={() => handleOpenPmManagerDialog()} data-testid="button-add-pm-manager">
-                <Plus className="h-4 w-4 mr-2" />
-                Add Manager
-              </Button>
+              <div className="flex gap-2">
+                {pmManagers.length > 0 && pmManagers.some(m => m.email) && (
+                  <Button 
+                    variant="outline"
+                    onClick={() => {
+                      const allEmails = pmManagers
+                        .map(m => m.email)
+                        .filter(Boolean) as string[];
+                      if (allEmails.length > 0) {
+                        navigator.clipboard.writeText(allEmails.join(", "));
+                        toast({
+                          title: "Copied",
+                          description: `${allEmails.length} email${allEmails.length > 1 ? 's' : ''} copied to clipboard`,
+                        });
+                      }
+                    }}
+                    data-testid="button-copy-all-pm-emails"
+                  >
+                    <Mail className="h-4 w-4 mr-2" />
+                    Copy All Emails
+                  </Button>
+                )}
+                <Button onClick={() => handleOpenPmManagerDialog()} data-testid="button-add-pm-manager">
+                  <Plus className="h-4 w-4 mr-2" />
+                  Add Manager
+                </Button>
+              </div>
             </CardHeader>
             <CardContent>
               {pmManagers.length === 0 ? (
@@ -708,7 +731,28 @@ export default function SettingsPage() {
                           <TableCell className="font-medium">{manager.name}</TableCell>
                           <TableCell>{company?.name || "-"}</TableCell>
                           <TableCell>{manager.phone || "-"}</TableCell>
-                          <TableCell>{manager.email || "-"}</TableCell>
+                          <TableCell>
+                            {manager.email ? (
+                              <span className="inline-flex items-center gap-1">
+                                {manager.email}
+                                <button
+                                  type="button"
+                                  className="text-muted-foreground hover:text-foreground p-0.5 rounded hover-elevate"
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    navigator.clipboard.writeText(manager.email!);
+                                    toast({
+                                      title: "Copied",
+                                      description: "Email copied to clipboard",
+                                    });
+                                  }}
+                                  data-testid={`button-copy-pm-email-${manager.id}`}
+                                >
+                                  <Copy className="w-3 h-3" />
+                                </button>
+                              </span>
+                            ) : "-"}
+                          </TableCell>
                           <TableCell className="text-right">
                             <div className="flex justify-end gap-2">
                               <Button size="icon" variant="ghost" onClick={() => handleOpenPmManagerDialog(manager)} data-testid={`button-edit-pm-manager-${manager.id}`}>

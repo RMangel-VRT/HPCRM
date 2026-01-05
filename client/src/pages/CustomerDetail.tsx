@@ -30,7 +30,7 @@ import {
   FormLabel,
   FormMessage,
 } from "@/components/ui/form";
-import { Edit, Plus, Users, FileText, MessageSquare, MapPin, BarChart3, Upload, Download, Eye, Paperclip, History, RefreshCw, DollarSign, Map, Layers, Trash2, X, Ticket, Building, Check, Loader2 } from "lucide-react";
+import { Edit, Plus, Users, FileText, MessageSquare, MapPin, BarChart3, Upload, Download, Eye, Paperclip, History, RefreshCw, DollarSign, Map, Layers, Trash2, X, Ticket, Building, Check, Loader2, Copy, Mail } from "lucide-react";
 import { Switch } from "@/components/ui/switch";
 import StatusBadge from "@/components/StatusBadge";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -1535,7 +1535,29 @@ export default function CustomerDetail() {
         </TabsContent>
 
         <TabsContent value="contacts" className="space-y-4">
-          <div className="flex justify-end">
+          <div className="flex justify-end gap-2">
+            {contacts.length > 0 && contacts.some(c => c.emails && c.emails.length > 0) && (
+              <Button 
+                size="sm"
+                variant="outline"
+                onClick={() => {
+                  const allEmails = contacts
+                    .flatMap(c => c.emails || [])
+                    .filter(Boolean);
+                  if (allEmails.length > 0) {
+                    navigator.clipboard.writeText(allEmails.join(", "));
+                    toast({
+                      title: "Copied",
+                      description: `${allEmails.length} email${allEmails.length > 1 ? 's' : ''} copied to clipboard`,
+                    });
+                  }
+                }}
+                data-testid="button-copy-all-emails"
+              >
+                <Mail className="w-4 h-4 mr-2" />
+                Copy All Emails
+              </Button>
+            )}
             <Button 
               size="sm" 
               onClick={() => setIsAddContactDialogOpen(true)}
@@ -1583,9 +1605,27 @@ export default function CustomerDetail() {
                         </div>
                       )}
                       {contact.emails && contact.emails.length > 0 && (
-                        <div className="text-sm text-muted-foreground">
+                        <div className="text-sm text-muted-foreground flex items-center flex-wrap gap-x-2">
                           {contact.emails.map((email, idx) => (
-                            <span key={idx}>{email}{idx < contact.emails!.length - 1 ? ", " : ""}</span>
+                            <span key={idx} className="inline-flex items-center gap-1">
+                              {email}
+                              <button
+                                type="button"
+                                className="text-muted-foreground hover:text-foreground p-0.5 rounded hover-elevate"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  navigator.clipboard.writeText(email);
+                                  toast({
+                                    title: "Copied",
+                                    description: "Email copied to clipboard",
+                                  });
+                                }}
+                                data-testid={`button-copy-email-${contact.id}-${idx}`}
+                              >
+                                <Copy className="w-3 h-3" />
+                              </button>
+                              {idx < contact.emails!.length - 1 && ","}
+                            </span>
                           ))}
                         </div>
                       )}
