@@ -3045,7 +3045,24 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
     const user = req.user as UserWithContext;
     const tickets = await storage.getTickets(user.activeCompanyId, { assignedToId: user.id });
-    res.json(tickets);
+    
+    // Enrich tickets with currentStatus and customer info
+    const enrichedTickets = await Promise.all(
+      tickets.map(async (ticket) => {
+        const statuses = await storage.getTicketTypeStatuses(ticket.ticketTypeId);
+        const currentStatus = statuses.find(s => s.id === ticket.currentStatusId);
+        const customer = ticket.customerId 
+          ? await storage.getCustomerById(ticket.customerId, user.activeCompanyId)
+          : null;
+        return {
+          ...ticket,
+          currentStatus: currentStatus ? { id: currentStatus.id, name: currentStatus.name, color: currentStatus.color } : null,
+          customer: customer ? { name: customer.name } : null,
+        };
+      })
+    );
+    
+    res.json(enrichedTickets);
   });
 
   app.get("/api/tickets", async (req, res) => {
