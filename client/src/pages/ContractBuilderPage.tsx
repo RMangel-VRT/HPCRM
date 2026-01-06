@@ -1143,50 +1143,53 @@ export default function ContractBuilderPage() {
   return (
     <div className="h-full flex flex-col">
       <div className="p-4 border-b bg-background">
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-4">
+        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+          <div className="flex items-center gap-4 min-w-0">
             <Link href="/dashboard/tools">
               <Button variant="ghost" size="sm" data-testid="button-back">
                 <ArrowLeft className="w-4 h-4 mr-2" />
                 Back
               </Button>
             </Link>
-            <div>
-              <h1 className="text-xl font-semibold" data-testid="text-selected-customer">
+            <div className="min-w-0">
+              <h1 className="text-xl font-semibold truncate" data-testid="text-selected-customer">
                 {selectedCustomer.name}
               </h1>
-              <p className="text-sm text-muted-foreground">
+              <p className="text-sm text-muted-foreground truncate">
                 {selectedCustomer.street}, {selectedCustomer.city}, {selectedCustomer.state} {selectedCustomer.zip}
               </p>
             </div>
           </div>
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2 flex-wrap">
             <Button
               onClick={handleSaveAll}
               disabled={!documentId || saveSectionsMutation.isPending || saveVariablesMutation.isPending}
               data-testid="button-save"
               variant="outline"
+              size="sm"
             >
-              <Save className="w-4 h-4 mr-2" />
-              Save Draft
+              <Save className="w-4 h-4 sm:mr-2" />
+              <span className="hidden sm:inline">Save Draft</span>
             </Button>
             <Button 
-              variant="outline" 
+              variant="outline"
+              size="sm"
               onClick={() => exportPdfMutation.mutate()}
               disabled={!documentId || exportPdfMutation.isPending}
               data-testid="button-export-pdf"
             >
-              <Download className="w-4 h-4 mr-2" />
-              {exportPdfMutation.isPending ? "Exporting..." : "Export PDF"}
+              <Download className="w-4 h-4 sm:mr-2" />
+              <span className="hidden sm:inline">{exportPdfMutation.isPending ? "Exporting..." : "Export PDF"}</span>
             </Button>
             <Button 
-              variant="default" 
+              variant="default"
+              size="sm"
               onClick={() => publishAndCreateMutation.mutate()}
               disabled={!documentId || publishAndCreateMutation.isPending}
               data-testid="button-publish-create"
             >
-              <FileCheck className="w-4 h-4 mr-2" />
-              {publishAndCreateMutation.isPending ? "Publishing..." : "Publish & Create Contract"}
+              <FileCheck className="w-4 h-4 sm:mr-2" />
+              <span className="hidden sm:inline">{publishAndCreateMutation.isPending ? "Publishing..." : "Publish"}</span>
             </Button>
           </div>
         </div>
