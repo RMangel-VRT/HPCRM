@@ -1,6 +1,18 @@
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useMutation } from "@tanstack/react-query";
 import { Link } from "wouter";
-import { Plus, Search, Truck, AlertCircle, CheckCircle, WrenchIcon, XCircle } from "lucide-react";
+import { Plus, Search, Truck, AlertCircle, CheckCircle, WrenchIcon, XCircle, Trash2 } from "lucide-react";
+import { apiRequest, queryClient } from "@/lib/queryClient";
+import { useToast } from "@/hooks/use-toast";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -66,16 +78,54 @@ function getEquipmentTypeLabel(type: string) {
 
 export default function EquipmentList() {
   const { user } = useAuth();
+  const { toast } = useToast();
   const [searchTerm, setSearchTerm] = useState("");
   const [typeFilter, setTypeFilter] = useState("all");
   const [statusFilter, setStatusFilter] = useState("all");
+  const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
+  const [equipmentToDelete, setEquipmentToDelete] = useState<EquipmentWithTicketCount | null>(null);
 
   // Office can also add equipment (but not retire/delete)
   const canEdit = user?.activeRole === "admin" || user?.activeRole === "shop_manager" || user?.activeRole === "office";
+  // Only admin and shop_manager can delete
+  const canDelete = user?.activeRole === "admin" || user?.activeRole === "shop_manager";
 
   const { data: equipment, isLoading } = useQuery<EquipmentWithTicketCount[]>({
     queryKey: ["/api/equipment"],
   });
+
+  const deleteMutation = useMutation({
+    mutationFn: async (id: string) => {
+      return apiRequest("DELETE", `/api/equipment/${id}`);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/equipment"] });
+      toast({
+        title: "Success",
+        description: "Equipment deleted successfully",
+      });
+      setDeleteDialogOpen(false);
+      setEquipmentToDelete(null);
+    },
+    onError: () => {
+      toast({
+        title: "Error",
+        description: "Failed to delete equipment",
+        variant: "destructive",
+      });
+    },
+  });
+
+  const handleDeleteClick = (item: EquipmentWithTicketCount) => {
+    setEquipmentToDelete(item);
+    setDeleteDialogOpen(true);
+  };
+
+  const confirmDelete = () => {
+    if (equipmentToDelete) {
+      deleteMutation.mutate(equipmentToDelete.id);
+    }
+  };
 
   const filteredEquipment = equipment?.filter((item) => {
     const matchesSearch =
@@ -201,7 +251,7 @@ export default function EquipmentList() {
             <div className="text-center py-12 text-muted-foreground">
               <Truck className="w-12 h-12 mx-auto mb-4 opacity-50" />
               <p>No equipment found</p>
-              {canModify && (
+              {canEdit && (
                 <Button asChild variant="outline" className="mt-4">
                   <Link href="/dashboard/equipment/new">Add your first equipment</Link>
                 </Button>
@@ -257,9 +307,21 @@ export default function EquipmentList() {
                       )}
                     </TableCell>
                     <TableCell className="text-right">
-                      <Button asChild variant="ghost" size="sm" data-testid={`button-view-${item.id}`}>
-                        <Link href={`/dashboard/equipment/${item.id}`}>View</Link>
-                      </Button>
+                      <div className="flex items-center justify-end gap-1">
+                        <Button asChild variant="ghost" size="sm" data-testid={`button-view-${item.id}`}>
+                          <Link href={`/dashboard/equipment/${item.id}`}>View</Link>
+                        </Button>
+                        {canDelete && (
+                          <Button 
+                            variant="ghost" 
+                            size="icon" 
+                            onClick={() => handleDeleteClick(item)}
+                            data-testid={`button-delete-${item.id}`}
+                          >
+                            <Trash2 className="w-4 h-4 text-destructive" />
+                          </Button>
+                        )}
+                      </div>
                     </TableCell>
                   </TableRow>
                 ))}
@@ -268,6 +330,27 @@ export default function EquipmentList() {
           )}
         </CardContent>
       </Card>
+
+      <AlertDialog open={deleteDialogOpen} onOpenChange={setDeleteDialogOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete Equipment</AlertDialogTitle>
+            <AlertDialogDescription>
+              Are you sure you want to delete "{equipmentToDelete?.name}"? This action cannot be undone.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel data-testid="button-cancel-delete">Cancel</AlertDialogCancel>
+            <AlertDialogAction 
+              onClick={confirmDelete}
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              data-testid="button-confirm-delete"
+            >
+              {deleteMutation.isPending ? "Deleting..." : "Delete"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }
