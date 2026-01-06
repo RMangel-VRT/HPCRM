@@ -26,13 +26,19 @@ import {
 import { Plus, Search, ChevronRight, ChevronLeft, Clock, User as UserIcon, MapPin, CalendarDays, Filter, Loader2, Trash2, X, Layers } from "lucide-react";
 import { Link } from "wouter";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
-import type { Ticket, TicketType, TicketTypeStatus, Customer, WorkType, User as UserType } from "@shared/schema";
+import type { Ticket, TicketType, TicketTypeStatus, Customer, WorkType, User as UserType, CompanyUser } from "@shared/schema";
 import { WORK_TYPE_CATALOG } from "@shared/workTypeCatalog";
 import { useAuth } from "@/hooks/use-auth";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import QuickAddToDo from "@/components/QuickAddToDo";
 import BatchTicketDialog from "@/components/BatchTicketDialog";
+
+interface CompanyUserWithDetails {
+  companyUser: CompanyUser;
+  user: UserType;
+  isSuperAdmin: boolean;
+}
 
 interface TicketWithDetails extends Ticket {
   ticketType?: TicketType;
@@ -78,16 +84,20 @@ export default function TicketsList() {
     queryKey: ["/api/customers"],
   });
 
-  const { data: users = [] } = useQuery<UserType[]>({
-    queryKey: ["/api/users"],
+  const { data: companyUsersData = [] } = useQuery<CompanyUserWithDetails[]>({
+    queryKey: ["/api/companies/users"],
   });
 
-  // Create a lookup map for users by ID
+  // Create a lookup map for users by ID (extract user from companyUser structure)
   const usersMap = useMemo(() => {
     const map = new Map<string, UserType>();
-    users.forEach(u => map.set(u.id, u));
+    companyUsersData.forEach(cu => {
+      if (cu.user) {
+        map.set(cu.user.id, cu.user);
+      }
+    });
     return map;
-  }, [users]);
+  }, [companyUsersData]);
 
   const ticketTypeStatusesQueries = ticketTypes.map(tt => ({
     ticketTypeId: tt.id,
