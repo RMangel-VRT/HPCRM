@@ -1169,7 +1169,7 @@ export default function ContractBuilderPage() {
               size="sm"
             >
               <Save className="w-4 h-4 sm:mr-2" />
-              <span className="hidden sm:inline">Save Draft</span>
+              <span className="sr-only sm:not-sr-only">Save Draft</span>
             </Button>
             <Button 
               variant="outline"
@@ -1179,7 +1179,7 @@ export default function ContractBuilderPage() {
               data-testid="button-export-pdf"
             >
               <Download className="w-4 h-4 sm:mr-2" />
-              <span className="hidden sm:inline">{exportPdfMutation.isPending ? "Exporting..." : "Export PDF"}</span>
+              <span className="sr-only sm:not-sr-only">{exportPdfMutation.isPending ? "Exporting..." : "Export PDF"}</span>
             </Button>
             <Button 
               variant="default"
@@ -1189,7 +1189,7 @@ export default function ContractBuilderPage() {
               data-testid="button-publish-create"
             >
               <FileCheck className="w-4 h-4 sm:mr-2" />
-              <span className="hidden sm:inline">{publishAndCreateMutation.isPending ? "Publishing..." : "Publish"}</span>
+              <span className="sr-only sm:not-sr-only">{publishAndCreateMutation.isPending ? "Publishing..." : "Publish"}</span>
             </Button>
           </div>
         </div>
