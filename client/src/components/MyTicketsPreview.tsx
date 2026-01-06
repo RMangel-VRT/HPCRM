@@ -21,6 +21,7 @@ interface Ticket {
   currentStatus?: {
     name: string;
     color: string;
+    isFinal?: string;
   } | null;
 }
 
@@ -45,9 +46,9 @@ export default function MyTicketsPreview() {
     staleTime: 0,
   });
 
+  // Filter out tickets with final statuses (Done, Invoiced, Closed, etc.)
   const activeTickets = myTickets.filter(t => 
-    t.currentStatus?.name?.toLowerCase() !== "completed" && 
-    t.currentStatus?.name?.toLowerCase() !== "closed"
+    t.currentStatus?.isFinal !== "true"
   );
 
   return (

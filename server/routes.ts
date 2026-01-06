@@ -3056,7 +3056,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
           : null;
         return {
           ...ticket,
-          currentStatus: currentStatus ? { id: currentStatus.id, name: currentStatus.name, color: currentStatus.color } : null,
+          currentStatus: currentStatus ? { id: currentStatus.id, name: currentStatus.name, color: currentStatus.color, isFinal: currentStatus.isFinal } : null,
           customer: customer ? { name: customer.name } : null,
         };
       })
