@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { useSetBreadcrumbs } from "@/hooks/use-breadcrumbs";
 import { Button } from "@/components/ui/button";
@@ -23,10 +23,10 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
-import { Plus, Search, ChevronRight, ChevronLeft, Clock, User, MapPin, CalendarDays, Filter, Loader2, Trash2, X, Layers } from "lucide-react";
+import { Plus, Search, ChevronRight, ChevronLeft, Clock, User as UserIcon, MapPin, CalendarDays, Filter, Loader2, Trash2, X, Layers } from "lucide-react";
 import { Link } from "wouter";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
-import type { Ticket, TicketType, TicketTypeStatus, Customer, WorkType } from "@shared/schema";
+import type { Ticket, TicketType, TicketTypeStatus, Customer, WorkType, User as UserType } from "@shared/schema";
 import { WORK_TYPE_CATALOG } from "@shared/workTypeCatalog";
 import { useAuth } from "@/hooks/use-auth";
 import { useToast } from "@/hooks/use-toast";
@@ -77,6 +77,17 @@ export default function TicketsList() {
   const { data: customers = [] } = useQuery<Customer[]>({
     queryKey: ["/api/customers"],
   });
+
+  const { data: users = [] } = useQuery<UserType[]>({
+    queryKey: ["/api/users"],
+  });
+
+  // Create a lookup map for users by ID
+  const usersMap = useMemo(() => {
+    const map = new Map<string, UserType>();
+    users.forEach(u => map.set(u.id, u));
+    return map;
+  }, [users]);
 
   const ticketTypeStatusesQueries = ticketTypes.map(tt => ({
     ticketTypeId: tt.id,
@@ -452,6 +463,7 @@ export default function TicketsList() {
                     key={ticket.id} 
                     ticket={ticket} 
                     formatDueDate={formatDueDate}
+                    usersMap={usersMap}
                     selectionMode={selectionMode}
                     isSelected={selectedTicketIds.has(ticket.id)}
                     onToggleSelect={() => toggleTicketSelection(ticket.id)}
@@ -477,6 +489,7 @@ export default function TicketsList() {
                       key={ticket.id} 
                       ticket={ticket} 
                       formatDueDate={formatDueDate}
+                      usersMap={usersMap}
                       selectionMode={selectionMode}
                       isSelected={selectedTicketIds.has(ticket.id)}
                       onToggleSelect={() => toggleTicketSelection(ticket.id)}
@@ -567,12 +580,13 @@ export default function TicketsList() {
 interface TicketCardProps {
   ticket: TicketWithDetails;
   formatDueDate: (date: Date | null | undefined) => { text: string; className: string } | null;
+  usersMap: Map<string, UserType>;
   selectionMode?: boolean;
   isSelected?: boolean;
   onToggleSelect?: () => void;
 }
 
-function TicketCard({ ticket, formatDueDate, selectionMode, isSelected, onToggleSelect }: TicketCardProps) {
+function TicketCard({ ticket, formatDueDate, usersMap, selectionMode, isSelected, onToggleSelect }: TicketCardProps) {
   const dueInfo = formatDueDate(ticket.dueDate);
   
   // Bar color: green for completed, ticket type color for open tickets
@@ -675,11 +689,16 @@ function TicketCard({ ticket, formatDueDate, selectionMode, isSelected, onToggle
               </div>
 
               {ticket.assignedToId && (
-                <Avatar className="w-6 h-6">
-                  <AvatarFallback className="text-[10px] bg-muted">
-                    <User className="w-3 h-3" />
-                  </AvatarFallback>
-                </Avatar>
+                <div className="flex items-center gap-1.5">
+                  <Avatar className="w-6 h-6">
+                    <AvatarFallback className="text-[10px] bg-muted">
+                      <UserIcon className="w-3 h-3" />
+                    </AvatarFallback>
+                  </Avatar>
+                  <span className="text-xs text-muted-foreground truncate max-w-[100px]" data-testid={`text-assignee-${ticket.id}`}>
+                    {usersMap.get(ticket.assignedToId)?.name || usersMap.get(ticket.assignedToId)?.email?.split('@')[0] || 'Assigned'}
+                  </span>
+                </div>
               )}
             </div>
           </div>
