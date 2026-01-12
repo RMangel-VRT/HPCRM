@@ -58,6 +58,15 @@ A comprehensive equipment management system for tracking trucks, mowers, trailer
 
 Tables: `equipment`, `equipment_tickets`, `equipment_files`
 
+#### Revenue Tracking System
+Tracks contracted revenue with breakdowns by service type (Maintenance vs Chemical) for cost/income analysis. Features:
+- Revenue Overview page (/dashboard/revenue): Shows selected month total, YTD total, and full year projection with separate Maintenance and Chemical revenue cards showing month/YTD/annual for each type
+- Customer revenue section: Shows annual projection, Maintenance vs Chemical summary cards, monthly breakdown with service type details, and contract breakdown table
+- Revenue calculations respect contract start/end dates - only counts revenue for months where the contract was active
+- Uses dropdown month/year selectors for easy navigation
+
+Tables: `contracts`, `contract_monthly_amounts` - linked by contractId, with serviceType on contracts determining revenue category
+
 #### First-Time Setup Flow
 When deployed to production with an empty database (no users), the app automatically shows a setup page instead of login. This allows the first admin to create their company and account. The setup page creates the company, admin user, company membership, and default settings, then auto-logs in. Once any user exists, the setup page becomes inaccessible for security.
 
