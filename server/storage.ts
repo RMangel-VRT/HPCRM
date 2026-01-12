@@ -786,7 +786,18 @@ export class PgStorage implements IStorage {
     const maintenanceRevenue = { month: 0, ytd: 0, annual: 0 };
     const chemicalRevenue = { month: 0, ytd: 0, annual: 0 };
     
-    const customers: { customerId: string; customerName: string; monthlyRevenue: number; annualProjection: number }[] = [];
+    const customers: { 
+      customerId: string; 
+      customerName: string; 
+      monthlyRevenue: number; 
+      annualProjection: number;
+      maintenanceMonth: number;
+      maintenanceYtd: number;
+      maintenanceAnnual: number;
+      chemicalMonth: number;
+      chemicalYtd: number;
+      chemicalAnnual: number;
+    }[] = [];
     
     for (const customer of allCustomers) {
       const revenueData = await this.getCustomerRevenue(customer.id, companyId, year);
@@ -795,13 +806,23 @@ export class PgStorage implements IStorage {
       const monthlyRevenue = monthData?.total || 0;
       selectedMonthTotal += monthlyRevenue;
       
+      // Track per-customer service type revenue
+      let customerMaintenanceMonth = 0;
+      let customerMaintenanceYtd = 0;
+      let customerMaintenanceAnnual = 0;
+      let customerChemicalMonth = 0;
+      let customerChemicalYtd = 0;
+      let customerChemicalAnnual = 0;
+      
       // Extract maintenance and chemical for selected month
       if (monthData) {
         for (const st of monthData.byServiceType) {
           if (st.serviceType === 'Maintenance') {
             maintenanceRevenue.month += st.amount;
+            customerMaintenanceMonth += st.amount;
           } else if (st.serviceType === 'Chemical') {
             chemicalRevenue.month += st.amount;
+            customerChemicalMonth += st.amount;
           }
         }
       }
@@ -816,8 +837,10 @@ export class PgStorage implements IStorage {
           for (const st of mb.byServiceType) {
             if (st.serviceType === 'Maintenance') {
               maintenanceRevenue.ytd += st.amount;
+              customerMaintenanceYtd += st.amount;
             } else if (st.serviceType === 'Chemical') {
               chemicalRevenue.ytd += st.amount;
+              customerChemicalYtd += st.amount;
             }
           }
         }
@@ -833,8 +856,10 @@ export class PgStorage implements IStorage {
           for (const st of mb.byServiceType) {
             if (st.serviceType === 'Maintenance') {
               maintenanceRevenue.annual += st.amount;
+              customerMaintenanceAnnual += st.amount;
             } else if (st.serviceType === 'Chemical') {
               chemicalRevenue.annual += st.amount;
+              customerChemicalAnnual += st.amount;
             }
           }
         }
@@ -845,6 +870,12 @@ export class PgStorage implements IStorage {
         customerName: customer.name,
         monthlyRevenue,
         annualProjection: revenueData.annualProjection,
+        maintenanceMonth: customerMaintenanceMonth,
+        maintenanceYtd: customerMaintenanceYtd,
+        maintenanceAnnual: customerMaintenanceAnnual,
+        chemicalMonth: customerChemicalMonth,
+        chemicalYtd: customerChemicalYtd,
+        chemicalAnnual: customerChemicalAnnual,
       });
     }
     
