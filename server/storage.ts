@@ -726,6 +726,11 @@ export class PgStorage implements IStorage {
       const amounts = await this.getContractMonthlyAmounts(contract.id, companyId);
       let contractAnnualTotal = 0;
       
+      // Calculate mobilization fee per month (in dollars)
+      const monthlyMobilization = (contract.hasMobilizationFee && contract.mobilizationFeeAmount) 
+        ? contract.mobilizationFeeAmount / 100 
+        : 0;
+      
       for (const amountRecord of amounts) {
         const monthDate = new Date(year, amountRecord.month - 1, 1);
         
@@ -733,7 +738,8 @@ export class PgStorage implements IStorage {
                          (!contract.endDate || monthDate <= (contract.endDate > yearEnd ? yearEnd : contract.endDate));
         
         if (isInRange) {
-          const amountInDollars = amountRecord.amount / 100;
+          // Include mobilization fee in monthly amount
+          const amountInDollars = (amountRecord.amount / 100) + monthlyMobilization;
           contractAnnualTotal += amountInDollars;
           monthlyTotals[amountRecord.month] += amountInDollars;
           

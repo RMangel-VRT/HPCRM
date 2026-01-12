@@ -904,7 +904,7 @@ function ContractCard({ contract, customerId, canUploadDocuments, onUploadClick,
                         data-testid="edit-input-mobilization-amount"
                       />
                     </div>
-                    <p className="text-xs text-muted-foreground mt-1">One-time fee billed at contract start</p>
+                    <p className="text-xs text-muted-foreground mt-1">Monthly recurring fee added to each billing period</p>
                   </div>
                 )}
               </div>
@@ -2457,7 +2457,7 @@ export default function CustomerDetail() {
                               />
                             </div>
                           </FormControl>
-                          <FormDescription>One-time fee billed at contract start</FormDescription>
+                          <FormDescription>Monthly recurring fee added to each billing period</FormDescription>
                           <FormMessage />
                         </FormItem>
                       )}
@@ -3074,15 +3074,18 @@ function MonthlyBillingSummarySection({ customerId, contracts }: MonthlyBillingS
     amount: m.byContract.filter(c => c.serviceType !== "Maintenance" && c.serviceType !== "Chemical").reduce((sum, c) => sum + c.amount, 0)
   }));
   
-  const mobilizationFees = activeContracts
-    .filter(c => c.hasMobilizationFee && c.mobilizationFeeAmount && c.mobilizationFeeAmount > 0)
-    .map(c => ({
-      contractId: c.id,
-      serviceType: c.serviceType,
-      amount: c.mobilizationFeeAmount / 100
-    }));
+  // Mobilization fees are monthly recurring, so calculate monthly total
+  const monthlyMobilizationTotal = useMemo(() => {
+    return activeContracts
+      .filter(c => c.hasMobilizationFee && c.mobilizationFeeAmount && c.mobilizationFeeAmount > 0)
+      .reduce((sum, c) => sum + (c.mobilizationFeeAmount / 100), 0);
+  }, [activeContracts]);
   
-  const totalMobilization = mobilizationFees.reduce((sum, f) => sum + f.amount, 0);
+  // Calculate annual mobilization (12 months * monthly mobilization)
+  const annualMobilization = monthlyMobilizationTotal * 12;
+  
+  // Add mobilization to each month's total for the real total billing
+  const totalAnnualWithMobilization = totalAnnual + annualMobilization;
   
   return (
     <div className="space-y-6">
@@ -3119,8 +3122,13 @@ function MonthlyBillingSummarySection({ customerId, contracts }: MonthlyBillingS
           </CardHeader>
           <CardContent>
             <p className="text-2xl font-bold" data-testid="text-summary-annual-total">
-              ${totalAnnual.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+              ${totalAnnualWithMobilization.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
             </p>
+            {monthlyMobilizationTotal > 0 && (
+              <p className="text-xs text-muted-foreground mt-1">
+                Includes ${annualMobilization.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} mobilization
+              </p>
+            )}
           </CardContent>
         </Card>
         <Card>
@@ -3133,17 +3141,17 @@ function MonthlyBillingSummarySection({ customerId, contracts }: MonthlyBillingS
             </p>
           </CardContent>
         </Card>
-        {totalMobilization > 0 && (
+        {monthlyMobilizationTotal > 0 && (
           <Card>
             <CardHeader className="pb-2">
-              <CardTitle className="text-sm font-medium text-muted-foreground">Mobilization Fees</CardTitle>
+              <CardTitle className="text-sm font-medium text-muted-foreground">Monthly Mobilization</CardTitle>
             </CardHeader>
             <CardContent>
               <p className="text-2xl font-bold" data-testid="text-summary-mobilization">
-                ${totalMobilization.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                ${monthlyMobilizationTotal.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}/mo
               </p>
               <p className="text-xs text-muted-foreground mt-1">
-                {mobilizationFees.length} contract{mobilizationFees.length !== 1 ? 's' : ''} with mobilization
+                ${annualMobilization.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}/year
               </p>
             </CardContent>
           </Card>
@@ -3162,39 +3170,50 @@ function MonthlyBillingSummarySection({ customerId, contracts }: MonthlyBillingS
                 <TableHead className="text-right">Maintenance</TableHead>
                 <TableHead className="text-right">Chemical</TableHead>
                 <TableHead className="text-right">Other</TableHead>
+                {monthlyMobilizationTotal > 0 && (
+                  <TableHead className="text-right">Mobilization</TableHead>
+                )}
                 <TableHead className="text-right">Total</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
-              {monthlySummary.map((month, idx) => (
-                <TableRow key={month.month} data-testid={`row-month-${month.month}`}>
-                  <TableCell className="font-medium">{monthNames[idx]}</TableCell>
-                  <TableCell className="text-right">
-                    {maintenanceMonthly[idx].amount > 0 
-                      ? `$${maintenanceMonthly[idx].amount.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
-                      : '-'
-                    }
-                  </TableCell>
-                  <TableCell className="text-right">
-                    {chemicalMonthly[idx].amount > 0 
-                      ? `$${chemicalMonthly[idx].amount.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
-                      : '-'
-                    }
-                  </TableCell>
-                  <TableCell className="text-right">
-                    {otherMonthly[idx].amount > 0 
-                      ? `$${otherMonthly[idx].amount.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
-                      : '-'
-                    }
-                  </TableCell>
-                  <TableCell className="text-right font-semibold">
-                    {month.total > 0 
-                      ? `$${month.total.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
-                      : '-'
-                    }
-                  </TableCell>
-                </TableRow>
-              ))}
+              {monthlySummary.map((month, idx) => {
+                const monthTotalWithMobilization = month.total + monthlyMobilizationTotal;
+                return (
+                  <TableRow key={month.month} data-testid={`row-month-${month.month}`}>
+                    <TableCell className="font-medium">{monthNames[idx]}</TableCell>
+                    <TableCell className="text-right">
+                      {maintenanceMonthly[idx].amount > 0 
+                        ? `$${maintenanceMonthly[idx].amount.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
+                        : '-'
+                      }
+                    </TableCell>
+                    <TableCell className="text-right">
+                      {chemicalMonthly[idx].amount > 0 
+                        ? `$${chemicalMonthly[idx].amount.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
+                        : '-'
+                      }
+                    </TableCell>
+                    <TableCell className="text-right">
+                      {otherMonthly[idx].amount > 0 
+                        ? `$${otherMonthly[idx].amount.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
+                        : '-'
+                      }
+                    </TableCell>
+                    {monthlyMobilizationTotal > 0 && (
+                      <TableCell className="text-right">
+                        ${monthlyMobilizationTotal.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                      </TableCell>
+                    )}
+                    <TableCell className="text-right font-semibold">
+                      {monthTotalWithMobilization > 0 
+                        ? `$${monthTotalWithMobilization.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
+                        : '-'
+                      }
+                    </TableCell>
+                  </TableRow>
+                );
+              })}
               <TableRow className="font-bold border-t-2">
                 <TableCell>Total</TableCell>
                 <TableCell className="text-right">
@@ -3206,8 +3225,13 @@ function MonthlyBillingSummarySection({ customerId, contracts }: MonthlyBillingS
                 <TableCell className="text-right">
                   ${otherMonthly.reduce((sum, m) => sum + m.amount, 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                 </TableCell>
+                {monthlyMobilizationTotal > 0 && (
+                  <TableCell className="text-right">
+                    ${annualMobilization.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                  </TableCell>
+                )}
                 <TableCell className="text-right">
-                  ${totalAnnual.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                  ${totalAnnualWithMobilization.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                 </TableCell>
               </TableRow>
             </TableBody>
@@ -3215,35 +3239,6 @@ function MonthlyBillingSummarySection({ customerId, contracts }: MonthlyBillingS
         </CardContent>
       </Card>
       
-      {mobilizationFees.length > 0 && (
-        <Card>
-          <CardHeader>
-            <CardTitle className="text-lg">Mobilization Fees</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>Contract</TableHead>
-                  <TableHead>Service Type</TableHead>
-                  <TableHead className="text-right">Fee Amount</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {mobilizationFees.map((fee) => (
-                  <TableRow key={fee.contractId} data-testid={`row-mobilization-${fee.contractId}`}>
-                    <TableCell className="font-medium">{fee.contractId.slice(0, 8)}...</TableCell>
-                    <TableCell>{fee.serviceType}</TableCell>
-                    <TableCell className="text-right font-semibold">
-                      ${fee.amount.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                    </TableCell>
-                  </TableRow>
-                ))}
-              </TableBody>
-            </Table>
-          </CardContent>
-        </Card>
-      )}
     </div>
   );
 }
