@@ -162,6 +162,8 @@ export const contracts = pgTable("contracts", {
   status: text("status").notNull().$type<"active" | "paused" | "ended">().default("active"),
   po: text("po"),
   notes: text("notes"),
+  hasMobilizationFee: boolean("has_mobilization_fee").notNull().default(false),
+  mobilizationFeeAmount: integer("mobilization_fee_amount").notNull().default(0),
   createdAt: timestamp("created_at").notNull().defaultNow(),
   updatedAt: timestamp("updated_at").notNull().defaultNow(),
 });
@@ -174,6 +176,8 @@ export const insertContractSchema = createInsertSchema(contracts).omit({
   serviceType: z.enum(["Maintenance", "Chemical", "Snow", "Irrigation", "Other"]),
   billingPattern: z.enum(["monthly", "seasonal", "12-of-12"]),
   status: z.enum(["active", "paused", "ended"]).default("active"),
+  hasMobilizationFee: z.boolean().default(false),
+  mobilizationFeeAmount: z.number().int().min(0).default(0),
 });
 
 export type InsertContract = z.infer<typeof insertContractSchema>;
