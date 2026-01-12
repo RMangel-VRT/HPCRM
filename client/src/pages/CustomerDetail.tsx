@@ -88,6 +88,22 @@ function ContractCard({ contract, customerId, canUploadDocuments, onUploadClick,
     mobilizationFeeAmount: contract.mobilizationFeeAmount ? (contract.mobilizationFeeAmount / 100).toFixed(2) : "0.00",
   });
   
+  // Reset edit form data when dialog opens to sync with latest contract data
+  useEffect(() => {
+    if (isEditContractOpen) {
+      setEditContractData({
+        serviceType: contract.serviceType,
+        billingPattern: contract.billingPattern,
+        startDate: format(new Date(contract.startDate), "yyyy-MM-dd"),
+        endDate: contract.endDate ? format(new Date(contract.endDate), "yyyy-MM-dd") : "",
+        po: contract.po || "",
+        notes: contract.notes || "",
+        hasMobilizationFee: contract.hasMobilizationFee || false,
+        mobilizationFeeAmount: contract.mobilizationFeeAmount ? (contract.mobilizationFeeAmount / 100).toFixed(2) : "0.00",
+      });
+    }
+  }, [isEditContractOpen, contract]);
+  
   const { data: monthlyAmounts = [], isLoading: isLoadingAmounts } = useQuery<ContractMonthlyAmount[]>({
     queryKey: ["/api/contracts", contract.id, "monthly-amounts"],
   });
