@@ -1896,6 +1896,39 @@ export async function registerRoutes(app: Express): Promise<Server> {
     res.json(revenueData);
   });
 
+  app.get("/api/customers/:customerId/all-monthly-amounts/:year", async (req, res) => {
+    if (!req.isAuthenticated()) {
+      return res.status(401).send("Not authenticated");
+    }
+
+    const user = req.user as UserWithContext;
+    const { customerId, year } = req.params;
+    
+    if (user.activeRole === "field_manager" || user.activeRole === "field" || user.activeRole === "irrigation_manager" || user.activeRole === "shop_manager") {
+      return res.status(403).send("Insufficient permissions");
+    }
+    
+    const customer = await storage.getCustomerById(customerId, user.activeCompanyId);
+    if (!customer) {
+      return res.status(404).send("Customer not found");
+    }
+
+    const yearNum = parseInt(year);
+    if (isNaN(yearNum) || yearNum < 2000 || yearNum > 2100) {
+      return res.status(400).send("Invalid year");
+    }
+
+    const contracts = await storage.getContractsByCustomerId(customerId, user.activeCompanyId);
+    const result: { contractId: string; amounts: any[] }[] = [];
+    
+    for (const contract of contracts) {
+      const amounts = await storage.getContractMonthlyAmounts(contract.id, user.activeCompanyId);
+      result.push({ contractId: contract.id, amounts });
+    }
+    
+    res.json(result);
+  });
+
   app.get("/api/dashboard/stats", async (req, res) => {
     if (!req.isAuthenticated()) {
       return res.status(401).send("Not authenticated");
@@ -2583,7 +2616,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
         startDate,
         endDate,
         status: "active" as const,
-        notes: `Created from Contract Builder document: ${document.documentTitle}`
+        notes: `Created from Contract Builder document: ${document.documentTitle}`,
+        hasMobilizationFee: false,
+        mobilizationFeeAmount: 0
       };
 
       const contract = await storage.createContract(contractData);

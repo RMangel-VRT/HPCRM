@@ -76,6 +76,17 @@ function ContractCard({ contract, customerId, canUploadDocuments, onUploadClick,
   
   const [showEndConfirm, setShowEndConfirm] = useState(false);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+  const [isEditContractOpen, setIsEditContractOpen] = useState(false);
+  const [editContractData, setEditContractData] = useState({
+    serviceType: contract.serviceType,
+    billingPattern: contract.billingPattern,
+    startDate: format(new Date(contract.startDate), "yyyy-MM-dd"),
+    endDate: contract.endDate ? format(new Date(contract.endDate), "yyyy-MM-dd") : "",
+    po: contract.po || "",
+    notes: contract.notes || "",
+    hasMobilizationFee: contract.hasMobilizationFee || false,
+    mobilizationFeeAmount: contract.mobilizationFeeAmount ? (contract.mobilizationFeeAmount / 100).toFixed(2) : "0.00",
+  });
   
   const { data: monthlyAmounts = [], isLoading: isLoadingAmounts } = useQuery<ContractMonthlyAmount[]>({
     queryKey: ["/api/contracts", contract.id, "monthly-amounts"],
@@ -245,6 +256,40 @@ function ContractCard({ contract, customerId, canUploadDocuments, onUploadClick,
       toast({
         title: "Error",
         description: error.message || "Failed to delete contract",
+        variant: "destructive",
+      });
+    },
+  });
+
+  const updateContractMutation = useMutation({
+    mutationFn: async () => {
+      const mobilizationCents = editContractData.hasMobilizationFee 
+        ? Math.round(parseFloat(editContractData.mobilizationFeeAmount || "0") * 100)
+        : 0;
+      
+      return await apiRequest("PATCH", `/api/contracts/${contract.id}`, {
+        serviceType: editContractData.serviceType,
+        billingPattern: editContractData.billingPattern,
+        startDate: new Date(editContractData.startDate).toISOString(),
+        endDate: editContractData.endDate ? new Date(editContractData.endDate).toISOString() : null,
+        po: editContractData.po || null,
+        notes: editContractData.notes || null,
+        hasMobilizationFee: editContractData.hasMobilizationFee,
+        mobilizationFeeAmount: mobilizationCents,
+      });
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/customers", customerId, "contracts"] });
+      setIsEditContractOpen(false);
+      toast({
+        title: "Success",
+        description: "Contract updated",
+      });
+    },
+    onError: (error: Error) => {
+      toast({
+        title: "Error",
+        description: error.message || "Failed to update contract",
         variant: "destructive",
       });
     },
@@ -642,10 +687,21 @@ function ContractCard({ contract, customerId, canUploadDocuments, onUploadClick,
           </>
         )}
 
-        {(canEndContract || canDeleteContract) && (
+        {(canEditBilling || canEndContract || canDeleteContract) && (
           <>
             <Separator className="my-3" />
             <div className="flex gap-2 flex-wrap">
+              {canEditBilling && (
+                <Button 
+                  size="sm" 
+                  variant="outline"
+                  onClick={() => setIsEditContractOpen(true)}
+                  data-testid={`button-edit-contract-${contract.id}`}
+                >
+                  <Edit className="w-3 h-3 mr-1" />
+                  Edit Details
+                </Button>
+              )}
               {canEndContract && (
                 <Button 
                   size="sm" 
@@ -711,6 +767,143 @@ function ContractCard({ contract, customerId, canUploadDocuments, onUploadClick,
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      <Dialog open={isEditContractOpen} onOpenChange={setIsEditContractOpen}>
+        <DialogContent className="max-w-xl">
+          <DialogHeader>
+            <DialogTitle>Edit Contract Details</DialogTitle>
+            <DialogDescription>
+              Update contract information and billing settings
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4">
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <Label>Service Type</Label>
+                <Select 
+                  value={editContractData.serviceType} 
+                  onValueChange={(v) => setEditContractData({...editContractData, serviceType: v as any})}
+                >
+                  <SelectTrigger data-testid="edit-select-service-type">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="Maintenance">Maintenance</SelectItem>
+                    <SelectItem value="Chemical">Chemical</SelectItem>
+                    <SelectItem value="Snow">Snow & Ice</SelectItem>
+                    <SelectItem value="Irrigation">Irrigation</SelectItem>
+                    <SelectItem value="Other">Other</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <div>
+                <Label>Billing Pattern</Label>
+                <Select 
+                  value={editContractData.billingPattern} 
+                  onValueChange={(v) => setEditContractData({...editContractData, billingPattern: v as any})}
+                >
+                  <SelectTrigger data-testid="edit-select-billing-pattern">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="monthly">Monthly</SelectItem>
+                    <SelectItem value="seasonal">Seasonal</SelectItem>
+                    <SelectItem value="12-of-12">12 of 12</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <Label>Start Date</Label>
+                <Input
+                  type="date"
+                  value={editContractData.startDate}
+                  onChange={(e) => setEditContractData({...editContractData, startDate: e.target.value})}
+                  data-testid="edit-input-start-date"
+                />
+              </div>
+              <div>
+                <Label>End Date</Label>
+                <Input
+                  type="date"
+                  value={editContractData.endDate}
+                  onChange={(e) => setEditContractData({...editContractData, endDate: e.target.value})}
+                  data-testid="edit-input-end-date"
+                />
+              </div>
+            </div>
+            <div>
+              <Label>PO Number</Label>
+              <Input
+                value={editContractData.po}
+                onChange={(e) => setEditContractData({...editContractData, po: e.target.value})}
+                placeholder="Optional purchase order number"
+                data-testid="edit-input-po"
+              />
+            </div>
+            <div>
+              <Label>Notes</Label>
+              <Textarea
+                value={editContractData.notes}
+                onChange={(e) => setEditContractData({...editContractData, notes: e.target.value})}
+                placeholder="Additional contract notes"
+                data-testid="edit-input-notes"
+              />
+            </div>
+            
+            {editContractData.serviceType === "Maintenance" && (
+              <div className="space-y-3 pt-2 border-t">
+                <div className="flex items-center gap-2">
+                  <Checkbox 
+                    id="edit-has-mobilization"
+                    checked={editContractData.hasMobilizationFee}
+                    onCheckedChange={(checked) => setEditContractData({...editContractData, hasMobilizationFee: checked as boolean})}
+                    data-testid="edit-checkbox-mobilization"
+                  />
+                  <label htmlFor="edit-has-mobilization" className="text-sm font-medium cursor-pointer">
+                    Includes Mobilization Fee
+                  </label>
+                </div>
+                {editContractData.hasMobilizationFee && (
+                  <div>
+                    <Label>Mobilization Fee Amount</Label>
+                    <div className="relative">
+                      <span className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground">$</span>
+                      <Input
+                        type="text"
+                        value={editContractData.mobilizationFeeAmount}
+                        onChange={(e) => {
+                          const value = e.target.value;
+                          if (value === "" || /^\d*\.?\d{0,2}$/.test(value)) {
+                            setEditContractData({...editContractData, mobilizationFeeAmount: value});
+                          }
+                        }}
+                        className="pl-7"
+                        placeholder="0.00"
+                        data-testid="edit-input-mobilization-amount"
+                      />
+                    </div>
+                    <p className="text-xs text-muted-foreground mt-1">One-time fee billed at contract start</p>
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setIsEditContractOpen(false)} data-testid="edit-button-cancel">
+              Cancel
+            </Button>
+            <Button 
+              onClick={() => updateContractMutation.mutate()}
+              disabled={updateContractMutation.isPending}
+              data-testid="edit-button-save"
+            >
+              {updateContractMutation.isPending ? "Saving..." : "Save Changes"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </Card>
   );
 }
@@ -806,6 +999,7 @@ export default function CustomerDetail() {
   const [, navigate] = useLocation();
   const id = params?.id;
   const [activeTab, setActiveTab] = useState("overview");
+  const [billingSubTab, setBillingSubTab] = useState("contracts");
   const [uploadingContractId, setUploadingContractId] = useState<string | null>(null);
   const [showVersionHistory, setShowVersionHistory] = useState<string | null>(null);
   const [showReplaceConfirm, setShowReplaceConfirm] = useState<string | null>(null);
@@ -883,8 +1077,12 @@ export default function CustomerDetail() {
       endDate: undefined,
       po: "",
       notes: "",
+      hasMobilizationFee: false,
+      mobilizationFeeAmount: 0,
     },
   });
+
+  const watchedServiceType = contractForm.watch("serviceType");
 
   const createContractMutation = useMutation({
     mutationFn: async (data: Omit<InsertContract, "companyId" | "customerId">) => {
@@ -1412,14 +1610,8 @@ export default function CustomerDetail() {
           </TabsTrigger>
           {(user?.activeRole === "admin" || user?.activeRole === "office") && (
             <>
-              <TabsTrigger value="contracts" data-testid="tab-contracts">
-                Contracts ({contracts.length})
-              </TabsTrigger>
-              <TabsTrigger value="rate-sheet" data-testid="tab-rate-sheet">
-                Rate Sheet
-              </TabsTrigger>
-              <TabsTrigger value="revenue" data-testid="tab-revenue">
-                Revenue
+              <TabsTrigger value="billing" data-testid="tab-billing">
+                Billing
               </TabsTrigger>
               <TabsTrigger value="scheduling" data-testid="tab-scheduling">
                 Scheduling
@@ -1886,112 +2078,131 @@ export default function CustomerDetail() {
         </TabsContent>
 
         {(user?.activeRole === "admin" || user?.activeRole === "office") && (
-          <TabsContent value="contracts" className="space-y-4">
-            <div className="flex justify-between items-center gap-4">
-              <div className="flex items-center gap-2">
-                <Checkbox 
-                  id="show-ended-contracts"
-                  checked={showEndedContracts}
-                  onCheckedChange={(checked) => setShowEndedContracts(checked as boolean)}
-                  data-testid="toggle-show-ended-contracts"
-                />
-                <label 
-                  htmlFor="show-ended-contracts"
-                  className="text-sm font-medium cursor-pointer"
-                >
-                  Show Ended Contracts
-                </label>
-              </div>
-              {canEditContracts && (
-                <Button size="sm" onClick={() => setIsAddContractDialogOpen(true)} data-testid="button-add-contract">
-                  <Plus className="w-4 h-4 mr-2" />
-                  Add Contract
-                </Button>
-              )}
-            </div>
-          
-            <input
-              ref={fileInputRef}
-              type="file"
-              accept="application/pdf"
-              className="hidden"
-              onChange={() => uploadingContractId && handleFileSelect(uploadingContractId, showReplaceConfirm !== null)}
-            />
-          
-            {isLoadingContracts ? (
-              <div className="space-y-3">
-                {[1, 2, 3].map((i) => (
-                  <Skeleton key={i} className="h-32 w-full" />
-                ))}
-              </div>
-            ) : (() => {
-              const filteredContracts = showEndedContracts 
-                ? contracts 
-                : contracts.filter(c => c.status === "active" || c.status === "paused");
-              
-              return filteredContracts.length === 0 ? (
-                <Card>
-                  <CardContent className="flex items-center justify-center p-12">
-                    <div className="text-center">
-                      <FileText className="w-12 h-12 mx-auto text-muted-foreground mb-3" />
-                      <p className="text-sm text-muted-foreground">
-                        {showEndedContracts ? "No contracts yet" : "No active or paused contracts"}
-                      </p>
-                    </div>
-                  </CardContent>
-                </Card>
-              ) : (
-                <div className="space-y-3">
-                  {filteredContracts.map((contract) => (
-                    <ContractCard 
-                      key={contract.id} 
-                      contract={contract}
-                      customerId={params?.id!}
-                      canUploadDocuments={canUploadDocuments}
-                      onUploadClick={handleUploadClick}
-                      uploadingFile={uploadingFile}
-                      formatFileSize={formatFileSize}
-                      setShowVersionHistory={setShowVersionHistory}
+          <TabsContent value="billing" className="space-y-4">
+            <Tabs value={billingSubTab} onValueChange={setBillingSubTab}>
+              <TabsList className="mb-4">
+                <TabsTrigger value="contracts" data-testid="subtab-contracts">
+                  Contracts ({contracts.length})
+                </TabsTrigger>
+                <TabsTrigger value="rate-sheet" data-testid="subtab-rate-sheet">
+                  Rate Sheet
+                </TabsTrigger>
+                <TabsTrigger value="revenue" data-testid="subtab-revenue">
+                  Revenue
+                </TabsTrigger>
+                <TabsTrigger value="monthly-summary" data-testid="subtab-monthly-summary">
+                  Monthly Summary
+                </TabsTrigger>
+              </TabsList>
+
+              <TabsContent value="contracts" className="space-y-4">
+                <div className="flex justify-between items-center gap-4">
+                  <div className="flex items-center gap-2">
+                    <Checkbox 
+                      id="show-ended-contracts"
+                      checked={showEndedContracts}
+                      onCheckedChange={(checked) => setShowEndedContracts(checked as boolean)}
+                      data-testid="toggle-show-ended-contracts"
                     />
-                  ))}
+                    <label 
+                      htmlFor="show-ended-contracts"
+                      className="text-sm font-medium cursor-pointer"
+                    >
+                      Show Ended Contracts
+                    </label>
+                  </div>
+                  {canEditContracts && (
+                    <Button size="sm" onClick={() => setIsAddContractDialogOpen(true)} data-testid="button-add-contract">
+                      <Plus className="w-4 h-4 mr-2" />
+                      Add Contract
+                    </Button>
+                  )}
                 </div>
-              );
-            })()}
+              
+                <input
+                  ref={fileInputRef}
+                  type="file"
+                  accept="application/pdf"
+                  className="hidden"
+                  onChange={() => uploadingContractId && handleFileSelect(uploadingContractId, showReplaceConfirm !== null)}
+                />
+              
+                {isLoadingContracts ? (
+                  <div className="space-y-3">
+                    {[1, 2, 3].map((i) => (
+                      <Skeleton key={i} className="h-32 w-full" />
+                    ))}
+                  </div>
+                ) : (() => {
+                  const filteredContracts = showEndedContracts 
+                    ? contracts 
+                    : contracts.filter(c => c.status === "active" || c.status === "paused");
+                  
+                  return filteredContracts.length === 0 ? (
+                    <Card>
+                      <CardContent className="flex items-center justify-center p-12">
+                        <div className="text-center">
+                          <FileText className="w-12 h-12 mx-auto text-muted-foreground mb-3" />
+                          <p className="text-sm text-muted-foreground">
+                            {showEndedContracts ? "No contracts yet" : "No active or paused contracts"}
+                          </p>
+                        </div>
+                      </CardContent>
+                    </Card>
+                  ) : (
+                    <div className="space-y-3">
+                      {filteredContracts.map((contract) => (
+                        <ContractCard 
+                          key={contract.id} 
+                          contract={contract}
+                          customerId={params?.id!}
+                          canUploadDocuments={canUploadDocuments}
+                          onUploadClick={handleUploadClick}
+                          uploadingFile={uploadingFile}
+                          formatFileSize={formatFileSize}
+                          setShowVersionHistory={setShowVersionHistory}
+                        />
+                      ))}
+                    </div>
+                  );
+                })()}
 
-            <AlertDialog open={showReplaceConfirm !== null} onOpenChange={(open) => !open && setShowReplaceConfirm(null)}>
-              <AlertDialogContent>
-                <AlertDialogHeader>
-                  <AlertDialogTitle>Replace signed agreement?</AlertDialogTitle>
-                  <AlertDialogDescription>
-                    This will supersede the current signed agreement. The old file will remain in version history. Continue?
-                  </AlertDialogDescription>
-                </AlertDialogHeader>
-                <AlertDialogFooter>
-                  <AlertDialogCancel>Cancel</AlertDialogCancel>
-                  <AlertDialogAction onClick={() => showReplaceConfirm && confirmReplace(showReplaceConfirm)}>
-                    Continue
-                  </AlertDialogAction>
-                </AlertDialogFooter>
-              </AlertDialogContent>
-            </AlertDialog>
+                <AlertDialog open={showReplaceConfirm !== null} onOpenChange={(open) => !open && setShowReplaceConfirm(null)}>
+                  <AlertDialogContent>
+                    <AlertDialogHeader>
+                      <AlertDialogTitle>Replace signed agreement?</AlertDialogTitle>
+                      <AlertDialogDescription>
+                        This will supersede the current signed agreement. The old file will remain in version history. Continue?
+                      </AlertDialogDescription>
+                    </AlertDialogHeader>
+                    <AlertDialogFooter>
+                      <AlertDialogCancel>Cancel</AlertDialogCancel>
+                      <AlertDialogAction onClick={() => showReplaceConfirm && confirmReplace(showReplaceConfirm)}>
+                        Continue
+                      </AlertDialogAction>
+                    </AlertDialogFooter>
+                  </AlertDialogContent>
+                </AlertDialog>
 
-            <VersionHistoryDialog 
-              contractId={showVersionHistory}
-              onClose={() => setShowVersionHistory(null)}
-              formatFileSize={formatFileSize}
-            />
-          </TabsContent>
-        )}
+                <VersionHistoryDialog 
+                  contractId={showVersionHistory}
+                  onClose={() => setShowVersionHistory(null)}
+                  formatFileSize={formatFileSize}
+                />
+              </TabsContent>
 
-        {(user?.activeRole === "admin" || user?.activeRole === "office") && (
-          <TabsContent value="rate-sheet" className="space-y-4">
-            <RateSheetSection customerId={params?.id!} />
-          </TabsContent>
-        )}
+              <TabsContent value="rate-sheet" className="space-y-4">
+                <RateSheetSection customerId={params?.id!} />
+              </TabsContent>
 
-        {(user?.activeRole === "admin" || user?.activeRole === "office") && (
-          <TabsContent value="revenue" className="space-y-4">
-            <RevenueSection customerId={params?.id!} />
+              <TabsContent value="revenue" className="space-y-4">
+                <RevenueSection customerId={params?.id!} />
+              </TabsContent>
+
+              <TabsContent value="monthly-summary" className="space-y-4">
+                <MonthlyBillingSummarySection customerId={params?.id!} contracts={contracts} />
+              </TabsContent>
+            </Tabs>
           </TabsContent>
         )}
 
@@ -2180,6 +2391,60 @@ export default function CustomerDetail() {
                   </FormItem>
                 )}
               />
+              
+              {watchedServiceType === "Maintenance" && (
+                <div className="space-y-3 pt-2 border-t">
+                  <FormField
+                    control={contractForm.control}
+                    name="hasMobilizationFee"
+                    render={({ field }) => (
+                      <FormItem className="flex flex-row items-center gap-2 space-y-0">
+                        <FormControl>
+                          <Checkbox 
+                            checked={field.value}
+                            onCheckedChange={field.onChange}
+                            data-testid="checkbox-has-mobilization"
+                          />
+                        </FormControl>
+                        <FormLabel className="font-medium cursor-pointer">
+                          Includes Mobilization Fee
+                        </FormLabel>
+                      </FormItem>
+                    )}
+                  />
+                  {contractForm.watch("hasMobilizationFee") && (
+                    <FormField
+                      control={contractForm.control}
+                      name="mobilizationFeeAmount"
+                      render={({ field }) => (
+                        <FormItem>
+                          <FormLabel>Mobilization Fee Amount</FormLabel>
+                          <FormControl>
+                            <div className="relative">
+                              <span className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground">$</span>
+                              <Input
+                                type="number"
+                                step="0.01"
+                                min="0"
+                                className="pl-7"
+                                placeholder="0.00"
+                                value={(field.value || 0) / 100}
+                                onChange={(e) => {
+                                  const cents = Math.round(parseFloat(e.target.value || "0") * 100);
+                                  field.onChange(cents);
+                                }}
+                                data-testid="input-mobilization-amount"
+                              />
+                            </div>
+                          </FormControl>
+                          <FormDescription>One-time fee billed at contract start</FormDescription>
+                          <FormMessage />
+                        </FormItem>
+                      )}
+                    />
+                  )}
+                </div>
+              )}
               <DialogFooter>
                 <Button type="button" variant="outline" onClick={() => setIsAddContractDialogOpen(false)} data-testid="button-cancel">
                   Cancel
@@ -2719,6 +2984,246 @@ export default function CustomerDetail() {
           </Form>
         </DialogContent>
       </Dialog>
+    </div>
+  );
+}
+
+interface MonthlyBillingSummaryProps {
+  customerId: string;
+  contracts: Contract[];
+}
+
+function MonthlyBillingSummarySection({ customerId, contracts }: MonthlyBillingSummaryProps) {
+  const currentYear = new Date().getFullYear();
+  const [selectedYear, setSelectedYear] = useState(currentYear);
+  
+  const { data: allMonthlyAmounts = [] } = useQuery<{ contractId: string; amounts: ContractMonthlyAmount[] }[]>({
+    queryKey: ["/api/customers", customerId, "all-monthly-amounts", selectedYear],
+  });
+  
+  const monthNames = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+  
+  const activeContracts = contracts.filter(c => c.status === "active" || c.status === "paused");
+  
+  const monthlySummary = useMemo(() => {
+    const summary: { month: number; total: number; byContract: { contractId: string; serviceType: string; amount: number }[] }[] = [];
+    
+    for (let month = 1; month <= 12; month++) {
+      const monthData: { month: number; total: number; byContract: { contractId: string; serviceType: string; amount: number }[] } = {
+        month,
+        total: 0,
+        byContract: []
+      };
+      
+      for (const contractAmounts of allMonthlyAmounts) {
+        const contract = contracts.find(c => c.id === contractAmounts.contractId);
+        if (!contract || contract.status === "ended") continue;
+        
+        const monthAmount = contractAmounts.amounts.find(a => a.month === month);
+        if (monthAmount && monthAmount.amount > 0) {
+          const amount = monthAmount.amount / 100;
+          monthData.total += amount;
+          monthData.byContract.push({
+            contractId: contract.id,
+            serviceType: contract.serviceType,
+            amount
+          });
+        }
+      }
+      
+      summary.push(monthData);
+    }
+    
+    return summary;
+  }, [allMonthlyAmounts, contracts]);
+  
+  const totalAnnual = monthlySummary.reduce((sum, m) => sum + m.total, 0);
+  
+  const maintenanceMonthly = monthlySummary.map(m => ({
+    month: m.month,
+    amount: m.byContract.filter(c => c.serviceType === "Maintenance").reduce((sum, c) => sum + c.amount, 0)
+  }));
+  
+  const chemicalMonthly = monthlySummary.map(m => ({
+    month: m.month,
+    amount: m.byContract.filter(c => c.serviceType === "Chemical").reduce((sum, c) => sum + c.amount, 0)
+  }));
+  
+  const otherMonthly = monthlySummary.map(m => ({
+    month: m.month,
+    amount: m.byContract.filter(c => c.serviceType !== "Maintenance" && c.serviceType !== "Chemical").reduce((sum, c) => sum + c.amount, 0)
+  }));
+  
+  const mobilizationFees = activeContracts
+    .filter(c => c.hasMobilizationFee && c.mobilizationFeeAmount && c.mobilizationFeeAmount > 0)
+    .map(c => ({
+      contractId: c.id,
+      serviceType: c.serviceType,
+      amount: c.mobilizationFeeAmount / 100
+    }));
+  
+  const totalMobilization = mobilizationFees.reduce((sum, f) => sum + f.amount, 0);
+  
+  return (
+    <div className="space-y-6">
+      <div className="flex items-center justify-between gap-4">
+        <div>
+          <h3 className="text-lg font-semibold">Monthly Billing Summary</h3>
+          <p className="text-sm text-muted-foreground">Consolidated view of all contract billing</p>
+        </div>
+        <div className="flex items-center gap-2">
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => setSelectedYear(selectedYear - 1)}
+            data-testid="button-summary-prev-year"
+          >
+            ← {selectedYear - 1}
+          </Button>
+          <span className="text-sm font-medium px-3" data-testid="text-summary-year">{selectedYear}</span>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => setSelectedYear(selectedYear + 1)}
+            data-testid="button-summary-next-year"
+          >
+            {selectedYear + 1} →
+          </Button>
+        </div>
+      </div>
+      
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+        <Card>
+          <CardHeader className="pb-2">
+            <CardTitle className="text-sm font-medium text-muted-foreground">Annual Total</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <p className="text-2xl font-bold" data-testid="text-summary-annual-total">
+              ${totalAnnual.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+            </p>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardHeader className="pb-2">
+            <CardTitle className="text-sm font-medium text-muted-foreground">Active Contracts</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <p className="text-2xl font-bold" data-testid="text-summary-active-contracts">
+              {activeContracts.length}
+            </p>
+          </CardContent>
+        </Card>
+        {totalMobilization > 0 && (
+          <Card>
+            <CardHeader className="pb-2">
+              <CardTitle className="text-sm font-medium text-muted-foreground">Mobilization Fees</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <p className="text-2xl font-bold" data-testid="text-summary-mobilization">
+                ${totalMobilization.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+              </p>
+              <p className="text-xs text-muted-foreground mt-1">
+                {mobilizationFees.length} contract{mobilizationFees.length !== 1 ? 's' : ''} with mobilization
+              </p>
+            </CardContent>
+          </Card>
+        )}
+      </div>
+      
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-lg">Monthly Breakdown</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead>Month</TableHead>
+                <TableHead className="text-right">Maintenance</TableHead>
+                <TableHead className="text-right">Chemical</TableHead>
+                <TableHead className="text-right">Other</TableHead>
+                <TableHead className="text-right">Total</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {monthlySummary.map((month, idx) => (
+                <TableRow key={month.month} data-testid={`row-month-${month.month}`}>
+                  <TableCell className="font-medium">{monthNames[idx]}</TableCell>
+                  <TableCell className="text-right">
+                    {maintenanceMonthly[idx].amount > 0 
+                      ? `$${maintenanceMonthly[idx].amount.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
+                      : '-'
+                    }
+                  </TableCell>
+                  <TableCell className="text-right">
+                    {chemicalMonthly[idx].amount > 0 
+                      ? `$${chemicalMonthly[idx].amount.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
+                      : '-'
+                    }
+                  </TableCell>
+                  <TableCell className="text-right">
+                    {otherMonthly[idx].amount > 0 
+                      ? `$${otherMonthly[idx].amount.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
+                      : '-'
+                    }
+                  </TableCell>
+                  <TableCell className="text-right font-semibold">
+                    {month.total > 0 
+                      ? `$${month.total.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
+                      : '-'
+                    }
+                  </TableCell>
+                </TableRow>
+              ))}
+              <TableRow className="font-bold border-t-2">
+                <TableCell>Total</TableCell>
+                <TableCell className="text-right">
+                  ${maintenanceMonthly.reduce((sum, m) => sum + m.amount, 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                </TableCell>
+                <TableCell className="text-right">
+                  ${chemicalMonthly.reduce((sum, m) => sum + m.amount, 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                </TableCell>
+                <TableCell className="text-right">
+                  ${otherMonthly.reduce((sum, m) => sum + m.amount, 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                </TableCell>
+                <TableCell className="text-right">
+                  ${totalAnnual.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                </TableCell>
+              </TableRow>
+            </TableBody>
+          </Table>
+        </CardContent>
+      </Card>
+      
+      {mobilizationFees.length > 0 && (
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-lg">Mobilization Fees</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Contract</TableHead>
+                  <TableHead>Service Type</TableHead>
+                  <TableHead className="text-right">Fee Amount</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {mobilizationFees.map((fee) => (
+                  <TableRow key={fee.contractId} data-testid={`row-mobilization-${fee.contractId}`}>
+                    <TableCell className="font-medium">{fee.contractId.slice(0, 8)}...</TableCell>
+                    <TableCell>{fee.serviceType}</TableCell>
+                    <TableCell className="text-right font-semibold">
+                      ${fee.amount.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          </CardContent>
+        </Card>
+      )}
     </div>
   );
 }

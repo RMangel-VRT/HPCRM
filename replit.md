@@ -16,6 +16,8 @@ The backend uses Express.js and TypeScript. Authentication is handled by Passpor
 
 #### Contract Management
 Provides full contract lifecycle management, including stateful editing, validation, permission-based access, and support for ending/deleting contracts. It enforces unique contract types per customer and includes a coverage indicator. Contract services store configurations for 8 pre-defined service types with monthly distribution arrays and auto-calculated annual counts.
+- Contract editing: Edit button on each contract card opens a dialog to update service type, billing pattern, dates, PO, notes, and mobilization fee settings
+- Mobilization fee tracking: Maintenance contracts can include a one-time mobilization fee (hasMobilizationFee boolean, mobilizationFeeAmount in cents) displayed in Monthly Billing Summary
 
 #### Contract Builder
 A document generation tool for landscape maintenance contracts using templates and variable substitution. It supports customer selection, section inclusion/exclusion, variable filling (with auto-population), preview, auto-save, publish, and PDF export. It integrates with CRM contract management by publishing documents and creating contract records, inferring service types and billing patterns.
@@ -67,6 +69,13 @@ Tracks contracted revenue with breakdowns by service type (Maintenance vs Chemic
 - Uses dropdown month/year selectors for easy navigation
 
 Tables: `contracts`, `contract_monthly_amounts` - linked by contractId, with serviceType on contracts determining revenue category
+
+#### Customer Billing Tab
+The customer detail page consolidates all billing-related information under a single "Billing" parent tab with sub-navigation:
+- **Contracts sub-tab**: Lists all customer contracts with full management (add, edit, end, delete), document uploads, monthly billing amounts, and mobilization fee settings
+- **Rate Sheet sub-tab**: Customer-specific hourly rates for labor and equipment
+- **Revenue sub-tab**: Annual revenue projection with monthly breakdown by service type
+- **Monthly Summary sub-tab**: Consolidated view of monthly billing across all active contracts, broken down by Maintenance/Chemical/Other service types with totals and any mobilization fees
 
 #### First-Time Setup Flow
 When deployed to production with an empty database (no users), the app automatically shows a setup page instead of login. This allows the first admin to create their company and account. The setup page creates the company, admin user, company membership, and default settings, then auto-logs in. Once any user exists, the setup page becomes inaccessible for security.
