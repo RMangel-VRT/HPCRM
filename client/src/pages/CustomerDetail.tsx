@@ -283,7 +283,7 @@ function ContractCard({ contract, customerId, canUploadDocuments, onUploadClick,
         ? Math.round(parseFloat(editContractData.mobilizationFeeAmount || "0") * 100)
         : 0;
       
-      return await apiRequest("PATCH", `/api/contracts/${contract.id}`, {
+      const payload = {
         serviceType: editContractData.serviceType,
         billingPattern: editContractData.billingPattern,
         startDate: new Date(editContractData.startDate).toISOString(),
@@ -292,7 +292,11 @@ function ContractCard({ contract, customerId, canUploadDocuments, onUploadClick,
         notes: editContractData.notes || null,
         hasMobilizationFee: editContractData.hasMobilizationFee,
         mobilizationFeeAmount: mobilizationCents,
-      });
+      };
+      
+      console.log("Saving contract with payload:", payload);
+      
+      return await apiRequest("PATCH", `/api/contracts/${contract.id}`, payload);
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/customers", customerId, "contracts"] });

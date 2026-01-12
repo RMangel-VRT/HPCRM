@@ -1188,7 +1188,18 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
     }
 
-    const contract = await storage.updateContract(req.params.id, user.activeCompanyId, req.body);
+    // Convert date strings to Date objects for Drizzle
+    const updates = { ...req.body };
+    if (updates.startDate && typeof updates.startDate === 'string') {
+      updates.startDate = new Date(updates.startDate);
+    }
+    if (updates.endDate && typeof updates.endDate === 'string') {
+      updates.endDate = new Date(updates.endDate);
+    }
+    
+    console.log("Updating contract with body:", JSON.stringify(updates, null, 2));
+    const contract = await storage.updateContract(req.params.id, user.activeCompanyId, updates);
+    console.log("Updated contract result:", JSON.stringify(contract, null, 2));
     if (!contract) {
       return res.status(404).send("Contract not found");
     }
