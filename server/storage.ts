@@ -291,6 +291,7 @@ export interface CustomerRevenueData {
 export interface RevenueOverviewData {
   selectedMonthTotal: number;
   yearToDateTotal: number;
+  fullYearTotal: number;
   customers: { customerId: string; customerName: string; monthlyRevenue: number; annualProjection: number }[];
 }
 
@@ -771,6 +772,7 @@ export class PgStorage implements IStorage {
     
     let selectedMonthTotal = 0;
     let yearToDateTotal = 0;
+    let fullYearTotal = 0;
     const customers: { customerId: string; customerName: string; monthlyRevenue: number; annualProjection: number }[] = [];
     
     for (const customer of allCustomers) {
@@ -779,9 +781,16 @@ export class PgStorage implements IStorage {
       const monthlyRevenue = revenueData.monthlyBreakdown.find(m => m.month === month)?.total || 0;
       selectedMonthTotal += monthlyRevenue;
       
+      // Calculate YTD (months 1 through selected month)
       for (let m = 1; m <= month; m++) {
         const monthRevenue = revenueData.monthlyBreakdown.find(mb => mb.month === m)?.total || 0;
         yearToDateTotal += monthRevenue;
+      }
+      
+      // Calculate full year total (all 12 months)
+      for (let m = 1; m <= 12; m++) {
+        const monthRevenue = revenueData.monthlyBreakdown.find(mb => mb.month === m)?.total || 0;
+        fullYearTotal += monthRevenue;
       }
       
       customers.push({
@@ -795,6 +804,7 @@ export class PgStorage implements IStorage {
     return {
       selectedMonthTotal,
       yearToDateTotal,
+      fullYearTotal,
       customers,
     };
   }
@@ -859,6 +869,9 @@ export class PgStorage implements IStorage {
     
     const activeContracts = allContracts.filter(c => c.status === "active");
     
+    // Calculate current month revenue respecting contract start/end dates
+    // A month is valid if: contract started on or before the 1st of that month
+    // AND contract has no end date OR end date is on or after the 1st of that month
     const currentMonthRevenue = await db
       .select({
         total: sql<number>`COALESCE(SUM(${contractMonthlyAmounts.amount}), 0)::numeric`,
@@ -869,10 +882,15 @@ export class PgStorage implements IStorage {
         and(
           eq(contracts.companyId, companyId),
           eq(contracts.status, "active"),
-          eq(contractMonthlyAmounts.month, month)
+          eq(contractMonthlyAmounts.month, month),
+          // Contract must have started on or before the 1st of this month
+          sql`${contracts.startDate} <= make_date(${year}, ${month}, 1)`,
+          // Contract must have no end date OR end date is on or after the 1st of this month
+          sql`(${contracts.endDate} IS NULL OR ${contracts.endDate} >= make_date(${year}, ${month}, 1))`
         )
       );
     
+    // Calculate YTD revenue respecting contract start/end dates for each month
     const ytdRevenue = await db
       .select({
         total: sql<number>`COALESCE(SUM(${contractMonthlyAmounts.amount}), 0)::numeric`,
@@ -883,7 +901,11 @@ export class PgStorage implements IStorage {
         and(
           eq(contracts.companyId, companyId),
           eq(contracts.status, "active"),
-          sql`${contractMonthlyAmounts.month} <= ${month}`
+          sql`${contractMonthlyAmounts.month} <= ${month}`,
+          // Contract must have started on or before the 1st of the amount's month
+          sql`${contracts.startDate} <= make_date(${year}, ${contractMonthlyAmounts.month}, 1)`,
+          // Contract must have no end date OR end date is on or after the 1st of the amount's month
+          sql`(${contracts.endDate} IS NULL OR ${contracts.endDate} >= make_date(${year}, ${contractMonthlyAmounts.month}, 1))`
         )
       );
     
@@ -918,6 +940,7 @@ export class PgStorage implements IStorage {
   }
 
   async getMonthlyRevenueData(companyId: string, year: number): Promise<MonthlyRevenueData[]> {
+    // Calculate revenue for each month respecting contract start/end dates
     const result = await db
       .select({
         month: contractMonthlyAmounts.month,
@@ -928,7 +951,11 @@ export class PgStorage implements IStorage {
       .where(
         and(
           eq(contracts.companyId, companyId),
-          eq(contracts.status, "active")
+          eq(contracts.status, "active"),
+          // Contract must have started on or before the 1st of the amount's month
+          sql`${contracts.startDate} <= make_date(${year}, ${contractMonthlyAmounts.month}, 1)`,
+          // Contract must have no end date OR end date is on or after the 1st of the amount's month
+          sql`(${contracts.endDate} IS NULL OR ${contracts.endDate} >= make_date(${year}, ${contractMonthlyAmounts.month}, 1))`
         )
       )
       .groupBy(contractMonthlyAmounts.month)
