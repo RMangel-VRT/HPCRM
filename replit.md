@@ -61,6 +61,7 @@ Tables: `equipment`, `equipment_tickets`, `equipment_files`
 #### Revenue Tracking System
 Tracks contracted revenue with breakdowns by service type (Maintenance vs Chemical) for cost/income analysis. Features:
 - Revenue Overview page (/dashboard/revenue): Shows selected month total, YTD total, and full year projection with separate Maintenance and Chemical revenue cards showing month/YTD/annual for each type
+- Drill-down capability: Click any Maintenance or Chemical revenue value to see a customer breakdown dialog showing which customers contribute to that total, sorted by contribution amount with links to customer detail pages
 - Customer revenue section: Shows annual projection, Maintenance vs Chemical summary cards, monthly breakdown with service type details, and contract breakdown table
 - Revenue calculations respect contract start/end dates - only counts revenue for months where the contract was active
 - Uses dropdown month/year selectors for easy navigation
