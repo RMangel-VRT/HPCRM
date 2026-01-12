@@ -288,10 +288,18 @@ export interface CustomerRevenueData {
   contractBreakdown: { contractId: string; serviceType: string; status: string; startDate: Date; endDate: Date | null; annualTotal: number }[];
 }
 
+export interface ServiceTypeRevenue {
+  month: number;
+  ytd: number;
+  annual: number;
+}
+
 export interface RevenueOverviewData {
   selectedMonthTotal: number;
   yearToDateTotal: number;
   fullYearTotal: number;
+  maintenanceRevenue: ServiceTypeRevenue;
+  chemicalRevenue: ServiceTypeRevenue;
   customers: { customerId: string; customerName: string; monthlyRevenue: number; annualProjection: number }[];
 }
 
@@ -773,24 +781,63 @@ export class PgStorage implements IStorage {
     let selectedMonthTotal = 0;
     let yearToDateTotal = 0;
     let fullYearTotal = 0;
+    
+    // Track maintenance and chemical revenue separately
+    const maintenanceRevenue = { month: 0, ytd: 0, annual: 0 };
+    const chemicalRevenue = { month: 0, ytd: 0, annual: 0 };
+    
     const customers: { customerId: string; customerName: string; monthlyRevenue: number; annualProjection: number }[] = [];
     
     for (const customer of allCustomers) {
       const revenueData = await this.getCustomerRevenue(customer.id, companyId, year);
       
-      const monthlyRevenue = revenueData.monthlyBreakdown.find(m => m.month === month)?.total || 0;
+      const monthData = revenueData.monthlyBreakdown.find(m => m.month === month);
+      const monthlyRevenue = monthData?.total || 0;
       selectedMonthTotal += monthlyRevenue;
+      
+      // Extract maintenance and chemical for selected month
+      if (monthData) {
+        for (const st of monthData.byServiceType) {
+          if (st.serviceType === 'Maintenance') {
+            maintenanceRevenue.month += st.amount;
+          } else if (st.serviceType === 'Chemical') {
+            chemicalRevenue.month += st.amount;
+          }
+        }
+      }
       
       // Calculate YTD (months 1 through selected month)
       for (let m = 1; m <= month; m++) {
-        const monthRevenue = revenueData.monthlyBreakdown.find(mb => mb.month === m)?.total || 0;
+        const mb = revenueData.monthlyBreakdown.find(mb => mb.month === m);
+        const monthRevenue = mb?.total || 0;
         yearToDateTotal += monthRevenue;
+        
+        if (mb) {
+          for (const st of mb.byServiceType) {
+            if (st.serviceType === 'Maintenance') {
+              maintenanceRevenue.ytd += st.amount;
+            } else if (st.serviceType === 'Chemical') {
+              chemicalRevenue.ytd += st.amount;
+            }
+          }
+        }
       }
       
       // Calculate full year total (all 12 months)
       for (let m = 1; m <= 12; m++) {
-        const monthRevenue = revenueData.monthlyBreakdown.find(mb => mb.month === m)?.total || 0;
+        const mb = revenueData.monthlyBreakdown.find(mb => mb.month === m);
+        const monthRevenue = mb?.total || 0;
         fullYearTotal += monthRevenue;
+        
+        if (mb) {
+          for (const st of mb.byServiceType) {
+            if (st.serviceType === 'Maintenance') {
+              maintenanceRevenue.annual += st.amount;
+            } else if (st.serviceType === 'Chemical') {
+              chemicalRevenue.annual += st.amount;
+            }
+          }
+        }
       }
       
       customers.push({
@@ -805,6 +852,8 @@ export class PgStorage implements IStorage {
       selectedMonthTotal,
       yearToDateTotal,
       fullYearTotal,
+      maintenanceRevenue,
+      chemicalRevenue,
       customers,
     };
   }

@@ -2801,6 +2801,46 @@ function RevenueSection({ customerId }: { customerId: string }) {
         </CardContent>
       </Card>
       
+      {(() => {
+        const maintenanceTotal = revenueData.monthlyBreakdown.reduce((sum, month) => {
+          const maintenance = month.byServiceType.find(s => s.serviceType === 'Maintenance');
+          return sum + (maintenance?.amount || 0);
+        }, 0);
+        const chemicalTotal = revenueData.monthlyBreakdown.reduce((sum, month) => {
+          const chemical = month.byServiceType.find(s => s.serviceType === 'Chemical');
+          return sum + (chemical?.amount || 0);
+        }, 0);
+        
+        if (maintenanceTotal === 0 && chemicalTotal === 0) return null;
+        
+        return (
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <Card>
+              <CardHeader className="pb-2">
+                <CardTitle className="text-base">Maintenance Revenue</CardTitle>
+              </CardHeader>
+              <CardContent>
+                <p className="text-2xl font-bold" data-testid="text-maintenance-total">
+                  ${maintenanceTotal.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                </p>
+                <p className="text-xs text-muted-foreground mt-1">Annual total for {selectedYear}</p>
+              </CardContent>
+            </Card>
+            <Card>
+              <CardHeader className="pb-2">
+                <CardTitle className="text-base">Chemical Revenue</CardTitle>
+              </CardHeader>
+              <CardContent>
+                <p className="text-2xl font-bold" data-testid="text-chemical-total">
+                  ${chemicalTotal.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                </p>
+                <p className="text-xs text-muted-foreground mt-1">Annual total for {selectedYear}</p>
+              </CardContent>
+            </Card>
+          </div>
+        );
+      })()}
+      
       <Card>
         <CardHeader>
           <CardTitle className="text-lg">By Month</CardTitle>

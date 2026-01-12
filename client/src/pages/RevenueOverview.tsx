@@ -7,10 +7,18 @@ import { Link } from "wouter";
 import { Button } from "@/components/ui/button";
 import { RevenueChart } from "@/components/RevenueChart";
 
+interface ServiceTypeRevenue {
+  month: number;
+  ytd: number;
+  annual: number;
+}
+
 interface RevenueOverviewData {
   selectedMonthTotal: number;
   yearToDateTotal: number;
   fullYearTotal: number;
+  maintenanceRevenue: ServiceTypeRevenue;
+  chemicalRevenue: ServiceTypeRevenue;
   customers: { customerId: string; customerName: string; monthlyRevenue: number; annualProjection: number }[];
 }
 
@@ -127,6 +135,64 @@ export default function RevenueOverview() {
             <p className="text-sm text-muted-foreground mt-1">
               January - December {selectedYear}
             </p>
+          </CardContent>
+        </Card>
+      </div>
+      
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-lg">Maintenance Revenue</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="space-y-3">
+              <div className="flex justify-between items-center">
+                <span className="text-sm text-muted-foreground">{monthNames[selectedMonth - 1]}</span>
+                <span className="font-semibold" data-testid="text-maintenance-month">
+                  ${(overviewData?.maintenanceRevenue?.month ?? 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                </span>
+              </div>
+              <div className="flex justify-between items-center">
+                <span className="text-sm text-muted-foreground">Year-to-Date</span>
+                <span className="font-semibold" data-testid="text-maintenance-ytd">
+                  ${(overviewData?.maintenanceRevenue?.ytd ?? 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                </span>
+              </div>
+              <div className="flex justify-between items-center border-t pt-2">
+                <span className="text-sm text-muted-foreground">Full Year</span>
+                <span className="font-bold text-lg" data-testid="text-maintenance-annual">
+                  ${(overviewData?.maintenanceRevenue?.annual ?? 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                </span>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+        
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-lg">Chemical Revenue</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="space-y-3">
+              <div className="flex justify-between items-center">
+                <span className="text-sm text-muted-foreground">{monthNames[selectedMonth - 1]}</span>
+                <span className="font-semibold" data-testid="text-chemical-month">
+                  ${(overviewData?.chemicalRevenue?.month ?? 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                </span>
+              </div>
+              <div className="flex justify-between items-center">
+                <span className="text-sm text-muted-foreground">Year-to-Date</span>
+                <span className="font-semibold" data-testid="text-chemical-ytd">
+                  ${(overviewData?.chemicalRevenue?.ytd ?? 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                </span>
+              </div>
+              <div className="flex justify-between items-center border-t pt-2">
+                <span className="text-sm text-muted-foreground">Full Year</span>
+                <span className="font-bold text-lg" data-testid="text-chemical-annual">
+                  ${(overviewData?.chemicalRevenue?.annual ?? 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                </span>
+              </div>
+            </div>
           </CardContent>
         </Card>
       </div>
