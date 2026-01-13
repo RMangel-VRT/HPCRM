@@ -3736,6 +3736,21 @@ function CustomerMapsSection({ customerId }: { customerId: string }) {
     },
   });
 
+  const updateLayerMutation = useMutation({
+    mutationFn: async ({ layerId, data }: { layerId: string; data: { kmlPath: string } }) => {
+      return apiRequest("PATCH", `/api/customers/${customerId}/map-layers/${layerId}`, data);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/customers", customerId, "map-layers"] });
+      toast({ title: "Layer updated successfully" });
+      setShowUploadDialog(false);
+      resetForm();
+    },
+    onError: () => {
+      toast({ title: "Failed to update layer", variant: "destructive" });
+    },
+  });
+
   const deleteLayerMutation = useMutation({
     mutationFn: async (layerId: string) => {
       return apiRequest("DELETE", `/api/customers/${customerId}/map-layers/${layerId}`);
@@ -3796,28 +3811,54 @@ function CustomerMapsSection({ customerId }: { customerId: string }) {
       });
 
       if (selectedCategory === "custom") {
-        // Create custom layer record
-        await createLayerMutation.mutateAsync({
-          name: customName.trim(),
-          layerType: "custom",
-          category: "custom",
-          kmlPath: objectPath,
-          color: selectedColor,
-        });
+        // For custom layers, check if one with the same name exists
+        const existingCustomLayer = mapLayers.find(
+          (l) => l.category === "custom" && l.name.toLowerCase() === customName.trim().toLowerCase()
+        );
+        
+        if (existingCustomLayer) {
+          // Update existing custom layer
+          await updateLayerMutation.mutateAsync({
+            layerId: existingCustomLayer.id,
+            data: { kmlPath: objectPath },
+          });
+        } else {
+          // Create new custom layer record
+          await createLayerMutation.mutateAsync({
+            name: customName.trim(),
+            layerType: "custom",
+            category: "custom",
+            kmlPath: objectPath,
+            color: selectedColor,
+          });
+        }
       } else {
         // Find the layer config for preset types
         const layerConfig = [...LAYER_TYPES.base, ...LAYER_TYPES.community, ...LAYER_TYPES.snow].find(
           (l) => l.value === selectedLayerType
         );
 
-        // Create the layer record
-        await createLayerMutation.mutateAsync({
-          name: customName || layerConfig?.label || selectedLayerType,
-          layerType: selectedLayerType,
-          category: selectedCategory,
-          kmlPath: objectPath,
-          color: selectedColor || layerConfig?.color || "#6b7280",
-        });
+        // Check if a layer of this type already exists for this customer
+        const existingLayer = mapLayers.find(
+          (l) => l.layerType === selectedLayerType && l.category === selectedCategory
+        );
+
+        if (existingLayer) {
+          // Update existing layer with new file
+          await updateLayerMutation.mutateAsync({
+            layerId: existingLayer.id,
+            data: { kmlPath: objectPath },
+          });
+        } else {
+          // Create new layer record
+          await createLayerMutation.mutateAsync({
+            name: customName || layerConfig?.label || selectedLayerType,
+            layerType: selectedLayerType,
+            category: selectedCategory,
+            kmlPath: objectPath,
+            color: selectedColor || layerConfig?.color || "#6b7280",
+          });
+        }
       }
     } catch (error) {
       console.error("Upload error:", error);
@@ -3827,6 +3868,7 @@ function CustomerMapsSection({ customerId }: { customerId: string }) {
     }
   };
 
+  const baseLayers = mapLayers.filter((l) => l.category === "base");
   const communityLayers = mapLayers.filter((l) => l.category === "community");
   const snowLayers = mapLayers.filter((l) => l.category === "snow");
   const customLayers = mapLayers.filter((l) => l.category === "custom");
@@ -3879,6 +3921,57 @@ function CustomerMapsSection({ customerId }: { customerId: string }) {
           onClose={() => setShowMapViewer(false)}
         />
       )}
+
+      {/* Base Layers */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-base flex items-center gap-2">
+            <Layers className="w-4 h-4" />
+            Base Layers
+          </CardTitle>
+        </CardHeader>
+        <CardContent>
+          {baseLayers.length === 0 ? (
+            <p className="text-sm text-muted-foreground text-center py-4">
+              No base layers uploaded
+            </p>
+          ) : (
+            <div className="space-y-2">
+              {baseLayers.map((layer) => (
+                <div
+                  key={layer.id}
+                  className="flex items-center justify-between p-3 border rounded-md"
+                  data-testid={`layer-item-${layer.id}`}
+                >
+                  <div className="flex items-center gap-3">
+                    <div
+                      className="w-4 h-4 rounded"
+                      style={{ backgroundColor: layer.color || "#00FFFF" }}
+                    />
+                    <div>
+                      <p className="font-medium text-sm">{layer.name}</p>
+                      <p className="text-xs text-muted-foreground">
+                        {LAYER_TYPES.base.find((t) => t.value === layer.layerType)?.label || layer.layerType}
+                      </p>
+                    </div>
+                  </div>
+                  {canEdit && (
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      data-testid={`button-delete-layer-${layer.id}`}
+                      onClick={() => deleteLayerMutation.mutate(layer.id)}
+                      disabled={deleteLayerMutation.isPending}
+                    >
+                      <Trash2 className="w-4 h-4 text-muted-foreground" />
+                    </Button>
+                  )}
+                </div>
+              ))}
+            </div>
+          )}
+        </CardContent>
+      </Card>
 
       {/* Community Season Layers */}
       <Card>
