@@ -671,6 +671,19 @@ function TicketCard({ ticket, formatDueDate, usersMap, selectionMode, isSelected
                       {WORK_TYPE_CATALOG[ticket.workType as WorkType].billingLabel}
                     </Badge>
                   )}
+                  {ticket.ticketType?.name === "Invoice" && ticket.invoiceCategory && (
+                    <Badge 
+                      variant="outline"
+                      className={`text-xs font-normal ${
+                        ticket.invoiceCategory === "snow" 
+                          ? "bg-blue-50 border-blue-300 text-blue-700 dark:bg-blue-950 dark:border-blue-700 dark:text-blue-300" 
+                          : "bg-green-50 border-green-300 text-green-700 dark:bg-green-950 dark:border-green-700 dark:text-green-300"
+                      }`}
+                      data-testid={`badge-invoice-category-${ticket.id}`}
+                    >
+                      {ticket.invoiceCategory === "snow" ? "Snow" : "Maintenance"}
+                    </Badge>
+                  )}
                 </div>
               </div>
               
