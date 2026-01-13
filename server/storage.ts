@@ -967,51 +967,15 @@ export class PgStorage implements IStorage {
     
     const activeContracts = allContracts.filter(c => c.status === "active");
     
-    // Calculate current month revenue respecting contract start/end dates
-    // A month is valid if: contract started on or before the 1st of that month
-    // AND contract has no end date OR end date is on or after the 1st of that month
-    const currentMonthRevenue = await db
-      .select({
-        total: sql<number>`COALESCE(SUM(${contractMonthlyAmounts.amount}), 0)::numeric`,
-      })
-      .from(contractMonthlyAmounts)
-      .innerJoin(contracts, eq(contractMonthlyAmounts.contractId, contracts.id))
-      .where(
-        and(
-          eq(contracts.companyId, companyId),
-          eq(contracts.status, "active"),
-          eq(contractMonthlyAmounts.month, month),
-          // Contract must have started on or before the 1st of this month
-          sql`${contracts.startDate} <= make_date(${year}, ${month}, 1)`,
-          // Contract must have no end date OR end date is on or after the 1st of this month
-          sql`(${contracts.endDate} IS NULL OR ${contracts.endDate} >= make_date(${year}, ${month}, 1))`
-        )
-      );
-    
-    // Calculate YTD revenue respecting contract start/end dates for each month
-    const ytdRevenue = await db
-      .select({
-        total: sql<number>`COALESCE(SUM(${contractMonthlyAmounts.amount}), 0)::numeric`,
-      })
-      .from(contractMonthlyAmounts)
-      .innerJoin(contracts, eq(contractMonthlyAmounts.contractId, contracts.id))
-      .where(
-        and(
-          eq(contracts.companyId, companyId),
-          eq(contracts.status, "active"),
-          sql`${contractMonthlyAmounts.month} <= ${month}`,
-          // Contract must have started on or before the 1st of the amount's month
-          sql`${contracts.startDate} <= make_date(${year}, ${contractMonthlyAmounts.month}, 1)`,
-          // Contract must have no end date OR end date is on or after the 1st of the amount's month
-          sql`(${contracts.endDate} IS NULL OR ${contracts.endDate} >= make_date(${year}, ${contractMonthlyAmounts.month}, 1))`
-        )
-      );
+    // Use getRevenueOverview as the single source of truth for revenue calculations
+    // This ensures consistency with mobilization fees, proper date filtering, and status handling
+    const revenueData = await this.getRevenueOverview(companyId, month, year);
     
     return {
       customersCount: allCustomers.length,
       activeContractsCount: activeContracts.length,
-      monthlyRevenue: Number(currentMonthRevenue[0]?.total || 0) / 100, // Convert cents to dollars
-      ytdRevenue: Number(ytdRevenue[0]?.total || 0) / 100, // Convert cents to dollars
+      monthlyRevenue: revenueData.selectedMonthTotal,
+      ytdRevenue: revenueData.yearToDateTotal,
     };
   }
 
@@ -1038,33 +1002,29 @@ export class PgStorage implements IStorage {
   }
 
   async getMonthlyRevenueData(companyId: string, year: number): Promise<MonthlyRevenueData[]> {
-    // Calculate revenue for each month respecting contract start/end dates
-    const result = await db
-      .select({
-        month: contractMonthlyAmounts.month,
-        revenue: sql<number>`COALESCE(SUM(${contractMonthlyAmounts.amount}), 0)::numeric`,
-      })
-      .from(contractMonthlyAmounts)
-      .innerJoin(contracts, eq(contractMonthlyAmounts.contractId, contracts.id))
-      .where(
-        and(
-          eq(contracts.companyId, companyId),
-          eq(contracts.status, "active"),
-          // Contract must have started on or before the 1st of the amount's month
-          sql`${contracts.startDate} <= make_date(${year}, ${contractMonthlyAmounts.month}, 1)`,
-          // Contract must have no end date OR end date is on or after the 1st of the amount's month
-          sql`(${contracts.endDate} IS NULL OR ${contracts.endDate} >= make_date(${year}, ${contractMonthlyAmounts.month}, 1))`
-        )
-      )
-      .groupBy(contractMonthlyAmounts.month)
-      .orderBy(contractMonthlyAmounts.month);
+    // Use the same calculation logic as getCustomerRevenue to ensure consistency
+    // This includes mobilization fees, proper date filtering, and status handling
+    const allCustomers = await this.getCustomers(companyId);
+    
+    // Initialize monthly totals (month 1-12)
+    const monthlyTotals: Record<number, number> = {};
+    for (let m = 1; m <= 12; m++) {
+      monthlyTotals[m] = 0;
+    }
+    
+    // Aggregate monthly revenue from all customers using the single source of truth
+    for (const customer of allCustomers) {
+      const revenueData = await this.getCustomerRevenue(customer.id, companyId, year);
+      for (const monthData of revenueData.monthlyBreakdown) {
+        monthlyTotals[monthData.month] += monthData.total;
+      }
+    }
     
     const monthNames = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
-    const revenueByMonth = new Map(result.map(r => [r.month, Number(r.revenue) / 100])); // Convert cents to dollars
     
     return monthNames.map((name, index) => ({
       month: name,
-      revenue: revenueByMonth.get(index + 1) || 0,
+      revenue: monthlyTotals[index + 1] || 0,
     }));
   }
 
