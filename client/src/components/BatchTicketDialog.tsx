@@ -83,6 +83,7 @@ export default function BatchTicketDialog({
   const [assignedToId, setAssignedToId] = useState<string | null>(null);
   const [dueDate, setDueDate] = useState<Date | undefined>(undefined);
   const [dueDateOpen, setDueDateOpen] = useState(false);
+  const [invoiceCategory, setInvoiceCategory] = useState<"general_maintenance" | "snow" | null>(null);
   
   // Customer selection state
   const [selectedCustomerIds, setSelectedCustomerIds] = useState<Set<string>>(new Set());
@@ -199,6 +200,7 @@ export default function BatchTicketDialog({
     setDescription("");
     setAssignedToId(null);
     setDueDate(undefined);
+    setInvoiceCategory(null);
     setSelectedCustomerIds(new Set());
     setCustomerSearch("");
     onOpenChange(false);
@@ -228,6 +230,10 @@ export default function BatchTicketDialog({
       }
       if (!assignedToId) {
         toast({ title: "Please select an assignee", variant: "destructive" });
+        return;
+      }
+      if (ticketTypeName === "Invoice" && !invoiceCategory) {
+        toast({ title: "Please select an invoice category", variant: "destructive" });
         return;
       }
       setStep("customers");
@@ -263,6 +269,7 @@ export default function BatchTicketDialog({
       dueDate: dueDate ? format(dueDate, "yyyy-MM-dd") : null,
       priority: "normal",
       workType: "admin",
+      invoiceCategory: ticketTypeName === "Invoice" ? invoiceCategory : null,
     });
   };
 
@@ -332,6 +339,27 @@ export default function BatchTicketDialog({
                 data-testid="input-batch-description"
               />
             </div>
+
+            {ticketTypeName === "Invoice" && (
+              <div className="space-y-2">
+                <Label>Invoice Category</Label>
+                <Select 
+                  value={invoiceCategory || ""} 
+                  onValueChange={(v) => setInvoiceCategory(v as "general_maintenance" | "snow")}
+                >
+                  <SelectTrigger data-testid="select-invoice-category">
+                    <SelectValue placeholder="Select category" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="general_maintenance">General Maintenance</SelectItem>
+                    <SelectItem value="snow">Snow</SelectItem>
+                  </SelectContent>
+                </Select>
+                <p className="text-xs text-muted-foreground">
+                  Determines which rates from the customer rate sheet will be displayed
+                </p>
+              </div>
+            )}
 
             <div className="grid grid-cols-2 gap-4">
               <div className="space-y-2">

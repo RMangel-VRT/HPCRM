@@ -588,6 +588,7 @@ export const tickets = pgTable("tickets", {
   invoiceNumber: text("invoice_number"), // QuickBooks invoice number
   estimateNumber: text("estimate_number"), // QuickBooks estimate number
   workCompletedDate: timestamp("work_completed_date"), // Date work was completed (for billing reference)
+  invoiceCategory: text("invoice_category").$type<"general_maintenance" | "snow">(), // Category for invoice tickets to determine which rates to display
   createdById: varchar("created_by_id").notNull().references(() => users.id, { onDelete: "cascade" }),
   createdAt: timestamp("created_at").notNull().defaultNow(),
   updatedAt: timestamp("updated_at").notNull().defaultNow(),
@@ -614,6 +615,7 @@ export const insertTicketSchema = createInsertSchema(tickets).omit({
   invoiceNumber: z.string().nullable().optional(), // QuickBooks invoice number
   estimateNumber: z.string().nullable().optional(), // QuickBooks estimate number
   workCompletedDate: z.coerce.date().nullable().optional(), // Date work was completed (for billing reference)
+  invoiceCategory: z.enum(["general_maintenance", "snow"]).nullable().optional(), // Category for invoice tickets
 });
 
 export type InsertTicket = z.infer<typeof insertTicketSchema>;

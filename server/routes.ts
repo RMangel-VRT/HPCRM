@@ -3345,7 +3345,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       return res.status(403).send("Insufficient permissions - admin, office, or irrigation_manager role required");
     }
 
-    const { customerIds, title, description, ticketTypeId, assignedToId, dueDate, priority, workType, skipDuplicates = true } = req.body;
+    const { customerIds, title, description, ticketTypeId, assignedToId, dueDate, priority, workType, skipDuplicates = true, invoiceCategory } = req.body;
 
     // Validate required fields
     if (!customerIds || !Array.isArray(customerIds) || customerIds.length === 0) {
@@ -3437,6 +3437,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
           assignedToId,
           dueDate: dueDate ? new Date(dueDate) : null,
           createdById: user.id,
+          invoiceCategory: invoiceCategory || null,
         });
 
         // Create status history
