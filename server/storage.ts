@@ -711,7 +711,8 @@ export class PgStorage implements IStorage {
     }
     
     for (const contract of customerContracts) {
-      if (contract.status === 'paused') {
+      // Skip paused and ended contracts - they don't contribute to revenue
+      if (contract.status === 'paused' || contract.status === 'ended') {
         contractBreakdown.push({
           contractId: contract.id,
           serviceType: contract.serviceType,
@@ -731,17 +732,19 @@ export class PgStorage implements IStorage {
         ? contract.mobilizationFeeAmount / 100 
         : 0;
       
+      // Extract contract date boundaries once (outside the loop for efficiency)
+      // Use UTC methods since dates are stored in UTC
+      const contractStartYear = contract.startDate.getUTCFullYear();
+      const contractStartMonth = contract.startDate.getUTCMonth() + 1; // 1-indexed
+      const contractEndYear = contract.endDate ? contract.endDate.getUTCFullYear() : null;
+      const contractEndMonth = contract.endDate ? contract.endDate.getUTCMonth() + 1 : null;
+      
+      const startMonthYear = contractStartYear * 100 + contractStartMonth;
+      const endMonthYear = contractEndYear && contractEndMonth ? contractEndYear * 100 + contractEndMonth : null;
+      
       for (const amountRecord of amounts) {
-        // Compare by year/month only to avoid timezone issues with time components
-        const contractStartYear = contract.startDate.getFullYear();
-        const contractStartMonth = contract.startDate.getMonth() + 1; // 1-indexed
-        const contractEndYear = contract.endDate ? contract.endDate.getFullYear() : null;
-        const contractEndMonth = contract.endDate ? contract.endDate.getMonth() + 1 : null;
-        
         // Check if the month/year falls within contract period
         const monthYear = year * 100 + amountRecord.month; // e.g., 202601 for Jan 2026
-        const startMonthYear = contractStartYear * 100 + contractStartMonth;
-        const endMonthYear = contractEndYear && contractEndMonth ? contractEndYear * 100 + contractEndMonth : null;
         
         const isInRange = monthYear >= startMonthYear && 
                          (!endMonthYear || monthYear <= endMonthYear);
