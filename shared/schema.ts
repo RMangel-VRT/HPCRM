@@ -789,7 +789,7 @@ export const insertCustomerMapLayerSchema = createInsertSchema(customerMapLayers
   updatedAt: true,
 }).extend({
   category: z.enum(["base", "community", "snow", "custom"]),
-  layerType: z.enum(["community_outline", "mowing", "native_grass", "landscape_beds", "pet_stations", "atv_route", "truck_plow", "hand_shovel", "ice_melt", "custom"]),
+  layerType: z.enum(["community_outline", "mowing", "native_grass", "landscape_beds", "pet_stations", "atv_route", "truck_plow", "hand_shovel", "ice_melt", "ice_melt_buckets", "custom"]),
   color: z.string().regex(/^#[0-9A-Fa-f]{6}$/).default("#3B82F6"),
   isActive: z.enum(["true", "false"]).default("true"),
   displayOrder: z.number().int().default(0),
