@@ -632,66 +632,67 @@ function TicketCard({ ticket, formatDueDate, usersMap, selectionMode, isSelected
           />
           
           <div className="flex-1 min-w-0">
-            <div className="flex items-start justify-between gap-2">
-              <div className="min-w-0 flex-1">
-                <h3 className="font-medium text-base leading-tight line-clamp-2" data-testid={`text-ticket-title-${ticket.id}`}>
-                  {ticket.title}
-                </h3>
-                
-                <div className="flex items-center gap-3 mt-2 text-sm text-muted-foreground flex-wrap">
-                  <span className="font-mono text-xs" data-testid={`text-ticket-id-${ticket.id}`}>
-                    #{ticket.id.slice(0, 8)}
-                  </span>
-                  {ticket.customer && (
-                    <span className="flex items-center gap-1">
-                      <MapPin className="w-3.5 h-3.5" />
-                      <span className="truncate max-w-[120px]">{ticket.customer.name}</span>
-                    </span>
-                  )}
-                  {ticket.ticketType && (
-                    <Badge 
-                      variant="outline"
-                      className="text-xs font-normal"
-                      style={{ 
-                        backgroundColor: ticket.ticketType.color ? `${ticket.ticketType.color}15` : undefined,
-                        borderColor: ticket.ticketType.color || undefined,
-                        color: ticket.ticketType.color || undefined,
-                      }}
-                      data-testid={`badge-tickettype-${ticket.id}`}
-                    >
-                      {ticket.ticketType.name}
-                    </Badge>
-                  )}
-                  {ticket.workType && WORK_TYPE_CATALOG[ticket.workType as WorkType] && (
-                    <Badge 
-                      variant={WORK_TYPE_CATALOG[ticket.workType as WorkType].badgeVariant}
-                      className="text-xs font-normal"
-                      data-testid={`badge-worktype-${ticket.id}`}
-                    >
-                      {WORK_TYPE_CATALOG[ticket.workType as WorkType].billingLabel}
-                    </Badge>
-                  )}
-                  {ticket.ticketType?.name === "Invoice" && ticket.invoiceCategory && (
-                    <Badge 
-                      variant="outline"
-                      className={`text-xs font-normal ${
-                        ticket.invoiceCategory === "snow" 
-                          ? "bg-blue-50 border-blue-300 text-blue-700 dark:bg-blue-950 dark:border-blue-700 dark:text-blue-300" 
-                          : "bg-green-50 border-green-300 text-green-700 dark:bg-green-950 dark:border-green-700 dark:text-green-300"
-                      }`}
-                      data-testid={`badge-invoice-category-${ticket.id}`}
-                    >
-                      {ticket.invoiceCategory === "snow" ? "Snow" : "Maintenance"}
-                    </Badge>
-                  )}
-                </div>
-              </div>
-              
+            {/* Row 1: Ticket type (colored text) + work type badges */}
+            <div className="flex items-center gap-2 flex-wrap">
+              {ticket.ticketType && (
+                <span 
+                  className="text-sm font-semibold"
+                  style={{ color: barColor }}
+                  data-testid={`text-tickettype-${ticket.id}`}
+                >
+                  {ticket.ticketType.name}
+                </span>
+              )}
+              {ticket.workType && WORK_TYPE_CATALOG[ticket.workType as WorkType] && (
+                <Badge 
+                  variant={WORK_TYPE_CATALOG[ticket.workType as WorkType].badgeVariant}
+                  className="text-xs font-normal"
+                  data-testid={`badge-worktype-${ticket.id}`}
+                >
+                  {WORK_TYPE_CATALOG[ticket.workType as WorkType].billingLabel}
+                </Badge>
+              )}
               {!selectionMode && (
-                <ChevronRight className="w-5 h-5 text-muted-foreground shrink-0 mt-0.5" />
+                <ChevronRight className="w-5 h-5 text-muted-foreground shrink-0 ml-auto" />
               )}
             </div>
 
+            {/* Row 2: Title + ticket ID */}
+            <div className="flex items-start justify-between gap-2 mt-1">
+              <h3 className="font-medium text-base leading-tight line-clamp-2 flex-1" data-testid={`text-ticket-title-${ticket.id}`}>
+                {ticket.title}
+              </h3>
+              <span className="font-mono text-xs text-muted-foreground shrink-0" data-testid={`text-ticket-id-${ticket.id}`}>
+                #{ticket.id.slice(0, 8)}
+              </span>
+            </div>
+
+            {/* Row 3: Invoice category badge (only for Invoice tickets) */}
+            {ticket.ticketType?.name === "Invoice" && ticket.invoiceCategory && (
+              <div className="mt-1.5">
+                <Badge 
+                  variant="outline"
+                  className={`text-xs font-normal ${
+                    ticket.invoiceCategory === "snow" 
+                      ? "bg-blue-50 border-blue-300 text-blue-700 dark:bg-blue-950 dark:border-blue-700 dark:text-blue-300" 
+                      : "bg-green-50 border-green-300 text-green-700 dark:bg-green-950 dark:border-green-700 dark:text-green-300"
+                  }`}
+                  data-testid={`badge-invoice-category-${ticket.id}`}
+                >
+                  {ticket.invoiceCategory === "snow" ? "Snow" : "Maintenance"}
+                </Badge>
+              </div>
+            )}
+
+            {/* Row 4: Customer */}
+            {ticket.customer && (
+              <div className="flex items-center gap-1 mt-1.5 text-sm text-muted-foreground">
+                <MapPin className="w-3.5 h-3.5" />
+                <span className="truncate">{ticket.customer.name}</span>
+              </div>
+            )}
+
+            {/* Divider + Status row */}
             <div className="flex items-center justify-between mt-3 pt-3 border-t">
               <div className="flex items-center gap-3">
                 {ticket.currentStatus && (
