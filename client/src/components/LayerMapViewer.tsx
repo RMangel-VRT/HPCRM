@@ -34,6 +34,7 @@ const LAYER_TYPES = {
     { value: "truck_plow", label: "Truck Plow", color: "#FFFF00" },    // Yellow
     { value: "hand_shovel", label: "Hand Shovel", color: "#FF69B4" },  // Hot pink
     { value: "ice_melt", label: "Ice Melt", color: "#FF0000" },        // Bright red
+    { value: "ice_melt_buckets", label: "Ice Melt Buckets", color: "#00CED1" }, // Dark turquoise
   ],
   custom: [] as { value: string; label: string; color: string }[],
 };
