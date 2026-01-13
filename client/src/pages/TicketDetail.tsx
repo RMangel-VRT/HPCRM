@@ -137,6 +137,7 @@ export default function TicketDetail() {
     priority: "normal" as "low" | "normal" | "high" | "urgent",
     dueDate: "",
     workCompletedDate: "",
+    invoiceCategory: null as "general_maintenance" | "snow" | null,
   });
   
   // Navigation for redirects
@@ -232,6 +233,7 @@ export default function TicketDetail() {
       priority?: "low" | "normal" | "high" | "urgent";
       dueDate?: Date | null;
       workCompletedDate?: Date | null;
+      invoiceCategory?: "general_maintenance" | "snow" | null;
     }) => {
       return apiRequest("PATCH", `/api/tickets/${ticketId}`, updates);
     },
@@ -583,6 +585,7 @@ export default function TicketDetail() {
       priority: ticket.priority || "normal",
       dueDate: ticket.dueDate ? format(new Date(ticket.dueDate), "yyyy-MM-dd") : "",
       workCompletedDate: ticket.workCompletedDate ? format(new Date(ticket.workCompletedDate), "yyyy-MM-dd") : "",
+      invoiceCategory: ticket.invoiceCategory as "general_maintenance" | "snow" | null,
     });
     setShowEditDialog(true);
   };
@@ -595,6 +598,7 @@ export default function TicketDetail() {
       priority: editForm.priority,
       dueDate: editForm.dueDate ? new Date(editForm.dueDate) : null,
       workCompletedDate: editForm.workCompletedDate ? new Date(editForm.workCompletedDate) : null,
+      invoiceCategory: editForm.invoiceCategory,
     };
     editTicketMutation.mutate(updates);
   };
@@ -1766,6 +1770,29 @@ export default function TicketDetail() {
                 data-testid="input-edit-workCompletedDate"
               />
             </div>
+
+            {ticketType?.name === "Invoice" && (
+              <div className="space-y-2">
+                <Label htmlFor="edit-invoiceCategory">Invoice Category</Label>
+                <Select 
+                  value={editForm.invoiceCategory || ""} 
+                  onValueChange={(value: "general_maintenance" | "snow") => 
+                    setEditForm(prev => ({ ...prev, invoiceCategory: value }))
+                  }
+                >
+                  <SelectTrigger id="edit-invoiceCategory" data-testid="select-edit-invoice-category">
+                    <SelectValue placeholder="Select category..." />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="general_maintenance">General Maintenance</SelectItem>
+                    <SelectItem value="snow">Snow</SelectItem>
+                  </SelectContent>
+                </Select>
+                <p className="text-xs text-muted-foreground">
+                  Determines which rates from the customer rate sheet will be displayed
+                </p>
+              </div>
+            )}
           </div>
           
           <DialogFooter className="gap-2">

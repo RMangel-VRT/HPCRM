@@ -130,6 +130,7 @@ export default function NewTicket() {
   const [assignedToId, setAssignedToId] = useState<string | null>(null);
   const [dueDate, setDueDate] = useState("");
   const [workCompletedDate, setWorkCompletedDate] = useState("");
+  const [invoiceCategory, setInvoiceCategory] = useState<"general_maintenance" | "snow" | null>(null);
   
   const [photos, setPhotos] = useState<{ path: string; previewUrl: string }[]>([]);
   const [isUploadingPhoto, setIsUploadingPhoto] = useState(false);
@@ -324,6 +325,7 @@ export default function NewTicket() {
         photos: !isRFPRequest && photos.length > 0 ? photos.map(p => p.path) : null,
         // Invoice-specific fields
         workCompletedDate: isInvoice && workCompletedDate ? new Date(workCompletedDate) : null,
+        invoiceCategory: isInvoice ? invoiceCategory : null,
         // RFP-specific fields to be saved after ticket creation
         initialFieldValues: isRFPRequest ? {
           service_request_type: serviceRequestType,
@@ -540,6 +542,12 @@ export default function NewTicket() {
     // Invoice requires a title
     if (isInvoice && !title.trim()) {
       toast({ title: "Please enter a title or description for the invoice", variant: "destructive" });
+      return;
+    }
+    
+    // Invoice requires category selection
+    if (isInvoice && !invoiceCategory) {
+      toast({ title: "Please select an invoice category", variant: "destructive" });
       return;
     }
     
@@ -1114,6 +1122,28 @@ export default function NewTicket() {
                 />
                 <p className="text-xs text-muted-foreground">
                   Reference date for when the work was completed (for billing purposes)
+                </p>
+              </div>
+            )}
+
+            {/* Invoice Category - only for Invoice tickets */}
+            {isInvoice && (
+              <div className="space-y-2">
+                <Label htmlFor="invoiceCategory">Invoice Category <span className="text-destructive">*</span></Label>
+                <Select 
+                  value={invoiceCategory || ""} 
+                  onValueChange={(v) => setInvoiceCategory(v as "general_maintenance" | "snow")}
+                >
+                  <SelectTrigger id="invoiceCategory" data-testid="select-invoice-category">
+                    <SelectValue placeholder="Select category..." />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="general_maintenance">General Maintenance</SelectItem>
+                    <SelectItem value="snow">Snow</SelectItem>
+                  </SelectContent>
+                </Select>
+                <p className="text-xs text-muted-foreground">
+                  Determines which rates from the customer rate sheet will be displayed
                 </p>
               </div>
             )}
