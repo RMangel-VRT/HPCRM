@@ -732,10 +732,19 @@ export class PgStorage implements IStorage {
         : 0;
       
       for (const amountRecord of amounts) {
-        const monthDate = new Date(year, amountRecord.month - 1, 1);
+        // Compare by year/month only to avoid timezone issues with time components
+        const contractStartYear = contract.startDate.getFullYear();
+        const contractStartMonth = contract.startDate.getMonth() + 1; // 1-indexed
+        const contractEndYear = contract.endDate ? contract.endDate.getFullYear() : null;
+        const contractEndMonth = contract.endDate ? contract.endDate.getMonth() + 1 : null;
         
-        const isInRange = monthDate >= (contract.startDate < yearStart ? yearStart : contract.startDate) &&
-                         (!contract.endDate || monthDate <= (contract.endDate > yearEnd ? yearEnd : contract.endDate));
+        // Check if the month/year falls within contract period
+        const monthYear = year * 100 + amountRecord.month; // e.g., 202601 for Jan 2026
+        const startMonthYear = contractStartYear * 100 + contractStartMonth;
+        const endMonthYear = contractEndYear && contractEndMonth ? contractEndYear * 100 + contractEndMonth : null;
+        
+        const isInRange = monthYear >= startMonthYear && 
+                         (!endMonthYear || monthYear <= endMonthYear);
         
         if (isInRange) {
           // Include mobilization fee in monthly amount
