@@ -54,7 +54,7 @@ import {
 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { queryClient, apiRequest } from "@/lib/queryClient";
-import type { Ticket, TicketType, TicketTypeStatus, TicketTypeField, TicketFieldValue, TicketComment, TicketStatusHistory, Customer, Contract, ContractService, WorkType, TicketLink, User as UserType, CompanyUser } from "@shared/schema";
+import type { Ticket, TicketType, TicketTypeStatus, TicketTypeField, TicketFieldValue, TicketComment, TicketStatusHistory, Customer, Contract, ContractService, WorkType, TicketLink, User as UserType, CompanyUser, CustomerRateSheet } from "@shared/schema";
 import { WORK_TYPE_CATALOG } from "@shared/workTypeCatalog";
 import { format, formatDistanceToNow } from "date-fns";
 import { MapContainer, TileLayer, Marker } from "react-leaflet";
@@ -159,6 +159,12 @@ export default function TicketDetail() {
       return res.json();
     },
     enabled: !!ticketId,
+  });
+
+  // Fetch customer rate sheet for Invoice tickets
+  const { data: rateSheet } = useQuery<CustomerRateSheet | null>({
+    queryKey: ["/api/customers", details?.customer?.id, "rate-sheet"],
+    enabled: !!details?.customer?.id && details?.ticketType?.name === "Invoice",
   });
 
   useSetBreadcrumbs([
@@ -938,6 +944,100 @@ export default function TicketDetail() {
                     </Link>
                   );
                 })}
+              </CardContent>
+            </Card>
+          )}
+
+          {ticketType?.name === "Invoice" && rateSheet && ticket?.invoiceCategory && (
+            <Card data-testid="card-rate-sheet">
+              <CardHeader className="pb-2">
+                <CardTitle className="text-sm flex items-center gap-2">
+                  <FileText className="w-4 h-4" />
+                  {ticket.invoiceCategory === "snow" ? "Snow & Ice Rates" : "Maintenance Rates"}
+                </CardTitle>
+              </CardHeader>
+              <CardContent className="pt-0">
+                <div className="text-sm space-y-2 bg-muted/30 p-3 rounded-md">
+                  {ticket.invoiceCategory === "snow" ? (
+                    <>
+                      {rateSheet.handShovelLabor !== null && (
+                        <div className="flex justify-between">
+                          <span className="text-muted-foreground">Hand Shovel:</span>
+                          <span className="font-medium">${(rateSheet.handShovelLabor / 100).toFixed(2)}/hr</span>
+                        </div>
+                      )}
+                      {rateSheet.plowTruck !== null && (
+                        <div className="flex justify-between">
+                          <span className="text-muted-foreground">Plow Truck:</span>
+                          <span className="font-medium">${(rateSheet.plowTruck / 100).toFixed(2)}/hr</span>
+                        </div>
+                      )}
+                      {rateSheet.atv !== null && (
+                        <div className="flex justify-between">
+                          <span className="text-muted-foreground">ATV:</span>
+                          <span className="font-medium">${(rateSheet.atv / 100).toFixed(2)}/hr</span>
+                        </div>
+                      )}
+                      {rateSheet.skidSteer !== null && (
+                        <div className="flex justify-between">
+                          <span className="text-muted-foreground">Skid Steer:</span>
+                          <span className="font-medium">${(rateSheet.skidSteer / 100).toFixed(2)}/hr</span>
+                        </div>
+                      )}
+                      {rateSheet.snowBlower !== null && (
+                        <div className="flex justify-between">
+                          <span className="text-muted-foreground">Snow Blower:</span>
+                          <span className="font-medium">${(rateSheet.snowBlower / 100).toFixed(2)}/hr</span>
+                        </div>
+                      )}
+                      {rateSheet.iceMeltMaterial !== null && (
+                        <div className="flex justify-between">
+                          <span className="text-muted-foreground">Ice Melt Material:</span>
+                          <span className="font-medium">${(rateSheet.iceMeltMaterial / 100).toFixed(2)}/lb</span>
+                        </div>
+                      )}
+                      {rateSheet.iceMeltApplicationLabor !== null && (
+                        <div className="flex justify-between">
+                          <span className="text-muted-foreground">Ice Melt Application:</span>
+                          <span className="font-medium">${(rateSheet.iceMeltApplicationLabor / 100).toFixed(2)}/hr</span>
+                        </div>
+                      )}
+                    </>
+                  ) : (
+                    <>
+                      {rateSheet.generalLabor !== null && (
+                        <div className="flex justify-between">
+                          <span className="text-muted-foreground">General Labor:</span>
+                          <span className="font-medium">${(rateSheet.generalLabor / 100).toFixed(2)}/hr</span>
+                        </div>
+                      )}
+                      {rateSheet.operatorLabor !== null && (
+                        <div className="flex justify-between">
+                          <span className="text-muted-foreground">Operator Labor:</span>
+                          <span className="font-medium">${(rateSheet.operatorLabor / 100).toFixed(2)}/hr</span>
+                        </div>
+                      )}
+                      {rateSheet.irrigationLabor !== null && (
+                        <div className="flex justify-between">
+                          <span className="text-muted-foreground">Irrigation Labor:</span>
+                          <span className="font-medium">${(rateSheet.irrigationLabor / 100).toFixed(2)}/hr</span>
+                        </div>
+                      )}
+                      {rateSheet.emergencyGeneralLabor !== null && (
+                        <div className="flex justify-between">
+                          <span className="text-muted-foreground">Emergency General:</span>
+                          <span className="font-medium">${(rateSheet.emergencyGeneralLabor / 100).toFixed(2)}/hr</span>
+                        </div>
+                      )}
+                      {rateSheet.emergencyIrrigationLabor !== null && (
+                        <div className="flex justify-between">
+                          <span className="text-muted-foreground">Emergency Irrigation:</span>
+                          <span className="font-medium">${(rateSheet.emergencyIrrigationLabor / 100).toFixed(2)}/hr</span>
+                        </div>
+                      )}
+                    </>
+                  )}
+                </div>
               </CardContent>
             </Card>
           )}
