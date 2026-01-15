@@ -125,6 +125,63 @@ export default function NotificationsDropdown() {
     }
   };
 
+  const getNotificationBarColor = (type: string) => {
+    switch (type) {
+      case "assigned":
+        return "bg-blue-500 dark:bg-blue-400";
+      case "completed":
+        return "bg-green-500 dark:bg-green-400";
+      case "due_tomorrow":
+        return "bg-amber-500 dark:bg-amber-400";
+      case "due_today":
+        return "bg-orange-500 dark:bg-orange-400";
+      case "overdue":
+        return "bg-red-500 dark:bg-red-400";
+      case "mentioned":
+        return "bg-purple-500 dark:bg-purple-400";
+      default:
+        return "bg-muted-foreground";
+    }
+  };
+
+  const getNotificationTextColor = (type: string) => {
+    switch (type) {
+      case "assigned":
+        return "text-blue-600 dark:text-blue-400";
+      case "completed":
+        return "text-green-600 dark:text-green-400";
+      case "due_tomorrow":
+        return "text-amber-600 dark:text-amber-400";
+      case "due_today":
+        return "text-orange-600 dark:text-orange-400";
+      case "overdue":
+        return "text-red-600 dark:text-red-400";
+      case "mentioned":
+        return "text-purple-600 dark:text-purple-400";
+      default:
+        return "text-muted-foreground";
+    }
+  };
+
+  const getNotificationTypeLabel = (type: string) => {
+    switch (type) {
+      case "assigned":
+        return "Assigned";
+      case "completed":
+        return "Completed";
+      case "due_tomorrow":
+        return "Due Tomorrow";
+      case "due_today":
+        return "Due Today";
+      case "overdue":
+        return "Overdue";
+      case "mentioned":
+        return "Mentioned";
+      default:
+        return "Notification";
+    }
+  };
+
   return (
     <Popover>
       <PopoverTrigger asChild>
@@ -188,8 +245,12 @@ export default function NotificationsDropdown() {
                   }}
                   data-testid={`notification-item-${notification.id}`}
                 >
-                  <div className="flex items-start gap-3">
-                    <div className="mt-0.5">
+                  <div className="flex items-start gap-2">
+                    {/* Colored left border */}
+                    <div 
+                      className={`w-1 self-stretch rounded-full shrink-0 ${getNotificationBarColor(notification.type)}`}
+                    />
+                    <div className="mt-0.5 shrink-0">
                       {getNotificationIcon(notification.type)}
                     </div>
                     <div className="flex-1 min-w-0">
@@ -197,6 +258,13 @@ export default function NotificationsDropdown() {
                         href={`/dashboard/tickets/${notification.ticketId}`}
                         className="block"
                       >
+                        {/* Type label with matching color */}
+                        <span 
+                          className={`text-xs font-semibold ${getNotificationTextColor(notification.type)}`}
+                          data-testid={`text-notification-type-${notification.id}`}
+                        >
+                          {getNotificationTypeLabel(notification.type)}
+                        </span>
                         <p className={`text-sm ${!notification.isRead ? "font-medium" : ""}`}>
                           {notification.message}
                         </p>
