@@ -444,6 +444,76 @@ async function ensureProjectTicketType(companyId: string): Promise<{
   return { typeId: projectType.id, statuses: statusMap };
 }
 
+// One-time migration: Transition approved Project tickets from "Decision Received" to "Ready to Schedule"
+async function migrateApprovedProjectTickets(companyId: string, triggeringUserId?: string): Promise<number> {
+  let migratedCount = 0;
+  
+  // Get Project ticket type
+  const ticketTypes = await storage.getTicketTypes(companyId);
+  const projectType = ticketTypes.find(tt => tt.name === "Project");
+  if (!projectType) return 0;
+  
+  // Get all statuses for this ticket type
+  const statuses = await storage.getTicketTypeStatuses(projectType.id);
+  const decisionReceivedStatus = statuses.find(s => s.name === "Decision Received");
+  const readyToScheduleStatus = statuses.find(s => s.name === "Ready to Schedule");
+  
+  if (!decisionReceivedStatus || !readyToScheduleStatus) {
+    console.log(`Migration skipped for company ${companyId}: Required statuses not found`);
+    return 0;
+  }
+  
+  // Get all ticket type fields to find the decision_outcome field
+  const fields = await storage.getTicketTypeFields(projectType.id);
+  const decisionField = fields.find(f => f.fieldKey === "decision_outcome");
+  
+  if (!decisionField) {
+    console.log(`Migration skipped for company ${companyId}: decision_outcome field not found`);
+    return 0;
+  }
+  
+  // Get all tickets for this company that are Project type and in Decision Received status
+  const allTickets = await storage.getTickets(companyId);
+  const candidateTickets = allTickets.filter(
+    t => t.ticketTypeId === projectType.id && 
+         t.currentStatusId === decisionReceivedStatus.id &&
+         !t.completedAt
+  );
+  
+  for (const ticket of candidateTickets) {
+    // Get field values for this ticket to check decision_outcome
+    const fieldValues = await storage.getTicketFieldValues(ticket.id);
+    const decisionValue = fieldValues.find(fv => fv.fieldId === decisionField.id);
+    
+    if (decisionValue && decisionValue.value === "Approved") {
+      // Transition to Ready to Schedule
+      await storage.updateTicket(ticket.id, companyId, {
+        currentStatusId: readyToScheduleStatus.id,
+      });
+      
+      // Create history entry if we have a triggering user
+      if (triggeringUserId) {
+        await storage.createTicketStatusHistory({
+          ticketId: ticket.id,
+          fromStatusId: decisionReceivedStatus.id,
+          toStatusId: readyToScheduleStatus.id,
+          changedById: triggeringUserId,
+          notes: "System migration: Approved ticket moved to Ready to Schedule",
+        });
+      }
+      
+      migratedCount++;
+      console.log(`Migrated ticket "${ticket.title}" (${ticket.id}) to Ready to Schedule`);
+    }
+  }
+  
+  if (migratedCount > 0) {
+    console.log(`Migration complete for company ${companyId}: ${migratedCount} tickets moved to Ready to Schedule`);
+  }
+  
+  return migratedCount;
+}
+
 // Helper to ensure Execution Task ticket type exists - Crew-owned workflow for field work
 async function ensureExecutionTaskTicketType(companyId: string): Promise<{ 
   typeId: string; 
@@ -2753,13 +2823,39 @@ export async function registerRoutes(app: Express): Promise<Server> {
     try {
       const result = await ensureProjectTicketType(user.activeCompanyId);
       if (result) {
-        res.json({ success: true, typeId: result.typeId });
+        // Run migration to transition existing approved tickets
+        const migratedCount = await migrateApprovedProjectTickets(user.activeCompanyId, user.id);
+        res.json({ success: true, typeId: result.typeId, migratedTickets: migratedCount });
       } else {
         res.status(500).send("Failed to initialize Project ticket type");
       }
     } catch (err) {
       console.error("Failed to initialize Project ticket type:", err);
       res.status(500).send("Failed to initialize Project ticket type");
+    }
+  });
+  
+  // Run migration for approved Project tickets to Ready to Schedule status
+  app.post("/api/migrate-approved-projects", async (req, res) => {
+    if (!req.isAuthenticated()) {
+      return res.status(401).send("Not authenticated");
+    }
+
+    const user = req.user as UserWithContext;
+    
+    if (user.activeRole !== "admin" && !user.isSuperAdminBool) {
+      return res.status(403).send("Insufficient permissions - admin role required");
+    }
+
+    try {
+      // Ensure Project ticket type exists with Ready to Schedule status
+      await ensureProjectTicketType(user.activeCompanyId);
+      // Run the migration
+      const migratedCount = await migrateApprovedProjectTickets(user.activeCompanyId, user.id);
+      res.json({ success: true, migratedCount, message: `Migrated ${migratedCount} approved tickets to Ready to Schedule` });
+    } catch (err) {
+      console.error("Failed to migrate approved project tickets:", err);
+      res.status(500).send("Failed to migrate approved project tickets");
     }
   });
 
