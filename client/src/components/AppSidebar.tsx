@@ -44,7 +44,7 @@ import { Link, useLocation } from "wouter";
 import logoImage from "@assets/TRUCK_DECAL-06_1766432157419.png";
 
 interface AppSidebarProps {
-  userRole?: "admin" | "office" | "field_manager" | "field" | "irrigation_manager" | "shop_manager";
+  userRole?: "admin" | "office" | "field_manager" | "field" | "irrigation_manager" | "shop_manager" | "mapping";
   isSuperAdmin?: boolean;
   userName?: string;
   onLogout?: () => void;
@@ -76,6 +76,12 @@ export default function AppSidebar({
       items.push({ title: "Dashboard", url: "/dashboard", icon: LayoutDashboard });
       items.push({ title: "My Tickets", url: "/dashboard/tickets/my", icon: UserCheck });
       items.push({ title: "Equipment", url: "/dashboard/equipment", icon: Truck });
+      return items;
+    }
+    
+    // Mapping user sees only Property Maps (Customer Maps)
+    if (userRole === "mapping") {
+      items.push({ title: "Customer Maps", url: "/dashboard/maps", icon: Map });
       return items;
     }
     
