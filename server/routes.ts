@@ -324,16 +324,17 @@ async function ensureProjectTicketType(companyId: string): Promise<{
     console.log(`Created Project ticket type for company ${companyId}`);
   }
   
-  // Define the new 7-step Project workflow
+  // Define the 8-step Project workflow (added Ready to Schedule after approval)
   const projectStatuses = [
     { name: "New", description: "Request captured - pending estimate", color: "#6366f1", order: 0, isFinal: "false" as const },
     { name: "Estimating", description: "Estimate being prepared in QuickBooks", color: "#8b5cf6", order: 1, isFinal: "false" as const },
     { name: "Estimate Sent", description: "Estimate sent to customer, awaiting response", color: "#f59e0b", order: 2, isFinal: "false" as const },
     { name: "Decision Received", description: "Customer decision received", color: "#eab308", order: 3, isFinal: "false" as const },
-    { name: "Work Completed", description: "Execution task completed - ready for billing review", color: "#10b981", order: 4, isFinal: "false" as const },
-    { name: "Ready for Billing", description: "Work verified complete - create invoice", color: "#06b6d4", order: 5, isFinal: "false" as const },
-    { name: "Invoicing", description: "Invoice created in QuickBooks", color: "#22c55e", order: 6, isFinal: "true" as const },
-    { name: "Closed - Lost", description: "Project declined or cancelled", color: "#ef4444", order: 7, isFinal: "true" as const },
+    { name: "Ready to Schedule", description: "Approved - needs to be scheduled with crew", color: "#f472b6", order: 4, isFinal: "false" as const },
+    { name: "Work Completed", description: "Execution task completed - ready for billing review", color: "#10b981", order: 5, isFinal: "false" as const },
+    { name: "Ready for Billing", description: "Work verified complete - create invoice", color: "#06b6d4", order: 6, isFinal: "false" as const },
+    { name: "Invoicing", description: "Invoice created in QuickBooks", color: "#22c55e", order: 7, isFinal: "true" as const },
+    { name: "Closed - Lost", description: "Project declined or cancelled", color: "#ef4444", order: 8, isFinal: "true" as const },
   ];
   
   // Get existing statuses
@@ -3978,6 +3979,45 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
 
     const fieldValue = await storage.upsertTicketFieldValue(result.data);
+    
+    // Auto-transition Project tickets to "Ready to Schedule" when decision is Approved
+    try {
+      // Get the field to check if it's decision_outcome
+      const field = await storage.getTicketTypeFieldById(req.params.fieldId);
+      if (field && field.fieldKey === "decision_outcome" && req.body.value === "Approved") {
+        // Check if this is a Project ticket
+        const ticketType = await storage.getTicketTypeById(ticket.ticketTypeId, user.activeCompanyId);
+        if (ticketType?.name === "Project") {
+          // Get the current status to verify we're in Decision Received
+          const statuses = await storage.getTicketTypeStatuses(ticket.ticketTypeId);
+          const currentStatus = statuses.find(s => s.id === ticket.currentStatusId);
+          const readyToScheduleStatus = statuses.find(s => s.name === "Ready to Schedule");
+          
+          // Only transition if currently in Decision Received and Ready to Schedule exists
+          if (currentStatus?.name === "Decision Received" && readyToScheduleStatus) {
+            // Create status history
+            await storage.createTicketStatusHistory({
+              ticketId: ticket.id,
+              fromStatusId: ticket.currentStatusId,
+              toStatusId: readyToScheduleStatus.id,
+              changedById: user.id,
+              notes: "Auto-transitioned: Estimate approved, ready to schedule with crew",
+            });
+            
+            // Update the ticket status
+            await storage.updateTicket(ticket.id, user.activeCompanyId, {
+              currentStatusId: readyToScheduleStatus.id,
+            });
+            
+            console.log(`Auto-transitioned Project ${ticket.id} to "Ready to Schedule" after approval`);
+          }
+        }
+      }
+    } catch (err) {
+      console.error("Failed to auto-transition on approval:", err);
+      // Don't fail the field value update - auto-transition is secondary
+    }
+    
     res.json(fieldValue);
   });
 

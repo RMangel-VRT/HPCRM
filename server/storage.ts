@@ -113,6 +113,7 @@ export interface IStorage {
   
   getTicketTypeFields(ticketTypeId: string): Promise<TicketTypeField[]>;
   getTicketTypeFieldsByStatus(statusId: string): Promise<TicketTypeField[]>;
+  getTicketTypeFieldById(fieldId: string): Promise<TicketTypeField | undefined>;
   createTicketTypeField(field: InsertTicketTypeField): Promise<TicketTypeField>;
   updateTicketTypeField(id: string, updates: Partial<InsertTicketTypeField>): Promise<TicketTypeField | undefined>;
   deleteTicketTypeField(id: string): Promise<void>;
@@ -1259,6 +1260,13 @@ export class PgStorage implements IStorage {
     return await db.select().from(ticketTypeFields)
       .where(eq(ticketTypeFields.statusId, statusId))
       .orderBy(ticketTypeFields.displayOrder);
+  }
+
+  async getTicketTypeFieldById(fieldId: string): Promise<TicketTypeField | undefined> {
+    const result = await db.select().from(ticketTypeFields)
+      .where(eq(ticketTypeFields.id, fieldId))
+      .limit(1);
+    return result[0];
   }
 
   async createTicketTypeField(insertField: InsertTicketTypeField): Promise<TicketTypeField> {

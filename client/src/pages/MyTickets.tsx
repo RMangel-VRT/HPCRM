@@ -297,10 +297,14 @@ function TicketCard({ ticket, formatDueDate }: TicketCardProps) {
     ? "#22c55e" // green-500
     : (ticket.ticketType?.color || "#6b7280"); // gray-500 fallback
 
+  // Check if this ticket needs scheduling (Ready to Schedule status on Project tickets)
+  const needsScheduling = ticket.currentStatus?.name === "Ready to Schedule" && 
+                          ticket.ticketType?.name === "Project";
+
   return (
     <Link href={`/dashboard/tickets/${ticket.id}`}>
       <Card 
-        className="hover-elevate active-elevate-2 cursor-pointer transition-colors"
+        className={`hover-elevate active-elevate-2 cursor-pointer transition-colors ${needsScheduling ? "ring-2 ring-pink-500 dark:ring-pink-400 animate-pulse" : ""}`}
         data-testid={`card-my-ticket-${ticket.id}`}
       >
         <CardContent className="p-4">
@@ -311,7 +315,7 @@ function TicketCard({ ticket, formatDueDate }: TicketCardProps) {
             />
             
             <div className="flex-1 min-w-0">
-              {/* Row 1: Ticket type (colored text) + work type badges */}
+              {/* Row 1: Ticket type (colored text) + work type badges + needs scheduling indicator */}
               <div className="flex items-center gap-2 flex-wrap">
                 {ticket.ticketType && (
                   <span 
@@ -329,6 +333,14 @@ function TicketCard({ ticket, formatDueDate }: TicketCardProps) {
                     data-testid={`badge-my-worktype-${ticket.id}`}
                   >
                     {WORK_TYPE_CATALOG[ticket.workType as WorkType].billingLabel}
+                  </Badge>
+                )}
+                {needsScheduling && (
+                  <Badge 
+                    className="text-xs font-semibold bg-pink-500 text-white border-pink-600 dark:bg-pink-600 dark:border-pink-500"
+                    data-testid={`badge-my-needs-scheduling-${ticket.id}`}
+                  >
+                    Needs Scheduling
                   </Badge>
                 )}
                 <ChevronRight className="w-5 h-5 text-muted-foreground shrink-0 ml-auto" />

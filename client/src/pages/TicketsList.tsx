@@ -56,6 +56,7 @@ export default function TicketsList() {
   const [workTypeFilter, setWorkTypeFilter] = useState("all");
   const [statusFilter, setStatusFilter] = useState("all");
   const [showFilters, setShowFilters] = useState(false);
+  const [showNeedsScheduling, setShowNeedsScheduling] = useState(false);
   const [completedPage, setCompletedPage] = useState(1);
   const completedPerPage = 10;
   const [batchToDoOpen, setBatchToDoOpen] = useState(false);
@@ -134,7 +135,12 @@ export default function TicketsList() {
     const matchesType = typeFilter === "all" || ticket.ticketTypeId === typeFilter;
     const matchesWorkType = workTypeFilter === "all" || ticket.workType === workTypeFilter;
     const matchesStatus = statusFilter === "all" || ticket.currentStatusId === statusFilter;
-    return matchesSearch && matchesPriority && matchesType && matchesWorkType && matchesStatus;
+    
+    // Quick filter for "Ready to Schedule" tickets
+    const matchesNeedsScheduling = !showNeedsScheduling || 
+      (ticket.currentStatus?.name === "Ready to Schedule" && ticket.ticketType?.name === "Project");
+    
+    return matchesSearch && matchesPriority && matchesType && matchesWorkType && matchesStatus && matchesNeedsScheduling;
   });
   
   // Get statuses for currently selected ticket type
@@ -148,7 +154,12 @@ export default function TicketsList() {
   // Reset completed page when filters change
   useEffect(() => {
     setCompletedPage(1);
-  }, [search, priorityFilter, typeFilter, workTypeFilter, statusFilter]);
+  }, [search, priorityFilter, typeFilter, workTypeFilter, statusFilter, showNeedsScheduling]);
+  
+  // Count of tickets needing scheduling (for badge display)
+  const needsSchedulingCount = enrichedTickets.filter(
+    t => t.currentStatus?.name === "Ready to Schedule" && t.ticketType?.name === "Project" && !t.completedAt
+  ).length;
   
   // Clamp page when data changes (e.g., after refetch)
   useEffect(() => {
@@ -329,6 +340,25 @@ export default function TicketsList() {
         >
           <Filter className="w-4 h-4" />
         </Button>
+        
+        {/* Quick filter for Ready to Schedule tickets */}
+        {needsSchedulingCount > 0 && (
+          <Button 
+            variant={showNeedsScheduling ? "default" : "outline"}
+            className={`h-11 shrink-0 gap-2 ${showNeedsScheduling ? "bg-pink-500 hover:bg-pink-600 text-white" : ""}`}
+            onClick={() => setShowNeedsScheduling(!showNeedsScheduling)}
+            data-testid="button-needs-scheduling-filter"
+          >
+            <CalendarDays className="w-4 h-4" />
+            Needs Scheduling
+            <Badge 
+              variant="secondary" 
+              className={`${showNeedsScheduling ? "bg-white text-pink-600" : "bg-pink-100 text-pink-700 dark:bg-pink-900 dark:text-pink-200"}`}
+            >
+              {needsSchedulingCount}
+            </Badge>
+          </Button>
+        )}
       </div>
 
       {showFilters && (
@@ -604,9 +634,13 @@ function TicketCard({ ticket, formatDueDate, usersMap, selectionMode, isSelected
     ? "#22c55e" // green-500
     : (ticket.ticketType?.color || "#6b7280"); // gray-500 fallback
 
+  // Check if this ticket needs scheduling (Ready to Schedule status on Project tickets)
+  const needsScheduling = ticket.currentStatus?.name === "Ready to Schedule" && 
+                          ticket.ticketType?.name === "Project";
+
   const cardInner = (
     <Card 
-      className={`hover-elevate active-elevate-2 cursor-pointer transition-colors ${isSelected ? "ring-2 ring-primary" : ""}`}
+      className={`hover-elevate active-elevate-2 cursor-pointer transition-colors ${isSelected ? "ring-2 ring-primary" : ""} ${needsScheduling ? "ring-2 ring-pink-500 dark:ring-pink-400 animate-pulse" : ""}`}
       data-testid={`card-ticket-${ticket.id}`}
     >
       <CardContent className="p-4">
@@ -632,7 +666,7 @@ function TicketCard({ ticket, formatDueDate, usersMap, selectionMode, isSelected
           />
           
           <div className="flex-1 min-w-0">
-            {/* Row 1: Ticket type (colored text) + work type badges */}
+            {/* Row 1: Ticket type (colored text) + work type badges + needs scheduling indicator */}
             <div className="flex items-center gap-2 flex-wrap">
               {ticket.ticketType && (
                 <span 
@@ -650,6 +684,14 @@ function TicketCard({ ticket, formatDueDate, usersMap, selectionMode, isSelected
                   data-testid={`badge-worktype-${ticket.id}`}
                 >
                   {WORK_TYPE_CATALOG[ticket.workType as WorkType].billingLabel}
+                </Badge>
+              )}
+              {needsScheduling && (
+                <Badge 
+                  className="text-xs font-semibold bg-pink-500 text-white border-pink-600 dark:bg-pink-600 dark:border-pink-500"
+                  data-testid={`badge-needs-scheduling-${ticket.id}`}
+                >
+                  Needs Scheduling
                 </Badge>
               )}
               {!selectionMode && (
