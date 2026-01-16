@@ -10,7 +10,7 @@ import { useToast } from "@/hooks/use-toast";
 
 export type UserWithCompanyContext = Omit<User, "passwordHash"> & {
   activeCompanyId: string;
-  activeRole: "admin" | "office" | "field_manager" | "field" | "irrigation_manager" | "shop_manager";
+  activeRole: "admin" | "office" | "field_manager" | "field" | "irrigation_manager" | "shop_manager" | "mapping";
   isSuperAdminBool: boolean;
   activeCompany?: Company | null;
 };

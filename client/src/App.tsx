@@ -103,10 +103,10 @@ function Router() {
               <ProtectedRoute path="/dashboard/customers/:id" component={CustomerDetail} allowedRoles={["admin", "office", "field_manager"]} />
               <ProtectedRoute path="/dashboard/customers" component={CustomersList} allowedRoles={["admin", "office", "field_manager"]} />
               <ProtectedRoute path="/dashboard/tickets/new" component={NewTicket} allowedRoles={["admin"]} />
-              <ProtectedRoute path="/dashboard/tickets/my" component={MyTickets} />
-              <ProtectedRoute path="/dashboard/tickets/:id" component={TicketDetail} />
+              <ProtectedRoute path="/dashboard/tickets/my" component={MyTickets} allowedRoles={["admin", "office", "field_manager", "field", "irrigation_manager", "shop_manager"]} />
+              <ProtectedRoute path="/dashboard/tickets/:id" component={TicketDetail} allowedRoles={["admin", "office", "field_manager", "field", "irrigation_manager", "shop_manager"]} />
               <ProtectedRoute path="/dashboard/tickets" component={TicketsList} allowedRoles={["admin"]} />
-              <ProtectedRoute path="/dashboard/maps" component={PropertyMapsPage} />
+              <ProtectedRoute path="/dashboard/maps" component={PropertyMapsPage} allowedRoles={["admin", "office", "field_manager", "field", "irrigation_manager", "mapping"]} />
               <Route path="/dashboard/scheduler">
                 <Redirect to="/dashboard/schedule" />
               </Route>
@@ -132,6 +132,8 @@ function Router() {
               <Route path="/">
                 {user.isSuperAdminBool ? (
                   <Redirect to="/admin" />
+                ) : user.activeRole === "mapping" ? (
+                  <Redirect to="/dashboard/maps" />
                 ) : user.activeRole === "field" || user.activeRole === "irrigation_manager" ? (
                   <Redirect to="/dashboard/tickets/my" />
                 ) : (
@@ -141,6 +143,8 @@ function Router() {
               <Route>
                 {user.isSuperAdminBool ? (
                   <Redirect to="/admin" />
+                ) : user.activeRole === "mapping" ? (
+                  <Redirect to="/dashboard/maps" />
                 ) : user.activeRole === "field" || user.activeRole === "irrigation_manager" ? (
                   <Redirect to="/dashboard/tickets/my" />
                 ) : (
