@@ -1781,7 +1781,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       await storage.createCompanyUser({
         userId: newUser.id,
         companyId: currentUser.activeCompanyId,
-        role: role as "admin" | "office" | "field_manager" | "field" | "irrigation_manager" | "shop_manager",
+        role: role as "admin" | "office" | "field_manager" | "field" | "irrigation_manager" | "shop_manager" | "mapping",
         status: "active",
       });
 
