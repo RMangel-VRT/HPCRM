@@ -221,11 +221,11 @@ export default function MyTickets() {
       ) : (
         <div className="space-y-4">
           {openTickets.length > 0 && (
-            <div className="space-y-2">
+            <div className="space-y-3 md:space-y-2">
               <h2 className="text-sm font-medium text-muted-foreground px-1">
                 Open ({openTickets.length})
               </h2>
-              <div className="space-y-2">
+              <div className="space-y-3 md:space-y-2">
                 {openTickets.map((ticket) => (
                   <TicketCard key={ticket.id} ticket={ticket} formatDueDate={formatDueDate} />
                 ))}
@@ -239,11 +239,11 @@ export default function MyTickets() {
             const paginatedCompleted = completedTickets.slice(startIdx, startIdx + completedPerPage);
             
             return (
-              <div className="space-y-2 mt-6">
+              <div className="space-y-3 md:space-y-2 mt-6">
                 <h2 className="text-sm font-medium text-muted-foreground px-1">
                   Completed ({completedTickets.length})
                 </h2>
-                <div className="space-y-2 opacity-75">
+                <div className="space-y-3 md:space-y-2 opacity-75">
                   {paginatedCompleted.map((ticket) => (
                     <TicketCard key={ticket.id} ticket={ticket} formatDueDate={formatDueDate} />
                   ))}

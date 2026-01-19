@@ -23,7 +23,7 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
-import { Plus, Search, ChevronRight, ChevronLeft, Clock, User as UserIcon, MapPin, CalendarDays, Filter, Loader2, Trash2, X, Layers, RefreshCw } from "lucide-react";
+import { Plus, Search, ChevronRight, ChevronLeft, Clock, User as UserIcon, MapPin, CalendarDays, Filter, Loader2, Trash2, X, Layers } from "lucide-react";
 import { Link } from "wouter";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import type { Ticket, TicketType, TicketTypeStatus, Customer, WorkType, User as UserType, CompanyUser } from "@shared/schema";
@@ -203,27 +203,6 @@ export default function TicketsList() {
     },
   });
 
-  // Migration mutation for approved project tickets
-  const migrationMutation = useMutation({
-    mutationFn: async () => {
-      const res = await apiRequest("POST", "/api/migrate-approved-projects");
-      return res.json();
-    },
-    onSuccess: (result: { success: boolean; migratedCount: number; message: string }) => {
-      queryClient.invalidateQueries({ queryKey: ["/api/tickets"] });
-      toast({
-        title: "Migration Complete",
-        description: result.message,
-      });
-    },
-    onError: (error: Error) => {
-      toast({ 
-        title: "Migration Failed", 
-        description: error.message || "An unexpected error occurred",
-        variant: "destructive" 
-      });
-    },
-  });
 
   const toggleTicketSelection = (ticketId: string) => {
     setSelectedTicketIds(prev => {
@@ -330,21 +309,6 @@ export default function TicketsList() {
               >
                 <Layers className="w-4 h-4" />
                 <span className="hidden sm:inline">Batch Invoice</span>
-              </Button>
-              <Button 
-                variant="outline" 
-                size="default" 
-                onClick={() => migrationMutation.mutate()}
-                disabled={migrationMutation.isPending}
-                data-testid="button-migrate-approved" 
-                className="gap-2 border-pink-300 text-pink-700 dark:border-pink-700 dark:text-pink-300"
-              >
-                {migrationMutation.isPending ? (
-                  <Loader2 className="w-4 h-4 animate-spin" />
-                ) : (
-                  <RefreshCw className="w-4 h-4" />
-                )}
-                <span className="hidden sm:inline">Migrate Approved</span>
               </Button>
               <Link href="/dashboard/tickets/new">
                 <Button size="default" data-testid="button-add-ticket" className="gap-2">
@@ -530,11 +494,11 @@ export default function TicketsList() {
           )}
 
           {openTickets.length > 0 && (
-            <div className="space-y-2">
+            <div className="space-y-3 md:space-y-2">
               <h2 className="text-sm font-medium text-muted-foreground px-1">
                 Open ({openTickets.length})
               </h2>
-              <div className="space-y-2">
+              <div className="space-y-3 md:space-y-2">
                 {openTickets.map((ticket) => (
                   <TicketCard 
                     key={ticket.id} 
@@ -556,11 +520,11 @@ export default function TicketsList() {
             const paginatedCompleted = completedTickets.slice(startIdx, startIdx + completedPerPage);
             
             return (
-              <div className="space-y-2 mt-6">
+              <div className="space-y-3 md:space-y-2 mt-6">
                 <h2 className="text-sm font-medium text-muted-foreground px-1">
                   Completed ({completedTickets.length})
                 </h2>
-                <div className="space-y-2 opacity-75">
+                <div className="space-y-3 md:space-y-2 opacity-75">
                   {paginatedCompleted.map((ticket) => (
                     <TicketCard 
                       key={ticket.id} 
