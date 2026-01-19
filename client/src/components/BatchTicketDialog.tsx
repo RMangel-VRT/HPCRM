@@ -164,6 +164,7 @@ export default function BatchTicketDialog({
       dueDate: string | null;
       priority: string;
       workType: string;
+      invoiceCategory: "general_maintenance" | "snow" | null;
     }) => {
       const res = await apiRequest("POST", "/api/tickets/batch", data);
       return res.json() as Promise<BatchResult>;
@@ -351,8 +352,8 @@ export default function BatchTicketDialog({
                     <SelectValue placeholder="Select category" />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="general_maintenance">General Maintenance</SelectItem>
-                    <SelectItem value="snow">Snow</SelectItem>
+                    <SelectItem value="general_maintenance" data-testid="select-category-general">General Maintenance</SelectItem>
+                    <SelectItem value="snow" data-testid="select-category-snow">Snow</SelectItem>
                   </SelectContent>
                 </Select>
                 <p className="text-xs text-muted-foreground">
@@ -369,8 +370,12 @@ export default function BatchTicketDialog({
                     <SelectValue placeholder="Select assignee" />
                   </SelectTrigger>
                   <SelectContent>
-                    {teamMembers.map(member => (
-                      <SelectItem key={member.id} value={member.id}>
+                    {teamMembers.map((member, idx) => (
+                      <SelectItem 
+                        key={member.id} 
+                        value={member.id}
+                        data-testid={`select-assignee-option-${idx}`}
+                      >
                         {member.name}
                       </SelectItem>
                     ))}
