@@ -564,7 +564,7 @@ export type BillingBehavior = "no_invoice" | "invoice_required" | "internal";
 export const tickets = pgTable("tickets", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
   companyId: varchar("company_id").notNull().references(() => companies.id, { onDelete: "cascade" }),
-  customerId: varchar("customer_id").notNull().references(() => customers.id, { onDelete: "cascade" }),
+  customerId: varchar("customer_id").references(() => customers.id, { onDelete: "cascade" }), // Optional for shop_todo tickets
   contractId: varchar("contract_id").references(() => contracts.id, { onDelete: "set null" }),
   serviceType: text("service_type").$type<TicketServiceType>(), // Optional service type tagging
   workType: text("work_type").notNull().$type<WorkType>().default("contract"), // Required work classification
@@ -601,6 +601,7 @@ export const insertTicketSchema = createInsertSchema(tickets).omit({
   updatedAt: true,
 }).extend({
   priority: z.enum(["low", "normal", "high", "urgent"]).default("normal"),
+  customerId: z.string().nullable().optional(), // Optional for shop_todo tickets
   contractId: z.string().nullable().optional(),
   serviceType: z.enum(["mowing", "pet_station", "chemical", "shrub_trimming", "ornamental_grass", "aeration", "cleanups", "tree_pruning"]).nullable().optional(),
   workType: z.enum(["contract", "extra_work", "project", "admin", "estimate_request", "shop_todo"]).default("contract"),

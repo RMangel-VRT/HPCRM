@@ -400,6 +400,7 @@ export default function TicketsList() {
               <SelectItem value="project">Project</SelectItem>
               <SelectItem value="admin">Admin</SelectItem>
               <SelectItem value="estimate_request">Estimate Request</SelectItem>
+              <SelectItem value="shop_todo">Shop To-Do</SelectItem>
             </SelectContent>
           </Select>
           

@@ -23,7 +23,13 @@ Provides full contract lifecycle management, including stateful editing, validat
 A document generation tool for landscape maintenance contracts using templates and variable substitution. It supports customer selection, section inclusion/exclusion, variable filling (with auto-population), preview, auto-save, publish, and PDF export. It integrates with CRM contract management by publishing documents and creating contract records, inferring service types and billing patterns.
 
 #### Ticketing System
-A mobile-first system for field crews, supporting configurable ticket types with custom workflows and step-specific data capture. It includes default ticket types and role-based access. Projects follow a 3-phase workflow (Sales/Estimating, Field Execution, Billing) with specific ticket types and linking (`execution_for`, `invoice_for`). Tickets are classified by work type (Contract Work, Extra Billable, Project, Admin, Estimate Request) driving billing behavior. A 3-step wizard guides ticket creation (Work Type, Customer, Details). The system supports auto-creation of Invoice tickets for billable work and includes an RFP Request pipeline for sales management.
+A mobile-first system for field crews, supporting configurable ticket types with custom workflows and step-specific data capture. It includes default ticket types and role-based access. Projects follow a 3-phase workflow (Sales/Estimating, Field Execution, Billing) with specific ticket types and linking (`execution_for`, `invoice_for`). Tickets are classified by work type (Contract Work, Extra Billable, Project, Admin, Estimate Request, Shop To-Do) driving billing behavior. A 3-step wizard guides ticket creation (Work Type, Customer, Details). The system supports auto-creation of Invoice tickets for billable work and includes an RFP Request pipeline for sales management.
+
+Shop To-Do is a special work type for internal shop maintenance tasks:
+- Does not require a customer (skips customer selection step in wizard)
+- Billing behavior: Internal (non-billable)
+- Can optionally link to equipment via `equipmentId` field for tracking maintenance history
+- Linked Shop To-Do tickets appear in the Equipment detail page's Tickets tab under "Shop To-Do Tasks" section
 
 #### Weekly Schedule System
 A comprehensive scheduling system for assigning properties to crews. It uses a template-based approach with drag-and-drop functionality, crew capacity indicators, and a read-only viewer. Data is stored in `weekly_schedule_templates`, `maintenance_crews`, `maintenance_visit_configs`, and `schedule_blocks` tables.

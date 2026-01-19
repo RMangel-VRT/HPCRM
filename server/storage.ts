@@ -122,6 +122,7 @@ export interface IStorage {
   getTicketById(id: string, companyId: string): Promise<Ticket | undefined>;
   getTicketsByCustomerId(customerId: string, companyId: string): Promise<Ticket[]>;
   getTicketsByContractId(contractId: string, companyId: string): Promise<Ticket[]>;
+  getTicketsByEquipmentId(equipmentId: string, companyId: string): Promise<Ticket[]>;
   createTicket(ticket: InsertTicket): Promise<Ticket>;
   updateTicket(id: string, companyId: string, updates: Partial<InsertTicket>): Promise<Ticket | undefined>;
   deleteTicket(id: string, companyId: string): Promise<void>;
@@ -1320,6 +1321,12 @@ export class PgStorage implements IStorage {
   async getTicketsByContractId(contractId: string, companyId: string): Promise<Ticket[]> {
     return await db.select().from(tickets)
       .where(and(eq(tickets.contractId, contractId), eq(tickets.companyId, companyId)))
+      .orderBy(desc(tickets.createdAt));
+  }
+
+  async getTicketsByEquipmentId(equipmentId: string, companyId: string): Promise<Ticket[]> {
+    return await db.select().from(tickets)
+      .where(and(eq(tickets.equipmentId, equipmentId), eq(tickets.companyId, companyId)))
       .orderBy(desc(tickets.createdAt));
   }
 

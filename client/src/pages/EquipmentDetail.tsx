@@ -360,6 +360,25 @@ export default function EquipmentDetail() {
     enabled: !!id,
   });
 
+  // Linked main tickets (Shop to-do tickets that reference this equipment)
+  interface LinkedTicket {
+    id: string;
+    title: string;
+    description: string | null;
+    workType: string;
+    priority: string;
+    dueDate: string | null;
+    completedAt: string | null;
+    createdAt: string;
+  }
+  const { data: linkedTickets, isLoading: linkedTicketsLoading } = useQuery<LinkedTicket[]>({
+    queryKey: ["/api/equipment", id, "linked-tickets"],
+    enabled: !!id,
+  });
+
+  const openLinkedTickets = linkedTickets?.filter(t => !t.completedAt) || [];
+  const completedLinkedTickets = linkedTickets?.filter(t => t.completedAt) || [];
+
   const newTicketForm = useForm<NewTicketFormData>({
     resolver: zodResolver(newTicketFormSchema),
     defaultValues: {
@@ -1386,6 +1405,92 @@ export default function EquipmentDetail() {
               )}
             </CardContent>
           </Card>
+
+          {/* Linked Shop To-Do Tickets */}
+          {(openLinkedTickets.length > 0 || completedLinkedTickets.length > 0) && (
+            <Card className="mt-4">
+              <CardHeader>
+                <CardTitle className="text-lg">
+                  Shop To-Do Tasks ({openLinkedTickets.length} open)
+                </CardTitle>
+              </CardHeader>
+              <CardContent>
+                {linkedTicketsLoading ? (
+                  <div className="space-y-2">
+                    {[...Array(2)].map((_, i) => (
+                      <Skeleton key={i} className="h-16 w-full" />
+                    ))}
+                  </div>
+                ) : (
+                  <div className="space-y-3">
+                    {openLinkedTickets.map((ticket) => (
+                      <div
+                        key={ticket.id}
+                        className="p-4 rounded-lg border bg-card hover-elevate"
+                        data-testid={`row-linked-ticket-${ticket.id}`}
+                      >
+                        <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3">
+                          <div className="space-y-1 flex-1">
+                            <div className="flex items-center gap-2 flex-wrap">
+                              <span className="font-medium">{ticket.title}</span>
+                              <Badge variant="outline" className="bg-stone-100 text-stone-700 dark:bg-stone-800 dark:text-stone-300">
+                                Shop To-Do
+                              </Badge>
+                              {getPriorityBadge(ticket.priority)}
+                            </div>
+                            {ticket.description && (
+                              <p className="text-sm text-muted-foreground line-clamp-2">{ticket.description}</p>
+                            )}
+                            <div className="flex items-center gap-4 text-sm text-muted-foreground">
+                              {ticket.dueDate && (
+                                <span className="flex items-center gap-1">
+                                  <Clock className="w-3 h-3" />
+                                  Due: {format(new Date(ticket.dueDate), "MMM d, yyyy")}
+                                </span>
+                              )}
+                              <span>Created: {format(new Date(ticket.createdAt), "MMM d, yyyy")}</span>
+                            </div>
+                          </div>
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            asChild
+                            data-testid={`button-view-linked-ticket-${ticket.id}`}
+                          >
+                            <Link href={`/dashboard/tickets/${ticket.id}`}>View</Link>
+                          </Button>
+                        </div>
+                      </div>
+                    ))}
+                    {completedLinkedTickets.length > 0 && (
+                      <div className="mt-4 pt-4 border-t">
+                        <p className="text-sm text-muted-foreground mb-2">Completed ({completedLinkedTickets.length})</p>
+                        <div className="space-y-2 opacity-60">
+                          {completedLinkedTickets.slice(0, 5).map((ticket) => (
+                            <div
+                              key={ticket.id}
+                              className="p-3 rounded-lg border bg-card"
+                              data-testid={`row-linked-completed-${ticket.id}`}
+                            >
+                              <div className="flex items-center justify-between gap-2">
+                                <div className="flex items-center gap-2">
+                                  <CheckCircle className="w-4 h-4 text-green-600" />
+                                  <span className="text-sm">{ticket.title}</span>
+                                </div>
+                                <Button variant="ghost" size="sm" asChild>
+                                  <Link href={`/dashboard/tickets/${ticket.id}`}>View</Link>
+                                </Button>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+          )}
 
           <Dialog open={isNewTicketOpen} onOpenChange={setIsNewTicketOpen}>
             <DialogContent className="max-w-lg">

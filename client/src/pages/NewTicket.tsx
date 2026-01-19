@@ -43,6 +43,7 @@ import {
   FilePlus,
   UserPlus,
   FileText,
+  Wrench,
 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { queryClient, apiRequest } from "@/lib/queryClient";
@@ -65,6 +66,7 @@ const WORK_TYPE_ICONS: Record<WorkType, typeof FileCheck> = {
   project: FolderKanban,
   admin: Briefcase,
   estimate_request: Calculator,
+  shop_todo: Wrench,
 };
 
 function LocationMarker({ 
@@ -134,9 +136,24 @@ export default function NewTicket() {
   
   const [photos, setPhotos] = useState<{ path: string; previewUrl: string }[]>([]);
   const [isUploadingPhoto, setIsUploadingPhoto] = useState(false);
+  
+  // Shop to-do specific state
+  const [selectedEquipmentId, setSelectedEquipmentId] = useState<string | null>(null);
 
   const { data: ticketTypes = [] } = useQuery<TicketType[]>({
     queryKey: ["/api/ticket-types"],
+  });
+  
+  // Equipment query for shop_todo tickets
+  interface EquipmentItem {
+    id: string;
+    name: string;
+    type: string;
+    status: string;
+  }
+  const { data: equipmentList = [] } = useQuery<EquipmentItem[]>({
+    queryKey: ["/api/equipment"],
+    enabled: selectedWorkType === "shop_todo",
   });
 
   const { data: customers = [] } = useQuery<Customer[]>({
@@ -330,6 +347,8 @@ export default function NewTicket() {
         initialFieldValues: isRFPRequest ? {
           service_request_type: serviceRequestType,
         } : undefined,
+        // Shop to-do specific - equipment link
+        equipmentId: selectedWorkType === "shop_todo" ? selectedEquipmentId : null,
       });
     },
     onSuccess: async (res) => {
@@ -354,8 +373,13 @@ export default function NewTicket() {
     setSelectedWorkType(workType);
     setIsRFPRequest(false);
     setIsInvoice(false);
-    // Skip to details if customer is pre-selected and valid
-    setStep(isPreselectedCustomerValid ? "details" : "customer");
+    // Shop to-do tickets don't require a customer - go directly to details
+    if (workType === "shop_todo") {
+      setStep("details");
+    } else {
+      // Skip to details if customer is pre-selected and valid
+      setStep(isPreselectedCustomerValid ? "details" : "customer");
+    }
   };
   
   const handleSelectRFPRequest = async () => {
@@ -556,12 +580,15 @@ export default function NewTicket() {
 
   // RFP doesn't need manual title (auto-generated), but requires serviceRequestType
   // Invoice needs a title and customer
+  // Shop to-do doesn't require a customer
   const canSubmit = isRFPRequest 
     ? selectedWorkType && selectedCustomerId && serviceRequestType && assignedToId
+    : selectedWorkType === "shop_todo"
+    ? selectedWorkType && title.trim() && assignedToId
     : selectedWorkType && selectedCustomerId && title.trim() && assignedToId;
   const hasLocation = locationLat !== null && locationLng !== null;
 
-  const workTypeOptions: WorkType[] = ["contract", "extra_work", "project", "admin", "estimate_request"];
+  const workTypeOptions: WorkType[] = ["contract", "extra_work", "project", "admin", "estimate_request", "shop_todo"];
 
   return (
     <div className="space-y-4 max-w-2xl mx-auto">
@@ -858,13 +885,18 @@ export default function NewTicket() {
             >
               {isRFPRequest ? "RFP Request" : isInvoice ? "Invoice" : selectedWorkTypeConfig?.name}
             </span>
-            <span>/</span>
-            <span 
-              className="hover:text-foreground cursor-pointer"
-              onClick={() => setStep("customer")}
-            >
-              {selectedCustomer?.name}
-            </span>
+            {/* Show customer in breadcrumb only for non-shop_todo tickets */}
+            {selectedWorkType !== "shop_todo" && (
+              <>
+                <span>/</span>
+                <span 
+                  className="hover:text-foreground cursor-pointer"
+                  onClick={() => setStep("customer")}
+                >
+                  {selectedCustomer?.name}
+                </span>
+              </>
+            )}
             <span>/</span>
             <span>Details</span>
           </div>
@@ -941,6 +973,34 @@ export default function NewTicket() {
                 data-testid="input-description"
               />
             </div>
+
+            {/* Equipment selection - Shop to-do only */}
+            {selectedWorkType === "shop_todo" && (
+              <div className="space-y-2">
+                <Label htmlFor="equipment">Equipment (optional)</Label>
+                <Select 
+                  value={selectedEquipmentId || "none"} 
+                  onValueChange={(value) => setSelectedEquipmentId(value === "none" ? null : value)}
+                >
+                  <SelectTrigger id="equipment" className="h-11" data-testid="select-equipment">
+                    <SelectValue placeholder="Link to equipment..." />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="none">None</SelectItem>
+                    {equipmentList
+                      .filter(e => e.status !== "retired")
+                      .map((equipment) => (
+                        <SelectItem key={equipment.id} value={equipment.id}>
+                          {equipment.name}{equipment.type ? ` (${equipment.type.replace("_", " ")})` : ""}
+                        </SelectItem>
+                      ))}
+                  </SelectContent>
+                </Select>
+                <p className="text-xs text-muted-foreground">
+                  Link this task to a piece of equipment to track it in that equipment's service history.
+                </p>
+              </div>
+            )}
 
             <div className="space-y-2">
               <Label>Location (optional)</Label>

@@ -5510,6 +5510,21 @@ export async function registerRoutes(app: Express): Promise<Server> {
     res.json({ success: true });
   });
 
+  // Get main tickets linked to this equipment (Shop to-do tickets)
+  app.get("/api/equipment/:id/linked-tickets", async (req, res) => {
+    if (!req.isAuthenticated()) {
+      return res.status(401).send("Not authenticated");
+    }
+    const user = req.user as UserWithContext;
+    
+    if (!canAccessEquipment(user.activeRole)) {
+      return res.status(403).send("Insufficient permissions");
+    }
+    
+    const linkedTickets = await storage.getTicketsByEquipmentId(req.params.id, user.activeCompanyId);
+    res.json(linkedTickets);
+  });
+
   // Equipment Files - Get files for equipment
   app.get("/api/equipment/:equipmentId/files", async (req, res) => {
     if (!req.isAuthenticated()) {
