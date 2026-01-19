@@ -555,7 +555,7 @@ export type TicketSourceType = "manual" | "contract_service";
 export type TicketServiceType = "mowing" | "pet_station" | "chemical" | "shrub_trimming" | "ornamental_grass" | "aeration" | "cleanups" | "tree_pruning";
 
 // Work Type - classifies what kind of work the ticket represents (billing-driven)
-export type WorkType = "contract" | "extra_work" | "project" | "admin" | "estimate_request";
+export type WorkType = "contract" | "extra_work" | "project" | "admin" | "estimate_request" | "shop_todo";
 
 // Billing Behavior - determines how the ticket affects invoicing
 export type BillingBehavior = "no_invoice" | "invoice_required" | "internal";
@@ -589,6 +589,7 @@ export const tickets = pgTable("tickets", {
   estimateNumber: text("estimate_number"), // QuickBooks estimate number
   workCompletedDate: timestamp("work_completed_date"), // Date work was completed (for billing reference)
   invoiceCategory: text("invoice_category").$type<"general_maintenance" | "snow">(), // Category for invoice tickets to determine which rates to display
+  equipmentId: varchar("equipment_id"), // Optional link to equipment for Shop to-do tickets (FK added via migration)
   createdById: varchar("created_by_id").notNull().references(() => users.id, { onDelete: "cascade" }),
   createdAt: timestamp("created_at").notNull().defaultNow(),
   updatedAt: timestamp("updated_at").notNull().defaultNow(),
@@ -602,7 +603,7 @@ export const insertTicketSchema = createInsertSchema(tickets).omit({
   priority: z.enum(["low", "normal", "high", "urgent"]).default("normal"),
   contractId: z.string().nullable().optional(),
   serviceType: z.enum(["mowing", "pet_station", "chemical", "shrub_trimming", "ornamental_grass", "aeration", "cleanups", "tree_pruning"]).nullable().optional(),
-  workType: z.enum(["contract", "extra_work", "project", "admin", "estimate_request"]).default("contract"),
+  workType: z.enum(["contract", "extra_work", "project", "admin", "estimate_request", "shop_todo"]).default("contract"),
   billingBehavior: z.enum(["no_invoice", "invoice_required", "internal"]).default("no_invoice"),
   locationLat: z.number().nullable().optional(),
   locationLng: z.number().nullable().optional(),
@@ -616,6 +617,7 @@ export const insertTicketSchema = createInsertSchema(tickets).omit({
   estimateNumber: z.string().nullable().optional(), // QuickBooks estimate number
   workCompletedDate: z.coerce.date().nullable().optional(), // Date work was completed (for billing reference)
   invoiceCategory: z.enum(["general_maintenance", "snow"]).nullable().optional(), // Category for invoice tickets
+  equipmentId: z.string().nullable().optional(), // Optional link to equipment for Shop to-do tickets
 });
 
 export type InsertTicket = z.infer<typeof insertTicketSchema>;

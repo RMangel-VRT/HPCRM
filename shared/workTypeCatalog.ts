@@ -62,6 +62,16 @@ export const WORK_TYPE_CATALOG: Record<WorkType, WorkTypeDefinition> = {
     color: "#8b5cf6",
     badgeVariant: "outline",
   },
+  shop_todo: {
+    type: "shop_todo",
+    name: "Shop To-Do",
+    description: "Shop maintenance tasks - can be linked to equipment",
+    billingBehavior: "internal",
+    billingLabel: "Internal - Shop",
+    icon: "wrench",
+    color: "#78716c",
+    badgeVariant: "outline",
+  },
 };
 
 export const BILLING_BEHAVIOR_LABELS: Record<BillingBehavior, string> = {
