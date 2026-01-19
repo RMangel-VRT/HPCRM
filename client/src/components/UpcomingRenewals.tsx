@@ -35,6 +35,14 @@ export default function UpcomingRenewals() {
     return "secondary";
   };
 
+  const formatServiceType = (serviceType: string) => {
+    return serviceType
+      .replace(/_/g, " ")
+      .split(" ")
+      .map(word => word.charAt(0).toUpperCase() + word.slice(1).toLowerCase())
+      .join(" ");
+  };
+
   const RenewalItem = ({ renewal, showDetails = false }: { renewal: UpcomingRenewal; showDetails?: boolean }) => (
     <Link
       href={`/dashboard/customers/${renewal.customerId}`}
@@ -49,10 +57,12 @@ export default function UpcomingRenewals() {
           <p className="text-xs text-muted-foreground truncate mt-0.5" data-testid={`text-service-type-${renewal.contractId}`}>
             {showDetails ? (
               <>
-                {renewal.serviceType.replace(/_/g, " ")} • {format(new Date(renewal.endDate), "MMM d, yyyy")}
+                {formatServiceType(renewal.serviceType)} • {format(new Date(renewal.endDate), "MMM d, yyyy")}
               </>
             ) : (
-              format(new Date(renewal.endDate), "MMM d")
+              <>
+                {formatServiceType(renewal.serviceType)} • {format(new Date(renewal.endDate), "MMM d")}
+              </>
             )}
           </p>
         </div>
