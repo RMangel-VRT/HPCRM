@@ -164,6 +164,7 @@ export default function BatchTicketDialog({
       dueDate: string | null;
       priority: string;
       workType: string;
+      invoiceCategory: "general_maintenance" | "snow" | null;
     }) => {
       const res = await apiRequest("POST", "/api/tickets/batch", data);
       return res.json() as Promise<BatchResult>;
