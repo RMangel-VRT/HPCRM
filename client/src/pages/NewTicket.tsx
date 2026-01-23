@@ -334,14 +334,14 @@ export default function NewTicket() {
         description: description || null,
         priority,
         assignedToId: assignedToId,
-        dueDate: dueDate ? new Date(dueDate) : null,
+        dueDate: dueDate ? new Date(dueDate + "T12:00:00") : null,
         locationLat: locationLat,
         locationLng: locationLng,
         locationLabel: locationLabel || null,
         locationDescription: locationDescription || null,
         photos: !isRFPRequest && photos.length > 0 ? photos.map(p => p.path) : null,
         // Invoice-specific fields
-        workCompletedDate: isInvoice && workCompletedDate ? new Date(workCompletedDate) : null,
+        workCompletedDate: isInvoice && workCompletedDate ? new Date(workCompletedDate + "T12:00:00") : null,
         invoiceCategory: isInvoice ? invoiceCategory : null,
         // RFP-specific fields to be saved after ticket creation
         initialFieldValues: isRFPRequest ? {

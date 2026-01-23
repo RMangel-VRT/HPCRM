@@ -596,8 +596,8 @@ export default function TicketDetail() {
       title: editForm.title,
       description: editForm.description || null,
       priority: editForm.priority,
-      dueDate: editForm.dueDate ? new Date(editForm.dueDate) : null,
-      workCompletedDate: editForm.workCompletedDate ? new Date(editForm.workCompletedDate) : null,
+      dueDate: editForm.dueDate ? new Date(editForm.dueDate + "T12:00:00") : null,
+      workCompletedDate: editForm.workCompletedDate ? new Date(editForm.workCompletedDate + "T12:00:00") : null,
       invoiceCategory: editForm.invoiceCategory,
     };
     editTicketMutation.mutate(updates);
