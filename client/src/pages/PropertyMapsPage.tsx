@@ -63,7 +63,11 @@ function CustomerMapManager({ customerId, customerName, onClose }: { customerId:
   const { toast } = useToast();
   const [activeTab, setActiveTab] = useState<"view" | "edit">("view");
   
-  const canEdit = user?.activeRole === "admin" || user?.activeRole === "office" || user?.activeRole === "mapping";
+  // Only mapping users get the special tabbed interface
+  const isMappingUser = user?.activeRole === "mapping";
+  // canEdit controls whether edit actions (delete, upload) are shown within the interface
+  // Both admin and mapping can edit when they have access to the edit interface
+  const canEdit = user?.activeRole === "admin" || user?.activeRole === "mapping";
   const [uploadingLayer, setUploadingLayer] = useState(false);
   const [showUploadDialog, setShowUploadDialog] = useState(false);
   const [selectedCategory, setSelectedCategory] = useState<"base" | "community" | "snow" | "custom">("community");
@@ -255,6 +259,20 @@ function CustomerMapManager({ customerId, customerName, onClose }: { customerId:
     )
   );
 
+  // For non-mapping users, show full-screen map view only (no tabs, no edit)
+  if (!isMappingUser) {
+    return (
+      <div className="fixed inset-0 z-50 bg-background">
+        <LayerMapViewer
+          customerId={customerId}
+          fullScreen={true}
+          onClose={onClose}
+        />
+      </div>
+    );
+  }
+
+  // For mapping users only, show the tabbed interface with view and edit capabilities
   return (
     <div className="fixed inset-0 z-50 bg-background flex flex-col">
       <div className="flex items-center justify-between p-4 border-b gap-2">
