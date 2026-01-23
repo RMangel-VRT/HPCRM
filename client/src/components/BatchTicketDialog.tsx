@@ -84,6 +84,8 @@ export default function BatchTicketDialog({
   const [dueDate, setDueDate] = useState<Date | undefined>(undefined);
   const [dueDateOpen, setDueDateOpen] = useState(false);
   const [invoiceCategory, setInvoiceCategory] = useState<"general_maintenance" | "snow" | null>(null);
+  const [workCompletedDate, setWorkCompletedDate] = useState<Date | undefined>(undefined);
+  const [workCompletedDateOpen, setWorkCompletedDateOpen] = useState(false);
   
   // Customer selection state
   const [selectedCustomerIds, setSelectedCustomerIds] = useState<Set<string>>(new Set());
@@ -165,6 +167,7 @@ export default function BatchTicketDialog({
       priority: string;
       workType: string;
       invoiceCategory: "general_maintenance" | "snow" | null;
+      workCompletedDate: string | null;
     }) => {
       const res = await apiRequest("POST", "/api/tickets/batch", data);
       return res.json() as Promise<BatchResult>;
@@ -202,6 +205,8 @@ export default function BatchTicketDialog({
     setAssignedToId(null);
     setDueDate(undefined);
     setInvoiceCategory(null);
+    setWorkCompletedDate(undefined);
+    setWorkCompletedDateOpen(false);
     setSelectedCustomerIds(new Set());
     setCustomerSearch("");
     onOpenChange(false);
@@ -271,6 +276,7 @@ export default function BatchTicketDialog({
       priority: "normal",
       workType: "admin",
       invoiceCategory: ticketTypeName === "Invoice" ? invoiceCategory : null,
+      workCompletedDate: ticketTypeName === "Invoice" && workCompletedDate ? format(workCompletedDate, "yyyy-MM-dd") : null,
     });
   };
 
@@ -358,6 +364,38 @@ export default function BatchTicketDialog({
                 </Select>
                 <p className="text-xs text-muted-foreground">
                   Determines which rates from the customer rate sheet will be displayed
+                </p>
+              </div>
+            )}
+
+            {ticketTypeName === "Invoice" && (
+              <div className="space-y-2">
+                <Label>Work Completed Date</Label>
+                <Popover open={workCompletedDateOpen} onOpenChange={setWorkCompletedDateOpen}>
+                  <PopoverTrigger asChild>
+                    <Button
+                      variant="outline"
+                      className="w-full justify-start text-left font-normal"
+                      data-testid="button-batch-work-completed-date"
+                    >
+                      <CalendarIcon className="mr-2 h-4 w-4" />
+                      {workCompletedDate ? format(workCompletedDate, "PPP") : "Select date"}
+                    </Button>
+                  </PopoverTrigger>
+                  <PopoverContent className="w-auto p-0" align="start">
+                    <Calendar
+                      mode="single"
+                      selected={workCompletedDate}
+                      onSelect={(date) => {
+                        setWorkCompletedDate(date);
+                        setWorkCompletedDateOpen(false);
+                      }}
+                      initialFocus
+                    />
+                  </PopoverContent>
+                </Popover>
+                <p className="text-xs text-muted-foreground">
+                  The date the work was completed for billing reference
                 </p>
               </div>
             )}
