@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo } from "react";
+import { useState, useEffect, useMemo, useRef, useCallback } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { useSetBreadcrumbs } from "@/hooks/use-breadcrumbs";
 import { Button } from "@/components/ui/button";
@@ -24,7 +24,7 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { Plus, Search, ChevronRight, ChevronLeft, Clock, User as UserIcon, MapPin, CalendarDays, Filter, Loader2, Trash2, X, Layers } from "lucide-react";
-import { Link } from "wouter";
+import { Link, useSearch } from "wouter";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import type { Ticket, TicketType, TicketTypeStatus, Customer, WorkType, User as UserType, CompanyUser } from "@shared/schema";
 import { WORK_TYPE_CATALOG } from "@shared/workTypeCatalog";
@@ -47,16 +47,41 @@ interface TicketWithDetails extends Ticket {
 }
 
 
+const SCROLL_STORAGE_KEY = "ticketsList_scrollPosition";
+
 export default function TicketsList() {
   const { user } = useAuth();
   const { toast } = useToast();
-  const [search, setSearch] = useState("");
-  const [priorityFilter, setPriorityFilter] = useState("all");
-  const [typeFilter, setTypeFilter] = useState("all");
-  const [workTypeFilter, setWorkTypeFilter] = useState("all");
-  const [statusFilter, setStatusFilter] = useState("all");
+  const searchString = useSearch();
+  const hasRestoredScroll = useRef(false);
+  const isUpdatingFromUrl = useRef(false);
+  
+  // Parse URL params for filter state
+  const urlParams = useMemo(() => new URLSearchParams(searchString), [searchString]);
+  
+  const [search, setSearch] = useState(urlParams.get("q") || "");
+  const [priorityFilter, setPriorityFilter] = useState(urlParams.get("priority") || "all");
+  const [typeFilter, setTypeFilter] = useState(urlParams.get("type") || "all");
+  const [workTypeFilter, setWorkTypeFilter] = useState(urlParams.get("workType") || "all");
+  const [statusFilter, setStatusFilter] = useState(urlParams.get("status") || "all");
   const [showFilters, setShowFilters] = useState(false);
-  const [showNeedsScheduling, setShowNeedsScheduling] = useState(false);
+  const [showNeedsScheduling, setShowNeedsScheduling] = useState(urlParams.get("needsScheduling") === "true");
+  
+  // Sync state from URL when URL changes (e.g., browser back/forward)
+  const prevSearchString = useRef(searchString);
+  useEffect(() => {
+    // Only sync if URL actually changed (not from our own updates)
+    if (prevSearchString.current === searchString) return;
+    prevSearchString.current = searchString;
+    
+    isUpdatingFromUrl.current = true;
+    setSearch(urlParams.get("q") || "");
+    setPriorityFilter(urlParams.get("priority") || "all");
+    setTypeFilter(urlParams.get("type") || "all");
+    setWorkTypeFilter(urlParams.get("workType") || "all");
+    setStatusFilter(urlParams.get("status") || "all");
+    setShowNeedsScheduling(urlParams.get("needsScheduling") === "true");
+  }, [searchString, urlParams]);
   const [completedPage, setCompletedPage] = useState(1);
   const completedPerPage = 10;
   const [batchToDoOpen, setBatchToDoOpen] = useState(false);
@@ -66,6 +91,46 @@ export default function TicketsList() {
   const [selectedTicketIds, setSelectedTicketIds] = useState<Set<string>>(new Set());
   const [selectionMode, setSelectionMode] = useState(false);
   const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
+
+  // Update URL when filters change (but skip if we're syncing from URL or URL already matches)
+  useEffect(() => {
+    if (isUpdatingFromUrl.current) {
+      isUpdatingFromUrl.current = false;
+      return;
+    }
+    
+    const params = new URLSearchParams();
+    if (search) params.set("q", search);
+    if (priorityFilter !== "all") params.set("priority", priorityFilter);
+    if (typeFilter !== "all") params.set("type", typeFilter);
+    if (workTypeFilter !== "all") params.set("workType", workTypeFilter);
+    if (statusFilter !== "all") params.set("status", statusFilter);
+    if (showNeedsScheduling) params.set("needsScheduling", "true");
+    
+    const queryString = params.toString();
+    const currentQuery = searchString.startsWith("?") ? searchString.slice(1) : searchString;
+    
+    // Only update if the computed query differs from current URL
+    if (queryString === currentQuery) return;
+    
+    const newUrl = queryString ? `/dashboard/tickets?${queryString}` : "/dashboard/tickets";
+    prevSearchString.current = queryString ? `?${queryString}` : "";
+    
+    // Use replace to avoid adding to browser history on every keystroke
+    window.history.replaceState(null, "", newUrl);
+  }, [search, priorityFilter, typeFilter, workTypeFilter, statusFilter, showNeedsScheduling, searchString]);
+
+  // Save scroll position before navigating away
+  const saveScrollPosition = useCallback(() => {
+    const scrollContainer = document.querySelector('[data-radix-scroll-area-viewport]') || 
+                           document.querySelector('main') ||
+                           window;
+    const scrollTop = scrollContainer === window 
+      ? window.scrollY 
+      : (scrollContainer as HTMLElement).scrollTop;
+    sessionStorage.setItem(SCROLL_STORAGE_KEY, String(scrollTop));
+  }, []);
+
 
   useSetBreadcrumbs([
     { label: "Tickets" },
@@ -77,17 +142,45 @@ export default function TicketsList() {
     queryKey: ["/api/tickets"],
   });
 
-  const { data: ticketTypes = [] } = useQuery<TicketType[]>({
+  const { data: ticketTypes = [], isLoading: ticketTypesLoading } = useQuery<TicketType[]>({
     queryKey: ["/api/ticket-types"],
   });
 
-  const { data: customers = [] } = useQuery<Customer[]>({
+  const { data: customers = [], isLoading: customersLoading } = useQuery<Customer[]>({
     queryKey: ["/api/customers"],
   });
 
   const { data: companyUsersData = [] } = useQuery<CompanyUserWithDetails[]>({
     queryKey: ["/api/companies/users"],
   });
+
+  // Restore scroll position after all required data loads
+  const isDataLoaded = !ticketsLoading && !ticketTypesLoading && !customersLoading && tickets.length >= 0;
+  useEffect(() => {
+    if (!isDataLoaded || hasRestoredScroll.current) return;
+    
+    const savedPosition = sessionStorage.getItem(SCROLL_STORAGE_KEY);
+    if (savedPosition) {
+      hasRestoredScroll.current = true;
+      const scrollTop = parseInt(savedPosition, 10);
+      // Use double requestAnimationFrame to ensure DOM has rendered with data
+      requestAnimationFrame(() => {
+        requestAnimationFrame(() => {
+          const scrollContainer = document.querySelector('[data-radix-scroll-area-viewport]') || 
+                                 document.querySelector('main');
+          if (scrollContainer) {
+            (scrollContainer as HTMLElement).scrollTop = scrollTop;
+          } else {
+            window.scrollTo(0, scrollTop);
+          }
+        });
+      });
+      // Clear stored position after restoring
+      sessionStorage.removeItem(SCROLL_STORAGE_KEY);
+    } else {
+      hasRestoredScroll.current = true;
+    }
+  }, [isDataLoaded]);
 
   // Create a lookup map for users by ID (extract user from companyUser structure)
   const usersMap = useMemo(() => {
@@ -509,6 +602,7 @@ export default function TicketsList() {
                     selectionMode={selectionMode}
                     isSelected={selectedTicketIds.has(ticket.id)}
                     onToggleSelect={() => toggleTicketSelection(ticket.id)}
+                    onNavigate={saveScrollPosition}
                   />
                 ))}
               </div>
@@ -535,6 +629,7 @@ export default function TicketsList() {
                       selectionMode={selectionMode}
                       isSelected={selectedTicketIds.has(ticket.id)}
                       onToggleSelect={() => toggleTicketSelection(ticket.id)}
+                      onNavigate={saveScrollPosition}
                     />
                   ))}
                 </div>
@@ -626,9 +721,10 @@ interface TicketCardProps {
   selectionMode?: boolean;
   isSelected?: boolean;
   onToggleSelect?: () => void;
+  onNavigate?: () => void;
 }
 
-function TicketCard({ ticket, formatDueDate, usersMap, selectionMode, isSelected, onToggleSelect }: TicketCardProps) {
+function TicketCard({ ticket, formatDueDate, usersMap, selectionMode, isSelected, onToggleSelect, onNavigate }: TicketCardProps) {
   const dueInfo = formatDueDate(ticket.dueDate);
   
   // Bar color: green for completed, ticket type color for open tickets
@@ -786,7 +882,7 @@ function TicketCard({ ticket, formatDueDate, usersMap, selectionMode, isSelected
   }
 
   return (
-    <Link href={`/dashboard/tickets/${ticket.id}`}>
+    <Link href={`/dashboard/tickets/${ticket.id}`} onClick={() => onNavigate?.()}>
       {cardInner}
     </Link>
   );
