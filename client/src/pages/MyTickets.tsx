@@ -11,7 +11,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Badge } from "@/components/ui/badge";
-import { Search, ChevronRight, ChevronLeft, Clock, User, MapPin, CalendarDays, Filter, Loader2, CheckCircle2, RefreshCw } from "lucide-react";
+import { Search, ChevronRight, ChevronLeft, ChevronDown, Clock, User, MapPin, CalendarDays, Filter, Loader2, CheckCircle2, RefreshCw } from "lucide-react";
 import { Link, useSearch } from "wouter";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import type { Ticket, TicketType, TicketTypeStatus, Customer, WorkType } from "@shared/schema";
@@ -43,9 +43,14 @@ export default function MyTickets() {
   const [search, setSearch] = useState(() => urlParams.get("q") || "");
   const [priorityFilter, setPriorityFilter] = useState(() => urlParams.get("priority") || "all");
   const [workTypeFilter, setWorkTypeFilter] = useState(() => urlParams.get("workType") || "all");
+  const [typeFilter, setTypeFilter] = useState(() => urlParams.get("type") || "all");
   const [showFilters, setShowFilters] = useState(false);
   const [completedPage, setCompletedPage] = useState(1);
   const completedPerPage = 10;
+  
+  // Collapsible section states
+  const [openSectionCollapsed, setOpenSectionCollapsed] = useState(false);
+  const [completedSectionCollapsed, setCompletedSectionCollapsed] = useState(false);
 
   // Sync state from URL when URL changes (e.g., browser back/forward)
   useEffect(() => {
@@ -56,6 +61,7 @@ export default function MyTickets() {
     setSearch(urlParams.get("q") || "");
     setPriorityFilter(urlParams.get("priority") || "all");
     setWorkTypeFilter(urlParams.get("workType") || "all");
+    setTypeFilter(urlParams.get("type") || "all");
   }, [searchString, urlParams]);
 
   // Update URL when filters change
@@ -69,6 +75,7 @@ export default function MyTickets() {
     if (search) params.set("q", search);
     if (priorityFilter !== "all") params.set("priority", priorityFilter);
     if (workTypeFilter !== "all") params.set("workType", workTypeFilter);
+    if (typeFilter !== "all") params.set("type", typeFilter);
     
     const queryString = params.toString();
     const currentQuery = searchString.startsWith("?") ? searchString.slice(1) : searchString;
@@ -80,7 +87,7 @@ export default function MyTickets() {
     prevSearchString.current = queryString ? `?${queryString}` : "";
     
     window.history.replaceState(null, "", newUrl);
-  }, [search, priorityFilter, workTypeFilter, searchString]);
+  }, [search, priorityFilter, workTypeFilter, typeFilter, searchString]);
 
   // Save scroll position before navigating away
   const saveScrollPosition = useCallback(() => {
@@ -162,13 +169,24 @@ export default function MyTickets() {
     customer: customers.find(c => c.id === ticket.customerId),
   }));
 
+  // Calculate active filter count
+  const activeFilterCount = useMemo(() => {
+    let count = 0;
+    if (search) count++;
+    if (priorityFilter !== "all") count++;
+    if (workTypeFilter !== "all") count++;
+    if (typeFilter !== "all") count++;
+    return count;
+  }, [search, priorityFilter, workTypeFilter, typeFilter]);
+
   const filteredTickets = enrichedTickets.filter((ticket) => {
     const matchesSearch =
       ticket.title.toLowerCase().includes(search.toLowerCase()) ||
       ticket.customer?.name?.toLowerCase().includes(search.toLowerCase()) || false;
     const matchesPriority = priorityFilter === "all" || ticket.priority === priorityFilter;
     const matchesWorkType = workTypeFilter === "all" || ticket.workType === workTypeFilter;
-    return matchesSearch && matchesPriority && matchesWorkType;
+    const matchesType = typeFilter === "all" || ticket.ticketTypeId === typeFilter;
+    return matchesSearch && matchesPriority && matchesWorkType && matchesType;
   });
 
   const openTickets = filteredTickets.filter(t => !t.completedAt);
@@ -177,7 +195,7 @@ export default function MyTickets() {
   // Reset completed page when filters change
   useEffect(() => {
     setCompletedPage(1);
-  }, [search, priorityFilter, workTypeFilter]);
+  }, [search, priorityFilter, workTypeFilter, typeFilter]);
   
   // Clamp page when data changes (e.g., after refetch)
   useEffect(() => {
@@ -248,12 +266,16 @@ export default function MyTickets() {
         </Button>
         <Button 
           variant="outline" 
-          size="icon" 
-          className="h-11 w-11 shrink-0"
+          className="h-11 shrink-0 gap-2"
           onClick={() => setShowFilters(!showFilters)}
           data-testid="button-toggle-filters-my"
         >
           <Filter className="w-4 h-4" />
+          {activeFilterCount > 0 && (
+            <Badge variant="secondary" className="bg-primary text-primary-foreground">
+              {activeFilterCount}
+            </Badge>
+          )}
         </Button>
       </div>
 
@@ -269,6 +291,18 @@ export default function MyTickets() {
               <SelectItem value="high">High</SelectItem>
               <SelectItem value="normal">Normal</SelectItem>
               <SelectItem value="low">Low</SelectItem>
+            </SelectContent>
+          </Select>
+
+          <Select value={typeFilter} onValueChange={setTypeFilter}>
+            <SelectTrigger className="w-[140px] h-10" data-testid="select-type-filter-my">
+              <SelectValue placeholder="Ticket Type" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">All Types</SelectItem>
+              {ticketTypes.map(tt => (
+                <SelectItem key={tt.id} value={tt.id}>{tt.name}</SelectItem>
+              ))}
             </SelectContent>
           </Select>
 
@@ -297,7 +331,7 @@ export default function MyTickets() {
             </div>
             <h3 className="text-lg font-medium mb-1">No tickets assigned to you</h3>
             <p className="text-sm text-muted-foreground mb-4 max-w-sm">
-              {search || priorityFilter !== "all" || workTypeFilter !== "all"
+              {search || priorityFilter !== "all" || workTypeFilter !== "all" || typeFilter !== "all"
                 ? "Try adjusting your search or filters."
                 : "You don't have any tickets assigned to you yet."}
             </p>
@@ -307,14 +341,21 @@ export default function MyTickets() {
         <div className="space-y-4">
           {openTickets.length > 0 && (
             <div className="space-y-3 md:space-y-2">
-              <h2 className="text-sm font-medium text-muted-foreground px-1">
+              <button 
+                className="flex items-center gap-2 text-sm font-medium text-muted-foreground px-1 hover:text-foreground transition-colors w-full text-left"
+                onClick={() => setOpenSectionCollapsed(!openSectionCollapsed)}
+                data-testid="button-toggle-open-section-my"
+              >
+                {openSectionCollapsed ? <ChevronRight className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
                 Open ({openTickets.length})
-              </h2>
-              <div className="space-y-3 md:space-y-2">
-                {openTickets.map((ticket) => (
-                  <TicketCard key={ticket.id} ticket={ticket} formatDueDate={formatDueDate} onNavigate={saveScrollPosition} />
-                ))}
-              </div>
+              </button>
+              {!openSectionCollapsed && (
+                <div className="space-y-3 md:space-y-2">
+                  {openTickets.map((ticket) => (
+                    <TicketCard key={ticket.id} ticket={ticket} formatDueDate={formatDueDate} onNavigate={saveScrollPosition} />
+                  ))}
+                </div>
+              )}
             </div>
           )}
 
@@ -325,40 +366,49 @@ export default function MyTickets() {
             
             return (
               <div className="space-y-3 md:space-y-2 mt-6">
-                <h2 className="text-sm font-medium text-muted-foreground px-1">
+                <button 
+                  className="flex items-center gap-2 text-sm font-medium text-muted-foreground px-1 hover:text-foreground transition-colors w-full text-left"
+                  onClick={() => setCompletedSectionCollapsed(!completedSectionCollapsed)}
+                  data-testid="button-toggle-completed-section-my"
+                >
+                  {completedSectionCollapsed ? <ChevronRight className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
                   Completed ({completedTickets.length})
-                </h2>
-                <div className="space-y-3 md:space-y-2 opacity-75">
-                  {paginatedCompleted.map((ticket) => (
-                    <TicketCard key={ticket.id} ticket={ticket} formatDueDate={formatDueDate} onNavigate={saveScrollPosition} />
-                  ))}
-                </div>
-                {totalPages > 1 && (
-                  <div className="flex items-center justify-center gap-4 pt-3">
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      onClick={() => setCompletedPage(p => Math.max(1, p - 1))}
-                      disabled={completedPage === 1}
-                      data-testid="button-my-completed-prev"
-                    >
-                      <ChevronLeft className="w-4 h-4 mr-1" />
-                      Previous
-                    </Button>
-                    <span className="text-sm text-muted-foreground">
-                      Page {completedPage} of {totalPages}
-                    </span>
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      onClick={() => setCompletedPage(p => Math.min(totalPages, p + 1))}
-                      disabled={completedPage === totalPages}
-                      data-testid="button-my-completed-next"
-                    >
-                      Next
-                      <ChevronRight className="w-4 h-4 ml-1" />
-                    </Button>
-                  </div>
+                </button>
+                {!completedSectionCollapsed && (
+                  <>
+                    <div className="space-y-3 md:space-y-2 opacity-75">
+                      {paginatedCompleted.map((ticket) => (
+                        <TicketCard key={ticket.id} ticket={ticket} formatDueDate={formatDueDate} onNavigate={saveScrollPosition} />
+                      ))}
+                    </div>
+                    {totalPages > 1 && (
+                      <div className="flex items-center justify-center gap-4 pt-3">
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() => setCompletedPage(p => Math.max(1, p - 1))}
+                          disabled={completedPage === 1}
+                          data-testid="button-my-completed-prev"
+                        >
+                          <ChevronLeft className="w-4 h-4 mr-1" />
+                          Previous
+                        </Button>
+                        <span className="text-sm text-muted-foreground">
+                          Page {completedPage} of {totalPages}
+                        </span>
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() => setCompletedPage(p => Math.min(totalPages, p + 1))}
+                          disabled={completedPage === totalPages}
+                          data-testid="button-my-completed-next"
+                        >
+                          Next
+                          <ChevronRight className="w-4 h-4 ml-1" />
+                        </Button>
+                      </div>
+                    )}
+                  </>
                 )}
               </div>
             );

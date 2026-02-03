@@ -23,7 +23,7 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
-import { Plus, Search, ChevronRight, ChevronLeft, Clock, User as UserIcon, MapPin, CalendarDays, Filter, Loader2, Trash2, X, Layers } from "lucide-react";
+import { Plus, Search, ChevronRight, ChevronLeft, ChevronDown, ChevronUp, Clock, User as UserIcon, MapPin, CalendarDays, Filter, Loader2, Trash2, X, Layers } from "lucide-react";
 import { Link, useSearch } from "wouter";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import type { Ticket, TicketType, TicketTypeStatus, Customer, WorkType, User as UserType, CompanyUser } from "@shared/schema";
@@ -64,8 +64,13 @@ export default function TicketsList() {
   const [typeFilter, setTypeFilter] = useState(urlParams.get("type") || "all");
   const [workTypeFilter, setWorkTypeFilter] = useState(urlParams.get("workType") || "all");
   const [statusFilter, setStatusFilter] = useState(urlParams.get("status") || "all");
+  const [assignedToFilter, setAssignedToFilter] = useState(urlParams.get("assignedTo") || "all");
   const [showFilters, setShowFilters] = useState(false);
   const [showNeedsScheduling, setShowNeedsScheduling] = useState(urlParams.get("needsScheduling") === "true");
+  
+  // Collapsible section states
+  const [openSectionCollapsed, setOpenSectionCollapsed] = useState(false);
+  const [completedSectionCollapsed, setCompletedSectionCollapsed] = useState(false);
   
   // Sync state from URL when URL changes (e.g., browser back/forward)
   const prevSearchString = useRef(searchString);
@@ -80,6 +85,7 @@ export default function TicketsList() {
     setTypeFilter(urlParams.get("type") || "all");
     setWorkTypeFilter(urlParams.get("workType") || "all");
     setStatusFilter(urlParams.get("status") || "all");
+    setAssignedToFilter(urlParams.get("assignedTo") || "all");
     setShowNeedsScheduling(urlParams.get("needsScheduling") === "true");
   }, [searchString, urlParams]);
   const [completedPage, setCompletedPage] = useState(1);
@@ -105,6 +111,7 @@ export default function TicketsList() {
     if (typeFilter !== "all") params.set("type", typeFilter);
     if (workTypeFilter !== "all") params.set("workType", workTypeFilter);
     if (statusFilter !== "all") params.set("status", statusFilter);
+    if (assignedToFilter !== "all") params.set("assignedTo", assignedToFilter);
     if (showNeedsScheduling) params.set("needsScheduling", "true");
     
     const queryString = params.toString();
@@ -118,7 +125,7 @@ export default function TicketsList() {
     
     // Use replace to avoid adding to browser history on every keystroke
     window.history.replaceState(null, "", newUrl);
-  }, [search, priorityFilter, typeFilter, workTypeFilter, statusFilter, showNeedsScheduling, searchString]);
+  }, [search, priorityFilter, typeFilter, workTypeFilter, statusFilter, assignedToFilter, showNeedsScheduling, searchString]);
 
   // Save scroll position before navigating away
   const saveScrollPosition = useCallback(() => {
@@ -220,6 +227,19 @@ export default function TicketsList() {
     customer: customers.find(c => c.id === ticket.customerId),
   }));
 
+  // Calculate active filter count
+  const activeFilterCount = useMemo(() => {
+    let count = 0;
+    if (search) count++;
+    if (priorityFilter !== "all") count++;
+    if (typeFilter !== "all") count++;
+    if (workTypeFilter !== "all") count++;
+    if (statusFilter !== "all") count++;
+    if (assignedToFilter !== "all") count++;
+    if (showNeedsScheduling) count++;
+    return count;
+  }, [search, priorityFilter, typeFilter, workTypeFilter, statusFilter, assignedToFilter, showNeedsScheduling]);
+
   const filteredTickets = enrichedTickets.filter((ticket) => {
     const matchesSearch =
       ticket.title.toLowerCase().includes(search.toLowerCase()) ||
@@ -228,12 +248,13 @@ export default function TicketsList() {
     const matchesType = typeFilter === "all" || ticket.ticketTypeId === typeFilter;
     const matchesWorkType = workTypeFilter === "all" || ticket.workType === workTypeFilter;
     const matchesStatus = statusFilter === "all" || ticket.currentStatusId === statusFilter;
+    const matchesAssignedTo = assignedToFilter === "all" || ticket.assignedToId === assignedToFilter;
     
     // Quick filter for "Ready to Schedule" tickets
     const matchesNeedsScheduling = !showNeedsScheduling || 
       (ticket.currentStatus?.name === "Ready to Schedule" && ticket.ticketType?.name === "Project");
     
-    return matchesSearch && matchesPriority && matchesType && matchesWorkType && matchesStatus && matchesNeedsScheduling;
+    return matchesSearch && matchesPriority && matchesType && matchesWorkType && matchesStatus && matchesAssignedTo && matchesNeedsScheduling;
   });
   
   // Get statuses for currently selected ticket type
@@ -247,7 +268,7 @@ export default function TicketsList() {
   // Reset completed page when filters change
   useEffect(() => {
     setCompletedPage(1);
-  }, [search, priorityFilter, typeFilter, workTypeFilter, statusFilter, showNeedsScheduling]);
+  }, [search, priorityFilter, typeFilter, workTypeFilter, statusFilter, assignedToFilter, showNeedsScheduling]);
   
   // Count of tickets needing scheduling (for badge display)
   const needsSchedulingCount = enrichedTickets.filter(
@@ -427,12 +448,16 @@ export default function TicketsList() {
         </div>
         <Button 
           variant="outline" 
-          size="icon" 
-          className="h-11 w-11 shrink-0"
+          className="h-11 shrink-0 gap-2"
           onClick={() => setShowFilters(!showFilters)}
           data-testid="button-toggle-filters"
         >
           <Filter className="w-4 h-4" />
+          {activeFilterCount > 0 && (
+            <Badge variant="secondary" className="bg-primary text-primary-foreground">
+              {activeFilterCount}
+            </Badge>
+          )}
         </Button>
         
         {/* Quick filter for Ready to Schedule tickets */}
@@ -511,6 +536,19 @@ export default function TicketsList() {
               </SelectContent>
             </Select>
           )}
+
+          {/* Assigned To filter */}
+          <Select value={assignedToFilter} onValueChange={setAssignedToFilter}>
+            <SelectTrigger className="w-[160px] h-10" data-testid="select-assignedto-filter">
+              <SelectValue placeholder="Assigned To" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">All Users</SelectItem>
+              {Array.from(usersMap.values()).map((u) => (
+                <SelectItem key={u.id} value={u.id}>{u.name || u.email}</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
         </div>
       )}
 
@@ -589,38 +627,17 @@ export default function TicketsList() {
 
           {openTickets.length > 0 && (
             <div className="space-y-3 md:space-y-2">
-              <h2 className="text-sm font-medium text-muted-foreground px-1">
+              <button 
+                className="flex items-center gap-2 text-sm font-medium text-muted-foreground px-1 hover:text-foreground transition-colors w-full text-left"
+                onClick={() => setOpenSectionCollapsed(!openSectionCollapsed)}
+                data-testid="button-toggle-open-section"
+              >
+                {openSectionCollapsed ? <ChevronRight className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
                 Open ({openTickets.length})
-              </h2>
-              <div className="space-y-3 md:space-y-2">
-                {openTickets.map((ticket) => (
-                  <TicketCard 
-                    key={ticket.id} 
-                    ticket={ticket} 
-                    formatDueDate={formatDueDate}
-                    usersMap={usersMap}
-                    selectionMode={selectionMode}
-                    isSelected={selectedTicketIds.has(ticket.id)}
-                    onToggleSelect={() => toggleTicketSelection(ticket.id)}
-                    onNavigate={saveScrollPosition}
-                  />
-                ))}
-              </div>
-            </div>
-          )}
-
-          {completedTickets.length > 0 && (() => {
-            const totalPages = Math.ceil(completedTickets.length / completedPerPage);
-            const startIdx = (completedPage - 1) * completedPerPage;
-            const paginatedCompleted = completedTickets.slice(startIdx, startIdx + completedPerPage);
-            
-            return (
-              <div className="space-y-3 md:space-y-2 mt-6">
-                <h2 className="text-sm font-medium text-muted-foreground px-1">
-                  Completed ({completedTickets.length})
-                </h2>
-                <div className="space-y-3 md:space-y-2 opacity-75">
-                  {paginatedCompleted.map((ticket) => (
+              </button>
+              {!openSectionCollapsed && (
+                <div className="space-y-3 md:space-y-2">
+                  {openTickets.map((ticket) => (
                     <TicketCard 
                       key={ticket.id} 
                       ticket={ticket} 
@@ -633,32 +650,69 @@ export default function TicketsList() {
                     />
                   ))}
                 </div>
-                {totalPages > 1 && (
-                  <div className="flex items-center justify-center gap-4 pt-3">
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      onClick={() => setCompletedPage(p => Math.max(1, p - 1))}
-                      disabled={completedPage === 1}
-                      data-testid="button-completed-prev"
-                    >
-                      <ChevronLeft className="w-4 h-4 mr-1" />
-                      Previous
-                    </Button>
-                    <span className="text-sm text-muted-foreground">
-                      Page {completedPage} of {totalPages}
-                    </span>
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      onClick={() => setCompletedPage(p => Math.min(totalPages, p + 1))}
-                      disabled={completedPage === totalPages}
-                      data-testid="button-completed-next"
-                    >
-                      Next
-                      <ChevronRight className="w-4 h-4 ml-1" />
-                    </Button>
-                  </div>
+              )}
+            </div>
+          )}
+
+          {completedTickets.length > 0 && (() => {
+            const totalPages = Math.ceil(completedTickets.length / completedPerPage);
+            const startIdx = (completedPage - 1) * completedPerPage;
+            const paginatedCompleted = completedTickets.slice(startIdx, startIdx + completedPerPage);
+            
+            return (
+              <div className="space-y-3 md:space-y-2 mt-6">
+                <button 
+                  className="flex items-center gap-2 text-sm font-medium text-muted-foreground px-1 hover:text-foreground transition-colors w-full text-left"
+                  onClick={() => setCompletedSectionCollapsed(!completedSectionCollapsed)}
+                  data-testid="button-toggle-completed-section"
+                >
+                  {completedSectionCollapsed ? <ChevronRight className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
+                  Completed ({completedTickets.length})
+                </button>
+                {!completedSectionCollapsed && (
+                  <>
+                    <div className="space-y-3 md:space-y-2 opacity-75">
+                      {paginatedCompleted.map((ticket) => (
+                        <TicketCard 
+                          key={ticket.id} 
+                          ticket={ticket} 
+                          formatDueDate={formatDueDate}
+                          usersMap={usersMap}
+                          selectionMode={selectionMode}
+                          isSelected={selectedTicketIds.has(ticket.id)}
+                          onToggleSelect={() => toggleTicketSelection(ticket.id)}
+                          onNavigate={saveScrollPosition}
+                        />
+                      ))}
+                    </div>
+                    {totalPages > 1 && (
+                      <div className="flex items-center justify-center gap-4 pt-3">
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() => setCompletedPage(p => Math.max(1, p - 1))}
+                          disabled={completedPage === 1}
+                          data-testid="button-completed-prev"
+                        >
+                          <ChevronLeft className="w-4 h-4 mr-1" />
+                          Previous
+                        </Button>
+                        <span className="text-sm text-muted-foreground">
+                          Page {completedPage} of {totalPages}
+                        </span>
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() => setCompletedPage(p => Math.min(totalPages, p + 1))}
+                          disabled={completedPage === totalPages}
+                          data-testid="button-completed-next"
+                        >
+                          Next
+                          <ChevronRight className="w-4 h-4 ml-1" />
+                        </Button>
+                      </div>
+                    )}
+                  </>
                 )}
               </div>
             );
