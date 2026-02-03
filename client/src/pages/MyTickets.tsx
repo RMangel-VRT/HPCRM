@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef, useCallback, useMemo } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -12,11 +12,13 @@ import {
 } from "@/components/ui/select";
 import { Badge } from "@/components/ui/badge";
 import { Search, ChevronRight, ChevronLeft, Clock, User, MapPin, CalendarDays, Filter, Loader2, CheckCircle2, RefreshCw } from "lucide-react";
-import { Link } from "wouter";
+import { Link, useSearch } from "wouter";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import type { Ticket, TicketType, TicketTypeStatus, Customer, WorkType } from "@shared/schema";
 import { WORK_TYPE_CATALOG } from "@shared/workTypeCatalog";
 import { useAuth } from "@/hooks/use-auth";
+
+const MY_TICKETS_SCROLL_STORAGE_KEY = "myTicketsScrollPosition";
 
 interface TicketWithDetails extends Ticket {
   ticketType?: TicketType;
@@ -27,12 +29,66 @@ interface TicketWithDetails extends Ticket {
 
 export default function MyTickets() {
   const { user } = useAuth();
-  const [search, setSearch] = useState("");
-  const [priorityFilter, setPriorityFilter] = useState("all");
-  const [workTypeFilter, setWorkTypeFilter] = useState("all");
+  
+  // URL query params for filter persistence
+  const searchString = useSearch();
+  const urlParams = useMemo(() => new URLSearchParams(searchString), [searchString]);
+  
+  // Refs for scroll restoration and URL sync
+  const hasRestoredScroll = useRef(false);
+  const isUpdatingFromUrl = useRef(false);
+  const prevSearchString = useRef(searchString);
+  
+  // Initialize filter state from URL params
+  const [search, setSearch] = useState(() => urlParams.get("q") || "");
+  const [priorityFilter, setPriorityFilter] = useState(() => urlParams.get("priority") || "all");
+  const [workTypeFilter, setWorkTypeFilter] = useState(() => urlParams.get("workType") || "all");
   const [showFilters, setShowFilters] = useState(false);
   const [completedPage, setCompletedPage] = useState(1);
   const completedPerPage = 10;
+
+  // Sync state from URL when URL changes (e.g., browser back/forward)
+  useEffect(() => {
+    if (prevSearchString.current === searchString) return;
+    prevSearchString.current = searchString;
+    
+    isUpdatingFromUrl.current = true;
+    setSearch(urlParams.get("q") || "");
+    setPriorityFilter(urlParams.get("priority") || "all");
+    setWorkTypeFilter(urlParams.get("workType") || "all");
+  }, [searchString, urlParams]);
+
+  // Update URL when filters change
+  useEffect(() => {
+    if (isUpdatingFromUrl.current) {
+      isUpdatingFromUrl.current = false;
+      return;
+    }
+    
+    const params = new URLSearchParams();
+    if (search) params.set("q", search);
+    if (priorityFilter !== "all") params.set("priority", priorityFilter);
+    if (workTypeFilter !== "all") params.set("workType", workTypeFilter);
+    
+    const queryString = params.toString();
+    const currentQuery = searchString.startsWith("?") ? searchString.slice(1) : searchString;
+    
+    // Only update if the computed query differs from current URL
+    if (queryString === currentQuery) return;
+    
+    const newUrl = queryString ? `/dashboard/my-tickets?${queryString}` : "/dashboard/my-tickets";
+    prevSearchString.current = queryString ? `?${queryString}` : "";
+    
+    window.history.replaceState(null, "", newUrl);
+  }, [search, priorityFilter, workTypeFilter, searchString]);
+
+  // Save scroll position before navigating away
+  const saveScrollPosition = useCallback(() => {
+    const scrollContainer = document.querySelector('[data-radix-scroll-area-viewport]') || 
+                           document.querySelector('main');
+    const scrollTop = scrollContainer ? (scrollContainer as HTMLElement).scrollTop : window.scrollY;
+    sessionStorage.setItem(MY_TICKETS_SCROLL_STORAGE_KEY, scrollTop.toString());
+  }, []);
 
   const { data: tickets = [], isLoading: ticketsLoading, refetch, isFetching } = useQuery<Ticket[]>({
     queryKey: ["/api/tickets/my", { userId: user?.id }],
@@ -45,12 +101,12 @@ export default function MyTickets() {
     staleTime: 0,
   });
 
-  const { data: ticketTypes = [] } = useQuery<TicketType[]>({
+  const { data: ticketTypes = [], isLoading: ticketTypesLoading } = useQuery<TicketType[]>({
     queryKey: ["/api/ticket-types"],
     refetchOnMount: "always",
   });
 
-  const { data: customers = [] } = useQuery<Customer[]>({
+  const { data: customers = [], isLoading: customersLoading } = useQuery<Customer[]>({
     queryKey: ["/api/customers"],
     refetchOnMount: "always",
   });
@@ -70,6 +126,34 @@ export default function MyTickets() {
     enabled: ticketTypes.length > 0,
     refetchOnMount: "always",
   });
+
+  // Restore scroll position after all required data loads
+  const isDataLoaded = !ticketsLoading && !ticketTypesLoading && !customersLoading;
+  useEffect(() => {
+    if (!isDataLoaded || hasRestoredScroll.current) return;
+    
+    const savedPosition = sessionStorage.getItem(MY_TICKETS_SCROLL_STORAGE_KEY);
+    if (savedPosition) {
+      hasRestoredScroll.current = true;
+      const scrollTop = parseInt(savedPosition, 10);
+      // Use double requestAnimationFrame to ensure DOM has rendered with data
+      requestAnimationFrame(() => {
+        requestAnimationFrame(() => {
+          const scrollContainer = document.querySelector('[data-radix-scroll-area-viewport]') || 
+                                 document.querySelector('main');
+          if (scrollContainer) {
+            (scrollContainer as HTMLElement).scrollTop = scrollTop;
+          } else {
+            window.scrollTo(0, scrollTop);
+          }
+        });
+      });
+      // Clear stored position after restoring
+      sessionStorage.removeItem(MY_TICKETS_SCROLL_STORAGE_KEY);
+    } else {
+      hasRestoredScroll.current = true;
+    }
+  }, [isDataLoaded]);
 
   const enrichedTickets: TicketWithDetails[] = tickets.map(ticket => ({
     ...ticket,
@@ -228,7 +312,7 @@ export default function MyTickets() {
               </h2>
               <div className="space-y-3 md:space-y-2">
                 {openTickets.map((ticket) => (
-                  <TicketCard key={ticket.id} ticket={ticket} formatDueDate={formatDueDate} />
+                  <TicketCard key={ticket.id} ticket={ticket} formatDueDate={formatDueDate} onNavigate={saveScrollPosition} />
                 ))}
               </div>
             </div>
@@ -246,7 +330,7 @@ export default function MyTickets() {
                 </h2>
                 <div className="space-y-3 md:space-y-2 opacity-75">
                   {paginatedCompleted.map((ticket) => (
-                    <TicketCard key={ticket.id} ticket={ticket} formatDueDate={formatDueDate} />
+                    <TicketCard key={ticket.id} ticket={ticket} formatDueDate={formatDueDate} onNavigate={saveScrollPosition} />
                   ))}
                 </div>
                 {totalPages > 1 && (
@@ -288,9 +372,10 @@ export default function MyTickets() {
 interface TicketCardProps {
   ticket: TicketWithDetails;
   formatDueDate: (date: Date | null | undefined) => { text: string; className: string } | null;
+  onNavigate?: () => void;
 }
 
-function TicketCard({ ticket, formatDueDate }: TicketCardProps) {
+function TicketCard({ ticket, formatDueDate, onNavigate }: TicketCardProps) {
   const dueInfo = formatDueDate(ticket.dueDate);
   
   // Bar color: green for completed, ticket type color for open tickets
@@ -303,7 +388,7 @@ function TicketCard({ ticket, formatDueDate }: TicketCardProps) {
                           ticket.ticketType?.name === "Project";
 
   return (
-    <Link href={`/dashboard/tickets/${ticket.id}`}>
+    <Link href={`/dashboard/tickets/${ticket.id}`} onClick={onNavigate}>
       <Card 
         className={`hover-elevate active-elevate-2 cursor-pointer transition-colors ${needsScheduling ? "ring-2 ring-pink-500 dark:ring-pink-400 animate-pulse" : ""}`}
         data-testid={`card-my-ticket-${ticket.id}`}
