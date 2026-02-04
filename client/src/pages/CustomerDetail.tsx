@@ -47,6 +47,7 @@ import ContractServices from "@/components/ContractServices";
 import ScheduleSummary from "@/components/ScheduleSummary";
 import LayerMapViewer from "@/components/LayerMapViewer";
 import CustomerSchedulingSection from "@/components/CustomerSchedulingSection";
+import TicketListView from "@/components/TicketListView";
 
 interface ContractCardProps {
   contract: Contract;
@@ -2008,93 +2009,14 @@ export default function CustomerDetail() {
         </TabsContent>
 
         <TabsContent value="tickets" className="space-y-4">
-          {isLoadingTickets ? (
-            <div className="space-y-3">
-              {[1, 2, 3].map((i) => (
-                <Skeleton key={i} className="h-20 w-full" />
-              ))}
-            </div>
-          ) : tickets.length === 0 ? (
-            <Card>
-              <CardContent className="flex items-center justify-center p-12">
-                <div className="text-center">
-                  <TicketIcon className="w-12 h-12 mx-auto text-muted-foreground mb-3" />
-                  <p className="text-sm text-muted-foreground">No tickets for this customer</p>
-                  {(user?.activeRole === "admin" || user?.activeRole === "office") && (
-                    <Button 
-                      variant="outline" 
-                      className="mt-4"
-                      onClick={() => navigate(`/dashboard/tickets/new?customerId=${customer.id}`)}
-                      data-testid="button-create-first-ticket"
-                    >
-                      <Plus className="w-4 h-4 mr-2" />
-                      Create First Ticket
-                    </Button>
-                  )}
-                </div>
-              </CardContent>
-            </Card>
-          ) : (
-            <div className="space-y-3">
-              {tickets.map((ticket) => (
-                <Card 
-                  key={ticket.id} 
-                  className="cursor-pointer hover-elevate"
-                  onClick={() => navigate(`/dashboard/tickets/${ticket.id}`)}
-                  data-testid={`card-ticket-${ticket.id}`}
-                >
-                  <CardContent className="p-4">
-                    <div className="flex items-start justify-between gap-4">
-                      <div className="flex-1 min-w-0">
-                        <div className="flex items-center gap-2 mb-1">
-                          <h4 className="font-medium truncate" data-testid={`text-ticket-title-${ticket.id}`}>
-                            {ticket.title}
-                          </h4>
-                          <Badge 
-                            variant={
-                              ticket.status === "completed" || ticket.status === "closed" 
-                                ? "secondary" 
-                                : ticket.status === "in_progress" 
-                                  ? "default" 
-                                  : "outline"
-                            }
-                            data-testid={`badge-ticket-status-${ticket.id}`}
-                          >
-                            {(ticket.status || "pending").replace(/_/g, " ")}
-                          </Badge>
-                        </div>
-                        {ticket.description && (
-                          <p className="text-sm text-muted-foreground line-clamp-2" data-testid={`text-ticket-description-${ticket.id}`}>
-                            {ticket.description}
-                          </p>
-                        )}
-                        <div className="flex items-center gap-4 mt-2 text-xs text-muted-foreground">
-                          {ticket.dueDate && (
-                            <div className="flex items-center gap-1">
-                              <Clock className="w-3 h-3" />
-                              <span>Due: {new Date(ticket.dueDate).toLocaleDateString()}</span>
-                            </div>
-                          )}
-                          {ticket.createdAt && (
-                            <div className="flex items-center gap-1">
-                              <span>Created: {new Date(ticket.createdAt).toLocaleDateString()}</span>
-                            </div>
-                          )}
-                        </div>
-                      </div>
-                      <div className="flex items-center">
-                        {ticket.status === "completed" || ticket.status === "closed" ? (
-                          <CheckCircle2 className="w-5 h-5 text-green-500" />
-                        ) : ticket.priority === "high" || ticket.priority === "urgent" ? (
-                          <AlertCircle className="w-5 h-5 text-destructive" />
-                        ) : null}
-                      </div>
-                    </div>
-                  </CardContent>
-                </Card>
-              ))}
-            </div>
-          )}
+          <TicketListView 
+            customerId={customer.id}
+            showHeader={false}
+            showCustomerColumn={false}
+            showBatchActions={false}
+            showQuickAdd={false}
+            showNewTicketButton={true}
+          />
         </TabsContent>
 
         {(user?.activeRole === "admin" || user?.activeRole === "office") && (
