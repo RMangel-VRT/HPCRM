@@ -839,7 +839,7 @@ function TicketCard({ ticket, formatDueDate, usersMap, schedulingStatusId, selec
           />
           
           <div className="flex-1 min-w-0">
-            {/* Row 1: Ticket type (colored text) + needs scheduling indicator */}
+            {/* Row 1: Ticket type (colored text) + overdue + needs scheduling indicator */}
             <div className="flex items-center gap-2 flex-wrap">
               {ticket.ticketType && (
                 <span 
@@ -849,6 +849,15 @@ function TicketCard({ ticket, formatDueDate, usersMap, schedulingStatusId, selec
                 >
                   {ticket.ticketType.name}
                 </span>
+              )}
+              {dueInfo?.text === "Overdue" && (
+                <Badge 
+                  variant="destructive"
+                  className="text-xs font-semibold"
+                  data-testid={`badge-overdue-${ticket.id}`}
+                >
+                  Overdue
+                </Badge>
               )}
               {needsScheduling && (
                 <Badge 
@@ -987,7 +996,7 @@ function TicketCard({ ticket, formatDueDate, usersMap, schedulingStatusId, selec
                     {ticket.currentStatus.name}
                   </Badge>
                 )}
-                {dueInfo && (
+                {dueInfo && dueInfo.text !== "Overdue" && (
                   <span className={`text-xs flex items-center gap-1 ${dueInfo.className}`}>
                     <CalendarDays className="w-3 h-3" />
                     {dueInfo.text}
