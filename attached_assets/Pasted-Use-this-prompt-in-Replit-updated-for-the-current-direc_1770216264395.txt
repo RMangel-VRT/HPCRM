@@ -1,0 +1,143 @@
+Use this prompt in Replit (updated for the current direction: scheduling is a WORKFLOW STEP; no Execution Task; no first-use creation)
+
+We have completed STEP 0 verification. Treat the facts below as correct and do NOT re-verify unless needed to implement.
+
+✅ Verified DB tables:
+- ticket_types (id varchar, company_id, name, description, category, icon, color, is_active)
+- ticket_type_statuses (id varchar, ticket_type_id FK, name, description, display_order, color, is_final)
+- ticket_type_fields (id, ticket_type_id, status_id, field_key, field_label, field_type, is_required)
+
+✅ Verified Work Types are code-only:
+- shared/schema.ts: WorkType union currently has 6 values
+- shared/workTypeCatalog.ts: currently defines 6 work types
+⚠️ UI shows 8 options, so union/catalog must match UI exactly.
+
+✅ Verified workflow “ensure” helpers exist in server/routes.ts:
+- ensureInvoiceTicketType (2)
+- ensureRFPRequestTicketType (18)
+- ensureProjectTicketType (8)
+- ensureExecutionTaskTicketType (3)
+- ensureToDoTicketType (2)
+
+Important decision updates (DO NOT IGNORE):
+1) Scheduling is a WORKFLOW STEP for some ticket types (e.g., a status like “Needs Scheduling” / “Ready to Schedule”).
+   - It is NOT a toggle/choice field.
+   - The choice is made by selecting the ticket type (workflow template).
+2) We do NOT want “Execution Task” in the system at all (remove the concept).
+   - Do not seed it, do not create it, do not show it, remove code references.
+   - Confirm no Execution Task ticket types or tickets exist in DB; this is code cleanup only.
+3) Ticket types must not be created on first-use. We want pre-seeded deterministic workflows per company.
+
+========================================================
+GOAL
+Make the system consistent, deterministic, and enforceable:
+- All required ticket types + statuses exist in DB before any user creates tickets.
+- Work Types shown in UI match WorkType union + workTypeCatalog (no phantom options).
+- Every Work Type maps to exactly one Ticket Type (workflow template).
+- Status transitions are validated against the ticket type workflow.
+- Scheduling lists are derived ONLY from canonical scheduling workflow status for the applicable ticket types.
+
+HARD REQUIREMENTS
+- Use idempotent seeds/upserts (safe multiple runs, no duplicates).
+- Seed per company_id only (no global ticket types).
+- No breaking changes to existing tickets.
+- Provide exact file paths changed and exact commands to run.
+- No guesses: pull status definitions from existing ensure* code or existing DB rows.
+
+========================================================
+STEP 1 — Pre-seed ticket types + statuses per company (remove first-use creation)
+Implement a function seedAllTicketTypes(companyId) (or seedTicketTypesForCompany) that ensures these ticket types exist in DB for the company:
+
+Ticket Types to guarantee exist:
+1) Project (existing)
+2) Invoice (existing)
+3) To-Do (existing)
+4) RFP Request (currently code-defined; must be seeded)
+
+Implementation rules:
+- Upsert ticket_types by (company_id, name). Update description/category/icon/color/is_active to match source-of-truth.
+- Upsert statuses by (ticket_type_id, name). Enforce display_order, is_final, description, color.
+- If an extra status exists, do NOT delete automatically; log warning.
+
+Lifecycle hook:
+- Call seeding at company creation (preferred) OR on server startup for all companies (acceptable), but MUST be guaranteed BEFORE any ticket creation.
+
+IMPORTANT:
+- Remove reliance on ensureXTicketType() being called from ticket wizard.
+- ensure* helpers may remain but must delegate to seeding/upsert logic or become no-ops if already seeded.
+
+========================================================
+STEP 2 — Remove Execution Task (code cleanup, not DB)
+- Remove ensureExecutionTaskTicketType() and any endpoints/UI/actions that reference “Execution Task”.
+- Add a server-side guardrail that rejects any attempt to create a ticket type named “Execution Task”.
+- Repo-wide: no active references to “Execution Task” or “execution_task”.
+
+========================================================
+STEP 3 — Make UI Work Types match WorkType union + catalog
+- Update WorkType union to include the missing UI options:
+  "rfp_request" and "invoice"
+- Update shared/workTypeCatalog.ts to include these two work types with correct labels/icons/behavior.
+- Ensure UI work type picker is sourced from the catalog (no hardcoded special cases).
+
+Backward compatibility:
+- If any existing tickets used workType="admin" but were intended to be RFP, add safe compatibility handling (do NOT misclassify blindly).
+
+========================================================
+STEP 4 — Explicit WorkType → TicketType mapping + guardrails
+Implement a single mapping function or mapping object (server-side) that covers every WorkType:
+
+WorkType → TicketType baseline mapping:
+- contract -> To-Do
+- admin -> To-Do
+- shop_todo -> To-Do
+- extra_work -> Invoice
+- invoice -> Invoice
+- project -> Project
+- estimate_request -> Project
+- rfp_request -> RFP Request
+
+Guardrails:
+A) Ticket creation:
+- Resolve ticket type via mapping.
+- Fetch ticket_types row for (company_id + mapped name). If missing, throw clear error and instruct to seed.
+- Set initial status to the first status in that ticket type workflow.
+B) Status update:
+- Reject if requested status_id is not in ticket_type_statuses for that ticket’s ticket_type_id.
+
+========================================================
+STEP 5 — Scheduling as workflow status (canonical)
+- Scheduling is derived ONLY from a canonical workflow status step (choose ONE canonical name and use it everywhere):
+  Either “Needs Scheduling” or “Ready to Schedule” (pick the one already in the Project workflow, do not invent a new one unless required).
+- Ensure that canonical scheduling status exists in the workflows of ticket types that require scheduling (at minimum Project).
+- Scheduling pages/lists must show tickets whose current_status_id equals the canonical scheduling status_id (not boolean flags; not string contains).
+- Remove any competing “scheduling indicator” logic elsewhere.
+
+========================================================
+VALIDATION / PROOF REQUIRED
+1) System of Record dump AFTER fix:
+- ticket_types for a sample company_id
+- ticket_type_statuses for each seeded ticket type (ordered)
+- WorkType → TicketType mapping table
+
+2) Commands to run in Replit:
+- migration (if any)
+- seed execution steps (or logs showing seed ran at company creation)
+- verification SQL queries proving ticket types exist for company
+
+3) One test or runtime assertion proof:
+- Creating ticket with workType="rfp_request" assigns ticket type “RFP Request”
+- Attempting to set status_id outside the workflow is rejected
+- Scheduling list membership is driven by current_status_id == canonical scheduling status_id
+
+DO NOT DO
+- Do not reintroduce “Execution Task”
+- Do not keep first-use ticket type creation
+- Do not add phantom UI work types not in union/catalog
+- Do not implement scheduling as a toggle/boolean
+- Do not guess statuses; use existing definitions and seed them
+
+Start with Step 1 (seeding) and Step 2 (Execution Task removal), then proceed.
+Return a concise implementation report:
+- files changed + what changed
+- commands to run
+- proof output (queries/logs)
