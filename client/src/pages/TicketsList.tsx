@@ -905,46 +905,58 @@ function TicketCard({ ticket, formatDueDate, usersMap, schedulingStatusId, selec
                 {workflowStatuses.length > 0 && ticket.currentStatus && (() => {
                   const currentIndex = workflowStatuses.findIndex(s => s.id === ticket.currentStatusId);
                   return (
-                    <div className="flex items-center gap-2" data-testid={`workflow-progress-${ticket.id}`}>
-                      <div className="flex items-center gap-1">
-                        {workflowStatuses.map((status, index) => {
-                          const isCompleted = index < currentIndex;
-                          const isCurrent = index === currentIndex;
-                          
-                          return (
-                            <Tooltip key={status.id}>
-                              <TooltipTrigger asChild>
-                                <div
-                                  className={`w-2.5 h-2.5 rounded-full cursor-default transition-all ${
-                                    isCompleted 
-                                      ? "bg-green-500 dark:bg-green-400" 
-                                      : isCurrent 
-                                        ? "bg-primary ring-2 ring-primary/30 scale-110" 
+                    <div className="flex items-center" data-testid={`workflow-progress-${ticket.id}`}>
+                      {workflowStatuses.map((status, index) => {
+                        const isCompleted = index < currentIndex;
+                        const isCurrent = index === currentIndex;
+                        const isFirst = index === 0;
+                        
+                        return (
+                          <div key={status.id} className="flex items-center">
+                            {/* Connector line before (except for first element) */}
+                            {!isFirst && (
+                              <div 
+                                className={`w-2 h-0.5 ${
+                                  isCompleted || isCurrent
+                                    ? "bg-green-500 dark:bg-green-400" 
+                                    : "bg-muted-foreground/30 dark:bg-muted-foreground/20"
+                                }`}
+                              />
+                            )}
+                            
+                            {/* Current step shows badge, others show bubble */}
+                            {isCurrent ? (
+                              <Badge 
+                                variant="outline" 
+                                className="text-xs mx-0.5"
+                                style={{ borderColor: status.color || undefined }}
+                                data-testid={`badge-current-status-${ticket.id}`}
+                              >
+                                {status.name}
+                              </Badge>
+                            ) : (
+                              <Tooltip>
+                                <TooltipTrigger asChild>
+                                  <div
+                                    className={`w-2.5 h-2.5 rounded-full cursor-default transition-all shrink-0 ${
+                                      isCompleted 
+                                        ? "bg-green-500 dark:bg-green-400" 
                                         : "bg-muted-foreground/30 dark:bg-muted-foreground/20"
-                                  }`}
-                                  style={isCurrent && status.color ? { backgroundColor: status.color, boxShadow: `0 0 0 3px ${status.color}30` } : undefined}
-                                  data-testid={`bubble-status-${status.id}`}
-                                />
-                              </TooltipTrigger>
-                              <TooltipContent side="top" className="text-xs">
-                                <span className={isCompleted ? "text-green-600 dark:text-green-400" : isCurrent ? "font-semibold" : "text-muted-foreground"}>
-                                  {status.name}
-                                  {isCompleted && " ✓"}
-                                  {isCurrent && " (current)"}
-                                </span>
-                              </TooltipContent>
-                            </Tooltip>
-                          );
-                        })}
-                      </div>
-                      <Badge 
-                        variant="outline" 
-                        className="text-xs"
-                        style={{ borderColor: ticket.currentStatus.color || undefined }}
-                        data-testid={`badge-current-status-${ticket.id}`}
-                      >
-                        {ticket.currentStatus.name}
-                      </Badge>
+                                    }`}
+                                    data-testid={`bubble-status-${status.id}`}
+                                  />
+                                </TooltipTrigger>
+                                <TooltipContent side="top" className="text-xs">
+                                  <span className={isCompleted ? "text-green-600 dark:text-green-400" : "text-muted-foreground"}>
+                                    {status.name}
+                                    {isCompleted && " ✓"}
+                                  </span>
+                                </TooltipContent>
+                              </Tooltip>
+                            )}
+                          </div>
+                        );
+                      })}
                     </div>
                   );
                 })()}
