@@ -1,0 +1,99 @@
+SYSTEM OF RECORD SUMMARY (what you previously reported)
+Architecture:
+- Hybrid (code seeds DB): DB stores ticket_types, ticket_type_statuses, ticket_type_fields, tickets.
+- Code defines workflow templates in server/routes.ts helper functions and creates ticket types/statuses on-demand.
+- Work Types (billing categories) are defined in code only: shared/workTypeCatalog.ts + shared/schema.ts (TypeScript union), not in DB.
+
+DB tables involved:
+- ticket_types (id, name, category, icon, color, active)
+- ticket_type_statuses (ticket_type_id, display_order, status label, is_final, color, etc)
+- ticket_type_fields (data captured per status)
+- tickets (workType + ticketTypeId)
+
+Current DB Ticket Types (3 exist):
+- Project
+- Invoice
+- To-Do
+
+Current workflows in DB:
+Project (8): New, Estimating, Estimate Sent, Decision Received, Work Completed, Ready for Billing, Invoicing (final), Closed - Lost (final)
+Invoice (2): Pending Invoice, Invoiced (final)
+To-Do (2): Open, Done (final)
+
+Code-defined workflow not in DB yet:
+- RFP Request (18 steps) defined in server/routes.ts (approx lines 89-303), created on-demand via ensureRFPRequestTicketType()
+
+Work Types in code catalog (6):
+contract, extra_work, project, admin, estimate_request, shop_todo
+
+UI shows 8 options; “RFP Request” and “Invoice” appear as UI options but are handled as special-case flags, not actual work types in the catalog.
+
+Mismatch explanation:
+- “RFP Request” UI option maps to admin work type and triggers ensureRFPRequestTicketType() on demand.
+- “Invoice” UI option triggers ensureInvoiceTicketType() special handling.
+
+Recommended fix:
+- Pre-seed ALL ticket types at company creation (at least: Project, Invoice, To-Do, RFP Request), not on first-use.
+- Add missing work types to the catalog: rfp_request, invoice (so UI matches catalog).
+- Make Work Type → Ticket Type mapping explicit and enforceable (table or single mapping object with validation).
+- Add guardrails so you cannot create a ticket where workType has no ticketType mapping, and cannot set a status not in that ticket type’s workflow.
+
+YOUR TASKS (do in order, with proofs)
+0) Verify the System of Record
+- Confirm the listed tables exist and match names/columns in our schema/migrations.
+- Confirm work types are code-only and show the exact union type + the catalog list in shared/workTypeCatalog.ts.
+- Confirm workflow helper functions exist in server/routes.ts and list the exact function names and file paths.
+- Print/return the exact DB query results for ticket_types and ticket_type_statuses showing current 3 ticket types and their statuses, in order (include IDs).
+- Locate the RFP Request workflow definition in code and show its steps list (no guessing).
+
+1) Remove “first-use creates ticket type” risk by pre-seeding
+Implement a startup/tenant provisioning approach so ticket types are always present BEFORE users create tickets.
+Choose the correct lifecycle hook based on our codebase:
+- If we have a “create company / tenant / org” endpoint, seed there.
+- Otherwise seed on server boot with an idempotent seeding function (safe to run many times).
+Requirements:
+- Seed at minimum: Project, Invoice, To-Do, RFP Request.
+- Insert/update ticket_types row + all ticket_type_statuses rows in correct display_order.
+- If ticket_type_fields exist for these types, seed them too or explicitly state none exist yet.
+- Idempotent: if types/statuses already exist, do not create duplicates; update differences safely.
+- Avoid destructive deletes unless necessary; prefer upsert logic.
+
+2) Make UI Work Types match the catalog
+- Add missing work types to the code catalog + union type: rfp_request and invoice
+- Ensure the UI work type picker uses the catalog as the source of truth (no special-case labels hardcoded).
+- If the UI must still show the same 8 options, keep the same display names but make them real work types.
+- Ensure any existing tickets created with “admin” for RFP can still be read; add a migration or compatibility mapping if needed.
+
+3) Make mapping explicit and enforceable
+Implement ONE clear mapping mechanism:
+Option A: A workType→ticketTypeName mapping object in shared/workTypeCatalog.ts (or server config), validated at runtime.
+Option B: A DB mapping table work_type_ticket_type_map (if we want admin-editability later).
+Pick one (prefer simplest that fits existing architecture).
+Requirements:
+- Every work type must map to a valid seeded ticket type.
+- Add runtime validation: on ticket creation, throw a clear error if mapping missing.
+- Add runtime validation: on status update, ensure status belongs to that ticket type’s workflow.
+
+4) End-to-end validation
+- Provide the exact steps to run locally in Replit to apply changes (migrate/seed).
+- Show output proving:
+  - ticket_types now includes RFP Request without needing first-use
+  - ticket_type_statuses includes all 18 RFP steps
+  - work type picker shows correct options derived from catalog
+  - creating each work type results in a ticket with correct ticketTypeId + statuses
+- Add at least one basic automated test OR a runtime assertion path that proves invalid workType or invalid status is rejected.
+
+DELIVERABLES
+A) A “System of Record” printed from the system AFTER the fix:
+- Ticket Types list (names + ids)
+- Workflow statuses per ticket type (ordered)
+- Work Type → Ticket Type mapping table (every work type)
+B) File changes: list file paths changed/added and the key code blocks.
+C) Commands to run: migration/seed + how to verify (queries or endpoint calls).
+
+CONSTRAINTS
+- Do NOT guess any data. If something isn’t in DB, create it explicitly via seed.
+- Keep naming consistent with UI and existing records.
+- Changes must be safe for production data (idempotent seeds, compatibility for existing tickets).
+
+Start by completing step 0 (verification) and print evidence, then proceed sequentially.

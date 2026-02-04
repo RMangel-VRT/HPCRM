@@ -1,0 +1,83 @@
+Yes — this plan is correct. Since there are ZERO Execution Task ticket types/tickets in the DB, we should do a pure code cleanup and standardize scheduling on needs_scheduling only.
+
+ACCEPTANCE CRITERIA (Definition of Done)
+A) There is no way (UI or API) to create or reference an “Execution Task” ticket type.
+B) Scheduling UX is powered ONLY by needs_scheduling:
+   - A ticket is “in the scheduling queue” iff needs_scheduling = true.
+   - Clearing needs_scheduling removes it from that queue.
+C) Ticket Types remain: Project, Invoice, To-Do, RFP Request (seeded / ensured as needed).
+D) Work Type list is canonical and consistent:
+   - UI shows the same work types as shared/workTypeCatalog.ts
+   - WorkType union includes rfp_request and invoice
+   - Mapping WorkType → TicketType is explicit and validated.
+E) App builds clean (TypeScript) and all routes compile; no dead imports, no unused state, no hidden references.
+
+IMPLEMENTATION PLAN
+
+1) Remove “Execution Task” entirely (no duplicates)
+server/routes.ts
+- Delete ensureExecutionTaskTicketType() (and any call sites).
+- Remove the 3 Execution Task API endpoints (and any client calls to them).
+- Search/replace: remove all strings “Execution Task”, “execution_task”, “ensureExecutionTaskTicketType”.
+- Add a server-side guardrail: if any request attempts to create a ticket_type with name “Execution Task”, reject with clear error (optional, but recommended).
+  (If we don’t have a generic create-ticket-type endpoint, skip.)
+
+client/src/pages/TicketDetail.tsx
+- Remove Execution Task prompt dialog, state, handlers, and any action buttons/menus that trigger it.
+- Ensure TicketDetail still supports:
+  - toggling needs_scheduling (if the UX exists here),
+  - normal status updates,
+  - normal work type selection behavior.
+
+2) Standardize scheduling behavior on needs_scheduling
+- Identify the single “Schedule / Needs Scheduling” toggle action.
+- Ensure that action only does:
+  - PATCH ticket.needs_scheduling = true/false
+- Remove any logic that creates secondary tickets or changes ticket type for scheduling.
+
+TicketsList.tsx + MyTickets.tsx
+- Confirm scheduling views/filters use needs_scheduling as the sole criterion.
+- If there is any “execution task” filter or label, rename to “Needs Scheduling”.
+
+3) Work Types: make UI match catalog + mapping
+shared/schema.ts
+- Update WorkType union to include: "rfp_request" and "invoice"
+
+shared/workTypeCatalog.ts
+- Add work types:
+  - rfp_request (Display: “RFP Request”)
+  - invoice (Display: “Invoice”)
+- Add/confirm a single mapping object:
+  WORK_TYPE_TO_TICKET_TYPE: Record<WorkType, "Project"|"Invoice"|"To-Do"|"RFP Request">
+  Example mapping:
+    contract -> "To-Do"
+    extra_work -> "Invoice"
+    project -> "Project"
+    admin -> "To-Do"
+    estimate_request -> "Project"
+    shop_todo -> "To-Do"
+    rfp_request -> "RFP Request"
+    invoice -> "Invoice"
+
+- Add runtime validation where tickets are created:
+  If mapping missing, throw error and do not create ticket.
+
+4) Ticket Types seeding (only what we actually use)
+- Ensure RFP Request ticket type is created deterministically (seed at company creation or on startup) rather than first-click.
+- We do NOT seed Execution Task at all.
+
+TESTS / PROOF (must provide)
+1) Repo-wide search for “Execution Task” returns 0 relevant occurrences (excluding git history).
+2) UI proof:
+   - TicketDetail has no Execution Task dialog/button.
+   - TicketsList and MyTickets show a “Needs Scheduling” filter/queue only.
+3) Behavior proof:
+   - Create a Project ticket, toggle needs_scheduling=true → it appears in scheduling queue
+   - Toggle needs_scheduling=false → it disappears
+   - No additional tickets are created by toggling needs_scheduling
+4) TypeScript compile succeeds and app runs.
+
+REPORT BACK WITH
+- List of files changed + brief summary per file
+- Exact commands to run (build/test)
+- Evidence screenshots or logs for the proof items above
