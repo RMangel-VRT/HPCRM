@@ -600,6 +600,33 @@ export async function seedAllTicketTypes(companyId: string): Promise<void> {
   console.log(`All ticket types seeded for company ${companyId}`);
 }
 
+// Startup migration: Ensure all companies have the "Ready to Schedule" status in their Project workflow
+// This is called at server startup to migrate existing companies that were created before this status was added
+export async function migrateProjectSchedulingStatus(): Promise<void> {
+  console.log("Running startup migration: Ensuring Ready to Schedule status exists for all companies...");
+  
+  try {
+    // Get all companies
+    const companies = await storage.getCompanies();
+    let migratedCount = 0;
+    
+    for (const company of companies) {
+      // Ensure Project ticket type has Ready to Schedule status
+      const result = await ensureProjectTicketType(company.id);
+      if (result) {
+        // Check if Ready to Schedule was just created by looking at the status map
+        if (result.statuses.has("Ready to Schedule")) {
+          migratedCount++;
+        }
+      }
+    }
+    
+    console.log(`Startup migration complete: Processed ${companies.length} companies, ensured Ready to Schedule status exists`);
+  } catch (error) {
+    console.error("Error during startup migration for scheduling status:", error);
+  }
+}
+
 export async function registerRoutes(app: Express): Promise<Server> {
   setupAuth(app);
 
@@ -2667,6 +2694,40 @@ export async function registerRoutes(app: Express): Promise<Server> {
     const user = req.user as UserWithContext;
     const ticketTypes = await storage.getTicketTypes(user.activeCompanyId);
     res.json(ticketTypes);
+  });
+
+  // Get the canonical scheduling status ID for this company
+  // Returns the "Ready to Schedule" status ID from the Project ticket type
+  // This is the single source of truth for scheduling queue membership
+  app.get("/api/scheduling-status", async (req, res) => {
+    if (!req.isAuthenticated()) {
+      return res.status(401).send("Not authenticated");
+    }
+
+    const user = req.user as UserWithContext;
+    
+    // Find the Project ticket type for this company
+    const ticketTypes = await storage.getTicketTypes(user.activeCompanyId);
+    const projectType = ticketTypes.find(t => t.name === "Project");
+    
+    if (!projectType) {
+      return res.json({ schedulingStatusId: null, message: "Project ticket type not found" });
+    }
+    
+    // Find the "Ready to Schedule" status in the Project workflow
+    const statuses = await storage.getTicketTypeStatuses(projectType.id);
+    const schedulingStatus = statuses.find(s => s.name === "Ready to Schedule");
+    
+    if (!schedulingStatus) {
+      return res.json({ schedulingStatusId: null, message: "Ready to Schedule status not found in Project workflow" });
+    }
+    
+    res.json({ 
+      schedulingStatusId: schedulingStatus.id,
+      statusName: schedulingStatus.name,
+      ticketTypeId: projectType.id,
+      ticketTypeName: projectType.name
+    });
   });
 
   // Initialize RFP Request ticket type for a company

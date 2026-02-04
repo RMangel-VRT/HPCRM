@@ -134,6 +134,17 @@ export default function MyTickets() {
     refetchOnMount: "always",
   });
 
+  // Fetch the canonical scheduling status ID (Project's "Ready to Schedule" status)
+  const { data: schedulingStatusData } = useQuery<{
+    schedulingStatusId: string | null;
+    statusName?: string;
+    ticketTypeId?: string;
+    ticketTypeName?: string;
+  }>({
+    queryKey: ["/api/scheduling-status"],
+  });
+  const schedulingStatusId = schedulingStatusData?.schedulingStatusId;
+
   // Restore scroll position after all required data loads
   const isDataLoaded = !ticketsLoading && !ticketTypesLoading && !customersLoading;
   useEffect(() => {
@@ -352,7 +363,7 @@ export default function MyTickets() {
               {!openSectionCollapsed && (
                 <div className="space-y-3 md:space-y-2">
                   {openTickets.map((ticket) => (
-                    <TicketCard key={ticket.id} ticket={ticket} formatDueDate={formatDueDate} onNavigate={saveScrollPosition} />
+                    <TicketCard key={ticket.id} ticket={ticket} formatDueDate={formatDueDate} schedulingStatusId={schedulingStatusId} onNavigate={saveScrollPosition} />
                   ))}
                 </div>
               )}
@@ -378,7 +389,7 @@ export default function MyTickets() {
                   <>
                     <div className="space-y-3 md:space-y-2 opacity-75">
                       {paginatedCompleted.map((ticket) => (
-                        <TicketCard key={ticket.id} ticket={ticket} formatDueDate={formatDueDate} onNavigate={saveScrollPosition} />
+                        <TicketCard key={ticket.id} ticket={ticket} formatDueDate={formatDueDate} schedulingStatusId={schedulingStatusId} onNavigate={saveScrollPosition} />
                       ))}
                     </div>
                     {totalPages > 1 && (
@@ -422,10 +433,11 @@ export default function MyTickets() {
 interface TicketCardProps {
   ticket: TicketWithDetails;
   formatDueDate: (date: Date | null | undefined) => { text: string; className: string } | null;
+  schedulingStatusId?: string | null;
   onNavigate?: () => void;
 }
 
-function TicketCard({ ticket, formatDueDate, onNavigate }: TicketCardProps) {
+function TicketCard({ ticket, formatDueDate, schedulingStatusId, onNavigate }: TicketCardProps) {
   const dueInfo = formatDueDate(ticket.dueDate);
   
   // Bar color: green for completed, ticket type color for open tickets
@@ -433,9 +445,8 @@ function TicketCard({ ticket, formatDueDate, onNavigate }: TicketCardProps) {
     ? "#22c55e" // green-500
     : (ticket.ticketType?.color || "#6b7280"); // gray-500 fallback
 
-  // Check if this ticket needs scheduling (Ready to Schedule status on Project tickets)
-  const needsScheduling = ticket.currentStatus?.name === "Ready to Schedule" && 
-                          ticket.ticketType?.name === "Project";
+  // Check if this ticket needs scheduling (ID-based: currentStatusId === schedulingStatusId)
+  const needsScheduling = schedulingStatusId && ticket.currentStatusId === schedulingStatusId;
 
   return (
     <Link href={`/dashboard/tickets/${ticket.id}`} onClick={onNavigate}>

@@ -161,6 +161,17 @@ export default function TicketsList() {
     queryKey: ["/api/companies/users"],
   });
 
+  // Fetch the canonical scheduling status ID (Project's "Ready to Schedule" status)
+  const { data: schedulingStatusData } = useQuery<{
+    schedulingStatusId: string | null;
+    statusName?: string;
+    ticketTypeId?: string;
+    ticketTypeName?: string;
+  }>({
+    queryKey: ["/api/scheduling-status"],
+  });
+  const schedulingStatusId = schedulingStatusData?.schedulingStatusId;
+
   // Restore scroll position after all required data loads
   const isDataLoaded = !ticketsLoading && !ticketTypesLoading && !customersLoading && tickets.length >= 0;
   useEffect(() => {
@@ -250,9 +261,9 @@ export default function TicketsList() {
     const matchesStatus = statusFilter === "all" || ticket.currentStatusId === statusFilter;
     const matchesAssignedTo = assignedToFilter === "all" || ticket.assignedToId === assignedToFilter;
     
-    // Quick filter for "Ready to Schedule" tickets
+    // Quick filter for scheduling queue (ID-based: currentStatusId === schedulingStatusId)
     const matchesNeedsScheduling = !showNeedsScheduling || 
-      (ticket.currentStatus?.name === "Ready to Schedule" && ticket.ticketType?.name === "Project");
+      (schedulingStatusId && ticket.currentStatusId === schedulingStatusId);
     
     return matchesSearch && matchesPriority && matchesType && matchesWorkType && matchesStatus && matchesAssignedTo && matchesNeedsScheduling;
   });
@@ -270,10 +281,10 @@ export default function TicketsList() {
     setCompletedPage(1);
   }, [search, priorityFilter, typeFilter, workTypeFilter, statusFilter, assignedToFilter, showNeedsScheduling]);
   
-  // Count of tickets needing scheduling (for badge display)
-  const needsSchedulingCount = enrichedTickets.filter(
-    t => t.currentStatus?.name === "Ready to Schedule" && t.ticketType?.name === "Project" && !t.completedAt
-  ).length;
+  // Count of tickets needing scheduling (for badge display) - ID-based matching
+  const needsSchedulingCount = schedulingStatusId 
+    ? enrichedTickets.filter(t => t.currentStatusId === schedulingStatusId && !t.completedAt).length
+    : 0;
   
   // Clamp page when data changes (e.g., after refetch)
   useEffect(() => {
@@ -643,6 +654,7 @@ export default function TicketsList() {
                       ticket={ticket} 
                       formatDueDate={formatDueDate}
                       usersMap={usersMap}
+                      schedulingStatusId={schedulingStatusId}
                       selectionMode={selectionMode}
                       isSelected={selectedTicketIds.has(ticket.id)}
                       onToggleSelect={() => toggleTicketSelection(ticket.id)}
@@ -678,6 +690,7 @@ export default function TicketsList() {
                           ticket={ticket} 
                           formatDueDate={formatDueDate}
                           usersMap={usersMap}
+                          schedulingStatusId={schedulingStatusId}
                           selectionMode={selectionMode}
                           isSelected={selectedTicketIds.has(ticket.id)}
                           onToggleSelect={() => toggleTicketSelection(ticket.id)}
@@ -772,13 +785,14 @@ interface TicketCardProps {
   ticket: TicketWithDetails;
   formatDueDate: (date: Date | null | undefined) => { text: string; className: string } | null;
   usersMap: Map<string, UserType>;
+  schedulingStatusId?: string | null;
   selectionMode?: boolean;
   isSelected?: boolean;
   onToggleSelect?: () => void;
   onNavigate?: () => void;
 }
 
-function TicketCard({ ticket, formatDueDate, usersMap, selectionMode, isSelected, onToggleSelect, onNavigate }: TicketCardProps) {
+function TicketCard({ ticket, formatDueDate, usersMap, schedulingStatusId, selectionMode, isSelected, onToggleSelect, onNavigate }: TicketCardProps) {
   const dueInfo = formatDueDate(ticket.dueDate);
   
   // Bar color: green for completed, ticket type color for open tickets
@@ -786,9 +800,8 @@ function TicketCard({ ticket, formatDueDate, usersMap, selectionMode, isSelected
     ? "#22c55e" // green-500
     : (ticket.ticketType?.color || "#6b7280"); // gray-500 fallback
 
-  // Check if this ticket needs scheduling (Ready to Schedule status on Project tickets)
-  const needsScheduling = ticket.currentStatus?.name === "Ready to Schedule" && 
-                          ticket.ticketType?.name === "Project";
+  // Check if this ticket needs scheduling (ID-based: currentStatusId === schedulingStatusId)
+  const needsScheduling = schedulingStatusId && ticket.currentStatusId === schedulingStatusId;
 
   const cardInner = (
     <Card 
