@@ -37,6 +37,11 @@ Shop To-Do is a special work type for internal shop maintenance tasks:
 - Can optionally link to equipment via `equipmentId` field for tracking maintenance history
 - Linked Shop To-Do tickets appear in the Equipment detail page's Tickets tab under "Shop To-Do Tasks" section
 
+Ticket List Views:
+- Main ticket list (`TicketsList.tsx`): Full-featured page with URL persistence for filters, scroll position restoration, and breadcrumb navigation
+- Reusable ticket list (`TicketListView.tsx`): Embeddable component for customer detail and other contexts with configurable props (customerId, showHeader, showCustomerColumn, showBatchActions, showQuickAdd, showNewTicketButton)
+- Customer ticket tab uses TicketListView with showHeader=false and showCustomerColumn=false for a streamlined view
+
 #### Weekly Schedule System
 A comprehensive scheduling system for assigning properties to crews. It uses a template-based approach with drag-and-drop functionality, crew capacity indicators, and a read-only viewer. Data is stored in `weekly_schedule_templates`, `maintenance_crews`, `maintenance_visit_configs`, and `schedule_blocks` tables.
 
