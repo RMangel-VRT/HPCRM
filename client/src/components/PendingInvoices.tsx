@@ -9,6 +9,7 @@ import type { Ticket, Customer } from "@shared/schema";
 interface PendingInvoice extends Ticket {
   customer: Customer | null;
   sourceTicket: Ticket | null;
+  ticketTypeName: string;
 }
 
 export default function PendingInvoices() {
@@ -97,7 +98,7 @@ export default function PendingInvoices() {
                     </p>
                   </div>
                   <Badge variant="outline" className="ml-2 shrink-0 border-amber-500 text-amber-500">
-                    Pending
+                    {invoice.ticketTypeName === "Invoice" ? "Pending" : "Ready to Bill"}
                   </Badge>
                 </div>
               </Link>

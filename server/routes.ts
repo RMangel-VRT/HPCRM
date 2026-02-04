@@ -4172,6 +4172,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Pending Invoices dashboard endpoint
+  // Returns tickets that need invoicing: Invoice tickets in "Pending Invoice" status,
+  // AND Project/Extra Billable tickets at "Ready for Billing" status
   app.get("/api/pending-invoices", async (req, res) => {
     if (!req.isAuthenticated()) {
       return res.status(401).send("Not authenticated");
@@ -4184,43 +4186,76 @@ export async function registerRoutes(app: Express): Promise<Server> {
       return res.status(403).send("Insufficient permissions - admin or office role required");
     }
 
-    // Get all tickets and filter for Invoice tickets in "Pending Invoice" status
     const allTickets = await storage.getTickets(user.activeCompanyId, {});
     const ticketTypes = await storage.getTicketTypes(user.activeCompanyId);
+    
+    // Collect tickets that need invoicing from multiple sources
+    const ticketsNeedingInvoice: typeof allTickets = [];
+    
+    // 1. Invoice tickets in "Pending Invoice" status
     const invoiceType = ticketTypes.find(tt => tt.name === "Invoice");
-    
-    if (!invoiceType) {
-      return res.json([]);
+    if (invoiceType) {
+      const invoiceStatuses = await storage.getTicketTypeStatuses(invoiceType.id);
+      const pendingStatus = invoiceStatuses.find(s => s.name === "Pending Invoice");
+      if (pendingStatus) {
+        const pendingInvoices = allTickets.filter(
+          t => t.ticketTypeId === invoiceType.id && t.currentStatusId === pendingStatus.id
+        );
+        ticketsNeedingInvoice.push(...pendingInvoices);
+      }
     }
-
-    const invoiceStatuses = await storage.getTicketTypeStatuses(invoiceType.id);
-    const pendingStatus = invoiceStatuses.find(s => s.name === "Pending Invoice");
     
-    if (!pendingStatus) {
-      return res.json([]);
+    // 2. Project tickets at "Ready for Billing" status
+    const projectType = ticketTypes.find(tt => tt.name === "Project");
+    if (projectType) {
+      const projectStatuses = await storage.getTicketTypeStatuses(projectType.id);
+      const readyForBillingStatus = projectStatuses.find(s => s.name === "Ready for Billing");
+      if (readyForBillingStatus) {
+        const projectsReadyForBilling = allTickets.filter(
+          t => t.ticketTypeId === projectType.id && t.currentStatusId === readyForBillingStatus.id
+        );
+        ticketsNeedingInvoice.push(...projectsReadyForBilling);
+      }
     }
-
-    const pendingInvoices = allTickets.filter(
-      t => t.ticketTypeId === invoiceType.id && t.currentStatusId === pendingStatus.id
-    );
+    
+    // 3. To-Do tickets with invoice_required billing behavior at their final step (Done)
+    // These represent Extra Billable work that's done and needs invoicing
+    const toDoType = ticketTypes.find(tt => tt.name === "To-Do");
+    if (toDoType) {
+      const toDoStatuses = await storage.getTicketTypeStatuses(toDoType.id);
+      const doneStatus = toDoStatuses.find(s => s.name === "Done");
+      if (doneStatus) {
+        // Filter for To-Do tickets that are done AND have invoice_required billing behavior
+        const billableToDoCompleted = allTickets.filter(
+          t => t.ticketTypeId === toDoType.id && 
+               t.currentStatusId === doneStatus.id &&
+               t.billingBehavior === "invoice_required"
+        );
+        ticketsNeedingInvoice.push(...billableToDoCompleted);
+      }
+    }
 
     // Enrich with customer info and linked source ticket
     const enrichedInvoices = await Promise.all(
-      pendingInvoices.map(async (invoice) => {
-        const customer = await storage.getCustomerById(invoice.customerId, user.activeCompanyId);
-        const links = await storage.getTicketLinks(invoice.id);
+      ticketsNeedingInvoice.map(async (ticket) => {
+        const customer = ticket.customerId 
+          ? await storage.getCustomerById(ticket.customerId, user.activeCompanyId)
+          : null;
+        const links = await storage.getTicketLinks(ticket.id);
+        const ticketType = ticketTypes.find(tt => tt.id === ticket.ticketTypeId);
         
-        // Find the source (billable) ticket
+        // Find the source (billable) ticket if this is an Invoice ticket
         let sourceTicket = null;
-        const sourceLink = links.find(l => l.linkType === "invoice_for" && l.targetTicketId === invoice.id);
+        const sourceLink = links.find(l => l.linkType === "invoice_for" && l.targetTicketId === ticket.id);
         if (sourceLink) {
           sourceTicket = await storage.getTicketById(sourceLink.sourceTicketId, user.activeCompanyId);
         }
         
         return {
-          ...invoice,
+          ...ticket,
           customer,
           sourceTicket,
+          ticketTypeName: ticketType?.name || "Unknown",
         };
       })
     );
