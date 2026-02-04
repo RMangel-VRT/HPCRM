@@ -86,6 +86,13 @@ The customer detail page consolidates all billing-related information under a si
 #### First-Time Setup Flow
 When deployed to production with an empty database (no users), the app automatically shows a setup page instead of login. This allows the first admin to create their company and account. The setup page creates the company, admin user, company membership, and default settings, then auto-logs in. Once any user exists, the setup page becomes inaccessible for security.
 
+## Testing
+
+### Test Credentials
+For e2e testing, use:
+- Email: randy@highplainsprop.com
+- Password: Soccer03
+
 ## External Dependencies
 
 - **UI Component Libraries:** Radix UI, Shadcn/ui, Lucide React, CMDK
