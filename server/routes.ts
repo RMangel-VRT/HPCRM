@@ -4,7 +4,9 @@ import path from "path";
 import { promises as fs } from "fs";
 import { setupAuth, type UserWithContext } from "./auth";
 import { storage } from "./storage";
-import { insertCustomerSchema, insertContactSchema, insertCompanySchema, insertCompanyUserSchema, insertSettingsSchema, insertNoteSchema, insertContractSchema, insertContractDocumentSchema, insertContractBuilderDocumentSchema, insertContractBuilderSectionSchema, insertContractBuilderVariableSchema, insertTicketTypeSchema, insertTicketTypeStatusSchema, insertTicketTypeFieldSchema, insertTicketSchema, insertTicketFieldValueSchema, insertTicketStatusHistorySchema, insertTicketCommentSchema, insertTicketLinkSchema, insertCustomerMapLayerSchema, insertCustomerMapDocumentSchema, insertMaintenanceCrewSchema, insertMaintenanceVisitConfigSchema, insertWeeklyScheduleTemplateSchema, insertScheduleBlockSchema, insertEquipmentSchema, insertEquipmentFileSchema, insertEquipmentTicketSchema, insertEquipmentTicketStatusHistorySchema } from "@shared/schema";
+import { db } from "./db";
+import { eq, and, inArray } from "drizzle-orm";
+import { insertCustomerSchema, insertContactSchema, insertCompanySchema, insertCompanyUserSchema, insertSettingsSchema, insertNoteSchema, insertContractSchema, insertContractDocumentSchema, insertContractBuilderDocumentSchema, insertContractBuilderSectionSchema, insertContractBuilderVariableSchema, insertTicketTypeSchema, insertTicketTypeStatusSchema, insertTicketTypeFieldSchema, insertTicketSchema, insertTicketFieldValueSchema, insertTicketStatusHistorySchema, insertTicketCommentSchema, insertTicketLinkSchema, insertCustomerMapLayerSchema, insertCustomerMapDocumentSchema, insertMaintenanceCrewSchema, insertMaintenanceVisitConfigSchema, insertWeeklyScheduleTemplateSchema, insertScheduleBlockSchema, insertEquipmentSchema, insertEquipmentFileSchema, insertEquipmentTicketSchema, insertEquipmentTicketStatusHistorySchema, tickets, ticketTypes, ticketTypeStatuses } from "@shared/schema";
 import { ObjectStorageService, ObjectNotFoundError, objectStorageClient, signObjectURL } from "./objectStorage";
 import { ObjectPermission, ObjectAccessGroupType, setObjectAclPolicy } from "./objectAcl";
 
@@ -4928,6 +4930,95 @@ export async function registerRoutes(app: Express): Promise<Server> {
     } catch (error) {
       console.error("Error resetting for setup:", error);
       res.status(500).send("Failed to reset for setup");
+    }
+  });
+
+  // Admin migration: Fix estimate_request tickets that should be project work type
+  // This updates tickets with work_type='estimate_request' that are in approved statuses
+  app.post("/api/admin/migrate-estimate-to-project", async (req, res) => {
+    if (!req.isAuthenticated()) {
+      return res.status(401).send("Not authenticated");
+    }
+    const user = req.user as UserWithContext;
+    
+    if (user.activeRole !== "admin") {
+      return res.status(403).send("Only admins can run migrations");
+    }
+    
+    try {
+      // Get the Project ticket type
+      const projectTicketType = await db
+        .select()
+        .from(ticketTypes)
+        .where(eq(ticketTypes.name, "Project"))
+        .limit(1);
+
+      if (!projectTicketType.length) {
+        return res.status(404).send("Project ticket type not found");
+      }
+
+      const projectTypeId = projectTicketType[0].id;
+
+      // Get the approved-path statuses for Project workflow
+      const approvedStatusNames = [
+        "Ready to Schedule",
+        "Work Completed", 
+        "Ready for Billing",
+        "Invoicing"
+      ];
+
+      const approvedStatuses = await db
+        .select()
+        .from(ticketTypeStatuses)
+        .where(
+          and(
+            eq(ticketTypeStatuses.ticketTypeId, projectTypeId),
+            inArray(ticketTypeStatuses.name, approvedStatusNames)
+          )
+        );
+
+      const approvedStatusIds = approvedStatuses.map(s => s.id);
+
+      // Find tickets that need to be updated
+      const ticketsToUpdate = await db
+        .select({
+          id: tickets.id,
+          title: tickets.title,
+          workType: tickets.workType
+        })
+        .from(tickets)
+        .where(
+          and(
+            eq(tickets.workType, "estimate_request"),
+            inArray(tickets.currentStatusId, approvedStatusIds)
+          )
+        );
+
+      if (ticketsToUpdate.length === 0) {
+        return res.json({ 
+          success: true, 
+          message: "No tickets need to be updated",
+          updatedCount: 0 
+        });
+      }
+
+      // Update the tickets
+      const ticketIds = ticketsToUpdate.map(t => t.id);
+      
+      await db
+        .update(tickets)
+        .set({ workType: "project" })
+        .where(inArray(tickets.id, ticketIds));
+
+      res.json({ 
+        success: true, 
+        message: `Updated ${ticketsToUpdate.length} tickets from 'estimate_request' to 'project' work type`,
+        updatedCount: ticketsToUpdate.length,
+        tickets: ticketsToUpdate.map(t => ({ id: t.id, title: t.title }))
+      });
+    } catch (error) {
+      console.error("Error running estimate-to-project migration:", error);
+      res.status(500).send("Failed to run migration");
     }
   });
 
