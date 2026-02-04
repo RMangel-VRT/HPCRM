@@ -3588,8 +3588,25 @@ export async function registerRoutes(app: Express): Promise<Server> {
       });
       
       // Check if new status is final
-      const newStatus = await storage.getTicketTypeStatuses(existingTicket.ticketTypeId)
-        .then(statuses => statuses.find(s => s.id === req.body.currentStatusId));
+      const allStatuses = await storage.getTicketTypeStatuses(existingTicket.ticketTypeId);
+      const newStatus = allStatuses.find(s => s.id === req.body.currentStatusId);
+      
+      // Auto-transition work type from estimate_request to project when estimate is approved
+      // This only happens when a Project ticket moves to a status in the approved path
+      // (Ready to Schedule, Work Completed, Ready for Billing, Invoicing)
+      // NOT on Decision Received (waiting for approval) or Closed - Lost (rejected)
+      if (existingTicket.workType === "estimate_request" && newStatus) {
+        const ticketType = await storage.getTicketTypeById(existingTicket.ticketTypeId, user.activeCompanyId);
+        if (ticketType?.name === "Project") {
+          // Only transition when entering the approved execution/billing path
+          const approvedPathStatuses = ["Ready to Schedule", "Work Completed", "Ready for Billing", "Invoicing"];
+          const isInApprovedPath = approvedPathStatuses.includes(newStatus.name);
+          if (isInApprovedPath) {
+            req.body.workType = "project";
+            console.log(`Auto-transitioning ticket ${existingTicket.id} work type from estimate_request to project (status: ${newStatus.name})`);
+          }
+        }
+      }
       
       if (newStatus?.isFinal === "true") {
         req.body.completedAt = new Date();
@@ -4287,7 +4304,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       storage.getTicketFieldValues(ticket.id),
       storage.getTicketStatusHistory(ticket.id),
       storage.getTicketComments(ticket.id),
-      storage.getCustomerById(ticket.customerId, user.activeCompanyId),
+      ticket.customerId ? storage.getCustomerById(ticket.customerId, user.activeCompanyId) : null,
     ]);
 
     // Get fields for each status
