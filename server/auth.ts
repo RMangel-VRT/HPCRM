@@ -386,6 +386,11 @@ export function setupAuth(app: Express) {
         }),
       });
 
+      // Seed all ticket types (Project, Invoice, To-Do, RFP Request) for the new company
+      // Using dynamic import to avoid circular dependency with routes.ts
+      const { seedAllTicketTypes } = await import("./routes");
+      await seedAllTicketTypes(company.id);
+
       // Log in the new admin user
       const userWithContext: UserWithContext = {
         ...user,

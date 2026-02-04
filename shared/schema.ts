@@ -555,7 +555,7 @@ export type TicketSourceType = "manual" | "contract_service";
 export type TicketServiceType = "mowing" | "pet_station" | "chemical" | "shrub_trimming" | "ornamental_grass" | "aeration" | "cleanups" | "tree_pruning";
 
 // Work Type - classifies what kind of work the ticket represents (billing-driven)
-export type WorkType = "contract" | "extra_work" | "project" | "admin" | "estimate_request" | "shop_todo";
+export type WorkType = "contract" | "extra_work" | "project" | "admin" | "estimate_request" | "shop_todo" | "rfp_request" | "invoice";
 
 // Billing Behavior - determines how the ticket affects invoicing
 export type BillingBehavior = "no_invoice" | "invoice_required" | "internal";

@@ -118,10 +118,6 @@ export default function TicketDetail() {
   const [activeTab, setActiveTab] = useState<"overview" | "workflow" | "comments" | "history">("overview");
   const [showPropertyMaps, setShowPropertyMaps] = useState(false);
   
-  // Execution Task handoff state for Projects
-  const [showExecutionTaskPrompt, setShowExecutionTaskPrompt] = useState(false);
-  const [creatingExecutionTask, setCreatingExecutionTask] = useState(false);
-  
   // Invoice creation handoff state for Projects at Ready for Billing
   const [showInvoicePrompt, setShowInvoicePrompt] = useState(false);
   const [creatingInvoice, setCreatingInvoice] = useState(false);
@@ -250,15 +246,14 @@ export default function TicketDetail() {
   });
 
   const updateStatusMutation = useMutation({
-    mutationFn: async ({ statusId, notes, checkProjectApproval, checkInvoicePrompt }: { statusId: string; notes?: string; checkProjectApproval?: boolean; checkInvoicePrompt?: boolean }) => {
+    mutationFn: async ({ statusId, notes, checkInvoicePrompt }: { statusId: string; notes?: string; checkInvoicePrompt?: boolean }) => {
       const result = await apiRequest("PATCH", `/api/tickets/${ticketId}`, {
         currentStatusId: statusId,
         statusChangeNotes: notes,
       });
-      // Return the flags with the result
-      return { result, checkProjectApproval, checkInvoicePrompt };
+      return { result, checkInvoicePrompt };
     },
-    onSuccess: ({ checkProjectApproval, checkInvoicePrompt }) => {
+    onSuccess: ({ checkInvoicePrompt }) => {
       queryClient.invalidateQueries({ queryKey: ["/api/tickets", ticketId, "details"] });
       queryClient.invalidateQueries({ queryKey: ["/api/tickets"] });
       queryClient.invalidateQueries({ queryKey: ["/api/tickets/my"] });
@@ -268,11 +263,6 @@ export default function TicketDetail() {
       setFieldInputs({});
       setStatusNotes("");
       toast({ title: "Status updated successfully" });
-      
-      // Check if we should prompt for Execution Task creation (Project approval)
-      if (checkProjectApproval) {
-        setShowExecutionTaskPrompt(true);
-      }
       
       // Check if we should prompt for Invoice creation (Project at Ready for Billing)
       if (checkInvoicePrompt) {
@@ -375,17 +365,7 @@ export default function TicketDetail() {
       setShowStatusDialog(true);
     } else {
       // Direct advance without dialog - check for special handoffs
-      let checkProjectApproval = false;
       let checkInvoicePrompt = false;
-      
-      // Check if advancing from Decision Received with Approved decision (Project)
-      if (currentStatus?.name === "Decision Received" && ticketType.name === "Project") {
-        const decisionField = currentStatusFields.find(f => f.fieldKey === "decision_outcome");
-        const decisionValue = decisionField ? getFieldValue(decisionField.id) : null;
-        if (decisionValue === "Approved") {
-          checkProjectApproval = true;
-        }
-      }
       
       // Check if advancing to Ready for Billing - only prompt for invoice if billing is required
       // Skip for internal work types (admin, estimate_request) and contract work (no_invoice)
@@ -395,7 +375,6 @@ export default function TicketDetail() {
       
       updateStatusMutation.mutate({ 
         statusId: nextStatus.id,
-        checkProjectApproval,
         checkInvoicePrompt,
       });
     }
@@ -415,7 +394,6 @@ export default function TicketDetail() {
     
     // Determine actual target status (handle RFP/Project branching based on dialog inputs)
     let actualTargetStatusId = pendingStatusId;
-    let shouldPromptExecutionTask = false;
     let shouldPromptInvoice = false;
     
     if (currentStatus?.name === "Decision Received" && ticketType.name === "RFP Request") {
@@ -431,19 +409,17 @@ export default function TicketDetail() {
       }
     }
     
-    // Handle Project decision branching and Execution Task handoff
+    // Handle Project decision branching
     if (currentStatus?.name === "Decision Received" && ticketType.name === "Project") {
       const decisionField = currentStatusFields.find(f => f.fieldKey === "decision_outcome");
       const decisionValue = decisionField ? fieldInputs[decisionField.id] : null;
       
-      if (decisionValue === "Approved") {
-        // Continue to Work Completed (the natural next step, but we'll prompt for Execution Task)
-        shouldPromptExecutionTask = true;
-      } else if (decisionValue === "Denied") {
+      if (decisionValue === "Denied") {
         // Go to Closed - Lost
         const lostStatus = statuses.find(s => s.name === "Closed - Lost");
         if (lostStatus) actualTargetStatusId = lostStatus.id;
       }
+      // Approved continues to natural next step (Work Completed)
     }
     
     // Check if advancing Project to Ready for Billing - prompt for Invoice creation
@@ -475,7 +451,6 @@ export default function TicketDetail() {
     updateStatusMutation.mutate({ 
       statusId: actualTargetStatusId, 
       notes: statusNotes,
-      checkProjectApproval: shouldPromptExecutionTask,
       checkInvoicePrompt: shouldPromptInvoice,
     });
   };
@@ -488,48 +463,6 @@ export default function TicketDetail() {
     if (newComment.trim()) {
       addCommentMutation.mutate(newComment.trim());
     }
-  };
-
-  // Handle creating an Execution Task linked to this Project
-  const handleCreateExecutionTask = async () => {
-    if (!details) return;
-    
-    setCreatingExecutionTask(true);
-    try {
-      // First, ensure Execution Task ticket type exists
-      await apiRequest("POST", "/api/ticket-types/init-execution-task", {});
-      
-      // Create the Execution Task ticket with link to this Project
-      const result = await apiRequest("POST", "/api/tickets/create-execution-task", {
-        parentTicketId: ticketId,
-        customerId: ticket.customerId,
-        title: `Execute: ${ticket.title}`,
-        description: ticket.description,
-        priority: ticket.priority,
-        locationLat: ticket.locationLat,
-        locationLng: ticket.locationLng,
-        locationLabel: ticket.locationLabel,
-        locationDescription: ticket.locationDescription,
-        photos: ticket.photos,
-      });
-      
-      if (result && (result as any).id) {
-        toast({ title: "Execution Task created successfully" });
-        queryClient.invalidateQueries({ queryKey: ["/api/tickets", ticketId, "details"] });
-        queryClient.invalidateQueries({ queryKey: ["/api/tickets"] });
-        queryClient.invalidateQueries({ queryKey: ["/api/tickets/my"] });
-      }
-    } catch (error) {
-      toast({ title: "Failed to create Execution Task", variant: "destructive" });
-    } finally {
-      setCreatingExecutionTask(false);
-      setShowExecutionTaskPrompt(false);
-    }
-  };
-
-  const handleSkipExecutionTask = () => {
-    setShowExecutionTaskPrompt(false);
-    toast({ title: "You can create an Execution Task later from this ticket" });
   };
 
   // Handle creating an Invoice ticket linked to this Project at Ready for Billing
@@ -894,9 +827,7 @@ export default function TicketDetail() {
               <CardHeader className="pb-2">
                 <CardTitle className="text-sm flex items-center gap-2">
                   <Link2 className="w-4 h-4" />
-                  {ticketType?.name === "Invoice" ? "Source Work" : 
-                   ticketType?.name === "Execution Task" ? "Parent Project" : 
-                   "Linked Tickets"}
+                  {ticketType?.name === "Invoice" ? "Source Work" : "Linked Tickets"}
                 </CardTitle>
               </CardHeader>
               <CardContent className="pt-0 space-y-2">
@@ -909,14 +840,12 @@ export default function TicketDetail() {
                   
                   if (linked.link.linkType === "invoice_for") {
                     linkLabel = isSource ? "Invoice generated for this work" : "Original billable work";
-                  } else if (linked.link.linkType === "execution_for") {
-                    linkLabel = isSource ? "Execution Task for this project" : "Parent Project";
                   } else if (linked.link.linkType === "project_for") {
                     linkLabel = isSource ? "Project created from this request" : "Source RFP Request";
                   }
                   
                   // Show different icon based on relationship
-                  const isChild = (linked.link.linkType === "invoice_for" || linked.link.linkType === "execution_for" || linked.link.linkType === "project_for") && isSource;
+                  const isChild = (linked.link.linkType === "invoice_for" || linked.link.linkType === "project_for") && isSource;
                   
                   return (
                     <Link 
@@ -1429,7 +1358,7 @@ export default function TicketDetail() {
               {statuses.find(s => s.id === pendingStatusId)?.name === "Decision Received" && ticketType.name === "RFP Request"
                 ? "Select Awarded or Lost to proceed to the appropriate workflow."
                 : statuses.find(s => s.id === pendingStatusId)?.name === "Decision Received" && ticketType.name === "Project"
-                ? "Select Approved to create an Execution Task, or Denied to close the project."
+                ? "Select Approved to continue to Work Completed, or Denied to close the project."
                 : "Fill in the required information to proceed."}
             </DialogDescription>
           </DialogHeader>
@@ -1563,52 +1492,6 @@ export default function TicketDetail() {
               ) : (
                 "Confirm"
               )}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-
-      {/* Execution Task Creation Prompt Dialog for Project Approval */}
-      <Dialog open={showExecutionTaskPrompt} onOpenChange={setShowExecutionTaskPrompt}>
-        <DialogContent className="sm:max-w-md">
-          <DialogHeader>
-            <DialogTitle>Project Approved</DialogTitle>
-            <DialogDescription>
-              This project has been approved. Would you like to create an Execution Task for the field crew?
-            </DialogDescription>
-          </DialogHeader>
-          
-          <div className="py-4 space-y-3">
-            <div className="p-3 bg-muted rounded-lg space-y-2">
-              <p className="text-sm font-medium">The Execution Task will include:</p>
-              <ul className="text-sm text-muted-foreground space-y-1">
-                <li>• Scope and description from this project</li>
-                <li>• Location and photos</li>
-                <li>• Link back to this Project ticket</li>
-              </ul>
-            </div>
-            <p className="text-sm text-muted-foreground">
-              You can assign the Execution Task to a crew member after creation.
-            </p>
-          </div>
-          
-          <DialogFooter className="gap-2">
-            <Button 
-              variant="outline" 
-              onClick={handleSkipExecutionTask}
-              disabled={creatingExecutionTask}
-            >
-              Skip for Now
-            </Button>
-            <Button 
-              onClick={handleCreateExecutionTask}
-              disabled={creatingExecutionTask}
-              data-testid="button-create-execution-task"
-            >
-              {creatingExecutionTask ? (
-                <Loader2 className="w-4 h-4 animate-spin mr-2" />
-              ) : null}
-              Create Execution Task
             </Button>
           </DialogFooter>
         </DialogContent>

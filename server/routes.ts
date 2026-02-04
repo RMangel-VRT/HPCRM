@@ -303,7 +303,7 @@ async function ensureRFPRequestTicketType(companyId: string): Promise<{
 }
 
 // Helper to ensure Project ticket type exists with the new 7-step workflow
-// This is Office-owned for sales/estimating/billing, with execution delegated to Execution Task
+// This is Office-owned for sales/estimating/billing. Use needs_scheduling for field work.
 async function ensureProjectTicketType(companyId: string): Promise<{ 
   typeId: string; 
   statuses: Map<string, string>;
@@ -514,109 +514,6 @@ async function migrateApprovedProjectTickets(companyId: string, triggeringUserId
   return migratedCount;
 }
 
-// Helper to ensure Execution Task ticket type exists - Crew-owned workflow for field work
-async function ensureExecutionTaskTicketType(companyId: string): Promise<{ 
-  typeId: string; 
-  statuses: Map<string, string>;
-} | null> {
-  const ticketTypes = await storage.getTicketTypes(companyId);
-  let execType = ticketTypes.find(tt => tt.name === "Execution Task");
-  
-  if (!execType) {
-    execType = await storage.createTicketType({
-      companyId,
-      name: "Execution Task",
-      description: "Field work execution - Crew-owned workflow linked to Projects",
-      category: "quick_task",
-      icon: "hard-hat",
-      color: "#22c55e",
-      isActive: "true",
-    });
-    console.log(`Created Execution Task ticket type for company ${companyId}`);
-  }
-  
-  // Define the simple 3-step Execution Task workflow
-  const execStatuses = [
-    { name: "Scheduled", description: "Work scheduled with crew", color: "#3b82f6", order: 0, isFinal: "false" as const },
-    { name: "In Progress", description: "Crew actively working on site", color: "#f59e0b", order: 1, isFinal: "false" as const },
-    { name: "Completed", description: "Work finished - returns control to Project", color: "#22c55e", order: 2, isFinal: "true" as const },
-  ];
-  
-  // Get existing statuses
-  let existingStatuses = await storage.getTicketTypeStatuses(execType.id);
-  const statusMap = new Map<string, string>();
-  
-  for (const statusDef of execStatuses) {
-    let status = existingStatuses.find(s => s.name === statusDef.name);
-    if (!status) {
-      status = await storage.createTicketTypeStatus({
-        ticketTypeId: execType.id,
-        name: statusDef.name,
-        description: statusDef.description,
-        displayOrder: statusDef.order,
-        color: statusDef.color,
-        isFinal: statusDef.isFinal,
-      });
-      console.log(`Created status "${statusDef.name}" for Execution Task type`);
-    }
-    statusMap.set(status.name, status.id);
-  }
-  
-  // Get existing fields
-  const existingFields = await storage.getTicketTypeFields(execType.id);
-  const existingFieldKeys = new Set(existingFields.map(f => f.fieldKey));
-  
-  // Define fields for each status
-  const fieldDefinitions = [
-    {
-      statusName: "Scheduled",
-      fields: [
-        { fieldKey: "scheduled_date", fieldLabel: "Scheduled Date", fieldType: "date", isRequired: "true" },
-        { fieldKey: "crew_size", fieldLabel: "Crew Size", fieldType: "number", isRequired: "false" },
-      ]
-    },
-    {
-      statusName: "In Progress",
-      fields: [
-        { fieldKey: "start_date", fieldLabel: "Actual Start Date", fieldType: "date", isRequired: "false" },
-      ]
-    },
-    {
-      statusName: "Completed",
-      fields: [
-        { fieldKey: "completion_date", fieldLabel: "Completion Date", fieldType: "date", isRequired: "true" },
-        { fieldKey: "actual_hours", fieldLabel: "Actual Hours", fieldType: "number", isRequired: "false" },
-        { fieldKey: "completion_photos", fieldLabel: "Completion Photos Uploaded?", fieldType: "select", isRequired: "false", options: ["Yes", "No"] },
-        { fieldKey: "completion_notes", fieldLabel: "Completion Notes", fieldType: "textarea", isRequired: "false" },
-      ]
-    },
-  ];
-  
-  for (const statusFields of fieldDefinitions) {
-    const statusId = statusMap.get(statusFields.statusName);
-    if (!statusId) continue;
-    
-    for (let i = 0; i < statusFields.fields.length; i++) {
-      const fieldDef = statusFields.fields[i];
-      if (existingFieldKeys.has(fieldDef.fieldKey)) continue;
-      
-      await storage.createTicketTypeField({
-        ticketTypeId: execType.id,
-        statusId: statusId,
-        fieldKey: fieldDef.fieldKey,
-        fieldLabel: fieldDef.fieldLabel,
-        fieldType: fieldDef.fieldType as "text" | "number" | "date" | "currency" | "select" | "textarea",
-        isRequired: fieldDef.isRequired as "true" | "false",
-        options: fieldDef.options || [],
-        displayOrder: i,
-      });
-    }
-  }
-  
-  console.log(`Execution Task ticket type setup complete for company ${companyId}`);
-  return { typeId: execType.id, statuses: statusMap };
-}
-
 // Helper to ensure To-Do ticket type exists with simple Open/Done workflow
 // Also creates an "Internal Tasks" customer for non-customer-related to-dos
 async function ensureToDoTicketType(companyId: string): Promise<{ 
@@ -687,6 +584,20 @@ async function ensureToDoTicketType(companyId: string): Promise<{
   
   console.log(`To-Do ticket type setup complete for company ${companyId}`);
   return { typeId: todoType.id, statuses: statusMap, internalCustomerId: internalCustomer.id };
+}
+
+// Seeds all standard ticket types for a company (Project, Invoice, To-Do, RFP Request)
+// Called during company setup to ensure ticket types exist before users create tickets
+export async function seedAllTicketTypes(companyId: string): Promise<void> {
+  console.log(`Seeding all ticket types for company ${companyId}...`);
+  
+  // Seed in order: To-Do, Invoice, Project, RFP Request
+  await ensureToDoTicketType(companyId);
+  await ensureInvoiceTicketType(companyId);
+  await ensureProjectTicketType(companyId);
+  await ensureRFPRequestTicketType(companyId);
+  
+  console.log(`All ticket types seeded for company ${companyId}`);
 }
 
 export async function registerRoutes(app: Express): Promise<Server> {
@@ -2859,31 +2770,6 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  // Initialize Execution Task ticket type for field crew work
-  app.post("/api/ticket-types/init-execution-task", async (req, res) => {
-    if (!req.isAuthenticated()) {
-      return res.status(401).send("Not authenticated");
-    }
-
-    const user = req.user as UserWithContext;
-    
-    if (user.activeRole !== "admin" && user.activeRole !== "office" && !user.isSuperAdminBool) {
-      return res.status(403).send("Insufficient permissions - admin or office role required");
-    }
-
-    try {
-      const result = await ensureExecutionTaskTicketType(user.activeCompanyId);
-      if (result) {
-        res.json({ success: true, typeId: result.typeId });
-      } else {
-        res.status(500).send("Failed to initialize Execution Task ticket type");
-      }
-    } catch (err) {
-      console.error("Failed to initialize Execution Task ticket type:", err);
-      res.status(500).send("Failed to initialize Execution Task ticket type");
-    }
-  });
-
   // Initialize To-Do ticket type with simple Open/Done workflow
   app.post("/api/ticket-types/init-todo", async (req, res) => {
     if (!req.isAuthenticated()) {
@@ -2940,6 +2826,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
     });
     if (!result.success) {
       return res.status(400).send(result.error.message);
+    }
+
+    // Guardrail: Prevent creation of "Execution Task" ticket type (deprecated)
+    if (result.data.name === "Execution Task") {
+      return res.status(400).send("Execution Task ticket type is deprecated. Use needs_scheduling flag for field work scheduling.");
     }
 
     const ticketType = await storage.createTicketType(result.data);
@@ -3724,44 +3615,6 @@ export async function registerRoutes(app: Express): Promise<Server> {
           }
         }
         
-        // Auto-advance parent Project when Execution Task completes
-        const ticketType = await storage.getTicketTypeById(existingTicket.ticketTypeId, user.activeCompanyId);
-        if (ticketType?.name === "Execution Task") {
-          try {
-            // Find the parent Project ticket (Execution Task is the TARGET of an "execution_for" link)
-            const links = await storage.getTicketLinks(existingTicket.id);
-            const parentLink = links.find(l => l.targetTicketId === existingTicket.id && l.linkType === "execution_for");
-            
-            if (parentLink) {
-              const parentProject = await storage.getTicketById(parentLink.sourceTicketId, user.activeCompanyId);
-              if (parentProject) {
-                // Get Project ticket type and find "Work Completed" status
-                const projectStatuses = await storage.getTicketTypeStatuses(parentProject.ticketTypeId);
-                const workCompletedStatus = projectStatuses.find(s => s.name === "Work Completed");
-                
-                if (workCompletedStatus && parentProject.currentStatusId !== workCompletedStatus.id) {
-                  // Advance the parent Project to "Work Completed"
-                  await storage.createTicketStatusHistory({
-                    ticketId: parentProject.id,
-                    fromStatusId: parentProject.currentStatusId,
-                    toStatusId: workCompletedStatus.id,
-                    changedById: user.id,
-                    notes: `Auto-advanced: Linked Execution Task #${existingTicket.id} completed`,
-                  });
-                  
-                  await storage.updateTicket(parentProject.id, user.activeCompanyId, {
-                    currentStatusId: workCompletedStatus.id,
-                  });
-                  
-                  console.log(`Auto-advanced Project ${parentProject.id} to "Work Completed" after Execution Task ${existingTicket.id} completed`);
-                }
-              }
-            }
-          } catch (err) {
-            console.error("Failed to auto-advance parent Project:", err);
-            // Don't fail the update - auto-advance is secondary
-          }
-        }
       }
     }
 
@@ -3877,75 +3730,6 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
     await storage.deleteTicket(req.params.id, user.activeCompanyId);
     res.status(200).send("Deleted");
-  });
-
-  // Create Execution Task linked to a Project ticket
-  app.post("/api/tickets/create-execution-task", async (req, res) => {
-    if (!req.isAuthenticated()) {
-      return res.status(401).send("Not authenticated");
-    }
-
-    const user = req.user as UserWithContext;
-    
-    if (user.activeRole === "field_manager" || user.activeRole === "field" || user.activeRole === "irrigation_manager") {
-      return res.status(403).send("Insufficient permissions - admin or office role required");
-    }
-
-    const { parentTicketId, customerId, title, description, priority, locationLat, locationLng, locationLabel, locationDescription, photos } = req.body;
-    
-    if (!parentTicketId || !customerId) {
-      return res.status(400).send("parentTicketId and customerId are required");
-    }
-
-    try {
-      // Ensure Execution Task ticket type exists
-      const execTypeInfo = await ensureExecutionTaskTicketType(user.activeCompanyId);
-      
-      if (!execTypeInfo) {
-        return res.status(500).send("Failed to initialize Execution Task ticket type");
-      }
-      
-      // Get the first status (Scheduled)
-      const scheduledStatus = execTypeInfo.statuses.get("Scheduled");
-      
-      if (!scheduledStatus) {
-        return res.status(500).send("Failed to find Scheduled status");
-      }
-      
-      // Create the Execution Task ticket
-      const execTicket = await storage.createTicket({
-        companyId: user.activeCompanyId,
-        customerId,
-        ticketTypeId: execTypeInfo.typeId,
-        currentStatusId: scheduledStatus,
-        workType: "contract", // Execution is typically covered by project scope
-        billingBehavior: "no_invoice",
-        title: title || "Execution Task",
-        description: description || null,
-        priority: priority || "normal",
-        assignedToId: null, // To be assigned later
-        createdById: user.id,
-        locationLat: locationLat || null,
-        locationLng: locationLng || null,
-        locationLabel: locationLabel || null,
-        locationDescription: locationDescription || null,
-        photos: photos || null,
-      });
-      
-      // Link the Execution Task to the parent Project ticket
-      await storage.createTicketLink({
-        sourceTicketId: parentTicketId,
-        targetTicketId: execTicket.id,
-        linkType: "execution_for", // New link type for Project → Execution Task
-      });
-      
-      console.log(`Created Execution Task ${execTicket.id} linked to Project ${parentTicketId}`);
-      
-      res.json(execTicket);
-    } catch (err) {
-      console.error("Failed to create Execution Task:", err);
-      res.status(500).send("Failed to create Execution Task");
-    }
   });
 
   // Create Invoice ticket linked to a Project at Ready for Billing

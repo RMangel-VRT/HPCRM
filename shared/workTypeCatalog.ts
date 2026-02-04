@@ -72,6 +72,26 @@ export const WORK_TYPE_CATALOG: Record<WorkType, WorkTypeDefinition> = {
     color: "#78716c",
     badgeVariant: "outline",
   },
+  rfp_request: {
+    type: "rfp_request",
+    name: "RFP Request",
+    description: "Track the full lifecycle of a community requesting a proposal for maintenance services",
+    billingBehavior: "internal",
+    billingLabel: "Sales Pipeline",
+    icon: "file-plus",
+    color: "#8b5cf6",
+    badgeVariant: "outline",
+  },
+  invoice: {
+    type: "invoice",
+    name: "Invoice",
+    description: "Track work that needs to be invoiced in QuickBooks",
+    billingBehavior: "invoice_required",
+    billingLabel: "Pending Invoice",
+    icon: "file-text",
+    color: "#f59e0b",
+    badgeVariant: "default",
+  },
 };
 
 export const BILLING_BEHAVIOR_LABELS: Record<BillingBehavior, string> = {
@@ -82,4 +102,29 @@ export const BILLING_BEHAVIOR_LABELS: Record<BillingBehavior, string> = {
 
 export function getBillingBehaviorForWorkType(workType: WorkType): BillingBehavior {
   return WORK_TYPE_CATALOG[workType].billingBehavior;
+}
+
+// Ticket Type Names used in the system
+export type TicketTypeName = "Project" | "Invoice" | "To-Do" | "RFP Request";
+
+// Explicit mapping from WorkType to TicketTypeName
+// This is the single source of truth for which ticket type a work type uses
+export const WORK_TYPE_TO_TICKET_TYPE: Record<WorkType, TicketTypeName> = {
+  contract: "To-Do",
+  extra_work: "Invoice",
+  project: "Project",
+  admin: "To-Do",
+  estimate_request: "Project",
+  shop_todo: "To-Do",
+  rfp_request: "RFP Request",
+  invoice: "Invoice",
+};
+
+// Get the ticket type name for a given work type
+export function getTicketTypeForWorkType(workType: WorkType): TicketTypeName {
+  const ticketType = WORK_TYPE_TO_TICKET_TYPE[workType];
+  if (!ticketType) {
+    throw new Error(`No ticket type mapping found for work type: ${workType}`);
+  }
+  return ticketType;
 }

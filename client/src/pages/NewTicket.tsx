@@ -67,6 +67,8 @@ const WORK_TYPE_ICONS: Record<WorkType, typeof FileCheck> = {
   admin: Briefcase,
   estimate_request: Calculator,
   shop_todo: Wrench,
+  rfp_request: Calculator,
+  invoice: Receipt,
 };
 
 function LocationMarker({ 
