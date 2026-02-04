@@ -28,7 +28,7 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
-import { Plus, Search, ChevronRight, ChevronLeft, ChevronDown, ChevronUp, Clock, User as UserIcon, MapPin, CalendarDays, Filter, Loader2, Trash2, X, Layers } from "lucide-react";
+import { Plus, Search, ChevronRight, ChevronLeft, ChevronDown, ChevronUp, Clock, User as UserIcon, MapPin, CalendarDays, Filter, Loader2, Trash2, X, Layers, Check } from "lucide-react";
 import { Link, useSearch } from "wouter";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import type { Ticket, TicketType, TicketTypeStatus, Customer, WorkType, User as UserType, CompanyUser } from "@shared/schema";
@@ -904,11 +904,13 @@ function TicketCard({ ticket, formatDueDate, usersMap, schedulingStatusId, selec
                 {/* Progress bubbles showing workflow position */}
                 {workflowStatuses.length > 0 && ticket.currentStatus && (() => {
                   const currentIndex = workflowStatuses.findIndex(s => s.id === ticket.currentStatusId);
+                  const isOnFinalStep = currentIndex === workflowStatuses.length - 1;
+                  
                   return (
                     <div className="flex items-center" data-testid={`workflow-progress-${ticket.id}`}>
                       {workflowStatuses.map((status, index) => {
-                        const isCompleted = index < currentIndex;
-                        const isCurrent = index === currentIndex;
+                        const isCompleted = index < currentIndex || isOnFinalStep;
+                        const isCurrent = index === currentIndex && !isOnFinalStep;
                         const isFirst = index === 0;
                         
                         return (
@@ -917,7 +919,7 @@ function TicketCard({ ticket, formatDueDate, usersMap, schedulingStatusId, selec
                             {!isFirst && (
                               <div 
                                 className={`w-2 h-0.5 ${
-                                  isCompleted || isCurrent
+                                  isCompleted || isCurrent || isOnFinalStep
                                     ? "bg-green-500 dark:bg-green-400" 
                                     : "bg-muted-foreground/30 dark:bg-muted-foreground/20"
                                 }`}
@@ -957,6 +959,21 @@ function TicketCard({ ticket, formatDueDate, usersMap, schedulingStatusId, selec
                           </div>
                         );
                       })}
+                      
+                      {/* Complete indicator when on final step */}
+                      {isOnFinalStep && (
+                        <>
+                          <div className="w-2 h-0.5 bg-green-500 dark:bg-green-400" />
+                          <Badge 
+                            variant="outline" 
+                            className="text-xs mx-0.5 border-green-500 dark:border-green-400 text-green-600 dark:text-green-400"
+                            data-testid={`badge-complete-${ticket.id}`}
+                          >
+                            <Check className="w-3 h-3 mr-1" />
+                            Complete
+                          </Badge>
+                        </>
+                      )}
                     </div>
                   );
                 })()}
