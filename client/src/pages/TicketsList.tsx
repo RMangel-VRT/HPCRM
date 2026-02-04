@@ -14,6 +14,11 @@ import {
 import { Badge } from "@/components/ui/badge";
 import { Checkbox } from "@/components/ui/checkbox";
 import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
+import {
   AlertDialog,
   AlertDialogAction,
   AlertDialogCancel,
@@ -659,6 +664,7 @@ export default function TicketsList() {
                       isSelected={selectedTicketIds.has(ticket.id)}
                       onToggleSelect={() => toggleTicketSelection(ticket.id)}
                       onNavigate={saveScrollPosition}
+                      workflowStatuses={allStatuses.filter((s: TicketTypeStatus) => s.ticketTypeId === ticket.ticketTypeId).sort((a: TicketTypeStatus, b: TicketTypeStatus) => (a.displayOrder || 0) - (b.displayOrder || 0))}
                     />
                   ))}
                 </div>
@@ -695,6 +701,7 @@ export default function TicketsList() {
                           isSelected={selectedTicketIds.has(ticket.id)}
                           onToggleSelect={() => toggleTicketSelection(ticket.id)}
                           onNavigate={saveScrollPosition}
+                          workflowStatuses={allStatuses.filter((s: TicketTypeStatus) => s.ticketTypeId === ticket.ticketTypeId).sort((a: TicketTypeStatus, b: TicketTypeStatus) => (a.displayOrder || 0) - (b.displayOrder || 0))}
                         />
                       ))}
                     </div>
@@ -790,9 +797,10 @@ interface TicketCardProps {
   isSelected?: boolean;
   onToggleSelect?: () => void;
   onNavigate?: () => void;
+  workflowStatuses?: TicketTypeStatus[];
 }
 
-function TicketCard({ ticket, formatDueDate, usersMap, schedulingStatusId, selectionMode, isSelected, onToggleSelect, onNavigate }: TicketCardProps) {
+function TicketCard({ ticket, formatDueDate, usersMap, schedulingStatusId, selectionMode, isSelected, onToggleSelect, onNavigate, workflowStatuses = [] }: TicketCardProps) {
   const dueInfo = formatDueDate(ticket.dueDate);
   
   // Bar color: green for completed, ticket type color for open tickets
@@ -831,7 +839,7 @@ function TicketCard({ ticket, formatDueDate, usersMap, schedulingStatusId, selec
           />
           
           <div className="flex-1 min-w-0">
-            {/* Row 1: Ticket type (colored text) + work type badges + needs scheduling indicator */}
+            {/* Row 1: Ticket type (colored text) + needs scheduling indicator */}
             <div className="flex items-center gap-2 flex-wrap">
               {ticket.ticketType && (
                 <span 
@@ -841,15 +849,6 @@ function TicketCard({ ticket, formatDueDate, usersMap, schedulingStatusId, selec
                 >
                   {ticket.ticketType.name}
                 </span>
-              )}
-              {ticket.workType && WORK_TYPE_CATALOG[ticket.workType as WorkType] && (
-                <Badge 
-                  variant={WORK_TYPE_CATALOG[ticket.workType as WorkType].badgeVariant}
-                  className="text-xs font-normal"
-                  data-testid={`badge-worktype-${ticket.id}`}
-                >
-                  {WORK_TYPE_CATALOG[ticket.workType as WorkType].billingLabel}
-                </Badge>
               )}
               {needsScheduling && (
                 <Badge 
@@ -899,10 +898,48 @@ function TicketCard({ ticket, formatDueDate, usersMap, schedulingStatusId, selec
               </div>
             )}
 
-            {/* Divider + Status row */}
+            {/* Divider + Workflow progress row */}
             <div className="flex items-center justify-between mt-3 pt-3 border-t">
               <div className="flex items-center gap-3">
-                {ticket.currentStatus && (
+                {/* Progress bubbles showing workflow position */}
+                {workflowStatuses.length > 0 && ticket.currentStatus && (() => {
+                  const currentIndex = workflowStatuses.findIndex(s => s.id === ticket.currentStatusId);
+                  return (
+                    <div className="flex items-center gap-1" data-testid={`workflow-progress-${ticket.id}`}>
+                      {workflowStatuses.map((status, index) => {
+                        const isCompleted = index < currentIndex;
+                        const isCurrent = index === currentIndex;
+                        
+                        return (
+                          <Tooltip key={status.id}>
+                            <TooltipTrigger asChild>
+                              <div
+                                className={`w-2.5 h-2.5 rounded-full cursor-default transition-all ${
+                                  isCompleted 
+                                    ? "bg-green-500 dark:bg-green-400" 
+                                    : isCurrent 
+                                      ? "bg-primary ring-2 ring-primary/30 scale-110" 
+                                      : "bg-muted-foreground/30 dark:bg-muted-foreground/20"
+                                }`}
+                                style={isCurrent && status.color ? { backgroundColor: status.color, boxShadow: `0 0 0 3px ${status.color}30` } : undefined}
+                                data-testid={`bubble-status-${status.id}`}
+                              />
+                            </TooltipTrigger>
+                            <TooltipContent side="top" className="text-xs">
+                              <span className={isCompleted ? "text-green-600 dark:text-green-400" : isCurrent ? "font-semibold" : "text-muted-foreground"}>
+                                {status.name}
+                                {isCompleted && " ✓"}
+                                {isCurrent && " (current)"}
+                              </span>
+                            </TooltipContent>
+                          </Tooltip>
+                        );
+                      })}
+                    </div>
+                  );
+                })()}
+                {/* Fallback: show badge if no workflow statuses */}
+                {workflowStatuses.length === 0 && ticket.currentStatus && (
                   <Badge 
                     variant="outline" 
                     className="text-xs"
