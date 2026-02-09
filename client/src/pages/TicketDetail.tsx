@@ -977,6 +977,80 @@ export default function TicketDetail() {
             </Card>
           )}
 
+          {fieldValues.length > 0 && (() => {
+            const allFields = statuses.flatMap(s => (s.fields || []).map(f => ({ ...f, statusName: s.name, statusColor: s.color })));
+            const filledFields = allFields.filter(f => {
+              const val = fieldValues.find(fv => fv.fieldId === f.id);
+              return val && val.value.trim() !== "";
+            });
+            if (filledFields.length === 0) return null;
+
+            const statusOrder = statuses.map(s => s.name);
+            const groupedByStatus: Record<string, typeof filledFields> = {};
+            for (const field of filledFields) {
+              if (!groupedByStatus[field.statusName]) groupedByStatus[field.statusName] = [];
+              groupedByStatus[field.statusName].push(field);
+            }
+            const sortedGroups = Object.entries(groupedByStatus).sort(
+              ([a], [b]) => statusOrder.indexOf(a) - statusOrder.indexOf(b)
+            );
+
+            const formatFieldValue = (field: typeof filledFields[0], value: string) => {
+              if (field.fieldType === "currency") {
+                const num = parseFloat(value);
+                return isNaN(num) ? value : `$${num.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+              }
+              if (field.fieldType === "date") {
+                try { return format(new Date(value), "MMM d, yyyy"); } catch { return value; }
+              }
+              return value;
+            };
+
+            return (
+              <Card data-testid="card-collected-details">
+                <CardHeader className="pb-2">
+                  <CardTitle className="text-sm flex items-center gap-2">
+                    <ClipboardList className="w-4 h-4" />
+                    Collected Details
+                  </CardTitle>
+                </CardHeader>
+                <CardContent className="pt-0 space-y-3">
+                  {sortedGroups.map(([statusName, fields]) => (
+                    <div key={statusName}>
+                      <div className="flex items-center gap-2 mb-1.5">
+                        <div
+                          className="w-2 h-2 rounded-full shrink-0"
+                          style={{ backgroundColor: fields[0]?.statusColor || "#6b7280" }}
+                        />
+                        <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">
+                          {statusName}
+                        </p>
+                      </div>
+                      <div className="space-y-1 ml-4">
+                        {fields.sort((a, b) => a.displayOrder - b.displayOrder).map((field) => {
+                          const fv = fieldValues.find(v => v.fieldId === field.id);
+                          if (!fv) return null;
+                          const displayValue = formatFieldValue(field, fv.value);
+                          const isLongText = field.fieldType === "textarea" && fv.value.length > 60;
+                          return (
+                            <div key={field.id} className={isLongText ? "" : "flex items-baseline justify-between gap-2"} data-testid={`field-value-${field.fieldKey}`}>
+                              <span className="text-xs text-muted-foreground shrink-0">{field.fieldLabel}</span>
+                              {isLongText ? (
+                                <p className="text-sm whitespace-pre-wrap mt-0.5">{displayValue}</p>
+                              ) : (
+                                <span className="text-sm font-medium text-right">{displayValue}</span>
+                              )}
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  ))}
+                </CardContent>
+              </Card>
+            );
+          })()}
+
           {ticket.locationLat && ticket.locationLng && (
             <Card className="overflow-hidden" data-testid="card-location">
               <div className="h-[150px] relative">
