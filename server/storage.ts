@@ -44,6 +44,7 @@ export interface IStorage {
   
   getNotesByCustomerId(customerId: string, companyId: string): Promise<Note[]>;
   createNote(note: InsertNote): Promise<Note>;
+  updateNote(id: string, companyId: string, body: string): Promise<Note | undefined>;
   deleteNote(id: string, companyId: string): Promise<void>;
   
   getContractsByCustomerId(customerId: string, companyId: string): Promise<Contract[]>;
@@ -538,6 +539,14 @@ export class PgStorage implements IStorage {
 
   async createNote(insertNote: InsertNote): Promise<Note> {
     const result = await db.insert(notes).values([insertNote]).returning();
+    return result[0];
+  }
+
+  async updateNote(id: string, companyId: string, body: string): Promise<Note | undefined> {
+    const result = await db.update(notes)
+      .set({ body })
+      .where(and(eq(notes.id, id), eq(notes.companyId, companyId)))
+      .returning();
     return result[0];
   }
 

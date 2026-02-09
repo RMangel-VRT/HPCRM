@@ -1590,6 +1590,8 @@ export default function CustomerDetail() {
             variant="outline" 
             data-testid="button-add-note"
             onClick={() => {
+              noteForm.reset({ body: "" });
+              setEditingNote(null);
               setIsAddNoteDialogOpen(true);
               setActiveTab("notes");
             }}
@@ -1920,7 +1922,11 @@ export default function CustomerDetail() {
           <div className="flex justify-end">
             <Button 
               size="sm"
-              onClick={() => setIsAddNoteDialogOpen(true)}
+              onClick={() => {
+                noteForm.reset({ body: "" });
+                setEditingNote(null);
+                setIsAddNoteDialogOpen(true);
+              }}
               data-testid="button-add-note-tab"
             >
               <Plus className="w-4 h-4 mr-2" />

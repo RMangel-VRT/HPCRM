@@ -1048,6 +1048,32 @@ export async function registerRoutes(app: Express): Promise<Server> {
     res.json(note);
   });
 
+  app.patch("/api/notes/:id", async (req, res) => {
+    if (!req.isAuthenticated()) {
+      return res.status(401).send("Not authenticated");
+    }
+
+    const user = req.user as UserWithContext;
+    
+    if (user.activeRole === "field") {
+      return res.status(403).send("Insufficient permissions - field role cannot edit notes");
+    }
+
+    const { body } = req.body;
+    if (!body || typeof body !== "string" || body.trim().length === 0) {
+      return res.status(400).send("Note body is required");
+    }
+    if (body.length > 5000) {
+      return res.status(400).send("Note body must be 5000 characters or less");
+    }
+
+    const updated = await storage.updateNote(req.params.id, user.activeCompanyId, body.trim());
+    if (!updated) {
+      return res.status(404).send("Note not found");
+    }
+    res.json(updated);
+  });
+
   app.delete("/api/notes/:id", async (req, res) => {
     if (!req.isAuthenticated()) {
       return res.status(401).send("Not authenticated");
