@@ -178,6 +178,7 @@ export interface IStorage {
   createWeeklyScheduleTemplate(template: InsertWeeklyScheduleTemplate): Promise<WeeklyScheduleTemplate>;
   updateWeeklyScheduleTemplate(id: string, companyId: string, updates: Partial<InsertWeeklyScheduleTemplate>): Promise<WeeklyScheduleTemplate | undefined>;
   deleteWeeklyScheduleTemplate(id: string, companyId: string): Promise<void>;
+  duplicateWeeklyScheduleTemplate(id: string, companyId: string, newName: string): Promise<WeeklyScheduleTemplate>;
   
   getScheduleBlocks(templateId: string): Promise<ScheduleBlock[]>;
   createScheduleBlock(block: InsertScheduleBlock): Promise<ScheduleBlock>;
@@ -1584,6 +1585,35 @@ export class PgStorage implements IStorage {
   async deleteWeeklyScheduleTemplate(id: string, companyId: string): Promise<void> {
     await db.delete(weeklyScheduleTemplates)
       .where(and(eq(weeklyScheduleTemplates.id, id), eq(weeklyScheduleTemplates.companyId, companyId)));
+  }
+
+  async duplicateWeeklyScheduleTemplate(id: string, companyId: string, newName: string): Promise<WeeklyScheduleTemplate> {
+    const original = await this.getWeeklyScheduleTemplateById(id, companyId);
+    if (!original) throw new Error("Template not found");
+    
+    const newTemplate = await this.createWeeklyScheduleTemplate({
+      companyId,
+      name: newName,
+      seasonStartMonth: original.seasonStartMonth ?? 4,
+      seasonEndMonth: original.seasonEndMonth ?? 10,
+      seasonStartWeek: original.seasonStartWeek ?? 2,
+      seasonEndWeek: original.seasonEndWeek ?? 2,
+      isActive: true,
+    });
+    
+    const blocks = await this.getScheduleBlocks(id);
+    for (const block of blocks) {
+      await this.createScheduleBlock({
+        templateId: newTemplate.id,
+        visitConfigId: block.visitConfigId,
+        crewId: block.crewId,
+        dayOfWeek: block.dayOfWeek,
+        sortOrder: block.sortOrder ?? 0,
+        startTime: block.startTime ?? undefined,
+      });
+    }
+    
+    return newTemplate;
   }
 
   async getScheduleBlocks(templateId: string): Promise<ScheduleBlock[]> {

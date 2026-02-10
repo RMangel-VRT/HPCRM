@@ -4810,6 +4810,31 @@ export async function registerRoutes(app: Express): Promise<Server> {
     res.status(200).send("Deleted");
   });
 
+  app.post("/api/schedule-templates/:id/duplicate", async (req, res) => {
+    if (!req.isAuthenticated()) {
+      return res.status(401).send("Not authenticated");
+    }
+    const user = req.user as UserWithContext;
+    if (user.activeRole === "field_manager" || user.activeRole === "field" || user.activeRole === "irrigation_manager") {
+      return res.status(403).send("Insufficient permissions - admin or office role required");
+    }
+
+    const { name } = req.body;
+    if (!name || typeof name !== "string" || name.trim().length === 0) {
+      return res.status(400).send("Name is required");
+    }
+
+    try {
+      const template = await storage.duplicateWeeklyScheduleTemplate(req.params.id, user.activeCompanyId, name.trim());
+      res.json(template);
+    } catch (error: any) {
+      if (error.message === "Template not found") {
+        return res.status(404).send("Template not found");
+      }
+      throw error;
+    }
+  });
+
   // Schedule Blocks routes (property assignments on schedule grid)
   app.get("/api/schedule-templates/:templateId/blocks", async (req, res) => {
     if (!req.isAuthenticated()) {

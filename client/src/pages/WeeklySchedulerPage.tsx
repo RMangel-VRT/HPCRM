@@ -45,7 +45,14 @@ import {
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import { Loader2, Plus, GripVertical, Clock, Users, Calendar, X, ChevronRight, AlertTriangle, Settings, Trash2, Lock, LockOpen } from "lucide-react";
+import { Loader2, Plus, GripVertical, Clock, Users, Calendar, X, ChevronRight, AlertTriangle, Settings, Trash2, Lock, LockOpen, Copy, Pencil, MoreHorizontal, FileText } from "lucide-react";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { Label } from "@/components/ui/label";
 import { useToast } from "@/hooks/use-toast";
 import { queryClient, apiRequest } from "@/lib/queryClient";
@@ -239,6 +246,10 @@ export default function WeeklySchedulerPage() {
   const [newCrewActive, setNewCrewActive] = useState(true);
   const [newCrewColor, setNewCrewColor] = useState<string>(CREW_COLORS[0]);
   const [isLocked, setIsLocked] = useState(true);
+  const [showTemplateManager, setShowTemplateManager] = useState(false);
+  const [renamingTemplateId, setRenamingTemplateId] = useState<string | null>(null);
+  const [renameValue, setRenameValue] = useState("");
+  const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null);
 
   const canEdit = user?.activeRole === "admin" || user?.activeRole === "office";
   const allowEdit = canEdit && !isLocked;
@@ -399,6 +410,36 @@ export default function WeeklySchedulerPage() {
     },
     onError: () => {
       toast({ title: "Failed to delete template", variant: "destructive" });
+    },
+  });
+
+  const duplicateTemplateMutation = useMutation({
+    mutationFn: async (data: { id: string; name: string }) => {
+      const res = await apiRequest("POST", `/api/schedule-templates/${data.id}/duplicate`, { name: data.name });
+      return res.json() as Promise<WeeklyScheduleTemplate>;
+    },
+    onSuccess: (data: WeeklyScheduleTemplate) => {
+      queryClient.invalidateQueries({ queryKey: ["/api/schedule-templates"] });
+      setSelectedTemplateId(data.id);
+      toast({ title: "Template duplicated", description: `Created "${data.name}"` });
+    },
+    onError: () => {
+      toast({ title: "Failed to duplicate template", variant: "destructive" });
+    },
+  });
+
+  const renameTemplateMutation = useMutation({
+    mutationFn: async (data: { id: string; name: string }) => {
+      return apiRequest("PATCH", `/api/schedule-templates/${data.id}`, { name: data.name });
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/schedule-templates"] });
+      setRenamingTemplateId(null);
+      setRenameValue("");
+      toast({ title: "Template renamed" });
+    },
+    onError: () => {
+      toast({ title: "Failed to rename template", variant: "destructive" });
     },
   });
 
@@ -772,7 +813,7 @@ export default function WeeklySchedulerPage() {
             Assign properties to crews for weekly maintenance visits
           </p>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 flex-wrap">
           <Select
             value={activeTemplate?.id || ""}
             onValueChange={(val) => setSelectedTemplateId(val)}
@@ -788,26 +829,15 @@ export default function WeeklySchedulerPage() {
               ))}
             </SelectContent>
           </Select>
-          {canEdit && activeTemplate && (
-            <Button
-              size="icon"
-              variant="ghost"
-              onClick={openTemplateSettings}
-              data-testid="button-template-settings"
-            >
-              <Settings className="h-4 w-4" />
-            </Button>
-          )}
           {canEdit && (
             <Button
               size="sm"
               variant="outline"
-              onClick={() => createTemplateMutation.mutate()}
-              disabled={createTemplateMutation.isPending}
-              data-testid="button-new-template"
+              onClick={() => setShowTemplateManager(true)}
+              data-testid="button-manage-templates"
             >
-              <Plus className="h-4 w-4 mr-1" />
-              New Template
+              <FileText className="h-4 w-4 mr-1" />
+              Manage Templates
             </Button>
           )}
           {canEdit && (
@@ -1023,22 +1053,210 @@ export default function WeeklySchedulerPage() {
         </DialogContent>
       </Dialog>
 
-      <Dialog open={showTemplateSettings} onOpenChange={setShowTemplateSettings}>
-        <DialogContent>
+      <Dialog open={showTemplateManager} onOpenChange={(open) => {
+        setShowTemplateManager(open);
+        if (!open) {
+          setRenamingTemplateId(null);
+          setRenameValue("");
+          setDeleteConfirmId(null);
+        }
+      }}>
+        <DialogContent className="sm:max-w-lg">
           <DialogHeader>
-            <DialogTitle>Template Settings</DialogTitle>
+            <DialogTitle>Manage Templates</DialogTitle>
           </DialogHeader>
           <div className="space-y-4">
             <div className="space-y-2">
-              <Label htmlFor="template-name">Template Name</Label>
-              <Input
-                id="template-name"
-                value={templateName}
-                onChange={(e) => setTemplateName(e.target.value)}
-                placeholder="Enter template name"
-                data-testid="input-template-name"
-              />
+              {templates.map((t) => {
+                const blockCount = t.id === activeTemplate?.id ? blocks.length : 0;
+                const isRenaming = renamingTemplateId === t.id;
+                const isDeleting = deleteConfirmId === t.id;
+
+                return (
+                  <div
+                    key={t.id}
+                    className={`flex items-center justify-between gap-2 p-3 rounded-md border ${t.id === activeTemplate?.id ? "border-primary/40 bg-accent/30" : "bg-card"}`}
+                    data-testid={`template-item-${t.id}`}
+                  >
+                    <div className="flex-1 min-w-0">
+                      {isRenaming ? (
+                        <div className="flex items-center gap-2">
+                          <Input
+                            value={renameValue}
+                            onChange={(e) => setRenameValue(e.target.value)}
+                            onKeyDown={(e) => {
+                              if (e.key === "Enter" && renameValue.trim()) {
+                                renameTemplateMutation.mutate({ id: t.id, name: renameValue.trim() });
+                              }
+                              if (e.key === "Escape") {
+                                setRenamingTemplateId(null);
+                                setRenameValue("");
+                              }
+                            }}
+                            autoFocus
+                            className="h-8"
+                            data-testid={`input-rename-template-${t.id}`}
+                          />
+                          <Button
+                            size="sm"
+                            onClick={() => {
+                              if (renameValue.trim()) {
+                                renameTemplateMutation.mutate({ id: t.id, name: renameValue.trim() });
+                              }
+                            }}
+                            disabled={!renameValue.trim() || renameTemplateMutation.isPending}
+                            data-testid={`button-save-rename-${t.id}`}
+                          >
+                            Save
+                          </Button>
+                          <Button
+                            size="sm"
+                            variant="ghost"
+                            onClick={() => {
+                              setRenamingTemplateId(null);
+                              setRenameValue("");
+                            }}
+                          >
+                            <X className="h-4 w-4" />
+                          </Button>
+                        </div>
+                      ) : (
+                        <div>
+                          <div className="font-medium text-sm truncate">{t.name}</div>
+                          <div className="text-xs text-muted-foreground mt-0.5">
+                            {t.id === activeTemplate?.id && blockCount > 0
+                              ? `${blockCount} scheduled properties`
+                              : t.isActive ? "Active" : "Inactive"
+                            }
+                            {t.seasonStartMonth && t.seasonEndMonth && (
+                              <span> &middot; {MONTHS.find(m => m.value === t.seasonStartMonth)?.label?.slice(0,3)} - {MONTHS.find(m => m.value === t.seasonEndMonth)?.label?.slice(0,3)}</span>
+                            )}
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                    {!isRenaming && (
+                      <div className="flex items-center gap-1 shrink-0">
+                        {isDeleting ? (
+                          <div className="flex items-center gap-1">
+                            <span className="text-xs text-destructive mr-1">Delete?</span>
+                            <Button
+                              size="sm"
+                              variant="destructive"
+                              onClick={() => {
+                                deleteTemplateMutation.mutate(t.id);
+                                setDeleteConfirmId(null);
+                              }}
+                              disabled={deleteTemplateMutation.isPending}
+                              data-testid={`button-confirm-delete-template-${t.id}`}
+                            >
+                              Yes
+                            </Button>
+                            <Button
+                              size="sm"
+                              variant="ghost"
+                              onClick={() => setDeleteConfirmId(null)}
+                            >
+                              No
+                            </Button>
+                          </div>
+                        ) : (
+                          <>
+                            <Button
+                              size="icon"
+                              variant="ghost"
+                              onClick={() => {
+                                setSelectedTemplateId(t.id);
+                                setShowTemplateManager(false);
+                              }}
+                              title="Select this template"
+                              data-testid={`button-select-template-${t.id}`}
+                            >
+                              <ChevronRight className="h-4 w-4" />
+                            </Button>
+                            <DropdownMenu>
+                              <DropdownMenuTrigger asChild>
+                                <Button size="icon" variant="ghost" data-testid={`button-template-menu-${t.id}`}>
+                                  <MoreHorizontal className="h-4 w-4" />
+                                </Button>
+                              </DropdownMenuTrigger>
+                              <DropdownMenuContent align="end">
+                                <DropdownMenuItem
+                                  onClick={() => {
+                                    setRenamingTemplateId(t.id);
+                                    setRenameValue(t.name);
+                                  }}
+                                  data-testid={`menu-rename-template-${t.id}`}
+                                >
+                                  <Pencil className="h-4 w-4 mr-2" />
+                                  Rename
+                                </DropdownMenuItem>
+                                <DropdownMenuItem
+                                  onClick={() => {
+                                    openTemplateSettings();
+                                    setShowTemplateManager(false);
+                                    setSelectedTemplateId(t.id);
+                                  }}
+                                  data-testid={`menu-settings-template-${t.id}`}
+                                >
+                                  <Settings className="h-4 w-4 mr-2" />
+                                  Season Settings
+                                </DropdownMenuItem>
+                                <DropdownMenuItem
+                                  onClick={() => {
+                                    duplicateTemplateMutation.mutate({ id: t.id, name: `${t.name} (Copy)` });
+                                  }}
+                                  disabled={duplicateTemplateMutation.isPending}
+                                  data-testid={`menu-duplicate-template-${t.id}`}
+                                >
+                                  <Copy className="h-4 w-4 mr-2" />
+                                  Duplicate
+                                </DropdownMenuItem>
+                                <DropdownMenuSeparator />
+                                <DropdownMenuItem
+                                  onClick={() => setDeleteConfirmId(t.id)}
+                                  disabled={templates.length <= 1}
+                                  className="text-destructive"
+                                  data-testid={`menu-delete-template-${t.id}`}
+                                >
+                                  <Trash2 className="h-4 w-4 mr-2" />
+                                  Delete
+                                </DropdownMenuItem>
+                              </DropdownMenuContent>
+                            </DropdownMenu>
+                          </>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
             </div>
+            <Button
+              variant="outline"
+              className="w-full"
+              onClick={() => createTemplateMutation.mutate()}
+              disabled={createTemplateMutation.isPending}
+              data-testid="button-new-template"
+            >
+              <Plus className="h-4 w-4 mr-2" />
+              Create New Template
+            </Button>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setShowTemplateManager(false)}>
+              Close
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={showTemplateSettings} onOpenChange={setShowTemplateSettings}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Season Settings - {activeTemplate?.name}</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4">
             <div className="grid grid-cols-2 gap-4">
               <div className="space-y-2">
                 <Label>Season Start</Label>
@@ -1078,28 +1296,17 @@ export default function WeeklySchedulerPage() {
               </div>
             </div>
           </div>
-          <DialogFooter className="flex justify-between gap-2">
-            <Button
-              variant="destructive"
-              onClick={() => activeTemplate && deleteTemplateMutation.mutate(activeTemplate.id)}
-              disabled={deleteTemplateMutation.isPending || templates.length <= 1}
-              data-testid="button-delete-template"
-            >
-              <Trash2 className="h-4 w-4 mr-1" />
-              Delete
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setShowTemplateSettings(false)}>
+              Cancel
             </Button>
-            <div className="flex gap-2">
-              <Button variant="outline" onClick={() => setShowTemplateSettings(false)}>
-                Cancel
-              </Button>
-              <Button
-                onClick={handleSaveTemplate}
-                disabled={updateTemplateMutation.isPending || !templateName.trim()}
-                data-testid="button-save-template"
-              >
-                Save Changes
-              </Button>
-            </div>
+            <Button
+              onClick={handleSaveTemplate}
+              disabled={updateTemplateMutation.isPending}
+              data-testid="button-save-template"
+            >
+              Save Changes
+            </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>

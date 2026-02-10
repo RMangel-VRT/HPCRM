@@ -43,7 +43,19 @@ Ticket List Views:
 - Customer ticket tab uses TicketListView with showHeader=false and showCustomerColumn=false for a streamlined view
 
 #### Weekly Schedule System
-A comprehensive scheduling system for assigning properties to crews. It uses a template-based approach with drag-and-drop functionality, crew capacity indicators, and a read-only viewer. Data is stored in `weekly_schedule_templates`, `maintenance_crews`, `maintenance_visit_configs`, and `schedule_blocks` tables.
+A comprehensive scheduling system for assigning properties to crews. It uses a template-based approach with drag-and-drop functionality, crew capacity indicators, and a crew-oriented viewer with PDF export. Data is stored in `weekly_schedule_templates`, `maintenance_crews`, `maintenance_visit_configs`, and `schedule_blocks` tables.
+
+Template Management features:
+- "Manage Templates" dialog in Builder tab lists all templates with inline rename, duplicate, delete (with confirmation), and season settings access
+- Duplicate creates a full copy of the template including all schedule blocks via POST /api/schedule-templates/:id/duplicate
+- Templates show block count, active status, and season date range
+
+Schedule Viewer (ScheduleViewer.tsx):
+- Crew-oriented layout: each crew gets its own Card section with color-coded left border
+- 6-column grid (Mon-Sat) within each crew showing numbered property stops
+- Day headers with time totals, stop counts, and utilization percentage
+- Over-capacity highlighting when crew exceeds daily hours
+- Print/PDF dropdown: full schedule or per-crew exports via browser print dialog
 
 #### Property Maps System
 A KML-based layer mapping system for field crews to view property zones and service areas. It stores customer-specific map layers with categories (e.g., Mowing Zones, ATV Routes) and uses `customer_map_layers` and `customer_map_documents` tables. KML files are stored in Replit object storage.
