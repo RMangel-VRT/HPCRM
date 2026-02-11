@@ -582,6 +582,7 @@ export const tickets = pgTable("tickets", {
   // Photos - array of object storage paths
   photos: text("photos").array(), // Array of photo paths in object storage
   assignedToId: varchar("assigned_to_id").references(() => users.id, { onDelete: "set null" }),
+  delegatedById: varchar("delegated_by_id").references(() => users.id, { onDelete: "set null" }),
   dueDate: timestamp("due_date"),
   completedAt: timestamp("completed_at"),
   // Invoice/External reference fields
@@ -612,6 +613,7 @@ export const insertTicketSchema = createInsertSchema(tickets).omit({
   locationDescription: z.string().nullable().optional(),
   photos: z.array(z.string()).nullable().optional(),
   assignedToId: z.string().nullable().optional(), // Optional - Invoice tickets can be unassigned
+  delegatedById: z.string().nullable().optional(), // Tracks who delegated the ticket for return-on-completion
   dueDate: z.coerce.date().nullable().optional(), // Coerce ISO string to Date
   completedAt: z.coerce.date().nullable().optional(), // Coerce ISO string to Date
   invoiceNumber: z.string().nullable().optional(), // QuickBooks invoice number
