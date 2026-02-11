@@ -6,12 +6,15 @@ import {
   CheckCircle2, 
   ArrowRight,
   AlertCircle,
-  Wrench
+  Wrench,
+  Truck
 } from "lucide-react";
 import { useQuery } from "@tanstack/react-query";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Link } from "wouter";
 import { format } from "date-fns";
+import { useAuth } from "@/hooks/use-auth";
+import type { EquipmentTicket } from "@shared/schema";
 
 interface Ticket {
   id: string;
@@ -39,9 +42,39 @@ const priorityConfig: Record<string, { label: string; variant: "default" | "seco
   urgent: { label: "Urgent", variant: "destructive" },
 };
 
+const equipStatusColors: Record<string, string> = {
+  new: "bg-primary text-primary-foreground",
+  diagnosing: "bg-blue-600 text-white",
+  waiting_on_parts: "bg-yellow-600 text-white",
+  in_repair: "bg-orange-600 text-white",
+  completed: "bg-green-600 text-white",
+  closed: "bg-secondary text-secondary-foreground",
+};
+
+const equipStatusLabels: Record<string, string> = {
+  new: "New",
+  diagnosing: "Diagnosing",
+  waiting_on_parts: "Waiting on Parts",
+  in_repair: "In Repair",
+  completed: "Completed",
+  closed: "Closed",
+};
+
 export default function ShopManagerDashboard() {
+  const { user } = useAuth();
+
   const { data: myTickets = [], isLoading } = useQuery<Ticket[]>({
     queryKey: ["/api/tickets/my"],
+  });
+
+  const { data: equipmentTickets = [], isLoading: equipLoading } = useQuery<EquipmentTicket[]>({
+    queryKey: ["/api/equipment-tickets", { assignedToId: user?.id }],
+    queryFn: async () => {
+      const res = await fetch(`/api/equipment-tickets?assignedToId=${user?.id}`, { credentials: "include" });
+      if (!res.ok) return [];
+      return res.json();
+    },
+    enabled: !!user?.id,
   });
 
   const activeTickets = myTickets.filter(t => 
@@ -51,6 +84,10 @@ export default function ShopManagerDashboard() {
   
   const completedTickets = myTickets.filter(t => 
     t.currentStatus?.name?.toLowerCase() === "completed"
+  );
+
+  const activeEquipTickets = equipmentTickets.filter(t => 
+    t.status !== "completed" && t.status !== "closed"
   );
 
   const urgentTickets = activeTickets.filter(t => t.priority === "urgent" || t.priority === "high");
@@ -63,9 +100,9 @@ export default function ShopManagerDashboard() {
       color: "text-blue-500",
     },
     {
-      title: "High Priority",
-      value: urgentTickets.length.toString(),
-      icon: AlertCircle,
+      title: "Equipment",
+      value: activeEquipTickets.length.toString(),
+      icon: Wrench,
       color: "text-orange-500",
     },
     {
@@ -76,7 +113,7 @@ export default function ShopManagerDashboard() {
     },
   ];
 
-  if (isLoading) {
+  if (isLoading && equipLoading) {
     return (
       <div className="space-y-4 pb-20">
         <div>
@@ -144,7 +181,7 @@ export default function ShopManagerDashboard() {
         <CardContent className="px-3">
           {activeTickets.length === 0 ? (
             <div className="text-center py-8 text-muted-foreground">
-              <Wrench className="w-12 h-12 mx-auto mb-3 opacity-50" />
+              <ClipboardList className="w-12 h-12 mx-auto mb-3 opacity-50" />
               <p>No active tickets assigned to you</p>
             </div>
           ) : (
@@ -191,6 +228,65 @@ export default function ShopManagerDashboard() {
               {activeTickets.length > 5 && (
                 <p className="text-xs text-muted-foreground text-center py-2">
                   + {activeTickets.length - 5} more tickets
+                </p>
+              )}
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader className="flex flex-row items-center justify-between gap-2 pb-3">
+          <CardTitle className="text-lg flex items-center gap-2">
+            <Wrench className="w-5 h-5" />
+            Equipment Tickets
+          </CardTitle>
+          <Link href="/dashboard/equipment">
+            <Button variant="ghost" size="sm" data-testid="button-view-equipment">
+              Equipment
+              <ArrowRight className="w-4 h-4 ml-1" />
+            </Button>
+          </Link>
+        </CardHeader>
+        <CardContent className="px-3">
+          {activeEquipTickets.length === 0 ? (
+            <div className="text-center py-8 text-muted-foreground">
+              <Truck className="w-12 h-12 mx-auto mb-3 opacity-50" />
+              <p>No active equipment tickets</p>
+            </div>
+          ) : (
+            <div className="space-y-2">
+              {activeEquipTickets.slice(0, 5).map((ticket) => (
+                <Link key={ticket.id} href={`/dashboard/equipment-tickets/${ticket.id}`}>
+                  <div 
+                    className="p-3 rounded-lg border hover-elevate cursor-pointer"
+                    data-testid={`card-equip-ticket-${ticket.id}`}
+                  >
+                    <div className="flex items-start justify-between gap-2">
+                      <div className="min-w-0 flex-1">
+                        <p className="font-medium text-sm truncate">{ticket.title}</p>
+                        <p className="text-xs text-muted-foreground truncate capitalize">
+                          {ticket.category.replace(/_/g, " ")}
+                        </p>
+                      </div>
+                      <div className="flex flex-col items-end gap-1">
+                        <Badge className={`text-xs ${equipStatusColors[ticket.status] || ""}`}>
+                          {equipStatusLabels[ticket.status] || ticket.status}
+                        </Badge>
+                        <Badge 
+                          variant={priorityConfig[ticket.priority]?.variant || "outline"}
+                          className="text-xs"
+                        >
+                          {priorityConfig[ticket.priority]?.label || ticket.priority}
+                        </Badge>
+                      </div>
+                    </div>
+                  </div>
+                </Link>
+              ))}
+              {activeEquipTickets.length > 5 && (
+                <p className="text-xs text-muted-foreground text-center py-2">
+                  + {activeEquipTickets.length - 5} more equipment tickets
                 </p>
               )}
             </div>

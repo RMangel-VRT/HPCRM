@@ -1,8 +1,11 @@
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { Link } from "wouter";
-import { Plus, Search, Truck, AlertCircle, CheckCircle, WrenchIcon, XCircle, Trash2 } from "lucide-react";
+import { Plus, Search, Truck, AlertCircle, CheckCircle, WrenchIcon, XCircle, Trash2, ClipboardPlus } from "lucide-react";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
+import { useForm } from "react-hook-form";
+import { zodResolver } from "@hookform/resolvers/zod";
+import { z } from "zod";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -13,10 +16,25 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import {
+  Form,
+  FormControl,
+  FormField,
+  FormItem,
+  FormLabel,
+  FormMessage,
+} from "@/components/ui/form";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
+import { Textarea } from "@/components/ui/textarea";
 import {
   Select,
   SelectContent,
@@ -36,6 +54,32 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { useState } from "react";
 import { useAuth } from "@/hooks/use-auth";
 import type { EquipmentWithTicketCount } from "@shared/schema";
+
+const TICKET_CATEGORIES = [
+  { value: "preventative_maintenance", label: "Preventative Maintenance" },
+  { value: "repair", label: "Repair" },
+  { value: "inspection", label: "Inspection" },
+  { value: "safety", label: "Safety" },
+  { value: "breakdown", label: "Breakdown" },
+];
+
+const TICKET_PRIORITIES = [
+  { value: "low", label: "Low" },
+  { value: "normal", label: "Normal" },
+  { value: "high", label: "High" },
+  { value: "urgent", label: "Urgent" },
+];
+
+const newEquipTicketSchema = z.object({
+  equipmentId: z.string().min(1, "Select equipment"),
+  category: z.enum(["preventative_maintenance", "repair", "inspection", "safety", "breakdown"]),
+  priority: z.enum(["low", "normal", "high", "urgent"]),
+  title: z.string().min(1, "Title is required"),
+  description: z.string().min(1, "Description is required"),
+  dueDate: z.string().optional(),
+});
+
+type NewEquipTicketFormData = z.infer<typeof newEquipTicketSchema>;
 
 const EQUIPMENT_TYPES = [
   { value: "all", label: "All Types" },
@@ -84,14 +128,49 @@ export default function EquipmentList() {
   const [statusFilter, setStatusFilter] = useState("all");
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [equipmentToDelete, setEquipmentToDelete] = useState<EquipmentWithTicketCount | null>(null);
+  const [newTicketOpen, setNewTicketOpen] = useState(false);
 
-  // Office can also add equipment (but not retire/delete)
   const canEdit = user?.activeRole === "admin" || user?.activeRole === "shop_manager" || user?.activeRole === "office";
-  // Only admin and shop_manager can delete
   const canDelete = user?.activeRole === "admin" || user?.activeRole === "shop_manager";
 
   const { data: equipment, isLoading } = useQuery<EquipmentWithTicketCount[]>({
     queryKey: ["/api/equipment"],
+  });
+
+  const newTicketForm = useForm<NewEquipTicketFormData>({
+    resolver: zodResolver(newEquipTicketSchema),
+    defaultValues: {
+      equipmentId: "",
+      category: "repair",
+      priority: "normal",
+      title: "",
+      description: "",
+      dueDate: "",
+    },
+  });
+
+  const createTicketMutation = useMutation({
+    mutationFn: async (data: NewEquipTicketFormData) => {
+      const res = await apiRequest("POST", "/api/equipment-tickets", {
+        equipmentId: data.equipmentId,
+        category: data.category,
+        priority: data.priority,
+        title: data.title,
+        description: data.description,
+        dueDate: data.dueDate || null,
+      });
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/equipment"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/equipment-tickets"] });
+      setNewTicketOpen(false);
+      newTicketForm.reset();
+      toast({ title: "Equipment ticket created" });
+    },
+    onError: (error: Error) => {
+      toast({ title: "Failed to create ticket", description: error.message, variant: "destructive" });
+    },
   });
 
   const deleteMutation = useMutation({
@@ -156,14 +235,22 @@ export default function EquipmentList() {
           <h1 className="text-2xl font-bold" data-testid="text-page-title">Equipment</h1>
           <p className="text-muted-foreground">Manage trucks, mowers, trailers, and other equipment</p>
         </div>
-        {canEdit && (
-          <Button asChild data-testid="button-add-equipment">
-            <Link href="/dashboard/equipment/new">
-              <Plus className="w-4 h-4 mr-2" />
-              Add Equipment
-            </Link>
-          </Button>
-        )}
+        <div className="flex items-center gap-2 flex-wrap">
+          {canEdit && (
+            <Button variant="outline" onClick={() => setNewTicketOpen(true)} data-testid="button-new-equipment-ticket">
+              <ClipboardPlus className="w-4 h-4 mr-2" />
+              New Ticket
+            </Button>
+          )}
+          {canEdit && (
+            <Button asChild data-testid="button-add-equipment">
+              <Link href="/dashboard/equipment/new">
+                <Plus className="w-4 h-4 mr-2" />
+                Add Equipment
+              </Link>
+            </Button>
+          )}
+        </div>
       </div>
 
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
@@ -351,6 +438,135 @@ export default function EquipmentList() {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      <Dialog open={newTicketOpen} onOpenChange={setNewTicketOpen}>
+        <DialogContent className="max-w-lg">
+          <DialogHeader>
+            <DialogTitle>New Equipment Ticket</DialogTitle>
+          </DialogHeader>
+          <Form {...newTicketForm}>
+            <form onSubmit={newTicketForm.handleSubmit((data) => createTicketMutation.mutate(data))} className="space-y-4">
+              <FormField
+                control={newTicketForm.control}
+                name="equipmentId"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Equipment *</FormLabel>
+                    <Select value={field.value} onValueChange={field.onChange}>
+                      <FormControl>
+                        <SelectTrigger data-testid="select-ticket-equipment">
+                          <SelectValue placeholder="Select equipment" />
+                        </SelectTrigger>
+                      </FormControl>
+                      <SelectContent>
+                        {equipment?.filter(e => e.status !== "retired").map((e) => (
+                          <SelectItem key={e.id} value={e.id}>
+                            {e.name} {e.make || e.model ? `(${[e.make, e.model].filter(Boolean).join(" ")})` : ""}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+              <FormField
+                control={newTicketForm.control}
+                name="title"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Title *</FormLabel>
+                    <FormControl>
+                      <Input {...field} placeholder="Brief description of the issue" data-testid="input-equip-ticket-title" />
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+              <div className="grid grid-cols-2 gap-4">
+                <FormField
+                  control={newTicketForm.control}
+                  name="category"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Category</FormLabel>
+                      <Select value={field.value} onValueChange={field.onChange}>
+                        <FormControl>
+                          <SelectTrigger data-testid="select-equip-ticket-category">
+                            <SelectValue />
+                          </SelectTrigger>
+                        </FormControl>
+                        <SelectContent>
+                          {TICKET_CATEGORIES.map((cat) => (
+                            <SelectItem key={cat.value} value={cat.value}>{cat.label}</SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+                <FormField
+                  control={newTicketForm.control}
+                  name="priority"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Priority</FormLabel>
+                      <Select value={field.value} onValueChange={field.onChange}>
+                        <FormControl>
+                          <SelectTrigger data-testid="select-equip-ticket-priority">
+                            <SelectValue />
+                          </SelectTrigger>
+                        </FormControl>
+                        <SelectContent>
+                          {TICKET_PRIORITIES.map((pri) => (
+                            <SelectItem key={pri.value} value={pri.value}>{pri.label}</SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+              </div>
+              <FormField
+                control={newTicketForm.control}
+                name="description"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Description *</FormLabel>
+                    <FormControl>
+                      <Textarea {...field} rows={3} placeholder="Detailed description of the issue or work needed" data-testid="input-equip-ticket-description" />
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+              <FormField
+                control={newTicketForm.control}
+                name="dueDate"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Due Date</FormLabel>
+                    <FormControl>
+                      <Input {...field} type="date" data-testid="input-equip-ticket-due" />
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+              <div className="flex justify-end gap-2 pt-2">
+                <Button type="button" variant="outline" onClick={() => setNewTicketOpen(false)} data-testid="button-cancel-equip-ticket">
+                  Cancel
+                </Button>
+                <Button type="submit" disabled={createTicketMutation.isPending} data-testid="button-submit-equip-ticket">
+                  {createTicketMutation.isPending ? "Creating..." : "Create Ticket"}
+                </Button>
+              </div>
+            </form>
+          </Form>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

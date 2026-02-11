@@ -11,10 +11,10 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Badge } from "@/components/ui/badge";
-import { Search, ChevronRight, ChevronLeft, ChevronDown, Clock, User, MapPin, CalendarDays, Filter, Loader2, CheckCircle2, RefreshCw } from "lucide-react";
+import { Search, ChevronRight, ChevronLeft, ChevronDown, Clock, User, MapPin, CalendarDays, Filter, Loader2, CheckCircle2, RefreshCw, Wrench } from "lucide-react";
 import { Link, useSearch } from "wouter";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
-import type { Ticket, TicketType, TicketTypeStatus, Customer, WorkType } from "@shared/schema";
+import type { Ticket, TicketType, TicketTypeStatus, Customer, WorkType, EquipmentTicket, Equipment } from "@shared/schema";
 import { WORK_TYPE_CATALOG } from "@shared/workTypeCatalog";
 import { useAuth } from "@/hooks/use-auth";
 
@@ -26,20 +26,50 @@ interface TicketWithDetails extends Ticket {
   customer?: Customer;
 }
 
+const EQUIPMENT_TICKET_STATUS_COLORS: Record<string, string> = {
+  new: "bg-primary/10 text-primary border-primary/30",
+  diagnosing: "bg-blue-50 text-blue-700 border-blue-300 dark:bg-blue-950 dark:text-blue-300 dark:border-blue-700",
+  waiting_on_parts: "bg-yellow-50 text-yellow-700 border-yellow-300 dark:bg-yellow-950 dark:text-yellow-300 dark:border-yellow-700",
+  in_repair: "bg-orange-50 text-orange-700 border-orange-300 dark:bg-orange-950 dark:text-orange-300 dark:border-orange-700",
+  completed: "bg-green-50 text-green-700 border-green-300 dark:bg-green-950 dark:text-green-300 dark:border-green-700",
+  closed: "bg-muted text-muted-foreground border-border",
+};
+
+const EQUIPMENT_TICKET_STATUS_LABELS: Record<string, string> = {
+  new: "New",
+  diagnosing: "Diagnosing",
+  waiting_on_parts: "Waiting on Parts",
+  in_repair: "In Repair",
+  completed: "Completed",
+  closed: "Closed",
+};
+
+const EQUIPMENT_CATEGORY_LABELS: Record<string, string> = {
+  preventative_maintenance: "PM",
+  repair: "Repair",
+  inspection: "Inspection",
+  safety: "Safety",
+  breakdown: "Breakdown",
+};
+
+const PRIORITY_COLORS: Record<string, string> = {
+  urgent: "bg-red-50 text-red-700 border-red-300 dark:bg-red-950 dark:text-red-300 dark:border-red-700",
+  high: "bg-orange-50 text-orange-700 border-orange-300 dark:bg-orange-950 dark:text-orange-300 dark:border-orange-700",
+  normal: "bg-muted text-muted-foreground border-border",
+  low: "bg-muted text-muted-foreground border-border",
+};
+
 
 export default function MyTickets() {
   const { user } = useAuth();
   
-  // URL query params for filter persistence
   const searchString = useSearch();
   const urlParams = useMemo(() => new URLSearchParams(searchString), [searchString]);
   
-  // Refs for scroll restoration and URL sync
   const hasRestoredScroll = useRef(false);
   const isUpdatingFromUrl = useRef(false);
   const prevSearchString = useRef(searchString);
   
-  // Initialize filter state from URL params
   const [search, setSearch] = useState(() => urlParams.get("q") || "");
   const [priorityFilter, setPriorityFilter] = useState(() => urlParams.get("priority") || "all");
   const [workTypeFilter, setWorkTypeFilter] = useState(() => urlParams.get("workType") || "all");
@@ -48,11 +78,11 @@ export default function MyTickets() {
   const [completedPage, setCompletedPage] = useState(1);
   const completedPerPage = 10;
   
-  // Collapsible section states
   const [openSectionCollapsed, setOpenSectionCollapsed] = useState(false);
   const [completedSectionCollapsed, setCompletedSectionCollapsed] = useState(false);
+  const [equipOpenSectionCollapsed, setEquipOpenSectionCollapsed] = useState(false);
+  const [equipCompletedSectionCollapsed, setEquipCompletedSectionCollapsed] = useState(false);
 
-  // Sync state from URL when URL changes (e.g., browser back/forward)
   useEffect(() => {
     if (prevSearchString.current === searchString) return;
     prevSearchString.current = searchString;
@@ -64,7 +94,6 @@ export default function MyTickets() {
     setTypeFilter(urlParams.get("type") || "all");
   }, [searchString, urlParams]);
 
-  // Update URL when filters change
   useEffect(() => {
     if (isUpdatingFromUrl.current) {
       isUpdatingFromUrl.current = false;
@@ -80,7 +109,6 @@ export default function MyTickets() {
     const queryString = params.toString();
     const currentQuery = searchString.startsWith("?") ? searchString.slice(1) : searchString;
     
-    // Only update if the computed query differs from current URL
     if (queryString === currentQuery) return;
     
     const newUrl = queryString ? `/dashboard/my-tickets?${queryString}` : "/dashboard/my-tickets";
@@ -89,7 +117,6 @@ export default function MyTickets() {
     window.history.replaceState(null, "", newUrl);
   }, [search, priorityFilter, workTypeFilter, typeFilter, searchString]);
 
-  // Save scroll position before navigating away
   const saveScrollPosition = useCallback(() => {
     const scrollContainer = document.querySelector('[data-radix-scroll-area-viewport]') || 
                            document.querySelector('main');
@@ -134,7 +161,6 @@ export default function MyTickets() {
     refetchOnMount: "always",
   });
 
-  // Fetch the canonical scheduling status ID (Project's "Ready to Schedule" status)
   const { data: schedulingStatusData } = useQuery<{
     schedulingStatusId: string | null;
     statusName?: string;
@@ -145,7 +171,29 @@ export default function MyTickets() {
   });
   const schedulingStatusId = schedulingStatusData?.schedulingStatusId;
 
-  // Restore scroll position after all required data loads
+  const { data: equipmentTickets = [], isLoading: equipTicketsLoading } = useQuery<EquipmentTicket[]>({
+    queryKey: ["/api/equipment-tickets", { assignedToId: user?.id }],
+    queryFn: async () => {
+      const res = await fetch(`/api/equipment-tickets?assignedToId=${user?.id}`, { credentials: "include" });
+      if (!res.ok) throw new Error("Failed to fetch equipment tickets");
+      return res.json();
+    },
+    enabled: !!user?.id,
+    refetchOnMount: "always",
+    staleTime: 0,
+  });
+
+  const { data: equipmentList = [] } = useQuery<Equipment[]>({
+    queryKey: ["/api/equipment"],
+    refetchOnMount: "always",
+  });
+
+  const equipmentMap = useMemo(() => {
+    const map = new Map<string, Equipment>();
+    equipmentList.forEach(e => map.set(e.id, e));
+    return map;
+  }, [equipmentList]);
+
   const isDataLoaded = !ticketsLoading && !ticketTypesLoading && !customersLoading;
   useEffect(() => {
     if (!isDataLoaded || hasRestoredScroll.current) return;
@@ -154,7 +202,6 @@ export default function MyTickets() {
     if (savedPosition) {
       hasRestoredScroll.current = true;
       const scrollTop = parseInt(savedPosition, 10);
-      // Use double requestAnimationFrame to ensure DOM has rendered with data
       requestAnimationFrame(() => {
         requestAnimationFrame(() => {
           const scrollContainer = document.querySelector('[data-radix-scroll-area-viewport]') || 
@@ -166,7 +213,6 @@ export default function MyTickets() {
           }
         });
       });
-      // Clear stored position after restoring
       sessionStorage.removeItem(MY_TICKETS_SCROLL_STORAGE_KEY);
     } else {
       hasRestoredScroll.current = true;
@@ -180,7 +226,6 @@ export default function MyTickets() {
     customer: customers.find(c => c.id === ticket.customerId),
   }));
 
-  // Calculate active filter count
   const activeFilterCount = useMemo(() => {
     let count = 0;
     if (search) count++;
@@ -202,13 +247,16 @@ export default function MyTickets() {
 
   const openTickets = filteredTickets.filter(t => !t.completedAt);
   const completedTickets = filteredTickets.filter(t => t.completedAt);
+
+  const openEquipTickets = equipmentTickets.filter(t => t.status !== "completed" && t.status !== "closed");
+  const completedEquipTickets = equipmentTickets.filter(t => t.status === "completed" || t.status === "closed");
+
+  const totalOpenCount = openTickets.length + openEquipTickets.length;
   
-  // Reset completed page when filters change
   useEffect(() => {
     setCompletedPage(1);
   }, [search, priorityFilter, workTypeFilter, typeFilter]);
   
-  // Clamp page when data changes (e.g., after refetch)
   useEffect(() => {
     const totalPages = Math.ceil(completedTickets.length / completedPerPage);
     if (completedPage > totalPages && totalPages > 0) {
@@ -237,6 +285,9 @@ export default function MyTickets() {
     );
   }
 
+  const hasAnyCustomerTickets = filteredTickets.length > 0;
+  const hasAnyEquipTickets = equipmentTickets.length > 0;
+
   return (
     <div className="space-y-4">
       <div className="flex items-center justify-between gap-3">
@@ -248,9 +299,9 @@ export default function MyTickets() {
             Tickets assigned to you
           </p>
         </div>
-        <div className="flex items-center gap-2 text-sm text-muted-foreground">
+        <div className="flex items-center gap-2 text-sm text-muted-foreground" data-testid="text-total-open-count">
           <CheckCircle2 className="w-4 h-4" />
-          <span>{openTickets.length} open</span>
+          <span>{totalOpenCount} open</span>
         </div>
       </div>
 
@@ -334,7 +385,7 @@ export default function MyTickets() {
         </div>
       )}
 
-      {filteredTickets.length === 0 ? (
+      {!hasAnyCustomerTickets && !hasAnyEquipTickets ? (
         <Card className="mt-8">
           <CardContent className="flex flex-col items-center justify-center py-12 text-center">
             <div className="w-16 h-16 rounded-full bg-muted flex items-center justify-center mb-4">
@@ -350,80 +401,165 @@ export default function MyTickets() {
         </Card>
       ) : (
         <div className="space-y-4">
-          {openTickets.length > 0 && (
-            <div className="space-y-3 md:space-y-2">
-              <button 
-                className="flex items-center gap-2 text-sm font-medium text-muted-foreground px-1 hover:text-foreground transition-colors w-full text-left"
-                onClick={() => setOpenSectionCollapsed(!openSectionCollapsed)}
-                data-testid="button-toggle-open-section-my"
-              >
-                {openSectionCollapsed ? <ChevronRight className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
-                Open ({openTickets.length})
-              </button>
-              {!openSectionCollapsed && (
+          {hasAnyCustomerTickets && (
+            <>
+              {openTickets.length > 0 && (
                 <div className="space-y-3 md:space-y-2">
-                  {openTickets.map((ticket) => (
-                    <TicketCard key={ticket.id} ticket={ticket} formatDueDate={formatDueDate} schedulingStatusId={schedulingStatusId} onNavigate={saveScrollPosition} />
-                  ))}
+                  <button 
+                    className="flex items-center gap-2 text-sm font-medium text-muted-foreground px-1 hover:text-foreground transition-colors w-full text-left"
+                    onClick={() => setOpenSectionCollapsed(!openSectionCollapsed)}
+                    data-testid="button-toggle-open-section-my"
+                  >
+                    {openSectionCollapsed ? <ChevronRight className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
+                    Open ({openTickets.length})
+                  </button>
+                  {!openSectionCollapsed && (
+                    <div className="space-y-3 md:space-y-2">
+                      {openTickets.map((ticket) => (
+                        <TicketCard key={ticket.id} ticket={ticket} formatDueDate={formatDueDate} schedulingStatusId={schedulingStatusId} onNavigate={saveScrollPosition} />
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {completedTickets.length > 0 && (() => {
+                const totalPages = Math.ceil(completedTickets.length / completedPerPage);
+                const startIdx = (completedPage - 1) * completedPerPage;
+                const paginatedCompleted = completedTickets.slice(startIdx, startIdx + completedPerPage);
+                
+                return (
+                  <div className="space-y-3 md:space-y-2 mt-6">
+                    <button 
+                      className="flex items-center gap-2 text-sm font-medium text-muted-foreground px-1 hover:text-foreground transition-colors w-full text-left"
+                      onClick={() => setCompletedSectionCollapsed(!completedSectionCollapsed)}
+                      data-testid="button-toggle-completed-section-my"
+                    >
+                      {completedSectionCollapsed ? <ChevronRight className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
+                      Completed ({completedTickets.length})
+                    </button>
+                    {!completedSectionCollapsed && (
+                      <>
+                        <div className="space-y-3 md:space-y-2 opacity-75">
+                          {paginatedCompleted.map((ticket) => (
+                            <TicketCard key={ticket.id} ticket={ticket} formatDueDate={formatDueDate} schedulingStatusId={schedulingStatusId} onNavigate={saveScrollPosition} />
+                          ))}
+                        </div>
+                        {totalPages > 1 && (
+                          <div className="flex items-center justify-center gap-4 pt-3">
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              onClick={() => setCompletedPage(p => Math.max(1, p - 1))}
+                              disabled={completedPage === 1}
+                              data-testid="button-my-completed-prev"
+                            >
+                              <ChevronLeft className="w-4 h-4 mr-1" />
+                              Previous
+                            </Button>
+                            <span className="text-sm text-muted-foreground">
+                              Page {completedPage} of {totalPages}
+                            </span>
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              onClick={() => setCompletedPage(p => Math.min(totalPages, p + 1))}
+                              disabled={completedPage === totalPages}
+                              data-testid="button-my-completed-next"
+                            >
+                              Next
+                              <ChevronRight className="w-4 h-4 ml-1" />
+                            </Button>
+                          </div>
+                        )}
+                      </>
+                    )}
+                  </div>
+                );
+              })()}
+            </>
+          )}
+
+          {hasAnyEquipTickets && (
+            <div className="space-y-3 md:space-y-2 mt-6" data-testid="section-equipment-tickets">
+              <div className="flex items-center gap-2 px-1 mb-2">
+                <Wrench className="w-4 h-4 text-muted-foreground" />
+                <span className="text-sm font-semibold text-muted-foreground">Equipment Tickets</span>
+              </div>
+
+              {openEquipTickets.length > 0 && (
+                <div className="space-y-3 md:space-y-2">
+                  <button
+                    className="flex items-center gap-2 text-sm font-medium text-muted-foreground px-1 hover:text-foreground transition-colors w-full text-left"
+                    onClick={() => setEquipOpenSectionCollapsed(!equipOpenSectionCollapsed)}
+                    data-testid="button-toggle-equip-open-section"
+                  >
+                    {equipOpenSectionCollapsed ? <ChevronRight className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
+                    Open ({openEquipTickets.length})
+                  </button>
+                  {!equipOpenSectionCollapsed && (
+                    <div className="space-y-3 md:space-y-2">
+                      {openEquipTickets.map((ticket) => (
+                        <EquipmentTicketCard
+                          key={ticket.id}
+                          ticket={ticket}
+                          equipmentMap={equipmentMap}
+                          formatDueDate={formatDueDate}
+                          onNavigate={saveScrollPosition}
+                        />
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {completedEquipTickets.length > 0 && (
+                <div className="space-y-3 md:space-y-2 mt-4">
+                  <button
+                    className="flex items-center gap-2 text-sm font-medium text-muted-foreground px-1 hover:text-foreground transition-colors w-full text-left"
+                    onClick={() => setEquipCompletedSectionCollapsed(!equipCompletedSectionCollapsed)}
+                    data-testid="button-toggle-equip-completed-section"
+                  >
+                    {equipCompletedSectionCollapsed ? <ChevronRight className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
+                    Completed ({completedEquipTickets.length})
+                  </button>
+                  {!equipCompletedSectionCollapsed && (
+                    <div className="space-y-3 md:space-y-2 opacity-75">
+                      {completedEquipTickets.map((ticket) => (
+                        <EquipmentTicketCard
+                          key={ticket.id}
+                          ticket={ticket}
+                          equipmentMap={equipmentMap}
+                          formatDueDate={formatDueDate}
+                          onNavigate={saveScrollPosition}
+                        />
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {equipTicketsLoading && (
+                <div className="flex items-center justify-center py-6">
+                  <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
                 </div>
               )}
             </div>
           )}
 
-          {completedTickets.length > 0 && (() => {
-            const totalPages = Math.ceil(completedTickets.length / completedPerPage);
-            const startIdx = (completedPage - 1) * completedPerPage;
-            const paginatedCompleted = completedTickets.slice(startIdx, startIdx + completedPerPage);
-            
-            return (
-              <div className="space-y-3 md:space-y-2 mt-6">
-                <button 
-                  className="flex items-center gap-2 text-sm font-medium text-muted-foreground px-1 hover:text-foreground transition-colors w-full text-left"
-                  onClick={() => setCompletedSectionCollapsed(!completedSectionCollapsed)}
-                  data-testid="button-toggle-completed-section-my"
-                >
-                  {completedSectionCollapsed ? <ChevronRight className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
-                  Completed ({completedTickets.length})
-                </button>
-                {!completedSectionCollapsed && (
-                  <>
-                    <div className="space-y-3 md:space-y-2 opacity-75">
-                      {paginatedCompleted.map((ticket) => (
-                        <TicketCard key={ticket.id} ticket={ticket} formatDueDate={formatDueDate} schedulingStatusId={schedulingStatusId} onNavigate={saveScrollPosition} />
-                      ))}
-                    </div>
-                    {totalPages > 1 && (
-                      <div className="flex items-center justify-center gap-4 pt-3">
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          onClick={() => setCompletedPage(p => Math.max(1, p - 1))}
-                          disabled={completedPage === 1}
-                          data-testid="button-my-completed-prev"
-                        >
-                          <ChevronLeft className="w-4 h-4 mr-1" />
-                          Previous
-                        </Button>
-                        <span className="text-sm text-muted-foreground">
-                          Page {completedPage} of {totalPages}
-                        </span>
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          onClick={() => setCompletedPage(p => Math.min(totalPages, p + 1))}
-                          disabled={completedPage === totalPages}
-                          data-testid="button-my-completed-next"
-                        >
-                          Next
-                          <ChevronRight className="w-4 h-4 ml-1" />
-                        </Button>
-                      </div>
-                    )}
-                  </>
-                )}
-              </div>
-            );
-          })()}
+          {!hasAnyCustomerTickets && !equipTicketsLoading && !hasAnyEquipTickets && (
+            <Card className="mt-8">
+              <CardContent className="flex flex-col items-center justify-center py-12 text-center">
+                <div className="w-16 h-16 rounded-full bg-muted flex items-center justify-center mb-4">
+                  <Clock className="w-8 h-8 text-muted-foreground" />
+                </div>
+                <h3 className="text-lg font-medium mb-1">No tickets assigned to you</h3>
+                <p className="text-sm text-muted-foreground mb-4 max-w-sm">
+                  You don't have any tickets assigned to you yet.
+                </p>
+              </CardContent>
+            </Card>
+          )}
         </div>
       )}
     </div>
@@ -440,12 +576,10 @@ interface TicketCardProps {
 function TicketCard({ ticket, formatDueDate, schedulingStatusId, onNavigate }: TicketCardProps) {
   const dueInfo = formatDueDate(ticket.dueDate);
   
-  // Bar color: green for completed, ticket type color for open tickets
   const barColor = ticket.completedAt 
-    ? "#22c55e" // green-500
-    : (ticket.ticketType?.color || "#6b7280"); // gray-500 fallback
+    ? "#22c55e"
+    : (ticket.ticketType?.color || "#6b7280");
 
-  // Check if this ticket needs scheduling (ID-based: currentStatusId === schedulingStatusId)
   const needsScheduling = schedulingStatusId && ticket.currentStatusId === schedulingStatusId;
 
   return (
@@ -462,7 +596,6 @@ function TicketCard({ ticket, formatDueDate, schedulingStatusId, onNavigate }: T
             />
             
             <div className="flex-1 min-w-0">
-              {/* Row 1: Ticket type (colored text) + work type badges + needs scheduling indicator */}
               <div className="flex items-center gap-2 flex-wrap">
                 {ticket.ticketType && (
                   <span 
@@ -493,7 +626,6 @@ function TicketCard({ ticket, formatDueDate, schedulingStatusId, onNavigate }: T
                 <ChevronRight className="w-5 h-5 text-muted-foreground shrink-0 ml-auto" />
               </div>
 
-              {/* Row 2: Title + ticket ID */}
               <div className="flex items-start justify-between gap-2 mt-1">
                 <h3 className="font-medium text-base leading-tight line-clamp-2 flex-1" data-testid={`text-my-ticket-title-${ticket.id}`}>
                   {ticket.title}
@@ -503,7 +635,6 @@ function TicketCard({ ticket, formatDueDate, schedulingStatusId, onNavigate }: T
                 </span>
               </div>
 
-              {/* Row 3: Invoice category badge (only for Invoice tickets) */}
               {ticket.ticketType?.name === "Invoice" && ticket.invoiceCategory && (
                 <div className="mt-1.5">
                   <Badge 
@@ -520,7 +651,6 @@ function TicketCard({ ticket, formatDueDate, schedulingStatusId, onNavigate }: T
                 </div>
               )}
 
-              {/* Row 4: Customer */}
               {ticket.customer && (
                 <div className="flex items-center gap-1 mt-1.5 text-sm text-muted-foreground">
                   <MapPin className="w-3.5 h-3.5" />
@@ -528,7 +658,6 @@ function TicketCard({ ticket, formatDueDate, schedulingStatusId, onNavigate }: T
                 </div>
               )}
 
-              {/* Divider + Status row */}
               <div className="flex items-center justify-between mt-3 pt-3 border-t">
                 <div className="flex items-center gap-3">
                   {ticket.currentStatus && (
@@ -536,17 +665,123 @@ function TicketCard({ ticket, formatDueDate, schedulingStatusId, onNavigate }: T
                       variant="outline" 
                       className="text-xs"
                       style={{ borderColor: ticket.currentStatus.color || undefined }}
+                      data-testid={`badge-my-status-${ticket.id}`}
                     >
                       {ticket.currentStatus.name}
                     </Badge>
                   )}
-                  {dueInfo && (
-                    <span className={`text-xs flex items-center gap-1 ${dueInfo.className}`}>
-                      <CalendarDays className="w-3 h-3" />
-                      {dueInfo.text}
-                    </span>
+                  {ticket.priority && ticket.priority !== "normal" && (
+                    <Badge 
+                      variant="outline"
+                      className={`text-xs capitalize ${
+                        ticket.priority === "urgent" 
+                          ? "bg-red-50 border-red-300 text-red-700 dark:bg-red-950 dark:border-red-700 dark:text-red-300"
+                          : ticket.priority === "high"
+                          ? "bg-orange-50 border-orange-300 text-orange-700 dark:bg-orange-950 dark:border-orange-700 dark:text-orange-300"
+                          : ""
+                      }`}
+                      data-testid={`badge-my-priority-${ticket.id}`}
+                    >
+                      {ticket.priority}
+                    </Badge>
                   )}
                 </div>
+                {dueInfo && (
+                  <span className={`text-xs flex items-center gap-1 ${dueInfo.className}`}>
+                    <CalendarDays className="w-3 h-3" />
+                    {dueInfo.text}
+                  </span>
+                )}
+              </div>
+            </div>
+          </div>
+        </CardContent>
+      </Card>
+    </Link>
+  );
+}
+
+interface EquipmentTicketCardProps {
+  ticket: EquipmentTicket;
+  equipmentMap: Map<string, Equipment>;
+  formatDueDate: (date: Date | null | undefined) => { text: string; className: string } | null;
+  onNavigate?: () => void;
+}
+
+function EquipmentTicketCard({ ticket, equipmentMap, formatDueDate, onNavigate }: EquipmentTicketCardProps) {
+  const dueInfo = formatDueDate(ticket.dueDate);
+  const equipmentItem = equipmentMap.get(ticket.equipmentId);
+
+  const barColor = ticket.status === "completed" || ticket.status === "closed"
+    ? "#22c55e"
+    : "#f59e0b";
+
+  return (
+    <Link href={`/dashboard/equipment-tickets/${ticket.id}`} onClick={onNavigate}>
+      <Card
+        className="hover-elevate active-elevate-2 cursor-pointer transition-colors"
+        data-testid={`card-my-equip-ticket-${ticket.id}`}
+      >
+        <CardContent className="p-4">
+          <div className="flex items-start gap-3">
+            <div
+              className="w-1 self-stretch rounded-full"
+              style={{ backgroundColor: barColor }}
+            />
+
+            <div className="flex-1 min-w-0">
+              <div className="flex items-center gap-2 flex-wrap">
+                <Badge
+                  variant="outline"
+                  className="text-xs font-normal"
+                  data-testid={`badge-my-equip-category-${ticket.id}`}
+                >
+                  {EQUIPMENT_CATEGORY_LABELS[ticket.category] || ticket.category}
+                </Badge>
+                {ticket.priority && ticket.priority !== "normal" && (
+                  <Badge
+                    variant="outline"
+                    className={`text-xs capitalize ${PRIORITY_COLORS[ticket.priority] || ""}`}
+                    data-testid={`badge-my-equip-priority-${ticket.id}`}
+                  >
+                    {ticket.priority}
+                  </Badge>
+                )}
+                <ChevronRight className="w-5 h-5 text-muted-foreground shrink-0 ml-auto" />
+              </div>
+
+              <div className="flex items-start justify-between gap-2 mt-1">
+                <h3 className="font-medium text-base leading-tight line-clamp-2 flex-1" data-testid={`text-my-equip-ticket-title-${ticket.id}`}>
+                  {ticket.title}
+                </h3>
+                <span className="font-mono text-xs text-muted-foreground shrink-0" data-testid={`text-my-equip-ticket-id-${ticket.id}`}>
+                  #{ticket.id.slice(0, 8)}
+                </span>
+              </div>
+
+              {equipmentItem && (
+                <div className="flex items-center gap-1 mt-1.5 text-sm text-muted-foreground">
+                  <Wrench className="w-3.5 h-3.5" />
+                  <span className="truncate" data-testid={`text-my-equip-name-${ticket.id}`}>{equipmentItem.name}</span>
+                </div>
+              )}
+
+              <div className="flex items-center justify-between mt-3 pt-3 border-t">
+                <div className="flex items-center gap-3">
+                  <Badge
+                    variant="outline"
+                    className={`text-xs ${EQUIPMENT_TICKET_STATUS_COLORS[ticket.status] || ""}`}
+                    data-testid={`badge-my-equip-status-${ticket.id}`}
+                  >
+                    {EQUIPMENT_TICKET_STATUS_LABELS[ticket.status] || ticket.status}
+                  </Badge>
+                </div>
+                {dueInfo && (
+                  <span className={`text-xs flex items-center gap-1 ${dueInfo.className}`}>
+                    <CalendarDays className="w-3 h-3" />
+                    {dueInfo.text}
+                  </span>
+                )}
               </div>
             </div>
           </div>

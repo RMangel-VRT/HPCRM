@@ -386,7 +386,7 @@ export default function EquipmentDetail() {
       priority: "normal",
       title: "",
       description: "",
-      assignedToId: null,
+      assignedToId: user?.id || null,
       dueDate: "",
     },
   });

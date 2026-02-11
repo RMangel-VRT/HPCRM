@@ -5765,6 +5765,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       ...req.body,
       companyId: user.activeCompanyId,
       reportedById: user.id,
+      assignedToId: req.body.assignedToId || user.id,
     });
     
     if (!parsed.success) {
