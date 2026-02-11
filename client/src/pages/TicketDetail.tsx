@@ -51,6 +51,8 @@ import {
   Link2,
   Trash2,
   Pencil,
+  UserRoundCheck,
+  CornerDownLeft,
 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { queryClient, apiRequest } from "@/lib/queryClient";
@@ -88,6 +90,7 @@ interface TicketDetails {
   contract: Contract | null;
   contractServices: ContractService[];
   assignedUser: { id: string; email: string } | null;
+  delegatedByUser: { id: string; email: string } | null;
   linkedTickets: LinkedTicketInfo[];
 }
 
@@ -118,6 +121,10 @@ export default function TicketDetail() {
   const [activeTab, setActiveTab] = useState<"overview" | "workflow" | "comments" | "history">("overview");
   const [showPropertyMaps, setShowPropertyMaps] = useState(false);
   
+  // Delegation state
+  const [showDelegateDialog, setShowDelegateDialog] = useState(false);
+  const [delegateTargetId, setDelegateTargetId] = useState<string | null>(null);
+  
   // Invoice creation handoff state for Projects at Ready for Billing
   const [showInvoicePrompt, setShowInvoicePrompt] = useState(false);
   const [creatingInvoice, setCreatingInvoice] = useState(false);
@@ -139,8 +146,9 @@ export default function TicketDetail() {
   // Navigation for redirects
   const [, setLocation] = useLocation();
   
-  // Check if current user can reassign tickets (admin or super admin)
+  // Check if current user can reassign or delegate tickets (admin, office, or super admin)
   const canReassign = currentUser?.activeRole === "admin" || currentUser?.isSuperAdminBool;
+  const canDelegate = currentUser?.activeRole === "admin" || currentUser?.activeRole === "office" || currentUser?.isSuperAdminBool;
   
   // Check if current user can delete tickets (admin or office)
   const canDelete = currentUser?.activeRole === "admin" || currentUser?.activeRole === "office" || currentUser?.isSuperAdminBool;
@@ -169,10 +177,10 @@ export default function TicketDetail() {
     { label: details?.ticket?.title || "Loading..." },
   ], [details?.ticket?.title]);
 
-  // Fetch company users for reassignment dropdown (admin/super admin only)
+  // Fetch company users for reassignment/delegation dropdown
   const { data: companyUsersData = [] } = useQuery<CompanyUserWithDetails[]>({
     queryKey: ["/api/companies/users"],
-    enabled: canReassign,
+    enabled: canReassign || canDelegate,
   });
 
   // Build team members list for assignment dropdown - include all users
@@ -202,6 +210,27 @@ export default function TicketDetail() {
     },
     onError: (error: Error) => {
       toast({ title: "Failed to reassign ticket", description: error.message, variant: "destructive" });
+    },
+  });
+
+  // Mutation to delegate ticket
+  const delegateMutation = useMutation({
+    mutationFn: async (targetUserId: string) => {
+      return apiRequest("PATCH", `/api/tickets/${ticketId}`, {
+        assignedToId: targetUserId,
+        delegatedById: currentUser?.id,
+      });
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/tickets", ticketId, "details"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/tickets"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/tickets/my"] });
+      setShowDelegateDialog(false);
+      setDelegateTargetId(null);
+      toast({ title: "Ticket delegated successfully" });
+    },
+    onError: (error: Error) => {
+      toast({ title: "Failed to delegate ticket", description: error.message, variant: "destructive" });
     },
   });
 
@@ -302,7 +331,7 @@ export default function TicketDetail() {
     );
   }
 
-  const { ticket, ticketType, statuses, fieldValues, statusHistory, comments, customer, contract, contractServices = [], assignedUser, linkedTickets = [] } = details;
+  const { ticket, ticketType, statuses, fieldValues, statusHistory, comments, customer, contract, contractServices = [], assignedUser, delegatedByUser, linkedTickets = [] } = details;
   const priority = priorityConfig[ticket.priority as keyof typeof priorityConfig] || priorityConfig.normal;
   const currentStatus = statuses.find(s => s.id === ticket.currentStatusId);
   const sortedStatuses = [...statuses].sort((a, b) => a.displayOrder - b.displayOrder);
@@ -336,6 +365,10 @@ export default function TicketDetail() {
   
   const nextStatus = getNextStatus();
   const isComplete = !!ticket.completedAt;
+  
+  // Check if ticket is at "Ready to Schedule" on a Project workflow - show delegate option
+  const isAtReadyToSchedule = currentStatus?.name === "Ready to Schedule" && ticketType.name === "Project";
+  const isDelegated = !!ticket.delegatedById;
 
   const handleAdvanceStatus = () => {
     if (!nextStatus) return;
@@ -738,6 +771,19 @@ export default function TicketDetail() {
                     </div>
                   )}
                 </div>
+                
+                {isDelegated && delegatedByUser && (
+                  <div className="col-span-2 space-y-1" data-testid="delegation-indicator">
+                    <p className="text-xs text-muted-foreground uppercase tracking-wide">Delegated By</p>
+                    <div className="flex items-center gap-2 rounded-md bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 px-3 py-2">
+                      <CornerDownLeft className="w-4 h-4 text-amber-600 dark:text-amber-400 shrink-0" />
+                      <div className="min-w-0">
+                        <span className="text-sm font-medium text-amber-700 dark:text-amber-300">{delegatedByUser.email}</span>
+                        <p className="text-xs text-amber-600 dark:text-amber-400">Will auto-return when work is completed</p>
+                      </div>
+                    </div>
+                  </div>
+                )}
               </div>
             </CardContent>
           </Card>
@@ -1391,23 +1437,52 @@ export default function TicketDetail() {
 
       {nextStatus && !isComplete && (
         <div className="fixed bottom-0 left-0 right-0 p-4 bg-background border-t md:left-64">
-          <Button 
-            className="w-full h-12 text-base gap-2" 
-            onClick={handleAdvanceStatus}
-            disabled={updateStatusMutation.isPending}
-            data-testid="button-advance-status"
-          >
-            {updateStatusMutation.isPending ? (
-              <Loader2 className="w-5 h-5 animate-spin" />
-            ) : (
-              <>
-                {nextStatus?.name === "Decision Received" && (ticketType.name === "RFP Request" || ticketType.name === "Project")
-                  ? "Record Decision"
-                  : `Move to: ${nextStatus.name}`}
-                <ChevronRight className="w-5 h-5" />
-              </>
-            )}
-          </Button>
+          {isAtReadyToSchedule && !isDelegated && canDelegate ? (
+            <div className="flex gap-2">
+              <Button 
+                variant="outline"
+                className="flex-1 h-12 text-base gap-2" 
+                onClick={() => setShowDelegateDialog(true)}
+                data-testid="button-delegate-ticket"
+              >
+                <UserRoundCheck className="w-5 h-5" />
+                Delegate for Completion
+              </Button>
+              <Button 
+                className="flex-1 h-12 text-base gap-2" 
+                onClick={handleAdvanceStatus}
+                disabled={updateStatusMutation.isPending}
+                data-testid="button-advance-status"
+              >
+                {updateStatusMutation.isPending ? (
+                  <Loader2 className="w-5 h-5 animate-spin" />
+                ) : (
+                  <>
+                    Move to: {nextStatus.name}
+                    <ChevronRight className="w-5 h-5" />
+                  </>
+                )}
+              </Button>
+            </div>
+          ) : (
+            <Button 
+              className="w-full h-12 text-base gap-2" 
+              onClick={handleAdvanceStatus}
+              disabled={updateStatusMutation.isPending}
+              data-testid="button-advance-status"
+            >
+              {updateStatusMutation.isPending ? (
+                <Loader2 className="w-5 h-5 animate-spin" />
+              ) : (
+                <>
+                  {nextStatus?.name === "Decision Received" && (ticketType.name === "RFP Request" || ticketType.name === "Project")
+                    ? "Record Decision"
+                    : `Move to: ${nextStatus.name}`}
+                  <ChevronRight className="w-5 h-5" />
+                </>
+              )}
+            </Button>
+          )}
         </div>
       )}
 
@@ -1624,6 +1699,64 @@ export default function TicketDetail() {
           onClose={() => setShowPropertyMaps(false)}
         />
       )}
+
+      {/* Delegate Ticket Dialog */}
+      <Dialog open={showDelegateDialog} onOpenChange={(open) => {
+        setShowDelegateDialog(open);
+        if (!open) setDelegateTargetId(null);
+      }}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Delegate for Completion</DialogTitle>
+            <DialogDescription>
+              Choose a team member to handle this work. When they mark it as completed, the ticket will automatically return to you for the final billing steps.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4 py-4">
+            <div className="space-y-2">
+              <Label>Assign to</Label>
+              <Select
+                value={delegateTargetId || ""}
+                onValueChange={setDelegateTargetId}
+              >
+                <SelectTrigger data-testid="select-delegate-target">
+                  <SelectValue placeholder="Select team member..." />
+                </SelectTrigger>
+                <SelectContent>
+                  {teamMembers
+                    .filter(m => m.id !== currentUser?.id)
+                    .map((member) => (
+                      <SelectItem key={member.id} value={member.id} data-testid={`delegate-option-${member.id}`}>
+                        {member.name} ({member.role})
+                      </SelectItem>
+                    ))}
+                </SelectContent>
+              </Select>
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setShowDelegateDialog(false)} data-testid="button-cancel-delegate">
+              Cancel
+            </Button>
+            <Button
+              onClick={() => {
+                if (delegateTargetId) {
+                  delegateMutation.mutate(delegateTargetId);
+                }
+              }}
+              disabled={!delegateTargetId || delegateMutation.isPending}
+              data-testid="button-confirm-delegate"
+            >
+              {delegateMutation.isPending ? (
+                <Loader2 className="w-4 h-4 animate-spin mr-2" />
+              ) : (
+                <UserRoundCheck className="w-4 h-4 mr-2" />
+              )}
+              Delegate
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       {/* Delete Ticket Confirmation Dialog */}
       <AlertDialog open={showDeleteDialog} onOpenChange={setShowDeleteDialog}>

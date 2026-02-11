@@ -3636,6 +3636,33 @@ export async function registerRoutes(app: Express): Promise<Server> {
         }
       }
       
+      // Auto-return delegation: when ticket moves to "Work Completed" and has a delegator,
+      // reassign back to the delegator and clear delegation
+      if (newStatus?.name === "Work Completed" && existingTicket.delegatedById) {
+        req.body.assignedToId = existingTicket.delegatedById;
+        req.body.delegatedById = null;
+        console.log(`Delegation return: ticket ${existingTicket.id} reassigned back to delegator ${existingTicket.delegatedById}`);
+        
+        // Notify the delegator that the work is complete and ticket is back with them
+        try {
+          const customer = existingTicket.customerId 
+            ? await storage.getCustomerById(existingTicket.customerId, user.activeCompanyId)
+            : null;
+          const customerText = customer ? ` - ${customer.name}` : "";
+          
+          await storage.createNotification({
+            companyId: user.activeCompanyId,
+            recipientId: existingTicket.delegatedById,
+            ticketId: existingTicket.id,
+            type: "assignment",
+            message: `Work completed, ticket returned to you: ${existingTicket.title}${customerText}`,
+            isRead: false,
+          });
+        } catch (err) {
+          console.error("Failed to create delegation return notification:", err);
+        }
+      }
+      
       if (newStatus?.isFinal === "true") {
         req.body.completedAt = new Date();
         
@@ -4349,6 +4376,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
       assignedUser = await storage.getUserById(ticket.assignedToId);
     }
 
+    // Get delegator user info if delegated
+    let delegatedByUser = null;
+    if (ticket.delegatedById) {
+      delegatedByUser = await storage.getUserById(ticket.delegatedById);
+    }
+
     // Get contract info and services if linked
     let contract = null;
     let contractServices: any[] = [];
@@ -4393,6 +4426,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       contract,
       contractServices,
       assignedUser: assignedUser ? { id: assignedUser.id, email: assignedUser.email } : null,
+      delegatedByUser: delegatedByUser ? { id: delegatedByUser.id, email: delegatedByUser.email } : null,
       linkedTickets,
     });
   });

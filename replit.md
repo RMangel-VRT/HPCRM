@@ -25,6 +25,13 @@ A document generation tool for landscape maintenance contracts using templates a
 #### Ticketing System
 A mobile-first system for field crews, supporting configurable ticket types with custom workflows and step-specific data capture. It includes default ticket types and role-based access. Projects follow a 3-phase workflow (Sales/Estimating, Field Execution, Billing) with specific ticket types and linking (`execution_for`, `invoice_for`). Tickets are classified by work type (Contract Work, Extra Billable, Project, Admin, Estimate Request, Shop To-Do) driving billing behavior. A 3-step wizard guides ticket creation (Work Type, Customer, Details). The system supports auto-creation of Invoice tickets for billable work and includes an RFP Request pipeline for sales management.
 
+Ticket Delegation (Project Workflow):
+- At "Ready to Schedule" step, admin/office users see a "Delegate for Completion" button alongside the normal advance button
+- Delegation assigns the ticket to a chosen team member and records the delegator via `delegatedById` field
+- When the assignee moves the ticket to "Work Completed", the system auto-reassigns it back to the original delegator and clears the delegation
+- A notification is sent to the delegator when the ticket returns
+- The ticket detail page shows a "Delegated By" indicator when a ticket is delegated
+
 Estimate Request to Project Transition:
 - Estimate Request work type uses the Project ticket type workflow (for larger scoped work requiring estimate and approval)
 - When an estimate is approved and moves to execution/billing statuses (Ready to Schedule, Work Completed, Ready for Billing, Invoicing), the work type automatically transitions from "estimate_request" to "project"
