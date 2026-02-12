@@ -1,6 +1,6 @@
 import { useState, useRef, useMemo, useEffect } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
-import { useRoute, useLocation } from "wouter";
+import { useRoute, useLocation, Link } from "wouter";
 import { useSetBreadcrumbs } from "@/hooks/use-breadcrumbs";
 import type { Customer, Contact, Note, Contract, ContractDocument, ContractMonthlyAmount, CustomerRateSheet, InsertContract, InsertContact, InsertNote, InsertCustomer, CustomerMapLayer, PropertyManagementCompany, PropertyManager, Ticket } from "@shared/schema";
 import { insertContractSchema, insertContactSchema, insertNoteSchema, insertCustomerSchema } from "@shared/schema";
@@ -30,7 +30,7 @@ import {
   FormLabel,
   FormMessage,
 } from "@/components/ui/form";
-import { Edit, Plus, Users, FileText, MessageSquare, MapPin, BarChart3, Upload, Download, Eye, Paperclip, History, RefreshCw, DollarSign, Map, Layers, Trash2, X, Ticket as TicketIcon, Building, Check, Loader2, Copy, Mail, Clock, AlertCircle, CheckCircle2 } from "lucide-react";
+import { Edit, Plus, Users, FileText, MessageSquare, MapPin, BarChart3, Upload, Download, Eye, Paperclip, History, RefreshCw, DollarSign, Map, Layers, Trash2, X, Ticket as TicketIcon, Building, Building2, Check, Loader2, Copy, Mail, Clock, AlertCircle, CheckCircle2, GitBranch } from "lucide-react";
 import { Switch } from "@/components/ui/switch";
 import StatusBadge from "@/components/StatusBadge";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -1031,7 +1031,7 @@ export default function CustomerDetail() {
   const { toast } = useToast();
   const { user } = useAuth();
 
-  const { data: customer, isLoading: isLoadingCustomer } = useQuery<Customer>({
+  const { data: customer, isLoading: isLoadingCustomer } = useQuery<Customer & { childCustomers?: Customer[]; parentCustomer?: Customer | null }>({
     queryKey: ["/api/customers", id],
     enabled: !!id,
   });
@@ -1063,6 +1063,18 @@ export default function CustomerDetail() {
   
   const { data: pmManagers = [] } = useQuery<PropertyManager[]>({
     queryKey: ["/api/property-managers"],
+  });
+
+  const { data: allCustomers = [] } = useQuery<Customer[]>({
+    queryKey: ["/api/customers"],
+  });
+  const availableParentCustomers = allCustomers.filter(
+    (c) => (c.isParent === "true" || !c.parentCustomerId) && c.id !== id
+  );
+
+  const { data: parentContracts = [] } = useQuery<Contract[]>({
+    queryKey: ["/api/customers", customer?.parentCustomerId, "contracts"],
+    enabled: !!customer?.parentCustomerId,
   });
 
   const canUploadDocuments = user?.activeRole === "admin" || user?.activeRole === "office";
@@ -1150,6 +1162,7 @@ export default function CustomerDetail() {
       active: customer?.active || "true",
       propertyManagementCompanyId: customer?.propertyManagementCompanyId || null,
       propertyManagerId: customer?.propertyManagerId || null,
+      parentCustomerId: customer?.parentCustomerId || null,
     },
   });
 
@@ -1170,6 +1183,7 @@ export default function CustomerDetail() {
         active: customer.active,
         propertyManagementCompanyId: customer.propertyManagementCompanyId || null,
         propertyManagerId: customer.propertyManagerId || null,
+        parentCustomerId: customer.parentCustomerId || null,
       });
     }
   }, [customer, customerForm, isEditCustomerDialogOpen]);
@@ -1556,11 +1570,30 @@ export default function CustomerDetail() {
 
   const coverage = calculateCoverage(contracts);
 
+  const isChildCustomer = !!customer.parentCustomerId;
+  const isParentCustomer = customer.isParent === "true";
+  const childCustomers = customer.childCustomers || [];
+  const parentCustomer = customer.parentCustomer || null;
+
   return (
     <div className="space-y-6">
       <div className="flex items-start justify-between gap-4 flex-wrap">
         <div>
+          {isChildCustomer && parentCustomer && (
+            <div className="flex items-center gap-2 mb-1" data-testid="text-parent-link">
+              <Building2 className="w-4 h-4 text-muted-foreground" />
+              <Link href={`/dashboard/customers/${parentCustomer.id}`}>
+                <span className="text-sm text-muted-foreground hover:text-foreground cursor-pointer">
+                  {parentCustomer.name}
+                </span>
+              </Link>
+              <span className="text-sm text-muted-foreground">/</span>
+            </div>
+          )}
           <div className="flex items-center gap-3 mb-2">
+            {isParentCustomer && (
+              <Building2 className="w-6 h-6 text-primary" />
+            )}
             <h1 className="text-3xl font-semibold tracking-tight" data-testid="text-customer-name">
               {customer.name}
             </h1>
@@ -1570,6 +1603,16 @@ export default function CustomerDetail() {
               </span>
             )}
             <StatusBadge status={customer.status} />
+            {isParentCustomer && (
+              <Badge variant="secondary" data-testid="badge-parent-customer">
+                Parent Account
+              </Badge>
+            )}
+            {isChildCustomer && (
+              <Badge variant="outline" data-testid="badge-branch-customer">
+                Branch
+              </Badge>
+            )}
             <Badge 
               variant={coverage === "Maintenance & Snow" ? "default" : coverage === "No Coverage" ? "outline" : "secondary"}
               data-testid="badge-coverage-status"
@@ -1762,6 +1805,60 @@ export default function CustomerDetail() {
               </CardContent>
             </Card>
           </div>
+
+          {isParentCustomer && childCustomers.length > 0 && (
+            <Card>
+              <CardHeader className="flex flex-row items-center justify-between gap-2">
+                <CardTitle className="text-lg flex items-center gap-2">
+                  <GitBranch className="w-5 h-5" />
+                  Branches ({childCustomers.length})
+                </CardTitle>
+              </CardHeader>
+              <CardContent>
+                <div className="border rounded-lg">
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead>Branch Name</TableHead>
+                        <TableHead>Address</TableHead>
+                        <TableHead>Status</TableHead>
+                        <TableHead className="text-right">Actions</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {childCustomers.map((child) => (
+                        <TableRow key={child.id} data-testid={`row-branch-${child.id}`}>
+                          <TableCell className="font-medium">
+                            <div className="flex items-center gap-1.5">
+                              <GitBranch className="w-3.5 h-3.5 text-muted-foreground" />
+                              {child.name}
+                            </div>
+                          </TableCell>
+                          <TableCell className="text-muted-foreground">
+                            <div className="flex items-center gap-1.5">
+                              <MapPin className="w-3.5 h-3.5" />
+                              {child.street}, {child.city}, {child.state}
+                            </div>
+                          </TableCell>
+                          <TableCell>
+                            <StatusBadge status={child.status} />
+                          </TableCell>
+                          <TableCell className="text-right">
+                            <Button variant="ghost" size="sm" asChild data-testid={`button-view-branch-${child.id}`}>
+                              <Link href={`/dashboard/customers/${child.id}`}>
+                                <Eye className="w-4 h-4 mr-2" />
+                                View
+                              </Link>
+                            </Button>
+                          </TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                </div>
+              </CardContent>
+            </Card>
+          )}
         </TabsContent>
 
         <TabsContent value="contacts" className="space-y-4">
@@ -2030,7 +2127,7 @@ export default function CustomerDetail() {
             <Tabs value={billingSubTab} onValueChange={setBillingSubTab}>
               <TabsList className="mb-4">
                 <TabsTrigger value="contracts" data-testid="subtab-contracts">
-                  Contracts ({contracts.length})
+                  Contracts ({isChildCustomer ? parentContracts.length : contracts.length})
                 </TabsTrigger>
                 <TabsTrigger value="rate-sheet" data-testid="subtab-rate-sheet">
                   Rate Sheet
@@ -2044,6 +2141,43 @@ export default function CustomerDetail() {
               </TabsList>
 
               <TabsContent value="contracts" className="space-y-4">
+                {isChildCustomer && parentCustomer ? (
+                  <div className="space-y-4">
+                    <Card>
+                      <CardContent className="pt-4">
+                        <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                          <Building2 className="w-4 h-4" />
+                          <span>
+                            Contracts are managed on the parent account.{" "}
+                            <Link href={`/dashboard/customers/${parentCustomer.id}`}>
+                              <span className="text-primary hover:underline cursor-pointer" data-testid="link-parent-contracts">
+                                View {parentCustomer.name} contracts
+                              </span>
+                            </Link>
+                          </span>
+                        </div>
+                      </CardContent>
+                    </Card>
+                    {parentContracts.filter(c => c.status === "active" || c.status === "paused").map((contract) => (
+                      <Card key={contract.id} className="opacity-80" data-testid={`card-parent-contract-${contract.id}`}>
+                        <CardContent className="pt-4">
+                          <div className="flex items-center justify-between gap-2">
+                            <div>
+                              <p className="font-medium">{contract.serviceType}</p>
+                              <p className="text-sm text-muted-foreground">
+                                {contract.billingPattern} billing
+                              </p>
+                            </div>
+                            <Badge variant={contract.status === "active" ? "default" : "secondary"}>
+                              {contract.status}
+                            </Badge>
+                          </div>
+                        </CardContent>
+                      </Card>
+                    ))}
+                  </div>
+                ) : (
+                <>
                 <div className="flex justify-between items-center gap-4">
                   <div className="flex items-center gap-2">
                     <Checkbox 
@@ -2137,6 +2271,8 @@ export default function CustomerDetail() {
                   onClose={() => setShowVersionHistory(null)}
                   formatFileSize={formatFileSize}
                 />
+                </>
+                )}
               </TabsContent>
 
               <TabsContent value="rate-sheet" className="space-y-4">
@@ -2842,6 +2978,34 @@ export default function CustomerDetail() {
                         <SelectItem value="3">3 - Average</SelectItem>
                         <SelectItem value="4">4 - Above Average</SelectItem>
                         <SelectItem value="5">5 - Complex</SelectItem>
+                      </SelectContent>
+                    </Select>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+              <FormField
+                control={customerForm.control}
+                name="parentCustomerId"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Parent Account</FormLabel>
+                    <Select 
+                      onValueChange={(value) => field.onChange(value === "_none" ? null : value)} 
+                      value={field.value || "_none"}
+                    >
+                      <FormControl>
+                        <SelectTrigger data-testid="select-customer-parent">
+                          <SelectValue placeholder="Select parent account" />
+                        </SelectTrigger>
+                      </FormControl>
+                      <SelectContent>
+                        <SelectItem value="_none">None (Standalone)</SelectItem>
+                        {availableParentCustomers.map((p) => (
+                          <SelectItem key={p.id} value={p.id}>
+                            {p.name}
+                          </SelectItem>
+                        ))}
                       </SelectContent>
                     </Select>
                     <FormMessage />

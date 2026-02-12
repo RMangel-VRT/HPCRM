@@ -39,7 +39,8 @@ import {
 } from "@/components/ui/form";
 import { Switch } from "@/components/ui/switch";
 import { Label } from "@/components/ui/label";
-import { Plus, Search, Eye, MapPin, Archive, ArchiveRestore, ArrowUpDown, ArrowUp, ArrowDown, Trash2 } from "lucide-react";
+import { Plus, Search, Eye, MapPin, Archive, ArchiveRestore, ArrowUpDown, ArrowUp, ArrowDown, Trash2, ChevronRight, ChevronDown, Building2, GitBranch } from "lucide-react";
+import { Badge } from "@/components/ui/badge";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -130,9 +131,13 @@ export default function CustomersList() {
       tags: [],
       acres: "",
       complexityScore: undefined,
+      parentCustomerId: null,
+      isParent: "false",
       active: "true",
     },
   });
+
+  const parentCustomers = customers.filter(c => c.isParent === "true");
 
   const createMutation = useMutation({
     mutationFn: async (data: Omit<InsertCustomer, "companyId">) => {
@@ -218,46 +223,98 @@ export default function CustomersList() {
     }
   };
 
-  const filteredCustomers = customers.filter((customer) => {
+  const [expandedParents, setExpandedParents] = useState<Set<string>>(new Set());
+
+  const toggleParentExpand = (parentId: string) => {
+    setExpandedParents(prev => {
+      const next = new Set(prev);
+      if (next.has(parentId)) {
+        next.delete(parentId);
+      } else {
+        next.add(parentId);
+      }
+      return next;
+    });
+  };
+
+  const childrenByParent = customers.reduce<Record<string, Customer[]>>((acc, c) => {
+    if (c.parentCustomerId) {
+      if (!acc[c.parentCustomerId]) acc[c.parentCustomerId] = [];
+      acc[c.parentCustomerId].push(c);
+    }
+    return acc;
+  }, {});
+
+  const topLevelCustomers = customers.filter(c => !c.parentCustomerId);
+
+  const applyFilter = (customer: Customer) => {
     const matchesSearch = customer.name.toLowerCase().includes(search.toLowerCase());
     const matchesStatus = statusFilter === "all" || customer.status === statusFilter;
     const matchesArchived = showArchived || customer.active === "true";
     return matchesSearch && matchesStatus && matchesArchived;
+  };
+
+  const filteredTopLevel = topLevelCustomers.filter(c => {
+    const selfMatch = applyFilter(c);
+    if (selfMatch) return true;
+    const children = childrenByParent[c.id] || [];
+    return children.some(child => applyFilter(child));
   });
 
-  const sortedCustomers = [...filteredCustomers].sort((a, b) => {
-    if (!sortColumn) return 0;
-    
-    let aVal: string | number = "";
-    let bVal: string | number = "";
-    
-    switch (sortColumn) {
-      case "name":
-        aVal = a.name.toLowerCase();
-        bVal = b.name.toLowerCase();
-        break;
-      case "city":
-        aVal = `${a.city}, ${a.state}`.toLowerCase();
-        bVal = `${b.city}, ${b.state}`.toLowerCase();
-        break;
-      case "status":
-        aVal = a.status.toLowerCase();
-        bVal = b.status.toLowerCase();
-        break;
-      case "acres":
-        aVal = parseFloat(a.acres || "0") || 0;
-        bVal = parseFloat(b.acres || "0") || 0;
-        break;
-      case "complexity":
-        aVal = parseInt(a.complexityScore || "0") || 0;
-        bVal = parseInt(b.complexityScore || "0") || 0;
-        break;
+  const sortCustomers = (list: Customer[]) => {
+    return [...list].sort((a, b) => {
+      if (!sortColumn) return 0;
+      let aVal: string | number = "";
+      let bVal: string | number = "";
+      switch (sortColumn) {
+        case "name":
+          aVal = a.name.toLowerCase();
+          bVal = b.name.toLowerCase();
+          break;
+        case "city":
+          aVal = `${a.city}, ${a.state}`.toLowerCase();
+          bVal = `${b.city}, ${b.state}`.toLowerCase();
+          break;
+        case "status":
+          aVal = a.status.toLowerCase();
+          bVal = b.status.toLowerCase();
+          break;
+        case "acres":
+          aVal = parseFloat(a.acres || "0") || 0;
+          bVal = parseFloat(b.acres || "0") || 0;
+          break;
+        case "complexity":
+          aVal = parseInt(a.complexityScore || "0") || 0;
+          bVal = parseInt(b.complexityScore || "0") || 0;
+          break;
+      }
+      if (aVal < bVal) return sortDirection === "asc" ? -1 : 1;
+      if (aVal > bVal) return sortDirection === "asc" ? 1 : -1;
+      return 0;
+    });
+  };
+
+  const sortedTopLevel = sortCustomers(filteredTopLevel);
+
+  const buildDisplayRows = () => {
+    const rows: { customer: Customer; isChild: boolean; isParent: boolean; childCount: number }[] = [];
+    for (const c of sortedTopLevel) {
+      const children = childrenByParent[c.id] || [];
+      const isParent = c.isParent === "true" || children.length > 0;
+      rows.push({ customer: c, isChild: false, isParent, childCount: children.length });
+      if (isParent && expandedParents.has(c.id)) {
+        const filteredChildren = children.filter(applyFilter);
+        const sortedChildren = sortCustomers(filteredChildren);
+        for (const child of sortedChildren) {
+          rows.push({ customer: child, isChild: true, isParent: false, childCount: 0 });
+        }
+      }
     }
-    
-    if (aVal < bVal) return sortDirection === "asc" ? -1 : 1;
-    if (aVal > bVal) return sortDirection === "asc" ? 1 : -1;
-    return 0;
-  });
+    return rows;
+  };
+
+  const displayRows = buildDisplayRows();
+  const totalFiltered = filteredTopLevel.length;
 
   return (
     <div className="space-y-6">
@@ -317,7 +374,7 @@ export default function CustomersList() {
             <Skeleton key={i} className="h-16 w-full" />
           ))}
         </div>
-      ) : filteredCustomers.length === 0 ? (
+      ) : totalFiltered === 0 ? (
         <EmptyState
           image={emptyCustomersImage}
           title="No customers found"
@@ -339,9 +396,42 @@ export default function CustomersList() {
               </TableRow>
             </TableHeader>
             <TableBody>
-              {sortedCustomers.map((customer) => (
-                <TableRow key={customer.id} data-testid={`row-customer-${customer.id}`}>
-                  <TableCell className="font-medium">{customer.name}</TableCell>
+              {displayRows.map(({ customer, isChild, isParent, childCount }) => (
+                <TableRow 
+                  key={customer.id} 
+                  data-testid={`row-customer-${customer.id}`}
+                  className={isChild ? "bg-muted/30" : ""}
+                >
+                  <TableCell className="font-medium">
+                    <div className="flex items-center gap-1.5">
+                      {isParent ? (
+                        <button
+                          onClick={() => toggleParentExpand(customer.id)}
+                          className="p-0.5 rounded hover-elevate"
+                          data-testid={`button-expand-${customer.id}`}
+                        >
+                          {expandedParents.has(customer.id) ? (
+                            <ChevronDown className="w-4 h-4" />
+                          ) : (
+                            <ChevronRight className="w-4 h-4" />
+                          )}
+                        </button>
+                      ) : isChild ? (
+                        <span className="w-5 flex justify-center text-muted-foreground">
+                          <GitBranch className="w-3.5 h-3.5" />
+                        </span>
+                      ) : null}
+                      {isParent && (
+                        <Building2 className="w-4 h-4 text-primary" />
+                      )}
+                      <span>{customer.name}</span>
+                      {isParent && childCount > 0 && (
+                        <Badge variant="secondary" className="text-xs ml-1">
+                          {childCount} {childCount === 1 ? "branch" : "branches"}
+                        </Badge>
+                      )}
+                    </div>
+                  </TableCell>
                   <TableCell className="text-muted-foreground">
                     <div className="flex items-center gap-1.5">
                       <MapPin className="w-3.5 h-3.5" />
@@ -365,36 +455,40 @@ export default function CustomersList() {
                           View
                         </Link>
                       </Button>
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        onClick={() => archiveMutation.mutate({
-                          id: customer.id,
-                          active: customer.active === "false"
-                        })}
-                        disabled={archiveMutation.isPending}
-                        data-testid={`button-archive-${customer.id}`}
-                      >
-                        {customer.active === "false" ? (
-                          <>
-                            <ArchiveRestore className="w-4 h-4 mr-2" />
-                            Unarchive
-                          </>
-                        ) : (
-                          <>
-                            <Archive className="w-4 h-4 mr-2" />
-                            Archive
-                          </>
-                        )}
-                      </Button>
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        onClick={() => handleDeleteClick(customer)}
-                        data-testid={`button-delete-${customer.id}`}
-                      >
-                        <Trash2 className="w-4 h-4 text-destructive" />
-                      </Button>
+                      {!isParent && (
+                        <>
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => archiveMutation.mutate({
+                              id: customer.id,
+                              active: customer.active === "false"
+                            })}
+                            disabled={archiveMutation.isPending}
+                            data-testid={`button-archive-${customer.id}`}
+                          >
+                            {customer.active === "false" ? (
+                              <>
+                                <ArchiveRestore className="w-4 h-4 mr-2" />
+                                Unarchive
+                              </>
+                            ) : (
+                              <>
+                                <Archive className="w-4 h-4 mr-2" />
+                                Archive
+                              </>
+                            )}
+                          </Button>
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            onClick={() => handleDeleteClick(customer)}
+                            data-testid={`button-delete-${customer.id}`}
+                          >
+                            <Trash2 className="w-4 h-4 text-destructive" />
+                          </Button>
+                        </>
+                      )}
                     </div>
                   </TableCell>
                 </TableRow>
@@ -449,6 +543,40 @@ export default function CustomersList() {
                   </FormItem>
                 )}
               />
+
+              {parentCustomers.length > 0 && (
+                <FormField
+                  control={form.control}
+                  name="parentCustomerId"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Parent Customer (Optional)</FormLabel>
+                      <Select 
+                        onValueChange={(v) => field.onChange(v === "__none__" ? null : v)} 
+                        value={field.value || "__none__"}
+                      >
+                        <FormControl>
+                          <SelectTrigger data-testid="select-parent-customer">
+                            <SelectValue placeholder="None (standalone customer)" />
+                          </SelectTrigger>
+                        </FormControl>
+                        <SelectContent>
+                          <SelectItem value="__none__">None (standalone customer)</SelectItem>
+                          {parentCustomers.map((p) => (
+                            <SelectItem key={p.id} value={p.id}>
+                              {p.name}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                      <FormDescription>
+                        Select a parent to make this a branch/location of an existing customer
+                      </FormDescription>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+              )}
 
               <div className="grid grid-cols-2 gap-4">
                 <FormField

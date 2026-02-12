@@ -87,6 +87,8 @@ export const customers = pgTable("customers", {
   managementCompany: text("management_company"),
   propertyManagementCompanyId: varchar("property_management_company_id"),
   propertyManagerId: varchar("property_manager_id"),
+  parentCustomerId: varchar("parent_customer_id"),
+  isParent: text("is_parent").notNull().default("false").$type<"true" | "false">(),
   active: text("active").notNull().default("true").$type<"true" | "false">(),
   createdAt: timestamp("created_at").notNull().defaultNow(),
   updatedAt: timestamp("updated_at").notNull().defaultNow(),
@@ -100,6 +102,8 @@ export const insertCustomerSchema = createInsertSchema(customers).omit({
   status: z.enum(["active", "prospect", "inactive"]).default("active"),
   tags: z.array(z.string()).default([]),
   complexityScore: z.enum(["1", "2", "3", "4", "5"]).optional(),
+  parentCustomerId: z.string().nullable().optional(),
+  isParent: z.enum(["true", "false"]).default("false"),
   active: z.enum(["true", "false"]).default("true"),
 });
 

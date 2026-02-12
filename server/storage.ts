@@ -32,6 +32,8 @@ export interface IStorage {
   
   getCustomers(companyId: string): Promise<Customer[]>;
   getCustomerById(id: string, companyId: string): Promise<Customer | undefined>;
+  getChildCustomers(parentId: string, companyId: string): Promise<Customer[]>;
+  getParentCustomers(companyId: string): Promise<Customer[]>;
   createCustomer(customer: InsertCustomer): Promise<Customer>;
   updateCustomer(id: string, companyId: string, customer: Partial<InsertCustomer>, expectedUpdatedAt?: Date): Promise<Customer | undefined | { conflict: true; current: Customer }>;
   deleteCustomer(id: string, companyId: string): Promise<void>;
@@ -467,6 +469,16 @@ export class PgStorage implements IStorage {
       .where(and(eq(customers.id, id), eq(customers.companyId, companyId)))
       .limit(1);
     return result[0];
+  }
+
+  async getChildCustomers(parentId: string, companyId: string): Promise<Customer[]> {
+    return await db.select().from(customers)
+      .where(and(eq(customers.parentCustomerId, parentId), eq(customers.companyId, companyId)));
+  }
+
+  async getParentCustomers(companyId: string): Promise<Customer[]> {
+    return await db.select().from(customers)
+      .where(and(eq(customers.isParent, "true"), eq(customers.companyId, companyId)));
   }
 
   async createCustomer(insertCustomer: InsertCustomer): Promise<Customer> {

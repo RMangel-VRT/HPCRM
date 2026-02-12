@@ -6,7 +6,8 @@ import { setupAuth, type UserWithContext } from "./auth";
 import { storage } from "./storage";
 import { db } from "./db";
 import { eq, and, inArray } from "drizzle-orm";
-import { insertCustomerSchema, insertContactSchema, insertCompanySchema, insertCompanyUserSchema, insertSettingsSchema, insertNoteSchema, insertContractSchema, insertContractDocumentSchema, insertContractBuilderDocumentSchema, insertContractBuilderSectionSchema, insertContractBuilderVariableSchema, insertTicketTypeSchema, insertTicketTypeStatusSchema, insertTicketTypeFieldSchema, insertTicketSchema, insertTicketFieldValueSchema, insertTicketStatusHistorySchema, insertTicketCommentSchema, insertTicketLinkSchema, insertCustomerMapLayerSchema, insertCustomerMapDocumentSchema, insertMaintenanceCrewSchema, insertMaintenanceVisitConfigSchema, insertWeeklyScheduleTemplateSchema, insertScheduleBlockSchema, insertEquipmentSchema, insertEquipmentFileSchema, insertEquipmentTicketSchema, insertEquipmentTicketStatusHistorySchema, tickets, ticketTypes, ticketTypeStatuses } from "@shared/schema";
+import { insertCustomerSchema, insertContactSchema, insertCompanySchema, insertCompanyUserSchema, insertSettingsSchema, insertNoteSchema, insertContractSchema, insertContractDocumentSchema, insertContractBuilderDocumentSchema, insertContractBuilderSectionSchema, insertContractBuilderVariableSchema, insertTicketTypeSchema, insertTicketTypeStatusSchema, insertTicketTypeFieldSchema, insertTicketSchema, insertTicketFieldValueSchema, insertTicketStatusHistorySchema, insertTicketCommentSchema, insertTicketLinkSchema, insertCustomerMapLayerSchema, insertCustomerMapDocumentSchema, insertMaintenanceCrewSchema, insertMaintenanceVisitConfigSchema, insertWeeklyScheduleTemplateSchema, insertScheduleBlockSchema, insertEquipmentSchema, insertEquipmentFileSchema, insertEquipmentTicketSchema, insertEquipmentTicketStatusHistorySchema, tickets, ticketTypes, ticketTypeStatuses, customers as customersTable } from "@shared/schema";
+import type { Customer } from "@shared/schema";
 import { ObjectStorageService, ObjectNotFoundError, objectStorageClient, signObjectURL } from "./objectStorage";
 import { ObjectPermission, ObjectAccessGroupType, setObjectAclPolicy } from "./objectAcl";
 
@@ -653,7 +654,23 @@ export async function registerRoutes(app: Express): Promise<Server> {
     if (!customer) {
       return res.status(404).send("Customer not found");
     }
-    res.json(customer);
+
+    let childCustomers: Customer[] = [];
+    let parentCustomer: Customer | undefined;
+
+    if (customer.isParent === "true") {
+      childCustomers = await storage.getChildCustomers(customer.id, user.activeCompanyId);
+    }
+
+    if (customer.parentCustomerId) {
+      parentCustomer = await storage.getCustomerById(customer.parentCustomerId, user.activeCompanyId);
+    }
+
+    res.json({
+      ...customer,
+      childCustomers,
+      parentCustomer: parentCustomer || null,
+    });
   });
 
   app.post("/api/customers", async (req, res) => {
@@ -673,6 +690,20 @@ export async function registerRoutes(app: Express): Promise<Server> {
     });
     if (!result.success) {
       return res.status(400).send(result.error.message);
+    }
+
+    // Validate and auto-mark parent if parentCustomerId is being set
+    if (result.data.parentCustomerId) {
+      const parentCust = await storage.getCustomerById(result.data.parentCustomerId, user.activeCompanyId);
+      if (!parentCust) {
+        return res.status(400).send("Parent customer not found");
+      }
+      if (parentCust.parentCustomerId) {
+        return res.status(400).send("Cannot set a child customer as a parent (only one level of hierarchy allowed)");
+      }
+      if (parentCust.isParent !== "true") {
+        await storage.updateCustomer(result.data.parentCustomerId, user.activeCompanyId, { isParent: "true" });
+      }
     }
 
     const customer = await storage.createCustomer(result.data);
@@ -739,6 +770,34 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const manager = await storage.getPropertyManagerById(result.data.propertyManagerId, user.activeCompanyId);
       if (!manager || manager.propertyManagementCompanyId !== companyIdToCheck) {
         return res.status(400).send("Property manager does not belong to the selected property management company");
+      }
+    }
+
+    // Validate parentCustomerId if being set
+    if ('parentCustomerId' in result.data) {
+      if (result.data.parentCustomerId) {
+        if (result.data.parentCustomerId === req.params.id) {
+          return res.status(400).send("A customer cannot be its own parent");
+        }
+        const parentCust = await storage.getCustomerById(result.data.parentCustomerId, user.activeCompanyId);
+        if (!parentCust) {
+          return res.status(400).send("Parent customer not found");
+        }
+        if (parentCust.parentCustomerId) {
+          return res.status(400).send("Cannot set a child customer as a parent (only one level of hierarchy allowed)");
+        }
+        if (parentCust.isParent !== "true") {
+          await storage.updateCustomer(result.data.parentCustomerId, user.activeCompanyId, { isParent: "true" });
+        }
+      }
+      
+      // If removing parentCustomerId, check if old parent still has other children
+      const existingCust = await storage.getCustomerById(req.params.id, user.activeCompanyId);
+      if (existingCust?.parentCustomerId && existingCust.parentCustomerId !== result.data.parentCustomerId) {
+        const siblings = await storage.getChildCustomers(existingCust.parentCustomerId, user.activeCompanyId);
+        if (siblings.filter(s => s.id !== req.params.id).length === 0) {
+          await storage.updateCustomer(existingCust.parentCustomerId, user.activeCompanyId, { isParent: "false" });
+        }
       }
     }
 
