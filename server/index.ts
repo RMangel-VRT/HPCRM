@@ -1,5 +1,5 @@
 import express, { type Request, Response, NextFunction } from "express";
-import { registerRoutes, migrateProjectSchedulingStatus } from "./routes";
+import { registerRoutes, migrateProjectSchedulingStatus, migrateFirstBankHierarchy } from "./routes";
 import { setupVite, serveStatic, log } from "./vite";
 import { runDueDateNotifications } from "./due-date-notifications";
 
@@ -52,6 +52,7 @@ app.use((req, res, next) => {
   
   // Run startup migrations
   await migrateProjectSchedulingStatus(); // Ensure Ready to Schedule status exists
+  await migrateFirstBankHierarchy(); // Link 1st Bank branches to parent account
 
   app.use((err: any, _req: Request, res: Response, _next: NextFunction) => {
     const status = err.status || err.statusCode || 500;

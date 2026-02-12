@@ -603,6 +603,58 @@ export async function seedAllTicketTypes(companyId: string): Promise<void> {
   console.log(`All ticket types seeded for company ${companyId}`);
 }
 
+// Startup migration: Link "1st Bank" branches to a parent account
+// Creates a parent "1st Bank" customer and links all "1st Bank - *" branches to it
+export async function migrateFirstBankHierarchy(): Promise<void> {
+  console.log("Running startup migration: Checking 1st Bank parent-child hierarchy...");
+  
+  try {
+    const companies = await storage.getCompanies();
+    
+    for (const company of companies) {
+      const customers = await storage.getCustomers(company.id);
+      const bankBranches = customers.filter(
+        (c) => c.name.startsWith("1st Bank - ") && !c.parentCustomerId
+      );
+      
+      if (bankBranches.length === 0) {
+        continue;
+      }
+      
+      let parentBank = customers.find(
+        (c) => c.name === "1st Bank" && c.isParent === "true"
+      );
+      
+      if (!parentBank) {
+        parentBank = await storage.createCustomer({
+          name: "1st Bank",
+          companyId: company.id,
+          street: "",
+          city: "",
+          state: "",
+          zip: "",
+          status: "active",
+          isParent: "true",
+          active: "true",
+        });
+        console.log(`Created parent "1st Bank" customer: ${parentBank.id}`);
+      }
+      
+      for (const branch of bankBranches) {
+        await storage.updateCustomer(branch.id, company.id, {
+          parentCustomerId: parentBank.id,
+        });
+      }
+      
+      console.log(`Linked ${bankBranches.length} branches to parent "1st Bank"`);
+    }
+    
+    console.log("1st Bank hierarchy migration complete");
+  } catch (error) {
+    console.error("Error during 1st Bank hierarchy migration:", error);
+  }
+}
+
 // Startup migration: Ensure all companies have the "Ready to Schedule" status in their Project workflow
 // This is called at server startup to migrate existing companies that were created before this status was added
 export async function migrateProjectSchedulingStatus(): Promise<void> {
