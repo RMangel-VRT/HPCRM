@@ -6,7 +6,7 @@ import { setupAuth, type UserWithContext } from "./auth";
 import { storage } from "./storage";
 import { db } from "./db";
 import { eq, and, inArray } from "drizzle-orm";
-import { insertCustomerSchema, insertContactSchema, insertCompanySchema, insertCompanyUserSchema, insertSettingsSchema, insertNoteSchema, insertContractSchema, insertContractDocumentSchema, insertContractBuilderDocumentSchema, insertContractBuilderSectionSchema, insertContractBuilderVariableSchema, insertTicketTypeSchema, insertTicketTypeStatusSchema, insertTicketTypeFieldSchema, insertTicketSchema, insertTicketFieldValueSchema, insertTicketStatusHistorySchema, insertTicketCommentSchema, insertTicketLinkSchema, insertCustomerMapLayerSchema, insertCustomerMapDocumentSchema, insertMaintenanceCrewSchema, insertMaintenanceVisitConfigSchema, insertWeeklyScheduleTemplateSchema, insertScheduleBlockSchema, insertEquipmentSchema, insertEquipmentFileSchema, insertEquipmentTicketSchema, insertEquipmentTicketStatusHistorySchema, tickets, ticketTypes, ticketTypeStatuses, customers as customersTable, contractMonthlyAmounts } from "@shared/schema";
+import { insertCustomerSchema, insertContactSchema, insertCompanySchema, insertCompanyUserSchema, insertSettingsSchema, insertNoteSchema, insertContractSchema, insertContractDocumentSchema, insertContractBuilderDocumentSchema, insertContractBuilderSectionSchema, insertContractBuilderVariableSchema, insertTicketTypeSchema, insertTicketTypeStatusSchema, insertTicketTypeFieldSchema, insertTicketSchema, insertTicketFieldValueSchema, insertTicketStatusHistorySchema, insertTicketCommentSchema, insertTicketLinkSchema, insertCustomerMapLayerSchema, insertCustomerMapDocumentSchema, insertMaintenanceCrewSchema, insertMaintenanceVisitConfigSchema, insertWeeklyScheduleTemplateSchema, insertScheduleBlockSchema, insertEquipmentSchema, insertEquipmentFileSchema, insertEquipmentTicketSchema, insertEquipmentTicketStatusHistorySchema, tickets, ticketTypes, ticketTypeStatuses, customers as customersTable, contractMonthlyAmounts, contractDocuments, contractServices, contractStatusHistory } from "@shared/schema";
 import type { Customer } from "@shared/schema";
 import { ObjectStorageService, ObjectNotFoundError, objectStorageClient, signObjectURL } from "./objectStorage";
 import { ObjectPermission, ObjectAccessGroupType, setObjectAclPolicy } from "./objectAcl";
@@ -647,6 +647,58 @@ export async function migrateFirstBankHierarchy(): Promise<void> {
       }
       
       console.log(`Linked ${bankBranches.length} branches to parent "1st Bank"`);
+    }
+    
+    const cutoverDate = new Date("2026-04-01T00:00:00");
+    const now = new Date();
+    
+    if (now >= cutoverDate) {
+      for (const company of companies) {
+        const customers = await storage.getCustomers(company.id);
+        const parentBank = customers.find(
+          (c) => c.name === "1st Bank" && c.isParent === "true"
+        );
+        if (!parentBank) continue;
+        
+        const branches = customers.filter(
+          (c) => c.parentCustomerId === parentBank.id
+        );
+        
+        for (const branch of branches) {
+          const branchContracts = await storage.getContractsByCustomerId(branch.id, company.id);
+          
+          if (branchContracts.length === 0) continue;
+          
+          try {
+            const contractIds = branchContracts.map(c => c.id);
+            
+            for (const contractId of contractIds) {
+              await db.delete(contractMonthlyAmounts).where(
+                and(eq(contractMonthlyAmounts.contractId, contractId), eq(contractMonthlyAmounts.companyId, company.id))
+              );
+              await db.delete(contractDocuments).where(
+                and(eq(contractDocuments.contractId, contractId), eq(contractDocuments.companyId, company.id))
+              );
+              await db.delete(contractServices).where(
+                and(eq(contractServices.contractId, contractId), eq(contractServices.companyId, company.id))
+              );
+              await db.delete(contractStatusHistory).where(
+                eq(contractStatusHistory.contractId, contractId)
+              );
+            }
+            
+            for (const contractId of contractIds) {
+              await storage.deleteContract(contractId, company.id);
+            }
+            
+            console.log(`Deleted ${branchContracts.length} legacy contracts from branch "${branch.name}"`);
+          } catch (branchError) {
+            console.error(`Error deleting contracts for branch "${branch.name}":`, branchError);
+          }
+        }
+      }
+      
+      console.log("1st Bank branch contract cleanup complete (post April 1, 2026)");
     }
     
     console.log("1st Bank hierarchy migration complete");

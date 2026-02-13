@@ -2127,7 +2127,7 @@ export default function CustomerDetail() {
             <Tabs value={billingSubTab} onValueChange={setBillingSubTab}>
               <TabsList className="mb-4">
                 <TabsTrigger value="contracts" data-testid="subtab-contracts">
-                  Contracts ({isChildCustomer ? parentContracts.length : contracts.length})
+                  Contracts ({isChildCustomer ? (contracts.length + parentContracts.length) : contracts.length})
                 </TabsTrigger>
                 <TabsTrigger value="rate-sheet" data-testid="subtab-rate-sheet">
                   Rate Sheet
@@ -2148,7 +2148,7 @@ export default function CustomerDetail() {
                         <div className="flex items-center gap-2 text-sm text-muted-foreground">
                           <Building2 className="w-4 h-4" />
                           <span>
-                            Contracts are managed on the parent account.{" "}
+                            New contracts are managed on the parent account.{" "}
                             <Link href={`/dashboard/customers/${parentCustomer.id}`}>
                               <span className="text-primary hover:underline cursor-pointer" data-testid="link-parent-contracts">
                                 View {parentCustomer.name} contracts
@@ -2175,6 +2175,39 @@ export default function CustomerDetail() {
                         </CardContent>
                       </Card>
                     ))}
+                    {contracts.length > 0 && (
+                      <>
+                        <div className="flex items-center gap-2 mt-6 mb-2">
+                          <Clock className="w-4 h-4 text-muted-foreground" />
+                          <h3 className="text-sm font-medium text-muted-foreground">
+                            Legacy Branch Contracts
+                          </h3>
+                        </div>
+                        {contracts.map((contract) => (
+                          <Card key={contract.id} className="border-dashed" data-testid={`card-legacy-contract-${contract.id}`}>
+                            <CardContent className="pt-4">
+                              <div className="flex items-center justify-between gap-2 flex-wrap">
+                                <div>
+                                  <p className="font-medium">{contract.serviceType}</p>
+                                  <p className="text-sm text-muted-foreground">
+                                    {contract.billingPattern} billing
+                                    {contract.endDate && (
+                                      <span> · Ends {new Date(contract.endDate).toLocaleDateString()}</span>
+                                    )}
+                                  </p>
+                                </div>
+                                <div className="flex items-center gap-2">
+                                  <Badge variant="outline">Legacy</Badge>
+                                  <Badge variant={contract.status === "active" ? "default" : (contract.status === "ended" ? "destructive" : "secondary")}>
+                                    {contract.status}
+                                  </Badge>
+                                </div>
+                              </div>
+                            </CardContent>
+                          </Card>
+                        ))}
+                      </>
+                    )}
                   </div>
                 ) : (
                 <>
