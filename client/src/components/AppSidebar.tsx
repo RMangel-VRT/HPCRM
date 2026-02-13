@@ -27,6 +27,7 @@ import {
   Phone,
   MessageSquare,
   Truck,
+  FileText,
 } from "lucide-react";
 import {
   Dialog,
@@ -119,6 +120,11 @@ export default function AppSidebar({
     // Tools - Admin, Office, Field Manager
     if (userRole === "admin" || userRole === "office" || userRole === "field_manager") {
       items.push({ title: "Tools", url: "/dashboard/tools", icon: Wrench });
+    }
+    
+    // Contracts Overview - Admin and Office only
+    if (userRole === "admin" || userRole === "office") {
+      items.push({ title: "Contracts", url: "/dashboard/contracts", icon: FileText });
     }
     
     // Revenue - Admin and Office only

@@ -6,7 +6,7 @@ import { setupAuth, type UserWithContext } from "./auth";
 import { storage } from "./storage";
 import { db } from "./db";
 import { eq, and, inArray } from "drizzle-orm";
-import { insertCustomerSchema, insertContactSchema, insertCompanySchema, insertCompanyUserSchema, insertSettingsSchema, insertNoteSchema, insertContractSchema, insertContractDocumentSchema, insertContractBuilderDocumentSchema, insertContractBuilderSectionSchema, insertContractBuilderVariableSchema, insertTicketTypeSchema, insertTicketTypeStatusSchema, insertTicketTypeFieldSchema, insertTicketSchema, insertTicketFieldValueSchema, insertTicketStatusHistorySchema, insertTicketCommentSchema, insertTicketLinkSchema, insertCustomerMapLayerSchema, insertCustomerMapDocumentSchema, insertMaintenanceCrewSchema, insertMaintenanceVisitConfigSchema, insertWeeklyScheduleTemplateSchema, insertScheduleBlockSchema, insertEquipmentSchema, insertEquipmentFileSchema, insertEquipmentTicketSchema, insertEquipmentTicketStatusHistorySchema, tickets, ticketTypes, ticketTypeStatuses, customers as customersTable } from "@shared/schema";
+import { insertCustomerSchema, insertContactSchema, insertCompanySchema, insertCompanyUserSchema, insertSettingsSchema, insertNoteSchema, insertContractSchema, insertContractDocumentSchema, insertContractBuilderDocumentSchema, insertContractBuilderSectionSchema, insertContractBuilderVariableSchema, insertTicketTypeSchema, insertTicketTypeStatusSchema, insertTicketTypeFieldSchema, insertTicketSchema, insertTicketFieldValueSchema, insertTicketStatusHistorySchema, insertTicketCommentSchema, insertTicketLinkSchema, insertCustomerMapLayerSchema, insertCustomerMapDocumentSchema, insertMaintenanceCrewSchema, insertMaintenanceVisitConfigSchema, insertWeeklyScheduleTemplateSchema, insertScheduleBlockSchema, insertEquipmentSchema, insertEquipmentFileSchema, insertEquipmentTicketSchema, insertEquipmentTicketStatusHistorySchema, tickets, ticketTypes, ticketTypeStatuses, customers as customersTable, contractMonthlyAmounts } from "@shared/schema";
 import type { Customer } from "@shared/schema";
 import { ObjectStorageService, ObjectNotFoundError, objectStorageClient, signObjectURL } from "./objectStorage";
 import { ObjectPermission, ObjectAccessGroupType, setObjectAclPolicy } from "./objectAcl";
@@ -1198,6 +1198,51 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
     await storage.deleteNote(req.params.id, user.activeCompanyId);
     res.status(200).send("Deleted");
+  });
+
+  // All contracts route (overview)
+  app.get("/api/contracts", async (req, res) => {
+    if (!req.isAuthenticated()) {
+      return res.status(401).send("Not authenticated");
+    }
+
+    const user = req.user as UserWithContext;
+    
+    if (user.activeRole === "field" || user.activeRole === "irrigation_manager" || user.activeRole === "shop_manager") {
+      return res.status(403).send("Insufficient permissions");
+    }
+
+    const allContracts = await storage.getAllContracts(user.activeCompanyId);
+    
+    const contractIds = allContracts.map(c => c.id);
+    const allMonthlyAmounts = contractIds.length > 0
+      ? await db
+          .select()
+          .from(contractMonthlyAmounts)
+          .where(and(
+            inArray(contractMonthlyAmounts.contractId, contractIds),
+            eq(contractMonthlyAmounts.companyId, user.activeCompanyId)
+          ))
+      : [];
+    
+    const monthlyAmountsByContract = new Map<string, typeof allMonthlyAmounts>();
+    for (const ma of allMonthlyAmounts) {
+      if (!monthlyAmountsByContract.has(ma.contractId)) {
+        monthlyAmountsByContract.set(ma.contractId, []);
+      }
+      monthlyAmountsByContract.get(ma.contractId)!.push(ma);
+    }
+    
+    const contractsWithTotals = allContracts.map(contract => {
+      const amounts = monthlyAmountsByContract.get(contract.id) || [];
+      const annualTotal = amounts.reduce((sum, a) => sum + a.amount, 0);
+      return {
+        ...contract,
+        annualTotal,
+      };
+    });
+
+    res.json(contractsWithTotals);
   });
 
   // Contracts routes

@@ -50,6 +50,7 @@ export interface IStorage {
   deleteNote(id: string, companyId: string): Promise<void>;
   
   getContractsByCustomerId(customerId: string, companyId: string): Promise<Contract[]>;
+  getAllContracts(companyId: string): Promise<(Contract & { customerName: string })[]>;
   getContractById(id: string, companyId: string): Promise<Contract | undefined>;
   createContract(contract: InsertContract): Promise<Contract>;
   updateContract(id: string, companyId: string, contract: Partial<InsertContract>): Promise<Contract | undefined>;
@@ -571,6 +572,32 @@ export class PgStorage implements IStorage {
     return await db.select().from(contracts)
       .where(and(eq(contracts.customerId, customerId), eq(contracts.companyId, companyId)))
       .orderBy(desc(contracts.createdAt));
+  }
+
+  async getAllContracts(companyId: string): Promise<(Contract & { customerName: string })[]> {
+    const result = await db
+      .select({
+        id: contracts.id,
+        companyId: contracts.companyId,
+        customerId: contracts.customerId,
+        serviceType: contracts.serviceType,
+        billingPattern: contracts.billingPattern,
+        startDate: contracts.startDate,
+        endDate: contracts.endDate,
+        status: contracts.status,
+        po: contracts.po,
+        notes: contracts.notes,
+        hasMobilizationFee: contracts.hasMobilizationFee,
+        mobilizationFeeAmount: contracts.mobilizationFeeAmount,
+        createdAt: contracts.createdAt,
+        updatedAt: contracts.updatedAt,
+        customerName: customers.name,
+      })
+      .from(contracts)
+      .innerJoin(customers, eq(contracts.customerId, customers.id))
+      .where(eq(contracts.companyId, companyId))
+      .orderBy(desc(contracts.createdAt));
+    return result as (Contract & { customerName: string })[];
   }
 
   async getContractById(id: string, companyId: string): Promise<Contract | undefined> {

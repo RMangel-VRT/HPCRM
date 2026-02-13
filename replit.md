@@ -106,6 +106,15 @@ Tracks contracted revenue with breakdowns by service type (Maintenance vs Chemic
 
 Tables: `contracts`, `contract_monthly_amounts` - linked by contractId, with serviceType on contracts determining revenue category
 
+#### Contracts Overview
+A cross-customer contracts overview page (/dashboard/contracts) accessible by Admin and Office roles. Features:
+- Summary cards: Total Contracts, Active Contracts, Total Annual Value, Average Contract Value
+- Search by customer name or service type
+- Filters by service type (Maintenance, Chemical, Snow, Irrigation, Other) and status (active, pending, ended, cancelled)
+- Sortable table with columns: Customer, Service Type, Billing Pattern, Annual Value, Status, Start Date
+- Link to customer detail page from each contract row
+- Annual value calculated from contract_monthly_amounts table
+
 #### Customer Billing Tab
 The customer detail page consolidates all billing-related information under a single "Billing" parent tab with sub-navigation:
 - **Contracts sub-tab**: Lists all customer contracts with full management (add, edit, end, delete), document uploads, monthly billing amounts, and mobilization fee settings

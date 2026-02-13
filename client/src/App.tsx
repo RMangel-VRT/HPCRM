@@ -33,6 +33,7 @@ import EquipmentList from "@/pages/EquipmentList";
 import EquipmentDetail from "@/pages/EquipmentDetail";
 import NewEquipment from "@/pages/NewEquipment";
 import EquipmentTicketDetail from "@/pages/EquipmentTicketDetail";
+import ContractsOverview from "@/pages/ContractsOverview";
 import NotFound from "@/pages/not-found";
 
 function Router() {
@@ -117,6 +118,7 @@ function Router() {
               <ProtectedRoute path="/dashboard/equipment-tickets/:id" component={EquipmentTicketDetail} allowedRoles={["admin", "office", "shop_manager"]} />
               <ProtectedRoute path="/dashboard/tools/contract-builder" component={ContractBuilderPage} allowedRoles={["admin", "office"]} />
               <ProtectedRoute path="/dashboard/tools" component={ToolsPage} allowedRoles={["admin", "office", "field_manager"]} />
+              <ProtectedRoute path="/dashboard/contracts" component={ContractsOverview} allowedRoles={["admin", "office"]} />
               <ProtectedRoute path="/dashboard/revenue" component={RevenueOverview} allowedRoles={["admin", "office"]} />
               <ProtectedRoute
                 path="/dashboard/users"
