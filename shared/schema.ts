@@ -90,6 +90,7 @@ export const customers = pgTable("customers", {
   parentCustomerId: varchar("parent_customer_id"),
   isParent: text("is_parent").notNull().default("false").$type<"true" | "false">(),
   active: text("active").notNull().default("true").$type<"true" | "false">(),
+  snowEnabled: boolean("snow_enabled").notNull().default(false),
   createdAt: timestamp("created_at").notNull().defaultNow(),
   updatedAt: timestamp("updated_at").notNull().defaultNow(),
 });
@@ -105,6 +106,7 @@ export const insertCustomerSchema = createInsertSchema(customers).omit({
   parentCustomerId: z.string().nullable().optional(),
   isParent: z.enum(["true", "false"]).default("false"),
   active: z.enum(["true", "false"]).default("true"),
+  snowEnabled: z.boolean().default(false),
 });
 
 export type InsertCustomer = z.infer<typeof insertCustomerSchema>;
@@ -1260,4 +1262,97 @@ export type EquipmentTicketStatusHistory = typeof equipmentTicketStatusHistory.$
 // Extended type for equipment with ticket count
 export type EquipmentWithTicketCount = Equipment & {
   openTicketCount: number;
+};
+
+// ── Snow Storm Tracking ──────────────────────────────────────────────
+
+export const SNOW_RANGES = ["1-2\"", "2-4\"", "5-6\"", "6-8\"", "8-10\"", "10+\""] as const;
+export type SnowRange = typeof SNOW_RANGES[number];
+
+export const SNOW_SERVICE_TYPES = ["Plow", "ATV", "Hand Shovel", "Ice Melt", "Slicer / De-icer", "Haul Off / Storage"] as const;
+export type SnowServiceType = typeof SNOW_SERVICE_TYPES[number];
+
+export const snowEvents = pgTable("snow_events", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  companyId: varchar("company_id").notNull().references(() => companies.id, { onDelete: "cascade" }),
+  eventName: text("event_name"),
+  eventStartDateTime: timestamp("event_start_date_time").notNull(),
+  eventEndDateTime: timestamp("event_end_date_time"),
+  snowRange: text("snow_range").notNull().$type<SnowRange>(),
+  reportedTotalInches: text("reported_total_inches"),
+  measurementNotes: text("measurement_notes"),
+  eventNotes: text("event_notes"),
+  status: text("status").notNull().$type<"draft" | "ready" | "locked">().default("draft"),
+  createdByUserId: varchar("created_by_user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  updatedAt: timestamp("updated_at").notNull().defaultNow(),
+});
+
+export const insertSnowEventSchema = createInsertSchema(snowEvents).omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+}).extend({
+  snowRange: z.enum(SNOW_RANGES),
+  status: z.enum(["draft", "ready", "locked"]).default("draft"),
+});
+
+export type InsertSnowEvent = z.infer<typeof insertSnowEventSchema>;
+export type SnowEvent = typeof snowEvents.$inferSelect;
+
+export const snowEventAttachments = pgTable("snow_event_attachments", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  companyId: varchar("company_id").notNull().references(() => companies.id, { onDelete: "cascade" }),
+  snowEventId: varchar("snow_event_id").notNull().references(() => snowEvents.id, { onDelete: "cascade" }),
+  fileName: text("file_name").notNull(),
+  fileUrl: text("file_url").notNull(),
+  fileType: text("file_type"),
+  fileSize: integer("file_size"),
+  uploadedByUserId: varchar("uploaded_by_user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+});
+
+export const insertSnowEventAttachmentSchema = createInsertSchema(snowEventAttachments).omit({
+  id: true,
+  createdAt: true,
+});
+
+export type InsertSnowEventAttachment = z.infer<typeof insertSnowEventAttachmentSchema>;
+export type SnowEventAttachment = typeof snowEventAttachments.$inferSelect;
+
+export const snowEventPropertyImpacts = pgTable("snow_event_property_impacts", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  companyId: varchar("company_id").notNull().references(() => companies.id, { onDelete: "cascade" }),
+  snowEventId: varchar("snow_event_id").notNull().references(() => snowEvents.id, { onDelete: "cascade" }),
+  customerId: varchar("customer_id").notNull().references(() => customers.id, { onDelete: "cascade" }),
+  serviceTypes: text("service_types").array().notNull().default(sql`ARRAY[]::text[]`),
+  siteNotes: text("site_notes"),
+  laborHours: text("labor_hours"),
+  materialUsed: text("material_used"),
+  billingStatus: text("billing_status").notNull().$type<"not_created" | "ticket_created" | "invoiced" | "paid">().default("not_created"),
+  ticketId: varchar("ticket_id"),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  updatedAt: timestamp("updated_at").notNull().defaultNow(),
+});
+
+export const insertSnowEventPropertyImpactSchema = createInsertSchema(snowEventPropertyImpacts).omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+}).extend({
+  serviceTypes: z.array(z.enum(SNOW_SERVICE_TYPES)).default([]),
+  billingStatus: z.enum(["not_created", "ticket_created", "invoiced", "paid"]).default("not_created"),
+});
+
+export type InsertSnowEventPropertyImpact = z.infer<typeof insertSnowEventPropertyImpactSchema>;
+export type SnowEventPropertyImpact = typeof snowEventPropertyImpacts.$inferSelect;
+
+export type SnowEventWithDetails = SnowEvent & {
+  propertyCount: number;
+  ticketCount: number;
+  createdByName: string;
+};
+
+export type SnowEventPropertyImpactWithCustomer = SnowEventPropertyImpact & {
+  customerName: string;
 };

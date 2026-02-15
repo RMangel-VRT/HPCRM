@@ -28,6 +28,7 @@ import {
   MessageSquare,
   Truck,
   FileText,
+  Snowflake,
 } from "lucide-react";
 import {
   Dialog,
@@ -110,6 +111,11 @@ export default function AppSidebar({
     // Weekly Schedule - Admin, Office, and Irrigation Manager (view only for irrigation_manager)
     if (userRole === "admin" || userRole === "office" || userRole === "irrigation_manager") {
       items.push({ title: "Schedule", url: "/dashboard/schedule", icon: CalendarDays });
+    }
+    
+    // Snow - Admin, Office, Field Manager
+    if (userRole === "admin" || userRole === "office" || userRole === "field_manager") {
+      items.push({ title: "Snow", url: "/dashboard/snow", icon: Snowflake });
     }
     
     // Equipment - Admin, Office (view-only), and Shop Manager (handled above)

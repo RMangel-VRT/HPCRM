@@ -6,7 +6,7 @@ import { setupAuth, type UserWithContext } from "./auth";
 import { storage } from "./storage";
 import { db } from "./db";
 import { eq, and, inArray } from "drizzle-orm";
-import { insertCustomerSchema, insertContactSchema, insertCompanySchema, insertCompanyUserSchema, insertSettingsSchema, insertNoteSchema, insertContractSchema, insertContractDocumentSchema, insertContractBuilderDocumentSchema, insertContractBuilderSectionSchema, insertContractBuilderVariableSchema, insertTicketTypeSchema, insertTicketTypeStatusSchema, insertTicketTypeFieldSchema, insertTicketSchema, insertTicketFieldValueSchema, insertTicketStatusHistorySchema, insertTicketCommentSchema, insertTicketLinkSchema, insertCustomerMapLayerSchema, insertCustomerMapDocumentSchema, insertMaintenanceCrewSchema, insertMaintenanceVisitConfigSchema, insertWeeklyScheduleTemplateSchema, insertScheduleBlockSchema, insertEquipmentSchema, insertEquipmentFileSchema, insertEquipmentTicketSchema, insertEquipmentTicketStatusHistorySchema, tickets, ticketTypes, ticketTypeStatuses, customers as customersTable, contractMonthlyAmounts, contractDocuments, contractServices, contractStatusHistory } from "@shared/schema";
+import { insertCustomerSchema, insertContactSchema, insertCompanySchema, insertCompanyUserSchema, insertSettingsSchema, insertNoteSchema, insertContractSchema, insertContractDocumentSchema, insertContractBuilderDocumentSchema, insertContractBuilderSectionSchema, insertContractBuilderVariableSchema, insertTicketTypeSchema, insertTicketTypeStatusSchema, insertTicketTypeFieldSchema, insertTicketSchema, insertTicketFieldValueSchema, insertTicketStatusHistorySchema, insertTicketCommentSchema, insertTicketLinkSchema, insertCustomerMapLayerSchema, insertCustomerMapDocumentSchema, insertMaintenanceCrewSchema, insertMaintenanceVisitConfigSchema, insertWeeklyScheduleTemplateSchema, insertScheduleBlockSchema, insertEquipmentSchema, insertEquipmentFileSchema, insertEquipmentTicketSchema, insertEquipmentTicketStatusHistorySchema, insertSnowEventSchema, insertSnowEventPropertyImpactSchema, insertSnowEventAttachmentSchema, SNOW_RANGES, tickets, ticketTypes, ticketTypeStatuses, customers as customersTable, contractMonthlyAmounts, contractDocuments, contractServices, contractStatusHistory } from "@shared/schema";
 import type { Customer } from "@shared/schema";
 import { ObjectStorageService, ObjectNotFoundError, objectStorageClient, signObjectURL } from "./objectStorage";
 import { ObjectPermission, ObjectAccessGroupType, setObjectAclPolicy } from "./objectAcl";
@@ -6070,6 +6070,286 @@ export async function registerRoutes(app: Express): Promise<Server> {
     
     const history = await storage.getEquipmentTicketStatusHistory(req.params.ticketId);
     res.json(history);
+  });
+
+  // ── Snow Events ──────────────────────────────────────────────────────
+  const canAccessSnow = (role: string) => ["admin", "office", "field_manager"].includes(role);
+  const canEditSnow = (role: string) => ["admin", "office"].includes(role);
+
+  app.get("/api/snow-events", async (req, res) => {
+    if (!req.isAuthenticated()) return res.status(401).send("Not authenticated");
+    const user = req.user as UserWithContext;
+    if (!canAccessSnow(user.activeRole)) return res.status(403).send("Insufficient permissions");
+    const events = await storage.getSnowEvents(user.activeCompanyId);
+    res.json(events);
+  });
+
+  app.get("/api/snow-events/:id", async (req, res) => {
+    if (!req.isAuthenticated()) return res.status(401).send("Not authenticated");
+    const user = req.user as UserWithContext;
+    if (!canAccessSnow(user.activeRole)) return res.status(403).send("Insufficient permissions");
+    const event = await storage.getSnowEventById(req.params.id, user.activeCompanyId);
+    if (!event) return res.status(404).send("Snow event not found");
+    res.json(event);
+  });
+
+  app.post("/api/snow-events", async (req, res) => {
+    if (!req.isAuthenticated()) return res.status(401).send("Not authenticated");
+    const user = req.user as UserWithContext;
+    if (!canEditSnow(user.activeRole)) return res.status(403).send("Insufficient permissions");
+    
+    const eventName = req.body.eventName || `Snow Event - ${new Date(req.body.eventStartDateTime).toISOString().split('T')[0]}`;
+    const result = insertSnowEventSchema.safeParse({
+      ...req.body,
+      eventName,
+      companyId: user.activeCompanyId,
+      createdByUserId: user.id,
+      eventStartDateTime: req.body.eventStartDateTime ? new Date(req.body.eventStartDateTime) : undefined,
+      eventEndDateTime: req.body.eventEndDateTime ? new Date(req.body.eventEndDateTime) : undefined,
+    });
+    if (!result.success) return res.status(400).send(result.error.message);
+    const event = await storage.createSnowEvent(result.data);
+    res.json(event);
+  });
+
+  app.patch("/api/snow-events/:id", async (req, res) => {
+    if (!req.isAuthenticated()) return res.status(401).send("Not authenticated");
+    const user = req.user as UserWithContext;
+    if (!canEditSnow(user.activeRole)) return res.status(403).send("Insufficient permissions");
+    
+    const existing = await storage.getSnowEventById(req.params.id, user.activeCompanyId);
+    if (!existing) return res.status(404).send("Snow event not found");
+    if (existing.status === "locked") return res.status(400).send("Cannot edit a locked event");
+    
+    const updates = { ...req.body };
+    if (updates.eventStartDateTime) updates.eventStartDateTime = new Date(updates.eventStartDateTime);
+    if (updates.eventEndDateTime) updates.eventEndDateTime = new Date(updates.eventEndDateTime);
+    const event = await storage.updateSnowEvent(req.params.id, user.activeCompanyId, updates);
+    res.json(event);
+  });
+
+  app.post("/api/snow-events/:id/lock", async (req, res) => {
+    if (!req.isAuthenticated()) return res.status(401).send("Not authenticated");
+    const user = req.user as UserWithContext;
+    if (!canEditSnow(user.activeRole)) return res.status(403).send("Insufficient permissions");
+    
+    const existing = await storage.getSnowEventById(req.params.id, user.activeCompanyId);
+    if (!existing) return res.status(404).send("Snow event not found");
+    
+    const event = await storage.updateSnowEvent(req.params.id, user.activeCompanyId, { status: "locked" });
+    res.json(event);
+  });
+
+  app.delete("/api/snow-events/:id", async (req, res) => {
+    if (!req.isAuthenticated()) return res.status(401).send("Not authenticated");
+    const user = req.user as UserWithContext;
+    if (!canEditSnow(user.activeRole)) return res.status(403).send("Insufficient permissions");
+    
+    const existing = await storage.getSnowEventById(req.params.id, user.activeCompanyId);
+    if (!existing) return res.status(404).send("Snow event not found");
+    if (existing.status === "locked") return res.status(400).send("Cannot delete a locked event");
+    
+    await storage.deleteSnowEvent(req.params.id, user.activeCompanyId);
+    res.json({ success: true });
+  });
+
+  // Snow Event Attachments
+  app.get("/api/snow-events/:eventId/attachments", async (req, res) => {
+    if (!req.isAuthenticated()) return res.status(401).send("Not authenticated");
+    const user = req.user as UserWithContext;
+    if (!canAccessSnow(user.activeRole)) return res.status(403).send("Insufficient permissions");
+    const attachments = await storage.getSnowEventAttachments(req.params.eventId, user.activeCompanyId);
+    res.json(attachments);
+  });
+
+  app.post("/api/snow-events/:eventId/attachments", async (req, res) => {
+    if (!req.isAuthenticated()) return res.status(401).send("Not authenticated");
+    const user = req.user as UserWithContext;
+    if (!canEditSnow(user.activeRole)) return res.status(403).send("Insufficient permissions");
+    
+    const result = insertSnowEventAttachmentSchema.safeParse({
+      ...req.body,
+      snowEventId: req.params.eventId,
+      companyId: user.activeCompanyId,
+      uploadedByUserId: user.id,
+    });
+    if (!result.success) return res.status(400).send(result.error.message);
+    const attachment = await storage.createSnowEventAttachment(result.data);
+    res.json(attachment);
+  });
+
+  app.delete("/api/snow-events/:eventId/attachments/:id", async (req, res) => {
+    if (!req.isAuthenticated()) return res.status(401).send("Not authenticated");
+    const user = req.user as UserWithContext;
+    if (!canEditSnow(user.activeRole)) return res.status(403).send("Insufficient permissions");
+    await storage.deleteSnowEventAttachment(req.params.id, user.activeCompanyId);
+    res.json({ success: true });
+  });
+
+  // Snow Event Property Impacts
+  app.get("/api/snow-events/:eventId/impacts", async (req, res) => {
+    if (!req.isAuthenticated()) return res.status(401).send("Not authenticated");
+    const user = req.user as UserWithContext;
+    if (!canAccessSnow(user.activeRole)) return res.status(403).send("Insufficient permissions");
+    const impacts = await storage.getSnowEventPropertyImpacts(req.params.eventId, user.activeCompanyId);
+    res.json(impacts);
+  });
+
+  app.get("/api/customers/:customerId/snow-impacts", async (req, res) => {
+    if (!req.isAuthenticated()) return res.status(401).send("Not authenticated");
+    const user = req.user as UserWithContext;
+    if (!canAccessSnow(user.activeRole)) return res.status(403).send("Insufficient permissions");
+    const impacts = await storage.getSnowEventPropertyImpactsByCustomer(req.params.customerId, user.activeCompanyId);
+    res.json(impacts);
+  });
+
+  app.post("/api/snow-events/:eventId/impacts", async (req, res) => {
+    if (!req.isAuthenticated()) return res.status(401).send("Not authenticated");
+    const user = req.user as UserWithContext;
+    if (!canEditSnow(user.activeRole)) return res.status(403).send("Insufficient permissions");
+    
+    const existing = await storage.getSnowEventById(req.params.eventId, user.activeCompanyId);
+    if (!existing) return res.status(404).send("Snow event not found");
+    if (existing.status === "locked") return res.status(400).send("Cannot modify a locked event");
+    
+    const result = insertSnowEventPropertyImpactSchema.safeParse({
+      ...req.body,
+      snowEventId: req.params.eventId,
+      companyId: user.activeCompanyId,
+    });
+    if (!result.success) return res.status(400).send(result.error.message);
+    const impact = await storage.createSnowEventPropertyImpact(result.data);
+    res.json(impact);
+  });
+
+  app.post("/api/snow-events/:eventId/impacts/bulk", async (req, res) => {
+    if (!req.isAuthenticated()) return res.status(401).send("Not authenticated");
+    const user = req.user as UserWithContext;
+    if (!canEditSnow(user.activeRole)) return res.status(403).send("Insufficient permissions");
+    
+    const existing = await storage.getSnowEventById(req.params.eventId, user.activeCompanyId);
+    if (!existing) return res.status(404).send("Snow event not found");
+    if (existing.status === "locked") return res.status(400).send("Cannot modify a locked event");
+    
+    const { customerIds, serviceTypes } = req.body;
+    if (!Array.isArray(customerIds) || customerIds.length === 0) {
+      return res.status(400).send("customerIds array is required");
+    }
+    
+    const existingImpacts = await storage.getSnowEventPropertyImpacts(req.params.eventId, user.activeCompanyId);
+    const existingCustomerIds = new Set(existingImpacts.map(i => i.customerId));
+    
+    const created = [];
+    for (const customerId of customerIds) {
+      if (existingCustomerIds.has(customerId)) continue;
+      const impact = await storage.createSnowEventPropertyImpact({
+        snowEventId: req.params.eventId,
+        companyId: user.activeCompanyId,
+        customerId,
+        serviceTypes: serviceTypes || [],
+        billingStatus: "not_created",
+      });
+      created.push(impact);
+    }
+    res.json(created);
+  });
+
+  app.patch("/api/snow-events/:eventId/impacts/:id", async (req, res) => {
+    if (!req.isAuthenticated()) return res.status(401).send("Not authenticated");
+    const user = req.user as UserWithContext;
+    if (!canEditSnow(user.activeRole)) return res.status(403).send("Insufficient permissions");
+    
+    const existing = await storage.getSnowEventById(req.params.eventId, user.activeCompanyId);
+    if (!existing) return res.status(404).send("Snow event not found");
+    if (existing.status === "locked") return res.status(400).send("Cannot modify a locked event");
+    
+    const impact = await storage.updateSnowEventPropertyImpact(req.params.id, user.activeCompanyId, req.body);
+    res.json(impact);
+  });
+
+  app.delete("/api/snow-events/:eventId/impacts/:id", async (req, res) => {
+    if (!req.isAuthenticated()) return res.status(401).send("Not authenticated");
+    const user = req.user as UserWithContext;
+    if (!canEditSnow(user.activeRole)) return res.status(403).send("Insufficient permissions");
+    
+    const existing = await storage.getSnowEventById(req.params.eventId, user.activeCompanyId);
+    if (!existing) return res.status(404).send("Snow event not found");
+    if (existing.status === "locked") return res.status(400).send("Cannot modify a locked event");
+    
+    await storage.deleteSnowEventPropertyImpact(req.params.id, user.activeCompanyId);
+    res.json({ success: true });
+  });
+
+  // Generate Snow Tickets
+  app.post("/api/snow-events/:eventId/generate-tickets", async (req, res) => {
+    if (!req.isAuthenticated()) return res.status(401).send("Not authenticated");
+    const user = req.user as UserWithContext;
+    if (!canEditSnow(user.activeRole)) return res.status(403).send("Insufficient permissions");
+    
+    const event = await storage.getSnowEventById(req.params.eventId, user.activeCompanyId);
+    if (!event) return res.status(404).send("Snow event not found");
+    if (event.status === "locked") return res.status(400).send("Event is locked");
+    
+    const impacts = await storage.getSnowEventPropertyImpacts(req.params.eventId, user.activeCompanyId);
+    const toGenerate = impacts.filter(i => i.billingStatus === "not_created");
+    
+    if (toGenerate.length === 0) {
+      return res.status(400).send("No properties pending ticket creation");
+    }
+    
+    const allTicketTypes = await storage.getTicketTypes(user.activeCompanyId);
+    const invoiceType = allTicketTypes.find(t => t.name === "Invoice" || t.name === "invoice");
+    if (!invoiceType) {
+      return res.status(400).send("No 'Invoice' ticket type found. Please create one first.");
+    }
+    
+    const statuses = await storage.getTicketTypeStatuses(invoiceType.id);
+    if (statuses.length === 0) {
+      return res.status(400).send("Invoice ticket type has no statuses");
+    }
+    const initialStatus = statuses.sort((a, b) => a.displayOrder - b.displayOrder)[0];
+    
+    const dateStr = new Date(event.eventStartDateTime).toISOString().split('T')[0];
+    const created = [];
+    
+    for (const impact of toGenerate) {
+      const title = `Snow Event (${event.snowRange}) - ${impact.customerName} - ${dateStr}`;
+      const services = (impact.serviceTypes || []).join(", ") || "N/A";
+      const description = [
+        `Storm Date: ${dateStr}`,
+        `Accumulation: ${event.snowRange}`,
+        event.reportedTotalInches ? `Reported Total: ${event.reportedTotalInches}"` : null,
+        `Services: ${services}`,
+        event.eventNotes ? `Event Notes: ${event.eventNotes}` : null,
+        impact.siteNotes ? `Site Notes: ${impact.siteNotes}` : null,
+      ].filter(Boolean).join("\n");
+      
+      const ticket = await storage.createTicket({
+        companyId: user.activeCompanyId,
+        ticketTypeId: invoiceType.id,
+        currentStatusId: initialStatus.id,
+        title,
+        description,
+        customerId: impact.customerId,
+        assignedToId: user.id,
+        createdById: user.id,
+        workType: "contract_work",
+        invoiceCategory: "snow",
+      });
+      
+      await storage.updateSnowEventPropertyImpact(impact.id, user.activeCompanyId, {
+        billingStatus: "ticket_created",
+        ticketId: ticket.id,
+      });
+      
+      created.push(ticket);
+    }
+    
+    if (event.status === "draft") {
+      await storage.updateSnowEvent(req.params.eventId, user.activeCompanyId, { status: "ready" });
+    }
+    
+    res.json({ created: created.length, tickets: created });
   });
 
   const httpServer = createServer(app);

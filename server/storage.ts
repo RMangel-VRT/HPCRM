@@ -1,6 +1,6 @@
-import { type User, type InsertUser, type Customer, type InsertCustomer, type Contact, type InsertContact, type Company, type InsertCompany, type CompanyUser, type InsertCompanyUser, type Settings, type InsertSettings, type Note, type InsertNote, type Contract, type InsertContract, type ContractStatusHistory, type InsertContractStatusHistory, type ContractDocument, type InsertContractDocument, type ContractMonthlyAmount, type InsertContractMonthlyAmount, type CustomerRateSheet, type InsertCustomerRateSheet, type ContractService, type InsertContractService, type ContractTemplate, type InsertContractTemplate, type ContractBuilderDocument, type InsertContractBuilderDocument, type ContractBuilderSection, type InsertContractBuilderSection, type ContractBuilderVariable, type InsertContractBuilderVariable, type TicketType, type InsertTicketType, type TicketTypeStatus, type InsertTicketTypeStatus, type TicketTypeField, type InsertTicketTypeField, type Ticket, type InsertTicket, type TicketFieldValue, type InsertTicketFieldValue, type TicketStatusHistory, type InsertTicketStatusHistory, type TicketComment, type InsertTicketComment, type TicketCommentMention, type InsertTicketCommentMention, type TicketSource, type InsertTicketSource, type TicketLink, type InsertTicketLink, type TicketTypeCategory, type CustomerMapLayer, type InsertCustomerMapLayer, type CustomerMapDocument, type InsertCustomerMapDocument, type MaintenanceCrew, type InsertMaintenanceCrew, type MaintenanceVisitConfig, type InsertMaintenanceVisitConfig, type WeeklyScheduleTemplate, type InsertWeeklyScheduleTemplate, type ScheduleBlock, type InsertScheduleBlock, type TicketNotification, type InsertTicketNotification, type NotificationType, type PropertyManagementCompany, type InsertPropertyManagementCompany, type PropertyManager, type InsertPropertyManager, type PropertyManagerEmail, type InsertPropertyManagerEmail, type PropertyManagerPhone, type InsertPropertyManagerPhone, type PropertyManagerWithContacts, type Equipment, type InsertEquipment, type EquipmentFile, type InsertEquipmentFile, type EquipmentTicket, type InsertEquipmentTicket, type EquipmentTicketStatusHistory, type InsertEquipmentTicketStatusHistory, type EquipmentWithTicketCount } from "@shared/schema";
+import { type User, type InsertUser, type Customer, type InsertCustomer, type Contact, type InsertContact, type Company, type InsertCompany, type CompanyUser, type InsertCompanyUser, type Settings, type InsertSettings, type Note, type InsertNote, type Contract, type InsertContract, type ContractStatusHistory, type InsertContractStatusHistory, type ContractDocument, type InsertContractDocument, type ContractMonthlyAmount, type InsertContractMonthlyAmount, type CustomerRateSheet, type InsertCustomerRateSheet, type ContractService, type InsertContractService, type ContractTemplate, type InsertContractTemplate, type ContractBuilderDocument, type InsertContractBuilderDocument, type ContractBuilderSection, type InsertContractBuilderSection, type ContractBuilderVariable, type InsertContractBuilderVariable, type TicketType, type InsertTicketType, type TicketTypeStatus, type InsertTicketTypeStatus, type TicketTypeField, type InsertTicketTypeField, type Ticket, type InsertTicket, type TicketFieldValue, type InsertTicketFieldValue, type TicketStatusHistory, type InsertTicketStatusHistory, type TicketComment, type InsertTicketComment, type TicketCommentMention, type InsertTicketCommentMention, type TicketSource, type InsertTicketSource, type TicketLink, type InsertTicketLink, type TicketTypeCategory, type CustomerMapLayer, type InsertCustomerMapLayer, type CustomerMapDocument, type InsertCustomerMapDocument, type MaintenanceCrew, type InsertMaintenanceCrew, type MaintenanceVisitConfig, type InsertMaintenanceVisitConfig, type WeeklyScheduleTemplate, type InsertWeeklyScheduleTemplate, type ScheduleBlock, type InsertScheduleBlock, type TicketNotification, type InsertTicketNotification, type NotificationType, type PropertyManagementCompany, type InsertPropertyManagementCompany, type PropertyManager, type InsertPropertyManager, type PropertyManagerEmail, type InsertPropertyManagerEmail, type PropertyManagerPhone, type InsertPropertyManagerPhone, type PropertyManagerWithContacts, type Equipment, type InsertEquipment, type EquipmentFile, type InsertEquipmentFile, type EquipmentTicket, type InsertEquipmentTicket, type EquipmentTicketStatusHistory, type InsertEquipmentTicketStatusHistory, type EquipmentWithTicketCount, type SnowEvent, type InsertSnowEvent, type SnowEventAttachment, type InsertSnowEventAttachment, type SnowEventPropertyImpact, type InsertSnowEventPropertyImpact, type SnowEventWithDetails, type SnowEventPropertyImpactWithCustomer } from "@shared/schema";
 import { db } from "./db";
-import { users, customers, contacts, companies, companyUsers, settings, notes, contracts, contractStatusHistory, contractDocuments, contractMonthlyAmounts, customerRateSheets, contractServices, contractTemplates, contractBuilderDocuments, contractBuilderSections, contractBuilderVariables, ticketTypes, ticketTypeStatuses, ticketTypeFields, tickets, ticketFieldValues, ticketStatusHistory, ticketComments, ticketCommentMentions, ticketSources, ticketLinks, customerMapLayers, customerMapDocuments, maintenanceCrews, maintenanceVisitConfigs, weeklyScheduleTemplates, scheduleBlocks, ticketNotifications, propertyManagementCompanies, propertyManagers, propertyManagerEmails, propertyManagerPhones, equipment, equipmentFiles, equipmentTickets, equipmentTicketStatusHistory } from "@shared/schema";
+import { users, customers, contacts, companies, companyUsers, settings, notes, contracts, contractStatusHistory, contractDocuments, contractMonthlyAmounts, customerRateSheets, contractServices, contractTemplates, contractBuilderDocuments, contractBuilderSections, contractBuilderVariables, ticketTypes, ticketTypeStatuses, ticketTypeFields, tickets, ticketFieldValues, ticketStatusHistory, ticketComments, ticketCommentMentions, ticketSources, ticketLinks, customerMapLayers, customerMapDocuments, maintenanceCrews, maintenanceVisitConfigs, weeklyScheduleTemplates, scheduleBlocks, ticketNotifications, propertyManagementCompanies, propertyManagers, propertyManagerEmails, propertyManagerPhones, equipment, equipmentFiles, equipmentTickets, equipmentTicketStatusHistory, snowEvents, snowEventAttachments, snowEventPropertyImpacts } from "@shared/schema";
 import { eq, and, sql, desc } from "drizzle-orm";
 import session from "express-session";
 import connectPg from "connect-pg-simple";
@@ -252,6 +252,26 @@ export interface IStorage {
   // Equipment Ticket Status History
   createEquipmentTicketStatusHistory(history: InsertEquipmentTicketStatusHistory): Promise<EquipmentTicketStatusHistory>;
   getEquipmentTicketStatusHistory(ticketId: string): Promise<EquipmentTicketStatusHistory[]>;
+  
+  // Snow Events
+  getSnowEvents(companyId: string): Promise<SnowEventWithDetails[]>;
+  getSnowEventById(id: string, companyId: string): Promise<SnowEvent | undefined>;
+  createSnowEvent(event: InsertSnowEvent): Promise<SnowEvent>;
+  updateSnowEvent(id: string, companyId: string, updates: Partial<InsertSnowEvent>): Promise<SnowEvent | undefined>;
+  deleteSnowEvent(id: string, companyId: string): Promise<void>;
+  
+  // Snow Event Attachments
+  getSnowEventAttachments(snowEventId: string, companyId: string): Promise<SnowEventAttachment[]>;
+  createSnowEventAttachment(attachment: InsertSnowEventAttachment): Promise<SnowEventAttachment>;
+  deleteSnowEventAttachment(id: string, companyId: string): Promise<void>;
+  
+  // Snow Event Property Impacts
+  getSnowEventPropertyImpacts(snowEventId: string, companyId: string): Promise<SnowEventPropertyImpactWithCustomer[]>;
+  getSnowEventPropertyImpactsByCustomer(customerId: string, companyId: string): Promise<(SnowEventPropertyImpact & { snowEvent: SnowEvent })[]>;
+  createSnowEventPropertyImpact(impact: InsertSnowEventPropertyImpact): Promise<SnowEventPropertyImpact>;
+  updateSnowEventPropertyImpact(id: string, companyId: string, updates: Partial<InsertSnowEventPropertyImpact>): Promise<SnowEventPropertyImpact | undefined>;
+  deleteSnowEventPropertyImpact(id: string, companyId: string): Promise<void>;
+  deleteSnowEventPropertyImpactsByEvent(snowEventId: string, companyId: string): Promise<void>;
   
   sessionStore: session.Store;
 }
@@ -2025,6 +2045,138 @@ export class PgStorage implements IStorage {
     return await db.select().from(equipmentTicketStatusHistory)
       .where(eq(equipmentTicketStatusHistory.ticketId, ticketId))
       .orderBy(desc(equipmentTicketStatusHistory.createdAt));
+  }
+
+  // Snow Events
+  async getSnowEvents(companyId: string): Promise<SnowEventWithDetails[]> {
+    const events = await db.select().from(snowEvents)
+      .where(eq(snowEvents.companyId, companyId))
+      .orderBy(desc(snowEvents.eventStartDateTime));
+    
+    const result: SnowEventWithDetails[] = [];
+    for (const event of events) {
+      const impacts = await db.select().from(snowEventPropertyImpacts)
+        .where(and(
+          eq(snowEventPropertyImpacts.snowEventId, event.id),
+          eq(snowEventPropertyImpacts.companyId, companyId)
+        ));
+      const creator = await db.select().from(users).where(eq(users.id, event.createdByUserId));
+      result.push({
+        ...event,
+        propertyCount: impacts.length,
+        ticketCount: impacts.filter(i => i.ticketId).length,
+        createdByName: creator[0]?.firstName ? `${creator[0].firstName} ${creator[0].lastName || ''}`.trim() : 'Unknown',
+      });
+    }
+    return result;
+  }
+
+  async getSnowEventById(id: string, companyId: string): Promise<SnowEvent | undefined> {
+    const result = await db.select().from(snowEvents)
+      .where(and(eq(snowEvents.id, id), eq(snowEvents.companyId, companyId)));
+    return result[0];
+  }
+
+  async createSnowEvent(event: InsertSnowEvent): Promise<SnowEvent> {
+    const result = await db.insert(snowEvents).values([event]).returning();
+    return result[0];
+  }
+
+  async updateSnowEvent(id: string, companyId: string, updates: Partial<InsertSnowEvent>): Promise<SnowEvent | undefined> {
+    const result = await db.update(snowEvents)
+      .set({ ...updates, updatedAt: new Date() })
+      .where(and(eq(snowEvents.id, id), eq(snowEvents.companyId, companyId)))
+      .returning();
+    return result[0];
+  }
+
+  async deleteSnowEvent(id: string, companyId: string): Promise<void> {
+    await db.delete(snowEvents)
+      .where(and(eq(snowEvents.id, id), eq(snowEvents.companyId, companyId)));
+  }
+
+  // Snow Event Attachments
+  async getSnowEventAttachments(snowEventId: string, companyId: string): Promise<SnowEventAttachment[]> {
+    return await db.select().from(snowEventAttachments)
+      .where(and(
+        eq(snowEventAttachments.snowEventId, snowEventId),
+        eq(snowEventAttachments.companyId, companyId)
+      ))
+      .orderBy(desc(snowEventAttachments.createdAt));
+  }
+
+  async createSnowEventAttachment(attachment: InsertSnowEventAttachment): Promise<SnowEventAttachment> {
+    const result = await db.insert(snowEventAttachments).values([attachment]).returning();
+    return result[0];
+  }
+
+  async deleteSnowEventAttachment(id: string, companyId: string): Promise<void> {
+    await db.delete(snowEventAttachments)
+      .where(and(eq(snowEventAttachments.id, id), eq(snowEventAttachments.companyId, companyId)));
+  }
+
+  // Snow Event Property Impacts
+  async getSnowEventPropertyImpacts(snowEventId: string, companyId: string): Promise<SnowEventPropertyImpactWithCustomer[]> {
+    const impacts = await db.select().from(snowEventPropertyImpacts)
+      .where(and(
+        eq(snowEventPropertyImpacts.snowEventId, snowEventId),
+        eq(snowEventPropertyImpacts.companyId, companyId)
+      ))
+      .orderBy(desc(snowEventPropertyImpacts.createdAt));
+    
+    const result: SnowEventPropertyImpactWithCustomer[] = [];
+    for (const impact of impacts) {
+      const customer = await db.select().from(customers).where(eq(customers.id, impact.customerId));
+      result.push({
+        ...impact,
+        customerName: customer[0]?.name || 'Unknown',
+      });
+    }
+    return result;
+  }
+
+  async getSnowEventPropertyImpactsByCustomer(customerId: string, companyId: string): Promise<(SnowEventPropertyImpact & { snowEvent: SnowEvent })[]> {
+    const impacts = await db.select().from(snowEventPropertyImpacts)
+      .where(and(
+        eq(snowEventPropertyImpacts.customerId, customerId),
+        eq(snowEventPropertyImpacts.companyId, companyId)
+      ))
+      .orderBy(desc(snowEventPropertyImpacts.createdAt));
+    
+    const result: (SnowEventPropertyImpact & { snowEvent: SnowEvent })[] = [];
+    for (const impact of impacts) {
+      const event = await db.select().from(snowEvents).where(eq(snowEvents.id, impact.snowEventId));
+      if (event[0]) {
+        result.push({ ...impact, snowEvent: event[0] });
+      }
+    }
+    return result;
+  }
+
+  async createSnowEventPropertyImpact(impact: InsertSnowEventPropertyImpact): Promise<SnowEventPropertyImpact> {
+    const result = await db.insert(snowEventPropertyImpacts).values([impact]).returning();
+    return result[0];
+  }
+
+  async updateSnowEventPropertyImpact(id: string, companyId: string, updates: Partial<InsertSnowEventPropertyImpact>): Promise<SnowEventPropertyImpact | undefined> {
+    const result = await db.update(snowEventPropertyImpacts)
+      .set({ ...updates, updatedAt: new Date() })
+      .where(and(eq(snowEventPropertyImpacts.id, id), eq(snowEventPropertyImpacts.companyId, companyId)))
+      .returning();
+    return result[0];
+  }
+
+  async deleteSnowEventPropertyImpact(id: string, companyId: string): Promise<void> {
+    await db.delete(snowEventPropertyImpacts)
+      .where(and(eq(snowEventPropertyImpacts.id, id), eq(snowEventPropertyImpacts.companyId, companyId)));
+  }
+
+  async deleteSnowEventPropertyImpactsByEvent(snowEventId: string, companyId: string): Promise<void> {
+    await db.delete(snowEventPropertyImpacts)
+      .where(and(
+        eq(snowEventPropertyImpacts.snowEventId, snowEventId),
+        eq(snowEventPropertyImpacts.companyId, companyId)
+      ));
   }
 }
 
