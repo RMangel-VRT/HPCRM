@@ -1,0 +1,278 @@
+Snow Storm Billing / Tracking System (Replit Build Spec)
+
+1) Purpose
+
+Create a simple, repeatable way to:
+	•	Log each snow event (storm) once
+	•	Assign that event to one or more properties
+	•	Auto-generate invoice-ready tickets per property with storm details + optional photos/attachments
+	•	Build a property-level storm history table grouped by accumulation range to benchmark billing and support future pricing discussions
+
+⸻
+
+2) Core Concepts
+
+A) Snow Event (Storm)
+
+A single storm instance that gets logged once and then linked to many properties.
+
+Key fields
+	•	eventName (optional): “Feb 15 Overnight Storm”
+	•	eventStartDateTime (required)
+	•	eventEndDateTime (optional)
+	•	snowRange (required enum):
+	•	1-2"
+	•	2-4"
+	•	5-6"
+	•	6-8"
+	•	8-10"
+	•	10+"
+	•	reportedTotalInches (optional numeric): if you want a single “best guess” total
+	•	measurementNotes (optional): where you sourced it, conditions, drifting, etc.
+	•	eventNotes (optional): wind/drift notes, temps, ice, timing, etc.
+	•	attachments (optional): photos, plow logs, weather screenshot PDF, etc.
+	•	createdByUserId
+	•	status (enum): Draft, Ready, Locked
+	•	Draft = still building property list
+	•	Ready = can generate tickets
+	•	Locked = prevents edits after invoicing begins
+
+Why “Locked” matters
+Once you’ve generated invoice tickets, you don’t want inches/range changing and causing mismatch in billing history.
+
+⸻
+
+B) Property Impact (Event ↔ Property link)
+
+This is the join record that says: “This storm affected this property, and here’s what happened there.”
+
+Key fields
+	•	snowEventId
+	•	propertyId
+	•	serviceType (enum / multi-select based on how you operate):
+	•	Plow
+	•	ATV
+	•	Hand Shovel
+	•	Ice Melt
+	•	Slicer / De-icer
+	•	Haul Off / Storage
+	•	Sidewalks Only / Streets Only (optional flags)
+	•	siteNotes (optional): property-specific notes
+	•	siteAttachments (optional): photos at that property
+	•	laborHours (optional): if you want later
+	•	materialUsed (optional): salt bags, bulk estimate, etc.
+	•	billingStatus (enum): Not Created, Ticket Created, Invoiced, Paid
+	•	ticketId (optional): link to the ticket created for invoicing
+
+⸻
+
+C) Snow Invoice Ticket (per property, per event)
+
+Ticket generated from the event + property impact record.
+
+Ticket must include
+	•	Storm date/time
+	•	Accumulation range (the billing benchmark)
+	•	Services performed (plow/hand shovel/etc.)
+	•	Notes (event notes + site notes)
+	•	Attachments (event + site attachments)
+	•	A pricing reference (optional):
+	•	either a price table lookup
+	•	or manual entry for now
+
+Ticket statuses
+	•	Ready to Invoice (or your equivalent)
+	•	Needs Review
+	•	Invoiced
+	•	Paid
+
+⸻
+
+3) User Flow
+
+Flow 1 — Create Snow Event
+	1.	Go to Snow → Storm Events
+	2.	Click New Snow Event
+	3.	Enter:
+	•	Start date/time
+	•	Accumulation range (required)
+	•	Notes
+	•	Attachments (optional)
+	4.	Save as Draft
+
+Quality-of-life
+	•	Default event name auto-generates: Snow Event - YYYY-MM-DD
+
+⸻
+
+Flow 2 — Select Affected Properties
+
+Inside the Snow Event page:
+	1.	Search / filter properties:
+	•	by portfolio / manager / city / contract type / “snow-enabled”
+	2.	Select properties via checkbox list
+	3.	For each selected property:
+	•	choose service types (plow/hand shovel/ice melt/etc.)
+	•	add optional site notes
+	•	add optional site attachments
+
+Fast entry option
+	•	Apply same service type to all selected (then adjust individual outliers)
+
+⸻
+
+Flow 3 — Generate Tickets for Invoicing
+
+Button: Generate Tickets
+	•	Creates 1 ticket per property impact record (that is selected)
+	•	Ticket title example:
+	•	Snow Event (2-4") - [Property Name] - 2026-02-15
+	•	Ticket body auto-populates:
+	•	Storm range
+	•	Storm timing
+	•	Services performed
+	•	Event notes + site notes
+	•	Attachments (event + site)
+
+After generation:
+	•	Property impacts flip from Not Created → Ticket Created
+	•	Snow Event flips to Ready (or can stay Draft until you lock it)
+
+Safety rule
+	•	If a ticket already exists for that property + event, prevent duplicates (show “already created”)
+
+⸻
+
+4) Per-Customer (Per-Property) Benchmark Tracking
+
+Property “Storm History” Table
+
+On each property profile page, add a section:
+
+Snow Events History
+Columns:
+	•	Date (event start date)
+	•	Accumulation Range
+	•	Services (icons or comma list)
+	•	Ticket Link (clickable)
+	•	Billing Status (Ticket Created / Invoiced / Paid)
+	•	Amount (optional, if invoice is linked)
+	•	Notes (short)
+
+Filtering:
+	•	Filter by season (Nov–Apr)
+	•	Filter by range
+	•	Filter by billed status
+
+⸻
+
+Property “Accumulation Benchmark Summary”
+
+This is the “benchmark for future billing” view.
+
+For each accumulation range, show:
+	•	Count of events in that range this season
+	•	Total billed (if available)
+	•	Average billed per event (if available)
+	•	Last event date in that range
+
+Example output:
+	•	1-2": 4 events | $X total | $Y avg
+	•	2-4": 6 events | …
+	•	10+": 1 event | …
+
+This is what you can use during renewal / board conversations:
+	•	“This season you had 6 storms in the 2–4” category; here’s the billing pattern.”
+
+⸻
+
+5) Admin / Ops Views
+
+A) Storm Events List Page
+
+Table columns:
+	•	Date
+	•	Range
+	•	Properties Affected
+	•	Tickets Created
+	•	Total Invoiced (optional)
+	•	Status (Draft/Ready/Locked)
+
+Filters:
+	•	By date range
+	•	By range
+	•	By status
+
+⸻
+
+B) Event Detail Page
+
+Sections:
+	1.	Event info (range, timing, notes, attachments)
+	2.	Properties impacted list (with status + ticket link)
+	3.	Actions:
+	•	Generate tickets
+	•	Export summary (CSV later)
+	•	Lock event
+
+⸻
+
+6) Pricing (Optional Now, Easy Later)
+
+Even if you don’t implement pricing on day 1, design for it:
+
+Snow Price Matrix (future-friendly)
+
+A table keyed by:
+	•	Property (or contract tier / service level)
+	•	Accumulation range
+	•	Service types (plow/hand shovel/ice melt/etc.)
+	•	Price
+
+Then when generating tickets:
+	•	system can pre-fill ticket amount
+	•	admin can override before invoicing
+
+⸻
+
+7) Attachments & Proof
+
+Where attachments can live:
+	•	On the Snow Event (global storm photos/weather proof)
+	•	On the Property Impact (site-specific photos)
+	•	On the Ticket (auto-includes both)
+
+Attachment types:
+	•	Photos
+	•	PDFs
+	•	“Weather report screenshot”
+	•	Vendor scale ticket for bulk material (if applicable)
+
+⸻
+
+8) Guardrails & Rules
+	•	No duplicate tickets for the same property + same snow event.
+	•	Locked events cannot change range (prevents history corruption).
+	•	If event is edited while Draft, tickets should update only if not invoiced (optional rule; safest is “don’t auto-update after ticket creation”).
+	•	Properties must be “snow-enabled” to appear in selection list (toggle on property record).
+
+⸻
+
+9) Minimal Data Model (Tables)
+	1.	SnowEvents
+	2.	SnowEventAttachments (or generic attachments table)
+	3.	SnowEventPropertyImpacts
+	4.	Tickets (existing)
+	5.	TicketAttachments (existing or new)
+	6.	Properties (existing)
+	7.	(Optional future) SnowPricingMatrix
+
+⸻
+
+10) Acceptance Tests (What “Done” Means)
+	1.	You can create a snow event with a required accumulation range.
+	2.	You can select 10+ properties, apply service types, add site notes, and save.
+	3.	Clicking Generate Tickets creates exactly 1 invoice ticket per property selected.
+	4.	Tickets contain storm details + attachments.
+	5.	Property profile shows storm history and can filter by accumulation range.
+	6.	Property benchmark summary displays event counts by range for the season.
