@@ -5687,10 +5687,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
   
   // Helper function to check equipment access permissions
   const canAccessEquipment = (role: string) => ["admin", "shop_manager", "office"].includes(role);
-  // Office can create and edit equipment (but not retire or delete)
+  // Office can create and edit equipment
   const canEditEquipment = (role: string) => ["admin", "shop_manager", "office"].includes(role);
-  // Only Admin and Shop Manager can retire or delete equipment
-  const canRetireOrDeleteEquipment = (role: string) => ["admin", "shop_manager"].includes(role);
+  // Admin, Office, and Shop Manager can retire or delete equipment
+  const canRetireOrDeleteEquipment = (role: string) => ["admin", "office", "shop_manager"].includes(role);
 
   // Get all equipment (Admin, Shop Manager, Office)
   app.get("/api/equipment", async (req, res) => {

@@ -131,7 +131,7 @@ export default function EquipmentList() {
   const [newTicketOpen, setNewTicketOpen] = useState(false);
 
   const canEdit = user?.activeRole === "admin" || user?.activeRole === "shop_manager" || user?.activeRole === "office";
-  const canDelete = user?.activeRole === "admin" || user?.activeRole === "shop_manager";
+  const canDelete = user?.activeRole === "admin" || user?.activeRole === "office" || user?.activeRole === "shop_manager";
 
   const { data: equipment, isLoading } = useQuery<EquipmentWithTicketCount[]>({
     queryKey: ["/api/equipment"],
