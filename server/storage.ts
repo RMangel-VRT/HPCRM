@@ -1,6 +1,6 @@
-import { type User, type InsertUser, type Customer, type InsertCustomer, type Contact, type InsertContact, type Company, type InsertCompany, type CompanyUser, type InsertCompanyUser, type Settings, type InsertSettings, type Note, type InsertNote, type Contract, type InsertContract, type ContractStatusHistory, type InsertContractStatusHistory, type ContractDocument, type InsertContractDocument, type ContractMonthlyAmount, type InsertContractMonthlyAmount, type CustomerRateSheet, type InsertCustomerRateSheet, type ContractService, type InsertContractService, type ContractTemplate, type InsertContractTemplate, type ContractBuilderDocument, type InsertContractBuilderDocument, type ContractBuilderSection, type InsertContractBuilderSection, type ContractBuilderVariable, type InsertContractBuilderVariable, type TicketType, type InsertTicketType, type TicketTypeStatus, type InsertTicketTypeStatus, type TicketTypeField, type InsertTicketTypeField, type Ticket, type InsertTicket, type TicketFieldValue, type InsertTicketFieldValue, type TicketStatusHistory, type InsertTicketStatusHistory, type TicketComment, type InsertTicketComment, type TicketCommentMention, type InsertTicketCommentMention, type TicketSource, type InsertTicketSource, type TicketLink, type InsertTicketLink, type TicketTypeCategory, type CustomerMapLayer, type InsertCustomerMapLayer, type CustomerMapDocument, type InsertCustomerMapDocument, type MaintenanceCrew, type InsertMaintenanceCrew, type MaintenanceVisitConfig, type InsertMaintenanceVisitConfig, type WeeklyScheduleTemplate, type InsertWeeklyScheduleTemplate, type ScheduleBlock, type InsertScheduleBlock, type TicketNotification, type InsertTicketNotification, type NotificationType, type PropertyManagementCompany, type InsertPropertyManagementCompany, type PropertyManager, type InsertPropertyManager, type PropertyManagerEmail, type InsertPropertyManagerEmail, type PropertyManagerPhone, type InsertPropertyManagerPhone, type PropertyManagerWithContacts, type Equipment, type InsertEquipment, type EquipmentFile, type InsertEquipmentFile, type EquipmentTicket, type InsertEquipmentTicket, type EquipmentTicketStatusHistory, type InsertEquipmentTicketStatusHistory, type EquipmentWithTicketCount, type SnowEvent, type InsertSnowEvent, type SnowEventAttachment, type InsertSnowEventAttachment, type SnowEventPropertyImpact, type InsertSnowEventPropertyImpact, type SnowEventWithDetails, type SnowEventPropertyImpactWithCustomer } from "@shared/schema";
+import { type User, type InsertUser, type Customer, type InsertCustomer, type Contact, type InsertContact, type Company, type InsertCompany, type CompanyUser, type InsertCompanyUser, type Settings, type InsertSettings, type Note, type InsertNote, type Contract, type InsertContract, type ContractStatusHistory, type InsertContractStatusHistory, type ContractDocument, type InsertContractDocument, type ContractMonthlyAmount, type InsertContractMonthlyAmount, type CustomerRateSheet, type InsertCustomerRateSheet, type ContractService, type InsertContractService, type ContractTemplate, type InsertContractTemplate, type ContractBuilderDocument, type InsertContractBuilderDocument, type ContractBuilderSection, type InsertContractBuilderSection, type ContractBuilderVariable, type InsertContractBuilderVariable, type TicketType, type InsertTicketType, type TicketTypeStatus, type InsertTicketTypeStatus, type TicketTypeField, type InsertTicketTypeField, type Ticket, type InsertTicket, type TicketFieldValue, type InsertTicketFieldValue, type TicketStatusHistory, type InsertTicketStatusHistory, type TicketComment, type InsertTicketComment, type TicketCommentMention, type InsertTicketCommentMention, type TicketSource, type InsertTicketSource, type TicketLink, type InsertTicketLink, type TicketTypeCategory, type CustomerMapLayer, type InsertCustomerMapLayer, type CustomerMapDocument, type InsertCustomerMapDocument, type MaintenanceCrew, type InsertMaintenanceCrew, type MaintenanceVisitConfig, type InsertMaintenanceVisitConfig, type WeeklyScheduleTemplate, type InsertWeeklyScheduleTemplate, type ScheduleBlock, type InsertScheduleBlock, type TicketNotification, type InsertTicketNotification, type NotificationType, type PropertyManagementCompany, type InsertPropertyManagementCompany, type PropertyManager, type InsertPropertyManager, type PropertyManagerEmail, type InsertPropertyManagerEmail, type PropertyManagerPhone, type InsertPropertyManagerPhone, type PropertyManagerWithContacts, type Equipment, type InsertEquipment, type EquipmentFile, type InsertEquipmentFile, type EquipmentTicket, type InsertEquipmentTicket, type EquipmentTicketStatusHistory, type InsertEquipmentTicketStatusHistory, type EquipmentWithTicketCount, type SnowEvent, type InsertSnowEvent, type SnowEventAttachment, type InsertSnowEventAttachment, type SnowEventPropertyImpact, type InsertSnowEventPropertyImpact, type SnowEventWithDetails, type SnowEventPropertyImpactWithCustomer, type EmailTemplate, type InsertEmailTemplate, type EmailRule, type InsertEmailRule, type EmailLog, type InsertEmailLog, type EmailLogWithDetails } from "@shared/schema";
 import { db } from "./db";
-import { users, customers, contacts, companies, companyUsers, settings, notes, contracts, contractStatusHistory, contractDocuments, contractMonthlyAmounts, customerRateSheets, contractServices, contractTemplates, contractBuilderDocuments, contractBuilderSections, contractBuilderVariables, ticketTypes, ticketTypeStatuses, ticketTypeFields, tickets, ticketFieldValues, ticketStatusHistory, ticketComments, ticketCommentMentions, ticketSources, ticketLinks, customerMapLayers, customerMapDocuments, maintenanceCrews, maintenanceVisitConfigs, weeklyScheduleTemplates, scheduleBlocks, ticketNotifications, propertyManagementCompanies, propertyManagers, propertyManagerEmails, propertyManagerPhones, equipment, equipmentFiles, equipmentTickets, equipmentTicketStatusHistory, snowEvents, snowEventAttachments, snowEventPropertyImpacts } from "@shared/schema";
+import { users, customers, contacts, companies, companyUsers, settings, notes, contracts, contractStatusHistory, contractDocuments, contractMonthlyAmounts, customerRateSheets, contractServices, contractTemplates, contractBuilderDocuments, contractBuilderSections, contractBuilderVariables, ticketTypes, ticketTypeStatuses, ticketTypeFields, tickets, ticketFieldValues, ticketStatusHistory, ticketComments, ticketCommentMentions, ticketSources, ticketLinks, customerMapLayers, customerMapDocuments, maintenanceCrews, maintenanceVisitConfigs, weeklyScheduleTemplates, scheduleBlocks, ticketNotifications, propertyManagementCompanies, propertyManagers, propertyManagerEmails, propertyManagerPhones, equipment, equipmentFiles, equipmentTickets, equipmentTicketStatusHistory, snowEvents, snowEventAttachments, snowEventPropertyImpacts, emailTemplates, emailRules, emailLogs } from "@shared/schema";
 import { eq, and, sql, desc } from "drizzle-orm";
 import session from "express-session";
 import connectPg from "connect-pg-simple";
@@ -272,6 +272,25 @@ export interface IStorage {
   updateSnowEventPropertyImpact(id: string, companyId: string, updates: Partial<InsertSnowEventPropertyImpact>): Promise<SnowEventPropertyImpact | undefined>;
   deleteSnowEventPropertyImpact(id: string, companyId: string): Promise<void>;
   deleteSnowEventPropertyImpactsByEvent(snowEventId: string, companyId: string): Promise<void>;
+
+  // Email Templates
+  getEmailTemplates(companyId: string): Promise<EmailTemplate[]>;
+  getEmailTemplateById(id: string, companyId: string): Promise<EmailTemplate | undefined>;
+  getEmailTemplateByName(name: string, companyId: string): Promise<EmailTemplate | undefined>;
+  createEmailTemplate(template: InsertEmailTemplate): Promise<EmailTemplate>;
+  updateEmailTemplate(id: string, companyId: string, updates: Partial<InsertEmailTemplate>): Promise<EmailTemplate | undefined>;
+  
+  // Email Rules
+  getEmailRules(companyId: string): Promise<EmailRule[]>;
+  getEmailRulesByEvent(eventKey: string, companyId: string): Promise<EmailRule[]>;
+  createEmailRule(rule: InsertEmailRule): Promise<EmailRule>;
+  updateEmailRule(id: string, companyId: string, updates: Partial<InsertEmailRule>): Promise<EmailRule | undefined>;
+  
+  // Email Logs
+  getEmailLogs(companyId: string, filters?: { ticketId?: string; customerId?: string; status?: string }): Promise<EmailLogWithDetails[]>;
+  getEmailLogById(id: string, companyId: string): Promise<EmailLog | undefined>;
+  createEmailLog(log: InsertEmailLog): Promise<EmailLog>;
+  updateEmailLog(id: string, updates: Partial<InsertEmailLog>): Promise<EmailLog | undefined>;
   
   sessionStore: session.Store;
 }
@@ -2177,6 +2196,120 @@ export class PgStorage implements IStorage {
         eq(snowEventPropertyImpacts.snowEventId, snowEventId),
         eq(snowEventPropertyImpacts.companyId, companyId)
       ));
+  }
+
+  async getEmailTemplates(companyId: string): Promise<EmailTemplate[]> {
+    return await db.select().from(emailTemplates)
+      .where(eq(emailTemplates.companyId, companyId))
+      .orderBy(desc(emailTemplates.createdAt));
+  }
+
+  async getEmailTemplateById(id: string, companyId: string): Promise<EmailTemplate | undefined> {
+    const result = await db.select().from(emailTemplates)
+      .where(and(eq(emailTemplates.id, id), eq(emailTemplates.companyId, companyId)))
+      .limit(1);
+    return result[0];
+  }
+
+  async getEmailTemplateByName(name: string, companyId: string): Promise<EmailTemplate | undefined> {
+    const result = await db.select().from(emailTemplates)
+      .where(and(eq(emailTemplates.name, name), eq(emailTemplates.companyId, companyId)))
+      .limit(1);
+    return result[0];
+  }
+
+  async createEmailTemplate(template: InsertEmailTemplate): Promise<EmailTemplate> {
+    const result = await db.insert(emailTemplates).values([template]).returning();
+    return result[0];
+  }
+
+  async updateEmailTemplate(id: string, companyId: string, updates: Partial<InsertEmailTemplate>): Promise<EmailTemplate | undefined> {
+    const result = await db.update(emailTemplates)
+      .set({ ...updates, updatedAt: new Date() })
+      .where(and(eq(emailTemplates.id, id), eq(emailTemplates.companyId, companyId)))
+      .returning();
+    return result[0];
+  }
+
+  async getEmailRules(companyId: string): Promise<EmailRule[]> {
+    return await db.select().from(emailRules)
+      .where(eq(emailRules.companyId, companyId));
+  }
+
+  async getEmailRulesByEvent(eventKey: string, companyId: string): Promise<EmailRule[]> {
+    return await db.select().from(emailRules)
+      .where(and(
+        eq(emailRules.eventKey, eventKey),
+        eq(emailRules.companyId, companyId),
+        eq(emailRules.isEnabled, true)
+      ));
+  }
+
+  async createEmailRule(rule: InsertEmailRule): Promise<EmailRule> {
+    const result = await db.insert(emailRules).values([rule]).returning();
+    return result[0];
+  }
+
+  async updateEmailRule(id: string, companyId: string, updates: Partial<InsertEmailRule>): Promise<EmailRule | undefined> {
+    const result = await db.update(emailRules)
+      .set(updates)
+      .where(and(eq(emailRules.id, id), eq(emailRules.companyId, companyId)))
+      .returning();
+    return result[0];
+  }
+
+  async getEmailLogs(companyId: string, filters?: { ticketId?: string; customerId?: string; status?: string }): Promise<EmailLogWithDetails[]> {
+    const conditions = [eq(emailLogs.companyId, companyId)];
+    if (filters?.ticketId) conditions.push(eq(emailLogs.ticketId, filters.ticketId));
+    if (filters?.customerId) conditions.push(eq(emailLogs.customerId, filters.customerId));
+    if (filters?.status) conditions.push(eq(emailLogs.status, filters.status as any));
+
+    const result = await db.select({
+      id: emailLogs.id,
+      companyId: emailLogs.companyId,
+      customerId: emailLogs.customerId,
+      ticketId: emailLogs.ticketId,
+      templateId: emailLogs.templateId,
+      toEmail: emailLogs.toEmail,
+      subject: emailLogs.subject,
+      htmlBody: emailLogs.htmlBody,
+      status: emailLogs.status,
+      providerMessageId: emailLogs.providerMessageId,
+      errorJson: emailLogs.errorJson,
+      sentById: emailLogs.sentById,
+      sentAt: emailLogs.sentAt,
+      createdAt: emailLogs.createdAt,
+      customerName: customers.name,
+      ticketTitle: tickets.title,
+      templateName: emailTemplates.name,
+    }).from(emailLogs)
+      .leftJoin(customers, eq(emailLogs.customerId, customers.id))
+      .leftJoin(tickets, eq(emailLogs.ticketId, tickets.id))
+      .leftJoin(emailTemplates, eq(emailLogs.templateId, emailTemplates.id))
+      .where(and(...conditions))
+      .orderBy(desc(emailLogs.createdAt));
+
+    return result as EmailLogWithDetails[];
+  }
+
+  async getEmailLogById(id: string, companyId: string): Promise<EmailLog | undefined> {
+    const result = await db.select().from(emailLogs)
+      .where(and(eq(emailLogs.id, id), eq(emailLogs.companyId, companyId)))
+      .limit(1);
+    return result[0];
+  }
+
+  async createEmailLog(log: InsertEmailLog): Promise<EmailLog> {
+    const result = await db.insert(emailLogs).values([log]).returning();
+    return result[0];
+  }
+
+  async updateEmailLog(id: string, updates: Partial<InsertEmailLog>): Promise<EmailLog | undefined> {
+    const result = await db.update(emailLogs)
+      .set(updates)
+      .where(eq(emailLogs.id, id))
+      .returning();
+    return result[0];
   }
 }
 

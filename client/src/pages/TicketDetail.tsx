@@ -53,10 +53,12 @@ import {
   Pencil,
   UserRoundCheck,
   CornerDownLeft,
+  Mail,
+  RotateCw,
 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { queryClient, apiRequest } from "@/lib/queryClient";
-import type { Ticket, TicketType, TicketTypeStatus, TicketTypeField, TicketFieldValue, TicketComment, TicketStatusHistory, Customer, Contract, ContractService, WorkType, TicketLink, User as UserType, CompanyUser, CustomerRateSheet } from "@shared/schema";
+import type { Ticket, TicketType, TicketTypeStatus, TicketTypeField, TicketFieldValue, TicketComment, TicketStatusHistory, Customer, Contract, ContractService, WorkType, TicketLink, User as UserType, CompanyUser, CustomerRateSheet, EmailLogWithDetails } from "@shared/schema";
 import { WORK_TYPE_CATALOG } from "@shared/workTypeCatalog";
 import { format, formatDistanceToNow } from "date-fns";
 import { MapContainer, TileLayer, Marker } from "react-leaflet";
@@ -118,7 +120,7 @@ export default function TicketDetail() {
   const [pendingStatusId, setPendingStatusId] = useState<string | null>(null);
   const [fieldInputs, setFieldInputs] = useState<Record<string, string>>({});
   const [statusNotes, setStatusNotes] = useState("");
-  const [activeTab, setActiveTab] = useState<"overview" | "workflow" | "comments" | "history">("overview");
+  const [activeTab, setActiveTab] = useState<"overview" | "workflow" | "comments" | "history" | "emails">("overview");
   const [showPropertyMaps, setShowPropertyMaps] = useState(false);
   
   // Delegation state
@@ -153,8 +155,8 @@ export default function TicketDetail() {
   // Check if current user can delete tickets (admin or office)
   const canDelete = currentUser?.activeRole === "admin" || currentUser?.activeRole === "office" || currentUser?.isSuperAdminBool;
   
-  // Check if current user can edit ticket details (admin only)
   const canEdit = currentUser?.activeRole === "admin" || currentUser?.isSuperAdminBool;
+  const isAdminOrOffice = currentUser?.activeRole === "admin" || currentUser?.activeRole === "office" || currentUser?.isSuperAdminBool;
 
   const { data: details, isLoading } = useQuery<TicketDetails>({
     queryKey: ["/api/tickets", ticketId, "details"],
@@ -320,6 +322,29 @@ export default function TicketDetail() {
       queryClient.invalidateQueries({ queryKey: ["/api/tickets", ticketId, "details"] });
       setNewComment("");
       toast({ title: "Comment added" });
+    },
+  });
+
+  const { data: emailLogs = [] } = useQuery<EmailLogWithDetails[]>({
+    queryKey: ["/api/email-logs", { ticketId }],
+    queryFn: async () => {
+      const res = await fetch(`/api/email-logs?ticketId=${ticketId}`, { credentials: "include" });
+      if (!res.ok) return [];
+      return res.json();
+    },
+    enabled: !!ticketId && isAdminOrOffice,
+  });
+
+  const resendEmailMutation = useMutation({
+    mutationFn: async (emailLogId: string) => {
+      return apiRequest("POST", `/api/email-logs/${emailLogId}/resend`);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/email-logs", { ticketId }] });
+      toast({ title: "Email resent successfully" });
+    },
+    onError: () => {
+      toast({ title: "Failed to resend email", variant: "destructive" });
     },
   });
 
@@ -670,6 +695,20 @@ export default function TicketDetail() {
         >
           <History className="w-4 h-4" />
         </button>
+        {isAdminOrOffice && (
+          <button
+            className={`px-4 py-2 text-sm font-medium border-b-2 transition-colors flex items-center gap-1.5 ${
+              activeTab === "emails"
+                ? "border-primary text-primary"
+                : "border-transparent text-muted-foreground hover:text-foreground"
+            }`}
+            onClick={() => setActiveTab("emails")}
+            data-testid="tab-emails"
+          >
+            <Mail className="w-4 h-4" />
+            {emailLogs.length > 0 && <span className="text-xs">({emailLogs.length})</span>}
+          </button>
+        )}
       </div>
 
       {activeTab === "overview" && (
@@ -1431,6 +1470,69 @@ export default function TicketDetail() {
                 </Card>
               );
             })
+          )}
+        </div>
+      )}
+
+      {activeTab === "emails" && isAdminOrOffice && (
+        <div className="space-y-2">
+          {emailLogs.length === 0 ? (
+            <Card>
+              <CardContent className="py-8 text-center">
+                <Mail className="w-8 h-8 mx-auto text-muted-foreground mb-2" />
+                <p className="text-sm text-muted-foreground">No emails sent for this ticket</p>
+              </CardContent>
+            </Card>
+          ) : (
+            emailLogs.map((log) => (
+              <Card key={log.id} data-testid={`email-log-${log.id}`}>
+                <CardContent className="p-4">
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <p className="text-sm font-medium truncate">{log.subject}</p>
+                        <Badge
+                          variant={log.status === "sent" || log.status === "delivered" ? "default" : log.status === "failed" || log.status === "bounced" ? "destructive" : "secondary"}
+                          className="text-xs"
+                          data-testid={`email-status-${log.id}`}
+                        >
+                          {log.status}
+                        </Badge>
+                      </div>
+                      <p className="text-xs text-muted-foreground mt-1">
+                        To: {log.toEmail}
+                      </p>
+                      {log.customerName && (
+                        <p className="text-xs text-muted-foreground">
+                          Customer: {log.customerName}
+                        </p>
+                      )}
+                      <p className="text-xs text-muted-foreground mt-1">
+                        {log.sentAt
+                          ? `Sent ${formatDistanceToNow(new Date(log.sentAt), { addSuffix: true })}`
+                          : `Created ${formatDistanceToNow(new Date(log.createdAt), { addSuffix: true })}`}
+                      </p>
+                      {log.errorJson && (
+                        <p className="text-xs text-destructive mt-1">
+                          Error: {typeof log.errorJson === 'object' && log.errorJson !== null && 'message' in log.errorJson ? String((log.errorJson as any).message) : 'Unknown error'}
+                        </p>
+                      )}
+                    </div>
+                    {canEdit && (log.status === "failed" || log.status === "bounced") && (
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        onClick={() => resendEmailMutation.mutate(log.id)}
+                        disabled={resendEmailMutation.isPending}
+                        data-testid={`button-resend-email-${log.id}`}
+                      >
+                        <RotateCw className={`w-4 h-4 ${resendEmailMutation.isPending ? "animate-spin" : ""}`} />
+                      </Button>
+                    )}
+                  </div>
+                </CardContent>
+              </Card>
+            ))
           )}
         </div>
       )}

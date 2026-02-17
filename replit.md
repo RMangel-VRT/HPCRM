@@ -53,10 +53,14 @@ A system for managing winter weather events, property impacts, service assignmen
 #### First-Time Setup Flow
 When deployed with an empty database, the application initiates a first-time setup page, allowing the creation of the initial company and admin user, then auto-logs in. This setup page is inaccessible once any user exists.
 
+#### Email Notification System
+Transactional email notifications powered by SendGrid (via Replit connector). Triggers "Work Completed" emails when tickets reach a final status. Uses a template/rule engine: email_templates store HTML templates with {{variable}} substitution, email_rules link events (e.g., ticket.work_completed) to templates, and email_logs track all sent emails with delivery status. The Email History tab on the Ticket Detail page (Admin/Office only) shows sent/failed emails with resend capability. Default template and rule are auto-seeded per company on startup. Service layer in server/services/emailService.ts handles SendGrid API calls with error logging.
+
 ## External Dependencies
 
 - **UI Component Libraries:** Radix UI, Shadcn/ui, Lucide React, CMDK
 - **Form & Validation:** React Hook Form, Zod, @hookform/resolvers, Drizzle-Zod
 - **Date Handling:** date-fns
 - **Session & Security:** Passport.js (with passport-local), express-session, connect-pg-simple, Node.js crypto module
+- **Email:** SendGrid (@sendgrid/mail) via Replit connector for transactional emails
 - **Design System:** Google Fonts (Inter, JetBrains Mono)

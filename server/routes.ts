@@ -6,10 +6,11 @@ import { setupAuth, type UserWithContext } from "./auth";
 import { storage } from "./storage";
 import { db } from "./db";
 import { eq, and, inArray } from "drizzle-orm";
-import { insertCustomerSchema, insertContactSchema, insertCompanySchema, insertCompanyUserSchema, insertSettingsSchema, insertNoteSchema, insertContractSchema, insertContractDocumentSchema, insertContractBuilderDocumentSchema, insertContractBuilderSectionSchema, insertContractBuilderVariableSchema, insertTicketTypeSchema, insertTicketTypeStatusSchema, insertTicketTypeFieldSchema, insertTicketSchema, insertTicketFieldValueSchema, insertTicketStatusHistorySchema, insertTicketCommentSchema, insertTicketLinkSchema, insertCustomerMapLayerSchema, insertCustomerMapDocumentSchema, insertMaintenanceCrewSchema, insertMaintenanceVisitConfigSchema, insertWeeklyScheduleTemplateSchema, insertScheduleBlockSchema, insertEquipmentSchema, insertEquipmentFileSchema, insertEquipmentTicketSchema, insertEquipmentTicketStatusHistorySchema, insertSnowEventSchema, insertSnowEventPropertyImpactSchema, insertSnowEventAttachmentSchema, SNOW_RANGES, tickets, ticketTypes, ticketTypeStatuses, customers as customersTable, contractMonthlyAmounts, contractDocuments, contractServices, contractStatusHistory } from "@shared/schema";
+import { insertCustomerSchema, insertContactSchema, insertCompanySchema, insertCompanyUserSchema, insertSettingsSchema, insertNoteSchema, insertContractSchema, insertContractDocumentSchema, insertContractBuilderDocumentSchema, insertContractBuilderSectionSchema, insertContractBuilderVariableSchema, insertTicketTypeSchema, insertTicketTypeStatusSchema, insertTicketTypeFieldSchema, insertTicketSchema, insertTicketFieldValueSchema, insertTicketStatusHistorySchema, insertTicketCommentSchema, insertTicketLinkSchema, insertCustomerMapLayerSchema, insertCustomerMapDocumentSchema, insertMaintenanceCrewSchema, insertMaintenanceVisitConfigSchema, insertWeeklyScheduleTemplateSchema, insertScheduleBlockSchema, insertEquipmentSchema, insertEquipmentFileSchema, insertEquipmentTicketSchema, insertEquipmentTicketStatusHistorySchema, insertSnowEventSchema, insertSnowEventPropertyImpactSchema, insertSnowEventAttachmentSchema, insertEmailTemplateSchema, insertEmailRuleSchema, SNOW_RANGES, tickets, ticketTypes, ticketTypeStatuses, customers as customersTable, contractMonthlyAmounts, contractDocuments, contractServices, contractStatusHistory } from "@shared/schema";
 import type { Customer } from "@shared/schema";
 import { ObjectStorageService, ObjectNotFoundError, objectStorageClient, signObjectURL } from "./objectStorage";
 import { ObjectPermission, ObjectAccessGroupType, setObjectAclPolicy } from "./objectAcl";
+import { processEmailEvent, resendEmail, getDefaultWorkCompletedTemplate } from './services/emailService';
 
 // Helper to ensure Invoice ticket type exists for a company with required statuses
 async function ensureInvoiceTicketType(companyId: string): Promise<{ 
@@ -3956,6 +3957,41 @@ export async function registerRoutes(app: Express): Promise<Server> {
           }
         }
         
+        // Send "Work Completed" email notification to customer contacts
+        try {
+          if (existingTicket.customerId) {
+            const customer = await storage.getCustomerById(existingTicket.customerId, user.activeCompanyId);
+            const contacts = await storage.getContactsByCustomerId(existingTicket.customerId, user.activeCompanyId);
+            const primaryContact = contacts.find(c => c.isPrimary === "true" && c.email);
+            const toEmail = primaryContact?.email || contacts.find(c => c.email)?.email;
+            
+            if (toEmail && customer) {
+              const company = await storage.getCompanyById(user.activeCompanyId);
+              const completionDate = new Date().toLocaleDateString('en-US', { 
+                year: 'numeric', month: 'long', day: 'numeric' 
+              });
+              
+              await processEmailEvent('ticket.work_completed', user.activeCompanyId, {
+                ticketTitle: existingTicket.title,
+                customerName: customer.name,
+                companyName: company?.name || 'Property Maintenance',
+                completionDate,
+                ticketDescription: existingTicket.description || '',
+              }, {
+                customerId: existingTicket.customerId,
+                ticketId: existingTicket.id,
+                toEmail,
+                sentById: user.id,
+              });
+              
+              console.log(`Triggered work completed email for ticket ${existingTicket.id} to ${toEmail}`);
+            }
+          }
+        } catch (err) {
+          console.error("Failed to send work completed email:", err);
+          // Don't fail the update - email is secondary
+        }
+
       }
     }
 
@@ -6351,6 +6387,130 @@ export async function registerRoutes(app: Express): Promise<Server> {
     
     res.json({ created: created.length, tickets: created });
   });
+
+  // ===== EMAIL MANAGEMENT ROUTES =====
+  
+  // Get email templates for company
+  app.get("/api/email-templates", async (req, res) => {
+    if (!req.isAuthenticated()) return res.status(401).send("Not authenticated");
+    const user = req.user as UserWithContext;
+    if (user.activeRole !== "admin" && user.activeRole !== "office") {
+      return res.status(403).send("Admin or office role required");
+    }
+    const templates = await storage.getEmailTemplates(user.activeCompanyId);
+    res.json(templates);
+  });
+  
+  // Update email template
+  app.patch("/api/email-templates/:id", async (req, res) => {
+    if (!req.isAuthenticated()) return res.status(401).send("Not authenticated");
+    const user = req.user as UserWithContext;
+    if (user.activeRole !== "admin") {
+      return res.status(403).send("Admin role required");
+    }
+    const result = insertEmailTemplateSchema.partial().omit({ companyId: true }).safeParse(req.body);
+    if (!result.success) {
+      return res.status(400).send(result.error.message);
+    }
+    const template = await storage.updateEmailTemplate(req.params.id, user.activeCompanyId, result.data);
+    if (!template) return res.status(404).send("Template not found");
+    res.json(template);
+  });
+  
+  // Get email rules for company
+  app.get("/api/email-rules", async (req, res) => {
+    if (!req.isAuthenticated()) return res.status(401).send("Not authenticated");
+    const user = req.user as UserWithContext;
+    if (user.activeRole !== "admin" && user.activeRole !== "office") {
+      return res.status(403).send("Admin or office role required");
+    }
+    const rules = await storage.getEmailRules(user.activeCompanyId);
+    res.json(rules);
+  });
+  
+  // Update email rule (enable/disable)
+  app.patch("/api/email-rules/:id", async (req, res) => {
+    if (!req.isAuthenticated()) return res.status(401).send("Not authenticated");
+    const user = req.user as UserWithContext;
+    if (user.activeRole !== "admin") {
+      return res.status(403).send("Admin role required");
+    }
+    const result = insertEmailRuleSchema.partial().omit({ companyId: true }).safeParse(req.body);
+    if (!result.success) {
+      return res.status(400).send(result.error.message);
+    }
+    const rule = await storage.updateEmailRule(req.params.id, user.activeCompanyId, result.data);
+    if (!rule) return res.status(404).send("Rule not found");
+    res.json(rule);
+  });
+  
+  // Get email logs (filterable by ticket, customer, status)
+  app.get("/api/email-logs", async (req, res) => {
+    if (!req.isAuthenticated()) return res.status(401).send("Not authenticated");
+    const user = req.user as UserWithContext;
+    if (user.activeRole !== "admin" && user.activeRole !== "office") {
+      return res.status(403).send("Admin or office role required");
+    }
+    const filters: any = {};
+    if (req.query.ticketId) filters.ticketId = req.query.ticketId as string;
+    if (req.query.customerId) filters.customerId = req.query.customerId as string;
+    if (req.query.status) filters.status = req.query.status as string;
+    const logs = await storage.getEmailLogs(user.activeCompanyId, filters);
+    res.json(logs);
+  });
+  
+  // Resend an email (admin only)
+  app.post("/api/email-logs/:id/resend", async (req, res) => {
+    if (!req.isAuthenticated()) return res.status(401).send("Not authenticated");
+    const user = req.user as UserWithContext;
+    if (user.activeRole !== "admin") {
+      return res.status(403).send("Admin role required");
+    }
+    try {
+      const log = await resendEmail(req.params.id, user.activeCompanyId, user.id);
+      if (!log) return res.status(404).send("Email log not found");
+      res.json(log);
+    } catch (err: any) {
+      console.error("Failed to resend email:", err);
+      res.status(500).send("Failed to resend email");
+    }
+  });
+
+  // Seed default email templates and rules
+  async function seedEmailTemplatesAndRules(companyId: string) {
+    try {
+      const existing = await storage.getEmailTemplateByName('Work Completed Notification', companyId);
+      if (existing) return; // Already seeded
+      
+      const defaultTemplate = getDefaultWorkCompletedTemplate();
+      const template = await storage.createEmailTemplate({
+        ...defaultTemplate,
+        companyId,
+      });
+      
+      await storage.createEmailRule({
+        companyId,
+        eventKey: 'ticket.work_completed',
+        templateId: template.id,
+        conditionsJson: null,
+        isEnabled: true,
+      });
+      
+      console.log(`Seeded default email template and rule for company ${companyId}`);
+    } catch (err) {
+      console.error("Failed to seed email templates:", err);
+    }
+  }
+
+  // Seed email templates for all companies on startup
+  try {
+    const allCompanies = await storage.getCompanies();
+    for (const company of allCompanies) {
+      await seedEmailTemplatesAndRules(company.id);
+    }
+  } catch (err) {
+    console.error("Failed to seed email templates on startup:", err);
+  }
 
   const httpServer = createServer(app);
 

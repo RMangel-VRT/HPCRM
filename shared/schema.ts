@@ -1356,3 +1356,77 @@ export type SnowEventWithDetails = SnowEvent & {
 export type SnowEventPropertyImpactWithCustomer = SnowEventPropertyImpact & {
   customerName: string;
 };
+
+export const EMAIL_TEMPLATE_CATEGORIES = ["transactional", "marketing", "system"] as const;
+export const EMAIL_LOG_STATUSES = ["pending", "sent", "delivered", "bounced", "failed", "dropped"] as const;
+
+export const emailTemplates = pgTable("email_templates", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  companyId: varchar("company_id").notNull().references(() => companies.id, { onDelete: "cascade" }),
+  name: text("name").notNull(),
+  subject: text("subject").notNull(),
+  htmlBody: text("html_body").notNull(),
+  textBody: text("text_body"),
+  category: text("category").notNull().$type<"transactional" | "marketing" | "system">().default("transactional"),
+  isActive: boolean("is_active").notNull().default(true),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  updatedAt: timestamp("updated_at").notNull().defaultNow(),
+});
+
+export const insertEmailTemplateSchema = createInsertSchema(emailTemplates).omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+});
+
+export type InsertEmailTemplate = z.infer<typeof insertEmailTemplateSchema>;
+export type EmailTemplate = typeof emailTemplates.$inferSelect;
+
+export const emailRules = pgTable("email_rules", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  companyId: varchar("company_id").notNull().references(() => companies.id, { onDelete: "cascade" }),
+  eventKey: text("event_key").notNull(),
+  templateId: varchar("template_id").notNull().references(() => emailTemplates.id, { onDelete: "cascade" }),
+  conditionsJson: jsonb("conditions_json"),
+  isEnabled: boolean("is_enabled").notNull().default(true),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+});
+
+export const insertEmailRuleSchema = createInsertSchema(emailRules).omit({
+  id: true,
+  createdAt: true,
+});
+
+export type InsertEmailRule = z.infer<typeof insertEmailRuleSchema>;
+export type EmailRule = typeof emailRules.$inferSelect;
+
+export const emailLogs = pgTable("email_logs", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  companyId: varchar("company_id").notNull().references(() => companies.id, { onDelete: "cascade" }),
+  customerId: varchar("customer_id").references(() => customers.id, { onDelete: "set null" }),
+  ticketId: varchar("ticket_id").references(() => tickets.id, { onDelete: "set null" }),
+  templateId: varchar("template_id").references(() => emailTemplates.id, { onDelete: "set null" }),
+  toEmail: text("to_email").notNull(),
+  subject: text("subject").notNull(),
+  htmlBody: text("html_body"),
+  status: text("status").notNull().$type<"pending" | "sent" | "delivered" | "bounced" | "failed" | "dropped">().default("pending"),
+  providerMessageId: text("provider_message_id"),
+  errorJson: jsonb("error_json"),
+  sentById: varchar("sent_by_id").references(() => users.id, { onDelete: "set null" }),
+  sentAt: timestamp("sent_at"),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+});
+
+export const insertEmailLogSchema = createInsertSchema(emailLogs).omit({
+  id: true,
+  createdAt: true,
+});
+
+export type InsertEmailLog = z.infer<typeof insertEmailLogSchema>;
+export type EmailLog = typeof emailLogs.$inferSelect;
+
+export type EmailLogWithDetails = EmailLog & {
+  customerName?: string;
+  ticketTitle?: string;
+  templateName?: string;
+};
