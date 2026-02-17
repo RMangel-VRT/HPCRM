@@ -518,6 +518,87 @@ async function migrateApprovedProjectTickets(companyId: string, triggeringUserId
   return migratedCount;
 }
 
+// Helper to ensure Extra Billable ticket type exists with scheduling workflow
+async function ensureExtraBillableTicketType(companyId: string): Promise<{ 
+  typeId: string; 
+  statuses: Map<string, string>;
+} | null> {
+  const ticketTypes = await storage.getTicketTypes(companyId);
+  let ebType = ticketTypes.find(tt => tt.name === "Extra Billable");
+  
+  if (!ebType) {
+    ebType = await storage.createTicketType({
+      companyId,
+      name: "Extra Billable",
+      description: "Work outside the contract scope - must be scheduled, completed, and invoiced",
+      category: "service",
+      icon: "receipt",
+      color: "#f59e0b",
+      isActive: "true",
+    });
+    console.log(`Created Extra Billable ticket type for company ${companyId}`);
+  }
+  
+  const ebStatuses = [
+    { name: "New", description: "Extra work request received", color: "#6366f1", order: 0, isFinal: "false" as const },
+    { name: "Ready to Schedule", description: "Approved - needs to be scheduled with crew", color: "#f472b6", order: 1, isFinal: "false" as const },
+    { name: "In Progress", description: "Work is underway", color: "#3b82f6", order: 2, isFinal: "false" as const },
+    { name: "Work Completed", description: "Field work finished - pending billing", color: "#10b981", order: 3, isFinal: "false" as const },
+    { name: "Done", description: "Invoice created - ticket closed", color: "#22c55e", order: 4, isFinal: "true" as const },
+  ];
+  
+  let existingStatuses = await storage.getTicketTypeStatuses(ebType.id);
+  const statusMap = new Map<string, string>();
+  
+  for (const statusDef of ebStatuses) {
+    let status = existingStatuses.find(s => s.name === statusDef.name);
+    if (!status) {
+      status = await storage.createTicketTypeStatus({
+        ticketTypeId: ebType.id,
+        name: statusDef.name,
+        description: statusDef.description,
+        displayOrder: statusDef.order,
+        color: statusDef.color,
+        isFinal: statusDef.isFinal,
+      });
+      console.log(`Created status "${statusDef.name}" for Extra Billable type`);
+    }
+    statusMap.set(status.name, status.id);
+  }
+  
+  // Define fields for Work Completed status
+  const existingFields = await storage.getTicketTypeFields(ebType.id);
+  const existingFieldKeys = new Set(existingFields.map(f => f.fieldKey));
+  
+  const workCompletedStatusId = statusMap.get("Work Completed");
+  if (workCompletedStatusId) {
+    const fieldDefs = [
+      { fieldKey: "completion_date", fieldLabel: "Completion Date", fieldType: "date", isRequired: "false", displayOrder: 0 },
+      { fieldKey: "actual_hours", fieldLabel: "Actual Hours", fieldType: "number", isRequired: "false", displayOrder: 1 },
+      { fieldKey: "completion_notes", fieldLabel: "Completion Notes", fieldType: "textarea", isRequired: "false", displayOrder: 2 },
+    ];
+    
+    for (const fieldDef of fieldDefs) {
+      if (!existingFieldKeys.has(fieldDef.fieldKey)) {
+        await storage.createTicketTypeField({
+          ticketTypeId: ebType.id,
+          statusId: workCompletedStatusId,
+          fieldKey: fieldDef.fieldKey,
+          fieldLabel: fieldDef.fieldLabel,
+          fieldType: fieldDef.fieldType,
+          isRequired: fieldDef.isRequired as "true" | "false",
+          options: [],
+          displayOrder: fieldDef.displayOrder,
+        });
+        console.log(`Created field "${fieldDef.fieldKey}" for Extra Billable Work Completed status`);
+      }
+    }
+  }
+  
+  console.log(`Extra Billable ticket type setup complete for company ${companyId}`);
+  return { typeId: ebType.id, statuses: statusMap };
+}
+
 // Helper to ensure To-Do ticket type exists with simple Open/Done workflow
 // Also creates an "Internal Tasks" customer for non-customer-related to-dos
 async function ensureToDoTicketType(companyId: string): Promise<{ 
@@ -595,11 +676,12 @@ async function ensureToDoTicketType(companyId: string): Promise<{
 export async function seedAllTicketTypes(companyId: string): Promise<void> {
   console.log(`Seeding all ticket types for company ${companyId}...`);
   
-  // Seed in order: To-Do, Invoice, Project, RFP Request
+  // Seed in order: To-Do, Invoice, Project, RFP Request, Extra Billable
   await ensureToDoTicketType(companyId);
   await ensureInvoiceTicketType(companyId);
   await ensureProjectTicketType(companyId);
   await ensureRFPRequestTicketType(companyId);
+  await ensureExtraBillableTicketType(companyId);
   
   console.log(`All ticket types seeded for company ${companyId}`);
 }
@@ -732,6 +814,63 @@ export async function migrateProjectSchedulingStatus(): Promise<void> {
     console.log(`Startup migration complete: Processed ${companies.length} companies, ensured Ready to Schedule status exists`);
   } catch (error) {
     console.error("Error during startup migration for scheduling status:", error);
+  }
+}
+
+// Startup migration: Ensure all companies have the Extra Billable ticket type
+// and migrate any existing extra_work To-Do tickets to the new type
+export async function migrateExtraBillableTicketType(): Promise<void> {
+  console.log("Running startup migration: Ensuring Extra Billable ticket type exists for all companies...");
+  
+  try {
+    const companies = await storage.getCompanies();
+    
+    for (const company of companies) {
+      const ebResult = await ensureExtraBillableTicketType(company.id);
+      if (!ebResult) continue;
+      
+      // Migrate existing extra_work tickets that are on the To-Do type to Extra Billable
+      const ticketTypes = await storage.getTicketTypes(company.id);
+      const todoType = ticketTypes.find(tt => tt.name === "To-Do");
+      if (!todoType) continue;
+      
+      const todoStatuses = await storage.getTicketTypeStatuses(todoType.id);
+      const openStatus = todoStatuses.find(s => s.name === "Open");
+      const doneStatus = todoStatuses.find(s => s.name === "Done");
+      
+      // Get all tickets of To-Do type with extra_work work type
+      const allTickets = await storage.getTickets(company.id);
+      const extraWorkTodoTickets = allTickets.filter(
+        t => t.ticketTypeId === todoType.id && t.workType === "extra_work"
+      );
+      
+      if (extraWorkTodoTickets.length === 0) continue;
+      
+      const ebNewStatusId = ebResult.statuses.get("New");
+      const ebDoneStatusId = ebResult.statuses.get("Done");
+      
+      for (const ticket of extraWorkTodoTickets) {
+        // Map old status to new status
+        let newStatusId = ebNewStatusId;
+        if (ticket.currentStatusId === doneStatus?.id && ebDoneStatusId) {
+          newStatusId = ebDoneStatusId;
+        }
+        
+        if (newStatusId) {
+          await storage.updateTicket(ticket.id, company.id, {
+            ticketTypeId: ebResult.typeId,
+            currentStatusId: newStatusId,
+          });
+          console.log(`Migrated extra_work ticket "${ticket.title}" (${ticket.id}) from To-Do to Extra Billable`);
+        }
+      }
+      
+      console.log(`Migrated ${extraWorkTodoTickets.length} extra_work tickets for company ${company.id}`);
+    }
+    
+    console.log("Extra Billable ticket type migration complete");
+  } catch (error) {
+    console.error("Error during Extra Billable migration:", error);
   }
 }
 

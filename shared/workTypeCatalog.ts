@@ -105,13 +105,13 @@ export function getBillingBehaviorForWorkType(workType: WorkType): BillingBehavi
 }
 
 // Ticket Type Names used in the system
-export type TicketTypeName = "Project" | "Invoice" | "To-Do" | "RFP Request";
+export type TicketTypeName = "Project" | "Invoice" | "To-Do" | "RFP Request" | "Extra Billable";
 
 // Explicit mapping from WorkType to TicketTypeName
 // This is the single source of truth for which ticket type a work type uses
 export const WORK_TYPE_TO_TICKET_TYPE: Record<WorkType, TicketTypeName> = {
   contract: "To-Do",
-  extra_work: "Invoice",
+  extra_work: "Extra Billable",
   project: "Project",
   admin: "To-Do",
   estimate_request: "Project",

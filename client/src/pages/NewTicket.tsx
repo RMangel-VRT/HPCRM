@@ -220,11 +220,17 @@ export default function NewTicket() {
       return projectType?.id || activeTypes[0]?.id || null;
     }
     
-    // For admin and other work types (contract, extra_work), look for a simple task-based ticket type
-    // Exclude Invoice and RFP Request types - they are special and should only be used explicitly
+    // Extra Billable gets its own dedicated ticket type
+    if (workType === "extra_work") {
+      const ebType = activeTypes.find(t => t.name === "Extra Billable");
+      return ebType?.id || null;
+    }
+    
+    // For admin, contract, shop_todo - look for simple task-based ticket type (To-Do)
     const eligibleTypes = activeTypes.filter(t => 
       t.name !== "Invoice" && 
-      t.name !== "RFP Request"
+      t.name !== "RFP Request" &&
+      t.name !== "Extra Billable"
     );
     
     const quickTaskType = eligibleTypes.find(t => 
@@ -234,8 +240,6 @@ export default function NewTicket() {
       t.name.toLowerCase().includes("maintenance")
     );
     
-    // Fallback to Project type for admin work if no quick task type exists
-    // This gives admin tickets a simple workflow path
     return quickTaskType?.id || eligibleTypes.find(t => t.name === "Project")?.id || eligibleTypes[0]?.id || null;
   };
   

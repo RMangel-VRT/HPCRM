@@ -535,10 +535,14 @@ export default function TicketDetail() {
       // Approved continues to natural next step (Work Completed)
     }
     
-    // Check if advancing Project to Ready for Billing - prompt for Invoice creation
+    // Check if advancing to billing-related status - prompt for Invoice creation
     // Only prompt if billing is required (skip for internal work types and contract work)
     const targetStatusName = statuses.find(s => s.id === actualTargetStatusId)?.name;
     if (targetStatusName === "Ready for Billing" && ticketType.name === "Project" && ticket.billingBehavior === "invoice_required") {
+      shouldPromptInvoice = true;
+    }
+    // Extra Billable: prompt for Invoice when reaching Work Completed
+    if (targetStatusName === "Work Completed" && ticketType.name === "Extra Billable" && ticket.billingBehavior === "invoice_required") {
       shouldPromptInvoice = true;
     }
     
