@@ -67,89 +67,100 @@ export default function AppSidebar({
       ]
     : [];
 
-  // Build CRM items based on role
-  const getCrmItems = () => {
+  type NavItem = { title: string; url: string; icon: typeof LayoutDashboard };
+
+  const getDashboardItems = (): NavItem[] => {
     if (isSuperAdmin) return [];
-    
-    const items: Array<{ title: string; url: string; icon: typeof LayoutDashboard }> = [];
-    
-    // Shop Manager sees Dashboard, My Tickets, and Equipment
+    const items: NavItem[] = [];
+
     if (userRole === "shop_manager") {
       items.push({ title: "Dashboard", url: "/dashboard", icon: LayoutDashboard });
       items.push({ title: "My Tickets", url: "/dashboard/tickets/my", icon: UserCheck });
-      items.push({ title: "Equipment", url: "/dashboard/equipment", icon: Truck });
       return items;
     }
-    
-    // Mapping user sees only Property Maps (Customer Maps)
+
+    if (userRole === "mapping") return [];
+
+    if (userRole === "admin" || userRole === "office" || userRole === "field_manager") {
+      items.push({ title: "Dashboard", url: "/dashboard", icon: LayoutDashboard });
+    }
+
+    if (userRole === "admin") {
+      items.push({ title: "Tickets", url: "/dashboard/tickets", icon: ClipboardList });
+    }
+
+    items.push({ title: "My Tickets", url: "/dashboard/tickets/my", icon: UserCheck });
+
+    return items;
+  };
+
+  const getCrmItems = (): NavItem[] => {
+    if (isSuperAdmin) return [];
+    const items: NavItem[] = [];
+
+    if (userRole === "shop_manager") return [];
+
     if (userRole === "mapping") {
       items.push({ title: "Customer Maps", url: "/dashboard/maps", icon: Map });
       return items;
     }
-    
-    // Dashboard - Admin, Office, Field Manager only (not Field)
-    if (userRole === "admin" || userRole === "office" || userRole === "field_manager") {
-      items.push({ title: "Dashboard", url: "/dashboard", icon: LayoutDashboard });
-    }
-    
-    // Customers - Admin, Office, Field Manager (Field Manager gets limited view)
+
     if (userRole === "admin" || userRole === "office" || userRole === "field_manager") {
       items.push({ title: "Customers", url: "/dashboard/customers", icon: Building2 });
     }
-    
-    // Tickets (all tickets view) - Admin only
-    if (userRole === "admin") {
-      items.push({ title: "Tickets", url: "/dashboard/tickets", icon: ClipboardList });
-    }
-    
-    // My Tickets - everyone except shop_manager (handled above)
-    items.push({ title: "My Tickets", url: "/dashboard/tickets/my", icon: UserCheck });
-    
-    // Property Maps - everyone except shop_manager
-    items.push({ title: "Property Maps", url: "/dashboard/maps", icon: Map });
-    
-    // Weekly Schedule - Admin, Office, and Irrigation Manager (view only for irrigation_manager)
-    if (userRole === "admin" || userRole === "office" || userRole === "irrigation_manager") {
-      items.push({ title: "Schedule", url: "/dashboard/schedule", icon: CalendarDays });
-    }
-    
-    // Snow - Admin, Office, Field Manager
-    if (userRole === "admin" || userRole === "office" || userRole === "field_manager") {
-      items.push({ title: "Snow", url: "/dashboard/snow", icon: Snowflake });
-    }
-    
-    // Equipment - Admin, Office (view-only), and Shop Manager (handled above)
-    if (userRole === "admin" || userRole === "office") {
-      items.push({ title: "Equipment", url: "/dashboard/equipment", icon: Truck });
-    }
-    
-    // Tools - Admin, Office, Field Manager
-    if (userRole === "admin" || userRole === "office" || userRole === "field_manager") {
-      items.push({ title: "Tools", url: "/dashboard/tools", icon: Wrench });
-    }
-    
-    // Contracts Overview - Admin and Office only
+
     if (userRole === "admin" || userRole === "office") {
       items.push({ title: "Contracts", url: "/dashboard/contracts", icon: FileText });
     }
-    
-    // Revenue - Admin and Office only
+
+    items.push({ title: "Property Maps", url: "/dashboard/maps", icon: Map });
+
+    if (userRole === "admin" || userRole === "office" || userRole === "irrigation_manager") {
+      items.push({ title: "Schedule", url: "/dashboard/schedule", icon: CalendarDays });
+    }
+
+    if (userRole === "admin" || userRole === "office" || userRole === "field_manager") {
+      items.push({ title: "Snow", url: "/dashboard/snow", icon: Snowflake });
+    }
+
     if (userRole === "admin" || userRole === "office") {
       items.push({ title: "Revenue", url: "/dashboard/revenue", icon: DollarSign });
     }
-    
+
     return items;
   };
 
-  const crmItems = getCrmItems();
+  const getManagementItems = (): NavItem[] => {
+    if (isSuperAdmin) return [];
+    const items: NavItem[] = [];
 
-  const managementItems = (!isSuperAdmin && userRole === "admin")
-    ? [{ title: "Team", url: "/dashboard/users", icon: Users }]
-    : [];
+    if (userRole === "admin" || userRole === "office" || userRole === "shop_manager") {
+      items.push({ title: "Equipment", url: "/dashboard/equipment", icon: Truck });
+    }
+
+    if (userRole === "admin" || userRole === "office" || userRole === "field_manager") {
+      items.push({ title: "Tools", url: "/dashboard/tools", icon: Wrench });
+    }
+
+    if (userRole === "admin") {
+      items.push({ title: "Team", url: "/dashboard/users", icon: Users });
+    }
+
+    return items;
+  };
+
+  const dashboardItems = getDashboardItems();
+  const crmItems = getCrmItems();
+  const managementItems = getManagementItems();
 
   const adminItems = (!isSuperAdmin && (userRole === "admin" || userRole === "office"))
     ? [{ title: "Settings", url: "/dashboard/settings", icon: Settings }]
     : [];
+
+  const isActive = (url: string) => {
+    if (url === "/dashboard") return location === "/dashboard";
+    return location === url || location.startsWith(url + "/");
+  };
 
   return (
     <Sidebar data-testid="app-sidebar">
@@ -170,8 +181,26 @@ export default function AppSidebar({
             <SidebarMenu>
               {superAdminItems.map((item) => (
                 <SidebarMenuItem key={item.title}>
-                  <SidebarMenuButton asChild isActive={location === item.url}>
-                    <Link href={item.url} data-testid={`link-${item.title.toLowerCase().replace(' ', '-')}`}>
+                  <SidebarMenuButton asChild isActive={isActive(item.url)}>
+                    <Link href={item.url} data-testid={`link-${item.title.toLowerCase().replace(/\s+/g, '-')}`}>
+                      <item.icon className="w-4 h-4" />
+                      <span>{item.title}</span>
+                    </Link>
+                  </SidebarMenuButton>
+                </SidebarMenuItem>
+              ))}
+            </SidebarMenu>
+          </SidebarGroup>
+        )}
+
+        {dashboardItems.length > 0 && (
+          <SidebarGroup>
+            <SidebarGroupLabel>Dashboard</SidebarGroupLabel>
+            <SidebarMenu>
+              {dashboardItems.map((item) => (
+                <SidebarMenuItem key={item.title}>
+                  <SidebarMenuButton asChild isActive={isActive(item.url)}>
+                    <Link href={item.url} data-testid={`link-${item.title.toLowerCase().replace(/\s+/g, '-')}`}>
                       <item.icon className="w-4 h-4" />
                       <span>{item.title}</span>
                     </Link>
@@ -184,12 +213,12 @@ export default function AppSidebar({
 
         {crmItems.length > 0 && (
           <SidebarGroup>
-            <SidebarGroupLabel>CRM</SidebarGroupLabel>
+            <SidebarGroupLabel>High Plains CRM</SidebarGroupLabel>
             <SidebarMenu>
               {crmItems.map((item) => (
                 <SidebarMenuItem key={item.title}>
-                  <SidebarMenuButton asChild isActive={location === item.url}>
-                    <Link href={item.url} data-testid={`link-${item.title.toLowerCase()}`}>
+                  <SidebarMenuButton asChild isActive={isActive(item.url)}>
+                    <Link href={item.url} data-testid={`link-${item.title.toLowerCase().replace(/\s+/g, '-')}`}>
                       <item.icon className="w-4 h-4" />
                       <span>{item.title}</span>
                     </Link>
@@ -206,8 +235,8 @@ export default function AppSidebar({
             <SidebarMenu>
               {managementItems.map((item) => (
                 <SidebarMenuItem key={item.title}>
-                  <SidebarMenuButton asChild isActive={location === item.url}>
-                    <Link href={item.url} data-testid={`link-${item.title.toLowerCase()}`}>
+                  <SidebarMenuButton asChild isActive={isActive(item.url)}>
+                    <Link href={item.url} data-testid={`link-${item.title.toLowerCase().replace(/\s+/g, '-')}`}>
                       <item.icon className="w-4 h-4" />
                       <span>{item.title}</span>
                     </Link>
@@ -224,8 +253,8 @@ export default function AppSidebar({
             <SidebarMenu>
               {adminItems.map((item) => (
                 <SidebarMenuItem key={item.title}>
-                  <SidebarMenuButton asChild isActive={location === item.url}>
-                    <Link href={item.url} data-testid={`link-${item.title.toLowerCase()}`}>
+                  <SidebarMenuButton asChild isActive={isActive(item.url)}>
+                    <Link href={item.url} data-testid={`link-${item.title.toLowerCase().replace(/\s+/g, '-')}`}>
                       <item.icon className="w-4 h-4" />
                       <span>{item.title}</span>
                     </Link>
