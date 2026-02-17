@@ -6451,15 +6451,22 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
 
       const customer = await storage.getCustomerById(ticket.customerId, user.activeCompanyId);
-      const contacts = await storage.getContactsByCustomerId(ticket.customerId, user.activeCompanyId);
-      const primaryContact = contacts.find(c => c.isPrimary === "true" && c.email);
-      const toEmail = primaryContact?.email || contacts.find(c => c.email)?.email;
+      if (!customer) {
+        return res.status(400).send("Customer not found");
+      }
+
+      let toEmail = req.body.toEmail as string | undefined;
+      if (toEmail && (typeof toEmail !== 'string' || !toEmail.includes('@'))) {
+        return res.status(400).send("Invalid email address");
+      }
+      if (!toEmail) {
+        const contacts = await storage.getContactsByCustomerId(ticket.customerId, user.activeCompanyId);
+        const primaryContact = contacts.find(c => c.isPrimary === "true" && c.emails && c.emails.length > 0);
+        toEmail = primaryContact?.emails?.[0] || contacts.find(c => c.emails && c.emails.length > 0)?.emails?.[0];
+      }
 
       if (!toEmail) {
         return res.status(400).send("No email address found for customer contacts");
-      }
-      if (!customer) {
-        return res.status(400).send("Customer not found");
       }
 
       const company = await storage.getCompanyById(user.activeCompanyId);

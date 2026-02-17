@@ -58,7 +58,7 @@ import {
 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { queryClient, apiRequest } from "@/lib/queryClient";
-import type { Ticket, TicketType, TicketTypeStatus, TicketTypeField, TicketFieldValue, TicketComment, TicketStatusHistory, Customer, Contract, ContractService, WorkType, TicketLink, User as UserType, CompanyUser, CustomerRateSheet, EmailLogWithDetails } from "@shared/schema";
+import type { Ticket, TicketType, TicketTypeStatus, TicketTypeField, TicketFieldValue, TicketComment, TicketStatusHistory, Customer, Contact, Contract, ContractService, WorkType, TicketLink, User as UserType, CompanyUser, CustomerRateSheet, EmailLogWithDetails } from "@shared/schema";
 import { WORK_TYPE_CATALOG } from "@shared/workTypeCatalog";
 import { format, formatDistanceToNow } from "date-fns";
 import { MapContainer, TileLayer, Marker } from "react-leaflet";
@@ -131,6 +131,9 @@ export default function TicketDetail() {
   const [showInvoicePrompt, setShowInvoicePrompt] = useState(false);
   const [creatingInvoice, setCreatingInvoice] = useState(false);
   
+  // Completion email recipient state
+  const [selectedRecipientEmail, setSelectedRecipientEmail] = useState<string>("");
+
   // Delete ticket state
   const [showDeleteDialog, setShowDeleteDialog] = useState(false);
   
@@ -348,9 +351,36 @@ export default function TicketDetail() {
     },
   });
 
+  const customerId = details?.ticket?.customerId;
+  const { data: customerContacts = [] } = useQuery<Contact[]>({
+    queryKey: ["/api/customers", customerId, "contacts"],
+    queryFn: async () => {
+      const res = await fetch(`/api/customers/${customerId}/contacts`, { credentials: "include" });
+      if (!res.ok) return [];
+      return res.json();
+    },
+    enabled: !!customerId && isAdminOrOffice,
+  });
+
+  const contactEmailOptions = useMemo(() => {
+    const options: { label: string; email: string; isPrimary: boolean }[] = [];
+    for (const contact of customerContacts) {
+      if (contact.emails && contact.emails.length > 0) {
+        for (const email of contact.emails) {
+          options.push({
+            label: `${contact.name} — ${email}`,
+            email,
+            isPrimary: contact.isPrimary === "true",
+          });
+        }
+      }
+    }
+    return options;
+  }, [customerContacts]);
+
   const sendCompletionEmailMutation = useMutation({
-    mutationFn: async () => {
-      return apiRequest("POST", `/api/tickets/${ticketId}/send-completion-email`);
+    mutationFn: async (toEmail: string) => {
+      return apiRequest("POST", `/api/tickets/${ticketId}/send-completion-email`, { toEmail });
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/email-logs", { ticketId }] });
@@ -1491,29 +1521,55 @@ export default function TicketDetail() {
         <div className="space-y-2">
           {(isComplete || currentStatus?.isFinal === "true") && ticket.customerId && (
             <Card>
-              <CardContent className="p-4">
-                <div className="flex items-center justify-between gap-3 flex-wrap">
-                  <div className="flex-1 min-w-0">
-                    <p className="text-sm font-medium">Send Completion Email</p>
-                    <p className="text-xs text-muted-foreground">
-                      Notify the customer that work has been completed on this ticket
-                    </p>
-                  </div>
-                  <Button
-                    variant="default"
-                    size="sm"
-                    onClick={() => sendCompletionEmailMutation.mutate()}
-                    disabled={sendCompletionEmailMutation.isPending}
-                    data-testid="button-send-completion-email"
-                  >
-                    {sendCompletionEmailMutation.isPending ? (
-                      <Loader2 className="w-4 h-4 animate-spin mr-2" />
-                    ) : (
-                      <Send className="w-4 h-4 mr-2" />
-                    )}
-                    Send Email
-                  </Button>
+              <CardContent className="p-4 space-y-3">
+                <div>
+                  <p className="text-sm font-medium">Send Completion Email</p>
+                  <p className="text-xs text-muted-foreground">
+                    Notify the customer that work has been completed on this ticket
+                  </p>
                 </div>
+                {contactEmailOptions.length > 0 ? (
+                  <div className="flex items-end gap-2 flex-wrap">
+                    <div className="flex-1 min-w-[200px]">
+                      <Label className="text-xs text-muted-foreground mb-1 block">Recipient</Label>
+                      <Select
+                        value={selectedRecipientEmail || (contactEmailOptions.find(o => o.isPrimary)?.email || contactEmailOptions[0]?.email || "")}
+                        onValueChange={setSelectedRecipientEmail}
+                      >
+                        <SelectTrigger data-testid="select-email-recipient">
+                          <SelectValue placeholder="Select recipient" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {contactEmailOptions.map((opt) => (
+                            <SelectItem key={opt.email} value={opt.email} data-testid={`select-recipient-${opt.email}`}>
+                              {opt.label}{opt.isPrimary ? " (Primary)" : ""}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    <Button
+                      variant="default"
+                      onClick={() => {
+                        const email = selectedRecipientEmail || contactEmailOptions.find(o => o.isPrimary)?.email || contactEmailOptions[0]?.email;
+                        if (email) sendCompletionEmailMutation.mutate(email);
+                      }}
+                      disabled={sendCompletionEmailMutation.isPending}
+                      data-testid="button-send-completion-email"
+                    >
+                      {sendCompletionEmailMutation.isPending ? (
+                        <Loader2 className="w-4 h-4 animate-spin mr-2" />
+                      ) : (
+                        <Send className="w-4 h-4 mr-2" />
+                      )}
+                      Send Email
+                    </Button>
+                  </div>
+                ) : (
+                  <p className="text-xs text-muted-foreground">
+                    No contacts with email addresses found for this customer
+                  </p>
+                )}
               </CardContent>
             </Card>
           )}
