@@ -449,6 +449,23 @@ export default function TicketDetail() {
   // Check if ticket is at "Ready to Schedule" on a Project workflow - show delegate option
   const isAtReadyToSchedule = currentStatus?.name === "Ready to Schedule" && ticketType.name === "Project";
   const isDelegated = !!ticket.delegatedById;
+  
+  // Check if ticket is waiting for a linked invoice to complete (hide advance button)
+  const isAwaitingInvoiceCompletion = (() => {
+    if (!linkedTickets?.length) return false;
+    const linkedInvoice = linkedTickets.find(
+      lt => lt.link.linkType === "invoice_for" && lt.relationship === "source" && lt.ticket
+    );
+    if (!linkedInvoice) return false;
+    // If a linked invoice exists and it's not complete yet, block manual advancement
+    const invoiceComplete = linkedInvoice.currentStatus?.isFinal === "true";
+    // Block if at Ready for Billing (Project) or Work Completed (Extra Billable) with pending invoice
+    const isAtBillingStatus = (
+      (ticketType.name === "Project" && currentStatus?.name === "Ready for Billing") ||
+      (ticketType.name === "Extra Billable" && currentStatus?.name === "Work Completed")
+    );
+    return isAtBillingStatus && !invoiceComplete;
+  })();
 
   const handleAdvanceStatus = () => {
     if (!nextStatus) return;
@@ -598,19 +615,10 @@ export default function TicketDetail() {
       });
       
       if (result && (result as any).id) {
-        toast({ title: "Invoice ticket created successfully" });
+        toast({ title: "Invoice ticket created. Complete it to advance this ticket." });
         queryClient.invalidateQueries({ queryKey: ["/api/tickets", ticketId, "details"] });
         queryClient.invalidateQueries({ queryKey: ["/api/tickets"] });
         queryClient.invalidateQueries({ queryKey: ["/api/tickets/my"] });
-        
-        // Advance project to Invoicing status
-        const invoicingStatus = statuses.find(s => s.name === "Invoicing");
-        if (invoicingStatus) {
-          updateStatusMutation.mutate({
-            statusId: invoicingStatus.id,
-            notes: "Invoice ticket created",
-          });
-        }
       }
     } catch (error) {
       toast({ title: "Failed to create Invoice ticket", variant: "destructive" });
@@ -978,7 +986,6 @@ export default function TicketDetail() {
                 {linkedTickets.map((linked) => {
                   if (!linked.ticket) return null;
                   
-                  // Determine link relationship label based on link type and direction
                   let linkLabel = "Related ticket";
                   const isSource = linked.relationship === "source";
                   
@@ -988,7 +995,6 @@ export default function TicketDetail() {
                     linkLabel = isSource ? "Project created from this request" : "Source RFP Request";
                   }
                   
-                  // Show different icon based on relationship
                   const isChild = (linked.link.linkType === "invoice_for" || linked.link.linkType === "project_for") && isSource;
                   
                   return (
@@ -1026,6 +1032,49 @@ export default function TicketDetail() {
               </CardContent>
             </Card>
           )}
+
+          {(() => {
+            const isAwaitingInvoice = (
+              (ticketType?.name === "Project" && (currentStatus?.name === "Ready for Billing" || currentStatus?.name === "Invoicing")) ||
+              (ticketType?.name === "Extra Billable" && (currentStatus?.name === "Work Completed" || currentStatus?.name === "Done"))
+            );
+            const linkedInvoice = linkedTickets?.find(
+              lt => lt.link.linkType === "invoice_for" && lt.relationship === "source" && lt.ticket
+            );
+            
+            if (isAwaitingInvoice && linkedInvoice?.ticket) {
+              const invoiceCompleted = linkedInvoice.currentStatus?.isFinal === "true";
+              return (
+                <Card className={invoiceCompleted ? "border-green-500/50" : "border-primary/50"} data-testid="card-invoice-action">
+                  <CardContent className="p-4">
+                    <div className="flex items-center gap-3 mb-3">
+                      <div className={`p-2 rounded-md ${invoiceCompleted ? "bg-green-100 dark:bg-green-900/30" : "bg-primary/10"}`}>
+                        <FileText className={`w-5 h-5 ${invoiceCompleted ? "text-green-600 dark:text-green-400" : "text-primary"}`} />
+                      </div>
+                      <div>
+                        <p className="font-medium text-sm">
+                          {invoiceCompleted ? "Invoice Completed" : "Invoice Pending"}
+                        </p>
+                        <p className="text-xs text-muted-foreground">
+                          {invoiceCompleted 
+                            ? "The linked invoice has been completed. This ticket will auto-advance."
+                            : "Complete the linked invoice ticket to advance this ticket to its final status."
+                          }
+                        </p>
+                      </div>
+                    </div>
+                    <Link href={`/dashboard/tickets/${linkedInvoice.ticket.id}`}>
+                      <Button variant={invoiceCompleted ? "outline" : "default"} className="w-full" data-testid="button-go-to-invoice">
+                        <ExternalLink className="w-4 h-4 mr-2" />
+                        {invoiceCompleted ? "View Invoice Ticket" : "Go to Invoice Ticket"}
+                      </Button>
+                    </Link>
+                  </CardContent>
+                </Card>
+              );
+            }
+            return null;
+          })()}
 
           {ticketType?.name === "Invoice" && rateSheet && ticket?.invoiceCategory && (
             <Card data-testid="card-rate-sheet">
@@ -1758,7 +1807,16 @@ export default function TicketDetail() {
         </div>
       )}
 
-      {nextStatus && !isComplete && (
+      {isAwaitingInvoiceCompletion && (
+        <div className="fixed bottom-0 left-0 right-0 p-4 bg-background border-t md:left-64">
+          <div className="flex items-center justify-center gap-2 text-muted-foreground">
+            <Loader2 className="w-4 h-4 animate-spin" />
+            <span className="text-sm">Waiting for linked Invoice ticket to be completed</span>
+          </div>
+        </div>
+      )}
+
+      {nextStatus && !isComplete && !isAwaitingInvoiceCompletion && (
         <div className="fixed bottom-0 left-0 right-0 p-4 bg-background border-t md:left-64">
           {isAtReadyToSchedule && !isDelegated && canDelegate ? (
             <div className="flex gap-2">
@@ -1973,9 +2031,9 @@ export default function TicketDetail() {
       <Dialog open={showInvoicePrompt} onOpenChange={setShowInvoicePrompt}>
         <DialogContent className="sm:max-w-md">
           <DialogHeader>
-            <DialogTitle>Ready for Billing</DialogTitle>
+            <DialogTitle>Create Invoice Ticket</DialogTitle>
             <DialogDescription>
-              This project work is complete. Would you like to create an Invoice ticket for billing?
+              This work is ready for billing. Create an Invoice ticket to track the invoicing process.
             </DialogDescription>
           </DialogHeader>
           
@@ -1983,13 +2041,13 @@ export default function TicketDetail() {
             <div className="p-3 bg-muted rounded-lg space-y-2">
               <p className="text-sm font-medium">The Invoice ticket will include:</p>
               <ul className="text-sm text-muted-foreground space-y-1">
-                <li>• Reference to this project</li>
+                <li>• Reference to this work ticket</li>
                 <li>• Customer billing information</li>
                 <li>• Work description for invoicing</li>
               </ul>
             </div>
             <p className="text-sm text-muted-foreground">
-              Creating an invoice will advance this project to the Invoicing stage.
+              When the Invoice ticket is completed, this ticket will automatically advance to its final status with the invoice data.
             </p>
           </div>
           

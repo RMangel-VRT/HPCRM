@@ -407,11 +407,7 @@ async function ensureProjectTicketType(companyId: string): Promise<{
     },
     {
       statusName: "Invoicing",
-      fields: [
-        { fieldKey: "qb_invoice_number", fieldLabel: "QuickBooks Invoice #", fieldType: "text", isRequired: "true" },
-        { fieldKey: "invoice_amount", fieldLabel: "Invoice Amount", fieldType: "currency", isRequired: "true" },
-        { fieldKey: "invoice_date", fieldLabel: "Invoice Date", fieldType: "date", isRequired: "false" },
-      ]
+      fields: []
     },
     {
       statusName: "Closed - Lost",
@@ -814,6 +810,41 @@ export async function migrateProjectSchedulingStatus(): Promise<void> {
     console.log(`Startup migration complete: Processed ${companies.length} companies, ensured Ready to Schedule status exists`);
   } catch (error) {
     console.error("Error during startup migration for scheduling status:", error);
+  }
+}
+
+// Startup migration: Remove invoice data fields from Project's "Invoicing" status
+// Invoice data should only be entered on the Invoice ticket, not duplicated on the Project
+export async function removeProjectInvoicingFields(): Promise<void> {
+  console.log("Running startup migration: Removing duplicate invoice fields from Project Invoicing status...");
+  
+  try {
+    const companies = await storage.getCompanies();
+    
+    for (const company of companies) {
+      const ticketTypes = await storage.getTicketTypes(company.id);
+      const projectType = ticketTypes.find(tt => tt.name === "Project");
+      if (!projectType) continue;
+      
+      const statuses = await storage.getTicketTypeStatuses(projectType.id);
+      const invoicingStatus = statuses.find(s => s.name === "Invoicing");
+      if (!invoicingStatus) continue;
+      
+      const fields = await storage.getTicketTypeFields(projectType.id);
+      const invoicingFields = fields.filter(f => 
+        f.statusId === invoicingStatus.id && 
+        ["qb_invoice_number", "invoice_amount", "invoice_date"].includes(f.fieldKey)
+      );
+      
+      for (const field of invoicingFields) {
+        await storage.deleteTicketTypeField(field.id);
+        console.log(`Removed field "${field.fieldKey}" from Project Invoicing status`);
+      }
+    }
+    
+    console.log("Project Invoicing fields cleanup complete");
+  } catch (error) {
+    console.error("Error removing Project Invoicing fields:", error);
   }
 }
 
@@ -4045,11 +4076,15 @@ export async function registerRoutes(app: Express): Promise<Server> {
         }
         
         // Auto-create Invoice ticket if billable work is completed
-        // But NOT if this ticket is already an Invoice ticket (prevents duplicates)
+        // But NOT if this ticket is already an Invoice ticket or already has a linked invoice
         const currentTicketType = await storage.getTicketTypeById(existingTicket.ticketTypeId, user.activeCompanyId);
         const isInvoiceTicket = currentTicketType?.name === "Invoice";
         
-        if (existingTicket.billingBehavior === "invoice_required" && !isInvoiceTicket) {
+        // Check if an invoice ticket already exists for this ticket (prevents duplicates)
+        const existingLinks = await storage.getTicketLinks(existingTicket.id);
+        const hasExistingInvoice = existingLinks.some(l => l.linkType === "invoice_for" && l.sourceTicketId === existingTicket.id);
+        
+        if (existingTicket.billingBehavior === "invoice_required" && !isInvoiceTicket && !hasExistingInvoice) {
           try {
             // Ensure Invoice ticket type exists for this company
             const invoiceTypeInfo = await ensureInvoiceTicketType(user.activeCompanyId);
@@ -4097,6 +4132,76 @@ export async function registerRoutes(app: Express): Promise<Server> {
         }
         
         // Email notification is now manual - triggered via POST /api/tickets/:id/send-completion-email
+
+        // Auto-propagate Invoice completion back to parent ticket
+        // When an Invoice ticket reaches its final status, advance the parent (Project/Extra Billable)
+        if (isInvoiceTicket) {
+          try {
+            const links = await storage.getTicketLinks(existingTicket.id);
+            // Find the parent ticket: the source of the invoice_for link where this ticket is the target
+            const parentLink = links.find(l => l.linkType === "invoice_for" && l.targetTicketId === existingTicket.id);
+            
+            if (parentLink) {
+              const parentTicket = await storage.getTicketById(parentLink.sourceTicketId, user.activeCompanyId);
+              if (parentTicket) {
+                const parentTicketType = await storage.getTicketTypeById(parentTicket.ticketTypeId, user.activeCompanyId);
+                const parentStatuses = await storage.getTicketTypeStatuses(parentTicket.ticketTypeId);
+                
+                // Get the invoice field values from this Invoice ticket
+                const invoiceFieldValues = await storage.getTicketFieldValues(existingTicket.id);
+                const invoiceFields = await storage.getTicketTypeFields(existingTicket.ticketTypeId);
+                
+                // Build invoice data summary
+                const invoiceDataParts: string[] = [];
+                for (const fv of invoiceFieldValues) {
+                  const field = invoiceFields.find(f => f.id === fv.fieldId);
+                  if (field && fv.value) {
+                    invoiceDataParts.push(`${field.fieldLabel}: ${fv.value}`);
+                  }
+                }
+                
+                // Add a comment to the parent ticket with the invoice data
+                if (invoiceDataParts.length > 0) {
+                  await storage.createTicketComment({
+                    ticketId: parentTicket.id,
+                    authorId: user.id,
+                    body: `[Invoice Completed] ${invoiceDataParts.join(" | ")}`,
+                  });
+                }
+                
+                // Advance parent ticket to its final billing status
+                let targetStatusName: string | null = null;
+                if (parentTicketType?.name === "Project") {
+                  targetStatusName = "Invoicing";
+                } else if (parentTicketType?.name === "Extra Billable") {
+                  targetStatusName = "Done";
+                }
+                
+                if (targetStatusName) {
+                  const targetStatus = parentStatuses.find(s => s.name === targetStatusName);
+                  if (targetStatus) {
+                    await storage.updateTicket(parentTicket.id, user.activeCompanyId, {
+                      currentStatusId: targetStatus.id,
+                      completedAt: targetStatus.isFinal === "true" ? new Date() : undefined,
+                    });
+                    
+                    // Create status history entry for the parent
+                    await storage.createTicketStatusHistory({
+                      ticketId: parentTicket.id,
+                      toStatusId: targetStatus.id,
+                      changedById: user.id,
+                      notes: `Auto-advanced: linked Invoice ticket completed`,
+                    });
+                    
+                    console.log(`Auto-advanced parent ticket ${parentTicket.id} (${parentTicketType?.name}) to "${targetStatusName}" after Invoice completion`);
+                  }
+                }
+              }
+            }
+          } catch (err) {
+            console.error("Failed to propagate Invoice completion to parent ticket:", err);
+          }
+        }
 
       }
     }
