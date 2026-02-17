@@ -18,7 +18,8 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
-import { Building2, User, Plus, Pencil, Trash2, X, Phone, Mail, Copy } from "lucide-react";
+import { Textarea } from "@/components/ui/textarea";
+import { Building2, User, Plus, Pencil, Trash2, X, Phone, Mail, Copy, FileText, Eye } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import type { Settings, PropertyManagementCompany, PropertyManager, PropertyManagerEmail, PropertyManagerPhone, PropertyManagerWithContacts } from "@shared/schema";
@@ -107,6 +108,48 @@ export default function SettingsPage() {
   
   const { data: pmManagers = [] } = useQuery<PropertyManager[]>({
     queryKey: ["/api/property-managers"],
+  });
+
+  // Email Templates state and queries
+  const [editingTemplate, setEditingTemplate] = useState<any | null>(null);
+  const [templateSubject, setTemplateSubject] = useState("");
+  const [templateHtmlBody, setTemplateHtmlBody] = useState("");
+
+  const { data: emailTemplates = [] } = useQuery<any[]>({
+    queryKey: ["/api/email-templates"],
+    enabled: isAdmin === true,
+  });
+
+  const { data: emailRules = [] } = useQuery<any[]>({
+    queryKey: ["/api/email-rules"],
+    enabled: isAdmin === true,
+  });
+
+  const updateTemplateMutation = useMutation({
+    mutationFn: async ({ id, data }: { id: string; data: any }) => {
+      return await apiRequest("PATCH", `/api/email-templates/${id}`, data);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/email-templates"] });
+      setEditingTemplate(null);
+      toast({ title: "Template updated" });
+    },
+    onError: () => {
+      toast({ title: "Failed to update template", variant: "destructive" });
+    },
+  });
+
+  const toggleRuleMutation = useMutation({
+    mutationFn: async ({ id, isEnabled }: { id: string; isEnabled: boolean }) => {
+      return await apiRequest("PATCH", `/api/email-rules/${id}`, { isEnabled });
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/email-rules"] });
+      toast({ title: "Rule updated" });
+    },
+    onError: () => {
+      toast({ title: "Failed to update rule", variant: "destructive" });
+    },
   });
 
   const updateSettingsMutation = useMutation({
@@ -437,6 +480,9 @@ export default function SettingsPage() {
           )}
           {isAdmin && (
             <TabsTrigger value="features" data-testid="tab-features">Feature Flags</TabsTrigger>
+          )}
+          {isAdmin && (
+            <TabsTrigger value="email-templates" data-testid="tab-email-templates">Email Templates</TabsTrigger>
           )}
         </TabsList>
 
@@ -846,7 +892,186 @@ export default function SettingsPage() {
           </Card>
         </TabsContent>
 
+        <TabsContent value="email-templates" className="space-y-6">
+          <Card>
+            <CardHeader>
+              <CardTitle>Email Templates</CardTitle>
+              <CardDescription>
+                Manage email templates used for notifications. Available variables: {"{{ticketTitle}}"}, {"{{customerName}}"}, {"{{companyName}}"}, {"{{completionDate}}"}, {"{{ticketDescription}}"}
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              {emailTemplates.length === 0 ? (
+                <p className="text-sm text-muted-foreground text-center py-4">No email templates found</p>
+              ) : (
+                <div className="space-y-3">
+                  {emailTemplates.map((template: any) => (
+                    <div key={template.id} className="border rounded-md p-4 space-y-3">
+                      <div className="flex items-center justify-between gap-2 flex-wrap">
+                        <div className="flex items-center gap-2 min-w-0">
+                          <FileText className="w-4 h-4 text-muted-foreground shrink-0" />
+                          <div className="min-w-0">
+                            <p className="font-medium text-sm truncate">{template.name}</p>
+                            <p className="text-xs text-muted-foreground">
+                              Category: {template.category}
+                            </p>
+                          </div>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <Badge variant={template.isActive ? "default" : "secondary"}>
+                            {template.isActive ? "Active" : "Inactive"}
+                          </Badge>
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={() => {
+                              setEditingTemplate(template);
+                              setTemplateSubject(template.subject);
+                              setTemplateHtmlBody(template.htmlBody);
+                            }}
+                            data-testid={`button-edit-template-${template.id}`}
+                          >
+                            <Pencil className="w-3 h-3 mr-1" />
+                            Edit
+                          </Button>
+                        </div>
+                      </div>
+                      <div className="text-xs text-muted-foreground">
+                        <span className="font-medium">Subject:</span> {template.subject}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader>
+              <CardTitle>Email Rules</CardTitle>
+              <CardDescription>
+                Control which events trigger email notifications
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              {emailRules.length === 0 ? (
+                <p className="text-sm text-muted-foreground text-center py-4">No email rules configured</p>
+              ) : (
+                <div className="space-y-3">
+                  {emailRules.map((rule: any) => {
+                    const linkedTemplate = emailTemplates.find((t: any) => t.id === rule.templateId);
+                    return (
+                      <div key={rule.id} className="flex items-center justify-between gap-2 flex-wrap p-3 border rounded-md">
+                        <div className="min-w-0">
+                          <p className="text-sm font-medium">{rule.eventKey.replace(/\./g, " ").replace(/\b\w/g, (c: string) => c.toUpperCase())}</p>
+                          <p className="text-xs text-muted-foreground">
+                            Template: {linkedTemplate?.name || "Unknown"}
+                          </p>
+                        </div>
+                        <Switch
+                          checked={rule.isEnabled}
+                          onCheckedChange={(checked) => toggleRuleMutation.mutate({ id: rule.id, isEnabled: checked })}
+                          data-testid={`switch-rule-${rule.id}`}
+                        />
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </CardContent>
+          </Card>
+        </TabsContent>
+
       </Tabs>
+
+      {/* Edit Email Template Dialog */}
+      <Dialog open={!!editingTemplate} onOpenChange={(open) => { if (!open) setEditingTemplate(null); }}>
+        <DialogContent className="max-w-2xl">
+          <DialogHeader>
+            <DialogTitle>Edit Email Template</DialogTitle>
+            <DialogDescription>
+              Modify the subject and body of this template. Use {"{{variableName}}"} for dynamic content.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4">
+            <div className="space-y-2">
+              <Label>Template Name</Label>
+              <p className="text-sm text-muted-foreground">{editingTemplate?.name}</p>
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="template-subject">Subject</Label>
+              <Input
+                id="template-subject"
+                value={templateSubject}
+                onChange={(e) => setTemplateSubject(e.target.value)}
+                data-testid="input-template-subject"
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="template-body">HTML Body</Label>
+              <Textarea
+                id="template-body"
+                value={templateHtmlBody}
+                onChange={(e) => setTemplateHtmlBody(e.target.value)}
+                rows={12}
+                className="font-mono text-xs"
+                data-testid="textarea-template-body"
+              />
+            </div>
+            <div className="space-y-2">
+              <div className="flex items-center gap-2">
+                <Eye className="w-4 h-4 text-muted-foreground" />
+                <Label>Preview</Label>
+              </div>
+              <iframe
+                className="border rounded-md w-full bg-white"
+                style={{ height: "200px" }}
+                sandbox=""
+                srcDoc={templateHtmlBody
+                  .replace(/\{\{ticketTitle\}\}/g, "Sample Ticket Title")
+                  .replace(/\{\{customerName\}\}/g, "Sample Customer")
+                  .replace(/\{\{companyName\}\}/g, "High Plains Property Maintenance")
+                  .replace(/\{\{completionDate\}\}/g, new Date().toLocaleDateString("en-US", { year: "numeric", month: "long", day: "numeric" }))
+                  .replace(/\{\{ticketDescription\}\}/g, "Sample description of the work completed.")}
+                data-testid="template-preview"
+              />
+            </div>
+            <div className="flex items-center gap-2">
+              <Switch
+                checked={editingTemplate?.isActive ?? true}
+                onCheckedChange={(checked) => {
+                  if (editingTemplate) {
+                    setEditingTemplate({ ...editingTemplate, isActive: checked });
+                  }
+                }}
+                data-testid="switch-template-active"
+              />
+              <Label>Active</Label>
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setEditingTemplate(null)}>Cancel</Button>
+            <Button
+              onClick={() => {
+                if (editingTemplate) {
+                  updateTemplateMutation.mutate({
+                    id: editingTemplate.id,
+                    data: {
+                      subject: templateSubject,
+                      htmlBody: templateHtmlBody,
+                      isActive: editingTemplate.isActive,
+                    },
+                  });
+                }
+              }}
+              disabled={updateTemplateMutation.isPending}
+              data-testid="button-save-template"
+            >
+              {updateTemplateMutation.isPending ? "Saving..." : "Save Template"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       {/* Property Management Company Dialog */}
       <Dialog open={pmCompanyDialogOpen} onOpenChange={setPmCompanyDialogOpen}>

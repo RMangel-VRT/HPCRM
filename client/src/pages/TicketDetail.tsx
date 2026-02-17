@@ -1,4 +1,4 @@
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { useRoute, Link, useLocation } from "wouter";
 import { useSetBreadcrumbs } from "@/hooks/use-breadcrumbs";
@@ -11,6 +11,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Checkbox } from "@/components/ui/checkbox";
 import { useAuth } from "@/hooks/use-auth";
 import {
   Dialog,
@@ -131,8 +132,8 @@ export default function TicketDetail() {
   const [showInvoicePrompt, setShowInvoicePrompt] = useState(false);
   const [creatingInvoice, setCreatingInvoice] = useState(false);
   
-  // Completion email recipient state
-  const [selectedRecipientEmail, setSelectedRecipientEmail] = useState<string>("");
+  // Completion email recipient state (multi-select)
+  const [selectedRecipientEmails, setSelectedRecipientEmails] = useState<Set<string>>(new Set());
 
   // Delete ticket state
   const [showDeleteDialog, setShowDeleteDialog] = useState(false);
@@ -378,9 +379,20 @@ export default function TicketDetail() {
     return options;
   }, [customerContacts]);
 
+  useEffect(() => {
+    if (contactEmailOptions.length > 0 && selectedRecipientEmails.size === 0) {
+      const primaryEmails = contactEmailOptions.filter(o => o.isPrimary).map(o => o.email);
+      if (primaryEmails.length > 0) {
+        setSelectedRecipientEmails(new Set(primaryEmails));
+      } else {
+        setSelectedRecipientEmails(new Set([contactEmailOptions[0].email]));
+      }
+    }
+  }, [contactEmailOptions]);
+
   const sendCompletionEmailMutation = useMutation({
-    mutationFn: async (toEmail: string) => {
-      return apiRequest("POST", `/api/tickets/${ticketId}/send-completion-email`, { toEmail });
+    mutationFn: async (toEmails: string[]) => {
+      return apiRequest("POST", `/api/tickets/${ticketId}/send-completion-email`, { toEmails });
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/email-logs", { ticketId }] });
@@ -1290,6 +1302,87 @@ export default function TicketDetail() {
               </CardContent>
             </Card>
           )}
+
+          {isAdminOrOffice && (isComplete || currentStatus?.isFinal === "true") && ticket.customerId && (
+            <Card data-testid="card-overview-send-email">
+              <CardContent className="p-4 space-y-3">
+                <div className="flex items-center gap-2">
+                  <Mail className="w-4 h-4 text-muted-foreground" />
+                  <div>
+                    <p className="text-sm font-medium">Send Completion Email</p>
+                    <p className="text-xs text-muted-foreground">
+                      Notify the customer that work has been completed
+                    </p>
+                  </div>
+                </div>
+                {contactEmailOptions.length > 0 ? (
+                  <div className="space-y-2">
+                    <div className="flex items-center justify-between">
+                      <Label className="text-xs text-muted-foreground">Recipients</Label>
+                      <button
+                        type="button"
+                        className="text-xs text-muted-foreground hover:underline"
+                        data-testid="button-overview-select-all-recipients"
+                        onClick={() => {
+                          const allEmails = contactEmailOptions.map(o => o.email);
+                          const allSelected = allEmails.every(e => selectedRecipientEmails.has(e));
+                          if (allSelected) {
+                            setSelectedRecipientEmails(new Set());
+                          } else {
+                            setSelectedRecipientEmails(new Set(allEmails));
+                          }
+                        }}
+                      >
+                        {contactEmailOptions.every(o => selectedRecipientEmails.has(o.email)) ? "Deselect All" : "Select All"}
+                      </button>
+                    </div>
+                    <div className="space-y-1">
+                      {contactEmailOptions.map((opt) => (
+                        <label
+                          key={opt.email}
+                          className="flex items-center gap-2 text-sm cursor-pointer rounded p-1 hover-elevate"
+                          data-testid={`checkbox-overview-recipient-${opt.email}`}
+                        >
+                          <Checkbox
+                            checked={selectedRecipientEmails.has(opt.email)}
+                            onCheckedChange={(checked) => {
+                              setSelectedRecipientEmails(prev => {
+                                const next = new Set(prev);
+                                if (checked) next.add(opt.email);
+                                else next.delete(opt.email);
+                                return next;
+                              });
+                            }}
+                          />
+                          <span>{opt.label}{opt.isPrimary ? " (Primary)" : ""}</span>
+                        </label>
+                      ))}
+                    </div>
+                    <Button
+                      variant="default"
+                      onClick={() => {
+                        const emails = Array.from(selectedRecipientEmails);
+                        if (emails.length > 0) sendCompletionEmailMutation.mutate(emails);
+                      }}
+                      disabled={sendCompletionEmailMutation.isPending || selectedRecipientEmails.size === 0}
+                      data-testid="button-overview-send-completion-email"
+                    >
+                      {sendCompletionEmailMutation.isPending ? (
+                        <Loader2 className="w-4 h-4 animate-spin mr-2" />
+                      ) : (
+                        <Send className="w-4 h-4 mr-2" />
+                      )}
+                      Send to {selectedRecipientEmails.size} Recipient{selectedRecipientEmails.size !== 1 ? "s" : ""}
+                    </Button>
+                  </div>
+                ) : (
+                  <p className="text-xs text-muted-foreground">
+                    No contacts with email addresses found for this customer
+                  </p>
+                )}
+              </CardContent>
+            </Card>
+          )}
         </div>
       )}
 
@@ -1529,32 +1622,55 @@ export default function TicketDetail() {
                   </p>
                 </div>
                 {contactEmailOptions.length > 0 ? (
-                  <div className="flex items-end gap-2 flex-wrap">
-                    <div className="flex-1 min-w-[200px]">
-                      <Label className="text-xs text-muted-foreground mb-1 block">Recipient</Label>
-                      <Select
-                        value={selectedRecipientEmail || (contactEmailOptions.find(o => o.isPrimary)?.email || contactEmailOptions[0]?.email || "")}
-                        onValueChange={setSelectedRecipientEmail}
+                  <div className="space-y-2">
+                    <div className="flex items-center justify-between">
+                      <Label className="text-xs text-muted-foreground">Recipients</Label>
+                      <button
+                        type="button"
+                        className="text-xs text-muted-foreground hover:underline"
+                        data-testid="button-select-all-recipients"
+                        onClick={() => {
+                          const allEmails = contactEmailOptions.map(o => o.email);
+                          const allSelected = allEmails.every(e => selectedRecipientEmails.has(e));
+                          if (allSelected) {
+                            setSelectedRecipientEmails(new Set());
+                          } else {
+                            setSelectedRecipientEmails(new Set(allEmails));
+                          }
+                        }}
                       >
-                        <SelectTrigger data-testid="select-email-recipient">
-                          <SelectValue placeholder="Select recipient" />
-                        </SelectTrigger>
-                        <SelectContent>
-                          {contactEmailOptions.map((opt) => (
-                            <SelectItem key={opt.email} value={opt.email} data-testid={`select-recipient-${opt.email}`}>
-                              {opt.label}{opt.isPrimary ? " (Primary)" : ""}
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
+                        {contactEmailOptions.every(o => selectedRecipientEmails.has(o.email)) ? "Deselect All" : "Select All"}
+                      </button>
+                    </div>
+                    <div className="space-y-1">
+                      {contactEmailOptions.map((opt) => (
+                        <label
+                          key={opt.email}
+                          className="flex items-center gap-2 text-sm cursor-pointer rounded p-1 hover-elevate"
+                          data-testid={`checkbox-recipient-${opt.email}`}
+                        >
+                          <Checkbox
+                            checked={selectedRecipientEmails.has(opt.email)}
+                            onCheckedChange={(checked) => {
+                              setSelectedRecipientEmails(prev => {
+                                const next = new Set(prev);
+                                if (checked) next.add(opt.email);
+                                else next.delete(opt.email);
+                                return next;
+                              });
+                            }}
+                          />
+                          <span>{opt.label}{opt.isPrimary ? " (Primary)" : ""}</span>
+                        </label>
+                      ))}
                     </div>
                     <Button
                       variant="default"
                       onClick={() => {
-                        const email = selectedRecipientEmail || contactEmailOptions.find(o => o.isPrimary)?.email || contactEmailOptions[0]?.email;
-                        if (email) sendCompletionEmailMutation.mutate(email);
+                        const emails = Array.from(selectedRecipientEmails);
+                        if (emails.length > 0) sendCompletionEmailMutation.mutate(emails);
                       }}
-                      disabled={sendCompletionEmailMutation.isPending}
+                      disabled={sendCompletionEmailMutation.isPending || selectedRecipientEmails.size === 0}
                       data-testid="button-send-completion-email"
                     >
                       {sendCompletionEmailMutation.isPending ? (
@@ -1562,7 +1678,7 @@ export default function TicketDetail() {
                       ) : (
                         <Send className="w-4 h-4 mr-2" />
                       )}
-                      Send Email
+                      Send to {selectedRecipientEmails.size} Recipient{selectedRecipientEmails.size !== 1 ? "s" : ""}
                     </Button>
                   </div>
                 ) : (

@@ -6455,17 +6455,21 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(400).send("Customer not found");
       }
 
-      let toEmail = req.body.toEmail as string | undefined;
-      if (toEmail && (typeof toEmail !== 'string' || !toEmail.includes('@'))) {
-        return res.status(400).send("Invalid email address");
-      }
-      if (!toEmail) {
-        const contacts = await storage.getContactsByCustomerId(ticket.customerId, user.activeCompanyId);
-        const primaryContact = contacts.find(c => c.isPrimary === "true" && c.emails && c.emails.length > 0);
-        toEmail = primaryContact?.emails?.[0] || contacts.find(c => c.emails && c.emails.length > 0)?.emails?.[0];
+      let toEmails: string[] = [];
+      if (req.body.toEmails && Array.isArray(req.body.toEmails)) {
+        toEmails = req.body.toEmails.filter((e: any) => typeof e === 'string' && e.includes('@'));
+      } else if (req.body.toEmail && typeof req.body.toEmail === 'string' && req.body.toEmail.includes('@')) {
+        toEmails = [req.body.toEmail];
       }
 
-      if (!toEmail) {
+      if (toEmails.length === 0) {
+        const contacts = await storage.getContactsByCustomerId(ticket.customerId, user.activeCompanyId);
+        const primaryContact = contacts.find(c => c.isPrimary === "true" && c.emails && c.emails.length > 0);
+        const fallbackEmail = primaryContact?.emails?.[0] || contacts.find(c => c.emails && c.emails.length > 0)?.emails?.[0];
+        if (fallbackEmail) toEmails = [fallbackEmail];
+      }
+
+      if (toEmails.length === 0) {
         return res.status(400).send("No email address found for customer contacts");
       }
 
@@ -6474,24 +6478,28 @@ export async function registerRoutes(app: Express): Promise<Server> {
         year: 'numeric', month: 'long', day: 'numeric'
       });
 
-      const results = await processEmailEvent('ticket.work_completed', user.activeCompanyId, {
-        ticketTitle: ticket.title,
-        customerName: customer.name,
-        companyName: company?.name || 'Property Maintenance',
-        completionDate,
-        ticketDescription: ticket.description || '',
-      }, {
-        customerId: ticket.customerId,
-        ticketId: ticket.id,
-        toEmail,
-        sentById: user.id,
-      });
+      const allResults: any[] = [];
+      for (const toEmail of toEmails) {
+        const results = await processEmailEvent('ticket.work_completed', user.activeCompanyId, {
+          ticketTitle: ticket.title,
+          customerName: customer.name,
+          companyName: company?.name || 'Property Maintenance',
+          completionDate,
+          ticketDescription: ticket.description || '',
+        }, {
+          customerId: ticket.customerId,
+          ticketId: ticket.id,
+          toEmail,
+          sentById: user.id,
+        });
+        allResults.push(...results);
+      }
 
-      if (results.length === 0) {
+      if (allResults.length === 0) {
         return res.status(400).send("No active email rules or templates found for work_completed event");
       }
 
-      res.json({ sent: results.length, recipient: toEmail, logs: results });
+      res.json({ sent: allResults.length, recipients: toEmails, logs: allResults });
     } catch (err: any) {
       console.error("Failed to send completion email:", err);
       res.status(500).send("Failed to send completion email");
