@@ -103,12 +103,18 @@ export default function TicketsList() {
   const [selectionMode, setSelectionMode] = useState(false);
   const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
 
+  // Track whether view=pendingInvoices needs to be resolved before URL updates
+  const hasPendingView = urlParams.get("view") === "pendingInvoices";
+
   // Update URL when filters change (but skip if we're syncing from URL or URL already matches)
   useEffect(() => {
     if (isUpdatingFromUrl.current) {
       isUpdatingFromUrl.current = false;
       return;
     }
+
+    // Don't update URL until the pending view param has been resolved into filter values
+    if (hasPendingView && !pendingInvoicesResolved.current) return;
     
     const params = new URLSearchParams();
     if (search) params.set("q", search);
@@ -130,7 +136,7 @@ export default function TicketsList() {
     
     // Use replace to avoid adding to browser history on every keystroke
     window.history.replaceState(null, "", newUrl);
-  }, [search, priorityFilter, typeFilter, workTypeFilter, statusFilter, assignedToFilter, showNeedsScheduling, searchString]);
+  }, [search, priorityFilter, typeFilter, workTypeFilter, statusFilter, assignedToFilter, showNeedsScheduling, searchString, hasPendingView]);
 
   // Save scroll position before navigating away
   const saveScrollPosition = useCallback(() => {
@@ -235,6 +241,32 @@ export default function TicketsList() {
     },
     enabled: ticketTypes.length > 0,
   });
+
+  const pendingInvoicesResolved = useRef(false);
+  useEffect(() => {
+    if (pendingInvoicesResolved.current) return;
+    if (urlParams.get("view") !== "pendingInvoices") return;
+    if (ticketTypes.length === 0 || allStatuses.length === 0) return;
+
+    const invoiceType = ticketTypes.find(tt => tt.name === "Invoice");
+    if (invoiceType) {
+      const pendingStatus = (allStatuses as TicketTypeStatus[]).find(
+        (s) => s.ticketTypeId === invoiceType.id && s.name === "Pending Invoice"
+      );
+      isUpdatingFromUrl.current = true;
+      setTypeFilter(invoiceType.id);
+      setStatusFilter(pendingStatus?.id || "all");
+      setShowFilters(true);
+      pendingInvoicesResolved.current = true;
+
+      const params = new URLSearchParams();
+      params.set("type", invoiceType.id);
+      if (pendingStatus) params.set("status", pendingStatus.id);
+      const newUrl = `/dashboard/tickets?${params.toString()}`;
+      prevSearchString.current = `?${params.toString()}`;
+      window.history.replaceState(null, "", newUrl);
+    }
+  }, [ticketTypes, allStatuses, urlParams]);
 
   const enrichedTickets: TicketWithDetails[] = tickets.map(ticket => ({
     ...ticket,

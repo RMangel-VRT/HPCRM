@@ -68,7 +68,7 @@ export default function PendingInvoices() {
             </Badge>
           )}
         </CardTitle>
-        <Link href="/dashboard/tickets">
+        <Link href="/dashboard/tickets?view=pendingInvoices">
           <span className="text-xs text-muted-foreground hover:text-foreground flex items-center gap-1 cursor-pointer">
             View All
             <ChevronRight className="w-3 h-3" />
