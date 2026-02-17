@@ -348,6 +348,19 @@ export default function TicketDetail() {
     },
   });
 
+  const sendCompletionEmailMutation = useMutation({
+    mutationFn: async () => {
+      return apiRequest("POST", `/api/tickets/${ticketId}/send-completion-email`);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/email-logs", { ticketId }] });
+      toast({ title: "Completion email sent successfully" });
+    },
+    onError: (err: any) => {
+      toast({ title: err?.message || "Failed to send completion email", variant: "destructive" });
+    },
+  });
+
   if (isLoading || !details) {
     return (
       <div className="flex items-center justify-center min-h-[50vh]">
@@ -1476,11 +1489,43 @@ export default function TicketDetail() {
 
       {activeTab === "emails" && isAdminOrOffice && (
         <div className="space-y-2">
+          {(isComplete || currentStatus?.isFinal === "true") && ticket.customerId && (
+            <Card>
+              <CardContent className="p-4">
+                <div className="flex items-center justify-between gap-3 flex-wrap">
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm font-medium">Send Completion Email</p>
+                    <p className="text-xs text-muted-foreground">
+                      Notify the customer that work has been completed on this ticket
+                    </p>
+                  </div>
+                  <Button
+                    variant="default"
+                    size="sm"
+                    onClick={() => sendCompletionEmailMutation.mutate()}
+                    disabled={sendCompletionEmailMutation.isPending}
+                    data-testid="button-send-completion-email"
+                  >
+                    {sendCompletionEmailMutation.isPending ? (
+                      <Loader2 className="w-4 h-4 animate-spin mr-2" />
+                    ) : (
+                      <Send className="w-4 h-4 mr-2" />
+                    )}
+                    Send Email
+                  </Button>
+                </div>
+              </CardContent>
+            </Card>
+          )}
           {emailLogs.length === 0 ? (
             <Card>
               <CardContent className="py-8 text-center">
                 <Mail className="w-8 h-8 mx-auto text-muted-foreground mb-2" />
-                <p className="text-sm text-muted-foreground">No emails sent for this ticket</p>
+                <p className="text-sm text-muted-foreground">
+                  {(isComplete || currentStatus?.isFinal === "true")
+                    ? "No completion emails sent yet — use the button above to notify the customer"
+                    : "No emails sent for this ticket"}
+                </p>
               </CardContent>
             </Card>
           ) : (

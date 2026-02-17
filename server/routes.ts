@@ -3957,40 +3957,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
           }
         }
         
-        // Send "Work Completed" email notification to customer contacts
-        try {
-          if (existingTicket.customerId) {
-            const customer = await storage.getCustomerById(existingTicket.customerId, user.activeCompanyId);
-            const contacts = await storage.getContactsByCustomerId(existingTicket.customerId, user.activeCompanyId);
-            const primaryContact = contacts.find(c => c.isPrimary === "true" && c.email);
-            const toEmail = primaryContact?.email || contacts.find(c => c.email)?.email;
-            
-            if (toEmail && customer) {
-              const company = await storage.getCompanyById(user.activeCompanyId);
-              const completionDate = new Date().toLocaleDateString('en-US', { 
-                year: 'numeric', month: 'long', day: 'numeric' 
-              });
-              
-              await processEmailEvent('ticket.work_completed', user.activeCompanyId, {
-                ticketTitle: existingTicket.title,
-                customerName: customer.name,
-                companyName: company?.name || 'Property Maintenance',
-                completionDate,
-                ticketDescription: existingTicket.description || '',
-              }, {
-                customerId: existingTicket.customerId,
-                ticketId: existingTicket.id,
-                toEmail,
-                sentById: user.id,
-              });
-              
-              console.log(`Triggered work completed email for ticket ${existingTicket.id} to ${toEmail}`);
-            }
-          }
-        } catch (err) {
-          console.error("Failed to send work completed email:", err);
-          // Don't fail the update - email is secondary
-        }
+        // Email notification is now manual - triggered via POST /api/tickets/:id/send-completion-email
 
       }
     }
@@ -6459,6 +6426,71 @@ export async function registerRoutes(app: Express): Promise<Server> {
     res.json(logs);
   });
   
+  // Manually send "Work Completed" email for a ticket (completion protocol final step)
+  app.post("/api/tickets/:id/send-completion-email", async (req, res) => {
+    if (!req.isAuthenticated()) return res.status(401).send("Not authenticated");
+    const user = req.user as UserWithContext;
+    if (user.activeRole !== "admin" && user.activeRole !== "office") {
+      return res.status(403).send("Admin or office role required");
+    }
+    try {
+      const ticket = await storage.getTicketById(req.params.id, user.activeCompanyId);
+      if (!ticket) return res.status(404).send("Ticket not found");
+
+      if (!ticket.customerId) {
+        return res.status(400).send("Ticket has no customer — cannot send completion email");
+      }
+
+      const ticketType = await storage.getTicketTypeById(ticket.typeId, user.activeCompanyId);
+      if (ticketType) {
+        const statuses = await storage.getTicketTypeStatuses(ticketType.id, user.activeCompanyId);
+        const currentStatus = statuses.find(s => s.id === ticket.currentStatusId);
+        if (!currentStatus || currentStatus.isFinal !== "true") {
+          return res.status(400).send("Ticket must be in a final/completed status before sending completion email");
+        }
+      }
+
+      const customer = await storage.getCustomerById(ticket.customerId, user.activeCompanyId);
+      const contacts = await storage.getContactsByCustomerId(ticket.customerId, user.activeCompanyId);
+      const primaryContact = contacts.find(c => c.isPrimary === "true" && c.email);
+      const toEmail = primaryContact?.email || contacts.find(c => c.email)?.email;
+
+      if (!toEmail) {
+        return res.status(400).send("No email address found for customer contacts");
+      }
+      if (!customer) {
+        return res.status(400).send("Customer not found");
+      }
+
+      const company = await storage.getCompanyById(user.activeCompanyId);
+      const completionDate = new Date().toLocaleDateString('en-US', {
+        year: 'numeric', month: 'long', day: 'numeric'
+      });
+
+      const results = await processEmailEvent('ticket.work_completed', user.activeCompanyId, {
+        ticketTitle: ticket.title,
+        customerName: customer.name,
+        companyName: company?.name || 'Property Maintenance',
+        completionDate,
+        ticketDescription: ticket.description || '',
+      }, {
+        customerId: ticket.customerId,
+        ticketId: ticket.id,
+        toEmail,
+        sentById: user.id,
+      });
+
+      if (results.length === 0) {
+        return res.status(400).send("No active email rules or templates found for work_completed event");
+      }
+
+      res.json({ sent: results.length, recipient: toEmail, logs: results });
+    } catch (err: any) {
+      console.error("Failed to send completion email:", err);
+      res.status(500).send("Failed to send completion email");
+    }
+  });
+
   // Resend an email (admin only)
   app.post("/api/email-logs/:id/resend", async (req, res) => {
     if (!req.isAuthenticated()) return res.status(401).send("Not authenticated");
