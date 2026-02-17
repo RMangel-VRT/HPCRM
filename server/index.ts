@@ -1,5 +1,5 @@
 import express, { type Request, Response, NextFunction } from "express";
-import { registerRoutes, migrateProjectSchedulingStatus, migrateFirstBankHierarchy, migrateExtraBillableTicketType, removeProjectInvoicingFields } from "./routes";
+import { registerRoutes, migrateProjectSchedulingStatus, migrateFirstBankHierarchy, migrateExtraBillableTicketType, removeProjectInvoicingFields, fixExtraBillableDoneOrder } from "./routes";
 import { setupVite, serveStatic, log } from "./vite";
 import { runDueDateNotifications } from "./due-date-notifications";
 
@@ -55,6 +55,7 @@ app.use((req, res, next) => {
   await migrateFirstBankHierarchy(); // Link 1st Bank branches to parent account
   await migrateExtraBillableTicketType(); // Ensure Extra Billable ticket type exists and migrate old tickets
   await removeProjectInvoicingFields(); // Remove duplicate invoice data fields from Project Invoicing status
+  await fixExtraBillableDoneOrder(); // Fix Extra Billable Done status order after Ready for Billing insertion
 
   app.use((err: any, _req: Request, res: Response, _next: NextFunction) => {
     const status = err.status || err.statusCode || 500;

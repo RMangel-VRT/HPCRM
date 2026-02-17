@@ -6,7 +6,7 @@ import { setupAuth, type UserWithContext } from "./auth";
 import { storage } from "./storage";
 import { db } from "./db";
 import { eq, and, inArray } from "drizzle-orm";
-import { insertCustomerSchema, insertContactSchema, insertCompanySchema, insertCompanyUserSchema, insertSettingsSchema, insertNoteSchema, insertContractSchema, insertContractDocumentSchema, insertContractBuilderDocumentSchema, insertContractBuilderSectionSchema, insertContractBuilderVariableSchema, insertTicketTypeSchema, insertTicketTypeStatusSchema, insertTicketTypeFieldSchema, insertTicketSchema, insertTicketFieldValueSchema, insertTicketStatusHistorySchema, insertTicketCommentSchema, insertTicketLinkSchema, insertCustomerMapLayerSchema, insertCustomerMapDocumentSchema, insertMaintenanceCrewSchema, insertMaintenanceVisitConfigSchema, insertWeeklyScheduleTemplateSchema, insertScheduleBlockSchema, insertEquipmentSchema, insertEquipmentFileSchema, insertEquipmentTicketSchema, insertEquipmentTicketStatusHistorySchema, insertSnowEventSchema, insertSnowEventPropertyImpactSchema, insertSnowEventAttachmentSchema, insertEmailTemplateSchema, insertEmailRuleSchema, SNOW_RANGES, tickets, ticketTypes, ticketTypeStatuses, customers as customersTable, contractMonthlyAmounts, contractDocuments, contractServices, contractStatusHistory } from "@shared/schema";
+import { insertCustomerSchema, insertContactSchema, insertCompanySchema, insertCompanyUserSchema, insertSettingsSchema, insertNoteSchema, insertContractSchema, insertContractDocumentSchema, insertContractBuilderDocumentSchema, insertContractBuilderSectionSchema, insertContractBuilderVariableSchema, insertTicketTypeSchema, insertTicketTypeStatusSchema, insertTicketTypeFieldSchema, insertTicketSchema, insertTicketFieldValueSchema, insertTicketStatusHistorySchema, insertTicketCommentSchema, insertTicketLinkSchema, insertCustomerMapLayerSchema, insertCustomerMapDocumentSchema, insertMaintenanceCrewSchema, insertMaintenanceVisitConfigSchema, insertWeeklyScheduleTemplateSchema, insertScheduleBlockSchema, insertEquipmentSchema, insertEquipmentFileSchema, insertEquipmentTicketSchema, insertEquipmentTicketStatusHistorySchema, insertSnowEventSchema, insertSnowEventPropertyImpactSchema, insertSnowEventAttachmentSchema, insertEmailTemplateSchema, insertEmailRuleSchema, SNOW_RANGES, tickets, ticketTypes, ticketTypeStatuses, customers as customersTable, contractMonthlyAmounts, contractDocuments, contractServices, contractStatusHistory, companyUsers as companyUsersTable } from "@shared/schema";
 import type { Customer } from "@shared/schema";
 import { ObjectStorageService, ObjectNotFoundError, objectStorageClient, signObjectURL } from "./objectStorage";
 import { ObjectPermission, ObjectAccessGroupType, setObjectAclPolicy } from "./objectAcl";
@@ -540,7 +540,8 @@ async function ensureExtraBillableTicketType(companyId: string): Promise<{
     { name: "Ready to Schedule", description: "Approved - needs to be scheduled with crew", color: "#f472b6", order: 1, isFinal: "false" as const },
     { name: "In Progress", description: "Work is underway", color: "#3b82f6", order: 2, isFinal: "false" as const },
     { name: "Work Completed", description: "Field work finished - pending billing", color: "#10b981", order: 3, isFinal: "false" as const },
-    { name: "Done", description: "Invoice created - ticket closed", color: "#22c55e", order: 4, isFinal: "true" as const },
+    { name: "Ready for Billing", description: "Work verified complete - create invoice", color: "#06b6d4", order: 4, isFinal: "false" as const },
+    { name: "Done", description: "Invoice created - ticket closed", color: "#22c55e", order: 5, isFinal: "true" as const },
   ];
   
   let existingStatuses = await storage.getTicketTypeStatuses(ebType.id);
@@ -810,6 +811,31 @@ export async function migrateProjectSchedulingStatus(): Promise<void> {
     console.log(`Startup migration complete: Processed ${companies.length} companies, ensured Ready to Schedule status exists`);
   } catch (error) {
     console.error("Error during startup migration for scheduling status:", error);
+  }
+}
+
+// Startup migration: Ensure Extra Billable "Done" status has correct display order (after Ready for Billing)
+export async function fixExtraBillableDoneOrder(): Promise<void> {
+  console.log("Running startup migration: Fixing Extra Billable Done status display order...");
+  try {
+    const companies = await storage.getCompanies();
+    for (const company of companies) {
+      const ticketTypes = await storage.getTicketTypes(company.id);
+      const ebType = ticketTypes.find(tt => tt.name === "Extra Billable");
+      if (!ebType) continue;
+      
+      const statuses = await storage.getTicketTypeStatuses(ebType.id);
+      const doneStatus = statuses.find(s => s.name === "Done");
+      const readyForBilling = statuses.find(s => s.name === "Ready for Billing");
+      
+      if (doneStatus && doneStatus.displayOrder < 5) {
+        await storage.updateTicketTypeStatus(doneStatus.id, { displayOrder: 5 });
+        console.log(`Updated Extra Billable "Done" display order to 5 for company ${company.id}`);
+      }
+    }
+    console.log("Extra Billable Done order fix complete");
+  } catch (error) {
+    console.error("Error fixing Extra Billable Done order:", error);
   }
 }
 
@@ -2139,6 +2165,34 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Team Members endpoint for @mention autocomplete (any authenticated user)
+  app.get("/api/company-users", async (req, res) => {
+    if (!req.isAuthenticated()) {
+      return res.status(401).send("Not authenticated");
+    }
+
+    const user = req.user as UserWithContext;
+    const companyUsersList = await storage.getCompanyUsersByCompanyId(user.activeCompanyId);
+    const result = await Promise.all(
+      companyUsersList.map(async (cu) => {
+        const userDetails = await storage.getUserById(cu.userId);
+        return {
+          id: cu.id,
+          userId: cu.userId,
+          role: cu.role,
+          status: cu.status,
+          tags: cu.tags || [],
+          user: {
+            id: userDetails?.id || cu.userId,
+            firstName: userDetails?.name?.split(" ")[0] || "",
+            lastName: userDetails?.name?.split(" ").slice(1).join(" ") || "",
+            email: userDetails?.email || "",
+          },
+        };
+      })
+    );
+    res.json(result);
+  });
+
   app.get("/api/team-members", async (req, res) => {
     if (!req.isAuthenticated()) {
       return res.status(401).send("Not authenticated");
@@ -4047,7 +4101,6 @@ export async function registerRoutes(app: Express): Promise<Server> {
         
         // Create completion notification for main admin
         try {
-          // Find the main admin for this company (first admin found)
           const companyUsers = await storage.getCompanyUsersByCompanyId(user.activeCompanyId);
           const mainAdmin = companyUsers.find(cu => cu.role === "admin");
           
@@ -4072,73 +4125,18 @@ export async function registerRoutes(app: Express): Promise<Server> {
           }
         } catch (err) {
           console.error("Failed to create completion notification:", err);
-          // Don't fail the update - notification is secondary
-        }
-        
-        // Auto-create Invoice ticket if billable work is completed
-        // But NOT if this ticket is already an Invoice ticket or already has a linked invoice
-        const currentTicketType = await storage.getTicketTypeById(existingTicket.ticketTypeId, user.activeCompanyId);
-        const isInvoiceTicket = currentTicketType?.name === "Invoice";
-        
-        // Check if an invoice ticket already exists for this ticket (prevents duplicates)
-        const existingLinks = await storage.getTicketLinks(existingTicket.id);
-        const hasExistingInvoice = existingLinks.some(l => l.linkType === "invoice_for" && l.sourceTicketId === existingTicket.id);
-        
-        if (existingTicket.billingBehavior === "invoice_required" && !isInvoiceTicket && !hasExistingInvoice) {
-          try {
-            // Ensure Invoice ticket type exists for this company
-            const invoiceTypeInfo = await ensureInvoiceTicketType(user.activeCompanyId);
-            
-            if (invoiceTypeInfo) {
-              // Create Invoice ticket (unassigned - for Admin/Office to process)
-              const invoiceTicket = await storage.createTicket({
-                companyId: user.activeCompanyId,
-                customerId: existingTicket.customerId,
-                contractId: existingTicket.contractId,
-                ticketTypeId: invoiceTypeInfo.typeId,
-                currentStatusId: invoiceTypeInfo.pendingStatusId,
-                workType: "admin",
-                billingBehavior: "internal",
-                title: `Invoice: ${existingTicket.title}`,
-                description: `Invoice required for completed work: ${existingTicket.title}\n\nOriginal description: ${existingTicket.description || "N/A"}`,
-                priority: "normal",
-                assignedToId: null, // Unassigned - for Admin/Office
-                createdById: user.id,
-              });
-              
-              // Link the tickets
-              await storage.createTicketLink({
-                sourceTicketId: existingTicket.id,
-                targetTicketId: invoiceTicket.id,
-                linkType: "invoice_for",
-              });
-              
-              // Copy notes from source ticket to invoice ticket
-              const sourceComments = await storage.getTicketComments(existingTicket.id);
-              for (const comment of sourceComments) {
-                await storage.createTicketComment({
-                  ticketId: invoiceTicket.id,
-                  authorId: comment.authorId,
-                  body: comment.body,
-                });
-              }
-              
-              console.log(`Auto-created Invoice ticket ${invoiceTicket.id} for completed billable work ${existingTicket.id} with ${sourceComments.length} notes copied`);
-            }
-          } catch (err) {
-            console.error("Failed to auto-create invoice ticket:", err);
-            // Don't fail the update - invoice creation is secondary
-          }
         }
         
         // Email notification is now manual - triggered via POST /api/tickets/:id/send-completion-email
 
         // Auto-propagate Invoice completion back to parent ticket
-        // When an Invoice ticket reaches its final status, advance the parent (Project/Extra Billable)
+        // When an Invoice ticket reaches its final status, advance the parent to its next final status
+        const currentTicketType = await storage.getTicketTypeById(existingTicket.ticketTypeId, user.activeCompanyId);
+        const isInvoiceTicket = currentTicketType?.name === "Invoice";
+        
         if (isInvoiceTicket) {
           try {
             const links = await storage.getTicketLinks(existingTicket.id);
-            // Find the parent ticket: the source of the invoice_for link where this ticket is the target
             const parentLink = links.find(l => l.linkType === "invoice_for" && l.targetTicketId === existingTicket.id);
             
             if (parentLink) {
@@ -4151,7 +4149,6 @@ export async function registerRoutes(app: Express): Promise<Server> {
                 const invoiceFieldValues = await storage.getTicketFieldValues(existingTicket.id);
                 const invoiceFields = await storage.getTicketTypeFields(existingTicket.ticketTypeId);
                 
-                // Build invoice data summary
                 const invoiceDataParts: string[] = [];
                 for (const fv of invoiceFieldValues) {
                   const field = invoiceFields.find(f => f.id === fv.fieldId);
@@ -4160,7 +4157,6 @@ export async function registerRoutes(app: Express): Promise<Server> {
                   }
                 }
                 
-                // Add a comment to the parent ticket with the invoice data
                 if (invoiceDataParts.length > 0) {
                   await storage.createTicketComment({
                     ticketId: parentTicket.id,
@@ -4169,32 +4165,27 @@ export async function registerRoutes(app: Express): Promise<Server> {
                   });
                 }
                 
-                // Advance parent ticket to its final billing status
-                let targetStatusName: string | null = null;
-                if (parentTicketType?.name === "Project") {
-                  targetStatusName = "Invoicing";
-                } else if (parentTicketType?.name === "Extra Billable") {
-                  targetStatusName = "Done";
-                }
+                // Generic: find the next status after "Ready for Billing" which should be the final billing status
+                // Sort by display order, find statuses after the current one
+                const sortedStatuses = [...parentStatuses].sort((a, b) => a.displayOrder - b.displayOrder);
+                const currentStatusIndex = sortedStatuses.findIndex(s => s.id === parentTicket.currentStatusId);
+                // Find the next final status after the current position
+                const nextFinalStatus = sortedStatuses.find((s, i) => i > currentStatusIndex && s.isFinal === "true");
                 
-                if (targetStatusName) {
-                  const targetStatus = parentStatuses.find(s => s.name === targetStatusName);
-                  if (targetStatus) {
-                    await storage.updateTicket(parentTicket.id, user.activeCompanyId, {
-                      currentStatusId: targetStatus.id,
-                      completedAt: targetStatus.isFinal === "true" ? new Date() : undefined,
-                    });
-                    
-                    // Create status history entry for the parent
-                    await storage.createTicketStatusHistory({
-                      ticketId: parentTicket.id,
-                      toStatusId: targetStatus.id,
-                      changedById: user.id,
-                      notes: `Auto-advanced: linked Invoice ticket completed`,
-                    });
-                    
-                    console.log(`Auto-advanced parent ticket ${parentTicket.id} (${parentTicketType?.name}) to "${targetStatusName}" after Invoice completion`);
-                  }
+                if (nextFinalStatus) {
+                  await storage.updateTicket(parentTicket.id, user.activeCompanyId, {
+                    currentStatusId: nextFinalStatus.id,
+                    completedAt: new Date(),
+                  });
+                  
+                  await storage.createTicketStatusHistory({
+                    ticketId: parentTicket.id,
+                    toStatusId: nextFinalStatus.id,
+                    changedById: user.id,
+                    notes: `Auto-advanced: linked Invoice ticket completed`,
+                  });
+                  
+                  console.log(`Auto-advanced parent ticket ${parentTicket.id} (${parentTicketType?.name}) to "${nextFinalStatus.name}" after Invoice completion`);
                 }
               }
             }
@@ -4203,6 +4194,62 @@ export async function registerRoutes(app: Express): Promise<Server> {
           }
         }
 
+      }
+      
+      // Auto-create Invoice ticket when ANY billable ticket reaches "Ready for Billing" status
+      // This fires for Project, Extra Billable, or any future ticket type with invoice_required billing
+      const currentTicketTypeForInvoice = await storage.getTicketTypeById(existingTicket.ticketTypeId, user.activeCompanyId);
+      const isInvoiceTicketType = currentTicketTypeForInvoice?.name === "Invoice";
+      
+      if (newStatus?.name === "Ready for Billing" && existingTicket.billingBehavior === "invoice_required" && !isInvoiceTicketType) {
+        const existingLinks = await storage.getTicketLinks(existingTicket.id);
+        const hasExistingInvoice = existingLinks.some(l => l.linkType === "invoice_for" && l.sourceTicketId === existingTicket.id);
+        
+        if (!hasExistingInvoice) {
+          try {
+            const invoiceTypeInfo = await ensureInvoiceTicketType(user.activeCompanyId);
+            
+            if (invoiceTypeInfo) {
+              // Find the billing-tagged user for auto-assignment
+              const companyUsersForBilling = await storage.getCompanyUsersByCompanyId(user.activeCompanyId);
+              const billingUser = companyUsersForBilling.find(cu => cu.tags?.includes("billing") && cu.status === "active");
+              
+              const invoiceTicket = await storage.createTicket({
+                companyId: user.activeCompanyId,
+                customerId: existingTicket.customerId,
+                contractId: existingTicket.contractId,
+                ticketTypeId: invoiceTypeInfo.typeId,
+                currentStatusId: invoiceTypeInfo.pendingStatusId,
+                workType: "admin",
+                billingBehavior: "internal",
+                title: `Invoice: ${existingTicket.title}`,
+                description: `Invoice required for completed work: ${existingTicket.title}\n\nOriginal description: ${existingTicket.description || "N/A"}`,
+                priority: "normal",
+                assignedToId: billingUser?.userId || null,
+                createdById: user.id,
+              });
+              
+              await storage.createTicketLink({
+                sourceTicketId: existingTicket.id,
+                targetTicketId: invoiceTicket.id,
+                linkType: "invoice_for",
+              });
+              
+              const sourceComments = await storage.getTicketComments(existingTicket.id);
+              for (const comment of sourceComments) {
+                await storage.createTicketComment({
+                  ticketId: invoiceTicket.id,
+                  authorId: comment.authorId,
+                  body: comment.body,
+                });
+              }
+              
+              console.log(`Auto-created Invoice ticket ${invoiceTicket.id} for ticket ${existingTicket.id} at Ready for Billing (assigned to: ${billingUser?.userId || 'unassigned'}) with ${sourceComments.length} notes copied`);
+            }
+          } catch (err) {
+            console.error("Failed to auto-create invoice ticket:", err);
+          }
+        }
       }
     }
 
@@ -4699,8 +4746,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Pending Invoices dashboard endpoint
-  // Returns tickets that need invoicing: Invoice tickets in "Pending Invoice" status,
-  // AND Project/Extra Billable tickets at "Ready for Billing" status
+  // Returns ONLY Invoice tickets in "Pending Invoice" status
   app.get("/api/pending-invoices", async (req, res) => {
     if (!req.isAuthenticated()) {
       return res.status(401).send("Not authenticated");
@@ -4708,7 +4754,6 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
     const user = req.user as UserWithContext;
     
-    // Only admin/office can see pending invoices
     if (user.activeRole === "field_manager" || user.activeRole === "field" || user.activeRole === "irrigation_manager") {
       return res.status(403).send("Insufficient permissions - admin or office role required");
     }
@@ -4716,10 +4761,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
     const allTickets = await storage.getTickets(user.activeCompanyId, {});
     const ticketTypes = await storage.getTicketTypes(user.activeCompanyId);
     
-    // Collect tickets that need invoicing from multiple sources
     const ticketsNeedingInvoice: typeof allTickets = [];
     
-    // 1. Invoice tickets in "Pending Invoice" status
     const invoiceType = ticketTypes.find(tt => tt.name === "Invoice");
     if (invoiceType) {
       const invoiceStatuses = await storage.getTicketTypeStatuses(invoiceType.id);
@@ -4729,36 +4772,6 @@ export async function registerRoutes(app: Express): Promise<Server> {
           t => t.ticketTypeId === invoiceType.id && t.currentStatusId === pendingStatus.id
         );
         ticketsNeedingInvoice.push(...pendingInvoices);
-      }
-    }
-    
-    // 2. Project tickets at "Ready for Billing" status
-    const projectType = ticketTypes.find(tt => tt.name === "Project");
-    if (projectType) {
-      const projectStatuses = await storage.getTicketTypeStatuses(projectType.id);
-      const readyForBillingStatus = projectStatuses.find(s => s.name === "Ready for Billing");
-      if (readyForBillingStatus) {
-        const projectsReadyForBilling = allTickets.filter(
-          t => t.ticketTypeId === projectType.id && t.currentStatusId === readyForBillingStatus.id
-        );
-        ticketsNeedingInvoice.push(...projectsReadyForBilling);
-      }
-    }
-    
-    // 3. To-Do tickets with invoice_required billing behavior at their final step (Done)
-    // These represent Extra Billable work that's done and needs invoicing
-    const toDoType = ticketTypes.find(tt => tt.name === "To-Do");
-    if (toDoType) {
-      const toDoStatuses = await storage.getTicketTypeStatuses(toDoType.id);
-      const doneStatus = toDoStatuses.find(s => s.name === "Done");
-      if (doneStatus) {
-        // Filter for To-Do tickets that are done AND have invoice_required billing behavior
-        const billableToDoCompleted = allTickets.filter(
-          t => t.ticketTypeId === toDoType.id && 
-               t.currentStatusId === doneStatus.id &&
-               t.billingBehavior === "invoice_required"
-        );
-        ticketsNeedingInvoice.push(...billableToDoCompleted);
       }
     }
 
@@ -4788,6 +4801,152 @@ export async function registerRoutes(app: Express): Promise<Server> {
     );
 
     res.json(enrichedInvoices);
+  });
+
+  // Update user tags (admin only)
+  app.patch("/api/company-users/:id/tags", async (req, res) => {
+    if (!req.isAuthenticated()) return res.status(401).send("Not authenticated");
+    const user = req.user as UserWithContext;
+    if (user.activeRole !== "admin") return res.status(403).send("Admin only");
+    
+    const { tags } = req.body;
+    if (!Array.isArray(tags)) return res.status(400).send("Tags must be an array");
+    
+    const companyUser = await storage.getCompanyUsersByCompanyId(user.activeCompanyId);
+    const targetUser = companyUser.find(cu => cu.id === req.params.id);
+    if (!targetUser) return res.status(404).send("Company user not found");
+    
+    await db.update(companyUsersTable).set({ tags }).where(eq(companyUsersTable.id, req.params.id));
+    res.json({ success: true, tags });
+  });
+
+  // Invoice migration: dry-run and execute
+  // Creates Invoice tickets for existing tickets at billing-ready statuses without linked invoices
+  app.post("/api/admin/migrate-invoices", async (req, res) => {
+    if (!req.isAuthenticated()) return res.status(401).send("Not authenticated");
+    const user = req.user as UserWithContext;
+    if (user.activeRole !== "admin") return res.status(403).send("Admin only");
+    
+    const dryRun = req.body.dryRun !== false; // default to dry-run
+    
+    const allTickets = await storage.getTickets(user.activeCompanyId, {});
+    const ticketTypesAll = await storage.getTicketTypes(user.activeCompanyId);
+    
+    // Find tickets at billing-ready states that need Invoice tickets created
+    const ticketsToMigrate: Array<{ ticket: typeof allTickets[0]; ticketTypeName: string; currentStatusName: string; reason: string }> = [];
+    
+    for (const tt of ticketTypesAll) {
+      if (tt.name === "Invoice") continue;
+      const statuses = await storage.getTicketTypeStatuses(tt.id);
+      
+      // Find tickets at "Ready for Billing" status
+      const readyForBillingStatus = statuses.find(s => s.name === "Ready for Billing");
+      if (readyForBillingStatus) {
+        const ticketsAtBilling = allTickets.filter(t => t.ticketTypeId === tt.id && t.currentStatusId === readyForBillingStatus.id);
+        for (const t of ticketsAtBilling) {
+          const links = await storage.getTicketLinks(t.id);
+          const hasInvoice = links.some(l => l.linkType === "invoice_for" && l.sourceTicketId === t.id);
+          if (!hasInvoice) {
+            ticketsToMigrate.push({ ticket: t, ticketTypeName: tt.name, currentStatusName: "Ready for Billing", reason: "At Ready for Billing without linked Invoice" });
+          }
+        }
+      }
+      
+      // Also find tickets with invoice_required at final status without linked invoices (legacy)
+      if (tt.name !== "Invoice") {
+        const finalStatuses = statuses.filter(s => s.isFinal === "true");
+        for (const fs of finalStatuses) {
+          const ticketsAtFinal = allTickets.filter(t => t.ticketTypeId === tt.id && t.currentStatusId === fs.id && t.billingBehavior === "invoice_required");
+          for (const t of ticketsAtFinal) {
+            const links = await storage.getTicketLinks(t.id);
+            const hasInvoice = links.some(l => l.linkType === "invoice_for" && l.sourceTicketId === t.id);
+            if (!hasInvoice) {
+              ticketsToMigrate.push({ ticket: t, ticketTypeName: tt.name, currentStatusName: fs.name, reason: `At final status "${fs.name}" with invoice_required but no linked Invoice` });
+            }
+          }
+        }
+      }
+    }
+    
+    if (dryRun) {
+      const preview = ticketsToMigrate.map(m => ({
+        ticketId: m.ticket.id,
+        title: m.ticket.title,
+        ticketType: m.ticketTypeName,
+        currentStatus: m.currentStatusName,
+        reason: m.reason,
+        customerName: m.ticket.customerId || "No customer",
+      }));
+      
+      // Also get customer names
+      const enrichedPreview = await Promise.all(preview.map(async (p) => {
+        if (p.customerName !== "No customer") {
+          const customer = await storage.getCustomerById(p.customerName, user.activeCompanyId);
+          return { ...p, customerName: customer?.name || "Unknown" };
+        }
+        return p;
+      }));
+      
+      return res.json({ dryRun: true, count: ticketsToMigrate.length, tickets: enrichedPreview });
+    }
+    
+    // Execute migration
+    const invoiceTypeInfo = await ensureInvoiceTicketType(user.activeCompanyId);
+    if (!invoiceTypeInfo) return res.status(500).send("Failed to ensure Invoice ticket type");
+    
+    // Find billing-tagged user for assignment
+    const companyUsersAll = await storage.getCompanyUsersByCompanyId(user.activeCompanyId);
+    const billingUser = companyUsersAll.find(cu => cu.tags?.includes("billing") && cu.status === "active");
+    
+    const results: Array<{ ticketId: string; title: string; invoiceTicketId: string; assigned: boolean }> = [];
+    
+    for (const m of ticketsToMigrate) {
+      try {
+        const invoiceTicket = await storage.createTicket({
+          companyId: user.activeCompanyId,
+          customerId: m.ticket.customerId,
+          contractId: m.ticket.contractId,
+          ticketTypeId: invoiceTypeInfo.typeId,
+          currentStatusId: invoiceTypeInfo.pendingStatusId,
+          workType: "admin",
+          billingBehavior: "internal",
+          title: `Invoice: ${m.ticket.title}`,
+          description: `Invoice required for completed work: ${m.ticket.title}\n\nMigrated from existing ${m.ticketTypeName} ticket at "${m.currentStatusName}" status.`,
+          priority: "normal",
+          assignedToId: billingUser?.userId || null,
+          createdById: user.id,
+        });
+        
+        await storage.createTicketLink({
+          sourceTicketId: m.ticket.id,
+          targetTicketId: invoiceTicket.id,
+          linkType: "invoice_for",
+        });
+        
+        // Copy notes from source ticket
+        const sourceComments = await storage.getTicketComments(m.ticket.id);
+        for (const comment of sourceComments) {
+          await storage.createTicketComment({
+            ticketId: invoiceTicket.id,
+            authorId: comment.authorId,
+            body: comment.body,
+          });
+        }
+        
+        results.push({
+          ticketId: m.ticket.id,
+          title: m.ticket.title,
+          invoiceTicketId: invoiceTicket.id,
+          assigned: !!billingUser,
+        });
+        
+        console.log(`Migration: Created Invoice ticket ${invoiceTicket.id} for ${m.ticketTypeName} ticket ${m.ticket.id} ("${m.ticket.title}")`);
+      } catch (err) {
+        console.error(`Migration: Failed to create Invoice for ticket ${m.ticket.id}:`, err);
+      }
+    }
+    
+    res.json({ dryRun: false, count: results.length, tickets: results });
   });
 
   // Get ticket with full details (type, statuses, fields)

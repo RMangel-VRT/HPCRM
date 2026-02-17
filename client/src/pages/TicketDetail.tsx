@@ -457,13 +457,9 @@ export default function TicketDetail() {
       lt => lt.link.linkType === "invoice_for" && lt.relationship === "source" && lt.ticket
     );
     if (!linkedInvoice) return false;
-    // If a linked invoice exists and it's not complete yet, block manual advancement
     const invoiceComplete = linkedInvoice.currentStatus?.isFinal === "true";
-    // Block if at Ready for Billing (Project) or Work Completed (Extra Billable) with pending invoice
-    const isAtBillingStatus = (
-      (ticketType.name === "Project" && currentStatus?.name === "Ready for Billing") ||
-      (ticketType.name === "Extra Billable" && currentStatus?.name === "Work Completed")
-    );
+    // Block advancement if at "Ready for Billing" with a pending invoice (any ticket type)
+    const isAtBillingStatus = currentStatus?.name === "Ready for Billing";
     return isAtBillingStatus && !invoiceComplete;
   })();
 
@@ -499,7 +495,7 @@ export default function TicketDetail() {
       
       // Check if advancing to Ready for Billing - only prompt for invoice if billing is required
       // Skip for internal work types (admin, estimate_request) and contract work (no_invoice)
-      if (nextStatus.name === "Ready for Billing" && ticketType.name === "Project" && ticket.billingBehavior === "invoice_required") {
+      if (nextStatus.name === "Ready for Billing" && ticket.billingBehavior === "invoice_required") {
         checkInvoicePrompt = true;
       }
       
@@ -552,14 +548,10 @@ export default function TicketDetail() {
       // Approved continues to natural next step (Work Completed)
     }
     
-    // Check if advancing to billing-related status - prompt for Invoice creation
-    // Only prompt if billing is required (skip for internal work types and contract work)
+    // Check if advancing to "Ready for Billing" - prompt for Invoice creation
+    // This applies to any ticket type with invoice_required billing behavior
     const targetStatusName = statuses.find(s => s.id === actualTargetStatusId)?.name;
-    if (targetStatusName === "Ready for Billing" && ticketType.name === "Project" && ticket.billingBehavior === "invoice_required") {
-      shouldPromptInvoice = true;
-    }
-    // Extra Billable: prompt for Invoice when reaching Work Completed
-    if (targetStatusName === "Work Completed" && ticketType.name === "Extra Billable" && ticket.billingBehavior === "invoice_required") {
+    if (targetStatusName === "Ready for Billing" && ticket.billingBehavior === "invoice_required") {
       shouldPromptInvoice = true;
     }
     
@@ -1034,15 +1026,15 @@ export default function TicketDetail() {
           )}
 
           {(() => {
-            const isAwaitingInvoice = (
-              (ticketType?.name === "Project" && (currentStatus?.name === "Ready for Billing" || currentStatus?.name === "Invoicing")) ||
-              (ticketType?.name === "Extra Billable" && (currentStatus?.name === "Work Completed" || currentStatus?.name === "Done"))
+            const isAtBillingOrFinal = (
+              currentStatus?.name === "Ready for Billing" || 
+              currentStatus?.isFinal === "true"
             );
             const linkedInvoice = linkedTickets?.find(
               lt => lt.link.linkType === "invoice_for" && lt.relationship === "source" && lt.ticket
             );
             
-            if (isAwaitingInvoice && linkedInvoice?.ticket) {
+            if (isAtBillingOrFinal && linkedInvoice?.ticket && ticketType?.name !== "Invoice") {
               const invoiceCompleted = linkedInvoice.currentStatus?.isFinal === "true";
               return (
                 <Card className={invoiceCompleted ? "border-green-500/50" : "border-primary/50"} data-testid="card-invoice-action">

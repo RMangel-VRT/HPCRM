@@ -484,6 +484,9 @@ export default function SettingsPage() {
           {isAdmin && (
             <TabsTrigger value="email-templates" data-testid="tab-email-templates">Email Templates</TabsTrigger>
           )}
+          {isAdmin && (
+            <TabsTrigger value="billing" data-testid="tab-billing">Billing</TabsTrigger>
+          )}
         </TabsList>
 
         <TabsContent value="company" className="space-y-6">
@@ -982,6 +985,10 @@ export default function SettingsPage() {
           </Card>
         </TabsContent>
 
+        <TabsContent value="billing" className="space-y-6">
+          <BillingSettings />
+        </TabsContent>
+
       </Tabs>
 
       {/* Edit Email Template Dialog */}
@@ -1381,5 +1388,181 @@ export default function SettingsPage() {
         </DialogContent>
       </Dialog>
     </div>
+  );
+}
+
+interface CompanyUserWithUser {
+  id: string;
+  userId: string;
+  role: string;
+  status: string;
+  tags: string[] | null;
+  user: { id: string; firstName: string; lastName: string; email: string };
+}
+
+interface MigrationPreviewTicket {
+  ticketId: string;
+  title: string;
+  ticketType: string;
+  currentStatus: string;
+  reason: string;
+  customerName: string;
+}
+
+function BillingSettings() {
+  const { toast } = useToast();
+  const [migrationPreview, setMigrationPreview] = useState<MigrationPreviewTicket[] | null>(null);
+  const [migrationRunning, setMigrationRunning] = useState(false);
+  const [migrationComplete, setMigrationComplete] = useState(false);
+
+  const { data: teamMembers, isLoading: teamLoading } = useQuery<CompanyUserWithUser[]>({
+    queryKey: ["/api/company-users"],
+  });
+
+  const toggleBillingTag = async (companyUserId: string, currentTags: string[] | null) => {
+    const tags = currentTags || [];
+    const newTags = tags.includes("billing")
+      ? tags.filter(t => t !== "billing")
+      : [...tags, "billing"];
+    
+    try {
+      await apiRequest("PATCH", `/api/company-users/${companyUserId}/tags`, { tags: newTags });
+      queryClient.invalidateQueries({ queryKey: ["/api/company-users"] });
+      toast({ title: newTags.includes("billing") ? "Billing tag added" : "Billing tag removed" });
+    } catch (err) {
+      toast({ title: "Failed to update tags", variant: "destructive" });
+    }
+  };
+
+  const runDryRun = async () => {
+    try {
+      const res = await apiRequest("POST", "/api/admin/migrate-invoices", { dryRun: true });
+      const data = await res.json();
+      setMigrationPreview(data.tickets);
+      setMigrationComplete(false);
+    } catch (err) {
+      toast({ title: "Failed to preview migration", variant: "destructive" });
+    }
+  };
+
+  const executeMigration = async () => {
+    setMigrationRunning(true);
+    try {
+      const res = await apiRequest("POST", "/api/admin/migrate-invoices", { dryRun: false });
+      const data = await res.json();
+      toast({ title: `Migration complete: ${data.count} Invoice tickets created` });
+      setMigrationComplete(true);
+      setMigrationPreview(null);
+      queryClient.invalidateQueries({ queryKey: ["/api/pending-invoices"] });
+    } catch (err) {
+      toast({ title: "Migration failed", variant: "destructive" });
+    } finally {
+      setMigrationRunning(false);
+    }
+  };
+
+  return (
+    <>
+      <Card>
+        <CardHeader>
+          <CardTitle>Billing User Assignment</CardTitle>
+          <CardDescription>
+            Tag a team member as the billing user. All auto-created Invoice tickets will be assigned to this person.
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          {teamLoading ? (
+            <p className="text-sm text-muted-foreground">Loading team members...</p>
+          ) : (
+            <div className="space-y-2">
+              {teamMembers?.filter(m => m.status === "active" && (m.role === "admin" || m.role === "office")).map(member => (
+                <div key={member.id} className="flex items-center justify-between gap-4 p-3 rounded-md border" data-testid={`billing-user-${member.id}`}>
+                  <div className="flex items-center gap-3">
+                    <User className="w-4 h-4 text-muted-foreground" />
+                    <div>
+                      <p className="text-sm font-medium">{member.user.firstName} {member.user.lastName}</p>
+                      <p className="text-xs text-muted-foreground">{member.role}</p>
+                    </div>
+                    {(member.tags || []).includes("billing") && (
+                      <Badge variant="secondary">billing</Badge>
+                    )}
+                  </div>
+                  <Switch
+                    checked={(member.tags || []).includes("billing")}
+                    onCheckedChange={() => toggleBillingTag(member.id, member.tags)}
+                    data-testid={`toggle-billing-${member.id}`}
+                  />
+                </div>
+              ))}
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>Invoice Ticket Migration</CardTitle>
+          <CardDescription>
+            Create Invoice tickets for existing tickets that are at billing-ready statuses but don't have linked Invoice tickets yet. 
+            This ensures the pending invoices list is populated exclusively with Invoice tickets going forward.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          {migrationComplete ? (
+            <div className="p-4 rounded-md bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800">
+              <p className="text-sm font-medium text-green-800 dark:text-green-300">Migration completed successfully.</p>
+              <p className="text-xs text-green-600 dark:text-green-400 mt-1">All billing-ready tickets now have linked Invoice tickets.</p>
+            </div>
+          ) : migrationPreview ? (
+            <>
+              <div className="p-3 rounded-md bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800">
+                <p className="text-sm font-medium text-amber-800 dark:text-amber-300">
+                  Preview: {migrationPreview.length} ticket{migrationPreview.length !== 1 ? "s" : ""} will get Invoice tickets created
+                </p>
+              </div>
+              {migrationPreview.length > 0 && (
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>Title</TableHead>
+                      <TableHead>Type</TableHead>
+                      <TableHead>Status</TableHead>
+                      <TableHead>Customer</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {migrationPreview.map(t => (
+                      <TableRow key={t.ticketId}>
+                        <TableCell className="text-sm">{t.title}</TableCell>
+                        <TableCell><Badge variant="outline">{t.ticketType}</Badge></TableCell>
+                        <TableCell className="text-sm">{t.currentStatus}</TableCell>
+                        <TableCell className="text-sm text-muted-foreground">{t.customerName}</TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              )}
+              <div className="flex gap-2">
+                <Button 
+                  onClick={executeMigration} 
+                  disabled={migrationRunning || migrationPreview.length === 0}
+                  data-testid="button-execute-migration"
+                >
+                  {migrationRunning ? "Migrating..." : `Create ${migrationPreview.length} Invoice Ticket${migrationPreview.length !== 1 ? "s" : ""}`}
+                </Button>
+                <Button variant="outline" onClick={() => setMigrationPreview(null)} data-testid="button-cancel-migration">
+                  Cancel
+                </Button>
+              </div>
+            </>
+          ) : (
+            <Button onClick={runDryRun} variant="outline" data-testid="button-preview-migration">
+              <Eye className="w-4 h-4 mr-2" />
+              Preview Migration
+            </Button>
+          )}
+        </CardContent>
+      </Card>
+    </>
   );
 }
