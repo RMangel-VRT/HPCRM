@@ -57,6 +57,7 @@ import {
   Mail,
   RotateCw,
   Undo2,
+  AlertTriangle,
 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { queryClient, apiRequest } from "@/lib/queryClient";
@@ -132,6 +133,11 @@ export default function TicketDetail() {
   // Step-back state
   const [showStepBackDialog, setShowStepBackDialog] = useState(false);
   const [stepBackNotes, setStepBackNotes] = useState("");
+  const [stepBackInvoiceWarning, setStepBackInvoiceWarning] = useState<{
+    invoiceTicketId: string;
+    invoiceTicketTitle: string;
+    isCompleted: boolean;
+  } | null>(null);
   
   // Invoice creation handoff state for Projects at Ready for Billing
   const [showInvoicePrompt, setShowInvoicePrompt] = useState(false);
@@ -286,12 +292,36 @@ export default function TicketDetail() {
   });
 
   const updateStatusMutation = useMutation({
-    mutationFn: async ({ statusId, notes, checkInvoicePrompt }: { statusId: string; notes?: string; checkInvoicePrompt?: boolean }) => {
-      const result = await apiRequest("PATCH", `/api/tickets/${ticketId}`, {
+    mutationFn: async ({ statusId, notes, checkInvoicePrompt, confirmDeleteInvoice }: { statusId: string; notes?: string; checkInvoicePrompt?: boolean; confirmDeleteInvoice?: boolean }) => {
+      const body: Record<string, unknown> = {
         currentStatusId: statusId,
         statusChangeNotes: notes,
+      };
+      if (confirmDeleteInvoice) {
+        body.confirmDeleteInvoice = true;
+      }
+      
+      const res = await fetch(`/api/tickets/${ticketId}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+        credentials: "include",
       });
-      return { result, checkInvoicePrompt };
+      
+      if (res.status === 409) {
+        const data = await res.json();
+        if (data.error === "INVOICE_COMPLETED") {
+          throw { isInvoiceConflict: true, ...data };
+        }
+        throw new Error(`409: ${data.message || "Conflict"}`);
+      }
+      
+      if (!res.ok) {
+        const text = (await res.text()) || res.statusText;
+        throw new Error(`${res.status}: ${text}`);
+      }
+      
+      return { result: res, checkInvoicePrompt };
     },
     onSuccess: ({ checkInvoicePrompt }) => {
       queryClient.invalidateQueries({ queryKey: ["/api/tickets", ticketId, "details"] });
@@ -302,14 +332,22 @@ export default function TicketDetail() {
       setPendingStatusId(null);
       setFieldInputs({});
       setStatusNotes("");
+      setStepBackInvoiceWarning(null);
       toast({ title: "Status updated successfully" });
       
-      // Check if we should prompt for Invoice creation (Project at Ready for Billing)
       if (checkInvoicePrompt) {
         setShowInvoicePrompt(true);
       }
     },
-    onError: (error: Error) => {
+    onError: (error: any) => {
+      if (error?.isInvoiceConflict) {
+        setStepBackInvoiceWarning({
+          invoiceTicketId: error.invoiceTicketId,
+          invoiceTicketTitle: error.invoiceTicketTitle,
+          isCompleted: true,
+        });
+        return;
+      }
       toast({ title: "Failed to update status", description: error.message, variant: "destructive" });
     },
   });
@@ -514,17 +552,23 @@ export default function TicketDetail() {
 
   const handleStepBack = () => {
     if (!previousStatus) return;
+    setStepBackInvoiceWarning(null);
     setShowStepBackDialog(true);
   };
 
-  const handleConfirmStepBack = () => {
+  const handleConfirmStepBack = (forceDeleteInvoice?: boolean) => {
     if (!previousStatus) return;
     updateStatusMutation.mutate({
       statusId: previousStatus.id,
       notes: stepBackNotes || `Stepped back to ${previousStatus.name}`,
+      confirmDeleteInvoice: forceDeleteInvoice || false,
+    }, {
+      onSuccess: () => {
+        setShowStepBackDialog(false);
+        setStepBackNotes("");
+        setStepBackInvoiceWarning(null);
+      },
     });
-    setShowStepBackDialog(false);
-    setStepBackNotes("");
   };
 
   const handleConfirmStatusChange = async () => {
@@ -2078,50 +2122,85 @@ export default function TicketDetail() {
         </DialogContent>
       </Dialog>
 
-      <Dialog open={showStepBackDialog} onOpenChange={setShowStepBackDialog}>
+      <Dialog open={showStepBackDialog} onOpenChange={(open) => { setShowStepBackDialog(open); if (!open) { setStepBackInvoiceWarning(null); setStepBackNotes(""); } }}>
         <DialogContent className="sm:max-w-md">
           <DialogHeader>
-            <DialogTitle>Step Back to: {previousStatus?.name}</DialogTitle>
+            <DialogTitle>{stepBackInvoiceWarning ? "Warning: Invoice Ticket Will Be Deleted" : `Step Back to: ${previousStatus?.name}`}</DialogTitle>
             <DialogDescription>
-              Move this ticket back to the previous status. This will be recorded in the workflow history.
+              {stepBackInvoiceWarning 
+                ? "A completed Invoice ticket is linked to this ticket. Stepping back will permanently delete it."
+                : "Move this ticket back to the previous status. This will clear any data entered at the steps being undone and be recorded in the workflow history."
+              }
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-4 py-2">
-            <div className="flex items-center gap-3 p-3 rounded-md border">
-              <div className="flex items-center gap-2 text-muted-foreground">
-                <span className="text-sm line-through" data-testid="text-current-status">{currentStatus?.name}</span>
-                <ArrowLeft className="w-4 h-4" />
-                <span className="text-sm font-medium text-foreground" data-testid="text-target-status">{previousStatus?.name}</span>
+            {stepBackInvoiceWarning ? (
+              <div className="p-3 rounded-md border border-destructive bg-destructive/10 space-y-2">
+                <div className="flex items-center gap-2 text-destructive">
+                  <AlertTriangle className="w-4 h-4 shrink-0" />
+                  <span className="text-sm font-medium">Completed Invoice Will Be Deleted</span>
+                </div>
+                <p className="text-sm text-muted-foreground">
+                  Invoice ticket "{stepBackInvoiceWarning.invoiceTicketTitle}" has already been completed. 
+                  Stepping back past "Ready for Billing" will permanently delete this invoice ticket and all its data.
+                </p>
+                <p className="text-sm font-medium text-destructive">This action cannot be undone.</p>
               </div>
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="step-back-notes">Reason (optional)</Label>
-              <Textarea
-                id="step-back-notes"
-                placeholder="Why is this ticket being stepped back?"
-                value={stepBackNotes}
-                onChange={(e) => setStepBackNotes(e.target.value)}
-                rows={3}
-                data-testid="input-step-back-notes"
-              />
-            </div>
+            ) : (
+              <>
+                <div className="flex items-center gap-3 p-3 rounded-md border">
+                  <div className="flex items-center gap-2 text-muted-foreground">
+                    <span className="text-sm line-through" data-testid="text-current-status">{currentStatus?.name}</span>
+                    <ArrowLeft className="w-4 h-4" />
+                    <span className="text-sm font-medium text-foreground" data-testid="text-target-status">{previousStatus?.name}</span>
+                  </div>
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="step-back-notes">Reason (optional)</Label>
+                  <Textarea
+                    id="step-back-notes"
+                    placeholder="Why is this ticket being stepped back?"
+                    value={stepBackNotes}
+                    onChange={(e) => setStepBackNotes(e.target.value)}
+                    rows={3}
+                    data-testid="input-step-back-notes"
+                  />
+                </div>
+              </>
+            )}
           </div>
           <DialogFooter className="flex gap-2">
-            <Button variant="outline" onClick={() => { setShowStepBackDialog(false); setStepBackNotes(""); }} data-testid="button-cancel-step-back">
+            <Button variant="outline" onClick={() => { setShowStepBackDialog(false); setStepBackNotes(""); setStepBackInvoiceWarning(null); }} data-testid="button-cancel-step-back">
               Cancel
             </Button>
-            <Button 
-              onClick={handleConfirmStepBack}
-              disabled={updateStatusMutation.isPending}
-              data-testid="button-confirm-step-back"
-            >
-              {updateStatusMutation.isPending ? (
-                <Loader2 className="w-4 h-4 animate-spin mr-2" />
-              ) : (
-                <Undo2 className="w-4 h-4 mr-2" />
-              )}
-              Step Back
-            </Button>
+            {stepBackInvoiceWarning ? (
+              <Button 
+                variant="destructive"
+                onClick={() => handleConfirmStepBack(true)}
+                disabled={updateStatusMutation.isPending}
+                data-testid="button-confirm-delete-invoice"
+              >
+                {updateStatusMutation.isPending ? (
+                  <Loader2 className="w-4 h-4 animate-spin mr-2" />
+                ) : (
+                  <AlertTriangle className="w-4 h-4 mr-2" />
+                )}
+                Delete Invoice & Step Back
+              </Button>
+            ) : (
+              <Button 
+                onClick={() => handleConfirmStepBack()}
+                disabled={updateStatusMutation.isPending}
+                data-testid="button-confirm-step-back"
+              >
+                {updateStatusMutation.isPending ? (
+                  <Loader2 className="w-4 h-4 animate-spin mr-2" />
+                ) : (
+                  <Undo2 className="w-4 h-4 mr-2" />
+                )}
+                Step Back
+              </Button>
+            )}
           </DialogFooter>
         </DialogContent>
       </Dialog>

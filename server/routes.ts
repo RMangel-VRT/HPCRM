@@ -4079,6 +4079,82 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
     // If status is changing, record history
     if (req.body.currentStatusId && req.body.currentStatusId !== existingTicket.currentStatusId) {
+      const allStatuses = await storage.getTicketTypeStatuses(existingTicket.ticketTypeId);
+      const newStatus = allStatuses.find(s => s.id === req.body.currentStatusId);
+      const oldStatus = allStatuses.find(s => s.id === existingTicket.currentStatusId);
+      
+      // Determine direction: compare display orders
+      const isSteppingBack = oldStatus && newStatus && newStatus.displayOrder < oldStatus.displayOrder;
+      
+      // === STEP-BACK CLEANUP LOGIC ===
+      if (isSteppingBack) {
+        console.log(`Step-back detected: ticket ${existingTicket.id} moving from "${oldStatus.name}" (order ${oldStatus.displayOrder}) to "${newStatus.name}" (order ${newStatus.displayOrder})`);
+        
+        // 1. Clear field values for all statuses being undone (from current back to target, exclusive of target)
+        const sortedStatuses = [...allStatuses].sort((a, b) => a.displayOrder - b.displayOrder);
+        const statusesBeingUndone = sortedStatuses.filter(
+          s => s.displayOrder > newStatus.displayOrder && s.displayOrder <= oldStatus.displayOrder
+        );
+        
+        if (statusesBeingUndone.length > 0) {
+          const statusIdsBeingUndone = statusesBeingUndone.map(s => s.id);
+          const allFields = await storage.getTicketTypeFields(existingTicket.ticketTypeId);
+          const fieldIdsToDelete = allFields
+            .filter(f => f.statusId && statusIdsBeingUndone.includes(f.statusId))
+            .map(f => f.id);
+          
+          if (fieldIdsToDelete.length > 0) {
+            await storage.deleteTicketFieldValuesByFieldIds(existingTicket.id, fieldIdsToDelete);
+            console.log(`Cleared ${fieldIdsToDelete.length} field values for ${statusesBeingUndone.length} undone statuses on ticket ${existingTicket.id}`);
+          }
+        }
+        
+        // 2. Handle invoice link cleanup when stepping back past or from "Ready for Billing"
+        const readyForBillingStatus = sortedStatuses.find(s => s.name === "Ready for Billing");
+        const isSteppingBackPastBilling = readyForBillingStatus && 
+          oldStatus.displayOrder >= readyForBillingStatus.displayOrder &&
+          newStatus.displayOrder < readyForBillingStatus.displayOrder;
+        
+        if (isSteppingBackPastBilling) {
+          const existingLinks = await storage.getTicketLinks(existingTicket.id);
+          const invoiceLink = existingLinks.find(l => l.linkType === "invoice_for" && l.sourceTicketId === existingTicket.id);
+          
+          if (invoiceLink) {
+            const linkedInvoiceTicket = await storage.getTicketById(invoiceLink.targetTicketId, user.activeCompanyId);
+            
+            if (linkedInvoiceTicket) {
+              const invoiceStatuses = await storage.getTicketTypeStatuses(linkedInvoiceTicket.ticketTypeId);
+              const invoiceCurrentStatus = invoiceStatuses.find(s => s.id === linkedInvoiceTicket.currentStatusId);
+              const isInvoiceCompleted = invoiceCurrentStatus?.isFinal === "true" || !!linkedInvoiceTicket.completedAt;
+              
+              if (isInvoiceCompleted && !req.body.confirmDeleteInvoice) {
+                return res.status(409).json({
+                  error: "INVOICE_COMPLETED",
+                  message: "A completed Invoice ticket exists for this ticket. Stepping back will delete it.",
+                  invoiceTicketId: linkedInvoiceTicket.id,
+                  invoiceTicketTitle: linkedInvoiceTicket.title,
+                });
+              }
+              
+              // Delete the invoice ticket and link
+              await storage.deleteTicketLink(invoiceLink.id);
+              await storage.deleteTicket(linkedInvoiceTicket.id, user.activeCompanyId);
+              console.log(`Step-back cleanup: deleted Invoice ticket ${linkedInvoiceTicket.id} and link for ticket ${existingTicket.id} (invoice was ${isInvoiceCompleted ? "completed" : "pending"})`);
+            } else {
+              // Invoice ticket doesn't exist anymore, just clean up the link
+              await storage.deleteTicketLink(invoiceLink.id);
+            }
+          }
+        }
+        
+        // Clear completedAt if stepping back from a final status
+        if (oldStatus.isFinal === "true" && newStatus.isFinal !== "true") {
+          req.body.completedAt = null;
+          console.log(`Ticket ${existingTicket.id} stepped back from final status "${oldStatus.name}" to "${newStatus.name}" - clearing completedAt`);
+        }
+      }
+      
+      // Record status history
       await storage.createTicketStatusHistory({
         ticketId: existingTicket.id,
         fromStatusId: existingTicket.currentStatusId,
@@ -4087,214 +4163,190 @@ export async function registerRoutes(app: Express): Promise<Server> {
         notes: req.body.statusChangeNotes || null,
       });
       
-      // Check if new status is final
-      const allStatuses = await storage.getTicketTypeStatuses(existingTicket.ticketTypeId);
-      const newStatus = allStatuses.find(s => s.id === req.body.currentStatusId);
-      
-      // Auto-transition work type from estimate_request to project when estimate is approved
-      // This only happens when a Project ticket moves to a status in the approved path
-      // (Ready to Schedule, Work Completed, Ready for Billing, Invoicing)
-      // NOT on Decision Received (waiting for approval) or Closed - Lost (rejected)
-      if (existingTicket.workType === "estimate_request" && newStatus) {
-        const ticketType = await storage.getTicketTypeById(existingTicket.ticketTypeId, user.activeCompanyId);
-        if (ticketType?.name === "Project") {
-          // Only transition when entering the approved execution/billing path
-          const approvedPathStatuses = ["Ready to Schedule", "Work Completed", "Ready for Billing", "Invoicing"];
-          const isInApprovedPath = approvedPathStatuses.includes(newStatus.name);
-          if (isInApprovedPath) {
-            req.body.workType = "project";
-            req.body.billingBehavior = "invoice_required";
-            console.log(`Auto-transitioning ticket ${existingTicket.id} work type from estimate_request to project with invoice_required billing (status: ${newStatus.name})`);
+      // === FORWARD-ONLY LOGIC (skip all of this on step-back) ===
+      if (!isSteppingBack) {
+        // Auto-transition work type from estimate_request to project when estimate is approved
+        if (existingTicket.workType === "estimate_request" && newStatus) {
+          const ticketType = await storage.getTicketTypeById(existingTicket.ticketTypeId, user.activeCompanyId);
+          if (ticketType?.name === "Project") {
+            const approvedPathStatuses = ["Ready to Schedule", "Work Completed", "Ready for Billing", "Invoicing"];
+            const isInApprovedPath = approvedPathStatuses.includes(newStatus.name);
+            if (isInApprovedPath) {
+              req.body.workType = "project";
+              req.body.billingBehavior = "invoice_required";
+              console.log(`Auto-transitioning ticket ${existingTicket.id} work type from estimate_request to project with invoice_required billing (status: ${newStatus.name})`);
+            }
           }
         }
-      }
-      
-      // Auto-return delegation: when ticket moves to "Work Completed" and has a delegator,
-      // reassign back to the delegator and clear delegation
-      if (newStatus?.name === "Work Completed" && existingTicket.delegatedById) {
-        req.body.assignedToId = existingTicket.delegatedById;
-        req.body.delegatedById = null;
-        console.log(`Delegation return: ticket ${existingTicket.id} reassigned back to delegator ${existingTicket.delegatedById}`);
         
-        // Notify the delegator that the work is complete and ticket is back with them
-        try {
-          const customer = existingTicket.customerId 
-            ? await storage.getCustomerById(existingTicket.customerId, user.activeCompanyId)
-            : null;
-          const customerText = customer ? ` - ${customer.name}` : "";
+        // Auto-return delegation: when ticket moves to "Work Completed" and has a delegator
+        if (newStatus?.name === "Work Completed" && existingTicket.delegatedById) {
+          req.body.assignedToId = existingTicket.delegatedById;
+          req.body.delegatedById = null;
+          console.log(`Delegation return: ticket ${existingTicket.id} reassigned back to delegator ${existingTicket.delegatedById}`);
           
-          await storage.createNotification({
-            companyId: user.activeCompanyId,
-            recipientId: existingTicket.delegatedById,
-            ticketId: existingTicket.id,
-            type: "assignment",
-            message: `Work completed, ticket returned to you: ${existingTicket.title}${customerText}`,
-            isRead: false,
-          });
-        } catch (err) {
-          console.error("Failed to create delegation return notification:", err);
-        }
-      }
-      
-      // If stepping BACK from a final status to a non-final status, clear completedAt
-      const oldStatus = allStatuses.find(s => s.id === existingTicket.currentStatusId);
-      if (oldStatus?.isFinal === "true" && newStatus?.isFinal !== "true") {
-        req.body.completedAt = null;
-        console.log(`Ticket ${existingTicket.id} stepped back from final status "${oldStatus.name}" to "${newStatus?.name}" - clearing completedAt`);
-      }
-      
-      if (newStatus?.isFinal === "true") {
-        req.body.completedAt = new Date();
-        
-        // Create completion notification for main admin
-        try {
-          const companyUsers = await storage.getCompanyUsersByCompanyId(user.activeCompanyId);
-          const mainAdmin = companyUsers.find(cu => cu.role === "admin");
-          
-          if (mainAdmin) {
+          try {
             const customer = existingTicket.customerId 
               ? await storage.getCustomerById(existingTicket.customerId, user.activeCompanyId)
               : null;
-            
             const customerText = customer ? ` - ${customer.name}` : "";
-            const completedAt = new Date().toLocaleString();
             
             await storage.createNotification({
               companyId: user.activeCompanyId,
-              recipientId: mainAdmin.userId,
+              recipientId: existingTicket.delegatedById,
               ticketId: existingTicket.id,
-              type: "completed",
-              message: `Ticket completed: ${existingTicket.title}${customerText} (${completedAt})`,
+              type: "assignment",
+              message: `Work completed, ticket returned to you: ${existingTicket.title}${customerText}`,
               isRead: false,
             });
-            
-            console.log(`Created completion notification for ticket ${existingTicket.id} to admin ${mainAdmin.userId}`);
+          } catch (err) {
+            console.error("Failed to create delegation return notification:", err);
           }
-        } catch (err) {
-          console.error("Failed to create completion notification:", err);
         }
         
-        // Email notification is now manual - triggered via POST /api/tickets/:id/send-completion-email
-
-        // Auto-propagate Invoice completion back to parent ticket
-        // When an Invoice ticket reaches its final status, advance the parent to its next final status
-        const currentTicketType = await storage.getTicketTypeById(existingTicket.ticketTypeId, user.activeCompanyId);
-        const isInvoiceTicket = currentTicketType?.name === "Invoice";
-        
-        if (isInvoiceTicket) {
+        if (newStatus?.isFinal === "true") {
+          req.body.completedAt = new Date();
+          
+          // Create completion notification for main admin
           try {
-            const links = await storage.getTicketLinks(existingTicket.id);
-            const parentLink = links.find(l => l.linkType === "invoice_for" && l.targetTicketId === existingTicket.id);
+            const companyUsers = await storage.getCompanyUsersByCompanyId(user.activeCompanyId);
+            const mainAdmin = companyUsers.find(cu => cu.role === "admin");
             
-            if (parentLink) {
-              const parentTicket = await storage.getTicketById(parentLink.sourceTicketId, user.activeCompanyId);
-              if (parentTicket) {
-                const parentTicketType = await storage.getTicketTypeById(parentTicket.ticketTypeId, user.activeCompanyId);
-                const parentStatuses = await storage.getTicketTypeStatuses(parentTicket.ticketTypeId);
-                
-                // Get the invoice field values from this Invoice ticket
-                const invoiceFieldValues = await storage.getTicketFieldValues(existingTicket.id);
-                const invoiceFields = await storage.getTicketTypeFields(existingTicket.ticketTypeId);
-                
-                const invoiceDataParts: string[] = [];
-                for (const fv of invoiceFieldValues) {
-                  const field = invoiceFields.find(f => f.id === fv.fieldId);
-                  if (field && fv.value) {
-                    invoiceDataParts.push(`${field.fieldLabel}: ${fv.value}`);
+            if (mainAdmin) {
+              const customer = existingTicket.customerId 
+                ? await storage.getCustomerById(existingTicket.customerId, user.activeCompanyId)
+                : null;
+              
+              const customerText = customer ? ` - ${customer.name}` : "";
+              const completedAt = new Date().toLocaleString();
+              
+              await storage.createNotification({
+                companyId: user.activeCompanyId,
+                recipientId: mainAdmin.userId,
+                ticketId: existingTicket.id,
+                type: "completed",
+                message: `Ticket completed: ${existingTicket.title}${customerText} (${completedAt})`,
+                isRead: false,
+              });
+              
+              console.log(`Created completion notification for ticket ${existingTicket.id} to admin ${mainAdmin.userId}`);
+            }
+          } catch (err) {
+            console.error("Failed to create completion notification:", err);
+          }
+          
+          // Auto-propagate Invoice completion back to parent ticket
+          const currentTicketType = await storage.getTicketTypeById(existingTicket.ticketTypeId, user.activeCompanyId);
+          const isInvoiceTicket = currentTicketType?.name === "Invoice";
+          
+          if (isInvoiceTicket) {
+            try {
+              const links = await storage.getTicketLinks(existingTicket.id);
+              const parentLink = links.find(l => l.linkType === "invoice_for" && l.targetTicketId === existingTicket.id);
+              
+              if (parentLink) {
+                const parentTicket = await storage.getTicketById(parentLink.sourceTicketId, user.activeCompanyId);
+                if (parentTicket) {
+                  const parentTicketType = await storage.getTicketTypeById(parentTicket.ticketTypeId, user.activeCompanyId);
+                  const parentStatuses = await storage.getTicketTypeStatuses(parentTicket.ticketTypeId);
+                  
+                  const invoiceFieldValues = await storage.getTicketFieldValues(existingTicket.id);
+                  const invoiceFields = await storage.getTicketTypeFields(existingTicket.ticketTypeId);
+                  
+                  const invoiceDataParts: string[] = [];
+                  for (const fv of invoiceFieldValues) {
+                    const field = invoiceFields.find(f => f.id === fv.fieldId);
+                    if (field && fv.value) {
+                      invoiceDataParts.push(`${field.fieldLabel}: ${fv.value}`);
+                    }
+                  }
+                  
+                  if (invoiceDataParts.length > 0) {
+                    await storage.createTicketComment({
+                      ticketId: parentTicket.id,
+                      authorId: user.id,
+                      body: `[Invoice Completed] ${invoiceDataParts.join(" | ")}`,
+                    });
+                  }
+                  
+                  const sortedParentStatuses = [...parentStatuses].sort((a, b) => a.displayOrder - b.displayOrder);
+                  const currentStatusIndex = sortedParentStatuses.findIndex(s => s.id === parentTicket.currentStatusId);
+                  const nextFinalStatus = sortedParentStatuses.find((s, i) => i > currentStatusIndex && s.isFinal === "true");
+                  
+                  if (nextFinalStatus) {
+                    await storage.updateTicket(parentTicket.id, user.activeCompanyId, {
+                      currentStatusId: nextFinalStatus.id,
+                      completedAt: new Date(),
+                    });
+                    
+                    await storage.createTicketStatusHistory({
+                      ticketId: parentTicket.id,
+                      toStatusId: nextFinalStatus.id,
+                      changedById: user.id,
+                      notes: `Auto-advanced: linked Invoice ticket completed`,
+                    });
+                    
+                    console.log(`Auto-advanced parent ticket ${parentTicket.id} (${parentTicketType?.name}) to "${nextFinalStatus.name}" after Invoice completion`);
                   }
                 }
-                
-                if (invoiceDataParts.length > 0) {
-                  await storage.createTicketComment({
-                    ticketId: parentTicket.id,
-                    authorId: user.id,
-                    body: `[Invoice Completed] ${invoiceDataParts.join(" | ")}`,
-                  });
-                }
-                
-                // Generic: find the next status after "Ready for Billing" which should be the final billing status
-                // Sort by display order, find statuses after the current one
-                const sortedStatuses = [...parentStatuses].sort((a, b) => a.displayOrder - b.displayOrder);
-                const currentStatusIndex = sortedStatuses.findIndex(s => s.id === parentTicket.currentStatusId);
-                // Find the next final status after the current position
-                const nextFinalStatus = sortedStatuses.find((s, i) => i > currentStatusIndex && s.isFinal === "true");
-                
-                if (nextFinalStatus) {
-                  await storage.updateTicket(parentTicket.id, user.activeCompanyId, {
-                    currentStatusId: nextFinalStatus.id,
-                    completedAt: new Date(),
-                  });
-                  
-                  await storage.createTicketStatusHistory({
-                    ticketId: parentTicket.id,
-                    toStatusId: nextFinalStatus.id,
-                    changedById: user.id,
-                    notes: `Auto-advanced: linked Invoice ticket completed`,
-                  });
-                  
-                  console.log(`Auto-advanced parent ticket ${parentTicket.id} (${parentTicketType?.name}) to "${nextFinalStatus.name}" after Invoice completion`);
-                }
               }
+            } catch (err) {
+              console.error("Failed to propagate Invoice completion to parent ticket:", err);
             }
-          } catch (err) {
-            console.error("Failed to propagate Invoice completion to parent ticket:", err);
           }
         }
-
-      }
-      
-      // Auto-create Invoice ticket when ANY billable ticket reaches "Ready for Billing" status
-      // This fires for Project, Extra Billable, or any future ticket type with invoice_required billing
-      const currentTicketTypeForInvoice = await storage.getTicketTypeById(existingTicket.ticketTypeId, user.activeCompanyId);
-      const isInvoiceTicketType = currentTicketTypeForInvoice?.name === "Invoice";
-      
-      if (newStatus?.name === "Ready for Billing" && existingTicket.billingBehavior === "invoice_required" && !isInvoiceTicketType) {
-        const existingLinks = await storage.getTicketLinks(existingTicket.id);
-        const hasExistingInvoice = existingLinks.some(l => l.linkType === "invoice_for" && l.sourceTicketId === existingTicket.id);
         
-        if (!hasExistingInvoice) {
-          try {
-            const invoiceTypeInfo = await ensureInvoiceTicketType(user.activeCompanyId);
-            
-            if (invoiceTypeInfo) {
-              // Find the billing-tagged user for auto-assignment
-              const companyUsersForBilling = await storage.getCompanyUsersByCompanyId(user.activeCompanyId);
-              const billingUser = companyUsersForBilling.find(cu => cu.tags?.includes("billing") && cu.status === "active");
+        // Auto-create Invoice ticket when moving FORWARD to "Ready for Billing"
+        const currentTicketTypeForInvoice = await storage.getTicketTypeById(existingTicket.ticketTypeId, user.activeCompanyId);
+        const isInvoiceTicketType = currentTicketTypeForInvoice?.name === "Invoice";
+        
+        if (newStatus?.name === "Ready for Billing" && existingTicket.billingBehavior === "invoice_required" && !isInvoiceTicketType) {
+          const existingLinks = await storage.getTicketLinks(existingTicket.id);
+          const hasExistingInvoice = existingLinks.some(l => l.linkType === "invoice_for" && l.sourceTicketId === existingTicket.id);
+          
+          if (!hasExistingInvoice) {
+            try {
+              const invoiceTypeInfo = await ensureInvoiceTicketType(user.activeCompanyId);
               
-              const invoiceTicket = await storage.createTicket({
-                companyId: user.activeCompanyId,
-                customerId: existingTicket.customerId,
-                contractId: existingTicket.contractId,
-                ticketTypeId: invoiceTypeInfo.typeId,
-                currentStatusId: invoiceTypeInfo.pendingStatusId,
-                workType: "admin",
-                billingBehavior: "internal",
-                title: `Invoice: ${existingTicket.title}`,
-                description: `Invoice required for completed work: ${existingTicket.title}\n\nOriginal description: ${existingTicket.description || "N/A"}`,
-                priority: "normal",
-                assignedToId: billingUser?.userId || null,
-                createdById: user.id,
-              });
-              
-              await storage.createTicketLink({
-                sourceTicketId: existingTicket.id,
-                targetTicketId: invoiceTicket.id,
-                linkType: "invoice_for",
-              });
-              
-              const sourceComments = await storage.getTicketComments(existingTicket.id);
-              for (const comment of sourceComments) {
-                await storage.createTicketComment({
-                  ticketId: invoiceTicket.id,
-                  authorId: comment.authorId,
-                  body: comment.body,
+              if (invoiceTypeInfo) {
+                const companyUsersForBilling = await storage.getCompanyUsersByCompanyId(user.activeCompanyId);
+                const billingUser = companyUsersForBilling.find(cu => cu.tags?.includes("billing") && cu.status === "active");
+                
+                const invoiceTicket = await storage.createTicket({
+                  companyId: user.activeCompanyId,
+                  customerId: existingTicket.customerId,
+                  contractId: existingTicket.contractId,
+                  ticketTypeId: invoiceTypeInfo.typeId,
+                  currentStatusId: invoiceTypeInfo.pendingStatusId,
+                  workType: "admin",
+                  billingBehavior: "internal",
+                  title: `Invoice: ${existingTicket.title}`,
+                  description: `Invoice required for completed work: ${existingTicket.title}\n\nOriginal description: ${existingTicket.description || "N/A"}`,
+                  priority: "normal",
+                  assignedToId: billingUser?.userId || null,
+                  createdById: user.id,
                 });
+                
+                await storage.createTicketLink({
+                  sourceTicketId: existingTicket.id,
+                  targetTicketId: invoiceTicket.id,
+                  linkType: "invoice_for",
+                });
+                
+                const sourceComments = await storage.getTicketComments(existingTicket.id);
+                for (const comment of sourceComments) {
+                  await storage.createTicketComment({
+                    ticketId: invoiceTicket.id,
+                    authorId: comment.authorId,
+                    body: comment.body,
+                  });
+                }
+                
+                console.log(`Auto-created Invoice ticket ${invoiceTicket.id} for ticket ${existingTicket.id} at Ready for Billing (assigned to: ${billingUser?.userId || 'unassigned'}) with ${sourceComments.length} notes copied`);
               }
-              
-              console.log(`Auto-created Invoice ticket ${invoiceTicket.id} for ticket ${existingTicket.id} at Ready for Billing (assigned to: ${billingUser?.userId || 'unassigned'}) with ${sourceComments.length} notes copied`);
+            } catch (err) {
+              console.error("Failed to auto-create invoice ticket:", err);
             }
-          } catch (err) {
-            console.error("Failed to auto-create invoice ticket:", err);
           }
         }
       }
