@@ -5,6 +5,7 @@ A CRM for High Plains Property Maintenance designed to streamline operations for
 
 ## User Preferences
 Preferred communication style: Simple, everyday language.
+Test login credentials: randy@highplainsprop.com / Soccer03
 
 ## System Architecture
 
