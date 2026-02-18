@@ -874,6 +874,45 @@ export async function removeProjectInvoicingFields(): Promise<void> {
   }
 }
 
+// Startup migration: Fix billing_behavior for Project tickets that originated as estimate_requests
+// When workType auto-transitions from estimate_request to project, billingBehavior should also change to invoice_required
+// This corrects any existing tickets where the billingBehavior was not updated during the transition
+export async function fixEstimateRequestBillingBehavior(): Promise<void> {
+  console.log("Running startup migration: Fixing billing_behavior for Project tickets from estimate_requests...");
+  
+  try {
+    const companies = await storage.getCompanies();
+    let fixedCount = 0;
+    
+    for (const company of companies) {
+      const ticketTypes = await storage.getTicketTypes(company.id);
+      const projectType = ticketTypes.find(tt => tt.name === "Project");
+      if (!projectType) continue;
+      
+      const allTickets = await storage.getTickets(company.id);
+      const affectedTickets = allTickets.filter(
+        t => t.ticketTypeId === projectType.id && 
+             t.workType === "project" && 
+             t.billingBehavior === "internal"
+      );
+      
+      for (const ticket of affectedTickets) {
+        await storage.updateTicket(ticket.id, { billingBehavior: "invoice_required" });
+        fixedCount++;
+        console.log(`Fixed billing_behavior for ticket ${ticket.id} ("${ticket.title}") to invoice_required`);
+      }
+    }
+    
+    if (fixedCount > 0) {
+      console.log(`Fixed billing_behavior for ${fixedCount} Project tickets`);
+    } else {
+      console.log("No Project tickets needed billing_behavior fix");
+    }
+  } catch (error) {
+    console.error("Error fixing estimate_request billing behavior:", error);
+  }
+}
+
 // Startup migration: Ensure all companies have the Extra Billable ticket type
 // and migrate any existing extra_work To-Do tickets to the new type
 export async function migrateExtraBillableTicketType(): Promise<void> {
@@ -4064,7 +4103,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
           const isInApprovedPath = approvedPathStatuses.includes(newStatus.name);
           if (isInApprovedPath) {
             req.body.workType = "project";
-            console.log(`Auto-transitioning ticket ${existingTicket.id} work type from estimate_request to project (status: ${newStatus.name})`);
+            req.body.billingBehavior = "invoice_required";
+            console.log(`Auto-transitioning ticket ${existingTicket.id} work type from estimate_request to project with invoice_required billing (status: ${newStatus.name})`);
           }
         }
       }

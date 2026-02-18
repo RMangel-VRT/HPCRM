@@ -467,7 +467,7 @@ export default function SettingsPage() {
       </div>
 
       <Tabs value={activeTab} onValueChange={setActiveTab}>
-        <TabsList className="flex-wrap">
+        <TabsList className="flex-wrap h-auto gap-1">
           {isAdmin && (
             <>
               <TabsTrigger value="company" data-testid="tab-company">Company</TabsTrigger>
@@ -667,7 +667,7 @@ export default function SettingsPage() {
         {canAccessPropertyManagement && (
         <TabsContent value="property-management" className="space-y-6">
           <Card>
-            <CardHeader className="flex flex-row items-center justify-between gap-4">
+            <CardHeader className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
               <div>
                 <CardTitle className="flex items-center gap-2">
                   <Building2 className="h-5 w-5" />
@@ -677,7 +677,7 @@ export default function SettingsPage() {
                   Manage companies that oversee multiple properties
                 </CardDescription>
               </div>
-              <Button onClick={() => handleOpenPmCompanyDialog()} data-testid="button-add-pm-company">
+              <Button onClick={() => handleOpenPmCompanyDialog()} data-testid="button-add-pm-company" className="w-full sm:w-auto">
                 <Plus className="h-4 w-4 mr-2" />
                 Add Company
               </Button>
@@ -686,41 +686,68 @@ export default function SettingsPage() {
               {pmCompanies.length === 0 ? (
                 <p className="text-muted-foreground text-center py-4">No property management companies yet.</p>
               ) : (
-                <Table>
-                  <TableHeader>
-                    <TableRow>
-                      <TableHead>Name</TableHead>
-                      <TableHead>Phone</TableHead>
-                      <TableHead>Email</TableHead>
-                      <TableHead className="text-right">Actions</TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
+                <>
+                  <div className="hidden sm:block">
+                    <Table>
+                      <TableHeader>
+                        <TableRow>
+                          <TableHead>Name</TableHead>
+                          <TableHead>Phone</TableHead>
+                          <TableHead>Email</TableHead>
+                          <TableHead className="text-right">Actions</TableHead>
+                        </TableRow>
+                      </TableHeader>
+                      <TableBody>
+                        {pmCompanies.map((company) => (
+                          <TableRow key={company.id} data-testid={`row-pm-company-${company.id}`}>
+                            <TableCell className="font-medium">{company.name}</TableCell>
+                            <TableCell>{company.phone || "-"}</TableCell>
+                            <TableCell>{company.email || "-"}</TableCell>
+                            <TableCell className="text-right">
+                              <div className="flex justify-end gap-2">
+                                <Button size="icon" variant="ghost" onClick={() => handleOpenPmCompanyDialog(company)} data-testid={`button-edit-pm-company-${company.id}`}>
+                                  <Pencil className="h-4 w-4" />
+                                </Button>
+                                <Button size="icon" variant="ghost" onClick={() => deletePmCompanyMutation.mutate(company.id)} data-testid={`button-delete-pm-company-${company.id}`}>
+                                  <Trash2 className="h-4 w-4" />
+                                </Button>
+                              </div>
+                            </TableCell>
+                          </TableRow>
+                        ))}
+                      </TableBody>
+                    </Table>
+                  </div>
+                  <div className="sm:hidden space-y-3">
                     {pmCompanies.map((company) => (
-                      <TableRow key={company.id} data-testid={`row-pm-company-${company.id}`}>
-                        <TableCell className="font-medium">{company.name}</TableCell>
-                        <TableCell>{company.phone || "-"}</TableCell>
-                        <TableCell>{company.email || "-"}</TableCell>
-                        <TableCell className="text-right">
-                          <div className="flex justify-end gap-2">
-                            <Button size="icon" variant="ghost" onClick={() => handleOpenPmCompanyDialog(company)} data-testid={`button-edit-pm-company-${company.id}`}>
+                      <div key={company.id} className="border rounded-md p-3 space-y-2" data-testid={`card-pm-company-${company.id}`}>
+                        <div className="flex items-center justify-between gap-2">
+                          <p className="font-medium text-sm" data-testid={`text-pm-company-name-${company.id}`}>{company.name}</p>
+                          <div className="flex gap-1">
+                            <Button size="icon" variant="ghost" onClick={() => handleOpenPmCompanyDialog(company)} data-testid={`button-edit-pm-company-m-${company.id}`}>
                               <Pencil className="h-4 w-4" />
                             </Button>
-                            <Button size="icon" variant="ghost" onClick={() => deletePmCompanyMutation.mutate(company.id)} data-testid={`button-delete-pm-company-${company.id}`}>
+                            <Button size="icon" variant="ghost" onClick={() => deletePmCompanyMutation.mutate(company.id)} data-testid={`button-delete-pm-company-m-${company.id}`}>
                               <Trash2 className="h-4 w-4" />
                             </Button>
                           </div>
-                        </TableCell>
-                      </TableRow>
+                        </div>
+                        {company.phone && (
+                          <p className="text-xs text-muted-foreground flex items-center gap-1" data-testid={`text-pm-company-phone-${company.id}`}><Phone className="w-3 h-3" /> {company.phone}</p>
+                        )}
+                        {company.email && (
+                          <p className="text-xs text-muted-foreground flex items-center gap-1" data-testid={`text-pm-company-email-${company.id}`}><Mail className="w-3 h-3" /> {company.email}</p>
+                        )}
+                      </div>
                     ))}
-                  </TableBody>
-                </Table>
+                  </div>
+                </>
               )}
             </CardContent>
           </Card>
 
           <Card>
-            <CardHeader className="flex flex-row items-center justify-between gap-4">
+            <CardHeader className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
               <div>
                 <CardTitle className="flex items-center gap-2">
                   <User className="h-5 w-5" />
@@ -730,10 +757,11 @@ export default function SettingsPage() {
                   Individual managers who handle specific properties
                 </CardDescription>
               </div>
-              <div className="flex gap-2">
+              <div className="flex flex-wrap gap-2 w-full sm:w-auto">
                 {pmManagers.length > 0 && pmManagers.some(m => m.email) && (
                   <Button 
                     variant="outline"
+                    className="flex-1 sm:flex-initial"
                     onClick={() => {
                       const allEmails = pmManagers
                         .map(m => m.email)
@@ -749,10 +777,10 @@ export default function SettingsPage() {
                     data-testid="button-copy-all-pm-emails"
                   >
                     <Mail className="h-4 w-4 mr-2" />
-                    Copy All Emails
+                    Copy Emails
                   </Button>
                 )}
-                <Button onClick={() => handleOpenPmManagerDialog()} data-testid="button-add-pm-manager">
+                <Button onClick={() => handleOpenPmManagerDialog()} data-testid="button-add-pm-manager" className="flex-1 sm:flex-initial">
                   <Plus className="h-4 w-4 mr-2" />
                   Add Manager
                 </Button>
@@ -762,61 +790,108 @@ export default function SettingsPage() {
               {pmManagers.length === 0 ? (
                 <p className="text-muted-foreground text-center py-4">No property managers yet.</p>
               ) : (
-                <Table>
-                  <TableHeader>
-                    <TableRow>
-                      <TableHead>Name</TableHead>
-                      <TableHead>Company</TableHead>
-                      <TableHead>Phone</TableHead>
-                      <TableHead>Email</TableHead>
-                      <TableHead className="text-right">Actions</TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
+                <>
+                  <div className="hidden sm:block">
+                    <Table>
+                      <TableHeader>
+                        <TableRow>
+                          <TableHead>Name</TableHead>
+                          <TableHead>Company</TableHead>
+                          <TableHead>Phone</TableHead>
+                          <TableHead>Email</TableHead>
+                          <TableHead className="text-right">Actions</TableHead>
+                        </TableRow>
+                      </TableHeader>
+                      <TableBody>
+                        {pmManagers.map((manager) => {
+                          const company = pmCompanies.find((c) => c.id === manager.propertyManagementCompanyId);
+                          return (
+                            <TableRow key={manager.id} data-testid={`row-pm-manager-${manager.id}`}>
+                              <TableCell className="font-medium">{manager.name}</TableCell>
+                              <TableCell>{company?.name || "-"}</TableCell>
+                              <TableCell>{manager.phone || "-"}</TableCell>
+                              <TableCell>
+                                {manager.email ? (
+                                  <span className="inline-flex items-center gap-1">
+                                    {manager.email}
+                                    <button
+                                      type="button"
+                                      className="text-muted-foreground p-0.5 rounded hover-elevate active-elevate-2"
+                                      onClick={(e) => {
+                                        e.stopPropagation();
+                                        navigator.clipboard.writeText(manager.email!);
+                                        toast({
+                                          title: "Copied",
+                                          description: "Email copied to clipboard",
+                                        });
+                                      }}
+                                      data-testid={`button-copy-pm-email-${manager.id}`}
+                                    >
+                                      <Copy className="w-3 h-3" />
+                                    </button>
+                                  </span>
+                                ) : "-"}
+                              </TableCell>
+                              <TableCell className="text-right">
+                                <div className="flex justify-end gap-2">
+                                  <Button size="icon" variant="ghost" onClick={() => handleOpenPmManagerDialog(manager)} data-testid={`button-edit-pm-manager-${manager.id}`}>
+                                    <Pencil className="h-4 w-4" />
+                                  </Button>
+                                  <Button size="icon" variant="ghost" onClick={() => deletePmManagerMutation.mutate(manager.id)} data-testid={`button-delete-pm-manager-${manager.id}`}>
+                                    <Trash2 className="h-4 w-4" />
+                                  </Button>
+                                </div>
+                              </TableCell>
+                            </TableRow>
+                          );
+                        })}
+                      </TableBody>
+                    </Table>
+                  </div>
+                  <div className="sm:hidden space-y-3">
                     {pmManagers.map((manager) => {
                       const company = pmCompanies.find((c) => c.id === manager.propertyManagementCompanyId);
                       return (
-                        <TableRow key={manager.id} data-testid={`row-pm-manager-${manager.id}`}>
-                          <TableCell className="font-medium">{manager.name}</TableCell>
-                          <TableCell>{company?.name || "-"}</TableCell>
-                          <TableCell>{manager.phone || "-"}</TableCell>
-                          <TableCell>
-                            {manager.email ? (
-                              <span className="inline-flex items-center gap-1">
-                                {manager.email}
-                                <button
-                                  type="button"
-                                  className="text-muted-foreground hover:text-foreground p-0.5 rounded hover-elevate"
-                                  onClick={(e) => {
-                                    e.stopPropagation();
-                                    navigator.clipboard.writeText(manager.email!);
-                                    toast({
-                                      title: "Copied",
-                                      description: "Email copied to clipboard",
-                                    });
-                                  }}
-                                  data-testid={`button-copy-pm-email-${manager.id}`}
-                                >
-                                  <Copy className="w-3 h-3" />
-                                </button>
-                              </span>
-                            ) : "-"}
-                          </TableCell>
-                          <TableCell className="text-right">
-                            <div className="flex justify-end gap-2">
-                              <Button size="icon" variant="ghost" onClick={() => handleOpenPmManagerDialog(manager)} data-testid={`button-edit-pm-manager-${manager.id}`}>
+                        <div key={manager.id} className="border rounded-md p-3 space-y-2" data-testid={`card-pm-manager-${manager.id}`}>
+                          <div className="flex items-center justify-between gap-2">
+                            <div className="min-w-0">
+                              <p className="font-medium text-sm truncate" data-testid={`text-pm-manager-name-${manager.id}`}>{manager.name}</p>
+                              {company && <p className="text-xs text-muted-foreground" data-testid={`text-pm-manager-company-${manager.id}`}>{company.name}</p>}
+                            </div>
+                            <div className="flex gap-1">
+                              <Button size="icon" variant="ghost" onClick={() => handleOpenPmManagerDialog(manager)} data-testid={`button-edit-pm-manager-m-${manager.id}`}>
                                 <Pencil className="h-4 w-4" />
                               </Button>
-                              <Button size="icon" variant="ghost" onClick={() => deletePmManagerMutation.mutate(manager.id)} data-testid={`button-delete-pm-manager-${manager.id}`}>
+                              <Button size="icon" variant="ghost" onClick={() => deletePmManagerMutation.mutate(manager.id)} data-testid={`button-delete-pm-manager-m-${manager.id}`}>
                                 <Trash2 className="h-4 w-4" />
                               </Button>
                             </div>
-                          </TableCell>
-                        </TableRow>
+                          </div>
+                          {manager.phone && (
+                            <p className="text-xs text-muted-foreground flex items-center gap-1" data-testid={`text-pm-manager-phone-${manager.id}`}><Phone className="w-3 h-3" /> {manager.phone}</p>
+                          )}
+                          {manager.email && (
+                            <p className="text-xs text-muted-foreground flex items-center gap-1" data-testid={`text-pm-manager-email-${manager.id}`}>
+                              <Mail className="w-3 h-3" /> {manager.email}
+                              <span
+                                role="button"
+                                className="text-muted-foreground p-0.5 rounded hover-elevate active-elevate-2 ml-1 cursor-pointer inline-flex"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  navigator.clipboard.writeText(manager.email!);
+                                  toast({ title: "Copied", description: "Email copied to clipboard" });
+                                }}
+                                data-testid={`button-copy-pm-email-m-${manager.id}`}
+                              >
+                                <Copy className="w-3 h-3" />
+                              </span>
+                            </p>
+                          )}
+                        </div>
                       );
                     })}
-                  </TableBody>
-                </Table>
+                  </div>
+                </>
               )}
             </CardContent>
           </Card>
@@ -1104,7 +1179,7 @@ export default function SettingsPage() {
                   </FormItem>
                 )}
               />
-              <div className="grid grid-cols-2 gap-4">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <FormField
                   control={pmCompanyForm.control}
                   name="phone"
@@ -1145,7 +1220,7 @@ export default function SettingsPage() {
                   </FormItem>
                 )}
               />
-              <div className="grid grid-cols-3 gap-4">
+              <div className="grid grid-cols-3 sm:grid-cols-3 gap-4">
                 <FormField
                   control={pmCompanyForm.control}
                   name="city"
@@ -1521,28 +1596,44 @@ function BillingSettings() {
                 </p>
               </div>
               {migrationPreview.length > 0 && (
-                <Table>
-                  <TableHeader>
-                    <TableRow>
-                      <TableHead>Title</TableHead>
-                      <TableHead>Type</TableHead>
-                      <TableHead>Status</TableHead>
-                      <TableHead>Customer</TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
+                <>
+                  <div className="hidden sm:block">
+                    <Table>
+                      <TableHeader>
+                        <TableRow>
+                          <TableHead>Title</TableHead>
+                          <TableHead>Type</TableHead>
+                          <TableHead>Status</TableHead>
+                          <TableHead>Customer</TableHead>
+                        </TableRow>
+                      </TableHeader>
+                      <TableBody>
+                        {migrationPreview.map(t => (
+                          <TableRow key={t.ticketId}>
+                            <TableCell className="text-sm">{t.title}</TableCell>
+                            <TableCell><Badge variant="outline">{t.ticketType}</Badge></TableCell>
+                            <TableCell className="text-sm">{t.currentStatus}</TableCell>
+                            <TableCell className="text-sm text-muted-foreground">{t.customerName}</TableCell>
+                          </TableRow>
+                        ))}
+                      </TableBody>
+                    </Table>
+                  </div>
+                  <div className="sm:hidden space-y-2">
                     {migrationPreview.map(t => (
-                      <TableRow key={t.ticketId}>
-                        <TableCell className="text-sm">{t.title}</TableCell>
-                        <TableCell><Badge variant="outline">{t.ticketType}</Badge></TableCell>
-                        <TableCell className="text-sm">{t.currentStatus}</TableCell>
-                        <TableCell className="text-sm text-muted-foreground">{t.customerName}</TableCell>
-                      </TableRow>
+                      <div key={t.ticketId} className="border rounded-md p-3 space-y-1" data-testid={`card-migration-ticket-${t.ticketId}`}>
+                        <p className="text-sm font-medium" data-testid={`text-migration-title-${t.ticketId}`}>{t.title}</p>
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <Badge variant="outline">{t.ticketType}</Badge>
+                          <span className="text-xs text-muted-foreground" data-testid={`text-migration-status-${t.ticketId}`}>{t.currentStatus}</span>
+                        </div>
+                        <p className="text-xs text-muted-foreground" data-testid={`text-migration-customer-${t.ticketId}`}>{t.customerName}</p>
+                      </div>
                     ))}
-                  </TableBody>
-                </Table>
+                  </div>
+                </>
               )}
-              <div className="flex gap-2">
+              <div className="flex flex-col sm:flex-row gap-2">
                 <Button 
                   onClick={executeMigration} 
                   disabled={migrationRunning || migrationPreview.length === 0}
