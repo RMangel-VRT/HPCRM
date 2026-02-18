@@ -450,7 +450,7 @@ export default function TicketDetail() {
   
   const nextStatus = getNextStatus();
   const previousStatus = sortedCurrentIndex > 0 ? sortedStatuses[sortedCurrentIndex - 1] : null;
-  const isComplete = !!ticket.completedAt;
+  const isComplete = !!ticket.completedAt || currentStatus?.isFinal === "true";
   
   // Check if ticket is at "Ready to Schedule" on a Project workflow - show delegate option
   const isAtReadyToSchedule = currentStatus?.name === "Ready to Schedule" && ticketType.name === "Project";
