@@ -839,6 +839,51 @@ export async function fixExtraBillableDoneOrder(): Promise<void> {
   }
 }
 
+// Startup migration: Fix Project ticket type display orders
+// When "Ready to Schedule" was added, existing statuses weren't re-ordered
+export async function fixProjectDisplayOrders(): Promise<void> {
+  console.log("Running startup migration: Fixing Project ticket type display orders...");
+  try {
+    const companies = await storage.getCompanies();
+    const expectedOrders: Record<string, number> = {
+      "New": 0,
+      "Estimating": 1,
+      "Estimate Sent": 2,
+      "Decision Received": 3,
+      "Ready to Schedule": 4,
+      "Work Completed": 5,
+      "Ready for Billing": 6,
+      "Invoicing": 7,
+      "Closed - Lost": 8,
+    };
+
+    for (const company of companies) {
+      const ticketTypes = await storage.getTicketTypes(company.id);
+      const projectType = ticketTypes.find(tt => tt.name === "Project");
+      if (!projectType) continue;
+
+      const statuses = await storage.getTicketTypeStatuses(projectType.id);
+      let fixedCount = 0;
+
+      for (const status of statuses) {
+        const expected = expectedOrders[status.name];
+        if (expected !== undefined && status.displayOrder !== expected) {
+          await storage.updateTicketTypeStatus(status.id, { displayOrder: expected });
+          console.log(`Fixed Project status "${status.name}" display order: ${status.displayOrder} → ${expected} (company ${company.id})`);
+          fixedCount++;
+        }
+      }
+
+      if (fixedCount > 0) {
+        console.log(`Fixed ${fixedCount} Project status display orders for company ${company.id}`);
+      }
+    }
+    console.log("Project display order fix complete");
+  } catch (error) {
+    console.error("Error fixing Project display orders:", error);
+  }
+}
+
 // Startup migration: Remove invoice data fields from Project's "Invoicing" status
 // Invoice data should only be entered on the Invoice ticket, not duplicated on the Project
 export async function removeProjectInvoicingFields(): Promise<void> {
@@ -4300,9 +4345,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
         const currentTicketTypeForInvoice = await storage.getTicketTypeById(existingTicket.ticketTypeId, user.activeCompanyId);
         const isInvoiceTicketType = currentTicketTypeForInvoice?.name === "Invoice";
         
+        console.log(`Invoice auto-creation check for ticket ${existingTicket.id}: newStatus="${newStatus?.name}", billingBehavior="${existingTicket.billingBehavior}", ticketType="${currentTicketTypeForInvoice?.name}", isInvoiceType=${isInvoiceTicketType}`);
+        
         if (newStatus?.name === "Ready for Billing" && existingTicket.billingBehavior === "invoice_required" && !isInvoiceTicketType) {
           const existingLinks = await storage.getTicketLinks(existingTicket.id);
           const hasExistingInvoice = existingLinks.some(l => l.linkType === "invoice_for" && l.sourceTicketId === existingTicket.id);
+          console.log(`Invoice auto-creation: hasExistingInvoice=${hasExistingInvoice}, links=${JSON.stringify(existingLinks.map(l => ({ id: l.id, type: l.linkType, src: l.sourceTicketId, tgt: l.targetTicketId })))}`);
           
           if (!hasExistingInvoice) {
             try {

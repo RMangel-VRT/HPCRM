@@ -1,5 +1,5 @@
 import express, { type Request, Response, NextFunction } from "express";
-import { registerRoutes, migrateProjectSchedulingStatus, migrateFirstBankHierarchy, migrateExtraBillableTicketType, removeProjectInvoicingFields, fixExtraBillableDoneOrder, fixEstimateRequestBillingBehavior } from "./routes";
+import { registerRoutes, migrateProjectSchedulingStatus, migrateFirstBankHierarchy, migrateExtraBillableTicketType, removeProjectInvoicingFields, fixExtraBillableDoneOrder, fixEstimateRequestBillingBehavior, fixProjectDisplayOrders } from "./routes";
 import { setupVite, serveStatic, log } from "./vite";
 import { runDueDateNotifications } from "./due-date-notifications";
 
@@ -56,6 +56,7 @@ app.use((req, res, next) => {
   await migrateExtraBillableTicketType(); // Ensure Extra Billable ticket type exists and migrate old tickets
   await removeProjectInvoicingFields(); // Remove duplicate invoice data fields from Project Invoicing status
   await fixExtraBillableDoneOrder(); // Fix Extra Billable Done status order after Ready for Billing insertion
+  await fixProjectDisplayOrders(); // Fix Project ticket type display orders (Ready to Schedule / Work Completed collision)
   await fixEstimateRequestBillingBehavior(); // Fix billing_behavior for Project tickets from estimate_requests
 
   app.use((err: any, _req: Request, res: Response, _next: NextFunction) => {
