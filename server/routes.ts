@@ -4136,6 +4136,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
         }
       }
       
+      // If stepping BACK from a final status to a non-final status, clear completedAt
+      const oldStatus = allStatuses.find(s => s.id === existingTicket.currentStatusId);
+      if (oldStatus?.isFinal === "true" && newStatus?.isFinal !== "true") {
+        req.body.completedAt = null;
+        console.log(`Ticket ${existingTicket.id} stepped back from final status "${oldStatus.name}" to "${newStatus?.name}" - clearing completedAt`);
+      }
+      
       if (newStatus?.isFinal === "true") {
         req.body.completedAt = new Date();
         

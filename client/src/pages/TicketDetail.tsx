@@ -56,6 +56,7 @@ import {
   CornerDownLeft,
   Mail,
   RotateCw,
+  Undo2,
 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { queryClient, apiRequest } from "@/lib/queryClient";
@@ -127,6 +128,10 @@ export default function TicketDetail() {
   // Delegation state
   const [showDelegateDialog, setShowDelegateDialog] = useState(false);
   const [delegateTargetId, setDelegateTargetId] = useState<string | null>(null);
+  
+  // Step-back state
+  const [showStepBackDialog, setShowStepBackDialog] = useState(false);
+  const [stepBackNotes, setStepBackNotes] = useState("");
   
   // Invoice creation handoff state for Projects at Ready for Billing
   const [showInvoicePrompt, setShowInvoicePrompt] = useState(false);
@@ -444,6 +449,7 @@ export default function TicketDetail() {
   };
   
   const nextStatus = getNextStatus();
+  const previousStatus = sortedCurrentIndex > 0 ? sortedStatuses[sortedCurrentIndex - 1] : null;
   const isComplete = !!ticket.completedAt;
   
   // Check if ticket is at "Ready to Schedule" on a Project workflow - show delegate option
@@ -504,6 +510,21 @@ export default function TicketDetail() {
         checkInvoicePrompt,
       });
     }
+  };
+
+  const handleStepBack = () => {
+    if (!previousStatus) return;
+    setShowStepBackDialog(true);
+  };
+
+  const handleConfirmStepBack = () => {
+    if (!previousStatus) return;
+    updateStatusMutation.mutate({
+      statusId: previousStatus.id,
+      notes: stepBackNotes || `Stepped back to ${previousStatus.name}`,
+    });
+    setShowStepBackDialog(false);
+    setStepBackNotes("");
   };
 
   const handleConfirmStatusChange = async () => {
@@ -1812,6 +1833,17 @@ export default function TicketDetail() {
         <div className="fixed bottom-0 left-0 right-0 p-4 bg-background border-t md:left-64">
           {isAtReadyToSchedule && !isDelegated && canDelegate ? (
             <div className="flex gap-2">
+              {isAdminOrOffice && previousStatus && (
+                <Button 
+                  variant="outline"
+                  size="icon"
+                  onClick={handleStepBack}
+                  disabled={updateStatusMutation.isPending}
+                  data-testid="button-step-back"
+                >
+                  <Undo2 className="w-5 h-5" />
+                </Button>
+              )}
               <Button 
                 variant="outline"
                 className="flex-1 h-12 text-base gap-2" 
@@ -1838,32 +1870,59 @@ export default function TicketDetail() {
               </Button>
             </div>
           ) : (
-            <Button 
-              className="w-full h-12 text-base gap-2" 
-              onClick={handleAdvanceStatus}
-              disabled={updateStatusMutation.isPending}
-              data-testid="button-advance-status"
-            >
-              {updateStatusMutation.isPending ? (
-                <Loader2 className="w-5 h-5 animate-spin" />
-              ) : (
-                <>
-                  {nextStatus?.name === "Decision Received" && (ticketType.name === "RFP Request" || ticketType.name === "Project")
-                    ? "Record Decision"
-                    : `Move to: ${nextStatus.name}`}
-                  <ChevronRight className="w-5 h-5" />
-                </>
+            <div className="flex gap-2">
+              {isAdminOrOffice && previousStatus && (
+                <Button 
+                  variant="outline"
+                  size="icon"
+                  onClick={handleStepBack}
+                  disabled={updateStatusMutation.isPending}
+                  data-testid="button-step-back"
+                >
+                  <Undo2 className="w-5 h-5" />
+                </Button>
               )}
-            </Button>
+              <Button 
+                className="flex-1 h-12 text-base gap-2" 
+                onClick={handleAdvanceStatus}
+                disabled={updateStatusMutation.isPending}
+                data-testid="button-advance-status"
+              >
+                {updateStatusMutation.isPending ? (
+                  <Loader2 className="w-5 h-5 animate-spin" />
+                ) : (
+                  <>
+                    {nextStatus?.name === "Decision Received" && (ticketType.name === "RFP Request" || ticketType.name === "Project")
+                      ? "Record Decision"
+                      : `Move to: ${nextStatus.name}`}
+                    <ChevronRight className="w-5 h-5" />
+                  </>
+                )}
+              </Button>
+            </div>
           )}
         </div>
       )}
 
       {isComplete && (
         <div className="fixed bottom-0 left-0 right-0 p-4 bg-background border-t md:left-64">
-          <div className="flex items-center justify-center gap-2 text-green-600 dark:text-green-400">
-            <Check className="w-5 h-5" />
-            <span className="font-medium">Ticket Completed</span>
+          <div className="flex items-center justify-between gap-2">
+            <div className="flex items-center gap-2 text-green-600 dark:text-green-400 flex-1 justify-center">
+              <Check className="w-5 h-5" />
+              <span className="font-medium">Ticket Completed</span>
+            </div>
+            {isAdminOrOffice && previousStatus && (
+              <Button 
+                variant="outline"
+                className="gap-2 shrink-0"
+                onClick={handleStepBack}
+                disabled={updateStatusMutation.isPending}
+                data-testid="button-step-back-completed"
+              >
+                <Undo2 className="w-4 h-4" />
+                Reopen
+              </Button>
+            )}
           </div>
         </div>
       )}
@@ -2014,6 +2073,54 @@ export default function TicketDetail() {
               ) : (
                 "Confirm"
               )}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={showStepBackDialog} onOpenChange={setShowStepBackDialog}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Step Back to: {previousStatus?.name}</DialogTitle>
+            <DialogDescription>
+              Move this ticket back to the previous status. This will be recorded in the workflow history.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4 py-2">
+            <div className="flex items-center gap-3 p-3 rounded-md border">
+              <div className="flex items-center gap-2 text-muted-foreground">
+                <span className="text-sm line-through" data-testid="text-current-status">{currentStatus?.name}</span>
+                <ArrowLeft className="w-4 h-4" />
+                <span className="text-sm font-medium text-foreground" data-testid="text-target-status">{previousStatus?.name}</span>
+              </div>
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="step-back-notes">Reason (optional)</Label>
+              <Textarea
+                id="step-back-notes"
+                placeholder="Why is this ticket being stepped back?"
+                value={stepBackNotes}
+                onChange={(e) => setStepBackNotes(e.target.value)}
+                rows={3}
+                data-testid="input-step-back-notes"
+              />
+            </div>
+          </div>
+          <DialogFooter className="flex gap-2">
+            <Button variant="outline" onClick={() => { setShowStepBackDialog(false); setStepBackNotes(""); }} data-testid="button-cancel-step-back">
+              Cancel
+            </Button>
+            <Button 
+              onClick={handleConfirmStepBack}
+              disabled={updateStatusMutation.isPending}
+              data-testid="button-confirm-step-back"
+            >
+              {updateStatusMutation.isPending ? (
+                <Loader2 className="w-4 h-4 animate-spin mr-2" />
+              ) : (
+                <Undo2 className="w-4 h-4 mr-2" />
+              )}
+              Step Back
             </Button>
           </DialogFooter>
         </DialogContent>
