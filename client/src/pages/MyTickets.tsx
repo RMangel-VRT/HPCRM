@@ -658,8 +658,8 @@ function TicketCard({ ticket, formatDueDate, schedulingStatusId, onNavigate }: T
                 </div>
               )}
 
-              <div className="flex items-center justify-between mt-3 pt-3 border-t">
-                <div className="flex items-center gap-3">
+              <div className="flex items-center justify-between gap-3 mt-3 pt-3 border-t">
+                <div className="flex items-center gap-3 min-w-0">
                   {ticket.currentStatus && (
                     <Badge 
                       variant="outline" 
@@ -687,7 +687,7 @@ function TicketCard({ ticket, formatDueDate, schedulingStatusId, onNavigate }: T
                   )}
                 </div>
                 {dueInfo && (
-                  <span className={`text-xs flex items-center gap-1 ${dueInfo.className}`}>
+                  <span className={`text-xs flex items-center gap-1 shrink-0 ${dueInfo.className}`}>
                     <CalendarDays className="w-3 h-3" />
                     {dueInfo.text}
                   </span>

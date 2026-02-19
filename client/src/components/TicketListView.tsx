@@ -807,14 +807,14 @@ function TicketCard({ ticket, formatDueDate, usersMap, schedulingStatusId, selec
               </div>
             )}
 
-            <div className="flex items-center justify-between mt-3 pt-3 border-t">
-              <div className="flex items-center gap-3">
+            <div className="flex items-center justify-between gap-3 mt-3 pt-3 border-t">
+              <div className="flex items-center gap-3 min-w-0">
                 {workflowStatuses.length > 0 && ticket.currentStatus && (() => {
                   const currentIndex = workflowStatuses.findIndex(s => s.id === ticket.currentStatusId);
                   const isOnFinalStep = currentIndex === workflowStatuses.length - 1;
                   
                   return (
-                    <div className="flex items-center" data-testid={`workflow-progress-${ticket.id}`}>
+                    <div className="flex items-center min-w-0 overflow-hidden" data-testid={`workflow-progress-${ticket.id}`}>
                       {workflowStatuses.map((status, index) => {
                         const isCompleted = index < currentIndex || isOnFinalStep;
                         const isCurrent = index === currentIndex && !isOnFinalStep;
@@ -899,13 +899,13 @@ function TicketCard({ ticket, formatDueDate, usersMap, schedulingStatusId, selec
               </div>
 
               {ticket.assignedToId && (
-                <div className="flex items-center gap-1.5">
+                <div className="flex items-center gap-1.5 shrink-0">
                   <Avatar className="w-6 h-6">
                     <AvatarFallback className="text-[10px] bg-muted">
                       <UserIcon className="w-3 h-3" />
                     </AvatarFallback>
                   </Avatar>
-                  <span className="text-xs text-muted-foreground truncate max-w-[100px]" data-testid={`text-assignee-${ticket.id}`}>
+                  <span className="text-xs text-muted-foreground truncate max-w-[80px]" data-testid={`text-assignee-${ticket.id}`}>
                     {usersMap.get(ticket.assignedToId)?.name || usersMap.get(ticket.assignedToId)?.email?.split('@')[0] || 'Assigned'}
                   </span>
                 </div>
