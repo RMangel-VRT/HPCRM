@@ -1536,8 +1536,9 @@ export default function TicketDetail() {
           })().map((status, index) => {
             // Use history to determine completion instead of just displayOrder
             const visitedIds = new Set(statusHistory.map(h => h.toStatusId));
-            const isCompleted = visitedIds.has(status.id) && status.id !== ticket.currentStatusId;
             const isCurrent = status.id === ticket.currentStatusId;
+            const currentStatusOrder = sortedStatuses.find(s => s.id === ticket.currentStatusId)?.displayOrder ?? 0;
+            const isCompleted = visitedIds.has(status.id) && !isCurrent && (parseInt(String(status.displayOrder)) <= parseInt(String(currentStatusOrder)));
             const isPending = !isCompleted && !isCurrent;
             const statusFields = status.fields || [];
             

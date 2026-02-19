@@ -942,7 +942,7 @@ export async function fixEstimateRequestBillingBehavior(): Promise<void> {
       );
       
       for (const ticket of affectedTickets) {
-        await storage.updateTicket(ticket.id, { billingBehavior: "invoice_required" });
+        await storage.updateTicket(ticket.id, company.id, { billingBehavior: "invoice_required" });
         fixedCount++;
         console.log(`Fixed billing_behavior for ticket ${ticket.id} ("${ticket.title}") to invoice_required`);
       }
