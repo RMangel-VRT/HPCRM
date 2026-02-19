@@ -29,6 +29,7 @@ import {
   Truck,
   FileText,
   Snowflake,
+  FileBarChart,
 } from "lucide-react";
 import {
   Dialog,
@@ -140,6 +141,10 @@ export default function AppSidebar({
 
     if (userRole === "admin" || userRole === "office" || userRole === "field_manager") {
       items.push({ title: "Tools", url: "/dashboard/tools", icon: Wrench });
+    }
+
+    if (userRole === "admin" || userRole === "office") {
+      items.push({ title: "Reports", url: "/dashboard/reports", icon: FileBarChart });
     }
 
     if (userRole === "admin") {

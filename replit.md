@@ -57,6 +57,9 @@ A system for managing winter weather events, property impacts, service assignmen
 #### First-Time Setup Flow
 When deployed with an empty database, the application initiates a first-time setup page, allowing the creation of the initial company and admin user, then auto-logs in. This setup page is inaccessible once any user exists.
 
+#### Reports
+A reporting tool for Admin and Office roles that generates exportable lists from database data. Supports 5 report types: Customer/Property List, Contacts by Customer, Equipment List, Contracts List, and Tickets Summary. Each report displays in a sortable, searchable data table with CSV export. Accessible at /dashboard/reports via the Management sidebar section. Backend endpoint: GET /api/reports/:type.
+
 #### Email Notification System
 Transactional email notifications powered by SendGrid (via Replit connector). Triggers "Work Completed" emails when tickets reach a final status. Uses a template/rule engine: email_templates store HTML templates with {{variable}} substitution, email_rules link events (e.g., ticket.work_completed) to templates, and email_logs track all sent emails with delivery status. The Email History tab on the Ticket Detail page (Admin/Office only) shows sent/failed emails with resend capability. Default template and rule are auto-seeded per company on startup. Service layer in server/services/emailService.ts handles SendGrid API calls with error logging.
 

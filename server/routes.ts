@@ -6,7 +6,7 @@ import { setupAuth, type UserWithContext } from "./auth";
 import { storage } from "./storage";
 import { db } from "./db";
 import { eq, and, inArray } from "drizzle-orm";
-import { insertCustomerSchema, insertContactSchema, insertCompanySchema, insertCompanyUserSchema, insertSettingsSchema, insertNoteSchema, insertContractSchema, insertContractDocumentSchema, insertContractBuilderDocumentSchema, insertContractBuilderSectionSchema, insertContractBuilderVariableSchema, insertTicketTypeSchema, insertTicketTypeStatusSchema, insertTicketTypeFieldSchema, insertTicketSchema, insertTicketFieldValueSchema, insertTicketStatusHistorySchema, insertTicketCommentSchema, insertTicketLinkSchema, insertCustomerMapLayerSchema, insertCustomerMapDocumentSchema, insertMaintenanceCrewSchema, insertMaintenanceVisitConfigSchema, insertWeeklyScheduleTemplateSchema, insertScheduleBlockSchema, insertEquipmentSchema, insertEquipmentFileSchema, insertEquipmentTicketSchema, insertEquipmentTicketStatusHistorySchema, insertSnowEventSchema, insertSnowEventPropertyImpactSchema, insertSnowEventAttachmentSchema, insertEmailTemplateSchema, insertEmailRuleSchema, SNOW_RANGES, tickets, ticketTypes, ticketTypeStatuses, customers as customersTable, contractMonthlyAmounts, contractDocuments, contractServices, contractStatusHistory, companyUsers as companyUsersTable } from "@shared/schema";
+import { insertCustomerSchema, insertContactSchema, insertCompanySchema, insertCompanyUserSchema, insertSettingsSchema, insertNoteSchema, insertContractSchema, insertContractDocumentSchema, insertContractBuilderDocumentSchema, insertContractBuilderSectionSchema, insertContractBuilderVariableSchema, insertTicketTypeSchema, insertTicketTypeStatusSchema, insertTicketTypeFieldSchema, insertTicketSchema, insertTicketFieldValueSchema, insertTicketStatusHistorySchema, insertTicketCommentSchema, insertTicketLinkSchema, insertCustomerMapLayerSchema, insertCustomerMapDocumentSchema, insertMaintenanceCrewSchema, insertMaintenanceVisitConfigSchema, insertWeeklyScheduleTemplateSchema, insertScheduleBlockSchema, insertEquipmentSchema, insertEquipmentFileSchema, insertEquipmentTicketSchema, insertEquipmentTicketStatusHistorySchema, insertSnowEventSchema, insertSnowEventPropertyImpactSchema, insertSnowEventAttachmentSchema, insertEmailTemplateSchema, insertEmailRuleSchema, SNOW_RANGES, tickets, ticketTypes, ticketTypeStatuses, customers as customersTable, contacts as contactsTable, contracts as contractsTable, equipment as equipmentTable, users as usersTable, contractMonthlyAmounts, contractDocuments, contractServices, contractStatusHistory, companyUsers as companyUsersTable } from "@shared/schema";
 import type { Customer } from "@shared/schema";
 import { ObjectStorageService, ObjectNotFoundError, objectStorageClient, signObjectURL } from "./objectStorage";
 import { ObjectPermission, ObjectAccessGroupType, setObjectAclPolicy } from "./objectAcl";
@@ -7119,6 +7119,231 @@ export async function registerRoutes(app: Express): Promise<Server> {
   } catch (err) {
     console.error("Failed to seed email templates on startup:", err);
   }
+
+  // ===== Reports API =====
+  app.get("/api/reports/:type", async (req, res) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ error: "Not authenticated" });
+    const user = req.user as UserWithContext;
+    const companyId = user.activeCompanyId;
+    const role = user.activeRole;
+
+    if (!["admin", "office"].includes(role || "")) {
+      return res.status(403).json({ error: "Reports are available to Admin and Office roles" });
+    }
+
+    const reportType = req.params.type;
+
+    try {
+      switch (reportType) {
+        case "customers": {
+          const allCustomers = await storage.getCustomers(companyId);
+          const rows = allCustomers.map(c => ({
+            name: c.name,
+            customerNumber: c.customerNumber || "",
+            street: c.street,
+            city: c.city,
+            state: c.state,
+            zip: c.zip,
+            status: c.status,
+            acres: c.acres || "",
+            snowEnabled: c.snowEnabled ? "Yes" : "No",
+          }));
+          return res.json({
+            title: "Customer / Property List",
+            columns: [
+              { key: "name", label: "Customer Name" },
+              { key: "customerNumber", label: "Customer #" },
+              { key: "street", label: "Street" },
+              { key: "city", label: "City" },
+              { key: "state", label: "State" },
+              { key: "zip", label: "Zip" },
+              { key: "status", label: "Status" },
+              { key: "acres", label: "Acres" },
+              { key: "snowEnabled", label: "Snow" },
+            ],
+            rows,
+          });
+        }
+
+        case "contacts": {
+          const allContacts = await db
+            .select({
+              contactName: contactsTable.name,
+              role: contactsTable.role,
+              phones: contactsTable.phones,
+              emails: contactsTable.emails,
+              isPrimary: contactsTable.isPrimary,
+              notes: contactsTable.notes,
+              customerName: customersTable.name,
+            })
+            .from(contactsTable)
+            .innerJoin(customersTable, eq(contactsTable.customerId, customersTable.id))
+            .where(eq(contactsTable.companyId, companyId));
+
+          const rows = allContacts.map(c => ({
+            customerName: c.customerName,
+            contactName: c.contactName,
+            role: c.role || "",
+            phone: (c.phones || []).join(", "),
+            email: (c.emails || []).join(", "),
+            isPrimary: c.isPrimary === "true" ? "Yes" : "",
+            notes: c.notes || "",
+          }));
+          return res.json({
+            title: "Contacts by Customer",
+            columns: [
+              { key: "customerName", label: "Customer" },
+              { key: "contactName", label: "Contact Name" },
+              { key: "role", label: "Role" },
+              { key: "phone", label: "Phone" },
+              { key: "email", label: "Email" },
+              { key: "isPrimary", label: "Primary" },
+              { key: "notes", label: "Notes" },
+            ],
+            rows,
+          });
+        }
+
+        case "equipment": {
+          const allEquipment = await storage.getEquipment(companyId);
+          const companyUsersForEquip = await storage.getCompanyUsersByCompanyId(companyId);
+          const userMapEquip = new Map<string, string>();
+          for (const cu of companyUsersForEquip) {
+            const u = await storage.getUserById(cu.userId);
+            if (u) userMapEquip.set(u.id, u.name || u.email);
+          }
+
+          const rows = allEquipment.map(e => ({
+            name: e.name,
+            equipmentType: e.equipmentType,
+            status: e.status,
+            make: e.make || "",
+            model: e.model || "",
+            year: e.year ? String(e.year) : "",
+            serialNumber: e.serialNumber || "",
+            licensePlate: e.licensePlate || "",
+            assignedTo: e.assignedToId ? (userMapEquip.get(e.assignedToId) || "") : "",
+            location: e.location || "",
+          }));
+          return res.json({
+            title: "Equipment List",
+            columns: [
+              { key: "name", label: "Name" },
+              { key: "equipmentType", label: "Type" },
+              { key: "status", label: "Status" },
+              { key: "make", label: "Make" },
+              { key: "model", label: "Model" },
+              { key: "year", label: "Year" },
+              { key: "serialNumber", label: "Serial / VIN" },
+              { key: "licensePlate", label: "License Plate" },
+              { key: "assignedTo", label: "Assigned To" },
+              { key: "location", label: "Location" },
+            ],
+            rows,
+          });
+        }
+
+        case "contracts": {
+          const allContracts = await db
+            .select({
+              customerName: customersTable.name,
+              serviceType: contractsTable.serviceType,
+              billingPattern: contractsTable.billingPattern,
+              status: contractsTable.status,
+              startDate: contractsTable.startDate,
+              endDate: contractsTable.endDate,
+              po: contractsTable.po,
+              notes: contractsTable.notes,
+            })
+            .from(contractsTable)
+            .innerJoin(customersTable, eq(contractsTable.customerId, customersTable.id))
+            .where(eq(contractsTable.companyId, companyId));
+
+          const rows = allContracts.map(c => ({
+            customerName: c.customerName,
+            serviceType: c.serviceType,
+            billingPattern: c.billingPattern,
+            status: c.status,
+            startDate: c.startDate ? new Date(c.startDate).toLocaleDateString() : "",
+            endDate: c.endDate ? new Date(c.endDate).toLocaleDateString() : "",
+            po: c.po || "",
+            notes: c.notes || "",
+          }));
+          return res.json({
+            title: "Contracts List",
+            columns: [
+              { key: "customerName", label: "Customer" },
+              { key: "serviceType", label: "Service Type" },
+              { key: "billingPattern", label: "Billing Pattern" },
+              { key: "status", label: "Status" },
+              { key: "startDate", label: "Start Date" },
+              { key: "endDate", label: "End Date" },
+              { key: "po", label: "PO #" },
+              { key: "notes", label: "Notes" },
+            ],
+            rows,
+          });
+        }
+
+        case "tickets": {
+          const allTickets = await storage.getTickets(companyId);
+          const allTicketTypes = await storage.getTicketTypes(companyId);
+          const companyUsersForTickets = await storage.getCompanyUsersByCompanyId(companyId);
+          const userMapTickets = new Map<string, string>();
+          for (const cu of companyUsersForTickets) {
+            const u = await storage.getUserById(cu.userId);
+            if (u) userMapTickets.set(u.id, u.name || u.email);
+          }
+          const typeMap = new Map(allTicketTypes.map(tt => [tt.id, tt.name]));
+
+          const allStatusesForReport: Array<{ id: string; name: string; ticketTypeId: string }> = [];
+          for (const tt of allTicketTypes) {
+            const statuses = await storage.getTicketTypeStatuses(tt.id, companyId);
+            statuses.forEach(s => allStatusesForReport.push({ id: s.id, name: s.name, ticketTypeId: s.ticketTypeId }));
+          }
+          const statusMap = new Map(allStatusesForReport.map(s => [s.id, s.name]));
+
+          const allCustomersForTickets = await storage.getCustomers(companyId);
+          const custMap = new Map(allCustomersForTickets.map(c => [c.id, c.name]));
+
+          const rows = allTickets.map(t => ({
+            title: t.title,
+            ticketType: typeMap.get(t.ticketTypeId) || "",
+            status: statusMap.get(t.currentStatusId) || "",
+            customer: t.customerId ? (custMap.get(t.customerId) || "") : "",
+            priority: t.priority,
+            workType: t.workType,
+            assignedTo: t.assignedToId ? (userMapTickets.get(t.assignedToId) || "") : "",
+            dueDate: t.dueDate ? new Date(t.dueDate).toLocaleDateString() : "",
+            completed: t.completedAt ? "Yes" : "No",
+            created: t.createdAt ? new Date(t.createdAt).toLocaleDateString() : "",
+          }));
+          return res.json({
+            title: "Tickets Summary",
+            columns: [
+              { key: "title", label: "Title" },
+              { key: "ticketType", label: "Ticket Type" },
+              { key: "status", label: "Status" },
+              { key: "customer", label: "Customer" },
+              { key: "priority", label: "Priority" },
+              { key: "workType", label: "Work Type" },
+              { key: "assignedTo", label: "Assigned To" },
+              { key: "dueDate", label: "Due Date" },
+              { key: "completed", label: "Completed" },
+              { key: "created", label: "Created" },
+            ],
+            rows,
+          });
+        }
+
+        default:
+          return res.status(400).json({ error: `Unknown report type: ${reportType}` });
+      }
+    } catch (err) {
+      console.error(`Error generating report ${reportType}:`, err);
+      return res.status(500).json({ error: "Failed to generate report" });
+    }
+  });
 
   const httpServer = createServer(app);
 

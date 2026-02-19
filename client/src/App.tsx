@@ -37,6 +37,7 @@ import ContractsOverview from "@/pages/ContractsOverview";
 import SnowEventsList from "@/pages/SnowEventsList";
 import SnowEventDetail from "@/pages/SnowEventDetail";
 import NewSnowEvent from "@/pages/NewSnowEvent";
+import ReportsPage from "@/pages/ReportsPage";
 import NotFound from "@/pages/not-found";
 
 function Router() {
@@ -126,6 +127,7 @@ function Router() {
               <ProtectedRoute path="/dashboard/snow" component={SnowEventsList} allowedRoles={["admin", "office", "field_manager"]} />
               <ProtectedRoute path="/dashboard/contracts" component={ContractsOverview} allowedRoles={["admin", "office"]} />
               <ProtectedRoute path="/dashboard/revenue" component={RevenueOverview} allowedRoles={["admin", "office"]} />
+              <ProtectedRoute path="/dashboard/reports" component={ReportsPage} allowedRoles={["admin", "office"]} />
               <ProtectedRoute
                 path="/dashboard/users"
                 component={UsersPage}
