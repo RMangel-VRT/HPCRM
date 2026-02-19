@@ -4538,6 +4538,17 @@ export async function registerRoutes(app: Express): Promise<Server> {
       if (!parentProject) {
         return res.status(404).send("Parent project not found");
       }
+
+      // Check if an invoice ticket already exists for this parent (prevent duplicates)
+      const existingLinks = await storage.getTicketLinks(parentTicketId);
+      const existingInvoiceLink = existingLinks.find(l => l.linkType === "invoice_for" && l.sourceTicketId === parentTicketId);
+      if (existingInvoiceLink) {
+        const existingInvoice = await storage.getTicketById(existingInvoiceLink.targetTicketId, user.activeCompanyId);
+        if (existingInvoice) {
+          console.log(`Invoice ticket ${existingInvoice.id} already exists for parent ${parentTicketId}, returning existing instead of creating duplicate`);
+          return res.json(existingInvoice);
+        }
+      }
       
       // Ensure Invoice ticket type exists
       const invoiceTypeInfo = await ensureInvoiceTicketType(user.activeCompanyId);

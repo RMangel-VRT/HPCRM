@@ -139,9 +139,6 @@ export default function TicketDetail() {
     isCompleted: boolean;
   } | null>(null);
   
-  // Invoice creation handoff state for Projects at Ready for Billing
-  const [showInvoicePrompt, setShowInvoicePrompt] = useState(false);
-  const [creatingInvoice, setCreatingInvoice] = useState(false);
   
   // Completion email recipient state (multi-select)
   const [selectedRecipientEmails, setSelectedRecipientEmails] = useState<Set<string>>(new Set());
@@ -292,7 +289,7 @@ export default function TicketDetail() {
   });
 
   const updateStatusMutation = useMutation({
-    mutationFn: async ({ statusId, notes, checkInvoicePrompt, confirmDeleteInvoice }: { statusId: string; notes?: string; checkInvoicePrompt?: boolean; confirmDeleteInvoice?: boolean }) => {
+    mutationFn: async ({ statusId, notes, confirmDeleteInvoice }: { statusId: string; notes?: string; confirmDeleteInvoice?: boolean }) => {
       const body: Record<string, unknown> = {
         currentStatusId: statusId,
         statusChangeNotes: notes,
@@ -321,9 +318,9 @@ export default function TicketDetail() {
         throw new Error(`${res.status}: ${text}`);
       }
       
-      return { result: res, checkInvoicePrompt };
+      return res;
     },
-    onSuccess: ({ checkInvoicePrompt }) => {
+    onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/tickets", ticketId, "details"] });
       queryClient.invalidateQueries({ queryKey: ["/api/tickets"] });
       queryClient.invalidateQueries({ queryKey: ["/api/tickets/my"] });
@@ -334,10 +331,6 @@ export default function TicketDetail() {
       setStatusNotes("");
       setStepBackInvoiceWarning(null);
       toast({ title: "Status updated successfully" });
-      
-      if (checkInvoicePrompt) {
-        setShowInvoicePrompt(true);
-      }
     },
     onError: (error: any) => {
       if (error?.isInvoiceConflict) {
@@ -534,18 +527,8 @@ export default function TicketDetail() {
       setPendingStatusId(nextStatus.id);
       setShowStatusDialog(true);
     } else {
-      // Direct advance without dialog - check for special handoffs
-      let checkInvoicePrompt = false;
-      
-      // Check if advancing to Ready for Billing - only prompt for invoice if billing is required
-      // Skip for internal work types (admin, estimate_request) and contract work (no_invoice)
-      if (nextStatus.name === "Ready for Billing" && ticket.billingBehavior === "invoice_required") {
-        checkInvoicePrompt = true;
-      }
-      
       updateStatusMutation.mutate({ 
         statusId: nextStatus.id,
-        checkInvoicePrompt,
       });
     }
   };
@@ -585,8 +568,6 @@ export default function TicketDetail() {
     
     // Determine actual target status (handle RFP/Project branching based on dialog inputs)
     let actualTargetStatusId = pendingStatusId;
-    let shouldPromptInvoice = false;
-    
     if (currentStatus?.name === "Decision Received" && ticketType.name === "RFP Request") {
       const decisionField = currentStatusFields.find(f => f.fieldKey === "decision_outcome");
       const decisionValue = decisionField ? fieldInputs[decisionField.id] : null;
@@ -613,13 +594,6 @@ export default function TicketDetail() {
       // Approved continues to natural next step (Work Completed)
     }
     
-    // Check if advancing to "Ready for Billing" - prompt for Invoice creation
-    // This applies to any ticket type with invoice_required billing behavior
-    const targetStatusName = statuses.find(s => s.id === actualTargetStatusId)?.name;
-    if (targetStatusName === "Ready for Billing" && ticket.billingBehavior === "invoice_required") {
-      shouldPromptInvoice = true;
-    }
-    
     // Validate target status required fields (only if not branching to a different status)
     const targetStatus = statuses.find(s => s.id === actualTargetStatusId);
     if (actualTargetStatusId === pendingStatusId) {
@@ -642,7 +616,6 @@ export default function TicketDetail() {
     updateStatusMutation.mutate({ 
       statusId: actualTargetStatusId, 
       notes: statusNotes,
-      checkInvoicePrompt: shouldPromptInvoice,
     });
   };
 
@@ -654,40 +627,6 @@ export default function TicketDetail() {
     if (newComment.trim()) {
       addCommentMutation.mutate(newComment.trim());
     }
-  };
-
-  // Handle creating an Invoice ticket linked to this Project at Ready for Billing
-  const handleCreateInvoice = async () => {
-    if (!details) return;
-    
-    setCreatingInvoice(true);
-    try {
-      // Create the Invoice ticket with link to this Project
-      const result = await apiRequest("POST", "/api/tickets/create-invoice-from-project", {
-        parentTicketId: ticketId,
-        customerId: ticket.customerId,
-        title: `Invoice: ${ticket.title}`,
-        description: `Invoice for project: ${ticket.title}\n\nOriginal description: ${ticket.description || "N/A"}`,
-        priority: "normal",
-      });
-      
-      if (result && (result as any).id) {
-        toast({ title: "Invoice ticket created. Complete it to advance this ticket." });
-        queryClient.invalidateQueries({ queryKey: ["/api/tickets", ticketId, "details"] });
-        queryClient.invalidateQueries({ queryKey: ["/api/tickets"] });
-        queryClient.invalidateQueries({ queryKey: ["/api/tickets/my"] });
-      }
-    } catch (error) {
-      toast({ title: "Failed to create Invoice ticket", variant: "destructive" });
-    } finally {
-      setCreatingInvoice(false);
-      setShowInvoicePrompt(false);
-    }
-  };
-
-  const handleSkipInvoice = () => {
-    setShowInvoicePrompt(false);
-    toast({ title: "You can create an Invoice later from this ticket" });
   };
 
   // Open edit dialog and populate form with current values
@@ -2202,52 +2141,6 @@ export default function TicketDetail() {
                 Step Back
               </Button>
             )}
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-
-      {/* Invoice Creation Prompt Dialog for Project at Ready for Billing */}
-      <Dialog open={showInvoicePrompt} onOpenChange={setShowInvoicePrompt}>
-        <DialogContent className="sm:max-w-md">
-          <DialogHeader>
-            <DialogTitle>Create Invoice Ticket</DialogTitle>
-            <DialogDescription>
-              This work is ready for billing. Create an Invoice ticket to track the invoicing process.
-            </DialogDescription>
-          </DialogHeader>
-          
-          <div className="py-4 space-y-3">
-            <div className="p-3 bg-muted rounded-lg space-y-2">
-              <p className="text-sm font-medium">The Invoice ticket will include:</p>
-              <ul className="text-sm text-muted-foreground space-y-1">
-                <li>• Reference to this work ticket</li>
-                <li>• Customer billing information</li>
-                <li>• Work description for invoicing</li>
-              </ul>
-            </div>
-            <p className="text-sm text-muted-foreground">
-              When the Invoice ticket is completed, this ticket will automatically advance to its final status with the invoice data.
-            </p>
-          </div>
-          
-          <DialogFooter className="gap-2 sm:gap-0">
-            <Button 
-              variant="outline" 
-              onClick={handleSkipInvoice}
-              data-testid="button-skip-invoice"
-            >
-              Skip for Now
-            </Button>
-            <Button 
-              onClick={handleCreateInvoice}
-              disabled={creatingInvoice}
-              data-testid="button-create-invoice"
-            >
-              {creatingInvoice ? (
-                <Loader2 className="w-4 h-4 animate-spin mr-2" />
-              ) : null}
-              Create Invoice
-            </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
