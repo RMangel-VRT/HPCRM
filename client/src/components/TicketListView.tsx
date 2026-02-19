@@ -807,8 +807,8 @@ function TicketCard({ ticket, formatDueDate, usersMap, schedulingStatusId, selec
               </div>
             )}
 
-            <div className="flex items-center justify-between gap-3 mt-3 pt-3 border-t">
-              <div className="flex items-center gap-3 min-w-0">
+            <div className="flex items-center flex-wrap justify-between gap-2 mt-3 pt-3 border-t">
+              <div className="flex items-center gap-3 min-w-0 flex-1">
                 {workflowStatuses.length > 0 && ticket.currentStatus && (() => {
                   const currentIndex = workflowStatuses.findIndex(s => s.id === ticket.currentStatusId);
                   const isOnFinalStep = currentIndex === workflowStatuses.length - 1;
@@ -905,7 +905,7 @@ function TicketCard({ ticket, formatDueDate, usersMap, schedulingStatusId, selec
                       <UserIcon className="w-3 h-3" />
                     </AvatarFallback>
                   </Avatar>
-                  <span className="text-xs text-muted-foreground truncate max-w-[80px]" data-testid={`text-assignee-${ticket.id}`}>
+                  <span className="text-xs text-muted-foreground truncate max-w-[80px] hidden sm:inline" data-testid={`text-assignee-${ticket.id}`}>
                     {usersMap.get(ticket.assignedToId)?.name || usersMap.get(ticket.assignedToId)?.email?.split('@')[0] || 'Assigned'}
                   </span>
                 </div>
