@@ -11,19 +11,19 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Badge } from "@/components/ui/badge";
-import { Search, ChevronRight, ChevronLeft, ChevronDown, Clock, User, MapPin, CalendarDays, Filter, Loader2, CheckCircle2, RefreshCw, Wrench } from "lucide-react";
+import { Search, ChevronRight, ChevronLeft, ChevronDown, Clock, CalendarDays, Filter, Loader2, CheckCircle2, RefreshCw, Wrench } from "lucide-react";
 import { Link, useSearch } from "wouter";
-import { Avatar, AvatarFallback } from "@/components/ui/avatar";
-import type { Ticket, TicketType, TicketTypeStatus, Customer, WorkType, EquipmentTicket, Equipment } from "@shared/schema";
-import { WORK_TYPE_CATALOG } from "@shared/workTypeCatalog";
+import type { Ticket, TicketType, TicketTypeStatus, Customer, EquipmentTicket, Equipment, CompanyUser, User as UserType } from "@shared/schema";
 import { useAuth } from "@/hooks/use-auth";
+import TicketCard from "@/components/TicketCard";
+import type { TicketWithDetails } from "@/components/TicketCard";
 
 const MY_TICKETS_SCROLL_STORAGE_KEY = "myTicketsScrollPosition";
 
-interface TicketWithDetails extends Ticket {
-  ticketType?: TicketType;
-  currentStatus?: TicketTypeStatus;
-  customer?: Customer;
+interface CompanyUserWithDetails {
+  companyUser: CompanyUser;
+  user: UserType;
+  isSuperAdmin: boolean;
 }
 
 const EQUIPMENT_TICKET_STATUS_COLORS: Record<string, string> = {
@@ -170,6 +170,20 @@ export default function MyTickets() {
     queryKey: ["/api/scheduling-status"],
   });
   const schedulingStatusId = schedulingStatusData?.schedulingStatusId;
+
+  const { data: companyUsersData = [] } = useQuery<CompanyUserWithDetails[]>({
+    queryKey: ["/api/companies/users"],
+  });
+
+  const usersMap = useMemo(() => {
+    const map = new Map<string, UserType>();
+    companyUsersData.forEach(cu => {
+      if (cu.user) {
+        map.set(cu.user.id, cu.user);
+      }
+    });
+    return map;
+  }, [companyUsersData]);
 
   const { data: equipmentTickets = [], isLoading: equipTicketsLoading } = useQuery<EquipmentTicket[]>({
     queryKey: ["/api/equipment-tickets", { assignedToId: user?.id }],
@@ -416,7 +430,15 @@ export default function MyTickets() {
                   {!openSectionCollapsed && (
                     <div className="space-y-3 md:space-y-2">
                       {openTickets.map((ticket) => (
-                        <TicketCard key={ticket.id} ticket={ticket} formatDueDate={formatDueDate} schedulingStatusId={schedulingStatusId} onNavigate={saveScrollPosition} />
+                        <TicketCard
+                          key={ticket.id}
+                          ticket={ticket}
+                          formatDueDate={formatDueDate}
+                          schedulingStatusId={schedulingStatusId}
+                          onNavigate={saveScrollPosition}
+                          usersMap={usersMap}
+                          workflowStatuses={allStatuses.filter((s: TicketTypeStatus) => s.ticketTypeId === ticket.ticketTypeId).sort((a: TicketTypeStatus, b: TicketTypeStatus) => (a.displayOrder || 0) - (b.displayOrder || 0))}
+                        />
                       ))}
                     </div>
                   )}
@@ -442,7 +464,15 @@ export default function MyTickets() {
                       <>
                         <div className="space-y-3 md:space-y-2 opacity-75">
                           {paginatedCompleted.map((ticket) => (
-                            <TicketCard key={ticket.id} ticket={ticket} formatDueDate={formatDueDate} schedulingStatusId={schedulingStatusId} onNavigate={saveScrollPosition} />
+                            <TicketCard
+                              key={ticket.id}
+                              ticket={ticket}
+                              formatDueDate={formatDueDate}
+                              schedulingStatusId={schedulingStatusId}
+                              onNavigate={saveScrollPosition}
+                              usersMap={usersMap}
+                              workflowStatuses={allStatuses.filter((s: TicketTypeStatus) => s.ticketTypeId === ticket.ticketTypeId).sort((a: TicketTypeStatus, b: TicketTypeStatus) => (a.displayOrder || 0) - (b.displayOrder || 0))}
+                            />
                           ))}
                         </div>
                         {totalPages > 1 && (
@@ -563,141 +593,6 @@ export default function MyTickets() {
         </div>
       )}
     </div>
-  );
-}
-
-interface TicketCardProps {
-  ticket: TicketWithDetails;
-  formatDueDate: (date: Date | null | undefined) => { text: string; className: string } | null;
-  schedulingStatusId?: string | null;
-  onNavigate?: () => void;
-}
-
-function TicketCard({ ticket, formatDueDate, schedulingStatusId, onNavigate }: TicketCardProps) {
-  const dueInfo = formatDueDate(ticket.dueDate);
-  
-  const barColor = ticket.completedAt 
-    ? "#22c55e"
-    : (ticket.ticketType?.color || "#6b7280");
-
-  const needsScheduling = schedulingStatusId && ticket.currentStatusId === schedulingStatusId;
-
-  return (
-    <Link href={`/dashboard/tickets/${ticket.id}`} onClick={onNavigate}>
-      <Card 
-        className={`hover-elevate active-elevate-2 cursor-pointer transition-colors ${needsScheduling ? "ring-2 ring-pink-500 dark:ring-pink-400 animate-pulse" : ""}`}
-        data-testid={`card-my-ticket-${ticket.id}`}
-      >
-        <CardContent className="p-4">
-          <div className="flex items-start gap-3">
-            <div 
-              className="w-1 self-stretch rounded-full" 
-              style={{ backgroundColor: barColor }}
-            />
-            
-            <div className="flex-1 min-w-0">
-              <div className="flex items-center gap-2 flex-wrap">
-                {ticket.ticketType && (
-                  <span 
-                    className="text-sm font-semibold"
-                    style={{ color: barColor }}
-                    data-testid={`text-my-tickettype-${ticket.id}`}
-                  >
-                    {ticket.ticketType.name}
-                  </span>
-                )}
-                {ticket.workType && WORK_TYPE_CATALOG[ticket.workType as WorkType] && (
-                  <Badge 
-                    variant={WORK_TYPE_CATALOG[ticket.workType as WorkType].badgeVariant}
-                    className="text-xs font-normal"
-                    data-testid={`badge-my-worktype-${ticket.id}`}
-                  >
-                    {WORK_TYPE_CATALOG[ticket.workType as WorkType].billingLabel}
-                  </Badge>
-                )}
-                {needsScheduling && (
-                  <Badge 
-                    className="text-xs font-semibold bg-pink-500 text-white border-pink-600 dark:bg-pink-600 dark:border-pink-500"
-                    data-testid={`badge-my-needs-scheduling-${ticket.id}`}
-                  >
-                    Needs Scheduling
-                  </Badge>
-                )}
-                <ChevronRight className="w-5 h-5 text-muted-foreground shrink-0 ml-auto" />
-              </div>
-
-              <div className="flex items-start justify-between gap-2 mt-1">
-                <h3 className="font-medium text-base leading-tight line-clamp-2 flex-1" data-testid={`text-my-ticket-title-${ticket.id}`}>
-                  {ticket.title}
-                </h3>
-                <span className="font-mono text-xs text-muted-foreground shrink-0" data-testid={`text-my-ticket-id-${ticket.id}`}>
-                  #{ticket.id.slice(0, 8)}
-                </span>
-              </div>
-
-              {ticket.ticketType?.name === "Invoice" && ticket.invoiceCategory && (
-                <div className="mt-1.5">
-                  <Badge 
-                    variant="outline"
-                    className={`text-xs font-normal ${
-                      ticket.invoiceCategory === "snow" 
-                        ? "bg-blue-50 border-blue-300 text-blue-700 dark:bg-blue-950 dark:border-blue-700 dark:text-blue-300" 
-                        : "bg-green-50 border-green-300 text-green-700 dark:bg-green-950 dark:border-green-700 dark:text-green-300"
-                    }`}
-                    data-testid={`badge-my-invoice-category-${ticket.id}`}
-                  >
-                    {ticket.invoiceCategory === "snow" ? "Snow" : "Maintenance"}
-                  </Badge>
-                </div>
-              )}
-
-              {ticket.customer && (
-                <div className="flex items-center gap-1 mt-1.5 text-sm text-muted-foreground">
-                  <MapPin className="w-3.5 h-3.5" />
-                  <span className="truncate">{ticket.customer.name}</span>
-                </div>
-              )}
-
-              <div className="flex items-center justify-between gap-3 mt-3 pt-3 border-t">
-                <div className="flex items-center gap-3 min-w-0">
-                  {ticket.currentStatus && (
-                    <Badge 
-                      variant="outline" 
-                      className="text-xs"
-                      style={{ borderColor: ticket.currentStatus.color || undefined }}
-                      data-testid={`badge-my-status-${ticket.id}`}
-                    >
-                      {ticket.currentStatus.name}
-                    </Badge>
-                  )}
-                  {ticket.priority && ticket.priority !== "normal" && (
-                    <Badge 
-                      variant="outline"
-                      className={`text-xs capitalize ${
-                        ticket.priority === "urgent" 
-                          ? "bg-red-50 border-red-300 text-red-700 dark:bg-red-950 dark:border-red-700 dark:text-red-300"
-                          : ticket.priority === "high"
-                          ? "bg-orange-50 border-orange-300 text-orange-700 dark:bg-orange-950 dark:border-orange-700 dark:text-orange-300"
-                          : ""
-                      }`}
-                      data-testid={`badge-my-priority-${ticket.id}`}
-                    >
-                      {ticket.priority}
-                    </Badge>
-                  )}
-                </div>
-                {dueInfo && (
-                  <span className={`text-xs flex items-center gap-1 shrink-0 ${dueInfo.className}`}>
-                    <CalendarDays className="w-3 h-3" />
-                    {dueInfo.text}
-                  </span>
-                )}
-              </div>
-            </div>
-          </div>
-        </CardContent>
-      </Card>
-    </Link>
   );
 }
 
