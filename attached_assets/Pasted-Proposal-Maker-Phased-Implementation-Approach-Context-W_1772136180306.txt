@@ -1,0 +1,100 @@
+Proposal Maker — Phased Implementation Approach (Context)
+
+We are building the Proposal Maker as a new tool inside the CRM using a phased, slice-based approach. Each slice should produce a stable, testable piece of functionality before adding additional complexity. Do not attempt to implement future slices early or anticipate features that have not yet been specified. The immediate goal is to establish a reliable foundation for capturing proposal inputs (customer selection, QuickBooks estimate PDF, scope of work text, and optional images) and persisting them as draft records tied to customers. Later slices will add branded PDF generation, document collation, versioning, and distribution. Focus only on the requirements defined in this slice and ensure the result is production-ready for real use before proceeding.
+
+Slice P1 — Proposal Maker Foundation (Submit This Whole Block)
+
+(You can paste this directly after the paragraph above)
+
+Goal
+
+Create the Proposal Maker tool as a working draft builder that reliably captures and stores all inputs (QB estimate PDF, scope text, optional images) without generating the final proposal PDF yet.
+
+Guardrails (What NOT to build yet)
+
+Do not generate any combined proposal PDF yet
+
+Do not parse QuickBooks PDFs
+
+Do not build templates, email sending, or automation
+
+Keep formatting simple and reliable
+
+Requirements
+1) Tool Entry
+
+Add Tools → Proposal Maker
+
+User must select an existing customer OR create a new one before proceeding
+
+Proposal drafts are always tied to a customer
+
+2) Proposal Draft Record
+
+Store:
+
+Customer reference
+
+Created by / created date
+
+Status: Draft
+
+Proposal title (default “Proposal”)
+
+Proposal date (default today)
+
+Optional QB estimate number field
+
+3) Inputs to Capture
+
+Required
+
+Upload QuickBooks Estimate PDF (single file)
+
+Required
+
+Scope of Work text field
+
+Supports paragraphs and simple bullets
+
+Optional
+
+Multiple photos/screenshots
+
+Caption per image
+
+4) Storage + Viewing
+
+Draft shows stored files:
+
+QB estimate PDF (downloadable)
+
+Images (viewable + downloadable)
+
+Proposal drafts appear under the customer record in a Proposals section
+
+Sorted newest-first
+
+5) Permissions
+
+Admin + Office: create/edit drafts and upload files
+
+Other roles: no access (unless otherwise specified later)
+
+Acceptance Tests
+
+Customer must be selected before draft creation
+
+Draft persists after refresh
+
+Estimate PDF uploads and downloads correctly
+
+Multiple images upload and persist
+
+Draft appears in the customer’s proposal list
+
+Office role can create/edit drafts
+
+Done Definition
+
+Users can create, store, and reopen proposal drafts with all inputs intact, but no final proposal PDF is generated yet.
