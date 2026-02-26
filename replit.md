@@ -63,8 +63,12 @@ A reporting tool for Admin and Office roles that generates exportable lists from
 #### Email Notification System
 Transactional email notifications powered by SendGrid (via Replit connector). Triggers "Work Completed" emails when tickets reach a final status. Uses a template/rule engine: email_templates store HTML templates with {{variable}} substitution, email_rules link events (e.g., ticket.work_completed) to templates, and email_logs track all sent emails with delivery status. The Email History tab on the Ticket Detail page (Admin/Office only) shows sent/failed emails with resend capability. Default template and rule are auto-seeded per company on startup. Service layer in server/services/emailService.ts handles SendGrid API calls with error logging.
 
-#### Proposal Maker (P1 - Draft Builder)
-Admin and Office roles only. Accessible at /dashboard/tools/proposals (list + create) and /dashboard/tools/proposals/:id (draft editor). Proposals capture: customer reference, QB estimate number, proposal date, scope of work text, one QB estimate PDF (auto-replaced when a new one is uploaded), and multiple supporting images with captions. All files stored in object storage (GCS) with company-scoped ACL. Business rules: one estimate_pdf per proposal (auto-delete on replace), images assigned displayOrder on upload, PDFs ≤ 25MB, images ≤ 10MB, validated server-side. All proposals are "draft" status in P1. Proposals also appear on the Customer Detail page under a "Proposals" tab (admin/office only) with a customer-scoped New Proposal shortcut. Database tables: proposals, proposal_files.
+#### Proposal Maker (P1–P3)
+Admin and Office roles only. Accessible at /dashboard/tools/proposals (list + create) and /dashboard/tools/proposals/:id (draft editor). Proposals capture: customer reference, QB estimate number, proposal date, scope of work text, one QB estimate PDF (auto-replaced when a new one is uploaded), and multiple supporting images with captions. All files stored in object storage (GCS) with company-scoped ACL. Business rules: one estimate_pdf per proposal (auto-delete on replace), images assigned displayOrder on upload, PDFs ≤ 25MB, images ≤ 10MB, validated server-side. All proposals are "draft" status. Proposals also appear on the Customer Detail page under a "Proposals" tab (admin/office only) with a customer-scoped New Proposal shortcut. Database tables: proposals, proposal_files.
+
+P2 (Branded PDF): `GET /api/proposals/:id/pdf` generates a branded cover + scope-of-work PDF on demand using PDFKit (company logo, name, metadata, scope with bullet/paragraph preservation). No GCS storage — streamed directly. `?inline=1` → browser preview; no param → file download. Requires QB Estimate PDF to be attached.
+
+P3 (Estimate PDF Collation): The same endpoint now merges the branded pages with the original QB Estimate PDF using pdf-lib, producing a single client-ready document. Branded pages appear first; estimate pages are appended in original order without rasterization, preserving all fonts, graphics, and embedded content. If no estimate PDF is attached, the endpoint returns 400. The draft editor's Preview/Download buttons are disabled (with tooltip) until an estimate PDF is uploaded. Download filename: `Proposal-{CustomerName}-{YYYY-MM-DD}.pdf`.
 
 ## External Dependencies
 
@@ -73,4 +77,5 @@ Admin and Office roles only. Accessible at /dashboard/tools/proposals (list + cr
 - **Date Handling:** date-fns
 - **Session & Security:** Passport.js (with passport-local), express-session, connect-pg-simple, Node.js crypto module
 - **Email:** SendGrid (@sendgrid/mail) via Replit connector for transactional emails
+- **PDF Generation:** PDFKit (branded cover/scope generation), pdf-lib (PDF merging for Proposal Maker)
 - **Design System:** Google Fonts (Inter, JetBrains Mono)

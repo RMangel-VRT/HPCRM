@@ -7,6 +7,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -230,21 +231,53 @@ export default function ProposalDraft() {
           </h1>
           <Badge variant="secondary" data-testid="badge-draft-status">Draft</Badge>
           <div className="flex-1" />
-          <Button
-            size="sm"
-            variant="outline"
-            onClick={() => window.open(`/api/proposals/${id}/pdf?inline=1`, '_blank')}
-            data-testid="button-preview-pdf"
-          >
-            <Eye className="w-4 h-4 mr-2" />
-            Preview PDF
-          </Button>
-          <a href={`/api/proposals/${id}/pdf`} download data-testid="button-download-pdf">
-            <Button size="sm" variant="outline">
-              <Download className="w-4 h-4 mr-2" />
-              Download PDF
-            </Button>
-          </a>
+          {estimatePdf ? (
+            <>
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={() => window.open(`/api/proposals/${id}/pdf?inline=1`, '_blank')}
+                data-testid="button-preview-pdf"
+              >
+                <Eye className="w-4 h-4 mr-2" />
+                Preview PDF
+              </Button>
+              <a href={`/api/proposals/${id}/pdf`} download data-testid="button-download-pdf">
+                <Button size="sm" variant="outline">
+                  <Download className="w-4 h-4 mr-2" />
+                  Download PDF
+                </Button>
+              </a>
+            </>
+          ) : (
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <span className="inline-flex items-center gap-2">
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    disabled
+                    data-testid="button-preview-pdf"
+                  >
+                    <Eye className="w-4 h-4 mr-2" />
+                    Preview PDF
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    disabled
+                    data-testid="button-download-pdf"
+                  >
+                    <Download className="w-4 h-4 mr-2" />
+                    Download PDF
+                  </Button>
+                </span>
+              </TooltipTrigger>
+              <TooltipContent>
+                Upload a QB Estimate PDF before generating
+              </TooltipContent>
+            </Tooltip>
+          )}
         </div>
         <p className="text-sm text-muted-foreground mt-1">
           Customer:{" "}

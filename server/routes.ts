@@ -7574,6 +7574,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
     const proposal = await storage.getProposalById(req.params.id, user.activeCompanyId);
     if (!proposal) return res.status(404).send("Proposal not found");
 
+    const estimateFile = await storage.getProposalEstimatePdf(proposal.id, user.activeCompanyId);
+    if (!estimateFile) {
+      return res.status(400).send("No estimate PDF attached to this proposal. Upload a QB Estimate PDF before generating.");
+    }
+
     const companySettings = await storage.getSettings(user.activeCompanyId);
     const companyName = companySettings?.companyName || "High Plains Property Maintenance";
 
@@ -7585,10 +7590,21 @@ export async function registerRoutes(app: Express): Promise<Server> {
       console.error('Proposal PDF: failed to load logo:', err);
     }
 
-    const PDFDocument = (await import('pdfkit')).default;
+    const objectStorageService = new ObjectStorageService();
+    let estimateBuffer: Buffer;
+    try {
+      const gcsFile = await objectStorageService.getObjectEntityFile(estimateFile.storageObjectPath);
+      const [downloaded] = await gcsFile.download();
+      estimateBuffer = downloaded as Buffer;
+    } catch (err) {
+      console.error('Proposal PDF: failed to download estimate PDF:', err);
+      return res.status(500).send("Failed to download estimate PDF. The file may be missing or corrupted.");
+    }
+
+    const PDFDocumentKit = (await import('pdfkit')).default;
 
     const chunks: Buffer[] = [];
-    const doc = new PDFDocument({
+    const doc = new PDFDocumentKit({
       size: 'LETTER',
       margins: { top: 60, bottom: 60, left: 60, right: 60 },
     });
@@ -7602,7 +7618,6 @@ export async function registerRoutes(app: Express): Promise<Server> {
     const pageWidth = doc.page.width;
     const leftMargin = 60;
     const rightMargin = 60;
-    const contentWidth = pageWidth - leftMargin - rightMargin;
 
     if (logoBuffer) {
       const logoWidth = 120;
@@ -7682,18 +7697,34 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
 
     doc.end();
-    const pdfBuffer = await pdfPromise;
+    const brandedBuffer = await pdfPromise;
 
-    const safeTitle = (proposal.title || 'Proposal')
+    const { PDFDocument } = await import('pdf-lib');
+    let mergedBuffer: Buffer;
+    try {
+      const mergedDoc = await PDFDocument.load(brandedBuffer);
+      const estimateDoc = await PDFDocument.load(estimateBuffer);
+      const copiedPages = await mergedDoc.copyPages(estimateDoc, estimateDoc.getPageIndices());
+      copiedPages.forEach(p => mergedDoc.addPage(p));
+      mergedBuffer = Buffer.from(await mergedDoc.save());
+    } catch (err) {
+      console.error('Proposal PDF: pdf-lib merge failed:', err);
+      return res.status(422).send("Estimate PDF could not be parsed. It may be corrupted or use an unsupported format.");
+    }
+
+    const safeCustomer = (proposal.customerName || 'Client')
       .replace(/[/\\:*?"<>|]/g, '-')
       .trim()
-      .substring(0, 80) || 'Proposal';
-    const filename = `Proposal-${safeTitle}.pdf`;
+      .substring(0, 60) || 'Client';
+    const dateStr = proposal.proposalDate
+      ? proposal.proposalDate.substring(0, 10)
+      : new Date().toISOString().substring(0, 10);
+    const filename = `Proposal-${safeCustomer}-${dateStr}.pdf`;
 
     const isInline = req.query.inline === '1';
     res.setHeader('Content-Type', 'application/pdf');
     res.setHeader('Content-Disposition', isInline ? `inline; filename="proposal.pdf"` : `attachment; filename="${filename}"`);
-    res.end(pdfBuffer);
+    res.end(mergedBuffer);
   });
 
   const httpServer = createServer(app);
