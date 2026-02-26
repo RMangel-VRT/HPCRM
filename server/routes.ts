@@ -7566,6 +7566,136 @@ export async function registerRoutes(app: Express): Promise<Server> {
     res.json({ success: true });
   });
 
+  app.get("/api/proposals/:id/pdf", async (req, res) => {
+    if (!req.isAuthenticated()) return res.status(401).send("Not authenticated");
+    const user = req.user as UserWithContext;
+    if (!canAccessProposals(user.activeRole)) return res.status(403).send("Insufficient permissions");
+
+    const proposal = await storage.getProposalById(req.params.id, user.activeCompanyId);
+    if (!proposal) return res.status(404).send("Proposal not found");
+
+    const companySettings = await storage.getSettings(user.activeCompanyId);
+    const companyName = companySettings?.companyName || "High Plains Property Maintenance";
+
+    const logoPath = path.join(process.cwd(), 'attached_assets', 'NEW - LOGO-03_1763582979034.png');
+    let logoBuffer: Buffer | null = null;
+    try {
+      logoBuffer = await fs.readFile(logoPath);
+    } catch (err) {
+      console.error('Proposal PDF: failed to load logo:', err);
+    }
+
+    const PDFDocument = (await import('pdfkit')).default;
+
+    const chunks: Buffer[] = [];
+    const doc = new PDFDocument({
+      size: 'LETTER',
+      margins: { top: 60, bottom: 60, left: 60, right: 60 },
+    });
+
+    doc.on('data', (chunk: Buffer) => chunks.push(chunk));
+    const pdfPromise = new Promise<Buffer>((resolve, reject) => {
+      doc.on('end', () => resolve(Buffer.concat(chunks)));
+      doc.on('error', reject);
+    });
+
+    const pageWidth = doc.page.width;
+    const leftMargin = 60;
+    const rightMargin = 60;
+    const contentWidth = pageWidth - leftMargin - rightMargin;
+
+    if (logoBuffer) {
+      const logoWidth = 120;
+      const logoX = (pageWidth - logoWidth) / 2;
+      doc.image(logoBuffer, logoX, 60, { width: logoWidth });
+      doc.moveDown(4);
+    } else {
+      doc.moveDown(1);
+    }
+
+    doc.fillColor('#1a4d1a')
+      .fontSize(14)
+      .font('Helvetica-Bold')
+      .text(companyName, { align: 'center' });
+
+    doc.moveDown(0.8);
+    doc.moveTo(leftMargin, doc.y)
+      .lineTo(pageWidth - rightMargin, doc.y)
+      .strokeColor('#cccccc')
+      .lineWidth(1)
+      .stroke();
+    doc.moveDown(0.8);
+
+    doc.fillColor('#000000')
+      .fontSize(18)
+      .font('Helvetica-Bold')
+      .text(proposal.title || 'Proposal');
+
+    doc.moveDown(0.6);
+
+    doc.font('Helvetica').fontSize(11).fillColor('#555555');
+
+    const formattedDate = proposal.proposalDate
+      ? (() => {
+          const d = new Date(proposal.proposalDate + 'T00:00:00');
+          return d.toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' });
+        })()
+      : '';
+
+    if (formattedDate) {
+      doc.text(`Date: ${formattedDate}`);
+    }
+    doc.text(`Customer: ${proposal.customerName}`);
+    if (proposal.estimateNumber && proposal.estimateNumber.trim() !== '') {
+      doc.text(`QB Estimate #: ${proposal.estimateNumber}`);
+    }
+
+    doc.moveDown(0.8);
+    doc.moveTo(leftMargin, doc.y)
+      .lineTo(pageWidth - rightMargin, doc.y)
+      .strokeColor('#cccccc')
+      .lineWidth(1)
+      .stroke();
+    doc.moveDown(0.8);
+
+    doc.fillColor('#1a4d1a')
+      .fontSize(12)
+      .font('Helvetica-Bold')
+      .text('SCOPE OF WORK');
+
+    doc.moveDown(0.5);
+
+    doc.fillColor('#000000').fontSize(10).font('Helvetica');
+
+    const scopeText = proposal.scopeOfWork || '';
+    const lines = scopeText.split('\n');
+    for (const line of lines) {
+      const trimmed = line.trim();
+      if (trimmed === '') {
+        doc.moveDown(0.4);
+      } else if (line.trimStart().startsWith('-') || line.trimStart().startsWith('•')) {
+        const bulletText = line.trimStart().replace(/^[-•]\s*/, '');
+        doc.text(`  \u2022  ${bulletText}`, { lineGap: 3 });
+      } else {
+        doc.text(line, { lineGap: 3 });
+      }
+    }
+
+    doc.end();
+    const pdfBuffer = await pdfPromise;
+
+    const safeTitle = (proposal.title || 'Proposal')
+      .replace(/[/\\:*?"<>|]/g, '-')
+      .trim()
+      .substring(0, 80) || 'Proposal';
+    const filename = `Proposal-${safeTitle}.pdf`;
+
+    const isInline = req.query.inline === '1';
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Disposition', isInline ? `inline; filename="proposal.pdf"` : `attachment; filename="${filename}"`);
+    res.end(pdfBuffer);
+  });
+
   const httpServer = createServer(app);
 
   return httpServer;

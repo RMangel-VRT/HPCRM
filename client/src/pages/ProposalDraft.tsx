@@ -26,6 +26,7 @@ import {
   ExternalLink,
   ImageIcon,
   Loader2,
+  Eye,
 } from "lucide-react";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
@@ -228,6 +229,22 @@ export default function ProposalDraft() {
             {proposal.title}
           </h1>
           <Badge variant="secondary" data-testid="badge-draft-status">Draft</Badge>
+          <div className="flex-1" />
+          <Button
+            size="sm"
+            variant="outline"
+            onClick={() => window.open(`/api/proposals/${id}/pdf?inline=1`, '_blank')}
+            data-testid="button-preview-pdf"
+          >
+            <Eye className="w-4 h-4 mr-2" />
+            Preview PDF
+          </Button>
+          <a href={`/api/proposals/${id}/pdf`} download data-testid="button-download-pdf">
+            <Button size="sm" variant="outline">
+              <Download className="w-4 h-4 mr-2" />
+              Download PDF
+            </Button>
+          </a>
         </div>
         <p className="text-sm text-muted-foreground mt-1">
           Customer:{" "}
