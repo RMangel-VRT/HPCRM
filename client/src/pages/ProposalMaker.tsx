@@ -131,7 +131,14 @@ export default function ProposalMaker() {
                   <CardTitle className="text-base font-medium" data-testid={`text-proposal-title-${p.id}`}>
                     {p.title}
                   </CardTitle>
-                  <Badge variant="secondary" data-testid={`badge-draft-${p.id}`}>Draft</Badge>
+                  <div className="flex items-center gap-1.5 flex-wrap">
+                    <Badge variant="secondary" data-testid={`badge-draft-${p.id}`}>Draft</Badge>
+                    {p.versions && p.versions.length > 0 && (
+                      <Badge variant="outline" data-testid={`badge-latest-version-${p.id}`}>
+                        v{p.versions[p.versions.length - 1].versionNumber}
+                      </Badge>
+                    )}
+                  </div>
                 </div>
                 <p className="text-sm text-muted-foreground" data-testid={`text-proposal-customer-${p.id}`}>
                   {p.customerName}

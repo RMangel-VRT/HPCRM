@@ -7566,29 +7566,21 @@ export async function registerRoutes(app: Express): Promise<Server> {
     res.json({ success: true });
   });
 
-  app.get("/api/proposals/:id/pdf", async (req, res) => {
-    if (!req.isAuthenticated()) return res.status(401).send("Not authenticated");
-    const user = req.user as UserWithContext;
-    if (!canAccessProposals(user.activeRole)) return res.status(403).send("Insufficient permissions");
-
-    const proposal = await storage.getProposalById(req.params.id, user.activeCompanyId);
-    if (!proposal) return res.status(404).send("Proposal not found");
-
-    const estimateFile = await storage.getProposalEstimatePdf(proposal.id, user.activeCompanyId);
+  // ---- Proposal PDF helper (used by both the preview endpoint and the finalize endpoint) ----
+  async function generateProposalPdf(proposal: import("@shared/schema").ProposalWithDetails, companyId: string): Promise<Buffer> {
+    const estimateFile = await storage.getProposalEstimatePdf(proposal.id, companyId);
     if (!estimateFile) {
-      return res.status(400).send("No estimate PDF attached to this proposal. Upload a QB Estimate PDF before generating.");
+      throw Object.assign(new Error("No estimate PDF attached to this proposal. Upload a QB Estimate PDF before generating."), { statusCode: 400 });
     }
 
-    const companySettings = await storage.getSettings(user.activeCompanyId);
+    const companySettings = await storage.getSettings(companyId);
     const companyName = companySettings?.companyName || "High Plains Property Maintenance";
 
     const logoPath = path.join(process.cwd(), 'attached_assets', 'NEW - LOGO-03_1763582979034.png');
     let logoBuffer: Buffer | null = null;
     try {
       logoBuffer = await fs.readFile(logoPath);
-    } catch (err) {
-      console.error('Proposal PDF: failed to load logo:', err);
-    }
+    } catch (_err) {}
 
     const objectStorageService = new ObjectStorageService();
     let estimateBuffer: Buffer;
@@ -7598,7 +7590,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       estimateBuffer = downloaded as Buffer;
     } catch (err) {
       console.error('Proposal PDF: failed to download estimate PDF:', err);
-      return res.status(500).send("Failed to download estimate PDF. The file may be missing or corrupted.");
+      throw Object.assign(new Error("Failed to download estimate PDF. The file may be missing or corrupted."), { statusCode: 500 });
     }
 
     const PDFDocumentKit = (await import('pdfkit')).default;
@@ -7706,7 +7698,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       .sort((a, b) => a.displayOrder - b.displayOrder);
 
     if (images.length > MAX_IMAGES) {
-      return res.status(400).send(`Too many images attached (${images.length}). Maximum allowed for PDF generation is ${MAX_IMAGES}. Remove some images and try again.`);
+      throw Object.assign(new Error(`Too many images attached (${images.length}). Maximum allowed for PDF generation is ${MAX_IMAGES}. Remove some images and try again.`), { statusCode: 400 });
     }
 
     const imageBuffers: { buffer: Buffer; filename: string; caption: string | null }[] = [];
@@ -7717,7 +7709,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         imageBuffers.push({ buffer: imgData as Buffer, filename: img.filename, caption: img.caption ?? null });
       } catch (err) {
         console.error(`Proposal PDF: failed to download image "${img.filename}":`, err);
-        return res.status(400).send(`Failed to load image "${img.filename}". The file may be missing or corrupted.`);
+        throw Object.assign(new Error(`Failed to load image "${img.filename}". The file may be missing or corrupted.`), { statusCode: 400 });
       }
     }
 
@@ -7739,7 +7731,6 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const appLeft = 60;
       const appContentWidth = appPageWidth - appLeft - 60;
 
-      // Appendix header page
       appendixDoc.moveDown(8);
       appendixDoc.fillColor('#1a4d1a').fontSize(20).font('Helvetica-Bold')
         .text('PROJECT IMAGES', { align: 'center' });
@@ -7747,7 +7738,6 @@ export async function registerRoutes(app: Express): Promise<Server> {
       appendixDoc.fillColor('#555555').fontSize(11).font('Helvetica')
         .text('Attached for reference', { align: 'center' });
 
-      // One image per page
       const captionReserve = 50;
       const imgTopY = 60;
       const maxImgWidth = appContentWidth;
@@ -7763,7 +7753,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
           });
         } catch (err) {
           console.error(`Proposal PDF: failed to render image "${img.filename}":`, err);
-          return res.status(400).send(`Image "${img.filename}" could not be rendered. It may be corrupted or an unsupported format (JPG and PNG are supported).`);
+          throw Object.assign(new Error(`Image "${img.filename}" could not be rendered. It may be corrupted or an unsupported format (JPG and PNG are supported).`), { statusCode: 400 });
         }
         if (img.caption && img.caption.trim()) {
           appendixDoc.fillColor('#333333').fontSize(10).font('Helvetica')
@@ -7794,7 +7784,25 @@ export async function registerRoutes(app: Express): Promise<Server> {
       mergedBuffer = Buffer.from(await mergedDoc.save());
     } catch (err) {
       console.error('Proposal PDF: pdf-lib merge failed:', err);
-      return res.status(422).send("PDF merge failed. One or more documents may be corrupted or use an unsupported format.");
+      throw Object.assign(new Error("PDF merge failed. One or more documents may be corrupted or use an unsupported format."), { statusCode: 422 });
+    }
+
+    return mergedBuffer;
+  }
+
+  app.get("/api/proposals/:id/pdf", async (req, res) => {
+    if (!req.isAuthenticated()) return res.status(401).send("Not authenticated");
+    const user = req.user as UserWithContext;
+    if (!canAccessProposals(user.activeRole)) return res.status(403).send("Insufficient permissions");
+
+    const proposal = await storage.getProposalById(req.params.id, user.activeCompanyId);
+    if (!proposal) return res.status(404).send("Proposal not found");
+
+    let mergedBuffer: Buffer;
+    try {
+      mergedBuffer = await generateProposalPdf(proposal, user.activeCompanyId);
+    } catch (err: any) {
+      return res.status(err?.statusCode ?? 500).send(err?.message ?? "PDF generation failed");
     }
 
     const safeCustomer = (proposal.customerName || 'Client')
@@ -7810,6 +7818,117 @@ export async function registerRoutes(app: Express): Promise<Server> {
     res.setHeader('Content-Type', 'application/pdf');
     res.setHeader('Content-Disposition', isInline ? `inline; filename="proposal.pdf"` : `attachment; filename="${filename}"`);
     res.end(mergedBuffer);
+  });
+
+  // ---- Finalize proposal (create immutable version) ----
+  app.post("/api/proposals/:id/finalize", async (req, res) => {
+    if (!req.isAuthenticated()) return res.status(401).send("Not authenticated");
+    const user = req.user as UserWithContext;
+    if (!canAccessProposals(user.activeRole)) return res.status(403).send("Insufficient permissions");
+
+    const proposal = await storage.getProposalById(req.params.id, user.activeCompanyId);
+    if (!proposal) return res.status(404).send("Proposal not found");
+
+    const estimateFile = proposal.files.find(f => f.fileType === 'estimate_pdf');
+    if (!estimateFile) {
+      return res.status(400).send("No estimate PDF attached. Upload a QB Estimate PDF before finalizing.");
+    }
+
+    let mergedBuffer: Buffer;
+    try {
+      mergedBuffer = await generateProposalPdf(proposal, user.activeCompanyId);
+    } catch (err: any) {
+      return res.status(err?.statusCode ?? 500).send(`PDF generation failed: ${err?.message ?? "Unknown error"}`);
+    }
+
+    const attemptFinalize = async (): Promise<import("@shared/schema").ProposalVersion> => {
+      const nextVersion = await storage.getNextVersionNumber(proposal.id, user.activeCompanyId);
+      const objectStorageService = new ObjectStorageService();
+      const relativePath = `proposal-versions/${proposal.id}/v${nextVersion}.pdf`;
+      let storedPath: string;
+      try {
+        storedPath = await objectStorageService.saveBufferToPrivatePath(relativePath, mergedBuffer, 'application/pdf');
+      } catch (err) {
+        console.error('Proposal finalize: GCS upload failed:', err);
+        throw Object.assign(new Error("Failed to store finalized PDF. Please try again."), { statusCode: 500 });
+      }
+
+      try {
+        return await storage.createProposalVersion({
+          proposalId: proposal.id,
+          companyId: user.activeCompanyId,
+          versionNumber: nextVersion,
+          title: proposal.title,
+          proposalDate: proposal.proposalDate,
+          estimateNumber: proposal.estimateNumber ?? null,
+          finalizedById: user.id,
+          pdfStoragePath: storedPath,
+        });
+      } catch (err: any) {
+        if (err?.code === '23505') {
+          throw Object.assign(new Error('RETRY'), { isRetry: true });
+        }
+        throw Object.assign(new Error("Failed to save finalized version record."), { statusCode: 500 });
+      }
+    };
+
+    let version: import("@shared/schema").ProposalVersion;
+    try {
+      version = await attemptFinalize();
+    } catch (err: any) {
+      if (err?.isRetry) {
+        try {
+          version = await attemptFinalize();
+        } catch (retryErr: any) {
+          return res.status(409).send("Version number conflict. Please try again.");
+        }
+      } else {
+        return res.status((err as any)?.statusCode ?? 500).send(err?.message ?? "Finalization failed");
+      }
+    }
+
+    const versionWithUser = await storage.getProposalVersionById(version.id, user.activeCompanyId);
+    res.status(201).json(versionWithUser);
+  });
+
+  // ---- List finalized versions for a proposal ----
+  app.get("/api/proposals/:id/versions", async (req, res) => {
+    if (!req.isAuthenticated()) return res.status(401).send("Not authenticated");
+    const user = req.user as UserWithContext;
+    if (!canAccessProposals(user.activeRole)) return res.status(403).send("Insufficient permissions");
+    const versions = await storage.getProposalVersions(req.params.id, user.activeCompanyId);
+    res.json(versions);
+  });
+
+  // ---- Download a specific finalized version PDF ----
+  app.get("/api/proposals/:id/versions/:versionId/download", async (req, res) => {
+    if (!req.isAuthenticated()) return res.status(401).send("Not authenticated");
+    const user = req.user as UserWithContext;
+    if (!canAccessProposals(user.activeRole)) return res.status(403).send("Insufficient permissions");
+
+    const version = await storage.getProposalVersionById(req.params.versionId, user.activeCompanyId);
+    if (!version) return res.status(404).send("Version not found");
+
+    const proposal = await storage.getProposalById(req.params.id, user.activeCompanyId);
+
+    let pdfBytes: Buffer;
+    try {
+      const objectStorageService = new ObjectStorageService();
+      pdfBytes = await objectStorageService.downloadByPath(version.pdfStoragePath);
+    } catch (err) {
+      console.error('Proposal version download: failed to retrieve stored PDF:', err);
+      return res.status(500).send("Failed to retrieve the finalized PDF. It may have been removed.");
+    }
+
+    const safeCustomer = ((proposal?.customerName) || 'Client')
+      .replace(/[/\\:*?"<>|]/g, '-').trim().substring(0, 60) || 'Client';
+    const dateStr = version.proposalDate ? version.proposalDate.substring(0, 10) : new Date().toISOString().substring(0, 10);
+    const filename = `Proposal-${safeCustomer}-v${version.versionNumber}-${dateStr}.pdf`;
+
+    const isInline = req.query.inline === '1';
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Disposition', isInline ? `inline; filename="${filename}"` : `attachment; filename="${filename}"`);
+    res.end(pdfBytes);
   });
 
   const httpServer = createServer(app);

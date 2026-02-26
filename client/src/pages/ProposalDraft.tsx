@@ -1,6 +1,6 @@
 import { useState, useRef, useCallback } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
-import { Link, useParams } from "wouter";
+import { Link, useLocation, useParams } from "wouter";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -24,17 +24,29 @@ import {
   FileText,
   Trash2,
   Download,
-  ExternalLink,
   ImageIcon,
   Loader2,
   Eye,
+  Lock,
+  Info,
+  History,
+  CheckCircle2,
 } from "lucide-react";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import type { ProposalWithDetails, ProposalFile } from "@shared/schema";
 
+function formatDateTime(ts: string | Date) {
+  try {
+    const d = new Date(ts);
+    return d.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" }) +
+      " at " + d.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" });
+  } catch { return String(ts); }
+}
+
 export default function ProposalDraft() {
   const { id } = useParams<{ id: string }>();
+  const [, navigate] = useLocation();
   const { toast } = useToast();
 
   const [title, setTitle] = useState("");
@@ -47,6 +59,7 @@ export default function ProposalDraft() {
   const [uploadingImages, setUploadingImages] = useState(false);
   const [fileToDelete, setFileToDelete] = useState<ProposalFile | null>(null);
   const [deleteProposalOpen, setDeleteProposalOpen] = useState(false);
+  const [finalizeDialogOpen, setFinalizeDialogOpen] = useState(false);
 
   const [captionDrafts, setCaptionDrafts] = useState<Record<string, string>>({});
 
@@ -117,6 +130,27 @@ export default function ProposalDraft() {
     },
     onError: () => {
       toast({ title: "Caption save failed", variant: "destructive" });
+    },
+  });
+
+  const finalizeMutation = useMutation({
+    mutationFn: async () => {
+      const res = await apiRequest("POST", `/api/proposals/${id}/finalize`, {});
+      if (!res.ok) {
+        const msg = await res.text();
+        throw new Error(msg || "Finalization failed");
+      }
+      return res.json();
+    },
+    onSuccess: (version) => {
+      queryClient.invalidateQueries({ queryKey: ["/api/proposals", id] });
+      queryClient.invalidateQueries({ queryKey: ["/api/proposals"] });
+      setFinalizeDialogOpen(false);
+      toast({ title: `Proposal finalized as v${version.versionNumber}`, description: "A permanent version has been saved." });
+    },
+    onError: (err: Error) => {
+      setFinalizeDialogOpen(false);
+      toast({ title: "Finalization failed", description: err.message, variant: "destructive" });
     },
   });
 
@@ -193,6 +227,9 @@ export default function ProposalDraft() {
 
   const estimatePdf = proposal?.files.find(f => f.fileType === "estimate_pdf");
   const images = proposal?.files.filter(f => f.fileType === "image").sort((a, b) => a.displayOrder - b.displayOrder) ?? [];
+  const versions = proposal?.versions ?? [];
+  const hasVersions = versions.length > 0;
+  const nextVersionNumber = hasVersions ? (versions[versions.length - 1].versionNumber + 1) : 1;
 
   if (isLoading) {
     return (
@@ -212,6 +249,22 @@ export default function ProposalDraft() {
       </div>
     );
   }
+
+  const finalizeButton = (
+    <Button
+      size="sm"
+      variant="default"
+      onClick={() => setFinalizeDialogOpen(true)}
+      disabled={!estimatePdf || finalizeMutation.isPending}
+      data-testid="button-finalize-proposal"
+    >
+      {finalizeMutation.isPending ? (
+        <><Loader2 className="w-4 h-4 mr-2 animate-spin" />Finalizing...</>
+      ) : (
+        <><Lock className="w-4 h-4 mr-2" />Finalize Proposal</>
+      )}
+    </Button>
+  );
 
   return (
     <div className="p-6 max-w-3xl mx-auto space-y-6">
@@ -248,28 +301,20 @@ export default function ProposalDraft() {
                   Download PDF
                 </Button>
               </a>
+              {finalizeButton}
             </>
           ) : (
             <Tooltip>
               <TooltipTrigger asChild>
                 <span className="inline-flex items-center gap-2">
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    disabled
-                    data-testid="button-preview-pdf"
-                  >
-                    <Eye className="w-4 h-4 mr-2" />
-                    Preview PDF
+                  <Button size="sm" variant="outline" disabled data-testid="button-preview-pdf">
+                    <Eye className="w-4 h-4 mr-2" />Preview PDF
                   </Button>
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    disabled
-                    data-testid="button-download-pdf"
-                  >
-                    <Download className="w-4 h-4 mr-2" />
-                    Download PDF
+                  <Button size="sm" variant="outline" disabled data-testid="button-download-pdf">
+                    <Download className="w-4 h-4 mr-2" />Download PDF
+                  </Button>
+                  <Button size="sm" variant="default" disabled data-testid="button-finalize-proposal">
+                    <Lock className="w-4 h-4 mr-2" />Finalize Proposal
                   </Button>
                 </span>
               </TooltipTrigger>
@@ -279,6 +324,11 @@ export default function ProposalDraft() {
             </Tooltip>
           )}
         </div>
+        {estimatePdf && (
+          <p className="text-xs text-muted-foreground mt-2" data-testid="text-next-version-hint">
+            Next finalize will create <strong>v{nextVersionNumber}</strong>
+          </p>
+        )}
         <p className="text-sm text-muted-foreground mt-1">
           Customer:{" "}
           <Link href={`/dashboard/customers/${proposal.customerId}`}>
@@ -288,6 +338,16 @@ export default function ProposalDraft() {
           </Link>
         </p>
       </div>
+
+      {/* Version banner — shown when prior versions exist */}
+      {hasVersions && (
+        <div className="flex items-start gap-3 rounded-md border border-blue-200 bg-blue-50 dark:border-blue-900 dark:bg-blue-950/40 px-4 py-3" data-testid="div-version-banner">
+          <Info className="w-4 h-4 text-blue-600 dark:text-blue-400 mt-0.5 shrink-0" />
+          <p className="text-sm text-blue-800 dark:text-blue-200">
+            Edits to this draft only affect the next finalized version — all prior versions are permanently preserved.
+          </p>
+        </div>
+      )}
 
       {/* Core Fields */}
       <Card>
@@ -492,6 +552,59 @@ export default function ProposalDraft() {
         </CardContent>
       </Card>
 
+      {/* Version History */}
+      {hasVersions && (
+        <Card data-testid="div-version-history">
+          <CardHeader>
+            <CardTitle className="text-base flex items-center gap-2">
+              <History className="w-4 h-4" />
+              Version History
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-2">
+            {[...versions].reverse().map((v) => (
+              <div
+                key={v.id}
+                className="flex items-center justify-between gap-3 p-3 rounded-md border"
+                data-testid={`row-version-${v.id}`}
+              >
+                <div className="flex items-center gap-3 min-w-0">
+                  <CheckCircle2 className="w-4 h-4 text-green-600 dark:text-green-400 shrink-0" />
+                  <div className="min-w-0">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <span className="font-medium text-sm" data-testid={`text-version-label-${v.id}`}>v{v.versionNumber}</span>
+                      {v.finalizedByName && (
+                        <span className="text-xs text-muted-foreground" data-testid={`text-finalized-by-${v.id}`}>
+                          by {v.finalizedByName}
+                        </span>
+                      )}
+                    </div>
+                    <p className="text-xs text-muted-foreground" data-testid={`text-finalized-at-${v.id}`}>
+                      {formatDateTime(v.finalizedAt)}
+                    </p>
+                  </div>
+                </div>
+                <div className="flex items-center gap-2 shrink-0">
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    onClick={() => navigate(`/dashboard/tools/proposals/${id}/versions/${v.id}`)}
+                    data-testid={`button-view-version-${v.id}`}
+                  >
+                    View
+                  </Button>
+                  <a href={`/api/proposals/${id}/versions/${v.id}/download`} download data-testid={`button-download-version-${v.id}`}>
+                    <Button size="icon" variant="ghost">
+                      <Download className="w-4 h-4" />
+                    </Button>
+                  </a>
+                </div>
+              </div>
+            ))}
+          </CardContent>
+        </Card>
+      )}
+
       {/* Delete Proposal */}
       <div className="flex justify-end pt-2">
         <Button
@@ -505,6 +618,28 @@ export default function ProposalDraft() {
           Delete Proposal
         </Button>
       </div>
+
+      {/* Finalize Confirmation Dialog */}
+      <AlertDialog open={finalizeDialogOpen} onOpenChange={setFinalizeDialogOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Finalize Proposal</AlertDialogTitle>
+            <AlertDialogDescription>
+              This will permanently create <strong>v{nextVersionNumber}</strong> of this proposal. The finalized version will be stored as an immutable PDF record and cannot be edited after creation.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel data-testid="button-cancel-finalize">Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={() => finalizeMutation.mutate()}
+              disabled={finalizeMutation.isPending}
+              data-testid="button-confirm-finalize"
+            >
+              {finalizeMutation.isPending ? "Finalizing..." : `Create v${nextVersionNumber}`}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
 
       {/* Delete File Dialog */}
       <AlertDialog open={!!fileToDelete} onOpenChange={(open) => { if (!open) setFileToDelete(null); }}>

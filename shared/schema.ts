@@ -1478,7 +1478,37 @@ export const insertProposalFileSchema = createInsertSchema(proposalFiles).omit({
 export type InsertProposalFile = z.infer<typeof insertProposalFileSchema>;
 export type ProposalFile = typeof proposalFiles.$inferSelect;
 
+export const proposalVersions = pgTable("proposal_versions", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  proposalId: varchar("proposal_id").notNull().references(() => proposals.id, { onDelete: "cascade" }),
+  companyId: varchar("company_id").notNull().references(() => companies.id, { onDelete: "cascade" }),
+  versionNumber: integer("version_number").notNull(),
+  title: varchar("title").notNull(),
+  proposalDate: varchar("proposal_date").notNull(),
+  estimateNumber: varchar("estimate_number"),
+  finalizedById: varchar("finalized_by_id").references(() => users.id, { onDelete: "set null" }),
+  finalizedAt: timestamp("finalized_at").notNull().defaultNow(),
+  pdfStoragePath: varchar("pdf_storage_path").notNull(),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+}, (table) => ({
+  uniqueProposalVersion: unique().on(table.proposalId, table.versionNumber),
+}));
+
+export const insertProposalVersionSchema = createInsertSchema(proposalVersions).omit({
+  id: true,
+  createdAt: true,
+  finalizedAt: true,
+});
+
+export type InsertProposalVersion = z.infer<typeof insertProposalVersionSchema>;
+export type ProposalVersion = typeof proposalVersions.$inferSelect;
+
+export type ProposalVersionWithUser = ProposalVersion & {
+  finalizedByName: string | null;
+};
+
 export type ProposalWithDetails = Proposal & {
   customerName: string;
   files: ProposalFile[];
+  versions: ProposalVersionWithUser[];
 };

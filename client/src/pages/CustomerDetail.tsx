@@ -4649,11 +4649,26 @@ function CustomerProposalsSection({ customerId }: { customerId: string }) {
                 <div className="flex items-center gap-2 flex-wrap">
                   <span className="font-medium text-sm" data-testid={`text-proposal-title-${p.id}`}>{p.title}</span>
                   <Badge variant="secondary" className="text-xs">Draft</Badge>
+                  {p.versions && p.versions.length > 0 && (
+                    <Badge variant="outline" className="text-xs" data-testid={`badge-version-${p.id}`}>
+                      v{p.versions[p.versions.length - 1].versionNumber}
+                    </Badge>
+                  )}
                   {p.estimateNumber && (
                     <span className="text-xs text-muted-foreground">#{p.estimateNumber}</span>
                   )}
                 </div>
-                <p className="text-xs text-muted-foreground mt-0.5">{formatDate(p.proposalDate)}</p>
+                <p className="text-xs text-muted-foreground mt-0.5">
+                  {formatDate(p.proposalDate)}
+                  {p.versions && p.versions.length > 0 && (
+                    <span className="ml-2">
+                      &middot; Finalized {(() => {
+                        const d = new Date(p.versions[p.versions.length - 1].finalizedAt);
+                        return d.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
+                      })()}
+                    </span>
+                  )}
+                </p>
               </div>
             </div>
           ))}

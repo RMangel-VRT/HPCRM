@@ -40,6 +40,7 @@ import NewSnowEvent from "@/pages/NewSnowEvent";
 import ReportsPage from "@/pages/ReportsPage";
 import ProposalMaker from "@/pages/ProposalMaker";
 import ProposalDraft from "@/pages/ProposalDraft";
+import ProposalVersion from "@/pages/ProposalVersion";
 import NotFound from "@/pages/not-found";
 
 function Router() {
@@ -123,6 +124,7 @@ function Router() {
               <ProtectedRoute path="/dashboard/equipment" component={EquipmentList} allowedRoles={["admin", "office", "shop_manager"]} />
               <ProtectedRoute path="/dashboard/equipment-tickets/:id" component={EquipmentTicketDetail} allowedRoles={["admin", "office", "shop_manager"]} />
               <ProtectedRoute path="/dashboard/tools/contract-builder" component={ContractBuilderPage} allowedRoles={["admin", "office"]} />
+              <ProtectedRoute path="/dashboard/tools/proposals/:id/versions/:versionId" component={ProposalVersion} allowedRoles={["admin", "office"]} />
               <ProtectedRoute path="/dashboard/tools/proposals/:id" component={ProposalDraft} allowedRoles={["admin", "office"]} />
               <ProtectedRoute path="/dashboard/tools/proposals" component={ProposalMaker} allowedRoles={["admin", "office"]} />
               <ProtectedRoute path="/dashboard/tools" component={ToolsPage} allowedRoles={["admin", "office", "field_manager"]} />

@@ -1,7 +1,7 @@
-import { type User, type InsertUser, type Customer, type InsertCustomer, type Contact, type InsertContact, type Company, type InsertCompany, type CompanyUser, type InsertCompanyUser, type Settings, type InsertSettings, type Note, type InsertNote, type Contract, type InsertContract, type ContractStatusHistory, type InsertContractStatusHistory, type ContractDocument, type InsertContractDocument, type ContractMonthlyAmount, type InsertContractMonthlyAmount, type CustomerRateSheet, type InsertCustomerRateSheet, type ContractService, type InsertContractService, type ContractTemplate, type InsertContractTemplate, type ContractBuilderDocument, type InsertContractBuilderDocument, type ContractBuilderSection, type InsertContractBuilderSection, type ContractBuilderVariable, type InsertContractBuilderVariable, type TicketType, type InsertTicketType, type TicketTypeStatus, type InsertTicketTypeStatus, type TicketTypeField, type InsertTicketTypeField, type Ticket, type InsertTicket, type TicketFieldValue, type InsertTicketFieldValue, type TicketStatusHistory, type InsertTicketStatusHistory, type TicketComment, type InsertTicketComment, type TicketCommentMention, type InsertTicketCommentMention, type TicketSource, type InsertTicketSource, type TicketLink, type InsertTicketLink, type TicketTypeCategory, type CustomerMapLayer, type InsertCustomerMapLayer, type CustomerMapDocument, type InsertCustomerMapDocument, type MaintenanceCrew, type InsertMaintenanceCrew, type MaintenanceVisitConfig, type InsertMaintenanceVisitConfig, type WeeklyScheduleTemplate, type InsertWeeklyScheduleTemplate, type ScheduleBlock, type InsertScheduleBlock, type TicketNotification, type InsertTicketNotification, type NotificationType, type PropertyManagementCompany, type InsertPropertyManagementCompany, type PropertyManager, type InsertPropertyManager, type PropertyManagerEmail, type InsertPropertyManagerEmail, type PropertyManagerPhone, type InsertPropertyManagerPhone, type PropertyManagerWithContacts, type Equipment, type InsertEquipment, type EquipmentFile, type InsertEquipmentFile, type EquipmentTicket, type InsertEquipmentTicket, type EquipmentTicketStatusHistory, type InsertEquipmentTicketStatusHistory, type EquipmentWithTicketCount, type SnowEvent, type InsertSnowEvent, type SnowEventAttachment, type InsertSnowEventAttachment, type SnowEventPropertyImpact, type InsertSnowEventPropertyImpact, type SnowEventWithDetails, type SnowEventPropertyImpactWithCustomer, type EmailTemplate, type InsertEmailTemplate, type EmailRule, type InsertEmailRule, type EmailLog, type InsertEmailLog, type EmailLogWithDetails, type Proposal, type InsertProposal, type ProposalFile, type InsertProposalFile, type ProposalWithDetails } from "@shared/schema";
+import { type User, type InsertUser, type Customer, type InsertCustomer, type Contact, type InsertContact, type Company, type InsertCompany, type CompanyUser, type InsertCompanyUser, type Settings, type InsertSettings, type Note, type InsertNote, type Contract, type InsertContract, type ContractStatusHistory, type InsertContractStatusHistory, type ContractDocument, type InsertContractDocument, type ContractMonthlyAmount, type InsertContractMonthlyAmount, type CustomerRateSheet, type InsertCustomerRateSheet, type ContractService, type InsertContractService, type ContractTemplate, type InsertContractTemplate, type ContractBuilderDocument, type InsertContractBuilderDocument, type ContractBuilderSection, type InsertContractBuilderSection, type ContractBuilderVariable, type InsertContractBuilderVariable, type TicketType, type InsertTicketType, type TicketTypeStatus, type InsertTicketTypeStatus, type TicketTypeField, type InsertTicketTypeField, type Ticket, type InsertTicket, type TicketFieldValue, type InsertTicketFieldValue, type TicketStatusHistory, type InsertTicketStatusHistory, type TicketComment, type InsertTicketComment, type TicketCommentMention, type InsertTicketCommentMention, type TicketSource, type InsertTicketSource, type TicketLink, type InsertTicketLink, type TicketTypeCategory, type CustomerMapLayer, type InsertCustomerMapLayer, type CustomerMapDocument, type InsertCustomerMapDocument, type MaintenanceCrew, type InsertMaintenanceCrew, type MaintenanceVisitConfig, type InsertMaintenanceVisitConfig, type WeeklyScheduleTemplate, type InsertWeeklyScheduleTemplate, type ScheduleBlock, type InsertScheduleBlock, type TicketNotification, type InsertTicketNotification, type NotificationType, type PropertyManagementCompany, type InsertPropertyManagementCompany, type PropertyManager, type InsertPropertyManager, type PropertyManagerEmail, type InsertPropertyManagerEmail, type PropertyManagerPhone, type InsertPropertyManagerPhone, type PropertyManagerWithContacts, type Equipment, type InsertEquipment, type EquipmentFile, type InsertEquipmentFile, type EquipmentTicket, type InsertEquipmentTicket, type EquipmentTicketStatusHistory, type InsertEquipmentTicketStatusHistory, type EquipmentWithTicketCount, type SnowEvent, type InsertSnowEvent, type SnowEventAttachment, type InsertSnowEventAttachment, type SnowEventPropertyImpact, type InsertSnowEventPropertyImpact, type SnowEventWithDetails, type SnowEventPropertyImpactWithCustomer, type EmailTemplate, type InsertEmailTemplate, type EmailRule, type InsertEmailRule, type EmailLog, type InsertEmailLog, type EmailLogWithDetails, type Proposal, type InsertProposal, type ProposalFile, type InsertProposalFile, type ProposalWithDetails, type ProposalVersion, type InsertProposalVersion, type ProposalVersionWithUser } from "@shared/schema";
 import { db } from "./db";
-import { users, customers, contacts, companies, companyUsers, settings, notes, contracts, contractStatusHistory, contractDocuments, contractMonthlyAmounts, customerRateSheets, contractServices, contractTemplates, contractBuilderDocuments, contractBuilderSections, contractBuilderVariables, ticketTypes, ticketTypeStatuses, ticketTypeFields, tickets, ticketFieldValues, ticketStatusHistory, ticketComments, ticketCommentMentions, ticketSources, ticketLinks, customerMapLayers, customerMapDocuments, maintenanceCrews, maintenanceVisitConfigs, weeklyScheduleTemplates, scheduleBlocks, ticketNotifications, propertyManagementCompanies, propertyManagers, propertyManagerEmails, propertyManagerPhones, equipment, equipmentFiles, equipmentTickets, equipmentTicketStatusHistory, snowEvents, snowEventAttachments, snowEventPropertyImpacts, emailTemplates, emailRules, emailLogs, proposals, proposalFiles } from "@shared/schema";
-import { eq, and, sql, desc, inArray } from "drizzle-orm";
+import { users, customers, contacts, companies, companyUsers, settings, notes, contracts, contractStatusHistory, contractDocuments, contractMonthlyAmounts, customerRateSheets, contractServices, contractTemplates, contractBuilderDocuments, contractBuilderSections, contractBuilderVariables, ticketTypes, ticketTypeStatuses, ticketTypeFields, tickets, ticketFieldValues, ticketStatusHistory, ticketComments, ticketCommentMentions, ticketSources, ticketLinks, customerMapLayers, customerMapDocuments, maintenanceCrews, maintenanceVisitConfigs, weeklyScheduleTemplates, scheduleBlocks, ticketNotifications, propertyManagementCompanies, propertyManagers, propertyManagerEmails, propertyManagerPhones, equipment, equipmentFiles, equipmentTickets, equipmentTicketStatusHistory, snowEvents, snowEventAttachments, snowEventPropertyImpacts, emailTemplates, emailRules, emailLogs, proposals, proposalFiles, proposalVersions } from "@shared/schema";
+import { eq, and, sql, desc, inArray, max } from "drizzle-orm";
 import session from "express-session";
 import connectPg from "connect-pg-simple";
 import { pool } from "./db";
@@ -306,6 +306,10 @@ export interface IStorage {
   createProposalFile(file: InsertProposalFile): Promise<ProposalFile>;
   updateProposalFile(id: string, companyId: string, updates: { caption?: string | null }): Promise<ProposalFile | undefined>;
   deleteProposalFile(id: string, companyId: string): Promise<void>;
+  createProposalVersion(v: InsertProposalVersion): Promise<ProposalVersion>;
+  getProposalVersions(proposalId: string, companyId: string): Promise<ProposalVersionWithUser[]>;
+  getProposalVersionById(id: string, companyId: string): Promise<ProposalVersionWithUser | undefined>;
+  getNextVersionNumber(proposalId: string, companyId: string): Promise<number>;
 
   sessionStore: session.Store;
 }
@@ -2338,6 +2342,26 @@ export class PgStorage implements IStorage {
 
   // ==================== PROPOSALS ====================
 
+  private async _getVersionsForProposals(proposalIds: string[]): Promise<{ [proposalId: string]: ProposalVersionWithUser[] }> {
+    if (proposalIds.length === 0) return {};
+    const versionRows = await db
+      .select({
+        version: proposalVersions,
+        finalizedByName: users.name,
+      })
+      .from(proposalVersions)
+      .leftJoin(users, eq(proposalVersions.finalizedById, users.id))
+      .where(inArray(proposalVersions.proposalId, proposalIds))
+      .orderBy(proposalVersions.versionNumber);
+    const map: { [proposalId: string]: ProposalVersionWithUser[] } = {};
+    for (const row of versionRows) {
+      const v: ProposalVersionWithUser = { ...row.version, finalizedByName: row.finalizedByName ?? null };
+      if (!map[row.version.proposalId]) map[row.version.proposalId] = [];
+      map[row.version.proposalId].push(v);
+    }
+    return map;
+  }
+
   async getProposals(companyId: string): Promise<ProposalWithDetails[]> {
     const rows = await db
       .select({
@@ -2353,11 +2377,13 @@ export class PgStorage implements IStorage {
     const files = proposalIds.length > 0
       ? await db.select().from(proposalFiles).where(inArray(proposalFiles.proposalId, proposalIds)).orderBy(proposalFiles.displayOrder)
       : [];
+    const versionsMap = await this._getVersionsForProposals(proposalIds);
 
     return rows.map(r => ({
       ...r.proposal,
       customerName: r.customerName ?? "",
       files: files.filter(f => f.proposalId === r.proposal.id),
+      versions: versionsMap[r.proposal.id] ?? [],
     }));
   }
 
@@ -2376,11 +2402,13 @@ export class PgStorage implements IStorage {
     const files = proposalIds.length > 0
       ? await db.select().from(proposalFiles).where(inArray(proposalFiles.proposalId, proposalIds)).orderBy(proposalFiles.displayOrder)
       : [];
+    const versionsMap = await this._getVersionsForProposals(proposalIds);
 
     return rows.map(r => ({
       ...r.proposal,
       customerName: r.customerName ?? "",
       files: files.filter(f => f.proposalId === r.proposal.id),
+      versions: versionsMap[r.proposal.id] ?? [],
     }));
   }
 
@@ -2400,10 +2428,13 @@ export class PgStorage implements IStorage {
       .where(and(eq(proposalFiles.proposalId, id), eq(proposalFiles.companyId, companyId)))
       .orderBy(proposalFiles.displayOrder);
 
+    const versionsMap = await this._getVersionsForProposals([id]);
+
     return {
       ...rows[0].proposal,
       customerName: rows[0].customerName ?? "",
       files,
+      versions: versionsMap[id] ?? [],
     };
   }
 
@@ -2461,6 +2492,39 @@ export class PgStorage implements IStorage {
 
   async deleteProposalFile(id: string, companyId: string): Promise<void> {
     await db.delete(proposalFiles).where(and(eq(proposalFiles.id, id), eq(proposalFiles.companyId, companyId)));
+  }
+
+  async createProposalVersion(v: InsertProposalVersion): Promise<ProposalVersion> {
+    const result = await db.insert(proposalVersions).values([v]).returning();
+    return result[0];
+  }
+
+  async getProposalVersions(proposalId: string, companyId: string): Promise<ProposalVersionWithUser[]> {
+    const rows = await db
+      .select({ version: proposalVersions, finalizedByName: users.name })
+      .from(proposalVersions)
+      .leftJoin(users, eq(proposalVersions.finalizedById, users.id))
+      .where(and(eq(proposalVersions.proposalId, proposalId), eq(proposalVersions.companyId, companyId)))
+      .orderBy(proposalVersions.versionNumber);
+    return rows.map(r => ({ ...r.version, finalizedByName: r.finalizedByName ?? null }));
+  }
+
+  async getProposalVersionById(id: string, companyId: string): Promise<ProposalVersionWithUser | undefined> {
+    const rows = await db
+      .select({ version: proposalVersions, finalizedByName: users.name })
+      .from(proposalVersions)
+      .leftJoin(users, eq(proposalVersions.finalizedById, users.id))
+      .where(and(eq(proposalVersions.id, id), eq(proposalVersions.companyId, companyId)));
+    if (!rows[0]) return undefined;
+    return { ...rows[0].version, finalizedByName: rows[0].finalizedByName ?? null };
+  }
+
+  async getNextVersionNumber(proposalId: string, companyId: string): Promise<number> {
+    const result = await db
+      .select({ maxVersion: max(proposalVersions.versionNumber) })
+      .from(proposalVersions)
+      .where(and(eq(proposalVersions.proposalId, proposalId), eq(proposalVersions.companyId, companyId)));
+    return (result[0]?.maxVersion ?? 0) + 1;
   }
 }
 
