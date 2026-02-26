@@ -1,0 +1,118 @@
+Proposal Maker — Slice P3 (Estimate PDF Collation) — Submit This Whole Block
+Goal
+
+Generate a single, client-ready proposal document by appending the original QuickBooks Estimate PDF to the branded PDF produced in Slice P2 (cover + scope). The estimate must remain unchanged and readable, preserving its original layout and quality.
+
+Guardrails (What NOT to build yet)
+
+Do not modify, parse, or extract data from the estimate PDF
+
+Do not reorder estimate pages
+
+Do not compress or downscale estimate pages
+
+Do not include images/screenshots yet (that is Slice P4)
+
+Do not implement versioning, approvals, emailing, or automation
+
+Do not alter Slice P1 data structures
+
+Requirements
+1) Combined PDF Generation (On Demand)
+
+Enhance the existing PDF endpoint so that it produces a single merged PDF containing:
+
+Branded proposal pages (from Slice P2)
+
+The original estimate PDF pages appended afterward
+
+No intermediate files need to be stored.
+
+2) Output Order (Strict)
+
+The final document must always follow this order:
+
+Branded cover + scope pages
+
+Original estimate PDF pages (exact order preserved)
+
+No additional separator pages are required.
+
+3) Estimate PDF Handling Rules
+Preservation
+
+Maintain original page size, orientation, and formatting
+
+Preserve all fonts, graphics, and embedded content
+
+Do not rasterize pages
+
+Do not crop or scale to fit margins
+
+Multi-Page Support
+
+Must work with estimates of any length
+
+Combined document must remain readable and navigable
+
+Error Handling
+
+If the estimate PDF is missing, corrupted, or unreadable:
+
+Do not generate a partial document silently
+
+Return a clear error indicating the estimate cannot be appended
+
+4) Compatibility Considerations
+
+The merged output must:
+
+Open reliably in standard PDF viewers (Adobe, browser viewers, mobile)
+
+Support printing without layout issues
+
+Preserve text clarity (no quality degradation)
+
+5) Preview + Download Behavior
+
+Use the same interaction model established in Slice P2:
+
+Preview opens the combined PDF inline (new tab)
+
+Download saves the combined PDF as a file
+
+Filename recommendation:
+
+Proposal-{CustomerName}-{YYYY-MM-DD}.pdf
+
+Sanitized for filesystem safety.
+
+6) Permissions
+
+Same as prior slices:
+
+Admin + Office: allowed
+
+Other roles: no access
+
+Acceptance Tests
+
+Preview generates a combined document without errors
+
+Download produces a valid merged PDF file
+
+Branded pages appear first
+
+Estimate pages follow in correct order
+
+Multi-page estimates append correctly
+
+Orientation differences (portrait/landscape) remain intact
+
+Output opens cleanly in common PDF viewers
+
+Attempting generation with a missing or invalid estimate produces a clear error
+
+Done Definition
+
+Users can generate a single, professional proposal document that combines the branded cover/scope pages with the original QuickBooks estimate, preserving the estimate exactly as provided and producing a reliable client-ready file.
