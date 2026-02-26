@@ -70,6 +70,8 @@ P2 (Branded PDF): `GET /api/proposals/:id/pdf` generates a branded cover + scope
 
 P3 (Estimate PDF Collation): The same endpoint now merges the branded pages with the original QB Estimate PDF using pdf-lib, producing a single client-ready document. Branded pages appear first; estimate pages are appended in original order without rasterization, preserving all fonts, graphics, and embedded content. If no estimate PDF is attached, the endpoint returns 400. The draft editor's Preview/Download buttons are disabled (with tooltip) until an estimate PDF is uploaded. Download filename: `Proposal-{CustomerName}-{YYYY-MM-DD}.pdf`.
 
+P4 (Photo Appendix): When images are attached to the draft, the endpoint appends a photo appendix after the estimate PDF. Final order: branded cover/scope → estimate → photo appendix. Appendix starts with a "PROJECT IMAGES" header page, then one image per page (scaled to fit 492×622 pt area, maintaining aspect ratio). Captions appear at the bottom of each image page when provided. If no images are attached, output is identical to P3. Limits: max 25 images; download/render failures return a clear 400 error naming the specific file. Supports JPG and PNG.
+
 ## External Dependencies
 
 - **UI Component Libraries:** Radix UI, Shadcn/ui, Lucide React, CMDK

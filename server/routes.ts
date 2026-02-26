@@ -7699,17 +7699,102 @@ export async function registerRoutes(app: Express): Promise<Server> {
     doc.end();
     const brandedBuffer = await pdfPromise;
 
+    // --- Photo appendix (P4) ---
+    const MAX_IMAGES = 25;
+    const images = proposal.files
+      .filter(f => f.fileType === 'image')
+      .sort((a, b) => a.displayOrder - b.displayOrder);
+
+    if (images.length > MAX_IMAGES) {
+      return res.status(400).send(`Too many images attached (${images.length}). Maximum allowed for PDF generation is ${MAX_IMAGES}. Remove some images and try again.`);
+    }
+
+    const imageBuffers: { buffer: Buffer; filename: string; caption: string | null }[] = [];
+    for (const img of images) {
+      try {
+        const gcsFile = await objectStorageService.getObjectEntityFile(img.storageObjectPath);
+        const [imgData] = await gcsFile.download();
+        imageBuffers.push({ buffer: imgData as Buffer, filename: img.filename, caption: img.caption ?? null });
+      } catch (err) {
+        console.error(`Proposal PDF: failed to download image "${img.filename}":`, err);
+        return res.status(400).send(`Failed to load image "${img.filename}". The file may be missing or corrupted.`);
+      }
+    }
+
+    let appendixBuffer: Buffer | null = null;
+    if (imageBuffers.length > 0) {
+      const appendixDoc = new PDFDocumentKit({
+        size: 'LETTER',
+        margins: { top: 60, bottom: 60, left: 60, right: 60 },
+      });
+      const appChunks: Buffer[] = [];
+      appendixDoc.on('data', (chunk: Buffer) => appChunks.push(chunk));
+      const appendixPromise = new Promise<Buffer>((resolve, reject) => {
+        appendixDoc.on('end', () => resolve(Buffer.concat(appChunks)));
+        appendixDoc.on('error', reject);
+      });
+
+      const appPageWidth = appendixDoc.page.width;
+      const appPageHeight = appendixDoc.page.height;
+      const appLeft = 60;
+      const appContentWidth = appPageWidth - appLeft - 60;
+
+      // Appendix header page
+      appendixDoc.moveDown(8);
+      appendixDoc.fillColor('#1a4d1a').fontSize(20).font('Helvetica-Bold')
+        .text('PROJECT IMAGES', { align: 'center' });
+      appendixDoc.moveDown(0.6);
+      appendixDoc.fillColor('#555555').fontSize(11).font('Helvetica')
+        .text('Attached for reference', { align: 'center' });
+
+      // One image per page
+      const captionReserve = 50;
+      const imgTopY = 60;
+      const maxImgWidth = appContentWidth;
+      const maxImgHeight = appPageHeight - imgTopY - 60 - captionReserve;
+      const captionY = appPageHeight - 60 - 30;
+
+      for (const img of imageBuffers) {
+        appendixDoc.addPage();
+        try {
+          appendixDoc.image(img.buffer, appLeft, imgTopY, {
+            fit: [maxImgWidth, maxImgHeight],
+            align: 'center',
+          });
+        } catch (err) {
+          console.error(`Proposal PDF: failed to render image "${img.filename}":`, err);
+          return res.status(400).send(`Image "${img.filename}" could not be rendered. It may be corrupted or an unsupported format (JPG and PNG are supported).`);
+        }
+        if (img.caption && img.caption.trim()) {
+          appendixDoc.fillColor('#333333').fontSize(10).font('Helvetica')
+            .text(img.caption.trim(), appLeft, captionY, { width: appContentWidth, align: 'center' });
+        }
+      }
+
+      appendixDoc.end();
+      appendixBuffer = await appendixPromise;
+    }
+
+    // --- Merge all sections with pdf-lib ---
     const { PDFDocument } = await import('pdf-lib');
     let mergedBuffer: Buffer;
     try {
       const mergedDoc = await PDFDocument.load(brandedBuffer);
+
       const estimateDoc = await PDFDocument.load(estimateBuffer);
-      const copiedPages = await mergedDoc.copyPages(estimateDoc, estimateDoc.getPageIndices());
-      copiedPages.forEach(p => mergedDoc.addPage(p));
+      const estimatePages = await mergedDoc.copyPages(estimateDoc, estimateDoc.getPageIndices());
+      estimatePages.forEach(p => mergedDoc.addPage(p));
+
+      if (appendixBuffer) {
+        const appendixPdfDoc = await PDFDocument.load(appendixBuffer);
+        const appendixPages = await mergedDoc.copyPages(appendixPdfDoc, appendixPdfDoc.getPageIndices());
+        appendixPages.forEach(p => mergedDoc.addPage(p));
+      }
+
       mergedBuffer = Buffer.from(await mergedDoc.save());
     } catch (err) {
       console.error('Proposal PDF: pdf-lib merge failed:', err);
-      return res.status(422).send("Estimate PDF could not be parsed. It may be corrupted or use an unsupported format.");
+      return res.status(422).send("PDF merge failed. One or more documents may be corrupted or use an unsupported format.");
     }
 
     const safeCustomer = (proposal.customerName || 'Client')

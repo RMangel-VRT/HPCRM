@@ -1,0 +1,121 @@
+Proposal Maker — Slice P4 (Photo Appendix) — Submit This Whole Block
+
+Goal
+
+Enhance the proposal PDF so that when photos/screenshots are attached to the draft, the generated output includes a professional photo appendix appended after the estimate PDF (or at the end of the document), with captions and clean pagination.
+
+⸻
+
+Guardrails (What NOT to build yet)
+	•	Do not add templates by proposal type
+	•	Do not add emailing, automation, approvals, e-signatures, or distribution tracking
+	•	Do not add versioning/finalization yet (that is Slice P5)
+	•	Do not implement advanced layout tooling (no freeform placements, no drag-drop layout editor)
+	•	Keep image layout simple, consistent, and highly reliable
+
+⸻
+
+Requirements
+
+1) Output Order (Strict)
+
+The final combined PDF must be in this exact order:
+	1.	Branded cover + scope pages (from P2)
+	2.	QuickBooks estimate PDF (from P3)
+	3.	Photo appendix (new in P4, only if images exist)
+
+If no images are attached, output remains identical to Slice P3.
+
+⸻
+
+2) Photo Appendix Rules
+
+Appendix Header Page
+	•	Start the appendix on a new page
+	•	Include a clear title, e.g. “Project Images” (or “Photo Appendix”)
+	•	Optional subtext: “Attached for reference” (keep minimal)
+
+Images Included
+	•	Include all attached draft images in the appendix
+	•	Preserve the draft image order (upload order or saved order if reordering exists)
+	•	Captions display beneath the corresponding image only if caption text exists
+
+⸻
+
+3) Image Layout (Reliability-First)
+
+Choose ONE layout approach for Slice P4 (pick the most stable and implement only that):
+
+Option A — One Image Per Page (Most Reliable)
+	•	Each image starts on a new page
+	•	Image scaled to fit within margins while maintaining aspect ratio
+	•	Caption below image (if present)
+	•	This option is preferred if stability is the top priority
+
+OR
+
+Option B — Two Images Per Page (If Stable)
+	•	Two images stacked vertically per page
+	•	Each scaled to fit evenly with spacing
+	•	Captions under each image (if present)
+
+Do NOT implement a complex grid in Slice P4.
+
+⸻
+
+4) Image Handling Rules
+	•	Support common image types (JPG/PNG at minimum)
+	•	Maintain aspect ratio (no stretching)
+	•	Auto-scale large images to fit within printable area
+	•	If an image fails to load or decode:
+	•	Do not generate a partial appendix silently
+	•	Return a clear error message indicating which image failed
+
+⸻
+
+5) Performance + Safety Constraints
+
+To prevent timeouts and memory issues:
+	•	Set a max image count included in the PDF (recommended: 25)
+	•	Set a max image file size (recommended: 10MB each)
+	•	If limits are exceeded:
+	•	Return a clear error explaining the limit
+	•	Advise user to remove some images or resize
+
+⸻
+
+6) Preview + Download Behavior
+
+Continue using the same workflow:
+	•	Preview renders combined document inline (new tab)
+	•	Download saves combined document
+
+Filename remains:
+
+Proposal-{CustomerName}-{YYYY-MM-DD}.pdf
+
+⸻
+
+7) Permissions
+
+No change:
+	•	Admin + Office can generate/preview/download
+	•	Other roles: no access
+
+⸻
+
+Acceptance Tests
+	1.	When images exist, appendix appears after estimate PDF
+	2.	When no images exist, output matches Slice P3 exactly
+	3.	Captions appear beneath images only when provided
+	4.	Portrait and landscape images scale properly without distortion
+	5.	Multi-image drafts paginate cleanly with consistent margins
+	6.	Exceeding image limits returns a clear error (no partial output)
+	7.	A corrupted/unreadable image returns a clear error naming the failed image
+	8.	Preview and download work with image appendix included
+
+⸻
+
+Done Definition
+
+Proposal PDFs now optionally include a clean, professional photo appendix appended after the estimate, with reliable scaling, pagination, and captions, while maintaining the existing P3 behavior when no images are present.
