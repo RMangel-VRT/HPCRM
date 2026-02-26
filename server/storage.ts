@@ -1,6 +1,6 @@
-import { type User, type InsertUser, type Customer, type InsertCustomer, type Contact, type InsertContact, type Company, type InsertCompany, type CompanyUser, type InsertCompanyUser, type Settings, type InsertSettings, type Note, type InsertNote, type Contract, type InsertContract, type ContractStatusHistory, type InsertContractStatusHistory, type ContractDocument, type InsertContractDocument, type ContractMonthlyAmount, type InsertContractMonthlyAmount, type CustomerRateSheet, type InsertCustomerRateSheet, type ContractService, type InsertContractService, type ContractTemplate, type InsertContractTemplate, type ContractBuilderDocument, type InsertContractBuilderDocument, type ContractBuilderSection, type InsertContractBuilderSection, type ContractBuilderVariable, type InsertContractBuilderVariable, type TicketType, type InsertTicketType, type TicketTypeStatus, type InsertTicketTypeStatus, type TicketTypeField, type InsertTicketTypeField, type Ticket, type InsertTicket, type TicketFieldValue, type InsertTicketFieldValue, type TicketStatusHistory, type InsertTicketStatusHistory, type TicketComment, type InsertTicketComment, type TicketCommentMention, type InsertTicketCommentMention, type TicketSource, type InsertTicketSource, type TicketLink, type InsertTicketLink, type TicketTypeCategory, type CustomerMapLayer, type InsertCustomerMapLayer, type CustomerMapDocument, type InsertCustomerMapDocument, type MaintenanceCrew, type InsertMaintenanceCrew, type MaintenanceVisitConfig, type InsertMaintenanceVisitConfig, type WeeklyScheduleTemplate, type InsertWeeklyScheduleTemplate, type ScheduleBlock, type InsertScheduleBlock, type TicketNotification, type InsertTicketNotification, type NotificationType, type PropertyManagementCompany, type InsertPropertyManagementCompany, type PropertyManager, type InsertPropertyManager, type PropertyManagerEmail, type InsertPropertyManagerEmail, type PropertyManagerPhone, type InsertPropertyManagerPhone, type PropertyManagerWithContacts, type Equipment, type InsertEquipment, type EquipmentFile, type InsertEquipmentFile, type EquipmentTicket, type InsertEquipmentTicket, type EquipmentTicketStatusHistory, type InsertEquipmentTicketStatusHistory, type EquipmentWithTicketCount, type SnowEvent, type InsertSnowEvent, type SnowEventAttachment, type InsertSnowEventAttachment, type SnowEventPropertyImpact, type InsertSnowEventPropertyImpact, type SnowEventWithDetails, type SnowEventPropertyImpactWithCustomer, type EmailTemplate, type InsertEmailTemplate, type EmailRule, type InsertEmailRule, type EmailLog, type InsertEmailLog, type EmailLogWithDetails } from "@shared/schema";
+import { type User, type InsertUser, type Customer, type InsertCustomer, type Contact, type InsertContact, type Company, type InsertCompany, type CompanyUser, type InsertCompanyUser, type Settings, type InsertSettings, type Note, type InsertNote, type Contract, type InsertContract, type ContractStatusHistory, type InsertContractStatusHistory, type ContractDocument, type InsertContractDocument, type ContractMonthlyAmount, type InsertContractMonthlyAmount, type CustomerRateSheet, type InsertCustomerRateSheet, type ContractService, type InsertContractService, type ContractTemplate, type InsertContractTemplate, type ContractBuilderDocument, type InsertContractBuilderDocument, type ContractBuilderSection, type InsertContractBuilderSection, type ContractBuilderVariable, type InsertContractBuilderVariable, type TicketType, type InsertTicketType, type TicketTypeStatus, type InsertTicketTypeStatus, type TicketTypeField, type InsertTicketTypeField, type Ticket, type InsertTicket, type TicketFieldValue, type InsertTicketFieldValue, type TicketStatusHistory, type InsertTicketStatusHistory, type TicketComment, type InsertTicketComment, type TicketCommentMention, type InsertTicketCommentMention, type TicketSource, type InsertTicketSource, type TicketLink, type InsertTicketLink, type TicketTypeCategory, type CustomerMapLayer, type InsertCustomerMapLayer, type CustomerMapDocument, type InsertCustomerMapDocument, type MaintenanceCrew, type InsertMaintenanceCrew, type MaintenanceVisitConfig, type InsertMaintenanceVisitConfig, type WeeklyScheduleTemplate, type InsertWeeklyScheduleTemplate, type ScheduleBlock, type InsertScheduleBlock, type TicketNotification, type InsertTicketNotification, type NotificationType, type PropertyManagementCompany, type InsertPropertyManagementCompany, type PropertyManager, type InsertPropertyManager, type PropertyManagerEmail, type InsertPropertyManagerEmail, type PropertyManagerPhone, type InsertPropertyManagerPhone, type PropertyManagerWithContacts, type Equipment, type InsertEquipment, type EquipmentFile, type InsertEquipmentFile, type EquipmentTicket, type InsertEquipmentTicket, type EquipmentTicketStatusHistory, type InsertEquipmentTicketStatusHistory, type EquipmentWithTicketCount, type SnowEvent, type InsertSnowEvent, type SnowEventAttachment, type InsertSnowEventAttachment, type SnowEventPropertyImpact, type InsertSnowEventPropertyImpact, type SnowEventWithDetails, type SnowEventPropertyImpactWithCustomer, type EmailTemplate, type InsertEmailTemplate, type EmailRule, type InsertEmailRule, type EmailLog, type InsertEmailLog, type EmailLogWithDetails, type Proposal, type InsertProposal, type ProposalFile, type InsertProposalFile, type ProposalWithDetails } from "@shared/schema";
 import { db } from "./db";
-import { users, customers, contacts, companies, companyUsers, settings, notes, contracts, contractStatusHistory, contractDocuments, contractMonthlyAmounts, customerRateSheets, contractServices, contractTemplates, contractBuilderDocuments, contractBuilderSections, contractBuilderVariables, ticketTypes, ticketTypeStatuses, ticketTypeFields, tickets, ticketFieldValues, ticketStatusHistory, ticketComments, ticketCommentMentions, ticketSources, ticketLinks, customerMapLayers, customerMapDocuments, maintenanceCrews, maintenanceVisitConfigs, weeklyScheduleTemplates, scheduleBlocks, ticketNotifications, propertyManagementCompanies, propertyManagers, propertyManagerEmails, propertyManagerPhones, equipment, equipmentFiles, equipmentTickets, equipmentTicketStatusHistory, snowEvents, snowEventAttachments, snowEventPropertyImpacts, emailTemplates, emailRules, emailLogs } from "@shared/schema";
+import { users, customers, contacts, companies, companyUsers, settings, notes, contracts, contractStatusHistory, contractDocuments, contractMonthlyAmounts, customerRateSheets, contractServices, contractTemplates, contractBuilderDocuments, contractBuilderSections, contractBuilderVariables, ticketTypes, ticketTypeStatuses, ticketTypeFields, tickets, ticketFieldValues, ticketStatusHistory, ticketComments, ticketCommentMentions, ticketSources, ticketLinks, customerMapLayers, customerMapDocuments, maintenanceCrews, maintenanceVisitConfigs, weeklyScheduleTemplates, scheduleBlocks, ticketNotifications, propertyManagementCompanies, propertyManagers, propertyManagerEmails, propertyManagerPhones, equipment, equipmentFiles, equipmentTickets, equipmentTicketStatusHistory, snowEvents, snowEventAttachments, snowEventPropertyImpacts, emailTemplates, emailRules, emailLogs, proposals, proposalFiles } from "@shared/schema";
 import { eq, and, sql, desc, inArray } from "drizzle-orm";
 import session from "express-session";
 import connectPg from "connect-pg-simple";
@@ -292,7 +292,21 @@ export interface IStorage {
   getEmailLogById(id: string, companyId: string): Promise<EmailLog | undefined>;
   createEmailLog(log: InsertEmailLog): Promise<EmailLog>;
   updateEmailLog(id: string, updates: Partial<InsertEmailLog>): Promise<EmailLog | undefined>;
-  
+
+  // Proposals
+  getProposals(companyId: string): Promise<ProposalWithDetails[]>;
+  getProposalsByCustomer(customerId: string, companyId: string): Promise<ProposalWithDetails[]>;
+  getProposalById(id: string, companyId: string): Promise<ProposalWithDetails | undefined>;
+  createProposal(proposal: InsertProposal): Promise<Proposal>;
+  updateProposal(id: string, companyId: string, updates: Partial<InsertProposal>): Promise<Proposal | undefined>;
+  deleteProposal(id: string, companyId: string): Promise<void>;
+  getProposalFiles(proposalId: string, companyId: string): Promise<ProposalFile[]>;
+  getProposalFileById(id: string, companyId: string): Promise<ProposalFile | undefined>;
+  getProposalEstimatePdf(proposalId: string, companyId: string): Promise<ProposalFile | undefined>;
+  createProposalFile(file: InsertProposalFile): Promise<ProposalFile>;
+  updateProposalFile(id: string, companyId: string, updates: { caption?: string | null }): Promise<ProposalFile | undefined>;
+  deleteProposalFile(id: string, companyId: string): Promise<void>;
+
   sessionStore: session.Store;
 }
 
@@ -2320,6 +2334,133 @@ export class PgStorage implements IStorage {
       .where(eq(emailLogs.id, id))
       .returning();
     return result[0];
+  }
+
+  // ==================== PROPOSALS ====================
+
+  async getProposals(companyId: string): Promise<ProposalWithDetails[]> {
+    const rows = await db
+      .select({
+        proposal: proposals,
+        customerName: customers.name,
+      })
+      .from(proposals)
+      .leftJoin(customers, eq(proposals.customerId, customers.id))
+      .where(eq(proposals.companyId, companyId))
+      .orderBy(desc(proposals.createdAt));
+
+    const proposalIds = rows.map(r => r.proposal.id);
+    const files = proposalIds.length > 0
+      ? await db.select().from(proposalFiles).where(inArray(proposalFiles.proposalId, proposalIds)).orderBy(proposalFiles.displayOrder)
+      : [];
+
+    return rows.map(r => ({
+      ...r.proposal,
+      customerName: r.customerName ?? "",
+      files: files.filter(f => f.proposalId === r.proposal.id),
+    }));
+  }
+
+  async getProposalsByCustomer(customerId: string, companyId: string): Promise<ProposalWithDetails[]> {
+    const rows = await db
+      .select({
+        proposal: proposals,
+        customerName: customers.name,
+      })
+      .from(proposals)
+      .leftJoin(customers, eq(proposals.customerId, customers.id))
+      .where(and(eq(proposals.customerId, customerId), eq(proposals.companyId, companyId)))
+      .orderBy(desc(proposals.createdAt));
+
+    const proposalIds = rows.map(r => r.proposal.id);
+    const files = proposalIds.length > 0
+      ? await db.select().from(proposalFiles).where(inArray(proposalFiles.proposalId, proposalIds)).orderBy(proposalFiles.displayOrder)
+      : [];
+
+    return rows.map(r => ({
+      ...r.proposal,
+      customerName: r.customerName ?? "",
+      files: files.filter(f => f.proposalId === r.proposal.id),
+    }));
+  }
+
+  async getProposalById(id: string, companyId: string): Promise<ProposalWithDetails | undefined> {
+    const rows = await db
+      .select({
+        proposal: proposals,
+        customerName: customers.name,
+      })
+      .from(proposals)
+      .leftJoin(customers, eq(proposals.customerId, customers.id))
+      .where(and(eq(proposals.id, id), eq(proposals.companyId, companyId)));
+
+    if (!rows[0]) return undefined;
+
+    const files = await db.select().from(proposalFiles)
+      .where(and(eq(proposalFiles.proposalId, id), eq(proposalFiles.companyId, companyId)))
+      .orderBy(proposalFiles.displayOrder);
+
+    return {
+      ...rows[0].proposal,
+      customerName: rows[0].customerName ?? "",
+      files,
+    };
+  }
+
+  async createProposal(proposal: InsertProposal): Promise<Proposal> {
+    const result = await db.insert(proposals).values([proposal]).returning();
+    return result[0];
+  }
+
+  async updateProposal(id: string, companyId: string, updates: Partial<InsertProposal>): Promise<Proposal | undefined> {
+    const result = await db.update(proposals)
+      .set(updates)
+      .where(and(eq(proposals.id, id), eq(proposals.companyId, companyId)))
+      .returning();
+    return result[0];
+  }
+
+  async deleteProposal(id: string, companyId: string): Promise<void> {
+    await db.delete(proposals).where(and(eq(proposals.id, id), eq(proposals.companyId, companyId)));
+  }
+
+  async getProposalFiles(proposalId: string, companyId: string): Promise<ProposalFile[]> {
+    return db.select().from(proposalFiles)
+      .where(and(eq(proposalFiles.proposalId, proposalId), eq(proposalFiles.companyId, companyId)))
+      .orderBy(proposalFiles.displayOrder);
+  }
+
+  async getProposalFileById(id: string, companyId: string): Promise<ProposalFile | undefined> {
+    const result = await db.select().from(proposalFiles)
+      .where(and(eq(proposalFiles.id, id), eq(proposalFiles.companyId, companyId)));
+    return result[0];
+  }
+
+  async getProposalEstimatePdf(proposalId: string, companyId: string): Promise<ProposalFile | undefined> {
+    const result = await db.select().from(proposalFiles)
+      .where(and(
+        eq(proposalFiles.proposalId, proposalId),
+        eq(proposalFiles.companyId, companyId),
+        eq(proposalFiles.fileType, "estimate_pdf")
+      ));
+    return result[0];
+  }
+
+  async createProposalFile(file: InsertProposalFile): Promise<ProposalFile> {
+    const result = await db.insert(proposalFiles).values([file]).returning();
+    return result[0];
+  }
+
+  async updateProposalFile(id: string, companyId: string, updates: { caption?: string | null }): Promise<ProposalFile | undefined> {
+    const result = await db.update(proposalFiles)
+      .set(updates)
+      .where(and(eq(proposalFiles.id, id), eq(proposalFiles.companyId, companyId)))
+      .returning();
+    return result[0];
+  }
+
+  async deleteProposalFile(id: string, companyId: string): Promise<void> {
+    await db.delete(proposalFiles).where(and(eq(proposalFiles.id, id), eq(proposalFiles.companyId, companyId)));
   }
 }
 

@@ -7345,6 +7345,227 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // ==================== PROPOSAL MAKER ROUTES ====================
+
+  const canAccessProposals = (role: string) => role === "admin" || role === "office";
+
+  app.get("/api/proposals", async (req, res) => {
+    if (!req.isAuthenticated()) return res.status(401).send("Not authenticated");
+    const user = req.user as UserWithContext;
+    if (!canAccessProposals(user.activeRole)) return res.status(403).send("Insufficient permissions");
+    const list = await storage.getProposals(user.activeCompanyId);
+    res.json(list);
+  });
+
+  app.post("/api/proposals", async (req, res) => {
+    if (!req.isAuthenticated()) return res.status(401).send("Not authenticated");
+    const user = req.user as UserWithContext;
+    if (!canAccessProposals(user.activeRole)) return res.status(403).send("Insufficient permissions");
+
+    const { customerId, title, proposalDate, estimateNumber, scopeOfWork } = req.body;
+    if (!customerId) return res.status(400).json({ error: "customerId is required" });
+
+    const customer = await storage.getCustomerById(customerId, user.activeCompanyId);
+    if (!customer) return res.status(400).json({ error: "Customer not found or does not belong to your company" });
+
+    const today = new Date().toISOString().split("T")[0];
+    const proposal = await storage.createProposal({
+      companyId: user.activeCompanyId,
+      customerId,
+      createdById: user.id,
+      title: title || "Proposal",
+      proposalDate: proposalDate || today,
+      estimateNumber: estimateNumber || null,
+      scopeOfWork: scopeOfWork || "",
+      status: "draft",
+    });
+    res.status(201).json(proposal);
+  });
+
+  app.get("/api/proposals/:id", async (req, res) => {
+    if (!req.isAuthenticated()) return res.status(401).send("Not authenticated");
+    const user = req.user as UserWithContext;
+    if (!canAccessProposals(user.activeRole)) return res.status(403).send("Insufficient permissions");
+    const proposal = await storage.getProposalById(req.params.id, user.activeCompanyId);
+    if (!proposal) return res.status(404).send("Not found");
+    res.json(proposal);
+  });
+
+  app.patch("/api/proposals/:id", async (req, res) => {
+    if (!req.isAuthenticated()) return res.status(401).send("Not authenticated");
+    const user = req.user as UserWithContext;
+    if (!canAccessProposals(user.activeRole)) return res.status(403).send("Insufficient permissions");
+    const { title, proposalDate, estimateNumber, scopeOfWork } = req.body;
+    const updated = await storage.updateProposal(req.params.id, user.activeCompanyId, {
+      ...(title !== undefined && { title }),
+      ...(proposalDate !== undefined && { proposalDate }),
+      ...(estimateNumber !== undefined && { estimateNumber }),
+      ...(scopeOfWork !== undefined && { scopeOfWork }),
+    });
+    if (!updated) return res.status(404).send("Not found");
+    res.json(updated);
+  });
+
+  app.delete("/api/proposals/:id", async (req, res) => {
+    if (!req.isAuthenticated()) return res.status(401).send("Not authenticated");
+    const user = req.user as UserWithContext;
+    if (!canAccessProposals(user.activeRole)) return res.status(403).send("Insufficient permissions");
+
+    const proposal = await storage.getProposalById(req.params.id, user.activeCompanyId);
+    if (!proposal) return res.status(404).send("Not found");
+
+    const bucketId = process.env.DEFAULT_OBJECT_STORAGE_BUCKET_ID;
+    if (bucketId && proposal.files.length > 0) {
+      const bucket = objectStorageClient.bucket(bucketId);
+      for (const f of proposal.files) {
+        try {
+          const objectName = f.storageObjectPath.startsWith("/") ? f.storageObjectPath.slice(1) : f.storageObjectPath;
+          await bucket.file(objectName).delete({ ignoreNotFound: true });
+        } catch (e) {
+          console.error("Error deleting proposal file from GCS:", e);
+        }
+      }
+    }
+
+    await storage.deleteProposal(req.params.id, user.activeCompanyId);
+    res.json({ success: true });
+  });
+
+  app.get("/api/customers/:id/proposals", async (req, res) => {
+    if (!req.isAuthenticated()) return res.status(401).send("Not authenticated");
+    const user = req.user as UserWithContext;
+    if (!canAccessProposals(user.activeRole)) return res.status(403).send("Insufficient permissions");
+    const list = await storage.getProposalsByCustomer(req.params.id, user.activeCompanyId);
+    res.json(list);
+  });
+
+  app.post("/api/proposals/:id/files/upload-url", async (req, res) => {
+    if (!req.isAuthenticated()) return res.status(401).send("Not authenticated");
+    const user = req.user as UserWithContext;
+    if (!canAccessProposals(user.activeRole)) return res.status(403).send("Insufficient permissions");
+
+    const { fileType, mimeType, fileSize } = req.body;
+
+    if (!["estimate_pdf", "image"].includes(fileType)) {
+      return res.status(400).json({ error: "fileType must be 'estimate_pdf' or 'image'" });
+    }
+    if (fileType === "estimate_pdf") {
+      if (mimeType !== "application/pdf") return res.status(400).json({ error: "Estimate PDF must be a PDF file" });
+      if (fileSize > 25 * 1024 * 1024) return res.status(400).json({ error: "PDF must be ≤ 25MB" });
+    }
+    if (fileType === "image") {
+      if (!mimeType?.startsWith("image/")) return res.status(400).json({ error: "Image files must have an image/* MIME type" });
+      if (fileSize > 10 * 1024 * 1024) return res.status(400).json({ error: "Images must be ≤ 10MB" });
+    }
+
+    try {
+      const objectStorageService = new ObjectStorageService();
+      const uploadURL = await objectStorageService.getObjectEntityUploadURL();
+      const normalizedPath = objectStorageService.normalizeObjectEntityPath(uploadURL);
+      res.json({ uploadUrl: uploadURL, storagePath: normalizedPath });
+    } catch (error) {
+      console.error("Error getting proposal file upload URL:", error);
+      res.status(500).send("Failed to get upload URL");
+    }
+  });
+
+  app.post("/api/proposals/:id/files", async (req, res) => {
+    if (!req.isAuthenticated()) return res.status(401).send("Not authenticated");
+    const user = req.user as UserWithContext;
+    if (!canAccessProposals(user.activeRole)) return res.status(403).send("Insufficient permissions");
+
+    const proposal = await storage.getProposalById(req.params.id, user.activeCompanyId);
+    if (!proposal) return res.status(404).send("Proposal not found");
+
+    const { fileType, storagePath, filename, mimeType, fileSize, caption } = req.body;
+
+    if (!["estimate_pdf", "image"].includes(fileType)) {
+      return res.status(400).json({ error: "Invalid fileType" });
+    }
+
+    try {
+      const objectStorageService = new ObjectStorageService();
+
+      if (fileType === "estimate_pdf") {
+        const existing = await storage.getProposalEstimatePdf(req.params.id, user.activeCompanyId);
+        if (existing) {
+          const bucketId = process.env.DEFAULT_OBJECT_STORAGE_BUCKET_ID;
+          if (bucketId) {
+            const bucket = objectStorageClient.bucket(bucketId);
+            const objectName = existing.storageObjectPath.startsWith("/") ? existing.storageObjectPath.slice(1) : existing.storageObjectPath;
+            try { await bucket.file(objectName).delete({ ignoreNotFound: true }); } catch (e) { /* ignore */ }
+          }
+          await storage.deleteProposalFile(existing.id, user.activeCompanyId);
+        }
+      }
+
+      let displayOrder = 0;
+      if (fileType === "image") {
+        const existingFiles = await storage.getProposalFiles(req.params.id, user.activeCompanyId);
+        const images = existingFiles.filter(f => f.fileType === "image");
+        displayOrder = images.length > 0 ? Math.max(...images.map(f => f.displayOrder)) + 1 : 0;
+      }
+
+      const objectFile = await objectStorageService.getObjectEntityFile(storagePath);
+      await setObjectAclPolicy(objectFile, {
+        owner: user.id,
+        visibility: "private",
+        aclRules: [{
+          group: { type: ObjectAccessGroupType.COMPANY_MEMBER, id: user.activeCompanyId },
+          permission: ObjectPermission.READ,
+        }],
+      });
+
+      const file = await storage.createProposalFile({
+        proposalId: req.params.id,
+        companyId: user.activeCompanyId,
+        fileType,
+        storageObjectPath: storagePath,
+        filename,
+        mimeType,
+        fileSize,
+        caption: caption || null,
+        displayOrder,
+      });
+      res.status(201).json(file);
+    } catch (error) {
+      console.error("Error creating proposal file:", error);
+      res.status(500).send("Failed to create proposal file");
+    }
+  });
+
+  app.patch("/api/proposals/:id/files/:fileId", async (req, res) => {
+    if (!req.isAuthenticated()) return res.status(401).send("Not authenticated");
+    const user = req.user as UserWithContext;
+    if (!canAccessProposals(user.activeRole)) return res.status(403).send("Insufficient permissions");
+
+    const file = await storage.getProposalFileById(req.params.fileId, user.activeCompanyId);
+    if (!file) return res.status(404).send("File not found");
+
+    const { caption } = req.body;
+    const updated = await storage.updateProposalFile(req.params.fileId, user.activeCompanyId, { caption: caption ?? null });
+    res.json(updated);
+  });
+
+  app.delete("/api/proposals/:id/files/:fileId", async (req, res) => {
+    if (!req.isAuthenticated()) return res.status(401).send("Not authenticated");
+    const user = req.user as UserWithContext;
+    if (!canAccessProposals(user.activeRole)) return res.status(403).send("Insufficient permissions");
+
+    const file = await storage.getProposalFileById(req.params.fileId, user.activeCompanyId);
+    if (!file) return res.status(404).send("File not found");
+
+    const bucketId = process.env.DEFAULT_OBJECT_STORAGE_BUCKET_ID;
+    if (bucketId) {
+      const bucket = objectStorageClient.bucket(bucketId);
+      const objectName = file.storageObjectPath.startsWith("/") ? file.storageObjectPath.slice(1) : file.storageObjectPath;
+      try { await bucket.file(objectName).delete({ ignoreNotFound: true }); } catch (e) { /* ignore */ }
+    }
+
+    await storage.deleteProposalFile(req.params.fileId, user.activeCompanyId);
+    res.json({ success: true });
+  });
+
   const httpServer = createServer(app);
 
   return httpServer;

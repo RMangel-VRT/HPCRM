@@ -1,6 +1,6 @@
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { FileText, Camera, Calculator } from "lucide-react";
+import { FileText, Camera, Calculator, ClipboardList } from "lucide-react";
 import { Link } from "wouter";
 
 export default function ToolsPage() {
@@ -12,6 +12,14 @@ export default function ToolsPage() {
       href: "/dashboard/tools/contract-builder",
       available: true,
       testId: "card-contract-builder",
+    },
+    {
+      title: "Proposal Maker",
+      description: "Build and store proposal drafts with QB estimate PDFs, scope of work, and supporting images",
+      icon: ClipboardList,
+      href: "/dashboard/tools/proposals",
+      available: true,
+      testId: "card-proposal-maker",
     },
     {
       title: "Snow Damage Capture",

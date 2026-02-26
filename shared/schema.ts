@@ -1432,3 +1432,53 @@ export type EmailLogWithDetails = EmailLog & {
   ticketTitle?: string;
   templateName?: string;
 };
+
+// ==================== PROPOSAL MAKER ====================
+
+export const proposals = pgTable("proposals", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  companyId: varchar("company_id").notNull().references(() => companies.id, { onDelete: "cascade" }),
+  customerId: varchar("customer_id").notNull().references(() => customers.id, { onDelete: "cascade" }),
+  createdById: varchar("created_by_id").references(() => users.id, { onDelete: "set null" }),
+  title: varchar("title").notNull().default("Proposal"),
+  proposalDate: varchar("proposal_date").notNull(),
+  estimateNumber: varchar("estimate_number"),
+  scopeOfWork: text("scope_of_work").notNull().default(""),
+  status: varchar("status").notNull().default("draft"),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+});
+
+export const insertProposalSchema = createInsertSchema(proposals).omit({
+  id: true,
+  createdAt: true,
+});
+
+export type InsertProposal = z.infer<typeof insertProposalSchema>;
+export type Proposal = typeof proposals.$inferSelect;
+
+export const proposalFiles = pgTable("proposal_files", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  proposalId: varchar("proposal_id").notNull().references(() => proposals.id, { onDelete: "cascade" }),
+  companyId: varchar("company_id").notNull().references(() => companies.id, { onDelete: "cascade" }),
+  fileType: varchar("file_type").notNull(),
+  storageObjectPath: varchar("storage_object_path").notNull(),
+  filename: varchar("filename").notNull(),
+  mimeType: varchar("mime_type").notNull(),
+  fileSize: integer("file_size").notNull(),
+  caption: text("caption"),
+  displayOrder: integer("display_order").notNull().default(0),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+});
+
+export const insertProposalFileSchema = createInsertSchema(proposalFiles).omit({
+  id: true,
+  createdAt: true,
+});
+
+export type InsertProposalFile = z.infer<typeof insertProposalFileSchema>;
+export type ProposalFile = typeof proposalFiles.$inferSelect;
+
+export type ProposalWithDetails = Proposal & {
+  customerName: string;
+  files: ProposalFile[];
+};

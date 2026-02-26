@@ -1684,6 +1684,9 @@ export default function CustomerDetail() {
               <TabsTrigger value="scheduling" data-testid="tab-scheduling">
                 Scheduling
               </TabsTrigger>
+              <TabsTrigger value="proposals" data-testid="tab-proposals">
+                Proposals
+              </TabsTrigger>
             </>
           )}
           {customer.snowEnabled && (
@@ -2346,6 +2349,12 @@ export default function CustomerDetail() {
         <TabsContent value="maps" className="space-y-4">
           <CustomerMapsSection customerId={params?.id!} />
         </TabsContent>
+
+        {(user?.activeRole === "admin" || user?.activeRole === "office") && (
+          <TabsContent value="proposals" className="space-y-4">
+            <CustomerProposalsSection customerId={params?.id!} />
+          </TabsContent>
+        )}
       </Tabs>
 
       <Dialog open={isAddContractDialogOpen} onOpenChange={setIsAddContractDialogOpen}>
@@ -4565,6 +4574,91 @@ function CustomerMapsSection({ customerId }: { customerId: string }) {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+    </div>
+  );
+}
+
+// ==================== CUSTOMER PROPOSALS SECTION ====================
+
+function CustomerProposalsSection({ customerId }: { customerId: string }) {
+  const [, navigate] = useLocation();
+  const { toast } = useToast();
+  const [creating, setCreating] = useState(false);
+
+  const { data: proposals = [], isLoading } = useQuery<import("@shared/schema").ProposalWithDetails[]>({
+    queryKey: ["/api/customers", customerId, "proposals"],
+    queryFn: async () => {
+      const res = await fetch(`/api/customers/${customerId}/proposals`, { credentials: "include" });
+      if (!res.ok) throw new Error("Failed to fetch proposals");
+      return res.json();
+    },
+  });
+
+  const handleNewProposal = async () => {
+    setCreating(true);
+    try {
+      const res = await apiRequest("POST", "/api/proposals", {
+        customerId,
+        title: "Proposal",
+        proposalDate: new Date().toISOString().split("T")[0],
+      });
+      if (!res.ok) throw new Error("Failed to create proposal");
+      const p = await res.json();
+      queryClient.invalidateQueries({ queryKey: ["/api/customers", customerId, "proposals"] });
+      navigate(`/dashboard/tools/proposals/${p.id}`);
+    } catch {
+      toast({ title: "Error", description: "Failed to create proposal", variant: "destructive" });
+    } finally {
+      setCreating(false);
+    }
+  };
+
+  const formatDate = (d: string) => {
+    if (!d) return "";
+    try { const [y, m, day] = d.split("-"); return `${m}/${day}/${y}`; } catch { return d; }
+  };
+
+  return (
+    <div>
+      <div className="flex items-center justify-between mb-4 flex-wrap gap-2">
+        <h3 className="text-base font-medium">Proposals</h3>
+        <Button size="sm" onClick={handleNewProposal} disabled={creating} data-testid="button-new-proposal-customer">
+          {creating ? <><Loader2 className="w-4 h-4 mr-2 animate-spin" />Creating...</> : <><Plus className="w-4 h-4 mr-2" />New Proposal</>}
+        </Button>
+      </div>
+
+      {isLoading ? (
+        <div className="space-y-2">
+          {[1, 2].map(i => <div key={i} className="h-16 bg-muted rounded animate-pulse" />)}
+        </div>
+      ) : proposals.length === 0 ? (
+        <div className="text-center py-10 text-muted-foreground text-sm">
+          <FileText className="w-8 h-8 mx-auto mb-2 opacity-40" />
+          No proposals yet for this customer.
+        </div>
+      ) : (
+        <div className="space-y-2">
+          {proposals.map((p) => (
+            <div
+              key={p.id}
+              className="flex items-center justify-between p-3 rounded-md border hover-elevate cursor-pointer"
+              onClick={() => navigate(`/dashboard/tools/proposals/${p.id}`)}
+              data-testid={`row-proposal-${p.id}`}
+            >
+              <div className="flex-1 min-w-0">
+                <div className="flex items-center gap-2 flex-wrap">
+                  <span className="font-medium text-sm" data-testid={`text-proposal-title-${p.id}`}>{p.title}</span>
+                  <Badge variant="secondary" className="text-xs">Draft</Badge>
+                  {p.estimateNumber && (
+                    <span className="text-xs text-muted-foreground">#{p.estimateNumber}</span>
+                  )}
+                </div>
+                <p className="text-xs text-muted-foreground mt-0.5">{formatDate(p.proposalDate)}</p>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
     </div>
   );
 }
