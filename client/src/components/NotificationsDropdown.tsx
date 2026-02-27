@@ -16,7 +16,7 @@ import { useToast } from "@/hooks/use-toast";
 import type { TicketNotification } from "@shared/schema";
 
 function getNotificationPriority(type: string): "high" | "normal" {
-  return ["mentioned", "overdue", "due_today"].includes(type) ? "high" : "normal";
+  return ["mentioned", "overdue", "due_today", "assigned"].includes(type) ? "high" : "normal";
 }
 
 function getNotificationTitle(type: string) {

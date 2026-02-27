@@ -11,7 +11,7 @@ import { Link } from "wouter";
 import type { TicketNotification } from "@shared/schema";
 
 function getNotificationPriority(type: string): "high" | "normal" {
-  return ["mentioned", "overdue", "due_today"].includes(type) ? "high" : "normal";
+  return ["mentioned", "overdue", "due_today", "assigned"].includes(type) ? "high" : "normal";
 }
 
 function getNotificationIcon(type: string, muted = false) {
