@@ -7635,7 +7635,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       d.restore();
     }
 
-    function drawFooter(d: InstanceType<typeof PDFDocumentKit>, pageNum: number, totalPages: number, company: string) {
+    function drawFooter(d: InstanceType<typeof PDFDocumentKit>, pageNum: number, company: string) {
       const W = d.page.width;
       const H = d.page.height;
       const footerY = H - 50;
@@ -7652,7 +7652,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       d.fillColor('#bbbbbb')
         .fontSize(7)
         .font('Helvetica')
-        .text(`Page ${pageNum} of ${totalPages}`, LM, footerY + 12, { width: W - LM - RM, align: 'center' });
+        .text(`Page ${pageNum}`, LM, footerY + 12, { width: W - LM - RM, align: 'center' });
       d.restore();
     }
 
@@ -7660,13 +7660,33 @@ export async function registerRoutes(app: Express): Promise<Server> {
     const doc = new PDFDocumentKit({
       size: 'LETTER',
       margins: { top: LM, bottom: LM, left: LM, right: RM },
-      bufferPages: true,
     });
 
     doc.on('data', (chunk: Buffer) => chunks.push(chunk));
     const pdfPromise = new Promise<Buffer>((resolve, reject) => {
       doc.on('end', () => resolve(Buffer.concat(chunks)));
       doc.on('error', reject);
+    });
+
+    let brandedPageCounter = 0;
+    const brandedGuard = { active: false };
+    function drawPageDecorations(d: InstanceType<typeof PDFDocumentKit>, num: number) {
+      if (brandedGuard.active) return;
+      brandedGuard.active = true;
+      const savedY = d.y;
+      try {
+        drawWatermark(d);
+        drawFooter(d, num, companyName);
+      } finally {
+        d.y = savedY;
+        brandedGuard.active = false;
+      }
+    }
+    brandedPageCounter = 1;
+    drawPageDecorations(doc, brandedPageCounter);
+    doc.on('pageAdded', () => {
+      brandedPageCounter++;
+      drawPageDecorations(doc, brandedPageCounter);
     });
 
     const pageWidth = doc.page.width;
@@ -7776,14 +7796,6 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
     }
 
-    // --- Post-processing: watermark + footer on every branded page ---
-    const brandRange = doc.bufferedPageRange();
-    for (let i = 0; i < brandRange.count; i++) {
-      doc.switchToPage(brandRange.start + i);
-      drawWatermark(doc);
-      drawFooter(doc, i + 1, brandRange.count, companyName);
-    }
-    doc.flushPages();
     doc.end();
     const brandedBuffer = await pdfPromise;
 
@@ -7814,13 +7826,33 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const appendixDoc = new PDFDocumentKit({
         size: 'LETTER',
         margins: { top: LM, bottom: LM, left: LM, right: RM },
-        bufferPages: true,
       });
       const appChunks: Buffer[] = [];
       appendixDoc.on('data', (chunk: Buffer) => appChunks.push(chunk));
       const appendixPromise = new Promise<Buffer>((resolve, reject) => {
         appendixDoc.on('end', () => resolve(Buffer.concat(appChunks)));
         appendixDoc.on('error', reject);
+      });
+
+      let appendixPageCounter = 0;
+      const appendixGuard = { active: false };
+      function drawAppendixDecorations(d: InstanceType<typeof PDFDocumentKit>, num: number) {
+        if (appendixGuard.active) return;
+        appendixGuard.active = true;
+        const savedY = d.y;
+        try {
+          drawWatermark(d);
+          drawFooter(d, num, companyName);
+        } finally {
+          d.y = savedY;
+          appendixGuard.active = false;
+        }
+      }
+      appendixPageCounter = 1;
+      drawAppendixDecorations(appendixDoc, appendixPageCounter);
+      appendixDoc.on('pageAdded', () => {
+        appendixPageCounter++;
+        drawAppendixDecorations(appendixDoc, appendixPageCounter);
       });
 
       const appPageWidth = appendixDoc.page.width;
@@ -7874,38 +7906,22 @@ export async function registerRoutes(app: Express): Promise<Server> {
         }
       }
 
-      // --- Post-processing: watermark + footer on every appendix page ---
-      const appRange = appendixDoc.bufferedPageRange();
-      const brandPageCount = brandRange.count;
-      for (let i = 0; i < appRange.count; i++) {
-        appendixDoc.switchToPage(appRange.start + i);
-        drawWatermark(appendixDoc);
-        drawFooter(appendixDoc, brandPageCount + i + 1, brandPageCount + appRange.count, companyName);
-      }
-      appendixDoc.flushPages();
       appendixDoc.end();
       appendixBuffer = await appendixPromise;
     }
 
     // --- Merge all sections with pdf-lib ---
-    const { PDFDocument, PDFName, PDFRawStream, PDFArray } = await import('pdf-lib');
+    const { PDFDocument, PDFName } = await import('pdf-lib');
 
-    function isEstimatePageBlank(doc: InstanceType<typeof PDFDocument>, pageIdx: number): boolean {
+    function isEstimatePageBlank(pdfDoc: InstanceType<typeof PDFDocument>, pageIdx: number): boolean {
       try {
-        const page = doc.getPage(pageIdx);
-        const contentsRef = page.node.get(PDFName.of('Contents'));
-        if (!contentsRef) return true;
-        const contents = (doc as any).context.lookup(contentsRef);
-        if (!contents) return true;
-        if (contents instanceof PDFRawStream) return contents.contents.length < 30;
-        if (contents instanceof PDFArray) {
-          for (let i = 0; i < contents.size(); i++) {
-            const stream = (doc as any).context.lookup(contents.get(i));
-            if (stream instanceof PDFRawStream && stream.contents.length >= 30) return false;
-          }
-          return true;
-        }
-        return false;
+        const page = pdfDoc.getPage(pageIdx);
+        const resourcesRef = page.node.get(PDFName.of('Resources'));
+        if (!resourcesRef) return true;
+        const resources = (pdfDoc as any).context.lookup(resourcesRef) ?? resourcesRef;
+        const fonts = resources.get?.(PDFName.of('Font'));
+        const xObjects = resources.get?.(PDFName.of('XObject'));
+        return !fonts && !xObjects;
       } catch { return false; }
     }
 
