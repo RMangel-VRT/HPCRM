@@ -41,6 +41,7 @@ import ReportsPage from "@/pages/ReportsPage";
 import ProposalMaker from "@/pages/ProposalMaker";
 import ProposalDraft from "@/pages/ProposalDraft";
 import ProposalVersion from "@/pages/ProposalVersion";
+import NotificationsPage from "@/pages/NotificationsPage";
 import NotFound from "@/pages/not-found";
 
 function Router() {
@@ -133,6 +134,7 @@ function Router() {
               <ProtectedRoute path="/dashboard/snow" component={SnowEventsList} allowedRoles={["admin", "office", "field_manager"]} />
               <ProtectedRoute path="/dashboard/contracts" component={ContractsOverview} allowedRoles={["admin", "office"]} />
               <ProtectedRoute path="/dashboard/revenue" component={RevenueOverview} allowedRoles={["admin", "office"]} />
+              <ProtectedRoute path="/dashboard/notifications" component={NotificationsPage} allowedRoles={["admin", "office", "field_manager", "field", "irrigation_manager", "shop_manager"]} />
               <ProtectedRoute path="/dashboard/reports" component={ReportsPage} allowedRoles={["admin", "office"]} />
               <ProtectedRoute
                 path="/dashboard/users"

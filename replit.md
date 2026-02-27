@@ -36,7 +36,11 @@ A comprehensive scheduling system that assigns properties to crews using a templ
 A KML-based layer mapping system that allows field crews to view customer-specific property zones and service areas. KML files are stored in object storage.
 
 #### Ticket Notifications System
-An in-app notification system for ticket assignments, completions, and due date reminders. Users can view, mark as read, and navigate to related tickets.
+An in-app notification system for ticket assignments, completions, mentions, and due date reminders. Notifications are split into two priority tiers derived from type — no extra DB column needed:
+- **Needs Attention** (`mentioned`, `overdue`, `due_today`): vivid styling, bold text, red bell badge, destructive toast on arrival
+- **Updates** (`assigned`, `completed`, `due_tomorrow`): muted styling, normal weight, gray bell badge, standard toast
+
+The bell badge is red when urgent unread exist, gray when only standard unread exist, and animates only for urgent items. The dropdown shows two labeled sections ("NEEDS ATTENTION" / "UPDATES") and a "View all notifications" link at the bottom. A full-page view at `/dashboard/notifications` provides filter tabs (All, Needs Attention, Updates, Unread) with the same two-tier layout, expandable message text, and a "Mark all read" button.
 
 #### Property Management System
 Tracks Property Management Companies and Property Managers, integrated into the customer management system. Customers can link to both a company and a manager. Features include settings for managing companies/managers, multi-contact support for managers, and auto-contact synchronization.
