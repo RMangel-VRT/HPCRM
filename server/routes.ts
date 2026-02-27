@@ -7496,12 +7496,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
     if (!req.isAuthenticated()) return res.status(401).send("Not authenticated");
     const user = req.user as UserWithContext;
     if (!canAccessProposals(user.activeRole)) return res.status(403).send("Insufficient permissions");
-    const { title, proposalDate, estimateNumber, scopeOfWork } = req.body;
+    const { title, proposalDate, estimateNumber, scopeOfWork, ticketId } = req.body;
     const updated = await storage.updateProposal(req.params.id, user.activeCompanyId, {
       ...(title !== undefined && { title }),
       ...(proposalDate !== undefined && { proposalDate }),
       ...(estimateNumber !== undefined && { estimateNumber }),
       ...(scopeOfWork !== undefined && { scopeOfWork }),
+      ...(ticketId !== undefined && { ticketId: ticketId || null }),
     });
     if (!updated) return res.status(404).send("Not found");
     res.json(updated);

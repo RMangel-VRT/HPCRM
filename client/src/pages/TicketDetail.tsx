@@ -62,7 +62,7 @@ import {
 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { queryClient, apiRequest } from "@/lib/queryClient";
-import type { Ticket, TicketType, TicketTypeStatus, TicketTypeField, TicketFieldValue, TicketComment, TicketStatusHistory, Customer, Contact, Contract, ContractService, WorkType, TicketLink, User as UserType, CompanyUser, CustomerRateSheet, EmailLogWithDetails, ProposalWithDetails } from "@shared/schema";
+import type { Ticket, TicketType, TicketTypeStatus, TicketTypeField, TicketFieldValue, TicketComment, TicketStatusHistory, Customer, Contact, Contract, ContractService, WorkType, TicketLink, User as UserType, CompanyUser, CustomerRateSheet, EmailLogWithDetails } from "@shared/schema";
 import { WORK_TYPE_CATALOG } from "@shared/workTypeCatalog";
 import { format, formatDistanceToNow } from "date-fns";
 import { MapContainer, TileLayer, Marker } from "react-leaflet";
@@ -391,37 +391,6 @@ export default function TicketDetail() {
 
   const ticketWorkType = details?.ticket?.workType;
   const showProposals = isAdminOrOffice && (ticketWorkType === "estimate_request" || ticketWorkType === "project");
-  const { data: ticketProposals = [], isLoading: proposalsLoading } = useQuery<ProposalWithDetails[]>({
-    queryKey: ["/api/tickets", ticketId, "proposals"],
-    queryFn: async () => {
-      const res = await fetch(`/api/tickets/${ticketId}/proposals`, { credentials: "include" });
-      if (!res.ok) return [];
-      return res.json();
-    },
-    enabled: !!ticketId && showProposals,
-  });
-
-  const createProposalMutation = useMutation({
-    mutationFn: async () => {
-      const ticket = details?.ticket;
-      if (!ticket) throw new Error("No ticket");
-      const res = await apiRequest("POST", "/api/proposals", {
-        customerId: ticket.customerId,
-        title: ticket.title,
-        ticketId: ticket.id,
-        estimateNumber: "",
-      });
-      if (!res.ok) throw new Error("Failed to create proposal");
-      return res.json() as Promise<{ id: string }>;
-    },
-    onSuccess: (proposal) => {
-      queryClient.invalidateQueries({ queryKey: ["/api/tickets", ticketId, "proposals"] });
-      setLocation(`/dashboard/tools/proposals/${proposal.id}`);
-    },
-    onError: () => {
-      toast({ title: "Failed to create proposal", variant: "destructive" });
-    },
-  });
 
   const customerId = details?.ticket?.customerId;
   const { data: customerContacts = [] } = useQuery<Contact[]>({
@@ -1064,71 +1033,27 @@ export default function TicketDetail() {
             </Card>
           )}
 
-          {showProposals && (
-            <Card data-testid="card-proposals">
-              <CardHeader className="pb-2">
-                <div className="flex items-center justify-between gap-2 flex-wrap">
-                  <CardTitle className="text-sm flex items-center gap-2">
-                    <FileText className="w-4 h-4" />
-                    Proposals
-                  </CardTitle>
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    onClick={() => createProposalMutation.mutate()}
-                    disabled={createProposalMutation.isPending}
-                    data-testid="button-new-proposal"
-                  >
-                    {createProposalMutation.isPending ? (
-                      <Loader2 className="w-3 h-3 mr-1 animate-spin" />
-                    ) : (
-                      <Plus className="w-3 h-3 mr-1" />
-                    )}
-                    New Proposal
-                  </Button>
-                </div>
-              </CardHeader>
-              <CardContent className="pt-0">
-                {proposalsLoading ? (
-                  <div className="flex items-center gap-2 py-2">
-                    <Loader2 className="w-4 h-4 animate-spin text-muted-foreground" />
-                    <span className="text-sm text-muted-foreground">Loading proposals...</span>
-                  </div>
-                ) : ticketProposals.length === 0 ? (
-                  <p className="text-sm text-muted-foreground py-1">No proposals yet. Create one to get started.</p>
-                ) : (
-                  <div className="space-y-2">
-                    {ticketProposals.map((proposal) => (
-                      <Link key={proposal.id} href={`/dashboard/tools/proposals/${proposal.id}`}>
-                        <div
-                          className="flex items-center justify-between p-2 rounded-md border hover-elevate cursor-pointer"
-                          data-testid={`link-proposal-${proposal.id}`}
-                        >
-                          <div className="flex items-center gap-2 min-w-0">
-                            <FileText className="w-4 h-4 text-muted-foreground shrink-0" />
-                            <div className="min-w-0">
-                              <p className="text-sm font-medium truncate">{proposal.title}</p>
-                              <p className="text-xs text-muted-foreground">{proposal.proposalDate}</p>
-                            </div>
-                          </div>
-                          <div className="flex items-center gap-2 shrink-0">
-                            {proposal.versions.length > 0 && (
-                              <Badge variant="secondary" className="text-xs">
-                                v{proposal.versions.length}
-                              </Badge>
-                            )}
-                            <Badge variant="outline" className="text-xs capitalize">
-                              {proposal.status}
-                            </Badge>
-                          </div>
-                        </div>
-                      </Link>
-                    ))}
-                  </div>
-                )}
-              </CardContent>
-            </Card>
-          )}
+          {showProposals && (() => {
+            const ticket = details?.ticket;
+            const params = new URLSearchParams({
+              ticketId: ticketId ?? "",
+              ticketTitle: ticket?.title ?? "",
+              ...(ticket?.customerId ? { customerId: ticket.customerId } : {}),
+            });
+            return (
+              <Button
+                variant="outline"
+                size="sm"
+                className="gap-2 w-full justify-start"
+                onClick={() => setLocation(`/dashboard/tools/proposals?${params.toString()}`)}
+                data-testid="button-open-proposal-maker"
+              >
+                <FileText className="w-4 h-4" />
+                Open Proposal Maker
+                <ExternalLink className="w-3 h-3 ml-auto opacity-50" />
+              </Button>
+            );
+          })()}
 
           {(() => {
             const isAtBillingOrFinal = (
