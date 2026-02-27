@@ -215,9 +215,11 @@ export default function NotificationsDropdown() {
     },
   });
 
-  const urgentNotifications = notifications.filter(n => getNotificationPriority(n.type) === "high");
+  const urgentAll = notifications.filter(n => getNotificationPriority(n.type) === "high");
+  const urgentUnread = urgentAll.filter(n => !n.isRead);
+  const urgentRead = urgentAll.filter(n => n.isRead);
   const standardNotifications = notifications.filter(n => getNotificationPriority(n.type) === "normal");
-  const urgentUnreadCount = urgentNotifications.filter(n => !n.isRead).length;
+  const urgentUnreadCount = urgentUnread.length;
   const standardUnreadCount = standardNotifications.filter(n => !n.isRead).length;
   const totalUnreadCount = urgentUnreadCount + standardUnreadCount;
 
@@ -279,18 +281,15 @@ export default function NotificationsDropdown() {
             </div>
           ) : (
             <div>
-              {urgentNotifications.length > 0 && (
+              {urgentAll.length > 0 && (
                 <div>
-                  <div
-                    className="px-3 pt-3 pb-1"
-                    data-testid="section-needs-attention"
-                  >
+                  <div className="px-3 pt-3 pb-1" data-testid="section-needs-attention">
                     <span className="text-xs font-semibold tracking-wider text-muted-foreground uppercase">
                       Needs Attention
                     </span>
                   </div>
                   <div className="divide-y">
-                    {urgentNotifications.map(n => (
+                    {urgentUnread.map(n => (
                       <NotificationItem
                         key={n.id}
                         notification={n}
@@ -299,13 +298,33 @@ export default function NotificationsDropdown() {
                       />
                     ))}
                   </div>
+                  {urgentRead.length > 0 && (
+                    <>
+                      {urgentUnread.length > 0 && <div className="border-t mx-3 my-1" />}
+                      <div className="px-3 pt-1 pb-1">
+                        <span className="text-xs text-muted-foreground/70 uppercase tracking-wider">
+                          Read
+                        </span>
+                      </div>
+                      <div className="divide-y">
+                        {urgentRead.map(n => (
+                          <NotificationItem
+                            key={n.id}
+                            notification={n}
+                            isHigh={false}
+                            onMarkRead={(id) => markReadMutation.mutate(id)}
+                          />
+                        ))}
+                      </div>
+                    </>
+                  )}
                 </div>
               )}
 
               {standardNotifications.length > 0 && (
                 <div>
                   <div
-                    className={`px-3 pb-1 ${urgentNotifications.length > 0 ? "pt-3 border-t mt-1" : "pt-3"}`}
+                    className={`px-3 pb-1 ${urgentAll.length > 0 ? "pt-3 border-t mt-1" : "pt-3"}`}
                     data-testid="section-updates"
                   >
                     <span className="text-xs font-semibold tracking-wider text-muted-foreground uppercase">

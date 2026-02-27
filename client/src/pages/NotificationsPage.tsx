@@ -125,31 +125,29 @@ function NotificationRow({ notification, isHigh, onMarkRead }: NotificationRowPr
   );
 }
 
-interface SectionProps {
-  label: string;
-  items: TicketNotification[];
-  isHigh: boolean;
+interface UrgentSectionProps {
+  unread: TicketNotification[];
+  read: TicketNotification[];
   onMarkRead: (id: string) => void;
-  testId: string;
 }
 
-function NotificationSection({ label, items, isHigh, onMarkRead, testId }: SectionProps) {
-  if (items.length === 0) return null;
+function UrgentSection({ unread, read, onMarkRead }: UrgentSectionProps) {
   return (
-    <div className="mb-4">
-      <p className="text-xs font-semibold tracking-wider text-muted-foreground uppercase mb-2" data-testid={testId}>
-        {label}
-      </p>
-      <div className="space-y-1">
-        {items.map(n => (
-          <NotificationRow
-            key={n.id}
-            notification={n}
-            isHigh={isHigh}
-            onMarkRead={onMarkRead}
-          />
-        ))}
-      </div>
+    <div className="space-y-1">
+      {unread.map(n => (
+        <NotificationRow key={n.id} notification={n} isHigh={true} onMarkRead={onMarkRead} />
+      ))}
+      {read.length > 0 && (
+        <>
+          {unread.length > 0 && <div className="border-t my-3" />}
+          <p className="text-xs font-semibold tracking-wider text-muted-foreground uppercase mb-1 px-1">
+            Read
+          </p>
+          {read.map(n => (
+            <NotificationRow key={n.id} notification={n} isHigh={false} onMarkRead={onMarkRead} />
+          ))}
+        </>
+      )}
     </div>
   );
 }
@@ -192,10 +190,13 @@ export default function NotificationsPage() {
   });
 
   const urgentAll = notifications.filter(n => getNotificationPriority(n.type) === "high");
+  const urgentUnread = urgentAll.filter(n => !n.isRead);
+  const urgentRead = urgentAll.filter(n => n.isRead);
+
   const standardAll = notifications.filter(n => getNotificationPriority(n.type) === "normal");
   const unreadAll = notifications.filter(n => !n.isRead);
 
-  const urgentUnread = urgentAll.filter(n => !n.isRead).length;
+  const urgentUnreadCount = urgentUnread.length;
   const standardUnread = standardAll.filter(n => !n.isRead).length;
   const totalUnread = unreadAll.length;
 
@@ -203,29 +204,33 @@ export default function NotificationsPage() {
     markReadMutation.mutate(id);
   }
 
-  function renderTwoSections(urgent: TicketNotification[], standard: TicketNotification[]) {
-    if (urgent.length === 0 && standard.length === 0) {
-      return <EmptyState message="You're all caught up" />;
-    }
+  function renderAllTab() {
+    if (notifications.length === 0) return <EmptyState message="No notifications yet" />;
     return (
       <>
-        <NotificationSection
-          label="Needs Attention"
-          items={urgent}
-          isHigh={true}
-          onMarkRead={handleMarkRead}
-          testId="section-needs-attention"
-        />
-        {urgent.length > 0 && standard.length > 0 && (
+        {urgentAll.length > 0 && (
+          <div className="mb-4">
+            <p className="text-xs font-semibold tracking-wider text-muted-foreground uppercase mb-2" data-testid="section-needs-attention">
+              Needs Attention
+            </p>
+            <UrgentSection unread={urgentUnread} read={urgentRead} onMarkRead={handleMarkRead} />
+          </div>
+        )}
+        {urgentAll.length > 0 && standardAll.length > 0 && (
           <div className="border-t my-4" />
         )}
-        <NotificationSection
-          label="Updates"
-          items={standard}
-          isHigh={false}
-          onMarkRead={handleMarkRead}
-          testId="section-updates"
-        />
+        {standardAll.length > 0 && (
+          <div className="mb-4">
+            <p className="text-xs font-semibold tracking-wider text-muted-foreground uppercase mb-2" data-testid="section-updates">
+              Updates
+            </p>
+            <div className="space-y-1">
+              {standardAll.map(n => (
+                <NotificationRow key={n.id} notification={n} isHigh={false} onMarkRead={handleMarkRead} />
+              ))}
+            </div>
+          </div>
+        )}
       </>
     );
   }
@@ -275,9 +280,9 @@ export default function NotificationsPage() {
             </TabsTrigger>
             <TabsTrigger value="needs-attention" className="gap-2" data-testid="tab-needs-attention">
               Needs Attention
-              {urgentUnread > 0 && (
+              {urgentUnreadCount > 0 && (
                 <Badge variant="destructive" className="text-xs px-1.5">
-                  {urgentUnread}
+                  {urgentUnreadCount}
                 </Badge>
               )}
             </TabsTrigger>
@@ -300,27 +305,13 @@ export default function NotificationsPage() {
           </TabsList>
 
           <TabsContent value="all">
-            {notifications.length === 0
-              ? <EmptyState message="No notifications yet" />
-              : renderTwoSections(urgentAll, standardAll)
-            }
+            {renderAllTab()}
           </TabsContent>
 
           <TabsContent value="needs-attention">
             {urgentAll.length === 0
               ? <EmptyState message="Nothing needs your attention right now" />
-              : (
-                <div className="space-y-1">
-                  {urgentAll.map(n => (
-                    <NotificationRow
-                      key={n.id}
-                      notification={n}
-                      isHigh={true}
-                      onMarkRead={handleMarkRead}
-                    />
-                  ))}
-                </div>
-              )
+              : <UrgentSection unread={urgentUnread} read={urgentRead} onMarkRead={handleMarkRead} />
             }
           </TabsContent>
 
@@ -330,12 +321,7 @@ export default function NotificationsPage() {
               : (
                 <div className="space-y-1">
                   {standardAll.map(n => (
-                    <NotificationRow
-                      key={n.id}
-                      notification={n}
-                      isHigh={false}
-                      onMarkRead={handleMarkRead}
-                    />
+                    <NotificationRow key={n.id} notification={n} isHigh={false} onMarkRead={handleMarkRead} />
                   ))}
                 </div>
               )
@@ -345,10 +331,39 @@ export default function NotificationsPage() {
           <TabsContent value="unread">
             {unreadAll.length === 0
               ? <EmptyState message="You're all caught up" />
-              : renderTwoSections(
-                  urgentAll.filter(n => !n.isRead),
-                  standardAll.filter(n => !n.isRead)
-                )
+              : (() => {
+                  const urgUnread = urgentAll.filter(n => !n.isRead);
+                  const stdUnread = standardAll.filter(n => !n.isRead);
+                  return (
+                    <>
+                      {urgUnread.length > 0 && (
+                        <div className="mb-4">
+                          <p className="text-xs font-semibold tracking-wider text-muted-foreground uppercase mb-2">
+                            Needs Attention
+                          </p>
+                          <div className="space-y-1">
+                            {urgUnread.map(n => (
+                              <NotificationRow key={n.id} notification={n} isHigh={true} onMarkRead={handleMarkRead} />
+                            ))}
+                          </div>
+                        </div>
+                      )}
+                      {urgUnread.length > 0 && stdUnread.length > 0 && <div className="border-t my-4" />}
+                      {stdUnread.length > 0 && (
+                        <div className="mb-4">
+                          <p className="text-xs font-semibold tracking-wider text-muted-foreground uppercase mb-2">
+                            Updates
+                          </p>
+                          <div className="space-y-1">
+                            {stdUnread.map(n => (
+                              <NotificationRow key={n.id} notification={n} isHigh={false} onMarkRead={handleMarkRead} />
+                            ))}
+                          </div>
+                        </div>
+                      )}
+                    </>
+                  );
+                })()
             }
           </TabsContent>
         </Tabs>
