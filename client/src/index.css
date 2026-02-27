@@ -354,3 +354,106 @@
     inset: -1px;
   }
 }
+
+/* ===== Print Styles ===== */
+.print-only-block {
+  display: none;
+}
+
+@media print {
+  @page {
+    margin: 1.5cm;
+    size: landscape;
+  }
+
+  /* Show print-only elements */
+  .print-only-block {
+    display: block !important;
+  }
+
+  /* Hide all non-essential UI */
+  [data-print-hide],
+  [data-sidebar="sidebar"],
+  header,
+  nav,
+  [data-testid="breadcrumb"],
+  .breadcrumb-bar {
+    display: none !important;
+  }
+
+  /* Full-width layout */
+  body,
+  #root,
+  .flex-1,
+  main,
+  [data-slot="sidebar-inset"] {
+    width: 100% !important;
+    max-width: 100% !important;
+    padding: 0 !important;
+    margin: 0 !important;
+    overflow: visible !important;
+  }
+
+  /* Strip card chrome for printing */
+  #print-report-table {
+    border: none !important;
+    box-shadow: none !important;
+    border-radius: 0 !important;
+  }
+
+  #print-table-wrapper {
+    border: none !important;
+    border-radius: 0 !important;
+    overflow: visible !important;
+  }
+
+  /* Table print styling */
+  table {
+    width: 100% !important;
+    border-collapse: collapse !important;
+    font-size: 9pt !important;
+    color: #000 !important;
+    background: #fff !important;
+  }
+
+  thead {
+    display: table-header-group;
+  }
+
+  th {
+    background-color: #f0f0f0 !important;
+    color: #000 !important;
+    font-weight: bold !important;
+    border-bottom: 1.5pt solid #999 !important;
+    padding: 5pt 6pt !important;
+    text-align: left !important;
+    white-space: nowrap;
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+  }
+
+  td {
+    color: #000 !important;
+    border-bottom: 0.5pt solid #ddd !important;
+    padding: 4pt 6pt !important;
+    vertical-align: top;
+    white-space: normal !important;
+    word-break: break-word;
+  }
+
+  tr {
+    page-break-inside: avoid;
+  }
+
+  /* Alternating row shading */
+  tbody tr:nth-child(even) td {
+    background-color: #f9f9f9 !important;
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+  }
+
+  /* Hide sort icons in print */
+  [data-print-hide] {
+    display: none !important;
+  }
+}

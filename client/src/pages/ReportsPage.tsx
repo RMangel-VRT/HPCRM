@@ -3,7 +3,6 @@ import { useQuery } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Badge } from "@/components/ui/badge";
 import {
   Select,
   SelectContent,
@@ -26,6 +25,7 @@ import {
   FileText,
   ClipboardList,
   Download,
+  Printer,
   Search,
   Loader2,
   ArrowUpDown,
@@ -123,11 +123,27 @@ export default function ReportsPage() {
     downloadCSV(filtered, (type?.label || "report").replace(/\s+/g, "_").toLowerCase());
   };
 
+  const handlePrint = () => {
+    window.print();
+  };
+
   const selectedReportInfo = REPORT_TYPES.find(t => t.id === selectedType);
+  const hasData = !!reportData && filteredAndSortedRows.length > 0;
 
   return (
-    <div className="flex-1 overflow-auto p-4 md:p-6 space-y-6">
-      <div>
+    <div className="flex-1 overflow-auto p-4 md:p-6 space-y-6" id="reports-page">
+      {/* Print-only header — hidden on screen */}
+      <div className="print-only-block" id="print-report-header">
+        <h1 style={{ fontSize: "18pt", fontWeight: "bold", marginBottom: "4px" }}>
+          {reportData?.title || selectedReportInfo?.label || "Report"}
+        </h1>
+        <p style={{ fontSize: "9pt", color: "#666", marginBottom: "16px" }}>
+          Generated: {new Date().toLocaleString()} &nbsp;·&nbsp; {filteredAndSortedRows.length} records
+          {search ? ` (filtered by "${search}")` : ""}
+        </p>
+      </div>
+
+      <div data-print-hide>
         <h1 className="text-2xl md:text-3xl font-semibold tracking-tight" data-testid="text-reports-title">
           Reports
         </h1>
@@ -136,7 +152,7 @@ export default function ReportsPage() {
         </p>
       </div>
 
-      <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-5 gap-3">
+      <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-5 gap-3" data-print-hide>
         {REPORT_TYPES.map(rt => (
           <Card
             key={rt.id}
@@ -158,8 +174,8 @@ export default function ReportsPage() {
         ))}
       </div>
 
-      <Card>
-        <CardHeader className="flex flex-row items-center justify-between gap-3 pb-4">
+      <Card id="print-report-table">
+        <CardHeader className="flex flex-row items-center justify-between gap-3 pb-4 flex-wrap" data-print-hide>
           <div className="flex items-center gap-3 min-w-0">
             <FileBarChart className="w-5 h-5 text-muted-foreground shrink-0" />
             <div className="min-w-0">
@@ -173,19 +189,31 @@ export default function ReportsPage() {
               )}
             </div>
           </div>
-          <Button
-            variant="outline"
-            onClick={handleDownload}
-            disabled={!reportData || filteredAndSortedRows.length === 0}
-            data-testid="button-download-csv"
-            className="gap-2 shrink-0"
-          >
-            <Download className="w-4 h-4" />
-            <span className="hidden sm:inline">Download CSV</span>
-          </Button>
+          <div className="flex items-center gap-2 shrink-0">
+            <Button
+              variant="outline"
+              onClick={handlePrint}
+              disabled={!hasData}
+              data-testid="button-print-report"
+              className="gap-2"
+            >
+              <Printer className="w-4 h-4" />
+              <span className="hidden sm:inline">Print</span>
+            </Button>
+            <Button
+              variant="outline"
+              onClick={handleDownload}
+              disabled={!hasData}
+              data-testid="button-download-csv"
+              className="gap-2"
+            >
+              <Download className="w-4 h-4" />
+              <span className="hidden sm:inline">Download CSV</span>
+            </Button>
+          </div>
         </CardHeader>
         <CardContent className="space-y-4">
-          <div className="relative">
+          <div className="relative" data-print-hide>
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
             <Input
               placeholder="Search across all columns..."
@@ -197,11 +225,11 @@ export default function ReportsPage() {
           </div>
 
           {isLoading ? (
-            <div className="flex items-center justify-center py-12">
+            <div className="flex items-center justify-center py-12" data-print-hide>
               <Loader2 className="w-8 h-8 animate-spin text-muted-foreground" />
             </div>
           ) : reportData && filteredAndSortedRows.length > 0 ? (
-            <div className="overflow-x-auto rounded-md border">
+            <div className="overflow-x-auto rounded-md border" id="print-table-wrapper">
               <Table>
                 <TableHeader>
                   <TableRow>
@@ -214,15 +242,17 @@ export default function ReportsPage() {
                       >
                         <div className="flex items-center gap-1">
                           {col.label}
-                          {sortKey === col.key ? (
-                            sortDir === "asc" ? (
-                              <ArrowUp className="w-3.5 h-3.5" />
+                          <span data-print-hide>
+                            {sortKey === col.key ? (
+                              sortDir === "asc" ? (
+                                <ArrowUp className="w-3.5 h-3.5" />
+                              ) : (
+                                <ArrowDown className="w-3.5 h-3.5" />
+                              )
                             ) : (
-                              <ArrowDown className="w-3.5 h-3.5" />
-                            )
-                          ) : (
-                            <ArrowUpDown className="w-3.5 h-3.5 text-muted-foreground/40" />
-                          )}
+                              <ArrowUpDown className="w-3.5 h-3.5 text-muted-foreground/40" />
+                            )}
+                          </span>
                         </div>
                       </TableHead>
                     ))}
@@ -242,7 +272,7 @@ export default function ReportsPage() {
               </Table>
             </div>
           ) : reportData ? (
-            <div className="flex flex-col items-center justify-center py-12 text-center">
+            <div className="flex flex-col items-center justify-center py-12 text-center" data-print-hide>
               <FileBarChart className="w-12 h-12 text-muted-foreground/30 mb-3" />
               <p className="text-sm text-muted-foreground">
                 {search ? "No records match your search." : "No data available for this report."}
