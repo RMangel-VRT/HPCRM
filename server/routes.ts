@@ -7595,10 +7595,59 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
     const PDFDocumentKit = (await import('pdfkit')).default;
 
+    const LM = 72;
+    const RM = 72;
+    const BRAND = '#1a4d1a';
+
+    function drawWatermark(d: InstanceType<typeof PDFDocumentKit>) {
+      const W = d.page.width;
+      const H = d.page.height;
+      d.save();
+      d.opacity(0.04);
+      d.fillColor(BRAND);
+      d.moveTo(0, H * 0.62)
+        .bezierCurveTo(W * 0.15, H * 0.44, W * 0.30, H * 0.52, W * 0.50, H * 0.46)
+        .bezierCurveTo(W * 0.70, H * 0.40, W * 0.85, H * 0.50, W, H * 0.58)
+        .lineTo(W, H)
+        .lineTo(0, H)
+        .closePath()
+        .fill();
+      d.moveTo(0, H * 0.74)
+        .bezierCurveTo(W * 0.20, H * 0.60, W * 0.38, H * 0.68, W * 0.55, H * 0.63)
+        .bezierCurveTo(W * 0.72, H * 0.58, W * 0.88, H * 0.66, W, H * 0.71)
+        .lineTo(W, H)
+        .lineTo(0, H)
+        .closePath()
+        .fill();
+      d.restore();
+    }
+
+    function drawFooter(d: InstanceType<typeof PDFDocumentKit>, pageNum: number, totalPages: number, company: string) {
+      const W = d.page.width;
+      const H = d.page.height;
+      const footerY = H - 50;
+      d.save();
+      d.moveTo(LM, footerY - 10)
+        .lineTo(W - RM, footerY - 10)
+        .strokeColor('#cccccc')
+        .lineWidth(0.4)
+        .stroke();
+      d.fillColor('#999999')
+        .fontSize(8)
+        .font('Helvetica')
+        .text(company, LM, footerY, { width: W - LM - RM, align: 'center' });
+      d.fillColor('#bbbbbb')
+        .fontSize(7)
+        .font('Helvetica')
+        .text(`Page ${pageNum} of ${totalPages}`, LM, footerY + 12, { width: W - LM - RM, align: 'center' });
+      d.restore();
+    }
+
     const chunks: Buffer[] = [];
     const doc = new PDFDocumentKit({
       size: 'LETTER',
-      margins: { top: 60, bottom: 60, left: 60, right: 60 },
+      margins: { top: LM, bottom: LM, left: LM, right: RM },
+      bufferPages: true,
     });
 
     doc.on('data', (chunk: Buffer) => chunks.push(chunk));
@@ -7608,40 +7657,47 @@ export async function registerRoutes(app: Express): Promise<Server> {
     });
 
     const pageWidth = doc.page.width;
-    const leftMargin = 60;
-    const rightMargin = 60;
+    const contentWidth = pageWidth - LM - RM;
 
+    // --- Letterhead block ---
     if (logoBuffer) {
-      const logoWidth = 120;
+      const logoWidth = 160;
       const logoX = (pageWidth - logoWidth) / 2;
-      doc.image(logoBuffer, logoX, 60, { width: logoWidth });
-      doc.moveDown(4);
+      doc.image(logoBuffer, logoX, LM, { width: logoWidth });
+      const logoHeight = (logoWidth / 160) * 80;
+      doc.y = LM + logoHeight + 18;
     } else {
-      doc.moveDown(1);
+      doc.y = LM + 10;
     }
 
-    doc.fillColor('#1a4d1a')
-      .fontSize(14)
+    doc.fillColor(BRAND)
+      .fontSize(13)
       .font('Helvetica-Bold')
-      .text(companyName, { align: 'center' });
+      .text(companyName, LM, doc.y, { width: contentWidth, align: 'center' });
 
-    doc.moveDown(0.8);
-    doc.moveTo(leftMargin, doc.y)
-      .lineTo(pageWidth - rightMargin, doc.y)
-      .strokeColor('#cccccc')
-      .lineWidth(1)
+    doc.moveDown(1.0);
+    doc.moveTo(LM, doc.y)
+      .lineTo(pageWidth - RM, doc.y)
+      .strokeColor(BRAND)
+      .lineWidth(0.75)
       .stroke();
-    doc.moveDown(0.8);
+    doc.moveDown(1.2);
 
-    doc.fillColor('#000000')
-      .fontSize(18)
+    // --- Title block ---
+    doc.fillColor(BRAND)
+      .fontSize(22)
       .font('Helvetica-Bold')
-      .text(proposal.title || 'Proposal');
+      .text(proposal.title || 'Proposal', LM, doc.y, { width: contentWidth });
 
-    doc.moveDown(0.6);
+    doc.moveDown(0.5);
+    doc.moveTo(LM, doc.y)
+      .lineTo(pageWidth - RM, doc.y)
+      .strokeColor('#cccccc')
+      .lineWidth(0.5)
+      .stroke();
+    doc.moveDown(1.0);
 
-    doc.font('Helvetica').fontSize(11).fillColor('#555555');
-
+    // --- Metadata block (labeled fields) ---
     const formattedDate = proposal.proposalDate
       ? (() => {
           const d = new Date(proposal.proposalDate + 'T00:00:00');
@@ -7649,45 +7705,72 @@ export async function registerRoutes(app: Express): Promise<Server> {
         })()
       : '';
 
-    if (formattedDate) {
-      doc.text(`Date: ${formattedDate}`);
-    }
-    doc.text(`Customer: ${proposal.customerName}`);
-    if (proposal.estimateNumber && proposal.estimateNumber.trim() !== '') {
-      doc.text(`QB Estimate #: ${proposal.estimateNumber}`);
+    const labelWidth = 105;
+    const valueX = LM + labelWidth;
+    const valueWidth = contentWidth - labelWidth;
+
+    function metaRow(label: string, value: string) {
+      const rowY = doc.y;
+      doc.fillColor('#333333').fontSize(10).font('Helvetica-Bold')
+        .text(label, LM, rowY, { width: labelWidth, lineBreak: false });
+      doc.fillColor('#333333').fontSize(10).font('Helvetica')
+        .text(value, valueX, rowY, { width: valueWidth });
+      doc.moveDown(0.3);
     }
 
-    doc.moveDown(0.8);
-    doc.moveTo(leftMargin, doc.y)
-      .lineTo(pageWidth - rightMargin, doc.y)
+    metaRow('Prepared For:', proposal.customerName || '');
+    if (formattedDate) metaRow('Proposal Date:', formattedDate);
+    if (proposal.estimateNumber && proposal.estimateNumber.trim() !== '') {
+      metaRow('Estimate #:', proposal.estimateNumber.trim());
+    }
+
+    doc.moveDown(1.0);
+    doc.moveTo(LM, doc.y)
+      .lineTo(pageWidth - RM, doc.y)
       .strokeColor('#cccccc')
-      .lineWidth(1)
+      .lineWidth(0.5)
+      .stroke();
+    doc.moveDown(1.0);
+
+    // --- Scope heading ---
+    doc.fillColor(BRAND)
+      .fontSize(12)
+      .font('Helvetica-Bold')
+      .text('SCOPE OF WORK', LM, doc.y, { width: contentWidth });
+
+    doc.moveDown(0.4);
+    doc.moveTo(LM, doc.y)
+      .lineTo(pageWidth - RM, doc.y)
+      .strokeColor(BRAND)
+      .lineWidth(0.5)
       .stroke();
     doc.moveDown(0.8);
 
-    doc.fillColor('#1a4d1a')
-      .fontSize(12)
-      .font('Helvetica-Bold')
-      .text('SCOPE OF WORK');
-
-    doc.moveDown(0.5);
-
-    doc.fillColor('#000000').fontSize(10).font('Helvetica');
+    // --- Scope body text ---
+    doc.fillColor('#222222').fontSize(10.5).font('Helvetica');
 
     const scopeText = proposal.scopeOfWork || '';
     const lines = scopeText.split('\n');
     for (const line of lines) {
       const trimmed = line.trim();
       if (trimmed === '') {
-        doc.moveDown(0.4);
+        doc.moveDown(0.5);
       } else if (line.trimStart().startsWith('-') || line.trimStart().startsWith('•')) {
         const bulletText = line.trimStart().replace(/^[-•]\s*/, '');
-        doc.text(`  \u2022  ${bulletText}`, { lineGap: 3 });
+        doc.text(`  \u2022  ${bulletText}`, LM, doc.y, { width: contentWidth, lineGap: 4 });
       } else {
-        doc.text(line, { lineGap: 3 });
+        doc.text(line, LM, doc.y, { width: contentWidth, lineGap: 4 });
       }
     }
 
+    // --- Post-processing: watermark + footer on every branded page ---
+    const brandRange = doc.bufferedPageRange();
+    for (let i = 0; i < brandRange.count; i++) {
+      doc.switchToPage(brandRange.start + i);
+      drawWatermark(doc);
+      drawFooter(doc, i + 1, brandRange.count, companyName);
+    }
+    doc.flushPages();
     doc.end();
     const brandedBuffer = await pdfPromise;
 
@@ -7717,7 +7800,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
     if (imageBuffers.length > 0) {
       const appendixDoc = new PDFDocumentKit({
         size: 'LETTER',
-        margins: { top: 60, bottom: 60, left: 60, right: 60 },
+        margins: { top: LM, bottom: LM, left: LM, right: RM },
+        bufferPages: true,
       });
       const appChunks: Buffer[] = [];
       appendixDoc.on('data', (chunk: Buffer) => appChunks.push(chunk));
@@ -7728,21 +7812,29 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       const appPageWidth = appendixDoc.page.width;
       const appPageHeight = appendixDoc.page.height;
-      const appLeft = 60;
-      const appContentWidth = appPageWidth - appLeft - 60;
+      const appLeft = LM;
+      const appContentWidth = appPageWidth - LM - RM;
 
-      appendixDoc.moveDown(8);
-      appendixDoc.fillColor('#1a4d1a').fontSize(20).font('Helvetica-Bold')
-        .text('PROJECT IMAGES', { align: 'center' });
-      appendixDoc.moveDown(0.6);
-      appendixDoc.fillColor('#555555').fontSize(11).font('Helvetica')
-        .text('Attached for reference', { align: 'center' });
+      // --- PROJECT IMAGES header page ---
+      appendixDoc.y = appPageHeight * 0.38;
+      appendixDoc.fillColor(BRAND)
+        .fontSize(13)
+        .font('Helvetica-Bold')
+        .text('PROJECT IMAGES', appLeft, appendixDoc.y, { width: appContentWidth, align: 'center' });
 
-      const captionReserve = 50;
-      const imgTopY = 60;
+      appendixDoc.moveDown(0.5);
+      const dividerX = appLeft + (appContentWidth - 200) / 2;
+      appendixDoc.moveTo(dividerX, appendixDoc.y)
+        .lineTo(dividerX + 200, appendixDoc.y)
+        .strokeColor(BRAND)
+        .lineWidth(0.5)
+        .stroke();
+
+      const captionReserve = 55;
+      const imgTopY = LM;
       const maxImgWidth = appContentWidth;
-      const maxImgHeight = appPageHeight - imgTopY - 60 - captionReserve;
-      const captionY = appPageHeight - 60 - 30;
+      const maxImgHeight = appPageHeight - imgTopY - RM - captionReserve;
+      const captionY = appPageHeight - RM - 35;
 
       for (const img of imageBuffers) {
         appendixDoc.addPage();
@@ -7756,11 +7848,20 @@ export async function registerRoutes(app: Express): Promise<Server> {
           throw Object.assign(new Error(`Image "${img.filename}" could not be rendered. It may be corrupted or an unsupported format (JPG and PNG are supported).`), { statusCode: 400 });
         }
         if (img.caption && img.caption.trim()) {
-          appendixDoc.fillColor('#333333').fontSize(10).font('Helvetica')
+          appendixDoc.fillColor('#666666').fontSize(9.5).font('Helvetica')
             .text(img.caption.trim(), appLeft, captionY, { width: appContentWidth, align: 'center' });
         }
       }
 
+      // --- Post-processing: watermark + footer on every appendix page ---
+      const appRange = appendixDoc.bufferedPageRange();
+      const brandPageCount = brandRange.count;
+      for (let i = 0; i < appRange.count; i++) {
+        appendixDoc.switchToPage(appRange.start + i);
+        drawWatermark(appendixDoc);
+        drawFooter(appendixDoc, brandPageCount + i + 1, brandPageCount + appRange.count, companyName);
+      }
+      appendixDoc.flushPages();
       appendixDoc.end();
       appendixBuffer = await appendixPromise;
     }
