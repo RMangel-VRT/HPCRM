@@ -7645,6 +7645,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
         .strokeColor('#cccccc')
         .lineWidth(0.4)
         .stroke();
+      const origBottom = (d.page.margins as any).bottom;
+      (d.page.margins as any).bottom = 0;
       d.fillColor('#999999')
         .fontSize(8)
         .font('Helvetica')
@@ -7653,6 +7655,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         .fontSize(7)
         .font('Helvetica')
         .text(`Page ${pageNum}`, LM, footerY + 12, { width: W - LM - RM, align: 'center' });
+      (d.page.margins as any).bottom = origBottom;
       d.restore();
     }
 
