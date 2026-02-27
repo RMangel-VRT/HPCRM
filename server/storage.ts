@@ -296,6 +296,7 @@ export interface IStorage {
   // Proposals
   getProposals(companyId: string): Promise<ProposalWithDetails[]>;
   getProposalsByCustomer(customerId: string, companyId: string): Promise<ProposalWithDetails[]>;
+  getProposalsForTicket(ticketId: string, companyId: string): Promise<ProposalWithDetails[]>;
   getProposalById(id: string, companyId: string): Promise<ProposalWithDetails | undefined>;
   createProposal(proposal: InsertProposal): Promise<Proposal>;
   updateProposal(id: string, companyId: string, updates: Partial<InsertProposal>): Promise<Proposal | undefined>;
@@ -2396,6 +2397,31 @@ export class PgStorage implements IStorage {
       .from(proposals)
       .leftJoin(customers, eq(proposals.customerId, customers.id))
       .where(and(eq(proposals.customerId, customerId), eq(proposals.companyId, companyId)))
+      .orderBy(desc(proposals.createdAt));
+
+    const proposalIds = rows.map(r => r.proposal.id);
+    const files = proposalIds.length > 0
+      ? await db.select().from(proposalFiles).where(inArray(proposalFiles.proposalId, proposalIds)).orderBy(proposalFiles.displayOrder)
+      : [];
+    const versionsMap = await this._getVersionsForProposals(proposalIds);
+
+    return rows.map(r => ({
+      ...r.proposal,
+      customerName: r.customerName ?? "",
+      files: files.filter(f => f.proposalId === r.proposal.id),
+      versions: versionsMap[r.proposal.id] ?? [],
+    }));
+  }
+
+  async getProposalsForTicket(ticketId: string, companyId: string): Promise<ProposalWithDetails[]> {
+    const rows = await db
+      .select({
+        proposal: proposals,
+        customerName: customers.name,
+      })
+      .from(proposals)
+      .leftJoin(customers, eq(proposals.customerId, customers.id))
+      .where(and(eq(proposals.ticketId, ticketId), eq(proposals.companyId, companyId)))
       .orderBy(desc(proposals.createdAt));
 
     const proposalIds = rows.map(r => r.proposal.id);

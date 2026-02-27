@@ -34,7 +34,7 @@ import {
 } from "lucide-react";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
-import type { ProposalWithDetails, ProposalFile } from "@shared/schema";
+import type { ProposalWithDetails, ProposalFile, Ticket } from "@shared/schema";
 
 function formatDateTime(ts: string | Date) {
   try {
@@ -69,7 +69,7 @@ export default function ProposalDraft() {
   const { data: proposal, isLoading } = useQuery<ProposalWithDetails>({
     queryKey: ["/api/proposals", id],
     enabled: !!id,
-    select: (data) => {
+    select: (data: ProposalWithDetails) => {
       if (!initialized) {
         setTitle(data.title ?? "Proposal");
         setProposalDate(data.proposalDate ?? "");
@@ -84,6 +84,18 @@ export default function ProposalDraft() {
       }
       return data;
     },
+  });
+
+  const linkedTicketId = proposal?.ticketId;
+  const { data: linkedTicket } = useQuery<Ticket>({
+    queryKey: ["/api/tickets", linkedTicketId],
+    queryFn: async () => {
+      const res = await fetch(`/api/tickets/${linkedTicketId}`, { credentials: "include" });
+      if (!res.ok) throw new Error("Ticket not found");
+      const data = await res.json();
+      return data.ticket ?? data;
+    },
+    enabled: !!linkedTicketId,
   });
 
   const saveMutation = useMutation({
@@ -270,13 +282,24 @@ export default function ProposalDraft() {
     <div className="p-6 max-w-3xl mx-auto space-y-6">
       {/* Header */}
       <div>
-        <div className="flex items-center gap-2 text-sm text-muted-foreground mb-3">
+        <div className="flex items-center gap-3 text-sm text-muted-foreground mb-3 flex-wrap">
           <Link href="/dashboard/tools/proposals">
             <button className="flex items-center gap-1 hover:text-foreground transition-colors" data-testid="link-back-to-proposals">
               <ArrowLeft className="w-3.5 h-3.5" />
               Proposal Maker
             </button>
           </Link>
+          {linkedTicket && (
+            <>
+              <span className="text-muted-foreground/40">|</span>
+              <Link href={`/dashboard/tickets/${linkedTicket.id}`}>
+                <button className="flex items-center gap-1 hover:text-foreground transition-colors" data-testid="link-back-to-ticket">
+                  <ArrowLeft className="w-3.5 h-3.5" />
+                  Ticket: {linkedTicket.title}
+                </button>
+              </Link>
+            </>
+          )}
         </div>
         <div className="flex items-center gap-3 flex-wrap">
           <h1 className="text-xl font-semibold tracking-tight" data-testid="text-proposal-title">

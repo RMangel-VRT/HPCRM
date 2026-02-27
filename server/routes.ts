@@ -328,17 +328,18 @@ async function ensureProjectTicketType(companyId: string): Promise<{
     console.log(`Created Project ticket type for company ${companyId}`);
   }
   
-  // Define the 8-step Project workflow (added Ready to Schedule after approval)
+  // Define the 10-step Project workflow (Create Proposal + Proposal Sent replace Estimate Sent)
   const projectStatuses = [
     { name: "New", description: "Request captured - pending estimate", color: "#6366f1", order: 0, isFinal: "false" as const },
     { name: "Estimating", description: "Estimate being prepared in QuickBooks", color: "#8b5cf6", order: 1, isFinal: "false" as const },
-    { name: "Estimate Sent", description: "Estimate sent to customer, awaiting response", color: "#f59e0b", order: 2, isFinal: "false" as const },
-    { name: "Decision Received", description: "Customer decision received", color: "#eab308", order: 3, isFinal: "false" as const },
-    { name: "Ready to Schedule", description: "Approved - needs to be scheduled with crew", color: "#f472b6", order: 4, isFinal: "false" as const },
-    { name: "Work Completed", description: "Execution task completed - ready for billing review", color: "#10b981", order: 5, isFinal: "false" as const },
-    { name: "Ready for Billing", description: "Work verified complete - create invoice", color: "#06b6d4", order: 6, isFinal: "false" as const },
-    { name: "Invoicing", description: "Invoice created in QuickBooks", color: "#22c55e", order: 7, isFinal: "true" as const },
-    { name: "Closed - Lost", description: "Project declined or cancelled", color: "#ef4444", order: 8, isFinal: "true" as const },
+    { name: "Create Proposal", description: "Build the proposal document in this system", color: "#8b5cf6", order: 2, isFinal: "false" as const },
+    { name: "Proposal Sent", description: "Proposal delivered to customer, awaiting decision", color: "#f59e0b", order: 3, isFinal: "false" as const },
+    { name: "Decision Received", description: "Customer decision received", color: "#eab308", order: 4, isFinal: "false" as const },
+    { name: "Ready to Schedule", description: "Approved - needs to be scheduled with crew", color: "#f472b6", order: 5, isFinal: "false" as const },
+    { name: "Work Completed", description: "Execution task completed - ready for billing review", color: "#10b981", order: 6, isFinal: "false" as const },
+    { name: "Ready for Billing", description: "Work verified complete - create invoice", color: "#06b6d4", order: 7, isFinal: "false" as const },
+    { name: "Invoicing", description: "Invoice created in QuickBooks", color: "#22c55e", order: 8, isFinal: "true" as const },
+    { name: "Closed - Lost", description: "Project declined or cancelled", color: "#ef4444", order: 9, isFinal: "true" as const },
   ];
   
   // Get existing statuses
@@ -376,10 +377,10 @@ async function ensureProjectTicketType(companyId: string): Promise<{
       ]
     },
     {
-      statusName: "Estimate Sent",
+      statusName: "Proposal Sent",
       fields: [
-        { fieldKey: "estimate_sent_date", fieldLabel: "Date Estimate Sent", fieldType: "date", isRequired: "true" },
-        { fieldKey: "delivery_method", fieldLabel: "Delivery Method", fieldType: "select", isRequired: "true", options: ["Email", "QBO Portal", "Hard Copy", "Other"] },
+        { fieldKey: "proposal_sent_date", fieldLabel: "Date Proposal Sent", fieldType: "date", isRequired: "true" },
+        { fieldKey: "proposal_delivery_method", fieldLabel: "Delivery Method", fieldType: "select", isRequired: "true", options: ["Email", "QBO Portal", "Hard Copy", "Other"] },
       ]
     },
     {
@@ -848,13 +849,14 @@ export async function fixProjectDisplayOrders(): Promise<void> {
     const expectedOrders: Record<string, number> = {
       "New": 0,
       "Estimating": 1,
-      "Estimate Sent": 2,
-      "Decision Received": 3,
-      "Ready to Schedule": 4,
-      "Work Completed": 5,
-      "Ready for Billing": 6,
-      "Invoicing": 7,
-      "Closed - Lost": 8,
+      "Create Proposal": 2,
+      "Proposal Sent": 3,
+      "Decision Received": 4,
+      "Ready to Schedule": 5,
+      "Work Completed": 6,
+      "Ready for Billing": 7,
+      "Invoicing": 8,
+      "Closed - Lost": 9,
     };
 
     for (const company of companies) {
@@ -955,6 +957,104 @@ export async function fixEstimateRequestBillingBehavior(): Promise<void> {
     }
   } catch (error) {
     console.error("Error fixing estimate_request billing behavior:", error);
+  }
+}
+
+// Startup migration: Replace "Estimate Sent" with "Create Proposal" + "Proposal Sent" in Project workflow
+export async function migrateEstimateSentToProposalWorkflow(): Promise<void> {
+  console.log("Running startup migration: Replacing Estimate Sent with Create Proposal + Proposal Sent...");
+  try {
+    const companies = await storage.getCompanies();
+    for (const company of companies) {
+      const ticketTypes = await storage.getTicketTypes(company.id);
+      const projectType = ticketTypes.find(tt => tt.name === "Project");
+      if (!projectType) continue;
+
+      const statuses = await storage.getTicketTypeStatuses(projectType.id);
+
+      // 1. Ensure "Create Proposal" status exists (order 2)
+      let createProposalStatus = statuses.find(s => s.name === "Create Proposal");
+      if (!createProposalStatus) {
+        createProposalStatus = await storage.createTicketTypeStatus({
+          ticketTypeId: projectType.id,
+          companyId: company.id,
+          name: "Create Proposal",
+          description: "Build the proposal document in this system",
+          color: "#8b5cf6",
+          displayOrder: 2,
+          isFinal: "false",
+        });
+        console.log(`Created "Create Proposal" status for company ${company.id}`);
+      }
+
+      // 2. Ensure "Proposal Sent" status exists (order 3)
+      let proposalSentStatus = statuses.find(s => s.name === "Proposal Sent");
+      if (!proposalSentStatus) {
+        proposalSentStatus = await storage.createTicketTypeStatus({
+          ticketTypeId: projectType.id,
+          companyId: company.id,
+          name: "Proposal Sent",
+          description: "Proposal delivered to customer, awaiting decision",
+          color: "#f59e0b",
+          displayOrder: 3,
+          isFinal: "false",
+        });
+        console.log(`Created "Proposal Sent" status for company ${company.id}`);
+      }
+
+      // 3. Add fields for "Proposal Sent" step if not already present
+      const existingFields = await storage.getTicketTypeFields(projectType.id);
+      const proposalSentFields = existingFields.filter(f => f.statusId === proposalSentStatus!.id);
+      if (proposalSentFields.length === 0) {
+        await storage.createTicketTypeField({
+          ticketTypeId: projectType.id,
+          statusId: proposalSentStatus.id,
+          companyId: company.id,
+          fieldKey: "proposal_sent_date",
+          fieldLabel: "Date Proposal Sent",
+          fieldType: "date",
+          isRequired: "true",
+          fieldOptions: null,
+          displayOrder: 0,
+        });
+        await storage.createTicketTypeField({
+          ticketTypeId: projectType.id,
+          statusId: proposalSentStatus.id,
+          companyId: company.id,
+          fieldKey: "proposal_delivery_method",
+          fieldLabel: "Delivery Method",
+          fieldType: "select",
+          isRequired: "true",
+          fieldOptions: JSON.stringify(["Email", "QBO Portal", "Hard Copy", "Other"]),
+          displayOrder: 1,
+        });
+        console.log(`Added fields for "Proposal Sent" status for company ${company.id}`);
+      }
+
+      // 4. Migrate existing "Estimate Sent" tickets to "Proposal Sent"
+      const estimateSentStatus = statuses.find(s => s.name === "Estimate Sent");
+      if (estimateSentStatus) {
+        const allTickets = await storage.getTickets(company.id);
+        const estimateSentTickets = allTickets.filter(
+          t => t.ticketTypeId === projectType.id && t.currentStatusId === estimateSentStatus.id
+        );
+        for (const ticket of estimateSentTickets) {
+          await storage.updateTicket(ticket.id, company.id, { currentStatusId: proposalSentStatus.id });
+          console.log(`Migrated ticket "${ticket.title}" from Estimate Sent → Proposal Sent`);
+        }
+
+        // 5. Delete Estimate Sent fields then the status itself
+        const estimateSentFields = existingFields.filter(f => f.statusId === estimateSentStatus.id);
+        for (const field of estimateSentFields) {
+          await storage.deleteTicketTypeField(field.id);
+        }
+        await storage.deleteTicketTypeStatus(estimateSentStatus.id);
+        console.log(`Deleted "Estimate Sent" status for company ${company.id}`);
+      }
+    }
+    console.log("migrateEstimateSentToProposalWorkflow complete");
+  } catch (error) {
+    console.error("Error in migrateEstimateSentToProposalWorkflow:", error);
   }
 }
 
@@ -7362,7 +7462,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     const user = req.user as UserWithContext;
     if (!canAccessProposals(user.activeRole)) return res.status(403).send("Insufficient permissions");
 
-    const { customerId, title, proposalDate, estimateNumber, scopeOfWork } = req.body;
+    const { customerId, title, proposalDate, estimateNumber, scopeOfWork, ticketId } = req.body;
     if (!customerId) return res.status(400).json({ error: "customerId is required" });
 
     const customer = await storage.getCustomerById(customerId, user.activeCompanyId);
@@ -7373,6 +7473,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       companyId: user.activeCompanyId,
       customerId,
       createdById: user.id,
+      ticketId: ticketId || null,
       title: title || "Proposal",
       proposalDate: proposalDate || today,
       estimateNumber: estimateNumber || null,
@@ -7436,6 +7537,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
     const user = req.user as UserWithContext;
     if (!canAccessProposals(user.activeRole)) return res.status(403).send("Insufficient permissions");
     const list = await storage.getProposalsByCustomer(req.params.id, user.activeCompanyId);
+    res.json(list);
+  });
+
+  app.get("/api/tickets/:ticketId/proposals", async (req, res) => {
+    if (!req.isAuthenticated()) return res.status(401).send("Not authenticated");
+    const user = req.user as UserWithContext;
+    if (!canAccessProposals(user.activeRole)) return res.status(403).send("Insufficient permissions");
+    const list = await storage.getProposalsForTicket(req.params.ticketId, user.activeCompanyId);
     res.json(list);
   });
 

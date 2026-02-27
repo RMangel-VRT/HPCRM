@@ -1440,6 +1440,7 @@ export const proposals = pgTable("proposals", {
   companyId: varchar("company_id").notNull().references(() => companies.id, { onDelete: "cascade" }),
   customerId: varchar("customer_id").notNull().references(() => customers.id, { onDelete: "cascade" }),
   createdById: varchar("created_by_id").references(() => users.id, { onDelete: "set null" }),
+  ticketId: varchar("ticket_id").references(() => tickets.id, { onDelete: "set null" }),
   title: varchar("title").notNull().default("Proposal"),
   proposalDate: varchar("proposal_date").notNull(),
   estimateNumber: varchar("estimate_number"),
