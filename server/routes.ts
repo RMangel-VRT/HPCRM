@@ -7603,22 +7603,35 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const W = d.page.width;
       const H = d.page.height;
       d.save();
-      d.opacity(0.04);
-      d.fillColor(BRAND);
-      d.moveTo(0, H * 0.62)
-        .bezierCurveTo(W * 0.15, H * 0.44, W * 0.30, H * 0.52, W * 0.50, H * 0.46)
-        .bezierCurveTo(W * 0.70, H * 0.40, W * 0.85, H * 0.50, W, H * 0.58)
+      d.opacity(0.05);
+
+      d.fillColor('#6aaa6a');
+      d.moveTo(0, H * 0.55)
+        .bezierCurveTo(W * 0.20, H * 0.35, W * 0.40, H * 0.42, W * 0.55, H * 0.38)
+        .bezierCurveTo(W * 0.70, H * 0.34, W * 0.85, H * 0.44, W, H * 0.50)
         .lineTo(W, H)
         .lineTo(0, H)
         .closePath()
         .fill();
-      d.moveTo(0, H * 0.74)
-        .bezierCurveTo(W * 0.20, H * 0.60, W * 0.38, H * 0.68, W * 0.55, H * 0.63)
-        .bezierCurveTo(W * 0.72, H * 0.58, W * 0.88, H * 0.66, W, H * 0.71)
+
+      d.fillColor('#3d7a3d');
+      d.moveTo(0, H * 0.65)
+        .bezierCurveTo(W * 0.15, H * 0.50, W * 0.32, H * 0.57, W * 0.50, H * 0.52)
+        .bezierCurveTo(W * 0.68, H * 0.47, W * 0.82, H * 0.55, W, H * 0.62)
         .lineTo(W, H)
         .lineTo(0, H)
         .closePath()
         .fill();
+
+      d.fillColor('#1a4d1a');
+      d.moveTo(0, H * 0.76)
+        .bezierCurveTo(W * 0.18, H * 0.64, W * 0.36, H * 0.70, W * 0.52, H * 0.66)
+        .bezierCurveTo(W * 0.70, H * 0.62, W * 0.86, H * 0.68, W, H * 0.73)
+        .lineTo(W, H)
+        .lineTo(0, H)
+        .closePath()
+        .fill();
+
       d.restore();
     }
 
@@ -7815,32 +7828,40 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const appLeft = LM;
       const appContentWidth = appPageWidth - LM - RM;
 
-      // --- PROJECT IMAGES header page ---
-      appendixDoc.y = appPageHeight * 0.38;
-      appendixDoc.fillColor(BRAND)
-        .fontSize(13)
-        .font('Helvetica-Bold')
-        .text('PROJECT IMAGES', appLeft, appendixDoc.y, { width: appContentWidth, align: 'center' });
-
-      appendixDoc.moveDown(0.5);
-      const dividerX = appLeft + (appContentWidth - 200) / 2;
-      appendixDoc.moveTo(dividerX, appendixDoc.y)
-        .lineTo(dividerX + 200, appendixDoc.y)
-        .strokeColor(BRAND)
-        .lineWidth(0.5)
-        .stroke();
-
       const captionReserve = 55;
-      const imgTopY = LM;
-      const maxImgWidth = appContentWidth;
-      const maxImgHeight = appPageHeight - imgTopY - RM - captionReserve;
       const captionY = appPageHeight - RM - 35;
+      const maxImgWidth = appContentWidth;
 
-      for (const img of imageBuffers) {
-        appendixDoc.addPage();
+      for (let idx = 0; idx < imageBuffers.length; idx++) {
+        const img = imageBuffers[idx];
+        if (idx > 0) appendixDoc.addPage();
+
+        let currentImgTopY: number;
+        let currentMaxImgHeight: number;
+
+        if (idx === 0) {
+          // Draw PROJECT IMAGES heading at top of first image page
+          appendixDoc.fillColor(BRAND)
+            .fontSize(13)
+            .font('Helvetica-Bold')
+            .text('PROJECT IMAGES', appLeft, LM, { width: appContentWidth, align: 'center' });
+          const dividerY = LM + 20;
+          const dividerX = appLeft + (appContentWidth - 200) / 2;
+          appendixDoc.moveTo(dividerX, dividerY)
+            .lineTo(dividerX + 200, dividerY)
+            .strokeColor(BRAND)
+            .lineWidth(0.5)
+            .stroke();
+          currentImgTopY = LM + 36;
+          currentMaxImgHeight = appPageHeight - currentImgTopY - RM - captionReserve;
+        } else {
+          currentImgTopY = LM;
+          currentMaxImgHeight = appPageHeight - LM - RM - captionReserve;
+        }
+
         try {
-          appendixDoc.image(img.buffer, appLeft, imgTopY, {
-            fit: [maxImgWidth, maxImgHeight],
+          appendixDoc.image(img.buffer, appLeft, currentImgTopY, {
+            fit: [maxImgWidth, currentMaxImgHeight],
             align: 'center',
           });
         } catch (err) {
@@ -7867,13 +7888,36 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
 
     // --- Merge all sections with pdf-lib ---
-    const { PDFDocument } = await import('pdf-lib');
+    const { PDFDocument, PDFName, PDFRawStream, PDFArray } = await import('pdf-lib');
+
+    function isEstimatePageBlank(doc: InstanceType<typeof PDFDocument>, pageIdx: number): boolean {
+      try {
+        const page = doc.getPage(pageIdx);
+        const contentsRef = page.node.get(PDFName.of('Contents'));
+        if (!contentsRef) return true;
+        const contents = (doc as any).context.lookup(contentsRef);
+        if (!contents) return true;
+        if (contents instanceof PDFRawStream) return contents.contents.length < 30;
+        if (contents instanceof PDFArray) {
+          for (let i = 0; i < contents.size(); i++) {
+            const stream = (doc as any).context.lookup(contents.get(i));
+            if (stream instanceof PDFRawStream && stream.contents.length >= 30) return false;
+          }
+          return true;
+        }
+        return false;
+      } catch { return false; }
+    }
+
     let mergedBuffer: Buffer;
     try {
       const mergedDoc = await PDFDocument.load(brandedBuffer);
 
       const estimateDoc = await PDFDocument.load(estimateBuffer);
-      const estimatePages = await mergedDoc.copyPages(estimateDoc, estimateDoc.getPageIndices());
+      const allIndices = estimateDoc.getPageIndices();
+      const filteredIndices = allIndices.filter(i => !isEstimatePageBlank(estimateDoc, i));
+      const indicesToCopy = filteredIndices.length > 0 ? filteredIndices : allIndices;
+      const estimatePages = await mergedDoc.copyPages(estimateDoc, indicesToCopy);
       estimatePages.forEach(p => mergedDoc.addPage(p));
 
       if (appendixBuffer) {
