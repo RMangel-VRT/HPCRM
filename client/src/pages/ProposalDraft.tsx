@@ -35,7 +35,6 @@ import {
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import type { ProposalWithDetails, ProposalFile, Ticket } from "@shared/schema";
-import heic2any from "heic2any";
 
 function formatDateTime(ts: string | Date) {
   try {
@@ -227,10 +226,18 @@ export default function ProposalDraft() {
       file.name.toLowerCase().endsWith(".heic") ||
       file.name.toLowerCase().endsWith(".heif");
     if (!isHeic) return file;
-    const converted = await heic2any({ blob: file, toType: "image/jpeg", quality: 0.85 });
-    const blob = Array.isArray(converted) ? converted[0] : converted;
+    const response = await fetch("/api/convert-heic", {
+      method: "POST",
+      headers: { "Content-Type": file.type || "application/octet-stream" },
+      body: file,
+    });
+    if (!response.ok) {
+      const err = await response.json().catch(() => ({ error: "Conversion failed" }));
+      throw new Error(err.error ?? "HEIC conversion failed");
+    }
+    const jpegBlob = await response.blob();
     const newName = file.name.replace(/\.(heic|heif)$/i, ".jpg");
-    return new File([blob], newName, { type: "image/jpeg" });
+    return new File([jpegBlob], newName, { type: "image/jpeg" });
   };
 
   const handleImageUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {

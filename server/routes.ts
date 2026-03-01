@@ -1,3 +1,4 @@
+import express from "express";
 import type { Express } from "express";
 import { createServer, type Server } from "http";
 import path from "path";
@@ -11,6 +12,7 @@ import type { Customer } from "@shared/schema";
 import { ObjectStorageService, ObjectNotFoundError, objectStorageClient, signObjectURL } from "./objectStorage";
 import { ObjectPermission, ObjectAccessGroupType, setObjectAclPolicy } from "./objectAcl";
 import { processEmailEvent, resendEmail, getDefaultWorkCompletedTemplate } from './services/emailService';
+import heicConvert from 'heic-convert';
 
 // Helper to ensure Invoice ticket type exists for a company with required statuses
 async function ensureInvoiceTicketType(companyId: string): Promise<{ 
@@ -7547,6 +7549,19 @@ export async function registerRoutes(app: Express): Promise<Server> {
     if (!canAccessProposals(user.activeRole)) return res.status(403).send("Insufficient permissions");
     const list = await storage.getProposalsForTicket(req.params.ticketId, user.activeCompanyId);
     res.json(list);
+  });
+
+  app.post("/api/convert-heic", express.raw({ type: "*/*", limit: "50mb" }), async (req, res) => {
+    if (!req.isAuthenticated()) return res.status(401).send("Not authenticated");
+    try {
+      const inputBuffer = Buffer.isBuffer(req.body) ? req.body : Buffer.from(req.body);
+      const outputBuffer = await heicConvert({ buffer: inputBuffer, format: "JPEG", quality: 0.85 });
+      res.set("Content-Type", "image/jpeg");
+      res.send(Buffer.from(outputBuffer));
+    } catch (err: any) {
+      console.error("HEIC conversion error:", err);
+      res.status(400).json({ error: "Failed to convert HEIC file: " + (err.message ?? String(err)) });
+    }
   });
 
   app.post("/api/proposals/:id/files/upload-url", async (req, res) => {
