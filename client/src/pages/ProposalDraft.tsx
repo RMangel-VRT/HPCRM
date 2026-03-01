@@ -35,6 +35,7 @@ import {
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import type { ProposalWithDetails, ProposalFile, Ticket } from "@shared/schema";
+import heic2any from "heic2any";
 
 function formatDateTime(ts: string | Date) {
   try {
@@ -219,11 +220,32 @@ export default function ProposalDraft() {
     }
   };
 
+  const convertIfHeic = async (file: File): Promise<File> => {
+    const isHeic =
+      file.type === "image/heic" ||
+      file.type === "image/heif" ||
+      file.name.toLowerCase().endsWith(".heic") ||
+      file.name.toLowerCase().endsWith(".heif");
+    if (!isHeic) return file;
+    const converted = await heic2any({ blob: file, toType: "image/jpeg", quality: 0.85 });
+    const blob = Array.isArray(converted) ? converted[0] : converted;
+    const newName = file.name.replace(/\.(heic|heif)$/i, ".jpg");
+    return new File([blob], newName, { type: "image/jpeg" });
+  };
+
   const handleImageUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const files = Array.from(e.target.files ?? []);
-    if (!files.length) return;
+    const rawFiles = Array.from(e.target.files ?? []);
+    if (!rawFiles.length) return;
     setUploadingImages(true);
+    const hasHeic = rawFiles.some(f =>
+      f.type === "image/heic" || f.type === "image/heif" ||
+      f.name.toLowerCase().endsWith(".heic") || f.name.toLowerCase().endsWith(".heif")
+    );
+    if (hasHeic) {
+      toast({ title: "Converting HEIC photo…", description: "This may take a moment." });
+    }
     try {
+      const files = await Promise.all(rawFiles.map(convertIfHeic));
       for (const file of files) {
         await uploadFile(file, "image");
       }
@@ -553,7 +575,7 @@ export default function ProposalDraft() {
           <input
             ref={imgInputRef}
             type="file"
-            accept="image/*"
+            accept="image/*,.heic,.heif"
             multiple
             className="hidden"
             onChange={handleImageUpload}
