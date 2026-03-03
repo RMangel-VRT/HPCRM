@@ -1446,6 +1446,9 @@ export const proposals = pgTable("proposals", {
   estimateNumber: varchar("estimate_number"),
   scopeOfWork: text("scope_of_work").notNull().default(""),
   status: varchar("status").notNull().default("draft"),
+  visualScopeSheetId: varchar("visual_scope_sheet_id").references(() => visualScopeSheets.id, { onDelete: "set null" }),
+  vsIncludeBase: boolean("vs_include_base").notNull().default(false),
+  vsIncludeOverlay: boolean("vs_include_overlay").notNull().default(false),
   createdAt: timestamp("created_at").notNull().defaultNow(),
 });
 
@@ -1512,6 +1515,7 @@ export type ProposalWithDetails = Proposal & {
   customerName: string;
   files: ProposalFile[];
   versions: ProposalVersionWithUser[];
+  visualScopeSheet?: VisualScopeSheetWithCustomer | null;
 };
 
 // Visual Scope Sheets

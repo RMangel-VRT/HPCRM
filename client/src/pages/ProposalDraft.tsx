@@ -31,10 +31,14 @@ import {
   Info,
   History,
   CheckCircle2,
+  Map,
+  X,
+  ExternalLink,
 } from "lucide-react";
+import { Checkbox } from "@/components/ui/checkbox";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
-import type { ProposalWithDetails, ProposalFile, Ticket } from "@shared/schema";
+import type { ProposalWithDetails, ProposalFile, Ticket, VisualScopeSheetWithCustomer } from "@shared/schema";
 
 function formatDateTime(ts: string | Date) {
   try {
@@ -265,6 +269,16 @@ export default function ProposalDraft() {
       if (imgInputRef.current) imgInputRef.current.value = "";
     }
   };
+
+  const { data: vsSheets } = useQuery<VisualScopeSheetWithCustomer[]>({
+    queryKey: ["/api/customers", proposal?.customerId, "visual-scope-sheets"],
+    queryFn: async () => {
+      const res = await fetch(`/api/customers/${proposal!.customerId}/visual-scope-sheets`, { credentials: "include" });
+      if (!res.ok) return [];
+      return res.json();
+    },
+    enabled: !!proposal?.customerId,
+  });
 
   const estimatePdf = proposal?.files.find(f => f.fileType === "estimate_pdf");
   const images = proposal?.files.filter(f => f.fileType === "image").sort((a, b) => a.displayOrder - b.displayOrder) ?? [];
@@ -521,6 +535,121 @@ export default function ProposalDraft() {
               </p>
             )}
           </div>
+        </CardContent>
+      </Card>
+
+      {/* Visual Scope */}
+      <Card>
+        <CardHeader>
+          <div className="flex items-center justify-between gap-2 flex-wrap">
+            <CardTitle className="text-base flex items-center gap-2">
+              <Map className="w-4 h-4" /> Visual Scope
+            </CardTitle>
+            {proposal.visualScopeSheetId && (
+              <div className="flex items-center gap-3 flex-wrap">
+                <div className="flex items-center gap-1.5">
+                  <Checkbox
+                    id="vs-include-base"
+                    checked={proposal.vsIncludeBase ?? false}
+                    onCheckedChange={(v) => saveMutation.mutate({ vsIncludeBase: v === true } as any)}
+                    data-testid="checkbox-vs-include-base"
+                  />
+                  <Label htmlFor="vs-include-base" className="text-sm cursor-pointer">Base-only page</Label>
+                </div>
+                <div className="flex items-center gap-1.5">
+                  <Checkbox
+                    id="vs-include-overlay"
+                    checked={proposal.vsIncludeOverlay ?? false}
+                    onCheckedChange={(v) => saveMutation.mutate({ vsIncludeOverlay: v === true } as any)}
+                    data-testid="checkbox-vs-include-overlay"
+                  />
+                  <Label htmlFor="vs-include-overlay" className="text-sm cursor-pointer">Overlay-only page</Label>
+                </div>
+              </div>
+            )}
+          </div>
+          <p className="text-sm text-muted-foreground mt-1">
+            {proposal.visualScopeSheetId
+              ? "A Visual Scope Sheet is attached. The combined page will be included in the proposal PDF."
+              : "Attach a Visual Scope Sheet to include a professional satellite scope page in the proposal PDF."}
+          </p>
+        </CardHeader>
+        <CardContent>
+          {proposal.visualScopeSheetId && proposal.visualScopeSheet ? (
+            <div className="flex items-center justify-between gap-3 p-3 rounded-md border" data-testid="div-vs-attached">
+              <div className="flex items-center gap-3 min-w-0">
+                <Map className="w-4 h-4 text-muted-foreground shrink-0" />
+                <div className="min-w-0">
+                  <p className="text-sm font-medium truncate" data-testid="text-vs-sheet-title">
+                    {proposal.visualScopeSheet.title}
+                  </p>
+                  <p className="text-xs text-muted-foreground" data-testid="text-vs-sheet-date">
+                    {proposal.visualScopeSheet.scopeDate} · {proposal.visualScopeSheet.customerName}
+                  </p>
+                </div>
+              </div>
+              <div className="flex items-center gap-2 shrink-0">
+                <a
+                  href={`/dashboard/tools/visual-scope/${proposal.visualScopeSheetId}/draft`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                >
+                  <Button variant="outline" size="sm" data-testid="button-open-vs-draft">
+                    <ExternalLink className="w-3 h-3 mr-1" /> Open
+                  </Button>
+                </a>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => saveMutation.mutate({ visualScopeSheetId: null, vsIncludeBase: false, vsIncludeOverlay: false } as any)}
+                  data-testid="button-remove-vs"
+                >
+                  <X className="w-3 h-3 mr-1" /> Remove
+                </Button>
+              </div>
+            </div>
+          ) : (
+            <div className="space-y-2">
+              {!vsSheets || vsSheets.length === 0 ? (
+                <div className="flex items-start gap-2 p-3 rounded-md bg-muted text-sm text-muted-foreground">
+                  <Info className="w-4 h-4 mt-0.5 shrink-0" />
+                  <span>No Visual Scope Sheets exist for this customer yet. Create one from the Visual Scope tool.</span>
+                </div>
+              ) : (
+                <div className="space-y-1">
+                  {vsSheets.map(sheet => {
+                    const hasImage = !!sheet.baseImagePath;
+                    return (
+                      <div
+                        key={sheet.id}
+                        className={`flex items-center justify-between gap-3 p-3 rounded-md border ${hasImage ? "hover-elevate cursor-pointer" : "opacity-50 cursor-not-allowed"}`}
+                        onClick={() => {
+                          if (!hasImage) return;
+                          saveMutation.mutate({ visualScopeSheetId: sheet.id } as any);
+                        }}
+                        data-testid={`row-vs-sheet-${sheet.id}`}
+                      >
+                        <div className="min-w-0">
+                          <p className="text-sm font-medium truncate">{sheet.title}</p>
+                          <p className="text-xs text-muted-foreground">{sheet.scopeDate}</p>
+                        </div>
+                        {!hasImage ? (
+                          <Tooltip>
+                            <TooltipTrigger asChild>
+                              <Badge variant="secondary" className="shrink-0 text-xs">No image</Badge>
+                            </TooltipTrigger>
+                            <TooltipContent>Capture or upload a base image first</TooltipContent>
+                          </Tooltip>
+                        ) : (
+                          <Badge variant="outline" className="shrink-0 text-xs">Select</Badge>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+          )}
         </CardContent>
       </Card>
 

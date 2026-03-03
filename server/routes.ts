@@ -7499,13 +7499,17 @@ export async function registerRoutes(app: Express): Promise<Server> {
     if (!req.isAuthenticated()) return res.status(401).send("Not authenticated");
     const user = req.user as UserWithContext;
     if (!canAccessProposals(user.activeRole)) return res.status(403).send("Insufficient permissions");
-    const { title, proposalDate, estimateNumber, scopeOfWork, ticketId } = req.body;
+    const { title, proposalDate, estimateNumber, scopeOfWork, ticketId,
+            visualScopeSheetId, vsIncludeBase, vsIncludeOverlay } = req.body;
     const updated = await storage.updateProposal(req.params.id, user.activeCompanyId, {
       ...(title !== undefined && { title }),
       ...(proposalDate !== undefined && { proposalDate }),
       ...(estimateNumber !== undefined && { estimateNumber }),
       ...(scopeOfWork !== undefined && { scopeOfWork }),
       ...(ticketId !== undefined && { ticketId: ticketId || null }),
+      ...(visualScopeSheetId !== undefined && { visualScopeSheetId: visualScopeSheetId || null }),
+      ...(vsIncludeBase !== undefined && { vsIncludeBase: !!vsIncludeBase }),
+      ...(vsIncludeOverlay !== undefined && { vsIncludeOverlay: !!vsIncludeOverlay }),
     });
     if (!updated) return res.status(404).send("Not found");
     res.json(updated);
@@ -8039,6 +8043,109 @@ export async function registerRoutes(app: Express): Promise<Server> {
       appendixBuffer = await appendixPromise;
     }
 
+    // --- VS4: Render Visual Scope pages if attached ---
+    let vsBuffer: Buffer | null = null;
+    if (proposal.visualScopeSheetId && proposal.visualScopeSheet) {
+      const vsSheet = proposal.visualScopeSheet;
+      if (!vsSheet.baseImagePath) {
+        throw Object.assign(new Error("Attached Visual Scope Sheet has no base image. Capture or upload a base image before generating the proposal PDF."), { statusCode: 400 });
+      }
+
+      // Render pages server-side using VS3 renderer
+      let combinedPng: Buffer;
+      try {
+        combinedPng = await renderVisualScope(vsSheet as any, "combined", 2000);
+      } catch (err: any) {
+        throw Object.assign(new Error(`Visual Scope export failed: ${err.message}`), { statusCode: 400 });
+      }
+
+      let basePng: Buffer | null = null;
+      if (proposal.vsIncludeBase) {
+        try {
+          basePng = await renderVisualScope(vsSheet as any, "base", 2000);
+        } catch (err: any) {
+          throw Object.assign(new Error(`Visual Scope base export failed: ${err.message}`), { statusCode: 400 });
+        }
+      }
+
+      let overlayPng: Buffer | null = null;
+      if (proposal.vsIncludeOverlay) {
+        try {
+          overlayPng = await renderVisualScope(vsSheet as any, "overlay", 2000);
+        } catch (err: any) {
+          throw Object.assign(new Error(`Visual Scope overlay export failed: ${err.message}`), { statusCode: 400 });
+        }
+      }
+
+      const vsPageList: { title: string; buffer: Buffer }[] = [
+        { title: "VISUAL SCOPE", buffer: combinedPng },
+        ...(basePng ? [{ title: "VISUAL SCOPE — BASE IMAGE", buffer: basePng }] : []),
+        ...(overlayPng ? [{ title: "VISUAL SCOPE — OVERLAY", buffer: overlayPng }] : []),
+      ];
+
+      const vsDoc = new PDFDocumentKit({ size: "LETTER", margins: { top: LM, bottom: LM, left: LM, right: RM } });
+      const vsChunks: Buffer[] = [];
+      vsDoc.on("data", (chunk: Buffer) => vsChunks.push(chunk));
+      const vsPromise = new Promise<Buffer>((resolve, reject) => {
+        vsDoc.on("end", () => resolve(Buffer.concat(vsChunks)));
+        vsDoc.on("error", reject);
+      });
+
+      let vsPageCounter = 0;
+      const vsGuard = { active: false };
+      function drawVsDecorations(d: InstanceType<typeof PDFDocumentKit>, num: number) {
+        if (vsGuard.active) return;
+        vsGuard.active = true;
+        const savedY = d.y;
+        try { drawWatermark(d); drawFooter(d, num, companyName); }
+        finally { d.y = savedY; vsGuard.active = false; }
+      }
+      vsPageCounter = 1;
+      drawVsDecorations(vsDoc, vsPageCounter);
+      vsDoc.on("pageAdded", () => { vsPageCounter++; drawVsDecorations(vsDoc, vsPageCounter); });
+
+      const vsCaption = `${vsSheet.title}  ·  ${vsSheet.scopeDate}`;
+      const captionHeight = 26;
+      const footerReserve = 60;
+
+      for (let i = 0; i < vsPageList.length; i++) {
+        if (i > 0) vsDoc.addPage();
+
+        const W = vsDoc.page.width;
+        const H = vsDoc.page.height;
+        const contentW = W - LM - RM;
+
+        // Section title
+        vsDoc.fillColor(BRAND).fontSize(13).font("Helvetica-Bold")
+          .text(vsPageList[i].title, LM, LM, { width: contentW, align: "center" });
+        const dividerY = LM + 20;
+        const dividerX = LM + (contentW - 200) / 2;
+        vsDoc.moveTo(dividerX, dividerY).lineTo(dividerX + 200, dividerY)
+          .strokeColor(BRAND).lineWidth(0.5).stroke();
+
+        // Image area
+        const imgTopY = LM + 36;
+        const availH = H - imgTopY - footerReserve - captionHeight;
+
+        try {
+          vsDoc.image(vsPageList[i].buffer, LM, imgTopY, {
+            fit: [contentW, availH],
+            align: "center",
+          });
+        } catch (err) {
+          throw Object.assign(new Error("Visual Scope image could not be rendered in the PDF."), { statusCode: 400 });
+        }
+
+        // Caption
+        const captionY = H - footerReserve - captionHeight + 4;
+        vsDoc.fillColor("#666666").fontSize(9).font("Helvetica")
+          .text(vsCaption, LM, captionY, { width: contentW, align: "center" });
+      }
+
+      vsDoc.end();
+      vsBuffer = await vsPromise;
+    }
+
     // --- Merge all sections with pdf-lib ---
     const { PDFDocument, PDFName } = await import('pdf-lib');
 
@@ -8057,6 +8164,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
     let mergedBuffer: Buffer;
     try {
       const mergedDoc = await PDFDocument.load(brandedBuffer);
+
+      // VS4: Insert Visual Scope pages after branded cover, before estimate
+      if (vsBuffer) {
+        const vsPdfDoc = await PDFDocument.load(vsBuffer);
+        const vsPages = await mergedDoc.copyPages(vsPdfDoc, vsPdfDoc.getPageIndices());
+        vsPages.forEach(p => mergedDoc.addPage(p));
+      }
 
       const estimateDoc = await PDFDocument.load(estimateBuffer);
       const allIndices = estimateDoc.getPageIndices();

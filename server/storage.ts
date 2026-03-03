@@ -2371,6 +2371,16 @@ export class PgStorage implements IStorage {
     return map;
   }
 
+  private async _getVsSheetMap(vsIds: string[]): Promise<Record<string, import("@shared/schema").VisualScopeSheetWithCustomer>> {
+    if (vsIds.length === 0) return {};
+    const vsRows = await db
+      .select({ sheet: visualScopeSheets, customerName: customers.name })
+      .from(visualScopeSheets)
+      .leftJoin(customers, eq(visualScopeSheets.customerId, customers.id))
+      .where(inArray(visualScopeSheets.id, vsIds));
+    return Object.fromEntries(vsRows.map(r => [r.sheet.id, { ...r.sheet, customerName: r.customerName ?? "" }]));
+  }
+
   async getProposals(companyId: string): Promise<ProposalWithDetails[]> {
     const rows = await db
       .select({
@@ -2387,12 +2397,15 @@ export class PgStorage implements IStorage {
       ? await db.select().from(proposalFiles).where(inArray(proposalFiles.proposalId, proposalIds)).orderBy(proposalFiles.displayOrder)
       : [];
     const versionsMap = await this._getVersionsForProposals(proposalIds);
+    const vsIds = rows.map(r => r.proposal.visualScopeSheetId).filter(Boolean) as string[];
+    const vsMap = await this._getVsSheetMap(vsIds);
 
     return rows.map(r => ({
       ...r.proposal,
       customerName: r.customerName ?? "",
       files: files.filter(f => f.proposalId === r.proposal.id),
       versions: versionsMap[r.proposal.id] ?? [],
+      visualScopeSheet: r.proposal.visualScopeSheetId ? (vsMap[r.proposal.visualScopeSheetId] ?? null) : null,
     }));
   }
 
@@ -2412,12 +2425,15 @@ export class PgStorage implements IStorage {
       ? await db.select().from(proposalFiles).where(inArray(proposalFiles.proposalId, proposalIds)).orderBy(proposalFiles.displayOrder)
       : [];
     const versionsMap = await this._getVersionsForProposals(proposalIds);
+    const vsIds = rows.map(r => r.proposal.visualScopeSheetId).filter(Boolean) as string[];
+    const vsMap = await this._getVsSheetMap(vsIds);
 
     return rows.map(r => ({
       ...r.proposal,
       customerName: r.customerName ?? "",
       files: files.filter(f => f.proposalId === r.proposal.id),
       versions: versionsMap[r.proposal.id] ?? [],
+      visualScopeSheet: r.proposal.visualScopeSheetId ? (vsMap[r.proposal.visualScopeSheetId] ?? null) : null,
     }));
   }
 
@@ -2437,12 +2453,15 @@ export class PgStorage implements IStorage {
       ? await db.select().from(proposalFiles).where(inArray(proposalFiles.proposalId, proposalIds)).orderBy(proposalFiles.displayOrder)
       : [];
     const versionsMap = await this._getVersionsForProposals(proposalIds);
+    const vsIds = rows.map(r => r.proposal.visualScopeSheetId).filter(Boolean) as string[];
+    const vsMap = await this._getVsSheetMap(vsIds);
 
     return rows.map(r => ({
       ...r.proposal,
       customerName: r.customerName ?? "",
       files: files.filter(f => f.proposalId === r.proposal.id),
       versions: versionsMap[r.proposal.id] ?? [],
+      visualScopeSheet: r.proposal.visualScopeSheetId ? (vsMap[r.proposal.visualScopeSheetId] ?? null) : null,
     }));
   }
 
@@ -2463,12 +2482,15 @@ export class PgStorage implements IStorage {
       .orderBy(proposalFiles.displayOrder);
 
     const versionsMap = await this._getVersionsForProposals([id]);
+    const vsId = rows[0].proposal.visualScopeSheetId;
+    const vsMap = vsId ? await this._getVsSheetMap([vsId]) : {};
 
     return {
       ...rows[0].proposal,
       customerName: rows[0].customerName ?? "",
       files,
       versions: versionsMap[id] ?? [],
+      visualScopeSheet: vsId ? (vsMap[vsId] ?? null) : null,
     };
   }
 
