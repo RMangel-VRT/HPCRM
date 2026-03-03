@@ -11,7 +11,7 @@ import {
   SheetHeader,
   SheetTitle,
 } from "@/components/ui/sheet";
-import { ArrowLeft, Download, RefreshCw, Camera, Upload, ImageIcon, Loader2, Info } from "lucide-react";
+import { ArrowLeft, Download, RefreshCw, Camera, Upload, ImageIcon, Loader2, Info, Eye } from "lucide-react";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import type { VisualScopeSheetWithCustomer, MarkupObject } from "@shared/schema";
@@ -410,6 +410,54 @@ export default function VisualScopeDraft() {
             ) : (
               <CaptureUI token={mapboxToken} onCapture={handleCapture} onFile={handleFile} />
             )}
+          </CardContent>
+        </Card>
+      )}
+
+      {/* VS3 Exports */}
+      {sheet.baseImagePath && (
+        <Card>
+          <CardHeader className="pb-3">
+            <CardTitle className="text-base">Exports</CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+              {(["base", "overlay", "combined"] as const).map((type) => (
+                <div key={type} className="flex flex-col gap-2">
+                  <p className="text-sm font-medium text-foreground">
+                    {type === "base" ? "Base Image" : type === "overlay" ? "Overlay Only" : "Combined + Legend"}
+                  </p>
+                  <div className="flex gap-1 flex-wrap">
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      data-testid={`button-export-preview-${type}`}
+                      onClick={() => window.open(`/api/visual-scope-sheets/${id}/export/${type}?inline=1`, "_blank")}
+                    >
+                      <Eye className="w-3 h-3 mr-1" />Preview
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      data-testid={`button-export-download-${type}`}
+                      onClick={() => {
+                        const a = document.createElement("a");
+                        a.href = `/api/visual-scope-sheets/${id}/export/${type}`;
+                        a.download = `vs-${type}.png`;
+                        a.click();
+                      }}
+                    >
+                      <Download className="w-3 h-3 mr-1" />Download
+                    </Button>
+                  </div>
+                </div>
+              ))}
+            </div>
+            <p className="text-xs text-muted-foreground">
+              Exports render server-side at 2000 px wide. Append{" "}
+              <code className="bg-muted px-1 rounded text-xs">?w=3000</code>{" "}
+              to the URL for higher resolution (max 4000 px).
+            </p>
           </CardContent>
         </Card>
       )}

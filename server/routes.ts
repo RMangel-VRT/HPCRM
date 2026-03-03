@@ -13,6 +13,7 @@ import { ObjectStorageService, ObjectNotFoundError, objectStorageClient, signObj
 import { ObjectPermission, ObjectAccessGroupType, setObjectAclPolicy } from "./objectAcl";
 import { processEmailEvent, resendEmail, getDefaultWorkCompletedTemplate } from './services/emailService';
 import heicConvert from 'heic-convert';
+import { renderVisualScope, type ExportType } from "./visualScopeRenderer";
 
 // Helper to ensure Invoice ticket type exists for a company with required statuses
 async function ensureInvoiceTicketType(companyId: string): Promise<{ 
@@ -8333,6 +8334,41 @@ export async function registerRoutes(app: Express): Promise<Server> {
     const sheets = await storage.getVisualScopeSheetsForCustomer(req.params.id, user.activeCompanyId);
     res.json(sheets);
   });
+
+  // VS3 Export endpoints
+  async function handleVsExport(req: express.Request, res: express.Response, type: ExportType) {
+    if (!req.isAuthenticated()) return res.status(401).send("Not authenticated");
+    const user = req.user as UserWithContext;
+    if (!canAccessVisualScope(user.activeRole)) return res.status(403).send("Insufficient permissions");
+    const sheet = await storage.getVisualScopeSheet(req.params.id, user.activeCompanyId);
+    if (!sheet) return res.status(404).json({ error: "Not found" });
+    if (!sheet.baseImagePath) return res.status(400).json({ error: "Sheet has no base image" });
+    const rawW = parseInt((req.query.w as string) || "2000", 10);
+    const width = Math.max(1200, Math.min(4000, isNaN(rawW) ? 2000 : rawW));
+    const inline = req.query.inline === "1";
+    try {
+      const pngBuffer = await renderVisualScope(sheet, type, width);
+      const filename = `vs-${sheet.id}-${type}-${width}px.png`;
+      res.setHeader("Content-Type", "image/png");
+      res.setHeader("Content-Length", pngBuffer.length);
+      res.setHeader("Content-Disposition", `${inline ? "inline" : "attachment"}; filename="${filename}"`);
+      res.setHeader("Cache-Control", "no-store");
+      return res.send(pngBuffer);
+    } catch (err: any) {
+      if (err?.message === "NO_BASE_IMAGE")
+        return res.status(400).json({ error: "Sheet has no base image" });
+      if (err?.message === "BASE_IMAGE_TOO_LARGE")
+        return res.status(400).json({ error: "Base image exceeds the maximum allowed size (30 MB / 20000 px)" });
+      if (err?.name === "ObjectNotFoundError" || err?.message?.includes("Object not found"))
+        return res.status(400).json({ error: "Base image file not found in storage" });
+      console.error("VS export error:", err);
+      return res.status(500).json({ error: "Export failed" });
+    }
+  }
+
+  app.get("/api/visual-scope-sheets/:id/export/base",     (req, res) => handleVsExport(req, res, "base"));
+  app.get("/api/visual-scope-sheets/:id/export/overlay",  (req, res) => handleVsExport(req, res, "overlay"));
+  app.get("/api/visual-scope-sheets/:id/export/combined", (req, res) => handleVsExport(req, res, "combined"));
 
   const httpServer = createServer(app);
 

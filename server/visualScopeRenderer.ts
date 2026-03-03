@@ -1,4 +1,5 @@
 import { createCanvas, loadImage } from "canvas";
+import type { CanvasRenderingContext2D as NodeCanvasCtx } from "canvas";
 import { ObjectStorageService } from "./objectStorage";
 import type { VisualScopeSheet, MarkupObject, MarkupPoint, SymbolType } from "@shared/schema";
 
@@ -11,7 +12,7 @@ function px(n: number, width: number) { return n * width; }
 function py(n: number, height: number) { return n * height; }
 
 function drawSymbol(
-  ctx: CanvasRenderingContext2D,
+  ctx: NodeCanvasCtx,
   symbolType: SymbolType,
   cx: number,
   cy: number,
@@ -37,7 +38,7 @@ function drawSymbol(
 }
 
 function roundRect(
-  ctx: CanvasRenderingContext2D,
+  ctx: NodeCanvasCtx,
   x: number,
   y: number,
   w: number,
@@ -58,7 +59,7 @@ function roundRect(
 }
 
 function drawMarkup(
-  ctx: CanvasRenderingContext2D,
+  ctx: NodeCanvasCtx,
   objects: MarkupObject[],
   width: number,
   height: number
@@ -119,7 +120,7 @@ function drawMarkup(
 }
 
 function drawLegend(
-  ctx: CanvasRenderingContext2D,
+  ctx: NodeCanvasCtx,
   objects: MarkupObject[],
   width: number,
   height: number
