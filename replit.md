@@ -63,8 +63,10 @@ Transactional email notifications powered by SendGrid for events like "Work Comp
 #### Proposal Maker
 A tool for Admin and Office roles to create customer proposals, capturing customer references, QB estimate numbers, scope of work, one QB estimate PDF, and multiple supporting images. Files are stored in object storage. Includes integration with Project and Estimate Request tickets, allowing proposals to be linked or newly created within ticket context. Generates a branded PDF output by merging branded cover/scope pages, the original QB estimate PDF, and an optional photo appendix.
 
-#### Visual Scope Sheet Tool (VS1)
+#### Visual Scope Sheet Tool (VS1 + VS2)
 A satellite map-based tool for Admin and Office roles to create property scope imagery for proposals. Each sheet captures customer reference, title, scope date, and a base satellite image from Mapbox or uploaded, stored in GCS. The draft page renders a high-resolution Mapbox satellite-streets map.
+
+VS2 adds a markup layer editor (VisualScopeEditor.tsx). When a base image exists, the draft shows an interactive SVG overlay editor instead of a static image. Tools: Select, Polygon, Polyline, Tree/Plant/Boulder symbol stamps, Text labels. SVG viewBox="0 0 1 1" stores all coordinates as normalized 0–1 fractions (clamped), so markup stays aligned when the browser resizes. Full markup array saved via debounced PATCH (1.5 s) to markupData JSONB column. Auto-save does NOT fire on initial load. Live legend panel shows symbol counts and updates on add/delete. Guardrails: max 200 objects or 5,000 total points. Text editing uses an HTML overlay input. Drag-to-move works for symbols and text. Keyboard Delete key removes selected objects. Database column: markup_data jsonb on visual_scope_sheets.
 
 ## External Dependencies
 

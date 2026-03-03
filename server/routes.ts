@@ -8266,7 +8266,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     if (!req.isAuthenticated()) return res.status(401).send("Not authenticated");
     const user = req.user as UserWithContext;
     if (!canAccessVisualScope(user.activeRole)) return res.status(403).send("Insufficient permissions");
-    const allowed = ["title", "scopeDate", "baseImagePath", "baseImageFilename", "baseImageMimeType", "baseImageSize"];
+    const allowed = ["title", "scopeDate", "baseImagePath", "baseImageFilename", "baseImageMimeType", "baseImageSize", "markupData"];
     const updates: Record<string, unknown> = {};
     for (const key of allowed) {
       if (key in req.body) updates[key] = req.body[key];

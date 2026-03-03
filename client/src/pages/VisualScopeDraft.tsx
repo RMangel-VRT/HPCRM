@@ -14,9 +14,10 @@ import {
 import { ArrowLeft, Download, RefreshCw, Camera, Upload, ImageIcon, Loader2, Info } from "lucide-react";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
-import type { VisualScopeSheetWithCustomer } from "@shared/schema";
+import type { VisualScopeSheetWithCustomer, MarkupObject } from "@shared/schema";
 import mapboxgl from "mapbox-gl";
 import "mapbox-gl/dist/mapbox-gl.css";
+import VisualScopeEditor from "./VisualScopeEditor";
 
 function formatBytes(bytes: number) {
   if (bytes < 1024) return `${bytes} B`;
@@ -362,12 +363,12 @@ export default function VisualScopeDraft() {
         </div>
       </div>
 
-      {/* Base Image Area */}
+      {/* Base Image + Markup Editor Area */}
       {sheet.baseImagePath ? (
         <Card>
           <CardHeader className="pb-3">
-            <div className="flex items-center justify-between gap-2">
-              <CardTitle className="text-base">Base Image</CardTitle>
+            <div className="flex items-center justify-between gap-2 flex-wrap">
+              <CardTitle className="text-base">Visual Scope Editor</CardTitle>
               <div className="flex items-center gap-2">
                 <a href={sheet.baseImagePath} download={sheet.baseImageFilename ?? "base-image"}>
                   <Button variant="outline" size="sm" data-testid="button-download-image">
@@ -385,19 +386,13 @@ export default function VisualScopeDraft() {
               </div>
             </div>
           </CardHeader>
-          <CardContent className="space-y-3">
-            <img
-              src={sheet.baseImagePath}
-              alt="Base image"
-              className="w-full rounded-md object-contain max-h-[60vh] bg-muted"
-              data-testid="img-base-image"
+          <CardContent className="p-0 overflow-hidden rounded-b-md">
+            <VisualScopeEditor
+              sheetId={id!}
+              baseImagePath={sheet.baseImagePath}
+              initialMarkup={(sheet.markupData as MarkupObject[]) ?? []}
+              onSaved={() => queryClient.invalidateQueries({ queryKey: ["/api/visual-scope-sheets", id] })}
             />
-            {(sheet.baseImageFilename || sheet.baseImageSize) && (
-              <p className="text-xs text-muted-foreground" data-testid="text-image-meta">
-                {sheet.baseImageFilename}
-                {sheet.baseImageSize ? ` · ${formatBytes(sheet.baseImageSize)}` : ""}
-              </p>
-            )}
           </CardContent>
         </Card>
       ) : (
