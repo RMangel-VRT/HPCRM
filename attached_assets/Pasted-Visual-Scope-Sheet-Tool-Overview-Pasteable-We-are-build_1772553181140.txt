@@ -1,0 +1,111 @@
+Visual Scope Sheet Tool — Overview (Pasteable)
+
+We are building a new CRM tool called Visual Scope Sheet to create simple, professional landscape visuals for proposals without using GIS/CAD. Users will open a customer record, view an embedded satellite map (Mapbox) to frame the area, then click Capture View to save a base satellite snapshot. On top of that snapshot, users will add a markup layer using simple drawing tools (polygons, polylines, arrows, labels) and a small library of preset “stamp” symbols (e.g., Plant, Tree, Boulder) that automatically generate a legend. The system will be able to export the base image only, the markup overlay only (transparent), and a combined image (base + overlay), and later insert these visuals into Proposal Maker as a polished “Visual Scope” page plus optional appendix pages showing separated layers. Development will follow a slice-based approach to ensure reliability: start with capture and storage first, then add the editor, exports, proposal insertion, and finally version-freezing tied to finalized proposals.
+
+Slice VS1 — Base Image Capture + Storage (Submit This Whole Block)
+Goal
+
+Allow users to create a Visual Scope Sheet draft for a customer by capturing and storing a base satellite image (no drawing tools yet).
+
+Guardrails (What NOT to build yet)
+
+Do not build markup/drawing tools yet
+
+Do not generate overlay/combined exports yet
+
+Do not integrate into Proposal Maker yet
+
+Do not add versioning/finalization yet
+
+Keep UI and storage reliable and simple
+
+Requirements
+1) Tool Entry + Customer Binding
+
+Add a new tool: Tools → Visual Scope Sheet
+
+User must select an existing customer (or create a new one) before proceeding
+
+Every Visual Scope Sheet draft is tied to a customer
+
+2) Visual Scope Sheet Draft Record (VS Draft)
+
+Store:
+
+Customer reference
+
+Created by / created date
+
+Status: Draft
+
+Title (default: “Visual Scope”)
+
+Date (default: today)
+
+3) Base Image Inputs (Two Capture Options)
+
+Support either of the following to create the base image:
+
+Option B (Primary): In-app Map Capture
+
+Show an embedded satellite map view (Mapbox)
+
+User can pan/zoom to frame the area
+
+Button: Capture View
+
+Capture saves a static base image snapshot of the current view
+
+Option A (Fallback): Upload Image
+
+Button: Upload Base Image
+
+Accepts a single image file (jpg/png)
+
+This is used when capture is not available or for special cases
+
+Rules:
+
+Exactly one base image exists per VS Draft
+
+Base image can be replaced while status = Draft
+
+4) Storage + Viewing
+
+VS Draft page must display the stored base image:
+
+In-page preview
+
+Download link/button
+
+Replace base image action
+
+VS Drafts appear under the customer record in a Visual Scopes section
+
+Sort newest-first
+
+5) Permissions
+
+Admin + Office: create/edit drafts, capture/upload/replace base image
+
+Other roles: no access (unless specified later)
+
+Acceptance Tests
+
+Customer must be selected before creating a VS Draft
+
+VS Draft persists after refresh
+
+Map Capture stores a base image that displays and downloads correctly
+
+Upload Base Image stores a base image that displays and downloads correctly
+
+Base image can be replaced and persists correctly
+
+VS Draft appears in the customer’s Visual Scopes list, newest-first
+
+Admin + Office can access; other roles cannot
+
+Done Definition
+
+Users can create and reopen a Visual Scope Sheet draft for a customer and reliably store one base satellite image via map capture or upload, with preview and download, ready for markup tools in the next slice.
