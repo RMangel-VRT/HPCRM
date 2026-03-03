@@ -21,6 +21,10 @@ Comprehensive contract lifecycle management with stateful editing, validation, p
 #### Ticketing System
 A mobile-first system for field crews with configurable ticket types, custom workflows, and step-specific data capture. Projects follow a 3-phase workflow (Sales/Estimating, Field Execution, Billing) with linked tickets. Tickets are categorized by work type (Contract Work, Extra Billable, Project, Admin, Estimate Request, Shop To-Do) which drives billing behavior. It includes a 3-step ticket creation wizard, auto-creation of Invoice tickets for billable work, an RFP Request pipeline, and a delegation system.
 
+**Project (No Estimate) ticket type**: A separate built-in ticket type for pre-approved project work that skips the estimating/proposal phase. Workflow: New → Ready to Schedule → Scheduled → Work Completed → Ready for Billing → Invoicing. No "Open Proposal Maker" button shown for this type. Delegate button appears at "Ready to Schedule" (same as standard Project). Available in the New Ticket wizard as a distinct card.
+
+**Optional Proposal Steps for Project tickets**: When a standard Project ticket advances from "Estimating" toward "Create Proposal," a dialog intercepts the action asking "Use Proposal Maker?" Choosing "Yes" moves the ticket to "Create Proposal" normally. Choosing "No" jumps directly to "Decision Received," skipping the Create Proposal and Proposal Sent statuses entirely. Field values from the Estimating status are saved before the choice is presented.
+
 #### Unified Invoicing Workflow
 Invoice data is entered only on Invoice tickets. Billable tickets reaching "Ready for Billing" status auto-create and link an Invoice ticket. Invoice tickets are auto-assigned to the designated billing user. Upon reaching "Invoiced" status, invoice data propagates to the parent ticket, advancing its status. A migration tool assists with creating Invoice tickets for existing billing-ready tickets.
 

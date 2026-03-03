@@ -600,6 +600,107 @@ async function ensureExtraBillableTicketType(companyId: string): Promise<{
   return { typeId: ebType.id, statuses: statusMap };
 }
 
+// Helper to ensure "Project (No Estimate)" ticket type exists
+// For approved work that skips the estimating/proposal phase entirely
+async function ensureProjectNoEstimateTicketType(companyId: string): Promise<{
+  typeId: string;
+  statuses: Map<string, string>;
+} | null> {
+  const ticketTypes = await storage.getTicketTypes(companyId);
+  let pneType = ticketTypes.find(tt => tt.name === "Project (No Estimate)");
+
+  if (!pneType) {
+    pneType = await storage.createTicketType({
+      companyId,
+      name: "Project (No Estimate)",
+      description: "Approved project work with no estimating or proposal phase required",
+      category: "project",
+      icon: "folder-check",
+      color: "#0ea5e9",
+      isActive: "true",
+    });
+    console.log(`Created Project (No Estimate) ticket type for company ${companyId}`);
+  }
+
+  const pneStatuses = [
+    { name: "New", description: "Project request received and approved", color: "#6366f1", order: 0, isFinal: "false" as const },
+    { name: "Ready to Schedule", description: "Approved - needs to be scheduled with crew", color: "#f472b6", order: 1, isFinal: "false" as const },
+    { name: "Scheduled", description: "Scheduled with crew", color: "#3b82f6", order: 2, isFinal: "false" as const },
+    { name: "Work Completed", description: "Field work finished - pending billing review", color: "#10b981", order: 3, isFinal: "false" as const },
+    { name: "Ready for Billing", description: "Work verified complete - create invoice", color: "#06b6d4", order: 4, isFinal: "false" as const },
+    { name: "Invoicing", description: "Invoice created in QuickBooks", color: "#22c55e", order: 5, isFinal: "true" as const },
+    { name: "Closed - Lost", description: "Project cancelled or closed without billing", color: "#ef4444", order: 6, isFinal: "true" as const },
+  ];
+
+  let existingStatuses = await storage.getTicketTypeStatuses(pneType.id);
+  const statusMap = new Map<string, string>();
+
+  for (const statusDef of pneStatuses) {
+    let status = existingStatuses.find(s => s.name === statusDef.name);
+    if (!status) {
+      status = await storage.createTicketTypeStatus({
+        ticketTypeId: pneType.id,
+        name: statusDef.name,
+        description: statusDef.description,
+        displayOrder: statusDef.order,
+        color: statusDef.color,
+        isFinal: statusDef.isFinal,
+      });
+      console.log(`Created status "${statusDef.name}" for Project (No Estimate) type`);
+    }
+    statusMap.set(status.name, status.id);
+  }
+
+  const existingFields = await storage.getTicketTypeFields(pneType.id);
+  const existingFieldKeys = new Set(existingFields.map(f => f.fieldKey));
+
+  const fieldDefinitions = [
+    {
+      statusName: "Work Completed",
+      fields: [
+        { fieldKey: "pne_completion_date", fieldLabel: "Completion Date", fieldType: "date", isRequired: "false", displayOrder: 0 },
+        { fieldKey: "pne_actual_hours", fieldLabel: "Actual Hours", fieldType: "number", isRequired: "false", displayOrder: 1 },
+        { fieldKey: "pne_completion_notes", fieldLabel: "Completion Notes", fieldType: "textarea", isRequired: "false", displayOrder: 2 },
+      ],
+    },
+    {
+      statusName: "Ready for Billing",
+      fields: [
+        { fieldKey: "pne_billing_confirmed", fieldLabel: "Work Complete & Ready for Invoice?", fieldType: "select", isRequired: "true", displayOrder: 0, options: ["Yes", "No"] },
+      ],
+    },
+    {
+      statusName: "Closed - Lost",
+      fields: [
+        { fieldKey: "pne_loss_reason", fieldLabel: "Reason", fieldType: "select", isRequired: "false", displayOrder: 0, options: ["Price", "Timing", "Went with competitor", "No longer needed", "Other"] },
+        { fieldKey: "pne_loss_notes", fieldLabel: "Additional Notes", fieldType: "textarea", isRequired: "false", displayOrder: 1 },
+      ],
+    },
+  ];
+
+  for (const statusFields of fieldDefinitions) {
+    const statusId = statusMap.get(statusFields.statusName);
+    if (!statusId) continue;
+    for (const fieldDef of statusFields.fields) {
+      if (existingFieldKeys.has(fieldDef.fieldKey)) continue;
+      await storage.createTicketTypeField({
+        ticketTypeId: pneType.id,
+        statusId,
+        fieldKey: fieldDef.fieldKey,
+        fieldLabel: fieldDef.fieldLabel,
+        fieldType: fieldDef.fieldType as "text" | "number" | "date" | "currency" | "select" | "textarea",
+        isRequired: fieldDef.isRequired as "true" | "false",
+        options: fieldDef.options || [],
+        displayOrder: fieldDef.displayOrder,
+      });
+      console.log(`Created field "${fieldDef.fieldKey}" for Project (No Estimate) type`);
+    }
+  }
+
+  console.log(`Project (No Estimate) ticket type setup complete for company ${companyId}`);
+  return { typeId: pneType.id, statuses: statusMap };
+}
+
 // Helper to ensure To-Do ticket type exists with simple Open/Done workflow
 // Also creates an "Internal Tasks" customer for non-customer-related to-dos
 async function ensureToDoTicketType(companyId: string): Promise<{ 
@@ -677,12 +778,13 @@ async function ensureToDoTicketType(companyId: string): Promise<{
 export async function seedAllTicketTypes(companyId: string): Promise<void> {
   console.log(`Seeding all ticket types for company ${companyId}...`);
   
-  // Seed in order: To-Do, Invoice, Project, RFP Request, Extra Billable
+  // Seed in order: To-Do, Invoice, Project, RFP Request, Extra Billable, Project (No Estimate)
   await ensureToDoTicketType(companyId);
   await ensureInvoiceTicketType(companyId);
   await ensureProjectTicketType(companyId);
   await ensureRFPRequestTicketType(companyId);
   await ensureExtraBillableTicketType(companyId);
+  await ensureProjectNoEstimateTicketType(companyId);
   
   console.log(`All ticket types seeded for company ${companyId}`);
 }
@@ -1115,6 +1217,20 @@ export async function migrateExtraBillableTicketType(): Promise<void> {
     console.log("Extra Billable ticket type migration complete");
   } catch (error) {
     console.error("Error during Extra Billable migration:", error);
+  }
+}
+
+// Startup migration: Ensure all companies have the "Project (No Estimate)" ticket type
+export async function migrateProjectNoEstimateTicketType(): Promise<void> {
+  console.log("Running startup migration: Ensuring Project (No Estimate) ticket type exists for all companies...");
+  try {
+    const companies = await storage.getCompanies();
+    for (const company of companies) {
+      await ensureProjectNoEstimateTicketType(company.id);
+    }
+    console.log("Project (No Estimate) ticket type migration complete");
+  } catch (error) {
+    console.error("Error during Project (No Estimate) migration:", error);
   }
 }
 

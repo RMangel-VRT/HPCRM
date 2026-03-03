@@ -131,6 +131,9 @@ export default function TicketDetail() {
   const [showDelegateDialog, setShowDelegateDialog] = useState(false);
   const [delegateTargetId, setDelegateTargetId] = useState<string | null>(null);
   
+  // Proposal choice dialog state
+  const [showProposalChoiceDialog, setShowProposalChoiceDialog] = useState(false);
+
   // Step-back state
   const [showStepBackDialog, setShowStepBackDialog] = useState(false);
   const [stepBackNotes, setStepBackNotes] = useState("");
@@ -390,7 +393,9 @@ export default function TicketDetail() {
   });
 
   const ticketWorkType = details?.ticket?.workType;
-  const showProposals = isAdminOrOffice && (ticketWorkType === "estimate_request" || ticketWorkType === "project");
+  const showProposals = isAdminOrOffice
+    && (ticketWorkType === "estimate_request" || ticketWorkType === "project")
+    && details?.ticketType?.name !== "Project (No Estimate)";
 
   const customerId = details?.ticket?.customerId;
   const { data: customerContacts = [] } = useQuery<Contact[]>({
@@ -488,7 +493,8 @@ export default function TicketDetail() {
   const isComplete = !!ticket.completedAt || currentStatus?.isFinal === "true";
   
   // Check if ticket is at "Ready to Schedule" on a Project workflow - show delegate option
-  const isAtReadyToSchedule = currentStatus?.name === "Ready to Schedule" && ticketType.name === "Project";
+  const isAtReadyToSchedule = currentStatus?.name === "Ready to Schedule"
+    && (ticketType.name === "Project" || ticketType.name === "Project (No Estimate)");
   const isDelegated = !!ticket.delegatedById;
   
   // Check if ticket is waiting for a linked invoice to complete (hide advance button)
@@ -504,8 +510,19 @@ export default function TicketDetail() {
     return isAtBillingStatus && !invoiceComplete;
   })();
 
-  const handleAdvanceStatus = () => {
+  const handleAdvanceStatus = (bypassProposalCheck = false) => {
     if (!nextStatus) return;
+
+    // Intercept: Project ticket advancing from Estimating → Create Proposal
+    if (
+      !bypassProposalCheck &&
+      currentStatus?.name === "Estimating" &&
+      ticketType?.name === "Project" &&
+      nextStatus?.name === "Create Proposal"
+    ) {
+      setShowProposalChoiceDialog(true);
+      return;
+    }
     
     // Check if current status has unfilled required fields
     const currentStatusFields = currentStatus?.fields || [];
@@ -560,6 +577,24 @@ export default function TicketDetail() {
 
   const handleConfirmStatusChange = async () => {
     if (!pendingStatusId) return;
+
+    // Intercept: if the pending target is "Create Proposal" on a Project ticket,
+    // close the field dialog and show the proposal choice dialog instead.
+    const pendingTargetStatus = statuses.find(s => s.id === pendingStatusId);
+    if (
+      pendingTargetStatus?.name === "Create Proposal" &&
+      ticketType?.name === "Project"
+    ) {
+      // Save any current-status field values entered by the user before showing choice
+      for (const [fieldId, value] of Object.entries(fieldInputs)) {
+        if (value) {
+          try { await saveFieldValueMutation.mutateAsync({ fieldId, value }); } catch {}
+        }
+      }
+      setShowStatusDialog(false);
+      setShowProposalChoiceDialog(true);
+      return;
+    }
     
     // Validate CURRENT status required fields first
     const currentStatusFields = currentStatus?.fields || [];
@@ -621,6 +656,26 @@ export default function TicketDetail() {
       statusId: actualTargetStatusId, 
       notes: statusNotes,
     });
+  };
+
+  const handleUseProposalMaker = () => {
+    setShowProposalChoiceDialog(false);
+    // Move to "Create Proposal" status directly (fields already saved if we came via field dialog)
+    const createProposalStatus = statuses.find(s => s.name === "Create Proposal");
+    if (createProposalStatus) {
+      updateStatusMutation.mutate({ statusId: createProposalStatus.id });
+    } else {
+      // Fallback: use normal advance flow with bypass
+      handleAdvanceStatus(true);
+    }
+  };
+
+  const handleSkipProposal = () => {
+    const decisionStatus = statuses.find(s => s.name === "Decision Received");
+    if (decisionStatus) {
+      updateStatusMutation.mutate({ statusId: decisionStatus.id, notes: "Proposal steps skipped" });
+    }
+    setShowProposalChoiceDialog(false);
   };
 
   const getFieldValue = (fieldId: string) => {
@@ -1865,7 +1920,7 @@ export default function TicketDetail() {
               </Button>
               <Button 
                 className="flex-1 h-12 text-base gap-2" 
-                onClick={handleAdvanceStatus}
+                onClick={() => handleAdvanceStatus()}
                 disabled={updateStatusMutation.isPending}
                 data-testid="button-advance-status"
               >
@@ -1894,7 +1949,7 @@ export default function TicketDetail() {
               )}
               <Button 
                 className="flex-1 h-12 text-base gap-2" 
-                onClick={handleAdvanceStatus}
+                onClick={() => handleAdvanceStatus()}
                 disabled={updateStatusMutation.isPending}
                 data-testid="button-advance-status"
               >
@@ -2379,6 +2434,37 @@ export default function TicketDetail() {
                 <Loader2 className="w-4 h-4 animate-spin mr-2" />
               ) : null}
               Save Changes
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Proposal Choice Dialog */}
+      <Dialog open={showProposalChoiceDialog} onOpenChange={setShowProposalChoiceDialog}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Use Proposal Maker?</DialogTitle>
+            <DialogDescription>
+              Would you like to create a formal proposal for this project using the Proposal Maker tool?
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter className="flex-col sm:flex-row gap-2">
+            <Button
+              variant="outline"
+              className="flex-1"
+              onClick={handleSkipProposal}
+              disabled={updateStatusMutation.isPending}
+              data-testid="button-skip-proposal"
+            >
+              No, skip to decision
+            </Button>
+            <Button
+              className="flex-1"
+              onClick={handleUseProposalMaker}
+              disabled={updateStatusMutation.isPending}
+              data-testid="button-use-proposal-maker"
+            >
+              Yes, use Proposal Maker
             </Button>
           </DialogFooter>
         </DialogContent>

@@ -44,6 +44,7 @@ import {
   UserPlus,
   FileText,
   Wrench,
+  FolderCheck,
 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { queryClient, apiRequest } from "@/lib/queryClient";
@@ -114,6 +115,8 @@ export default function NewTicket() {
   const [isRFPRequest, setIsRFPRequest] = useState(false);
   // Invoice specific state
   const [isInvoice, setIsInvoice] = useState(false);
+  // Project (No Estimate) specific state
+  const [isProjectNoEstimate, setIsProjectNoEstimate] = useState(false);
   const [showCreateProspectDialog, setShowCreateProspectDialog] = useState(false);
   const [newProspectName, setNewProspectName] = useState("");
   const [newProspectContactName, setNewProspectContactName] = useState("");
@@ -215,8 +218,13 @@ export default function NewTicket() {
     }
     
     if (workType === "project" || workType === "estimate_request") {
+      // Project (No Estimate) uses its own dedicated ticket type
+      if (isProjectNoEstimate) {
+        const pneType = activeTypes.find(t => t.name === "Project (No Estimate)");
+        return pneType?.id || null;
+      }
       const projectType = activeTypes.find(t => t.name === "Project") 
-        || activeTypes.find(t => t.category === "project" || t.name.toLowerCase().includes("project"));
+        || activeTypes.find(t => t.category === "project" && t.name !== "Project (No Estimate)");
       return projectType?.id || activeTypes[0]?.id || null;
     }
     
@@ -368,6 +376,14 @@ export default function NewTicket() {
     },
   });
 
+  const handleSelectProjectNoEstimate = async () => {
+    setSelectedWorkType("project");
+    setIsProjectNoEstimate(true);
+    setIsRFPRequest(false);
+    setIsInvoice(false);
+    setStep(isPreselectedCustomerValid ? "details" : "customer");
+  };
+
   const handleSelectWorkType = async (workType: WorkType) => {
     // Initialize Project ticket type if needed for project or estimate_request
     if (workType === "project" || workType === "estimate_request") {
@@ -379,6 +395,7 @@ export default function NewTicket() {
     setSelectedWorkType(workType);
     setIsRFPRequest(false);
     setIsInvoice(false);
+    setIsProjectNoEstimate(false);
     // Shop to-do tickets don't require a customer - go directly to details
     if (workType === "shop_todo") {
       setStep("details");
@@ -397,6 +414,7 @@ export default function NewTicket() {
     setSelectedWorkType("admin"); // RFP Request uses admin work type (non-billable)
     setIsRFPRequest(true);
     setIsInvoice(false);
+    setIsProjectNoEstimate(false);
     // Skip to details if customer is pre-selected and valid
     setStep(isPreselectedCustomerValid ? "details" : "customer");
   };
@@ -410,6 +428,7 @@ export default function NewTicket() {
     setSelectedWorkType("extra_work"); // Invoice uses extra_work type for billing
     setIsInvoice(true);
     setIsRFPRequest(false);
+    setIsProjectNoEstimate(false);
     // Skip to details if customer is pre-selected and valid
     setStep(isPreselectedCustomerValid ? "details" : "customer");
   };
@@ -701,6 +720,33 @@ export default function NewTicket() {
                 </div>
               </CardContent>
             </Card>
+
+            {/* Project (No Estimate) - For pre-approved work with no estimating phase */}
+            <Card 
+              className="hover-elevate active-elevate-2 cursor-pointer border-dashed"
+              onClick={handleSelectProjectNoEstimate}
+              data-testid="card-worktype-project-no-estimate"
+            >
+              <CardContent className="p-4 flex items-center gap-4">
+                <div 
+                  className="w-10 h-10 rounded-lg flex items-center justify-center"
+                  style={{ backgroundColor: "#0ea5e920" }}
+                >
+                  <FolderCheck className="w-5 h-5" style={{ color: "#0ea5e9" }} />
+                </div>
+                <div className="flex-1">
+                  <div className="flex items-center gap-2">
+                    <h3 className="font-medium">Project (No Estimate)</h3>
+                    <Badge variant="default" className="text-xs">
+                      Invoice Required
+                    </Badge>
+                  </div>
+                  <p className="text-sm text-muted-foreground line-clamp-1">
+                    Pre-approved project — skip estimating and proposal steps
+                  </p>
+                </div>
+              </CardContent>
+            </Card>
           </div>
         </div>
       )}
@@ -712,7 +758,7 @@ export default function NewTicket() {
               className="hover:text-foreground cursor-pointer"
               onClick={() => setStep("workType")}
             >
-              {isRFPRequest ? "RFP Request" : isInvoice ? "Invoice" : selectedWorkTypeConfig?.name}
+              {isRFPRequest ? "RFP Request" : isInvoice ? "Invoice" : isProjectNoEstimate ? "Project (No Estimate)" : selectedWorkTypeConfig?.name}
             </span>
             <span>/</span>
             <span>Select Customer</span>
@@ -889,7 +935,7 @@ export default function NewTicket() {
               className="hover:text-foreground cursor-pointer"
               onClick={() => setStep("workType")}
             >
-              {isRFPRequest ? "RFP Request" : isInvoice ? "Invoice" : selectedWorkTypeConfig?.name}
+              {isRFPRequest ? "RFP Request" : isInvoice ? "Invoice" : isProjectNoEstimate ? "Project (No Estimate)" : selectedWorkTypeConfig?.name}
             </span>
             {/* Show customer in breadcrumb only for non-shop_todo tickets */}
             {selectedWorkType !== "shop_todo" && (
