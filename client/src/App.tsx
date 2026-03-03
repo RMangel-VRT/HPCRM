@@ -42,6 +42,8 @@ import ProposalMaker from "@/pages/ProposalMaker";
 import ProposalDraft from "@/pages/ProposalDraft";
 import ProposalVersion from "@/pages/ProposalVersion";
 import NotificationsPage from "@/pages/NotificationsPage";
+import VisualScopeList from "@/pages/VisualScopeList";
+import VisualScopeDraft from "@/pages/VisualScopeDraft";
 import NotFound from "@/pages/not-found";
 
 function Router() {
@@ -128,6 +130,8 @@ function Router() {
               <ProtectedRoute path="/dashboard/tools/proposals/:id/versions/:versionId" component={ProposalVersion} allowedRoles={["admin", "office"]} />
               <ProtectedRoute path="/dashboard/tools/proposals/:id" component={ProposalDraft} allowedRoles={["admin", "office"]} />
               <ProtectedRoute path="/dashboard/tools/proposals" component={ProposalMaker} allowedRoles={["admin", "office"]} />
+              <ProtectedRoute path="/dashboard/tools/visual-scope/:id" component={VisualScopeDraft} allowedRoles={["admin", "office"]} />
+              <ProtectedRoute path="/dashboard/tools/visual-scope" component={VisualScopeList} allowedRoles={["admin", "office"]} />
               <ProtectedRoute path="/dashboard/tools" component={ToolsPage} allowedRoles={["admin", "office", "field_manager"]} />
               <ProtectedRoute path="/dashboard/snow/new" component={NewSnowEvent} allowedRoles={["admin", "office"]} />
               <ProtectedRoute path="/dashboard/snow/:id" component={SnowEventDetail} allowedRoles={["admin", "office", "field_manager"]} />

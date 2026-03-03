@@ -8220,6 +8220,120 @@ export async function registerRoutes(app: Express): Promise<Server> {
     res.end(pdfBytes);
   });
 
+  // ─── Visual Scope Sheets ────────────────────────────────────────────────────
+  const canAccessVisualScope = (role: string) => role === "admin" || role === "office";
+
+  app.get("/api/config/mapbox-token", (_req, res) => {
+    res.json({ token: process.env.MAPBOX_PUBLIC_KEY ?? null });
+  });
+
+  app.get("/api/visual-scope-sheets", async (req, res) => {
+    if (!req.isAuthenticated()) return res.status(401).send("Not authenticated");
+    const user = req.user as UserWithContext;
+    if (!canAccessVisualScope(user.activeRole)) return res.status(403).send("Insufficient permissions");
+    const sheets = await storage.getVisualScopeSheets(user.activeCompanyId);
+    res.json(sheets);
+  });
+
+  app.get("/api/visual-scope-sheets/:id", async (req, res) => {
+    if (!req.isAuthenticated()) return res.status(401).send("Not authenticated");
+    const user = req.user as UserWithContext;
+    if (!canAccessVisualScope(user.activeRole)) return res.status(403).send("Insufficient permissions");
+    const sheet = await storage.getVisualScopeSheet(req.params.id, user.activeCompanyId);
+    if (!sheet) return res.status(404).json({ error: "Not found" });
+    res.json(sheet);
+  });
+
+  app.post("/api/visual-scope-sheets", async (req, res) => {
+    if (!req.isAuthenticated()) return res.status(401).send("Not authenticated");
+    const user = req.user as UserWithContext;
+    if (!canAccessVisualScope(user.activeRole)) return res.status(403).send("Insufficient permissions");
+    const { customerId, title, scopeDate } = req.body;
+    if (!customerId) return res.status(400).json({ error: "customerId is required" });
+    const today = new Date().toISOString().substring(0, 10);
+    const sheet = await storage.createVisualScopeSheet({
+      companyId: user.activeCompanyId,
+      customerId,
+      createdById: user.id,
+      title: title?.trim() || "Visual Scope",
+      scopeDate: scopeDate || today,
+      status: "draft",
+    });
+    res.json(sheet);
+  });
+
+  app.patch("/api/visual-scope-sheets/:id", async (req, res) => {
+    if (!req.isAuthenticated()) return res.status(401).send("Not authenticated");
+    const user = req.user as UserWithContext;
+    if (!canAccessVisualScope(user.activeRole)) return res.status(403).send("Insufficient permissions");
+    const allowed = ["title", "scopeDate", "baseImagePath", "baseImageFilename", "baseImageMimeType", "baseImageSize"];
+    const updates: Record<string, unknown> = {};
+    for (const key of allowed) {
+      if (key in req.body) updates[key] = req.body[key];
+    }
+    const sheet = await storage.updateVisualScopeSheet(req.params.id, user.activeCompanyId, updates as any);
+    res.json(sheet);
+  });
+
+  app.delete("/api/visual-scope-sheets/:id", async (req, res) => {
+    if (!req.isAuthenticated()) return res.status(401).send("Not authenticated");
+    const user = req.user as UserWithContext;
+    if (!canAccessVisualScope(user.activeRole)) return res.status(403).send("Insufficient permissions");
+    const sheet = await storage.getVisualScopeSheet(req.params.id, user.activeCompanyId);
+    if (!sheet) return res.status(404).json({ error: "Not found" });
+    if (sheet.baseImagePath) {
+      try { await objectStorageClient.deleteObject(sheet.baseImagePath.replace(/^\/objects\//, "")); } catch {}
+    }
+    await storage.deleteVisualScopeSheet(req.params.id, user.activeCompanyId);
+    res.json({ ok: true });
+  });
+
+  app.post("/api/visual-scope-sheets/:id/upload-url", async (req, res) => {
+    if (!req.isAuthenticated()) return res.status(401).send("Not authenticated");
+    const user = req.user as UserWithContext;
+    if (!canAccessVisualScope(user.activeRole)) return res.status(403).send("Insufficient permissions");
+    const { mimeType, fileSize } = req.body;
+    if (!mimeType?.startsWith("image/")) return res.status(400).json({ error: "mimeType must be image/*" });
+    if (fileSize > 50 * 1024 * 1024) return res.status(400).json({ error: "File must be ≤ 50 MB" });
+    try {
+      const objectStorageService = new ObjectStorageService();
+      const uploadUrl = await objectStorageService.getObjectEntityUploadURL();
+      const objectPath = objectStorageService.normalizeObjectEntityPath(uploadUrl);
+      res.json({ uploadUrl, objectPath });
+    } catch (err) {
+      console.error("VS upload-url error:", err);
+      res.status(500).send("Failed to get upload URL");
+    }
+  });
+
+  app.post("/api/visual-scope-sheets/:id/replace-base-image", async (req, res) => {
+    if (!req.isAuthenticated()) return res.status(401).send("Not authenticated");
+    const user = req.user as UserWithContext;
+    if (!canAccessVisualScope(user.activeRole)) return res.status(403).send("Insufficient permissions");
+    const sheet = await storage.getVisualScopeSheet(req.params.id, user.activeCompanyId);
+    if (!sheet) return res.status(404).json({ error: "Not found" });
+    const { newObjectPath, newFilename, newMimeType, newSize } = req.body;
+    if (!newObjectPath) return res.status(400).json({ error: "newObjectPath required" });
+    if (sheet.baseImagePath) {
+      try { await objectStorageClient.deleteObject(sheet.baseImagePath.replace(/^\/objects\//, "")); } catch {}
+    }
+    const updated = await storage.updateVisualScopeSheet(req.params.id, user.activeCompanyId, {
+      baseImagePath: newObjectPath,
+      baseImageFilename: newFilename ?? null,
+      baseImageMimeType: newMimeType ?? null,
+      baseImageSize: newSize ?? null,
+    } as any);
+    res.json(updated);
+  });
+
+  app.get("/api/customers/:id/visual-scope-sheets", async (req, res) => {
+    if (!req.isAuthenticated()) return res.status(401).send("Not authenticated");
+    const user = req.user as UserWithContext;
+    if (!canAccessVisualScope(user.activeRole)) return res.status(403).send("Insufficient permissions");
+    const sheets = await storage.getVisualScopeSheetsForCustomer(req.params.id, user.activeCompanyId);
+    res.json(sheets);
+  });
+
   const httpServer = createServer(app);
 
   return httpServer;

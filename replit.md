@@ -1,7 +1,7 @@
 # High Plains Property Maintenance CRM
 
 ## Overview
-A CRM for High Plains Property Maintenance designed to streamline operations for landscaping companies. It manages customers, contacts, notes, contracts (service types, billing), and company settings. Key features include role-based access control, a vertical slice architecture, a Contract Builder for generating maintenance contracts, and a mobile-first Ticketing System for field crew task management. The project's vision is to enhance service delivery and operational efficiency within the property maintenance sector.
+A CRM for High Plains Property Maintenance designed to streamline operations for landscaping companies. It manages customers, contacts, notes, contracts, and company settings. Key features include role-based access control, a Contract Builder for generating maintenance contracts, and a mobile-first Ticketing System for field crew task management. The project aims to enhance service delivery and operational efficiency within the property maintenance sector.
 
 ## User Preferences
 Preferred communication style: Simple, everyday language.
@@ -10,82 +10,69 @@ Test login credentials: randy@highplainsprop.com / Soccer03
 ## System Architecture
 
 ### UI/UX
-The frontend is built using React 18+, TypeScript, Vite, Wouter, and TanStack Query. It leverages Shadcn/ui and Radix UI primitives, styled with Tailwind CSS, supporting custom theming and light/dark modes.
+The frontend is built with React 18+, TypeScript, Vite, Wouter, and TanStack Query. It uses Shadcn/ui and Radix UI primitives, styled with Tailwind CSS, supporting custom theming and light/dark modes.
 
 ### Technical Implementation
-The backend is developed with Express.js and TypeScript. Authentication uses Passport.js with session-based management stored in PostgreSQL. It supports multi-tenancy with granular role-based access (Admin, Office, Field Manager, Field, Irrigation Manager, Shop Manager). Data persistence is handled by PostgreSQL (Neon serverless) with Drizzle ORM, using UUIDs as primary keys and Drizzle Kit for migrations. Replit's object storage (Google Cloud Storage) is utilized for contract PDF documents with company-scoped ACL and presigned URL uploads.
+The backend uses Express.js and TypeScript. Authentication is handled by Passport.js with session-based management stored in PostgreSQL. It supports multi-tenancy with granular role-based access (Admin, Office, Field Manager, Field, Irrigation Manager, Shop Manager). Data is persisted in PostgreSQL (Neon serverless) using Drizzle ORM and Drizzle Kit for migrations. Replit's object storage (Google Cloud Storage) stores contract PDF documents and visual scope images with company-scoped ACL and presigned URL uploads.
 
 #### Contract Management
-Provides comprehensive contract lifecycle management, including stateful editing, validation, and permission-based access. It supports 8 pre-defined service types, tracks mobilization fees, and auto-calculates annual counts based on monthly distributions.
-
-#### Contract Builder
-A document generation tool that creates landscape maintenance contracts using templates, variable substitution, and auto-population. It supports customer selection, section customization, preview, auto-save, publish, and PDF export, integrating seamlessly with CRM contract management.
+Comprehensive contract lifecycle management with stateful editing, validation, permission-based access, and support for 8 pre-defined service types. It tracks mobilization fees and auto-calculates annual counts. The Contract Builder generates landscape maintenance contracts using templates, variable substitution, and auto-population, with preview, auto-save, publish, and PDF export functionalities.
 
 #### Ticketing System
-A mobile-first system for field crews featuring configurable ticket types, custom workflows, and step-specific data capture. It includes default ticket types and role-based access. Projects follow a 3-phase workflow (Sales/Estimating, Field Execution, Billing) with ticket linking. Tickets are categorized by work type (Contract Work, Extra Billable, Project, Admin, Estimate Request, Shop To-Do) which drives billing behavior. Key features include a 3-step ticket creation wizard, auto-creation of Invoice tickets for billable work, an RFP Request pipeline, and a delegation system for project workflow. Shop To-Do tickets are for internal maintenance, do not require a customer, and can link to equipment.
-
-Project ticket workflow (10 steps): New(0) → Estimating(1) → Create Proposal(2) → Proposal Sent(3) → Decision Received(4) → Ready to Schedule(5) → Work Completed(6) → Ready for Billing(7) → Invoicing(8) / Closed-Lost(9). "Create Proposal" step has no required fields — the Proposals card on the ticket overview serves as the action. "Proposal Sent" step requires: Date Proposal Sent (date) and Delivery Method (select: Email, QBO Portal, Hard Copy, Other).
+A mobile-first system for field crews with configurable ticket types, custom workflows, and step-specific data capture. Projects follow a 3-phase workflow (Sales/Estimating, Field Execution, Billing) with linked tickets. Tickets are categorized by work type (Contract Work, Extra Billable, Project, Admin, Estimate Request, Shop To-Do) which drives billing behavior. It includes a 3-step ticket creation wizard, auto-creation of Invoice tickets for billable work, an RFP Request pipeline, and a delegation system.
 
 #### Unified Invoicing Workflow
-Invoice data is entered ONLY on Invoice tickets (never duplicated on parent tickets). When any billable ticket (Project, Extra Billable, or future types) reaches "Ready for Billing" status, an Invoice ticket is auto-created and linked via `invoice_for` link type. Invoice tickets are auto-assigned to the company user tagged "billing" (set in Settings > Billing tab). When the Invoice ticket reaches its final "Invoiced" status, it auto-propagates invoice data as a comment to the parent ticket and advances the parent to its next final status. The pending invoices list only shows Invoice tickets in "Pending Invoice" status. Both Project and Extra Billable ticket types use a consistent "Ready for Billing" step before their final status. A migration tool (Settings > Billing > Invoice Ticket Migration) allows admins to create Invoice tickets for existing billing-ready tickets with a dry-run preview before execution.
+Invoice data is entered only on Invoice tickets. Billable tickets reaching "Ready for Billing" status auto-create and link an Invoice ticket. Invoice tickets are auto-assigned to the designated billing user. Upon reaching "Invoiced" status, invoice data propagates to the parent ticket, advancing its status. A migration tool assists with creating Invoice tickets for existing billing-ready tickets.
 
 #### Weekly Schedule System
-A comprehensive scheduling system that assigns properties to crews using a template-based approach with drag-and-drop functionality. It includes crew capacity indicators, a crew-oriented viewer, and PDF export options. Templates support duplication, renaming, deletion, and season settings.
+A comprehensive scheduling system assigning properties to crews using template-based drag-and-drop functionality, including crew capacity indicators, a crew-oriented viewer, and PDF export.
 
 #### Property Maps System
-A KML-based layer mapping system that allows field crews to view customer-specific property zones and service areas. KML files are stored in object storage.
+A KML-based layer mapping system for field crews to view customer-specific property zones and service areas.
 
 #### Ticket Notifications System
-An in-app notification system for ticket assignments, completions, mentions, and due date reminders. Notifications are split into two priority tiers derived from type — no extra DB column needed:
-- **Needs Attention** (`mentioned`, `overdue`, `due_today`): vivid styling, bold text, red bell badge, destructive toast on arrival
-- **Updates** (`assigned`, `completed`, `due_tomorrow`): muted styling, normal weight, gray bell badge, standard toast
-
-The bell badge is red when urgent unread exist, gray when only standard unread exist, and animates only for urgent items. The dropdown shows two labeled sections ("NEEDS ATTENTION" / "UPDATES") and a "View all notifications" link at the bottom. A full-page view at `/dashboard/notifications` provides filter tabs (All, Needs Attention, Updates, Unread) with the same two-tier layout, expandable message text, and a "Mark all read" button.
+In-app notifications for ticket assignments, completions, mentions, and due date reminders, categorized into "Needs Attention" (urgent) and "Updates" (standard) with distinct visual cues.
 
 #### Property Management System
-Tracks Property Management Companies and Property Managers, integrated into the customer management system. Customers can link to both a company and a manager. Features include settings for managing companies/managers, multi-contact support for managers, and auto-contact synchronization.
+Tracks Property Management Companies and Property Managers, integrated into customer management, allowing customers to link to both a company and a manager with multi-contact support.
 
 #### Equipment Tracking Module
-A comprehensive system for managing various equipment types (trucks, mowers, trailers, etc.). It supports CRUD operations, type-specific fields, status tracking, search/filter capabilities, and detailed equipment pages with tabs for details, files, tickets, and service history. It includes a dedicated equipment ticketing system with categorized work and a defined status workflow.
+Manages various equipment types with CRUD operations, type-specific fields, status tracking, search/filter, and detailed pages including dedicated equipment ticketing with defined workflows.
 
 #### Revenue Tracking System
-Tracks contracted revenue, broken down by service type (Maintenance vs Chemical) for cost/income analysis. It provides an overview page with monthly and YTD totals, annual projections, and drill-down capabilities to view customer contributions.
+Tracks contracted revenue by service type, providing monthly and YTD totals, annual projections, and drill-down capabilities.
 
 #### Contracts Overview
-A cross-customer contracts overview page for Admin and Office roles. It provides summary cards, search and filter functionalities (by service type and status), a sortable table of contracts, and links to customer details.
+A cross-customer contracts overview page for Admin and Office roles with summary cards, search/filter, and a sortable table.
 
 #### Customer Billing Tab
-Consolidates all billing-related information on the customer detail page with sub-tabs for Contracts (management, uploads, monthly amounts), Rate Sheet (customer-specific hourly rates), Revenue (annual projection, monthly breakdown), and Monthly Summary (consolidated billing view).
+Consolidates all billing information on customer detail pages with sub-tabs for Contracts, Rate Sheet, Revenue, and Monthly Summary.
 
 #### Snow Storm Billing/Tracking System
-A system for managing winter weather events, property impacts, service assignments, and automated invoice ticket generation. Features include event lists with stats, detailed event management, property impact tracking, service type assignments, snow range definitions, and a billing status flow. It integrates with the existing ticketing system for invoice generation and includes role-based access controls.
+Manages winter weather events, property impacts, service assignments, and automated invoice ticket generation, integrating with the existing ticketing system.
 
 #### First-Time Setup Flow
-When deployed with an empty database, the application initiates a first-time setup page, allowing the creation of the initial company and admin user, then auto-logs in. This setup page is inaccessible once any user exists.
+An initial setup page for creating the first company and admin user upon deployment with an empty database, accessible only once.
 
 #### Reports
-A reporting tool for Admin and Office roles that generates exportable lists from database data. Supports 5 report types: Customer/Property List, Contacts by Customer, Equipment List, Contracts List, and Tickets Summary. Each report displays in a sortable, searchable data table with CSV export. Accessible at /dashboard/reports via the Management sidebar section. Backend endpoint: GET /api/reports/:type.
+A reporting tool for Admin and Office roles generating exportable lists (Customer/Property List, Contacts by Customer, Equipment List, Contracts List, Tickets Summary) with sortable, searchable data tables and CSV export.
 
 #### Email Notification System
-Transactional email notifications powered by SendGrid (via Replit connector). Triggers "Work Completed" emails when tickets reach a final status. Uses a template/rule engine: email_templates store HTML templates with {{variable}} substitution, email_rules link events (e.g., ticket.work_completed) to templates, and email_logs track all sent emails with delivery status. The Email History tab on the Ticket Detail page (Admin/Office only) shows sent/failed emails with resend capability. Default template and rule are auto-seeded per company on startup. Service layer in server/services/emailService.ts handles SendGrid API calls with error logging.
+Transactional email notifications powered by SendGrid for events like "Work Completed" tickets. Uses a template/rule engine with email logs and resend capability.
 
-#### Proposal Maker (P1–P5, P7)
-Admin and Office roles only. Accessible at /dashboard/tools/proposals (list + create) and /dashboard/tools/proposals/:id (draft editor). Proposals capture: customer reference, QB estimate number, proposal date, scope of work text, one QB estimate PDF (auto-replaced when a new one is uploaded), and multiple supporting images with captions. All files stored in object storage (GCS) with company-scoped ACL. Business rules: one estimate_pdf per proposal (auto-delete on replace), images assigned displayOrder on upload, PDFs ≤ 25MB, images ≤ 10MB, validated server-side. All proposals are "draft" status. Proposals also appear on the Customer Detail page under a "Proposals" tab (admin/office only) with a customer-scoped New Proposal shortcut. Database tables: proposals, proposal_files.
+#### Proposal Maker
+A tool for Admin and Office roles to create customer proposals, capturing customer references, QB estimate numbers, scope of work, one QB estimate PDF, and multiple supporting images. Files are stored in object storage. Includes integration with Project and Estimate Request tickets, allowing proposals to be linked or newly created within ticket context. Generates a branded PDF output by merging branded cover/scope pages, the original QB estimate PDF, and an optional photo appendix.
 
-P7 (Ticket Integration): Proposals link to tickets via `ticketId` FK on the proposals table. Project and Estimate Request tickets (admin/office only) show an "Open Proposal Maker" button on the Overview tab that navigates to the Proposal Maker tool with ticket context (ticketId, ticketTitle, customerId) in URL params. In the Proposal Maker with ticket context: a banner shows the linked ticket with a "Back to ticket" button; two actions are available — "New Proposal" (creates linked proposal, customer pre-filled) and "Link Existing" (picks from unlinked proposals and PATCHes ticketId). The ProposalDraft page shows a "← Ticket: [title]" breadcrumb when the proposal has a linked ticket. Backend: `GET /api/tickets/:ticketId/proposals` returns linked proposals; `POST /api/proposals` accepts optional `ticketId`; `PATCH /api/proposals/:id` now supports updating `ticketId`.
-
-P2 (Branded PDF): `GET /api/proposals/:id/pdf` generates a branded cover + scope-of-work PDF on demand using PDFKit (company logo, name, metadata, scope with bullet/paragraph preservation). No GCS storage — streamed directly. `?inline=1` → browser preview; no param → file download. Requires QB Estimate PDF to be attached.
-
-P3 (Estimate PDF Collation): The same endpoint now merges the branded pages with the original QB Estimate PDF using pdf-lib, producing a single client-ready document. Branded pages appear first; estimate pages are appended in original order without rasterization, preserving all fonts, graphics, and embedded content. If no estimate PDF is attached, the endpoint returns 400. The draft editor's Preview/Download buttons are disabled (with tooltip) until an estimate PDF is uploaded. Download filename: `Proposal-{CustomerName}-{YYYY-MM-DD}.pdf`.
-
-P4 (Photo Appendix): When images are attached to the draft, the endpoint appends a photo appendix after the estimate PDF. Final order: branded cover/scope → estimate → photo appendix. Appendix starts with a "PROJECT IMAGES" header page, then one image per page (scaled to fit 492×622 pt area, maintaining aspect ratio). Captions appear at the bottom of each image page when provided. If no images are attached, output is identical to P3. Limits: max 25 images; download/render failures return a clear 400 error naming the specific file. Supports JPG and PNG.
+#### Visual Scope Sheet Tool (VS1)
+A satellite map-based tool for Admin and Office roles to create property scope imagery for proposals. Each sheet captures customer reference, title, scope date, and a base satellite image from Mapbox or uploaded, stored in GCS. The draft page renders a high-resolution Mapbox satellite-streets map.
 
 ## External Dependencies
 
-- **UI Component Libraries:** Radix UI, Shadcn/ui, Lucide React, CMDK
-- **Form & Validation:** React Hook Form, Zod, @hookform/resolvers, Drizzle-Zod
-- **Date Handling:** date-fns
-- **Session & Security:** Passport.js (with passport-local), express-session, connect-pg-simple, Node.js crypto module
-- **Email:** SendGrid (@sendgrid/mail) via Replit connector for transactional emails
-- **PDF Generation:** PDFKit (branded cover/scope generation), pdf-lib (PDF merging for Proposal Maker)
-- **Design System:** Google Fonts (Inter, JetBrains Mono)
+-   **UI Component Libraries:** Radix UI, Shadcn/ui, Lucide React, CMDK
+-   **Form & Validation:** React Hook Form, Zod, @hookform/resolvers, Drizzle-Zod
+-   **Date Handling:** date-fns
+-   **Session & Security:** Passport.js (with passport-local), express-session, connect-pg-simple, Node.js crypto module
+-   **Email:** SendGrid (@sendgrid/mail) via Replit connector
+-   **PDF Generation:** PDFKit (branded cover/scope generation), pdf-lib (PDF merging for Proposal Maker)
+-   **Design System:** Google Fonts (Inter, JetBrains Mono)
+-   **Mapping:** Mapbox (for Visual Scope Sheet Tool)

@@ -1513,3 +1513,30 @@ export type ProposalWithDetails = Proposal & {
   files: ProposalFile[];
   versions: ProposalVersionWithUser[];
 };
+
+// Visual Scope Sheets
+export const visualScopeSheets = pgTable("visual_scope_sheets", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  companyId: varchar("company_id").notNull().references(() => companies.id, { onDelete: "cascade" }),
+  customerId: varchar("customer_id").notNull().references(() => customers.id, { onDelete: "cascade" }),
+  createdById: varchar("created_by_id").references(() => users.id, { onDelete: "set null" }),
+  title: varchar("title").notNull().default("Visual Scope"),
+  scopeDate: varchar("scope_date").notNull(),
+  status: varchar("status").notNull().default("draft"),
+  baseImagePath: varchar("base_image_path"),
+  baseImageFilename: varchar("base_image_filename"),
+  baseImageMimeType: varchar("base_image_mime_type"),
+  baseImageSize: integer("base_image_size"),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  updatedAt: timestamp("updated_at").notNull().defaultNow(),
+});
+
+export const insertVisualScopeSheetSchema = createInsertSchema(visualScopeSheets).omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+});
+
+export type InsertVisualScopeSheet = z.infer<typeof insertVisualScopeSheetSchema>;
+export type VisualScopeSheet = typeof visualScopeSheets.$inferSelect;
+export type VisualScopeSheetWithCustomer = VisualScopeSheet & { customerName: string };

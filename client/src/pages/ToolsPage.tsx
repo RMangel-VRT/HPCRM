@@ -1,6 +1,6 @@
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { FileText, Camera, Calculator, ClipboardList } from "lucide-react";
+import { FileText, Camera, Calculator, ClipboardList, Map } from "lucide-react";
 import { Link } from "wouter";
 
 export default function ToolsPage() {
@@ -20,6 +20,14 @@ export default function ToolsPage() {
       href: "/dashboard/tools/proposals",
       available: true,
       testId: "card-proposal-maker",
+    },
+    {
+      title: "Visual Scope Sheet",
+      description: "Create satellite-based visual scopes for customer proposals using map capture or image upload",
+      icon: Map,
+      href: "/dashboard/tools/visual-scope",
+      available: true,
+      testId: "card-visual-scope",
     },
     {
       title: "Snow Damage Capture",

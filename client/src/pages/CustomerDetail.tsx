@@ -1687,6 +1687,9 @@ export default function CustomerDetail() {
               <TabsTrigger value="proposals" data-testid="tab-proposals">
                 Proposals
               </TabsTrigger>
+              <TabsTrigger value="visual-scopes" data-testid="tab-visual-scopes">
+                Visual Scopes
+              </TabsTrigger>
             </>
           )}
           {customer.snowEnabled && (
@@ -2353,6 +2356,12 @@ export default function CustomerDetail() {
         {(user?.activeRole === "admin" || user?.activeRole === "office") && (
           <TabsContent value="proposals" className="space-y-4">
             <CustomerProposalsSection customerId={params?.id!} />
+          </TabsContent>
+        )}
+
+        {(user?.activeRole === "admin" || user?.activeRole === "office") && (
+          <TabsContent value="visual-scopes" className="space-y-4">
+            <CustomerVisualScopesSection customerId={params?.id!} />
           </TabsContent>
         )}
       </Tabs>
@@ -4579,6 +4588,97 @@ function CustomerMapsSection({ customerId }: { customerId: string }) {
 }
 
 // ==================== CUSTOMER PROPOSALS SECTION ====================
+
+function CustomerVisualScopesSection({ customerId }: { customerId: string }) {
+  const [, navigate] = useLocation();
+  const { toast } = useToast();
+  const [creating, setCreating] = useState(false);
+
+  const { data: sheets = [], isLoading } = useQuery<import("@shared/schema").VisualScopeSheet[]>({
+    queryKey: ["/api/customers", customerId, "visual-scope-sheets"],
+    queryFn: async () => {
+      const res = await fetch(`/api/customers/${customerId}/visual-scope-sheets`, { credentials: "include" });
+      if (!res.ok) throw new Error("Failed to fetch visual scope sheets");
+      return res.json();
+    },
+  });
+
+  const handleNew = async () => {
+    setCreating(true);
+    try {
+      const res = await apiRequest("POST", "/api/visual-scope-sheets", {
+        customerId,
+        title: "Visual Scope",
+        scopeDate: new Date().toISOString().split("T")[0],
+      });
+      if (!res.ok) throw new Error("Failed to create visual scope sheet");
+      const sheet = await res.json();
+      queryClient.invalidateQueries({ queryKey: ["/api/customers", customerId, "visual-scope-sheets"] });
+      navigate(`/dashboard/tools/visual-scope/${sheet.id}`);
+    } catch {
+      toast({ title: "Error", description: "Failed to create visual scope sheet", variant: "destructive" });
+    } finally {
+      setCreating(false);
+    }
+  };
+
+  const formatDate = (d: string) => {
+    if (!d) return "";
+    try { const [y, m, day] = d.split("-"); return `${m}/${day}/${y}`; } catch { return d; }
+  };
+
+  return (
+    <div>
+      <div className="flex items-center justify-between mb-4 flex-wrap gap-2">
+        <h3 className="text-base font-medium">Visual Scope Sheets</h3>
+        <Button size="sm" onClick={handleNew} disabled={creating} data-testid="button-new-visual-scope-customer">
+          {creating ? <><Loader2 className="w-4 h-4 mr-2 animate-spin" />Creating...</> : <><Plus className="w-4 h-4 mr-2" />New Visual Scope</>}
+        </Button>
+      </div>
+
+      {isLoading ? (
+        <div className="space-y-2">
+          {[1, 2].map(i => <div key={i} className="h-16 bg-muted rounded animate-pulse" />)}
+        </div>
+      ) : sheets.length === 0 ? (
+        <div className="text-center py-10 text-muted-foreground text-sm">
+          <Map className="w-8 h-8 mx-auto mb-2 opacity-40" />
+          No visual scope sheets yet for this customer.
+        </div>
+      ) : (
+        <div className="space-y-2">
+          {sheets.map((sheet) => (
+            <div
+              key={sheet.id}
+              className="flex items-center justify-between p-3 rounded-md border hover-elevate cursor-pointer"
+              onClick={() => navigate(`/dashboard/tools/visual-scope/${sheet.id}`)}
+              data-testid={`row-visual-scope-${sheet.id}`}
+            >
+              <div className="flex-1 min-w-0">
+                <div className="flex items-center gap-2 flex-wrap">
+                  <span className="font-medium text-sm" data-testid={`text-visual-scope-title-${sheet.id}`}>{sheet.title}</span>
+                  <Badge variant="secondary" className="text-xs capitalize">{sheet.status}</Badge>
+                  {sheet.baseImagePath && (
+                    <Badge variant="outline" className="text-xs">Base image captured</Badge>
+                  )}
+                </div>
+                <p className="text-xs text-muted-foreground mt-0.5">{formatDate(sheet.scopeDate ?? "")}</p>
+              </div>
+              <Button
+                size="sm"
+                variant="ghost"
+                onClick={(e) => { e.stopPropagation(); navigate(`/dashboard/tools/visual-scope/${sheet.id}`); }}
+                data-testid={`button-open-visual-scope-${sheet.id}`}
+              >
+                Open
+              </Button>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
 
 function CustomerProposalsSection({ customerId }: { customerId: string }) {
   const [, navigate] = useLocation();
