@@ -1,0 +1,280 @@
+Visual Scope Sheet — Slice VS3 (Server-Side Export: Base / Overlay / Combined + Legend) — Submit This Whole Block
+Goal
+Add server-side rendering so each Visual Scope Sheet draft can generate high-quality, deterministic image exports that are suitable for inclusion in proposals. The system must render:
+
+
+Base image only (satellite)
+
+
+Overlay only (transparent markup layer)
+
+
+Combined (base + overlay + legend)
+
+
+Exports must be stable across browsers and must not depend on client rendering.
+
+Guardrails (What NOT to build yet)
+
+
+Do not integrate into Proposal Maker yet (that is VS4)
+
+
+Do not add version freezing tied to proposal versions yet (that is VS5)
+
+
+Do not add measurements / scale / GIS
+
+
+Do not add advanced styling libraries or template systems
+
+
+Keep rendering reliable and minimal
+
+
+
+Requirements
+1) New Server Export Endpoints (Deterministic)
+Add server endpoints to render and return PNG images:
+
+
+GET /api/visual-scope-sheets/:id/export/base
+
+
+GET /api/visual-scope-sheets/:id/export/overlay
+
+
+GET /api/visual-scope-sheets/:id/export/combined
+
+
+All endpoints:
+
+
+Require authentication + Admin/Office access
+
+
+Return image/png
+
+
+Support ?inline=1 to preview in browser, otherwise download
+
+
+If base image is missing:
+
+
+Return a clear 400 error (no partial output)
+
+
+
+2) Rendering Resolution + Quality
+Exports must be proposal-grade:
+
+
+Output PNG width target: 2000 px (recommended default)
+
+
+Height derived from base image aspect ratio
+
+
+Preserve base image quality (no visible blur)
+
+
+Overlay lines and symbols must remain crisp
+
+
+Allow optional query param:
+
+
+?w=2000 (min 1200, max 4000)
+If omitted, default to 2000.
+
+
+
+3) Overlay Rendering Rules (Matches VS2)
+Render markupData exactly as it appears in the editor:
+Supported object types:
+
+
+polygon
+
+
+polyline
+
+
+symbol (tree/plant/boulder)
+
+
+text
+
+
+Rules:
+
+
+Coordinates are normalized 0–1 fractions and must map correctly to output pixel coordinates
+
+
+Stroke widths scale appropriately to remain readable at export resolution
+
+
+Symbols use the same shapes/colors as VS2
+
+
+Text labels render in a clean, readable font
+
+
+Clamping rules honored (nothing outside bounds)
+
+
+Output:
+
+
+/overlay must have a transparent background
+
+
+/combined must place overlay on top of the base image
+
+
+
+4) Legend Rendering (Combined Export Only)
+The combined export must include a professional legend box (if symbols exist).
+Legend logic:
+
+
+Count symbols by type (tree/plant/boulder)
+
+
+Only include entries with count > 0
+
+
+If no symbols exist, omit the legend box entirely
+
+
+Legend placement:
+
+
+Bottom-right (preferred) or bottom-left
+
+
+Must not cover important content excessively
+
+
+Use a semi-opaque white background box (or white with border) for readability
+
+
+Title: “Legend”
+
+
+Rows: icon + label + count
+
+
+Legend styling:
+
+
+Clean typography
+
+
+Brand-safe colors
+
+
+Consistent padding and spacing
+
+
+
+5) Storage (VS3)
+Choose one approach (either is acceptable for VS3):
+Option A (Allowed): Render on-demand only
+
+
+No storage of generated PNGs
+
+
+Always returns a fresh render
+
+
+Option B (Allowed): Store “latest exports”
+
+
+Store the latest rendered PNGs in GCS and overwrite on regeneration
+
+
+Must remain consistent with current markup/base image
+
+
+(Version freezing comes later; VS3 does not require immutable storage.)
+
+6) Draft Page UI (Minimal Additions)
+On the Visual Scope Draft page, add an Exports section (Admin/Office only) with buttons:
+
+
+Preview Base
+
+
+Download Base
+
+
+Preview Overlay
+
+
+Download Overlay
+
+
+Preview Combined
+
+
+Download Combined
+
+
+Behavior:
+
+
+Uses the server endpoints above
+
+
+If base image missing, buttons are disabled with tooltip
+
+
+If markupData is empty, overlay/combined still work:
+
+
+overlay returns a transparent PNG (valid)
+
+
+combined returns base image (and legend omitted)
+
+
+
+
+
+Acceptance Tests
+
+
+Base export returns a valid PNG that matches stored base image framing
+
+
+Overlay export returns a transparent PNG with markup correctly positioned
+
+
+Combined export returns base + markup merged correctly
+
+
+Markup alignment remains correct after browser resize (because server uses normalized coords)
+
+
+Text labels are readable and positioned correctly
+
+
+Symbols render correctly and legend counts match the sheet
+
+
+Long/complex markup within guardrails renders without server errors
+
+
+Different widths via ?w= produce correct scaling without distortion
+
+
+All exports download and preview successfully (?inline=1)
+
+
+
+Done Definition
+Users can open any Visual Scope Sheet draft and generate proposal-grade PNG exports server-side for base, overlay (transparent), and combined (with optional legend), with stable, deterministic output that does not depend on client rendering.
