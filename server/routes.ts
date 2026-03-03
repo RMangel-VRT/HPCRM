@@ -8,7 +8,7 @@ import { storage } from "./storage";
 import { db } from "./db";
 import { eq, and, inArray } from "drizzle-orm";
 import { insertCustomerSchema, insertContactSchema, insertCompanySchema, insertCompanyUserSchema, insertSettingsSchema, insertNoteSchema, insertContractSchema, insertContractDocumentSchema, insertContractBuilderDocumentSchema, insertContractBuilderSectionSchema, insertContractBuilderVariableSchema, insertTicketTypeSchema, insertTicketTypeStatusSchema, insertTicketTypeFieldSchema, insertTicketSchema, insertTicketFieldValueSchema, insertTicketStatusHistorySchema, insertTicketCommentSchema, insertTicketLinkSchema, insertCustomerMapLayerSchema, insertCustomerMapDocumentSchema, insertMaintenanceCrewSchema, insertMaintenanceVisitConfigSchema, insertWeeklyScheduleTemplateSchema, insertScheduleBlockSchema, insertEquipmentSchema, insertEquipmentFileSchema, insertEquipmentTicketSchema, insertEquipmentTicketStatusHistorySchema, insertSnowEventSchema, insertSnowEventPropertyImpactSchema, insertSnowEventAttachmentSchema, insertEmailTemplateSchema, insertEmailRuleSchema, SNOW_RANGES, tickets, ticketTypes, ticketTypeStatuses, customers as customersTable, contacts as contactsTable, contracts as contractsTable, equipment as equipmentTable, users as usersTable, contractMonthlyAmounts, contractDocuments, contractServices, contractStatusHistory, companyUsers as companyUsersTable } from "@shared/schema";
-import type { Customer } from "@shared/schema";
+import type { Customer, CaptureParams } from "@shared/schema";
 import { ObjectStorageService, ObjectNotFoundError, objectStorageClient, signObjectURL } from "./objectStorage";
 import { ObjectPermission, ObjectAccessGroupType, setObjectAclPolicy } from "./objectAcl";
 import { processEmailEvent, resendEmail, getDefaultWorkCompletedTemplate } from './services/emailService';
@@ -8267,7 +8267,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     if (!req.isAuthenticated()) return res.status(401).send("Not authenticated");
     const user = req.user as UserWithContext;
     if (!canAccessVisualScope(user.activeRole)) return res.status(403).send("Insufficient permissions");
-    const allowed = ["title", "scopeDate", "baseImagePath", "baseImageFilename", "baseImageMimeType", "baseImageSize", "markupData"];
+    const allowed = ["title", "scopeDate", "baseImagePath", "baseImageFilename", "baseImageMimeType", "baseImageSize", "markupData", "captureParams"];
     const updates: Record<string, unknown> = {};
     for (const key of allowed) {
       if (key in req.body) updates[key] = req.body[key];
@@ -8333,6 +8333,106 @@ export async function registerRoutes(app: Express): Promise<Server> {
     if (!canAccessVisualScope(user.activeRole)) return res.status(403).send("Insufficient permissions");
     const sheets = await storage.getVisualScopeSheetsForCustomer(req.params.id, user.activeCompanyId);
     res.json(sheets);
+  });
+
+  // VS3.5 High-Res Base Image Capture endpoint
+  app.post("/api/visual-scope-sheets/:id/capture-highres", async (req, res) => {
+    if (!req.isAuthenticated()) return res.status(401).send("Not authenticated");
+    const user = req.user as UserWithContext;
+    if (!canAccessVisualScope(user.activeRole)) return res.status(403).send("Insufficient permissions");
+    const sheet = await storage.getVisualScopeSheet(req.params.id, user.activeCompanyId);
+    if (!sheet) return res.status(404).json({ error: "Not found" });
+
+    const mapboxToken = process.env.MAPBOX_PUBLIC_KEY;
+    if (!mapboxToken) return res.status(400).json({ error: "Mapbox token not configured" });
+
+    const { centerLat, centerLng, zoom, bearing = 0, pitch = 0, width: reqWidth = 2000 } = req.body;
+    if (typeof centerLat !== "number" || typeof centerLng !== "number" || typeof zoom !== "number") {
+      return res.status(400).json({ error: "centerLat, centerLng, and zoom are required numbers" });
+    }
+
+    const targetWidth = Math.max(1200, Math.min(4000, Number(reqWidth)));
+    const targetHeight = Math.round(targetWidth * 9 / 16);
+
+    // Mapbox Static API @2x doubles pixels; max CSS size is 1280
+    const cssW = Math.min(Math.round(targetWidth / 2), 1280);
+    const cssH = Math.min(Math.round(targetHeight / 2), 1280);
+    const zoomStr = Number(zoom).toFixed(2);
+    const bearingStr = Number(bearing ?? 0).toFixed(1);
+    const pitchStr = Number(pitch ?? 0).toFixed(1);
+
+    const staticUrl =
+      `https://api.mapbox.com/styles/v1/mapbox/satellite-streets-v12/static/` +
+      `${centerLng},${centerLat},${zoomStr},${bearingStr},${pitchStr}/` +
+      `${cssW}x${cssH}@2x?access_token=${mapboxToken}`;
+
+    let imgBuffer: Buffer;
+    try {
+      const response = await fetch(staticUrl);
+      if (!response.ok) {
+        const errText = await response.text();
+        console.error("Mapbox Static API error:", response.status, errText);
+        return res.status(400).json({ error: "Mapbox Static API request failed" });
+      }
+      imgBuffer = Buffer.from(await response.arrayBuffer());
+    } catch (err) {
+      console.error("Mapbox fetch error:", err);
+      return res.status(500).json({ error: "Failed to fetch static map image" });
+    }
+
+    // Resize to target dimensions if needed (when target > @2x output)
+    let finalBuffer = imgBuffer;
+    try {
+      const { createCanvas, loadImage } = await import("canvas");
+      const srcImg = await loadImage(imgBuffer);
+      if (srcImg.width !== targetWidth || srcImg.height !== targetHeight) {
+        const canvas = createCanvas(targetWidth, targetHeight);
+        const ctx = canvas.getContext("2d");
+        ctx.drawImage(srcImg as any, 0, 0, targetWidth, targetHeight);
+        finalBuffer = canvas.toBuffer("image/png");
+      }
+    } catch (err) {
+      console.error("Canvas resize error:", err);
+      // Use original buffer if resize fails
+    }
+
+    // Save to object storage (private path)
+    const objectStorage = new ObjectStorageService();
+    const relativePath = `vs-highres-${sheet.id}-${Date.now()}.png`;
+    let savedPath: string;
+    try {
+      savedPath = await objectStorage.saveBufferToPrivatePath(relativePath, finalBuffer, "image/png");
+    } catch (err) {
+      console.error("GCS save error:", err);
+      return res.status(500).json({ error: "Failed to save image to storage" });
+    }
+
+    // Delete old base image only after new one is saved successfully
+    if (sheet.baseImagePath) {
+      try {
+        await objectStorageClient.deleteObject(sheet.baseImagePath.replace(/^\/objects\//, ""));
+      } catch {}
+    }
+
+    const captureParams: CaptureParams = {
+      centerLat,
+      centerLng,
+      zoom,
+      bearing: bearing ?? 0,
+      pitch: pitch ?? 0,
+      widthUsed: targetWidth,
+      capturedAt: new Date().toISOString(),
+    };
+
+    const updated = await storage.updateVisualScopeSheet(req.params.id, user.activeCompanyId, {
+      baseImagePath: savedPath,
+      baseImageFilename: `vs-satellite-${targetWidth}px.png`,
+      baseImageMimeType: "image/png",
+      baseImageSize: finalBuffer.length,
+      captureParams,
+    } as any);
+
+    res.json(updated);
   });
 
   // VS3 Export endpoints

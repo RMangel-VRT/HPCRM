@@ -11,10 +11,10 @@ import {
   SheetHeader,
   SheetTitle,
 } from "@/components/ui/sheet";
-import { ArrowLeft, Download, RefreshCw, Camera, Upload, ImageIcon, Loader2, Info, Eye } from "lucide-react";
+import { ArrowLeft, Download, RefreshCw, Camera, Upload, ImageIcon, Loader2, Info, Eye, Zap } from "lucide-react";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
-import type { VisualScopeSheetWithCustomer, MarkupObject } from "@shared/schema";
+import type { VisualScopeSheetWithCustomer, MarkupObject, CaptureParams } from "@shared/schema";
 import mapboxgl from "mapbox-gl";
 import "mapbox-gl/dist/mapbox-gl.css";
 import VisualScopeEditor from "./VisualScopeEditor";
@@ -28,9 +28,20 @@ function formatBytes(bytes: number) {
 const MAP_RENDER_WIDTH = 2000;
 const MAP_RENDER_HEIGHT = 1200;
 
-function MapCapture({ token, onCapture }: { token: string; onCapture: (blob: Blob) => void }) {
+function MapCapture({
+  token,
+  mapRef,
+  onCapture,
+  onMapReady,
+  onWebGLError,
+}: {
+  token: string;
+  mapRef: React.RefObject<mapboxgl.Map | null>;
+  onCapture: (blob: Blob) => void;
+  onMapReady: (ready: boolean) => void;
+  onWebGLError?: () => void;
+}) {
   const containerRef = useRef<HTMLDivElement>(null);
-  const mapRef = useRef<mapboxgl.Map | null>(null);
   const [mapReady, setMapReady] = useState(false);
   const [capturing, setCapturing] = useState(false);
   const [webglError, setWebglError] = useState<string | null>(null);
@@ -39,7 +50,9 @@ function MapCapture({ token, onCapture }: { token: string; onCapture: (blob: Blo
   useEffect(() => {
     if (!containerRef.current) return;
     if (!mapboxgl.supported()) {
-      setWebglError("WebGL is not supported in this environment. Please use the image upload option below.");
+      const msg = "WebGL is not supported in this environment.";
+      setWebglError(msg);
+      onWebGLError?.();
       return;
     }
     mapboxgl.accessToken = token;
@@ -53,16 +66,25 @@ function MapCapture({ token, onCapture }: { token: string; onCapture: (blob: Blo
         preserveDrawingBuffer: true,
       });
       map.addControl(new mapboxgl.NavigationControl(), "top-right");
-      map.on("load", () => setMapReady(true));
+      map.on("load", () => {
+        setMapReady(true);
+        onMapReady(true);
+      });
       map.on("error", (e) => {
         console.warn("Mapbox error:", e);
       });
-      mapRef.current = map;
+      (mapRef as React.MutableRefObject<mapboxgl.Map | null>).current = map;
     } catch (err) {
-      setWebglError("Map initialization failed. Please use the image upload option below.");
+      const msg = "Map initialization failed. Please use the image upload option below.";
+      setWebglError(msg);
+      onWebGLError?.();
       return;
     }
-    return () => { map.remove(); mapRef.current = null; };
+    return () => {
+      map.remove();
+      (mapRef as React.MutableRefObject<mapboxgl.Map | null>).current = null;
+      onMapReady(false);
+    };
   }, [token]);
 
   useEffect(() => {
@@ -92,15 +114,10 @@ function MapCapture({ token, onCapture }: { token: string; onCapture: (blob: Blo
       }
     });
     map.triggerRepaint();
-  }, [mapReady, onCapture]);
+  }, [mapReady, onCapture, mapRef]);
 
   if (webglError) {
-    return (
-      <div className="flex items-center gap-2 p-3 rounded-md bg-muted text-muted-foreground text-sm" data-testid="map-webgl-error">
-        <Info className="w-4 h-4 shrink-0" />
-        <span>{webglError}</span>
-      </div>
-    );
+    return null;
   }
 
   return (
@@ -114,18 +131,16 @@ function MapCapture({ token, onCapture }: { token: string; onCapture: (blob: Blo
       <Button
         onClick={handleCapture}
         disabled={!mapReady || capturing}
+        variant="outline"
         className="w-full"
-        data-testid="button-capture-map"
+        data-testid="button-capture-standard"
       >
         {capturing ? (
           <><Loader2 className="w-4 h-4 mr-2 animate-spin" /> Capturing…</>
         ) : (
-          <><Camera className="w-4 h-4 mr-2" /> Capture View</>
+          <><Camera className="w-4 h-4 mr-2" /> Capture View (Standard)</>
         )}
       </Button>
-      <p className="text-xs text-muted-foreground text-center">
-        Pan and zoom the map to frame the area, then capture.
-      </p>
     </div>
   );
 }
@@ -157,27 +172,108 @@ function UploadFallback({ onFile }: { onFile: (file: File) => void }) {
 
 function CaptureUI({
   token,
+  sheetId,
+  captureParams,
   onCapture,
   onFile,
+  onHighResSuccess,
 }: {
   token: string | null;
+  sheetId: string;
+  captureParams?: CaptureParams | null;
   onCapture: (blob: Blob) => void;
   onFile: (file: File) => void;
+  onHighResSuccess: () => void;
 }) {
+  const { toast } = useToast();
   const [mode, setMode] = useState<"map" | "upload">(token ? "map" : "upload");
+  const [captureWidth, setCaptureWidth] = useState<2000 | 3000 | 4000>(2000);
+  const [highResCapturing, setHighResCapturing] = useState(false);
+  const [webglFallbackMode, setWebglFallbackMode] = useState(false);
+  const [mapReady, setMapReady] = useState(false);
+  const [manualLat, setManualLat] = useState("");
+  const [manualLng, setManualLng] = useState("");
+  const [manualZoom, setManualZoom] = useState("14");
+  const mapRef = useRef<mapboxgl.Map | null>(null);
+
+  async function handleHighResCapture(params?: { lat: number; lng: number; zoom: number }) {
+    const map = mapRef.current;
+    const lat = params?.lat ?? map?.getCenter().lat;
+    const lng = params?.lng ?? map?.getCenter().lng;
+    const zoom = params?.zoom ?? map?.getZoom();
+    if (lat == null || lng == null || zoom == null || isNaN(Number(lat)) || isNaN(Number(lng)) || isNaN(Number(zoom))) {
+      toast({ title: "Invalid coordinates", description: "Please enter valid lat, lng, and zoom values.", variant: "destructive" });
+      return;
+    }
+    const bearing = map?.getBearing() ?? 0;
+    const pitch = map?.getPitch() ?? 0;
+    setHighResCapturing(true);
+    try {
+      const res = await apiRequest("POST", `/api/visual-scope-sheets/${sheetId}/capture-highres`, {
+        centerLat: Number(lat),
+        centerLng: Number(lng),
+        zoom: Number(zoom),
+        bearing,
+        pitch,
+        width: captureWidth,
+      });
+      if (!res.ok) {
+        const err = await res.json();
+        throw new Error(err.error ?? "High-res capture failed");
+      }
+      onHighResSuccess();
+    } catch (err: any) {
+      toast({ title: "High-res capture failed", description: err.message, variant: "destructive" });
+    } finally {
+      setHighResCapturing(false);
+    }
+  }
 
   return (
     <div className="space-y-4">
-      {!token && (
-        <div className="flex items-start gap-2 p-3 rounded-md bg-muted text-sm text-muted-foreground">
-          <Info className="w-4 h-4 mt-0.5 shrink-0" />
-          <span>Map capture requires a Mapbox token. Upload an image instead.</span>
+      {/* Width selector */}
+      {token && (
+        <div className="flex items-center gap-2 flex-wrap">
+          <span className="text-sm text-muted-foreground">Width:</span>
+          {([2000, 3000, 4000] as const).map((w) => (
+            <Button
+              key={w}
+              size="sm"
+              variant={captureWidth === w ? "default" : "outline"}
+              onClick={() => setCaptureWidth(w)}
+              data-testid={`button-width-${w}`}
+            >
+              {w}px
+            </Button>
+          ))}
         </div>
       )}
 
-      {token && mode === "map" && (
+      {/* Map mode */}
+      {token && mode === "map" && !webglFallbackMode && (
         <div className="space-y-2">
-          <MapCapture token={token} onCapture={onCapture} />
+          <MapCapture
+            token={token}
+            mapRef={mapRef}
+            onCapture={onCapture}
+            onMapReady={setMapReady}
+            onWebGLError={() => setWebglFallbackMode(true)}
+          />
+          <Button
+            className="w-full"
+            onClick={() => handleHighResCapture()}
+            disabled={!mapReady || highResCapturing}
+            data-testid="button-capture-highres"
+          >
+            {highResCapturing ? (
+              <><Loader2 className="w-4 h-4 mr-2 animate-spin" />Generating High-Res…</>
+            ) : (
+              <><Zap className="w-4 h-4 mr-2" />Capture View (High-Res)</>
+            )}
+          </Button>
+          <p className="text-xs text-muted-foreground text-center">
+            Pan and zoom the map to frame the area, then capture. High-Res is recommended for proposals.
+          </p>
           <button
             className="text-xs text-muted-foreground underline underline-offset-2 w-full text-center"
             onClick={() => setMode("upload")}
@@ -188,6 +284,79 @@ function CaptureUI({
         </div>
       )}
 
+      {/* WebGL fallback: manual coordinate input */}
+      {token && mode === "map" && webglFallbackMode && (
+        <div className="space-y-3">
+          <div className="flex items-start gap-2 p-3 rounded-md bg-muted text-sm text-muted-foreground">
+            <Info className="w-4 h-4 mt-0.5 shrink-0" />
+            <span>Interactive map not available. Enter coordinates to capture a high-res satellite image.</span>
+          </div>
+          <div className="grid grid-cols-3 gap-2">
+            <div>
+              <label className="text-xs text-muted-foreground block mb-1">Latitude</label>
+              <Input
+                value={manualLat}
+                onChange={e => setManualLat(e.target.value)}
+                placeholder="39.83"
+                data-testid="input-manual-lat"
+              />
+            </div>
+            <div>
+              <label className="text-xs text-muted-foreground block mb-1">Longitude</label>
+              <Input
+                value={manualLng}
+                onChange={e => setManualLng(e.target.value)}
+                placeholder="-98.58"
+                data-testid="input-manual-lng"
+              />
+            </div>
+            <div>
+              <label className="text-xs text-muted-foreground block mb-1">Zoom</label>
+              <Input
+                value={manualZoom}
+                onChange={e => setManualZoom(e.target.value)}
+                placeholder="14"
+                data-testid="input-manual-zoom"
+              />
+            </div>
+          </div>
+          <Button
+            className="w-full"
+            disabled={highResCapturing}
+            onClick={() =>
+              handleHighResCapture({
+                lat: parseFloat(manualLat),
+                lng: parseFloat(manualLng),
+                zoom: parseFloat(manualZoom),
+              })
+            }
+            data-testid="button-capture-highres-manual"
+          >
+            {highResCapturing ? (
+              <><Loader2 className="w-4 h-4 mr-2 animate-spin" />Generating…</>
+            ) : (
+              <><Zap className="w-4 h-4 mr-2" />Capture High-Res</>
+            )}
+          </Button>
+          <button
+            className="text-xs text-muted-foreground underline underline-offset-2 w-full text-center"
+            onClick={() => setMode("upload")}
+            data-testid="link-switch-to-upload"
+          >
+            Upload an image instead
+          </button>
+        </div>
+      )}
+
+      {/* No token */}
+      {!token && (
+        <div className="flex items-start gap-2 p-3 rounded-md bg-muted text-sm text-muted-foreground">
+          <Info className="w-4 h-4 mt-0.5 shrink-0" />
+          <span>Map capture requires a Mapbox token. Upload an image instead.</span>
+        </div>
+      )}
+
+      {/* Upload mode */}
       {(mode === "upload" || !token) && (
         <div className="space-y-2">
           <UploadFallback onFile={onFile} />
@@ -211,6 +380,7 @@ export default function VisualScopeDraft() {
   const { toast } = useToast();
   const [replaceOpen, setReplaceOpen] = useState(false);
   const [uploading, setUploading] = useState(false);
+  const [reCapturing, setReCapturing] = useState(false);
   const [editTitle, setEditTitle] = useState<string | null>(null);
   const [editDate, setEditDate] = useState<string | null>(null);
   const titleDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -300,6 +470,40 @@ export default function VisualScopeDraft() {
     uploadAndSave(file, file.name, file.type, replaceOpen);
   }
 
+  function handleHighResSuccess() {
+    queryClient.invalidateQueries({ queryKey: ["/api/visual-scope-sheets", id] });
+    queryClient.invalidateQueries({ queryKey: ["/api/visual-scope-sheets"] });
+    toast({ title: "High-res base image captured", description: "Satellite image saved successfully." });
+    setReplaceOpen(false);
+  }
+
+  async function handleReCapture() {
+    const params = sheet?.captureParams as CaptureParams | null | undefined;
+    if (!params) return;
+    setReCapturing(true);
+    try {
+      const res = await apiRequest("POST", `/api/visual-scope-sheets/${id}/capture-highres`, {
+        centerLat: params.centerLat,
+        centerLng: params.centerLng,
+        zoom: params.zoom,
+        bearing: params.bearing,
+        pitch: params.pitch,
+        width: params.widthUsed,
+      });
+      if (!res.ok) {
+        const err = await res.json();
+        throw new Error(err.error ?? "Re-capture failed");
+      }
+      queryClient.invalidateQueries({ queryKey: ["/api/visual-scope-sheets", id] });
+      queryClient.invalidateQueries({ queryKey: ["/api/visual-scope-sheets"] });
+      toast({ title: "Re-captured high-res image", description: "Base image updated with current satellite data." });
+    } catch (err: any) {
+      toast({ title: "Re-capture failed", description: err.message, variant: "destructive" });
+    } finally {
+      setReCapturing(false);
+    }
+  }
+
   const displayTitle = editTitle ?? sheet?.title ?? "";
   const displayDate = editDate ?? sheet?.scopeDate ?? "";
 
@@ -317,6 +521,8 @@ export default function VisualScopeDraft() {
       <div className="p-6 text-center text-muted-foreground">Visual scope sheet not found.</div>
     );
   }
+
+  const captureParams = sheet.captureParams as CaptureParams | null | undefined;
 
   return (
     <div className="p-6 max-w-4xl mx-auto space-y-6">
@@ -369,7 +575,22 @@ export default function VisualScopeDraft() {
           <CardHeader className="pb-3">
             <div className="flex items-center justify-between gap-2 flex-wrap">
               <CardTitle className="text-base">Visual Scope Editor</CardTitle>
-              <div className="flex items-center gap-2">
+              <div className="flex items-center gap-2 flex-wrap">
+                {captureParams && (
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    disabled={reCapturing}
+                    onClick={handleReCapture}
+                    data-testid="button-recapture-highres"
+                  >
+                    {reCapturing ? (
+                      <><Loader2 className="w-4 h-4 mr-1 animate-spin" />Re-capturing…</>
+                    ) : (
+                      <><Zap className="w-4 h-4 mr-1" />Re-capture High-Res</>
+                    )}
+                  </Button>
+                )}
                 <a href={sheet.baseImagePath} download={sheet.baseImageFilename ?? "base-image"}>
                   <Button variant="outline" size="sm" data-testid="button-download-image">
                     <Download className="w-4 h-4 mr-1" /> Download
@@ -385,6 +606,12 @@ export default function VisualScopeDraft() {
                 </Button>
               </div>
             </div>
+            {captureParams && (
+              <p className="text-xs text-muted-foreground mt-1" data-testid="text-capture-params">
+                High-res capture · {captureParams.widthUsed}px · Zoom {captureParams.zoom.toFixed(1)} ·{" "}
+                {new Date(captureParams.capturedAt).toLocaleDateString()}
+              </p>
+            )}
           </CardHeader>
           <CardContent className="p-0 overflow-hidden rounded-b-md">
             <VisualScopeEditor
@@ -408,7 +635,14 @@ export default function VisualScopeDraft() {
                 <span>Uploading…</span>
               </div>
             ) : (
-              <CaptureUI token={mapboxToken} onCapture={handleCapture} onFile={handleFile} />
+              <CaptureUI
+                token={mapboxToken}
+                sheetId={id!}
+                captureParams={captureParams}
+                onCapture={handleCapture}
+                onFile={handleFile}
+                onHighResSuccess={handleHighResSuccess}
+              />
             )}
           </CardContent>
         </Card>
@@ -477,7 +711,14 @@ export default function VisualScopeDraft() {
               <span>Uploading…</span>
             </div>
           ) : (
-            <CaptureUI token={mapboxToken} onCapture={handleCapture} onFile={handleFile} />
+            <CaptureUI
+              token={mapboxToken}
+              sheetId={id!}
+              captureParams={captureParams}
+              onCapture={handleCapture}
+              onFile={handleFile}
+              onHighResSuccess={handleHighResSuccess}
+            />
           )}
         </SheetContent>
       </Sheet>

@@ -1528,6 +1528,7 @@ export const visualScopeSheets = pgTable("visual_scope_sheets", {
   baseImageMimeType: varchar("base_image_mime_type"),
   baseImageSize: integer("base_image_size"),
   markupData: jsonb("markup_data").$type<MarkupObject[]>().default(sql`'[]'::jsonb`),
+  captureParams: jsonb("capture_params").$type<CaptureParams>(),
   createdAt: timestamp("created_at").notNull().defaultNow(),
   updatedAt: timestamp("updated_at").notNull().defaultNow(),
 });
@@ -1541,6 +1542,16 @@ export const insertVisualScopeSheetSchema = createInsertSchema(visualScopeSheets
 export type InsertVisualScopeSheet = z.infer<typeof insertVisualScopeSheetSchema>;
 export type VisualScopeSheet = typeof visualScopeSheets.$inferSelect;
 export type VisualScopeSheetWithCustomer = VisualScopeSheet & { customerName: string };
+
+export interface CaptureParams {
+  centerLat: number;
+  centerLng: number;
+  zoom: number;
+  bearing: number;
+  pitch: number;
+  widthUsed: number;
+  capturedAt: string;
+}
 
 export type MarkupPoint = [number, number];
 export type SymbolType = "tree" | "plant" | "boulder";
