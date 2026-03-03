@@ -1,0 +1,120 @@
+Visual Scope Sheet — Slice VS3.5 (High-Res Base Image Capture via Static Map) — Submit This Whole Block
+
+Goal
+
+Upgrade Visual Scope base image capture so users can create print-quality base imagery suitable for proposals by capturing the current map view using a server-generated high-resolution static satellite image (instead of relying on the WebGL canvas screenshot). This replaces “soft” base images and makes combined exports look professional.
+
+⸻
+
+Guardrails (What NOT to build yet)
+	•	Do not add measurements, scale, or GIS features
+	•	Do not change the VS2 markup system
+	•	Do not store generated PNG exports (VS3 stays on-demand)
+	•	Do not integrate into Proposal Maker yet (VS4)
+	•	Keep UX simple: one button + reliable output
+
+⸻
+
+Requirements
+
+1) Capture Modes (3 Options)
+
+On the Visual Scope Draft page when no base image exists (or when replacing), support:
+
+A) High-Res Map Capture (Primary)
+	•	Uses current interactive map view to generate a high-resolution static image server-side
+	•	Produces a base image that is proposal-grade
+
+B) Standard Map Capture (Fallback)
+	•	Existing map.getCanvas().toDataURL() screenshot capture remains available for quick use
+
+C) Upload Image (Fallback)
+	•	Existing upload flow remains available
+
+⸻
+
+2) High-Res Capture Inputs (Captured from Current Map View)
+
+When user clicks Capture View (High-Res), capture the current view parameters and send to the server:
+	•	Center latitude/longitude
+	•	Zoom level
+	•	Bearing (optional; default 0 if not used)
+	•	Pitch (optional; default 0 if not used)
+	•	Map style (satellite)
+	•	Requested output width (default 2000 px; options: 2000 / 3000 / 4000)
+
+Important: This is still “visual-only.” These parameters are used only to generate an image snapshot.
+
+⸻
+
+3) New Server Endpoint (High-Res Static Image Generation)
+
+Add a server endpoint that:
+	•	Validates Admin/Office permissions
+	•	Validates requested width (min 1200, max 4000)
+	•	Requests a static satellite image using the provided view parameters
+	•	Uploads the resulting image to GCS using the existing object storage pattern
+	•	Updates the VS draft base image fields (path, filename, mime type, size)
+	•	Returns the updated sheet record
+
+Failure behavior
+	•	If static image generation fails, return a clear 400/500 error (no partial state)
+	•	Do not overwrite any existing base image unless the new one succeeds
+
+⸻
+
+4) Attribution Handling (Required)
+
+The captured base image must include map attribution in a way that remains visible in exports.
+
+Accepted approaches (choose one):
+	•	Option A (Preferred): The static image returned includes attribution embedded (if provider supports)
+	•	Option B: Server draws a small attribution footer onto the image before saving (bottom-left or bottom-right; small muted text)
+
+⸻
+
+5) Persist “Capture Parameters” on the VS Draft (For Repeatability)
+
+Store the last successful high-res capture parameters on the VS draft record:
+	•	centerLat, centerLng, zoom, bearing, pitch, widthUsed, capturedAt
+
+Purpose:
+	•	Enables “Re-capture High-Res” using the same framing
+	•	Provides auditability (“this is what the image was based on”)
+
+(This is still not GIS — it’s just snapshot metadata.)
+
+⸻
+
+6) Draft Page UI Updates
+
+In the “no base image” state (and in replace flow), show capture options:
+	•	Capture View (High-Res) button (primary)
+	•	Dropdown or segmented control for width: 2000 / 3000 / 4000
+	•	Capture View (Standard) button (secondary)
+	•	Upload image instead link (fallback)
+
+If the Mapbox token is missing or WebGL is not available:
+	•	Still allow High-Res Map Capture (since it’s server-generated) if framing inputs are available
+	•	Otherwise fall back to Upload
+
+If a high-res capture was previously used:
+	•	Show a “Re-capture High-Res” action using last saved capture params
+
+⸻
+
+Acceptance Tests
+	1.	High-Res capture produces a base image that is noticeably sharper than standard capture
+	2.	High-Res capture saves to GCS and updates base image fields on the VS draft
+	3.	High-Res capture does not overwrite existing base image unless it succeeds
+	4.	Captured image includes visible attribution
+	5.	Saved capture parameters persist and allow “Re-capture High-Res”
+	6.	VS2 markup remains aligned on the new base image (no coordinate drift)
+	7.	VS3 server exports (base/overlay/combined) remain correct and professional with the new base imagery
+	8.	Standard capture + upload still work as fallback options
+
+⸻
+
+Done Definition
+
+Users can reliably generate and store a high-resolution satellite base image from the current map view, with attribution preserved and capture parameters stored for repeatability, resulting in proposal-ready visuals without changing markup behavior.
