@@ -3,7 +3,7 @@ import { useQuery } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { ArrowLeft, Download, Eye, CheckCircle2, Plus, History } from "lucide-react";
+import { ArrowLeft, Download, Eye, CheckCircle2, Plus, History, Map } from "lucide-react";
 import type { ProposalWithDetails } from "@shared/schema";
 
 function formatDateTime(ts: string | Date) {
@@ -165,6 +165,92 @@ export default function ProposalVersion() {
           </div>
         </CardContent>
       </Card>
+
+      {/* Visual Scope Snapshot Card */}
+      {version.vsCombinedPath && (
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-base flex items-center gap-2">
+              <Map className="w-4 h-4" />
+              Visual Scope Snapshot (Frozen)
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-sm">
+              {version.visualScopeTitle && (
+                <div>
+                  <p className="text-xs text-muted-foreground mb-0.5">Sheet Title</p>
+                  <p className="font-medium" data-testid="text-vs-snapshot-title">{version.visualScopeTitle}</p>
+                </div>
+              )}
+              {version.visualScopeDate && (
+                <div>
+                  <p className="text-xs text-muted-foreground mb-0.5">Scope Date</p>
+                  <p className="font-medium" data-testid="text-vs-snapshot-date">{formatDate(version.visualScopeDate)}</p>
+                </div>
+              )}
+              {version.vsFrozenAt && (
+                <div>
+                  <p className="text-xs text-muted-foreground mb-0.5">Frozen At</p>
+                  <p className="font-medium" data-testid="text-vs-frozen-at">{formatDateTime(version.vsFrozenAt)}</p>
+                </div>
+              )}
+            </div>
+            <p className="text-xs text-muted-foreground">
+              These images are permanent snapshots captured at the time of finalization. They will not change even if the Visual Scope Sheet is later edited.
+            </p>
+            <div className="flex items-center gap-3 flex-wrap">
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => window.open(`/api/proposals/${id}/versions/${versionId}/visual-scope/combined?inline=1`, "_blank")}
+                data-testid="button-preview-vs-combined"
+              >
+                <Eye className="w-4 h-4 mr-2" /> Preview Combined
+              </Button>
+              <a href={`/api/proposals/${id}/versions/${versionId}/visual-scope/combined`} download data-testid="button-download-vs-combined">
+                <Button variant="outline" size="sm">
+                  <Download className="w-4 h-4 mr-2" /> Download Combined
+                </Button>
+              </a>
+              {version.vsBasePath && (
+                <>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => window.open(`/api/proposals/${id}/versions/${versionId}/visual-scope/base?inline=1`, "_blank")}
+                    data-testid="button-preview-vs-base"
+                  >
+                    <Eye className="w-4 h-4 mr-2" /> Preview Base
+                  </Button>
+                  <a href={`/api/proposals/${id}/versions/${versionId}/visual-scope/base`} download data-testid="button-download-vs-base">
+                    <Button variant="outline" size="sm">
+                      <Download className="w-4 h-4 mr-2" /> Download Base
+                    </Button>
+                  </a>
+                </>
+              )}
+              {version.vsOverlayPath && (
+                <>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => window.open(`/api/proposals/${id}/versions/${versionId}/visual-scope/overlay?inline=1`, "_blank")}
+                    data-testid="button-preview-vs-overlay"
+                  >
+                    <Eye className="w-4 h-4 mr-2" /> Preview Overlay
+                  </Button>
+                  <a href={`/api/proposals/${id}/versions/${versionId}/visual-scope/overlay`} download data-testid="button-download-vs-overlay">
+                    <Button variant="outline" size="sm">
+                      <Download className="w-4 h-4 mr-2" /> Download Overlay
+                    </Button>
+                  </a>
+                </>
+              )}
+            </div>
+          </CardContent>
+        </Card>
+      )}
 
       {/* Navigation Card */}
       <Card>

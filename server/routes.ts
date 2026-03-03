@@ -8245,6 +8245,33 @@ export async function registerRoutes(app: Express): Promise<Server> {
       return res.status(err?.statusCode ?? 500).send(`PDF generation failed: ${err?.message ?? "Unknown error"}`);
     }
 
+    // Render VS PNGs once before the retry loop (expensive, render only once)
+    type VsSnapshots = {
+      combinedBuffer: Buffer;
+      baseBuffer: Buffer | null;
+      overlayBuffer: Buffer | null;
+    };
+    let vsSnapshots: VsSnapshots | null = null;
+
+    if (proposal.visualScopeSheetId && proposal.visualScopeSheet) {
+      const vsSheet = proposal.visualScopeSheet;
+      if (!vsSheet.baseImagePath) {
+        return res.status(400).send("Attached Visual Scope Sheet has no base image. Capture or upload an image before finalizing.");
+      }
+      try {
+        const combinedBuffer = await renderVisualScope(vsSheet as any, "combined", 2000);
+        const baseBuffer = proposal.vsIncludeBase
+          ? await renderVisualScope(vsSheet as any, "base", 2000)
+          : null;
+        const overlayBuffer = proposal.vsIncludeOverlay
+          ? await renderVisualScope(vsSheet as any, "overlay", 2000)
+          : null;
+        vsSnapshots = { combinedBuffer, baseBuffer, overlayBuffer };
+      } catch (err: any) {
+        return res.status(400).send(`Visual Scope snapshot render failed: ${err?.message ?? "Unknown error"}`);
+      }
+    }
+
     const attemptFinalize = async (): Promise<import("@shared/schema").ProposalVersion> => {
       const nextVersion = await storage.getNextVersionNumber(proposal.id, user.activeCompanyId);
       const objectStorageService = new ObjectStorageService();
@@ -8257,6 +8284,32 @@ export async function registerRoutes(app: Express): Promise<Server> {
         throw Object.assign(new Error("Failed to store finalized PDF. Please try again."), { statusCode: 500 });
       }
 
+      let vsCombinedPath: string | null = null;
+      let vsBasePath: string | null = null;
+      let vsOverlayPath: string | null = null;
+
+      if (vsSnapshots) {
+        const vsPrefix = `proposal-versions/${proposal.id}/v${nextVersion}`;
+        try {
+          vsCombinedPath = await objectStorageService.saveBufferToPrivatePath(
+            `${vsPrefix}/visual-scope-combined.png`, vsSnapshots.combinedBuffer, "image/png"
+          );
+          if (vsSnapshots.baseBuffer) {
+            vsBasePath = await objectStorageService.saveBufferToPrivatePath(
+              `${vsPrefix}/visual-scope-base.png`, vsSnapshots.baseBuffer, "image/png"
+            );
+          }
+          if (vsSnapshots.overlayBuffer) {
+            vsOverlayPath = await objectStorageService.saveBufferToPrivatePath(
+              `${vsPrefix}/visual-scope-overlay.png`, vsSnapshots.overlayBuffer, "image/png"
+            );
+          }
+        } catch (err) {
+          console.error("Proposal finalize: VS PNG GCS upload failed:", err);
+          throw Object.assign(new Error("Failed to store Visual Scope snapshot. Please try again."), { statusCode: 500 });
+        }
+      }
+
       try {
         return await storage.createProposalVersion({
           proposalId: proposal.id,
@@ -8267,6 +8320,18 @@ export async function registerRoutes(app: Express): Promise<Server> {
           estimateNumber: proposal.estimateNumber ?? null,
           finalizedById: user.id,
           pdfStoragePath: storedPath,
+          ...(vsSnapshots && proposal.visualScopeSheet ? {
+            visualScopeSheetId: proposal.visualScopeSheetId!,
+            visualScopeTitle: proposal.visualScopeSheet.title,
+            visualScopeDate: proposal.visualScopeSheet.scopeDate,
+            vsExportWidth: 2000,
+            vsIncludedBase: proposal.vsIncludeBase ?? false,
+            vsIncludedOverlay: proposal.vsIncludeOverlay ?? false,
+            vsFrozenAt: new Date(),
+            vsCombinedPath,
+            vsBasePath,
+            vsOverlayPath,
+          } : {}),
         });
       } catch (err: any) {
         if (err?.code === '23505') {
@@ -8333,6 +8398,43 @@ export async function registerRoutes(app: Express): Promise<Server> {
     res.setHeader('Content-Type', 'application/pdf');
     res.setHeader('Content-Disposition', isInline ? `inline; filename="${filename}"` : `attachment; filename="${filename}"`);
     res.end(pdfBytes);
+  });
+
+  // ---- Download a frozen VS PNG snapshot for a specific version ----
+  app.get("/api/proposals/:id/versions/:versionId/visual-scope/:type", async (req, res) => {
+    if (!req.isAuthenticated()) return res.status(401).send("Not authenticated");
+    const user = req.user as UserWithContext;
+    if (!canAccessProposals(user.activeRole)) return res.status(403).send("Insufficient permissions");
+
+    const version = await storage.getProposalVersionById(req.params.versionId, user.activeCompanyId);
+    if (!version) return res.status(404).send("Version not found");
+
+    const type = req.params.type as "combined" | "base" | "overlay";
+    const pathMap: Record<string, string | null | undefined> = {
+      combined: version.vsCombinedPath,
+      base: version.vsBasePath,
+      overlay: version.vsOverlayPath,
+    };
+    const gcsPath = pathMap[type];
+    if (!gcsPath) return res.status(404).send("Visual Scope snapshot not found for this version");
+
+    let imgBytes: Buffer;
+    try {
+      const objectStorageService = new ObjectStorageService();
+      imgBytes = await objectStorageService.downloadByPath(gcsPath);
+    } catch (err) {
+      console.error("VS snapshot download failed:", err);
+      return res.status(500).send("Failed to retrieve Visual Scope snapshot.");
+    }
+
+    const inline = req.query.inline === "1";
+    res.setHeader("Content-Type", "image/png");
+    res.setHeader("Content-Disposition",
+      inline
+        ? `inline; filename="visual-scope-${type}.png"`
+        : `attachment; filename="visual-scope-${type}.png"`
+    );
+    res.send(imgBytes);
   });
 
   // ─── Visual Scope Sheets ────────────────────────────────────────────────────

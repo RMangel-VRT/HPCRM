@@ -202,9 +202,12 @@ export async function renderVisualScope(
   }
 
   const objectStorage = new ObjectStorageService();
-  const gcsFile = await objectStorage.getObjectEntityFile(sheet.baseImagePath);
-  const [imgData] = await gcsFile.download();
-  const imgBuffer = imgData as Buffer;
+  let imgBuffer: Buffer;
+  try {
+    imgBuffer = await objectStorage.downloadByPath(sheet.baseImagePath);
+  } catch (err: any) {
+    throw new Error(`Visual Scope export failed: ${err?.message ?? "Object not found"}`);
+  }
 
   if (imgBuffer.length > MAX_IMAGE_BYTES) {
     throw new Error("BASE_IMAGE_TOO_LARGE");
