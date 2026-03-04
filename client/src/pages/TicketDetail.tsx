@@ -62,7 +62,7 @@ import {
 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { queryClient, apiRequest } from "@/lib/queryClient";
-import type { Ticket, TicketType, TicketTypeStatus, TicketTypeField, TicketFieldValue, TicketComment, TicketStatusHistory, Customer, Contact, Contract, ContractService, WorkType, TicketLink, User as UserType, CompanyUser, CustomerRateSheet, EmailLogWithDetails } from "@shared/schema";
+import type { Ticket, TicketType, TicketTypeStatus, TicketTypeField, TicketFieldValue, TicketComment, TicketStatusHistory, Customer, Contact, Contract, ContractService, WorkType, TicketLink, User as UserType, CompanyUser, CustomerRateSheet, EmailLogWithDetails, ProposalWithDetails } from "@shared/schema";
 import { WORK_TYPE_CATALOG } from "@shared/workTypeCatalog";
 import { format, formatDistanceToNow } from "date-fns";
 import { MapContainer, TileLayer, Marker } from "react-leaflet";
@@ -329,6 +329,7 @@ export default function TicketDetail() {
       queryClient.invalidateQueries({ queryKey: ["/api/tickets"] });
       queryClient.invalidateQueries({ queryKey: ["/api/tickets/my"] });
       queryClient.invalidateQueries({ queryKey: ["/api/pending-invoices"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/tickets", ticketId, "proposals"] });
       setShowStatusDialog(false);
       setPendingStatusId(null);
       setFieldInputs({});
@@ -396,6 +397,16 @@ export default function TicketDetail() {
   const showProposals = isAdminOrOffice
     && (ticketWorkType === "estimate_request" || ticketWorkType === "project")
     && details?.ticketType?.name !== "Project (No Estimate)";
+
+  const { data: linkedProposals = [], isLoading: proposalsLoading } = useQuery<ProposalWithDetails[]>({
+    queryKey: ["/api/tickets", ticketId, "proposals"],
+    queryFn: async () => {
+      const res = await fetch(`/api/tickets/${ticketId}/proposals`, { credentials: "include" });
+      if (!res.ok) return [];
+      return res.json();
+    },
+    enabled: showProposals && !!ticketId,
+  });
 
   const customerId = details?.ticket?.customerId;
   const { data: customerContacts = [] } = useQuery<Contact[]>({
@@ -1095,18 +1106,83 @@ export default function TicketDetail() {
               ticketTitle: ticket?.title ?? "",
               ...(ticket?.customerId ? { customerId: ticket.customerId } : {}),
             });
+            const proposalMakerUrl = `/dashboard/tools/proposals?${params.toString()}`;
+
+            if (proposalsLoading) {
+              return (
+                <div className="h-9 bg-muted animate-pulse rounded-md" />
+              );
+            }
+
+            if (linkedProposals.length === 0) {
+              return (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="gap-2 w-full justify-start"
+                  onClick={() => setLocation(proposalMakerUrl)}
+                  data-testid="button-open-proposal-maker"
+                >
+                  <FileText className="w-4 h-4" />
+                  Open Proposal Maker
+                  <ExternalLink className="w-3 h-3 ml-auto opacity-50" />
+                </Button>
+              );
+            }
+
             return (
-              <Button
-                variant="outline"
-                size="sm"
-                className="gap-2 w-full justify-start"
-                onClick={() => setLocation(`/dashboard/tools/proposals?${params.toString()}`)}
-                data-testid="button-open-proposal-maker"
-              >
-                <FileText className="w-4 h-4" />
-                Open Proposal Maker
-                <ExternalLink className="w-3 h-3 ml-auto opacity-50" />
-              </Button>
+              <div className="flex flex-col gap-2">
+                <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">
+                  {linkedProposals.length === 1 ? "Proposal" : "Proposals"}
+                </p>
+                {linkedProposals.map((proposal) => {
+                  const statusBadge = (() => {
+                    if (proposal.status === "finalized") {
+                      return <Badge variant="outline" className="text-green-600 dark:text-green-400 border-green-500/50" data-testid={`badge-proposal-status-${proposal.id}`}>Finalized</Badge>;
+                    }
+                    if (proposal.status === "published") {
+                      return <Badge data-testid={`badge-proposal-status-${proposal.id}`}>Published</Badge>;
+                    }
+                    return <Badge variant="secondary" data-testid={`badge-proposal-status-${proposal.id}`}>Draft</Badge>;
+                  })();
+
+                  return (
+                    <Card key={proposal.id} data-testid={`card-linked-proposal-${proposal.id}`}>
+                      <CardContent className="p-3">
+                        <div className="flex items-start justify-between gap-2 flex-wrap">
+                          <div className="flex items-center gap-2 min-w-0">
+                            <FileText className="w-4 h-4 shrink-0 text-muted-foreground" />
+                            <span className="text-sm font-medium truncate">{proposal.title}</span>
+                          </div>
+                          {statusBadge}
+                        </div>
+                        <div className="mt-2">
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            className="gap-2 w-full justify-start"
+                            onClick={() => setLocation(`/dashboard/tools/proposals/${proposal.id}`)}
+                            data-testid={`button-view-proposal-${proposal.id}`}
+                          >
+                            View Proposal
+                            <ExternalLink className="w-3 h-3 ml-auto opacity-50" />
+                          </Button>
+                        </div>
+                      </CardContent>
+                    </Card>
+                  );
+                })}
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="gap-2 w-full justify-start text-muted-foreground"
+                  onClick={() => setLocation(proposalMakerUrl)}
+                  data-testid="button-open-proposal-maker"
+                >
+                  <Plus className="w-4 h-4" />
+                  Open Proposal Maker
+                </Button>
+              </div>
             );
           })()}
 
