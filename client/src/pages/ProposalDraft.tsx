@@ -34,6 +34,8 @@ import {
   Map,
   X,
   ExternalLink,
+  Link2,
+  Unlink,
 } from "lucide-react";
 import { Checkbox } from "@/components/ui/checkbox";
 import { apiRequest, queryClient } from "@/lib/queryClient";
@@ -103,12 +105,15 @@ export default function ProposalDraft() {
   });
 
   const saveMutation = useMutation({
-    mutationFn: async (updates: Record<string, string | null>) => {
+    mutationFn: async (updates: Record<string, string | boolean | null>) => {
       return apiRequest("PATCH", `/api/proposals/${id}`, updates);
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/proposals", id] });
       queryClient.invalidateQueries({ queryKey: ["/api/proposals"] });
+      if (linkedTicketId) {
+        queryClient.invalidateQueries({ queryKey: ["/api/tickets", linkedTicketId, "proposals"] });
+      }
     },
     onError: () => {
       toast({ title: "Save failed", description: "Could not save changes", variant: "destructive" });
@@ -286,6 +291,16 @@ export default function ProposalDraft() {
   const hasVersions = versions.length > 0;
   const nextVersionNumber = hasVersions ? (versions[versions.length - 1].versionNumber + 1) : 1;
 
+  const getStatusBadge = (status: string | null | undefined) => {
+    if (status === "finalized") {
+      return <Badge variant="outline" className="text-green-600 dark:text-green-400 border-green-500/50" data-testid="badge-draft-status">Finalized</Badge>;
+    }
+    if (status === "published") {
+      return <Badge data-testid="badge-draft-status">Published</Badge>;
+    }
+    return <Badge variant="secondary" data-testid="badge-draft-status">Draft</Badge>;
+  };
+
   if (isLoading) {
     return (
       <div className="p-6 max-w-3xl mx-auto">
@@ -348,7 +363,7 @@ export default function ProposalDraft() {
           <h1 className="text-xl font-semibold tracking-tight" data-testid="text-proposal-title">
             {proposal.title}
           </h1>
-          <Badge variant="secondary" data-testid="badge-draft-status">Draft</Badge>
+          {getStatusBadge(proposal.status)}
           <div className="flex-1" />
           {estimatePdf ? (
             <>
@@ -404,6 +419,41 @@ export default function ProposalDraft() {
           </Link>
         </p>
       </div>
+
+      {/* Linked Ticket Banner */}
+      {linkedTicket && (
+        <div
+          className="flex items-center gap-3 p-3 rounded-md border bg-muted/40 flex-wrap"
+          data-testid="div-linked-ticket-banner"
+        >
+          <Link2 className="w-4 h-4 text-muted-foreground shrink-0" />
+          <div className="min-w-0 flex-1">
+            <p className="text-xs text-muted-foreground">Linked to ticket</p>
+            <p className="text-sm font-medium truncate">{linkedTicket.title}</p>
+          </div>
+          <div className="flex items-center gap-2 shrink-0">
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={() => navigate(`/dashboard/tickets/${linkedTicket.id}`)}
+              data-testid="button-view-linked-ticket"
+            >
+              <ExternalLink className="w-3.5 h-3.5 mr-1.5" />
+              View Ticket
+            </Button>
+            <Button
+              size="sm"
+              variant="ghost"
+              onClick={() => saveMutation.mutate({ ticketId: null })}
+              disabled={saveMutation.isPending}
+              data-testid="button-unlink-ticket"
+            >
+              <Unlink className="w-3.5 h-3.5 mr-1.5" />
+              Unlink
+            </Button>
+          </div>
+        </div>
+      )}
 
       {/* Version banner — shown when prior versions exist */}
       {hasVersions && (

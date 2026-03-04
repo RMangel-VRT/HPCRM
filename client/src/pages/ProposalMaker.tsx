@@ -9,7 +9,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from "@/components/ui/command";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
-import { ClipboardList, Plus, ChevronDown, Check, CalendarDays, Hash, ArrowLeft, Link2, FileText, Loader2, X } from "lucide-react";
+import { ClipboardList, Plus, ChevronDown, Check, CalendarDays, Hash, ArrowLeft, Link2, FileText, Loader2 } from "lucide-react";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import type { ProposalWithDetails } from "@shared/schema";
@@ -71,6 +71,9 @@ export default function ProposalMaker() {
     },
     onSuccess: async (res, proposalId) => {
       queryClient.invalidateQueries({ queryKey: ["/api/proposals"] });
+      if (contextTicketId) {
+        queryClient.invalidateQueries({ queryKey: ["/api/tickets", contextTicketId, "proposals"] });
+      }
       setLinkDialogOpen(false);
       navigate(`/dashboard/tools/proposals/${proposalId}`);
     },
@@ -112,12 +115,21 @@ export default function ProposalMaker() {
     }
   };
 
-  const unlinkableProposals = proposals.filter(p => !p.ticketId);
-  const filteredLinkable = unlinkableProposals.filter(p =>
+  const filteredLinkable = proposals.filter(p =>
     !linkSearch ||
     p.title.toLowerCase().includes(linkSearch.toLowerCase()) ||
     (p.customerName ?? "").toLowerCase().includes(linkSearch.toLowerCase())
   );
+
+  const getStatusBadge = (status: string | null | undefined) => {
+    if (status === "finalized") {
+      return <Badge variant="outline" className="text-green-600 dark:text-green-400 border-green-500/50">Finalized</Badge>;
+    }
+    if (status === "published") {
+      return <Badge>Published</Badge>;
+    }
+    return <Badge variant="secondary">Draft</Badge>;
+  };
 
   return (
     <div className="p-6 max-w-5xl mx-auto">
@@ -208,7 +220,7 @@ export default function ProposalMaker() {
                     {p.title}
                   </CardTitle>
                   <div className="flex items-center gap-1.5 flex-wrap">
-                    <Badge variant="secondary" data-testid={`badge-draft-${p.id}`}>Draft</Badge>
+                    <span data-testid={`badge-status-${p.id}`}>{getStatusBadge(p.status)}</span>
                     {p.versions && p.versions.length > 0 && (
                       <Badge variant="outline" data-testid={`badge-latest-version-${p.id}`}>
                         v{p.versions[p.versions.length - 1].versionNumber}
@@ -219,6 +231,12 @@ export default function ProposalMaker() {
                 <p className="text-sm text-muted-foreground" data-testid={`text-proposal-customer-${p.id}`}>
                   {p.customerName}
                 </p>
+                {p.ticketId && (
+                  <Badge variant="outline" className="text-xs gap-1 mt-1 w-fit" data-testid={`badge-linked-ticket-${p.id}`}>
+                    <Link2 className="w-3 h-3" />
+                    Linked to ticket
+                  </Badge>
+                )}
               </CardHeader>
               <CardContent>
                 <div className="flex items-center gap-4 text-xs text-muted-foreground flex-wrap">
@@ -336,32 +354,45 @@ export default function ProposalMaker() {
               data-testid="input-link-search"
             />
             <div className="space-y-2 max-h-72 overflow-y-auto">
-              {filteredLinkable.length === 0 ? (
+              {proposals.length === 0 ? (
                 <div className="py-8 text-center text-sm text-muted-foreground">
-                  {unlinkableProposals.length === 0
-                    ? "All existing proposals are already linked to tickets."
-                    : "No proposals match your search."}
+                  No proposals found.
+                </div>
+              ) : filteredLinkable.length === 0 ? (
+                <div className="py-8 text-center text-sm text-muted-foreground">
+                  No proposals match your search.
                 </div>
               ) : (
-                filteredLinkable.map(p => (
-                  <button
-                    key={p.id}
-                    className="w-full text-left flex items-center justify-between p-3 rounded-md border hover-elevate gap-3"
-                    onClick={() => linkMutation.mutate(p.id)}
-                    disabled={linkMutation.isPending}
-                    data-testid={`button-link-proposal-${p.id}`}
-                  >
-                    <div className="min-w-0 flex-1">
-                      <p className="text-sm font-medium truncate">{p.title}</p>
-                      <p className="text-xs text-muted-foreground">{p.customerName} · {formatDate(p.proposalDate)}</p>
-                    </div>
-                    {linkMutation.isPending ? (
-                      <Loader2 className="w-4 h-4 animate-spin text-muted-foreground shrink-0" />
-                    ) : (
-                      <Link2 className="w-4 h-4 text-muted-foreground shrink-0" />
-                    )}
-                  </button>
-                ))
+                filteredLinkable.map(p => {
+                  const alreadyLinkedHere = p.ticketId === contextTicketId;
+                  return (
+                    <button
+                      key={p.id}
+                      className="w-full text-left flex items-center justify-between p-3 rounded-md border gap-3 disabled:opacity-60 disabled:cursor-not-allowed hover-elevate"
+                      onClick={() => !alreadyLinkedHere && linkMutation.mutate(p.id)}
+                      disabled={linkMutation.isPending || alreadyLinkedHere}
+                      data-testid={`button-link-proposal-${p.id}`}
+                    >
+                      <div className="min-w-0 flex-1">
+                        <p className="text-sm font-medium truncate">{p.title}</p>
+                        <p className="text-xs text-muted-foreground">{p.customerName} · {formatDate(p.proposalDate)}</p>
+                      </div>
+                      <div className="shrink-0 flex items-center gap-2">
+                        {alreadyLinkedHere && (
+                          <Badge variant="secondary" className="text-xs">Already linked</Badge>
+                        )}
+                        {!alreadyLinkedHere && p.ticketId && (
+                          <Badge variant="outline" className="text-xs">Relink</Badge>
+                        )}
+                        {linkMutation.isPending && !alreadyLinkedHere ? (
+                          <Loader2 className="w-4 h-4 animate-spin text-muted-foreground" />
+                        ) : !alreadyLinkedHere ? (
+                          <Link2 className="w-4 h-4 text-muted-foreground" />
+                        ) : null}
+                      </div>
+                    </button>
+                  );
+                })
               )}
             </div>
           </div>
