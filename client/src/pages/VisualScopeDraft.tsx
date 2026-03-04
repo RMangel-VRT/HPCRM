@@ -27,7 +27,7 @@ function formatBytes(bytes: number) {
 }
 
 const MAP_RENDER_WIDTH = 2000;
-const MAP_RENDER_HEIGHT = 1600;
+const MAP_RENDER_HEIGHT = 2000;
 
 function MapCapture({
   token,
@@ -577,6 +577,11 @@ export default function VisualScopeDraft() {
 
   const captureParams = sheet.captureParams as CaptureParams | null | undefined;
 
+  const imgCacheKey = captureParams?.capturedAt
+    ?? sheet.baseImageSize?.toString()
+    ?? "1";
+  const baseImageApiUrl = `/api/visual-scope-sheets/${id}/base-image?v=${encodeURIComponent(imgCacheKey)}`;
+
   return (
     <div className="p-6 max-w-4xl mx-auto space-y-6">
       {/* Header */}
@@ -644,7 +649,7 @@ export default function VisualScopeDraft() {
                     )}
                   </Button>
                 )}
-                <a href={`/api/visual-scope-sheets/${id}/base-image`} download={sheet.baseImageFilename ?? "base-image"}>
+                <a href={baseImageApiUrl} download={sheet.baseImageFilename ?? "base-image"}>
                   <Button variant="outline" size="sm" data-testid="button-download-image">
                     <Download className="w-4 h-4 mr-1" /> Download
                   </Button>
@@ -669,7 +674,7 @@ export default function VisualScopeDraft() {
           <CardContent className="p-0 overflow-hidden rounded-b-md">
             <VisualScopeEditor
               sheetId={id!}
-              baseImagePath={`/api/visual-scope-sheets/${id}/base-image`}
+              baseImagePath={baseImageApiUrl}
               initialMarkup={(sheet.markupData as MarkupObject[]) ?? []}
               onSaved={() => queryClient.invalidateQueries({ queryKey: ["/api/visual-scope-sheets", id] })}
             />

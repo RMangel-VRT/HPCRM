@@ -8592,7 +8592,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       } else {
         const buffer = await objectStorage.downloadByPath(sheet.baseImagePath as string);
         res.set("Content-Type", (sheet as any).baseImageMimeType ?? "image/png");
-        res.set("Cache-Control", "private, max-age=300");
+        res.set("Cache-Control", "no-cache, private");
         res.send(buffer);
       }
     } catch (err) {
@@ -8708,7 +8708,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
 
     const targetWidth = Math.max(1200, Math.min(4000, Number(reqWidth)));
-    const targetHeight = Math.round(targetWidth * 4 / 5);
+    const targetHeight = targetWidth;
 
     // Mapbox Static API @2x doubles pixels; max CSS size is 1280
     const cssW = Math.min(Math.round(targetWidth / 2), 1280);
