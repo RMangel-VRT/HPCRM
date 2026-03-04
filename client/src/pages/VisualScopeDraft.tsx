@@ -11,7 +11,8 @@ import {
   SheetHeader,
   SheetTitle,
 } from "@/components/ui/sheet";
-import { ArrowLeft, Download, RefreshCw, Camera, Upload, ImageIcon, Loader2, Info, Eye, Zap } from "lucide-react";
+import { ArrowLeft, Download, RefreshCw, Camera, Upload, ImageIcon, Loader2, Info, Eye, Zap, RotateCcw, Compass } from "lucide-react";
+import { Slider } from "@/components/ui/slider";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import type { VisualScopeSheetWithCustomer, MarkupObject, CaptureParams } from "@shared/schema";
@@ -26,7 +27,7 @@ function formatBytes(bytes: number) {
 }
 
 const MAP_RENDER_WIDTH = 2000;
-const MAP_RENDER_HEIGHT = 1200;
+const MAP_RENDER_HEIGHT = 1600;
 
 function MapCapture({
   token,
@@ -34,12 +35,14 @@ function MapCapture({
   onCapture,
   onMapReady,
   onWebGLError,
+  onBearingChange,
 }: {
   token: string;
   mapRef: React.RefObject<mapboxgl.Map | null>;
   onCapture: (blob: Blob) => void;
   onMapReady: (ready: boolean) => void;
   onWebGLError?: () => void;
+  onBearingChange?: (bearing: number) => void;
 }) {
   const containerRef = useRef<HTMLDivElement>(null);
   const [mapReady, setMapReady] = useState(false);
@@ -69,6 +72,9 @@ function MapCapture({
       map.on("load", () => {
         setMapReady(true);
         onMapReady(true);
+      });
+      map.on("rotate", () => {
+        onBearingChange?.(map.getBearing());
       });
       map.on("error", (e) => {
         console.warn("Mapbox error:", e);
@@ -191,10 +197,22 @@ function CaptureUI({
   const [highResCapturing, setHighResCapturing] = useState(false);
   const [webglFallbackMode, setWebglFallbackMode] = useState(false);
   const [mapReady, setMapReady] = useState(false);
+  const [bearing, setBearing] = useState(0);
   const [manualLat, setManualLat] = useState("");
   const [manualLng, setManualLng] = useState("");
   const [manualZoom, setManualZoom] = useState("14");
   const mapRef = useRef<mapboxgl.Map | null>(null);
+
+  function handleBearingSlider(value: number[]) {
+    const b = value[0];
+    setBearing(b);
+    mapRef.current?.setBearing(b);
+  }
+
+  function handleResetNorth() {
+    setBearing(0);
+    mapRef.current?.rotateTo(0, { duration: 400 } as any);
+  }
 
   async function handleHighResCapture(params?: { lat: number; lng: number; zoom: number }) {
     const map = mapRef.current;
@@ -251,14 +269,49 @@ function CaptureUI({
 
       {/* Map mode */}
       {token && mode === "map" && !webglFallbackMode && (
-        <div className="space-y-2">
+        <div className="space-y-3">
           <MapCapture
             token={token}
             mapRef={mapRef}
             onCapture={onCapture}
             onMapReady={setMapReady}
             onWebGLError={() => setWebglFallbackMode(true)}
+            onBearingChange={setBearing}
           />
+          {/* Rotation control */}
+          {mapReady && (
+            <div className="space-y-1.5">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
+                  <Compass className="w-3.5 h-3.5" />
+                  <span>Rotation</span>
+                </div>
+                <div className="flex items-center gap-2">
+                  <span className="text-xs font-mono text-foreground w-12 text-right">
+                    {bearing >= 0 ? bearing.toFixed(0) : (360 + bearing).toFixed(0)}°
+                  </span>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="h-7 px-2 text-xs gap-1"
+                    onClick={handleResetNorth}
+                    data-testid="button-reset-north"
+                  >
+                    <RotateCcw className="w-3 h-3" />
+                    North
+                  </Button>
+                </div>
+              </div>
+              <Slider
+                min={-180}
+                max={180}
+                step={1}
+                value={[bearing]}
+                onValueChange={handleBearingSlider}
+                data-testid="slider-bearing"
+              />
+            </div>
+          )}
           <Button
             className="w-full"
             onClick={() => handleHighResCapture()}
@@ -272,7 +325,7 @@ function CaptureUI({
             )}
           </Button>
           <p className="text-xs text-muted-foreground text-center">
-            Pan and zoom the map to frame the area, then capture. High-Res is recommended for proposals.
+            Pan, zoom, and rotate to frame the area, then capture. High-Res is recommended for proposals.
           </p>
           <button
             className="text-xs text-muted-foreground underline underline-offset-2 w-full text-center"
@@ -591,7 +644,7 @@ export default function VisualScopeDraft() {
                     )}
                   </Button>
                 )}
-                <a href={sheet.baseImagePath} download={sheet.baseImageFilename ?? "base-image"}>
+                <a href={`/api/visual-scope-sheets/${id}/base-image`} download={sheet.baseImageFilename ?? "base-image"}>
                   <Button variant="outline" size="sm" data-testid="button-download-image">
                     <Download className="w-4 h-4 mr-1" /> Download
                   </Button>
@@ -616,7 +669,7 @@ export default function VisualScopeDraft() {
           <CardContent className="p-0 overflow-hidden rounded-b-md">
             <VisualScopeEditor
               sheetId={id!}
-              baseImagePath={sheet.baseImagePath}
+              baseImagePath={`/api/visual-scope-sheets/${id}/base-image`}
               initialMarkup={(sheet.markupData as MarkupObject[]) ?? []}
               onSaved={() => queryClient.invalidateQueries({ queryKey: ["/api/visual-scope-sheets", id] })}
             />

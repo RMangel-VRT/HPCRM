@@ -8577,6 +8577,30 @@ export async function registerRoutes(app: Express): Promise<Server> {
     res.json(sheet);
   });
 
+  app.get("/api/visual-scope-sheets/:id/base-image", async (req, res) => {
+    if (!req.isAuthenticated()) return res.status(401).send("Not authenticated");
+    const user = req.user as UserWithContext;
+    if (!canAccessVisualScope(user.activeRole)) return res.status(403).send("Insufficient permissions");
+    const sheet = await storage.getVisualScopeSheet(req.params.id, user.activeCompanyId);
+    if (!sheet) return res.status(404).json({ error: "Not found" });
+    if (!sheet.baseImagePath) return res.status(404).json({ error: "No base image" });
+    try {
+      const objectStorage = new ObjectStorageService();
+      if ((sheet.baseImagePath as string).startsWith("/objects/")) {
+        const file = await objectStorage.getObjectEntityFile(sheet.baseImagePath as string);
+        await objectStorage.downloadObject(file, res);
+      } else {
+        const buffer = await objectStorage.downloadByPath(sheet.baseImagePath as string);
+        res.set("Content-Type", (sheet as any).baseImageMimeType ?? "image/png");
+        res.set("Cache-Control", "private, max-age=300");
+        res.send(buffer);
+      }
+    } catch (err) {
+      console.error("Error serving VS base image:", err);
+      res.status(500).json({ error: "Failed to serve image" });
+    }
+  });
+
   app.post("/api/visual-scope-sheets", async (req, res) => {
     if (!req.isAuthenticated()) return res.status(401).send("Not authenticated");
     const user = req.user as UserWithContext;
@@ -8684,7 +8708,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
 
     const targetWidth = Math.max(1200, Math.min(4000, Number(reqWidth)));
-    const targetHeight = Math.round(targetWidth * 9 / 16);
+    const targetHeight = Math.round(targetWidth * 4 / 5);
 
     // Mapbox Static API @2x doubles pixels; max CSS size is 1280
     const cssW = Math.min(Math.round(targetWidth / 2), 1280);

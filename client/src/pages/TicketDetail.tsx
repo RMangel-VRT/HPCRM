@@ -406,6 +406,7 @@ export default function TicketDetail() {
       return res.json();
     },
     enabled: showProposals && !!ticketId,
+    staleTime: 0,
   });
 
   const customerId = details?.ticket?.customerId;
