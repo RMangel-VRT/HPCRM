@@ -56,7 +56,10 @@ export default function ProposalMaker() {
       queryClient.invalidateQueries({ queryKey: ["/api/proposals"] });
       setCreateDialogOpen(false);
       resetCreateDialog();
-      navigate(`/dashboard/tools/proposals/${data.id}`);
+      const dest = contextTicketId
+        ? `/dashboard/tools/proposals/${data.id}?ticketId=${encodeURIComponent(contextTicketId)}&ticketTitle=${encodeURIComponent(contextTicketTitle ?? "")}`
+        : `/dashboard/tools/proposals/${data.id}`;
+      navigate(dest);
     },
     onError: () => {
       toast({ title: "Error", description: "Failed to create proposal", variant: "destructive" });
@@ -75,7 +78,10 @@ export default function ProposalMaker() {
         queryClient.invalidateQueries({ queryKey: ["/api/tickets", contextTicketId, "proposals"] });
       }
       setLinkDialogOpen(false);
-      navigate(`/dashboard/tools/proposals/${proposalId}`);
+      const dest = contextTicketId
+        ? `/dashboard/tools/proposals/${proposalId}?ticketId=${encodeURIComponent(contextTicketId)}&ticketTitle=${encodeURIComponent(contextTicketTitle ?? "")}`
+        : `/dashboard/tools/proposals/${proposalId}`;
+      navigate(dest);
     },
     onError: () => {
       toast({ title: "Error", description: "Failed to link proposal", variant: "destructive" });

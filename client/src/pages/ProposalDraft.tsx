@@ -1,6 +1,6 @@
 import { useState, useRef, useCallback } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
-import { Link, useLocation, useParams } from "wouter";
+import { Link, useLocation, useParams, useSearch } from "wouter";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -53,7 +53,12 @@ function formatDateTime(ts: string | Date) {
 export default function ProposalDraft() {
   const { id } = useParams<{ id: string }>();
   const [, navigate] = useLocation();
+  const search = useSearch();
   const { toast } = useToast();
+
+  const urlParams = new URLSearchParams(search);
+  const urlTicketId = urlParams.get("ticketId") || null;
+  const urlTicketTitle = urlParams.get("ticketTitle") || null;
 
   const [title, setTitle] = useState("");
   const [proposalDate, setProposalDate] = useState("");
@@ -347,17 +352,22 @@ export default function ProposalDraft() {
               Proposal Maker
             </button>
           </Link>
-          {linkedTicket && (
-            <>
-              <span className="text-muted-foreground/40">|</span>
-              <Link href={`/dashboard/tickets/${linkedTicket.id}`}>
-                <button className="flex items-center gap-1 hover:text-foreground transition-colors" data-testid="link-back-to-ticket">
-                  <ArrowLeft className="w-3.5 h-3.5" />
-                  Ticket: {linkedTicket.title}
-                </button>
-              </Link>
-            </>
-          )}
+          {(() => {
+            const backId = urlTicketId || linkedTicketId;
+            const backTitle = urlTicketTitle || linkedTicket?.title;
+            if (!backId || !backTitle) return null;
+            return (
+              <>
+                <span className="text-muted-foreground/40">|</span>
+                <Link href={`/dashboard/tickets/${backId}`}>
+                  <button className="flex items-center gap-1 hover:text-foreground transition-colors" data-testid="link-back-to-ticket">
+                    <ArrowLeft className="w-3.5 h-3.5" />
+                    {backTitle}
+                  </button>
+                </Link>
+              </>
+            );
+          })()}
         </div>
         <div className="flex items-center gap-3 flex-wrap">
           <h1 className="text-xl font-semibold tracking-tight" data-testid="text-proposal-title">

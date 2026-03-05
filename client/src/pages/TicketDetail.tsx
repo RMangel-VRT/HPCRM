@@ -1162,7 +1162,13 @@ export default function TicketDetail() {
                             variant="outline"
                             size="sm"
                             className="gap-2 w-full justify-start"
-                            onClick={() => setLocation(`/dashboard/tools/proposals/${proposal.id}`)}
+                            onClick={() => {
+                              const p = new URLSearchParams({
+                                ticketId: ticketId ?? "",
+                                ticketTitle: details?.ticket?.title ?? "",
+                              });
+                              setLocation(`/dashboard/tools/proposals/${proposal.id}?${p.toString()}`);
+                            }}
                             data-testid={`button-view-proposal-${proposal.id}`}
                           >
                             View Proposal
