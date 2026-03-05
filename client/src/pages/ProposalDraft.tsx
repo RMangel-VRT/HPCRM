@@ -76,6 +76,7 @@ export default function ProposalDraft() {
 
   const pdfInputRef = useRef<HTMLInputElement>(null);
   const imgInputRef = useRef<HTMLInputElement>(null);
+  const scopeRef = useRef<HTMLTextAreaElement>(null);
 
   const { data: proposal, isLoading } = useQuery<ProposalWithDetails>({
     queryKey: ["/api/proposals", id],
@@ -132,6 +133,23 @@ export default function ProposalDraft() {
       saveMutation.mutate({ [field]: value || (field === "estimateNumber" ? null : value) });
     }
   }, [proposal, saveMutation]);
+
+  const insertPageBreak = () => {
+    const ta = scopeRef.current;
+    const marker = '\n[PAGE BREAK]\n';
+    const start = ta ? ta.selectionStart ?? scopeOfWork.length : scopeOfWork.length;
+    const end = ta ? ta.selectionEnd ?? scopeOfWork.length : scopeOfWork.length;
+    const newValue = scopeOfWork.slice(0, start) + marker + scopeOfWork.slice(end);
+    setScopeOfWork(newValue);
+    saveMutation.mutate({ scopeOfWork: newValue });
+    if (ta) {
+      setTimeout(() => {
+        ta.focus();
+        const newPos = start + marker.length;
+        ta.setSelectionRange(newPos, newPos);
+      }, 0);
+    }
+  };
 
   const deleteFileMutation = useMutation({
     mutationFn: async (fileId: string) => {
@@ -516,9 +534,23 @@ export default function ProposalDraft() {
             />
           </div>
           <div className="space-y-1.5">
-            <Label htmlFor="field-scope">Scope of Work</Label>
+            <div className="flex items-center justify-between gap-2">
+              <Label htmlFor="field-scope">Scope of Work</Label>
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                onClick={insertPageBreak}
+                className="h-auto py-0.5 px-2 text-xs text-muted-foreground gap-1"
+                data-testid="button-insert-page-break"
+              >
+                <FileText className="w-3 h-3" />
+                Insert Page Break
+              </Button>
+            </div>
             <Textarea
               id="field-scope"
+              ref={scopeRef}
               value={scopeOfWork}
               onChange={(e) => setScopeOfWork(e.target.value)}
               onBlur={(e) => handleBlur("scopeOfWork", e.target.value)}
@@ -526,6 +558,9 @@ export default function ProposalDraft() {
               placeholder="Describe the work to be performed..."
               data-testid="input-scope-of-work"
             />
+            <p className="text-xs text-muted-foreground">
+              Place your cursor where you want a new page, then click "Insert Page Break". The marker <code className="bg-muted px-1 rounded text-xs">[PAGE BREAK]</code> will force a new page in the PDF at that point.
+            </p>
           </div>
         </CardContent>
       </Card>

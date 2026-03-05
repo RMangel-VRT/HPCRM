@@ -7919,6 +7919,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
     let brandedPageCounter = 0;
     const brandedGuard = { active: false };
+    // Track current body font state — PDFKit save()/restore() does NOT restore font state,
+    // so after drawFooter sets fontSize(7) the font leaks into overflow text unless we restore it.
+    let bodyFontState = { font: 'Helvetica', size: 10.5, color: '#222222' };
     function drawPageDecorations(d: InstanceType<typeof PDFDocumentKit>, num: number) {
       if (brandedGuard.active) return;
       brandedGuard.active = true;
@@ -7936,6 +7939,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
     doc.on('pageAdded', () => {
       brandedPageCounter++;
       drawPageDecorations(doc, brandedPageCounter);
+      // Restore body font after footer drawing — footer sets fontSize(7) which would otherwise
+      // leak into any text that overflows onto this new page.
+      doc.fillColor(bodyFontState.color).fontSize(bodyFontState.size).font(bodyFontState.font);
     });
 
     const pageWidth = doc.page.width;
@@ -8029,13 +8035,17 @@ export async function registerRoutes(app: Express): Promise<Server> {
     doc.moveDown(0.8);
 
     // --- Scope body text ---
-    doc.fillColor('#222222').fontSize(10.5).font('Helvetica');
+    bodyFontState = { font: 'Helvetica', size: 10.5, color: '#222222' };
+    doc.fillColor(bodyFontState.color).fontSize(bodyFontState.size).font(bodyFontState.font);
 
     const scopeText = proposal.scopeOfWork || '';
     const lines = scopeText.split('\n');
     for (const line of lines) {
       const trimmed = line.trim();
-      if (trimmed === '') {
+      if (trimmed === '[PAGE BREAK]') {
+        doc.addPage();
+        // pageAdded event fires: decorates the page and restores bodyFontState
+      } else if (trimmed === '') {
         doc.moveDown(0.5);
       } else if (line.trimStart().startsWith('-') || line.trimStart().startsWith('•')) {
         const bulletText = line.trimStart().replace(/^[-•]\s*/, '');
