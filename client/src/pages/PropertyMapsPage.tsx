@@ -312,6 +312,7 @@ function CustomerMapManager({ customerId, customerName, onClose }: { customerId:
           <LayerMapViewer
             customerId={customerId}
             fullScreen={false}
+            isVisible={activeTab === "view"}
           />
         </TabsContent>
 

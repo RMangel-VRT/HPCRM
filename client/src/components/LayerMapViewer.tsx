@@ -52,15 +52,19 @@ interface LayerMapViewerProps {
   initialZoom?: number;
   fullScreen?: boolean;
   onClose?: () => void;
+  isVisible?: boolean;
 }
 
-function FitBounds({ bounds }: { bounds: L.LatLngBounds | null }) {
+function FitBounds({ bounds, fitTrigger }: { bounds: L.LatLngBounds | null; fitTrigger?: number }) {
   const map = useMap();
   useEffect(() => {
-    if (bounds && bounds.isValid()) {
+    if (!bounds || !bounds.isValid()) return;
+    const timer = setTimeout(() => {
+      map.invalidateSize();
       map.fitBounds(bounds, { padding: [50, 50] });
-    }
-  }, [map, bounds]);
+    }, 100);
+    return () => clearTimeout(timer);
+  }, [map, bounds, fitTrigger]);
   return null;
 }
 
@@ -70,12 +74,18 @@ export default function LayerMapViewer({
   initialZoom = 4,
   fullScreen = false,
   onClose,
+  isVisible,
 }: LayerMapViewerProps) {
   const [enabledLayers, setEnabledLayers] = useState<Set<string>>(new Set());
   const [layerData, setLayerData] = useState<Map<string, LayerData>>(new Map());
   const [showLayerPanel, setShowLayerPanel] = useState(true);
   const [bounds, setBounds] = useState<L.LatLngBounds | null>(null);
-  const [useSatellite, setUseSatellite] = useState(true); // Default to satellite view
+  const [useSatellite, setUseSatellite] = useState(true);
+  const [fitTrigger, setFitTrigger] = useState(0);
+
+  useEffect(() => {
+    if (isVisible) setFitTrigger(t => t + 1);
+  }, [isVisible]);
 
   const { data: mapLayers = [], isLoading: loadingLayers } = useQuery<CustomerMapLayer[]>({
     queryKey: ["/api/customers", customerId, "map-layers"],
@@ -389,7 +399,7 @@ export default function LayerMapViewer({
             maxZoom={19}
           />
         )}
-        <FitBounds bounds={bounds} />
+        <FitBounds bounds={bounds} fitTrigger={fitTrigger} />
 
         {Array.from(layerData.values()).map((data) => {
           if (!data.geoJson || !enabledLayers.has(data.layer.id)) return null;
