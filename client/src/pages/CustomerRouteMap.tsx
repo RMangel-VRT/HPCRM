@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
-import { Link, useLocation } from "wouter";
+import { useLocation } from "wouter";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { ArrowLeft, MapPin, Loader2, Map as MapIcon, Satellite } from "lucide-react";
@@ -11,15 +11,69 @@ import type { Customer } from "@shared/schema";
 import mapboxgl from "mapbox-gl";
 import "mapbox-gl/dist/mapbox-gl.css";
 
+const SOURCE_ID = "customers-dots";
+const LAYER_ID = "customers-circle";
+
+function buildGeoJSON(customers: Customer[]): GeoJSON.FeatureCollection {
+  return {
+    type: "FeatureCollection",
+    features: customers
+      .filter((c) => c.locationLat != null && c.locationLng != null)
+      .map((c) => ({
+        type: "Feature",
+        geometry: {
+          type: "Point",
+          coordinates: [c.locationLng!, c.locationLat!],
+        },
+        properties: {
+          id: c.id,
+          name: c.name,
+          street: c.street ?? "",
+          city: c.city ?? "",
+          state: c.state ?? "",
+          zip: c.zip ?? "",
+          status: c.status,
+        },
+      })),
+  };
+}
+
+function addLayerToMap(map: mapboxgl.Map, geojson: GeoJSON.FeatureCollection) {
+  if (map.getSource(SOURCE_ID)) {
+    (map.getSource(SOURCE_ID) as mapboxgl.GeoJSONSource).setData(geojson);
+    return;
+  }
+
+  map.addSource(SOURCE_ID, { type: "geojson", data: geojson });
+
+  map.addLayer({
+    id: LAYER_ID,
+    type: "circle",
+    source: SOURCE_ID,
+    paint: {
+      "circle-radius": 7,
+      "circle-color": [
+        "case",
+        ["==", ["get", "status"], "active"],
+        "#22c55e",
+        "#9ca3af",
+      ],
+      "circle-stroke-color": "#ffffff",
+      "circle-stroke-width": 2.5,
+    },
+  });
+}
+
 export default function CustomerRouteMap() {
   const [, setLocation] = useLocation();
   const { toast } = useToast();
   const { user } = useAuth();
   const mapContainerRef = useRef<HTMLDivElement>(null);
   const mapRef = useRef<mapboxgl.Map | null>(null);
-  const markersRef = useRef<mapboxgl.Marker[]>([]);
+  const popupRef = useRef<mapboxgl.Popup | null>(null);
   const [mapReady, setMapReady] = useState(false);
   const [useSatellite, setUseSatellite] = useState(true);
+  const [webglError, setWebglError] = useState(false);
 
   const canGeocode = user?.activeRole === "admin" || user?.activeRole === "office";
 
@@ -52,9 +106,7 @@ export default function CustomerRouteMap() {
     },
   });
 
-  const [webglError, setWebglError] = useState(false);
-
-  // Initialize map
+  // Initialize map once token is available
   useEffect(() => {
     const token = mapboxConfig?.token;
     if (!token || !mapContainerRef.current || mapRef.current) return;
@@ -91,83 +143,82 @@ export default function CustomerRouteMap() {
       console.warn("Mapbox error:", e);
     });
 
+    // Click handler — opens popup without touching the circle layer
+    map.on("click", LAYER_ID, (e) => {
+      const feature = e.features?.[0];
+      if (!feature) return;
+      const props = feature.properties as {
+        id: string; name: string; street: string; city: string; state: string; zip: string;
+      };
+      const coords = (feature.geometry as GeoJSON.Point).coordinates as [number, number];
+      const addressLine = [props.street, props.city, props.state, props.zip]
+        .filter(Boolean)
+        .join(", ");
+
+      if (popupRef.current) popupRef.current.remove();
+
+      popupRef.current = new mapboxgl.Popup({ offset: 12, closeButton: true, maxWidth: "260px" })
+        .setLngLat(coords)
+        .setHTML(`
+          <div style="font-family: system-ui, sans-serif; padding: 2px 0;">
+            <div style="font-weight: 600; font-size: 13px; margin-bottom: 4px; color: #111;">${props.name}</div>
+            <div style="font-size: 11px; color: #666; margin-bottom: 8px;">${addressLine}</div>
+            <a href="/dashboard/customers/${props.id}" style="font-size: 12px; color: #1a4d1a; font-weight: 500; text-decoration: none;">
+              View Customer →
+            </a>
+          </div>
+        `)
+        .addTo(map);
+    });
+
+    map.on("mouseenter", LAYER_ID, () => {
+      map.getCanvas().style.cursor = "pointer";
+    });
+    map.on("mouseleave", LAYER_ID, () => {
+      map.getCanvas().style.cursor = "";
+    });
+
     mapRef.current = map;
 
     return () => {
-      markersRef.current.forEach((m) => m.remove());
-      markersRef.current = [];
+      if (popupRef.current) { popupRef.current.remove(); popupRef.current = null; }
       map.remove();
       mapRef.current = null;
+      setMapReady(false);
     };
   }, [mapboxConfig?.token]);
 
-  // Update map style when satellite toggle changes
+  // Toggle satellite/street style — re-add layer after style reloads
   useEffect(() => {
     if (!mapRef.current || !mapReady) return;
-    mapRef.current.setStyle(
+    const map = mapRef.current;
+    const geojson = buildGeoJSON(mappedCustomers);
+
+    map.setStyle(
       useSatellite
         ? "mapbox://styles/mapbox/satellite-streets-v12"
         : "mapbox://styles/mapbox/streets-v12"
     );
-  }, [useSatellite, mapReady]);
 
-  // Place markers whenever customers or map readiness changes
+    map.once("styledata", () => {
+      addLayerToMap(map, geojson);
+    });
+  }, [useSatellite]);
+
+  // Update/add GeoJSON data whenever customers or map readiness changes
   useEffect(() => {
-    if (!mapRef.current || !mapReady || mappedCustomers.length === 0) return;
+    if (!mapRef.current || !mapReady) return;
+    const map = mapRef.current;
+    const geojson = buildGeoJSON(mappedCustomers);
 
-    // Remove existing markers
-    markersRef.current.forEach((m) => m.remove());
-    markersRef.current = [];
+    addLayerToMap(map, geojson);
 
-    const bounds = new mapboxgl.LngLatBounds();
-
-    for (const customer of mappedCustomers) {
-      const lat = customer.locationLat!;
-      const lng = customer.locationLng!;
-
-      const isActive = customer.status === "active";
-
-      // Custom marker element
-      const el = document.createElement("div");
-      el.style.cssText = `
-        width: 14px;
-        height: 14px;
-        border-radius: 50%;
-        background-color: ${isActive ? "#22c55e" : "#9ca3af"};
-        border: 2.5px solid white;
-        box-shadow: 0 1px 4px rgba(0,0,0,0.5);
-        cursor: pointer;
-        transition: transform 0.1s;
-      `;
-      el.addEventListener("mouseenter", () => { el.style.transform = "scale(1.4)"; });
-      el.addEventListener("mouseleave", () => { el.style.transform = "scale(1)"; });
-
-      const addressLine = [customer.street, customer.city, customer.state, customer.zip]
-        .filter(Boolean)
-        .join(", ");
-
-      const popup = new mapboxgl.Popup({ offset: 12, closeButton: true, maxWidth: "260px" })
-        .setHTML(`
-          <div style="font-family: system-ui, sans-serif; padding: 2px 0;">
-            <div style="font-weight: 600; font-size: 13px; margin-bottom: 4px; color: #111;">${customer.name}</div>
-            <div style="font-size: 11px; color: #666; margin-bottom: 8px;">${addressLine}</div>
-            <a href="/dashboard/customers/${customer.id}" style="font-size: 12px; color: #1a4d1a; font-weight: 500; text-decoration: none;">
-              View Customer →
-            </a>
-          </div>
-        `);
-
-      const marker = new mapboxgl.Marker({ element: el })
-        .setLngLat([lng, lat])
-        .setPopup(popup)
-        .addTo(mapRef.current!);
-
-      markersRef.current.push(marker);
-      bounds.extend([lng, lat]);
-    }
-
-    if (!bounds.isEmpty()) {
-      mapRef.current.fitBounds(bounds, { padding: 80, maxZoom: 14 });
+    if (mappedCustomers.length > 0) {
+      const bounds = new mapboxgl.LngLatBounds();
+      mappedCustomers.forEach((c) => bounds.extend([c.locationLng!, c.locationLat!]));
+      if (!bounds.isEmpty()) {
+        map.fitBounds(bounds, { padding: 80, maxZoom: 14 });
+      }
     }
   }, [mappedCustomers, mapReady]);
 
@@ -195,7 +246,6 @@ export default function CustomerRouteMap() {
         </div>
 
         <div className="flex items-center gap-2">
-          {/* Satellite toggle */}
           <Button
             variant="outline"
             size="sm"
@@ -209,7 +259,6 @@ export default function CustomerRouteMap() {
             )}
           </Button>
 
-          {/* Geocode button — admin/office only, hidden if no unmapped customers */}
           {canGeocode && unmappedCount > 0 && (
             <Button
               size="sm"
