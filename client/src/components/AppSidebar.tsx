@@ -191,8 +191,8 @@ export default function AppSidebar({
         <div className="flex items-center gap-3">
           <img src={logoImage} alt="High Plains Logo" className="w-10 h-10 rounded-full" />
           <div>
-            <h2 className="text-lg font-semibold tracking-tight">High Plains</h2>
-            <p className="text-xs text-muted-foreground">Property Maintenance</p>
+            <h2 className="text-lg font-semibold tracking-tight">{t("sidebar.highPlains")}</h2>
+            <p className="text-xs text-muted-foreground">{t("sidebar.propertyMaintenance")}</p>
           </div>
         </div>
       </SidebarHeader>

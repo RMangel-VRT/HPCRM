@@ -28,6 +28,7 @@ const en = {
     yes: "Yes",
     no: "No",
     ok: "OK",
+    unknown: "Unknown",
     confirm: "Confirm",
     actions: "Actions",
     status: "Status",

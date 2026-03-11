@@ -37,23 +37,18 @@ interface Ticket {
   } | null;
 }
 
-const priorityConfig: Record<string, { label: string; variant: "default" | "secondary" | "destructive" | "outline" }> = {
-  low: { label: "Low", variant: "secondary" },
-  medium: { label: "Medium", variant: "outline" },
-  high: { label: "High", variant: "default" },
-  urgent: { label: "Urgent", variant: "destructive" },
-};
-
-const workTypeLabels: Record<string, string> = {
-  contract: "Contract Work",
-  extra_work: "Extra Billable",
-  project: "Project",
-  admin: "Admin",
-  estimate_request: "Estimate",
+const priorityVariants: Record<string, "default" | "secondary" | "destructive" | "outline"> = {
+  low: "secondary",
+  medium: "outline",
+  high: "default",
+  urgent: "destructive",
 };
 
 export default function FieldCrewDashboard() {
   const { t } = useTranslation();
+
+  const getPriorityLabel = (key: string) => t(`priorities.${key}`, key);
+  const getWorkTypeLabel = (key: string) => t(`workTypes.${key}`, key);
   const { data: myTickets = [], isLoading } = useQuery<Ticket[]>({
     queryKey: ["/api/tickets/my"],
   });
@@ -149,14 +144,14 @@ export default function FieldCrewDashboard() {
                       <div className="flex-1 min-w-0">
                         <p className="font-medium text-sm truncate">{ticket.title}</p>
                         <p className="text-xs text-muted-foreground">
-                          {workTypeLabels[ticket.workType] || ticket.workType}
+                          {getWorkTypeLabel(ticket.workType)}
                         </p>
                       </div>
                       <Badge 
-                        variant={priorityConfig[ticket.priority]?.variant || "secondary"}
+                        variant={priorityVariants[ticket.priority] || "secondary"}
                         className="shrink-0"
                       >
-                        {priorityConfig[ticket.priority]?.label || ticket.priority}
+                        {getPriorityLabel(ticket.priority)}
                       </Badge>
                     </div>
                     
