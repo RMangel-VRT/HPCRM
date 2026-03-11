@@ -275,8 +275,8 @@ export default function UsersPage() {
                             </SelectTrigger>
                           </FormControl>
                           <SelectContent>
-                            <SelectItem value="en">English</SelectItem>
-                            <SelectItem value="es">Español</SelectItem>
+                            <SelectItem value="en">{t("users.english")}</SelectItem>
+                            <SelectItem value="es">{t("users.spanish")}</SelectItem>
                           </SelectContent>
                         </Select>
                         <FormMessage />
