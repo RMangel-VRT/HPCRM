@@ -125,7 +125,7 @@ export default function AppSidebar({
       items.push({ title: "Schedule", url: "/dashboard/schedule", icon: CalendarDays });
     }
 
-    if (userRole === "admin" || userRole === "office" || userRole === "field_manager" || userRole === "chemical_manager") {
+    if (userRole === "admin" || userRole === "office") {
       items.push({ title: "Snow", url: "/dashboard/snow", icon: Snowflake });
     }
 
@@ -144,7 +144,7 @@ export default function AppSidebar({
       items.push({ title: "Equipment", url: "/dashboard/equipment", icon: Truck });
     }
 
-    if (userRole === "admin" || userRole === "office" || userRole === "field_manager" || userRole === "chemical_manager") {
+    if (userRole === "admin" || userRole === "office") {
       items.push({ title: "Tools", url: "/dashboard/tools", icon: Wrench });
     }
 
