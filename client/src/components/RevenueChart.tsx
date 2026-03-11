@@ -4,7 +4,7 @@ import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContai
 
 export function RevenueChart() {
   const currentYear = new Date().getFullYear();
-  const currentMonth = new Date().toLocaleDateString('en-US', { month: 'short' });
+  const currentMonth = new Date().toLocaleDateString(undefined, { month: 'short' });
   
   const { data: revenueData, isLoading } = useQuery<{ month: string; revenue: number }[]>({
     queryKey: [`/api/dashboard/monthly-revenue?year=${currentYear}`],

@@ -246,6 +246,7 @@ const en = {
     title: "Dashboard",
     activeCustomers: "Active Customers",
     activeContracts: "Active Contracts",
+    monthlyRevenue: "{{month}} Revenue",
     ytdRevenue: "YTD Revenue",
     businessOverview: "Overview of your landscaping business",
     unableToLoad: "Unable to Load Dashboard",

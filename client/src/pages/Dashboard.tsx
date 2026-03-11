@@ -67,7 +67,7 @@ export default function Dashboard() {
 }
 
 function AdminOfficeDashboard() {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
   const { data: stats, isLoading, error } = useQuery<DashboardStats>({
     queryKey: ["/api/dashboard/stats"],
   });
@@ -81,7 +81,7 @@ function AdminOfficeDashboard() {
     }).format(amount);
   };
 
-  const currentMonth = new Date().toLocaleDateString('en-US', { month: 'long' });
+  const currentMonth = new Date().toLocaleDateString(i18n.language === 'es' ? 'es-MX' : 'en-US', { month: 'long' });
 
   const dashboardCards = stats ? [
     { 
@@ -95,7 +95,7 @@ function AdminOfficeDashboard() {
       icon: FileText,
     },
     { 
-      title: `${currentMonth} Revenue`, 
+      title: t("dashboard.monthlyRevenue", { month: currentMonth }), 
       value: formatCurrency(stats.monthlyRevenue), 
       icon: DollarSign,
     },

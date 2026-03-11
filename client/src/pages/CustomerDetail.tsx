@@ -3985,7 +3985,7 @@ function CustomerSnowHistory({ customerId, customerName }: { customerId: string;
                   <div className="space-y-1 min-w-0">
                     <div className="flex items-center gap-2 flex-wrap">
                       <span className="font-medium">
-                        {event.eventName || eventDate.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}
+                        {event.eventName || eventDate.toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" })}
                       </span>
                       <Badge variant="secondary" data-testid={`badge-range-${impact.id}`}>
                         {event.snowRange}
@@ -3998,8 +3998,8 @@ function CustomerSnowHistory({ customerId, customerName }: { customerId: string;
                       </Badge>
                     </div>
                     <p className="text-sm text-muted-foreground">
-                      {eventDate.toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric", year: "numeric" })}
-                      {event.eventEndDateTime && ` — ${new Date(event.eventEndDateTime).toLocaleDateString("en-US", { month: "short", day: "numeric" })}`}
+                      {eventDate.toLocaleDateString(undefined, { weekday: "long", month: "long", day: "numeric", year: "numeric" })}
+                      {event.eventEndDateTime && ` — ${new Date(event.eventEndDateTime).toLocaleDateString(undefined, { month: "short", day: "numeric" })}`}
                     </p>
                     {impact.serviceTypes && impact.serviceTypes.length > 0 && (
                       <div className="flex gap-1 flex-wrap mt-1">
@@ -4802,7 +4802,7 @@ function CustomerProposalsSection({ customerId }: { customerId: string }) {
                     <span className="ml-2">
                       &middot; {t("customerDetail.finalized")} {(() => {
                         const d = new Date(p.versions[p.versions.length - 1].finalizedAt);
-                        return d.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
+                        return d.toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" });
                       })()}
                     </span>
                   )}

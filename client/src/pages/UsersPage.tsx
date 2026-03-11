@@ -155,7 +155,7 @@ export default function UsersPage() {
   };
 
   const handleDelete = (user: CompanyUserWithDetails) => {
-    if (confirm(`Are you sure you want to remove ${user.user?.name || user.user?.email} from the company?`)) {
+    if (confirm(t("users.removeConfirm", { name: user.user?.name || user.user?.email }))) {
       deleteUserMutation.mutate(user.companyUser.id);
     }
   };

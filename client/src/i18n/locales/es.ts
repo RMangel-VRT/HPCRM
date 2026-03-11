@@ -246,6 +246,7 @@ const es = {
     title: "Panel",
     activeCustomers: "Clientes Activos",
     activeContracts: "Contratos Activos",
+    monthlyRevenue: "Ingresos de {{month}}",
     ytdRevenue: "Ingresos del Ano",
     businessOverview: "Resumen de su negocio de jardineria",
     unableToLoad: "No se pudo cargar el Panel",

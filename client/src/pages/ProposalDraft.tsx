@@ -47,7 +47,7 @@ import type { ProposalWithDetails, ProposalFile, Ticket, VisualScopeSheetWithCus
 function formatDateTime(ts: string | Date) {
   try {
     const d = new Date(ts);
-    return d.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" }) +
+    return d.toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" }) +
       " at " + d.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" });
   } catch { return String(ts); }
 }

@@ -1119,7 +1119,7 @@ export default function SettingsPage() {
                   .replace(/\{\{ticketTitle\}\}/g, "Sample Ticket Title")
                   .replace(/\{\{customerName\}\}/g, "Sample Customer")
                   .replace(/\{\{companyName\}\}/g, "High Plains Property Maintenance")
-                  .replace(/\{\{completionDate\}\}/g, new Date().toLocaleDateString("en-US", { year: "numeric", month: "long", day: "numeric" }))
+                  .replace(/\{\{completionDate\}\}/g, new Date().toLocaleDateString(undefined, { year: "numeric", month: "long", day: "numeric" }))
                   .replace(/\{\{ticketDescription\}\}/g, "Sample description of the work completed.")}
                 data-testid="template-preview"
               />
