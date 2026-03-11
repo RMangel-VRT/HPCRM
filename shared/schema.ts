@@ -93,6 +93,8 @@ export const customers = pgTable("customers", {
   isParent: text("is_parent").notNull().default("false").$type<"true" | "false">(),
   active: text("active").notNull().default("true").$type<"true" | "false">(),
   snowEnabled: boolean("snow_enabled").notNull().default(false),
+  locationLat: real("location_lat"),
+  locationLng: real("location_lng"),
   createdAt: timestamp("created_at").notNull().defaultNow(),
   updatedAt: timestamp("updated_at").notNull().defaultNow(),
 });
@@ -109,6 +111,8 @@ export const insertCustomerSchema = createInsertSchema(customers).omit({
   isParent: z.enum(["true", "false"]).default("false"),
   active: z.enum(["true", "false"]).default("true"),
   snowEnabled: z.boolean().default(false),
+  locationLat: z.number().nullable().optional(),
+  locationLng: z.number().nullable().optional(),
 });
 
 export type InsertCustomer = z.infer<typeof insertCustomerSchema>;
