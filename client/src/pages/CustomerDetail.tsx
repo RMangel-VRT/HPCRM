@@ -1,4 +1,5 @@
 import { useState, useRef, useMemo, useEffect } from "react";
+import { useTranslation } from "react-i18next";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { useRoute, useLocation, Link } from "wouter";
 import { useSetBreadcrumbs } from "@/hooks/use-breadcrumbs";
@@ -60,6 +61,7 @@ interface ContractCardProps {
 }
 
 function ContractCard({ contract, customerId, canUploadDocuments, onUploadClick, uploadingFile, formatFileSize, setShowVersionHistory }: ContractCardProps) {
+  const { t } = useTranslation();
   const { data: currentDocument, isLoading } = useQuery<ContractDocument>({
     queryKey: ["/api/contracts", contract.id, "documents", "current"],
   });
@@ -115,7 +117,7 @@ function ContractCard({ contract, customerId, canUploadDocuments, onUploadClick,
   const [billingMode, setBillingMode] = useState<"variable" | "even">("variable");
   const [evenMonthlyAmount, setEvenMonthlyAmount] = useState<string>("0.00");
   
-  const monthNames = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+  const monthNames = [t("months.jan"), t("months.feb"), t("months.mar"), t("months.apr"), t("months.may"), t("months.jun"), t("months.jul"), t("months.aug"), t("months.sep"), t("months.oct"), t("months.nov"), t("months.dec")];
   
   // Detect billing mode from existing amounts - if all non-zero amounts are the same, it's "even"
   useEffect(() => {
@@ -223,14 +225,14 @@ function ContractCard({ contract, customerId, canUploadDocuments, onUploadClick,
       setHasChanges(false);
       setIsEditingAmounts(false);
       toast({
-        title: "Success",
-        description: "Monthly billing amounts saved",
+        title: t("common.success"),
+        description: t("contracts.billingAmountsSaved"),
       });
     },
     onError: (error: Error) => {
       toast({
-        title: "Error",
-        description: error.message || "Failed to save monthly amounts",
+        title: t("common.error"),
+        description: error.message,
         variant: "destructive",
       });
     },
@@ -244,14 +246,14 @@ function ContractCard({ contract, customerId, canUploadDocuments, onUploadClick,
       queryClient.invalidateQueries({ queryKey: ["/api/customers", customerId, "contracts"] });
       setShowEndConfirm(false);
       toast({
-        title: "Success",
-        description: "Contract ended",
+        title: t("common.success"),
+        description: t("contracts.contractEnded"),
       });
     },
     onError: (error: Error) => {
       toast({
-        title: "Error",
-        description: error.message || "Failed to end contract",
+        title: t("common.error"),
+        description: error.message,
         variant: "destructive",
       });
     },
@@ -265,14 +267,14 @@ function ContractCard({ contract, customerId, canUploadDocuments, onUploadClick,
       queryClient.invalidateQueries({ queryKey: ["/api/customers", customerId, "contracts"] });
       setShowDeleteConfirm(false);
       toast({
-        title: "Success",
-        description: "Contract deleted",
+        title: t("common.success"),
+        description: t("contracts.contractDeleted"),
       });
     },
     onError: (error: Error) => {
       toast({
-        title: "Error",
-        description: error.message || "Failed to delete contract",
+        title: t("common.error"),
+        description: error.message,
         variant: "destructive",
       });
     },
@@ -303,14 +305,14 @@ function ContractCard({ contract, customerId, canUploadDocuments, onUploadClick,
       queryClient.invalidateQueries({ queryKey: ["/api/customers", customerId, "contracts"] });
       setIsEditContractOpen(false);
       toast({
-        title: "Success",
-        description: "Contract updated",
+        title: t("common.success"),
+        description: t("contracts.contractUpdated"),
       });
     },
     onError: (error: Error) => {
       toast({
-        title: "Error",
-        description: error.message || "Failed to update contract",
+        title: t("common.error"),
+        description: error.message,
         variant: "destructive",
       });
     },
@@ -337,21 +339,21 @@ function ContractCard({ contract, customerId, canUploadDocuments, onUploadClick,
         </div>
         <div className="grid grid-cols-2 gap-3 text-sm mb-3">
           <div>
-            <p className="text-muted-foreground">Start Date</p>
+            <p className="text-muted-foreground">{t("contracts.startDate")}</p>
             <p data-testid={`text-contract-start-${contract.id}`}>
               {format(new Date(contract.startDate), "MMM d, yyyy")}
             </p>
           </div>
           <div>
-            <p className="text-muted-foreground">End Date</p>
+            <p className="text-muted-foreground">{t("contracts.endDate")}</p>
             <p data-testid={`text-contract-end-${contract.id}`}>
-              {contract.endDate ? format(new Date(contract.endDate), "MMM d, yyyy") : "Ongoing"}
+              {contract.endDate ? format(new Date(contract.endDate), "MMM d, yyyy") : t("statuses.active")}
             </p>
           </div>
         </div>
         {contract.po && (
           <div className="mb-3 text-sm">
-            <p className="text-muted-foreground">PO Number</p>
+            <p className="text-muted-foreground">{t("contracts.poNumber")}</p>
             <p data-testid={`text-contract-po-${contract.id}`}>{contract.po}</p>
           </div>
         )}
@@ -359,7 +361,7 @@ function ContractCard({ contract, customerId, canUploadDocuments, onUploadClick,
         <Separator className="my-3" />
 
         <div>
-          <p className="text-sm font-medium mb-2">Signed Agreement</p>
+          <p className="text-sm font-medium mb-2">{t("customerDetail.signedAgreement")}</p>
           {isLoading ? (
             <Skeleton className="h-20 w-full" />
           ) : currentDocument ? (
@@ -370,10 +372,10 @@ function ContractCard({ contract, customerId, canUploadDocuments, onUploadClick,
                     {currentDocument.filename}
                   </p>
                   <p className="text-xs text-muted-foreground">
-                    Version {currentDocument.version} • {formatFileSize(currentDocument.fileSize)}
+                    v{currentDocument.version} • {formatFileSize(currentDocument.fileSize)}
                   </p>
                   <p className="text-xs text-muted-foreground">
-                    Uploaded {format(new Date(currentDocument.uploadedAt), "MMM d, yyyy")}
+                    {format(new Date(currentDocument.uploadedAt), "MMM d, yyyy")}
                   </p>
                 </div>
               </div>
@@ -385,7 +387,7 @@ function ContractCard({ contract, customerId, canUploadDocuments, onUploadClick,
                   data-testid={`button-view-document-${currentDocument.id}`}
                 >
                   <Eye className="w-3 h-3 mr-1" />
-                  View
+                  {t("common.view")}
                 </Button>
                 <Button 
                   size="sm" 
@@ -399,7 +401,7 @@ function ContractCard({ contract, customerId, canUploadDocuments, onUploadClick,
                   data-testid={`button-download-document-${currentDocument.id}`}
                 >
                   <Download className="w-3 h-3 mr-1" />
-                  Download
+                  {t("common.download")}
                 </Button>
                 {canUploadDocuments && (
                   <Button 
@@ -410,7 +412,7 @@ function ContractCard({ contract, customerId, canUploadDocuments, onUploadClick,
                     data-testid="button-replace-document"
                   >
                     <RefreshCw className="w-3 h-3 mr-1" />
-                    Replace
+                    {t("customerDetail.replace")}
                   </Button>
                 )}
                 <Button 
@@ -420,13 +422,13 @@ function ContractCard({ contract, customerId, canUploadDocuments, onUploadClick,
                   data-testid="link-version-history"
                 >
                   <History className="w-3 h-3 mr-1" />
-                  History
+                  {t("contracts.history")}
                 </Button>
               </div>
             </div>
           ) : (
             <div className="flex items-center justify-between p-3 border rounded-md">
-              <p className="text-sm text-muted-foreground">No signed agreement uploaded yet</p>
+              <p className="text-sm text-muted-foreground">{t("customerDetail.noAgreement")}</p>
               {canUploadDocuments && (
                 <Button 
                   size="sm"
@@ -435,7 +437,7 @@ function ContractCard({ contract, customerId, canUploadDocuments, onUploadClick,
                   data-testid="button-upload-document"
                 >
                   <Upload className="w-3 h-3 mr-1" />
-                  Upload
+                  {t("common.upload")}
                 </Button>
               )}
             </div>
@@ -446,7 +448,7 @@ function ContractCard({ contract, customerId, canUploadDocuments, onUploadClick,
 
         <div>
           <div className="flex items-center justify-between mb-2">
-            <p className="text-sm font-medium">Monthly Billing</p>
+            <p className="text-sm font-medium">{t("customerDetail.billingTabs.monthlySummary")}</p>
             {!isEditingAmounts && canEditBilling && (
               <Button 
                 size="sm" 
@@ -454,7 +456,7 @@ function ContractCard({ contract, customerId, canUploadDocuments, onUploadClick,
                 onClick={() => setIsEditingAmounts(true)}
                 data-testid="button-edit-amounts"
               >
-                Edit Amounts
+                {t("contracts.editAmounts")}
               </Button>
             )}
             {isEditingAmounts && (
@@ -485,15 +487,15 @@ function ContractCard({ contract, customerId, canUploadDocuments, onUploadClick,
                   }}
                   data-testid="button-cancel-amounts"
                 >
-                  Cancel
+                  {t("common.cancel")}
                 </Button>
                 <Button 
                   size="sm" 
                   onClick={() => {
                     if (billingMode === "variable" && !validateAmounts()) {
                       toast({
-                        title: "Invalid amounts",
-                        description: "All monthly amounts must be non-negative numbers",
+                        title: t("contracts.invalidAmounts"),
+                        description: t("contracts.invalidAmountsMsg"),
                         variant: "destructive",
                       });
                       return;
@@ -503,7 +505,7 @@ function ContractCard({ contract, customerId, canUploadDocuments, onUploadClick,
                   disabled={saveMutation.isPending}
                   data-testid="button-save-amounts"
                 >
-                  {saveMutation.isPending ? "Saving..." : "Save Changes"}
+                  {saveMutation.isPending ? t("common.saving") : t("contracts.saveChanges")}
                 </Button>
               </div>
             )}
@@ -513,7 +515,7 @@ function ContractCard({ contract, customerId, canUploadDocuments, onUploadClick,
           {isEditingAmounts && (
             <div className="flex items-center gap-3 mb-3 p-2 bg-muted/30 rounded-md">
               <span className={`text-sm ${billingMode === "variable" ? "font-medium" : "text-muted-foreground"}`}>
-                Variable
+                {t("contracts.variable")}
               </span>
               <Switch
                 checked={billingMode === "even"}
@@ -532,7 +534,7 @@ function ContractCard({ contract, customerId, canUploadDocuments, onUploadClick,
                 data-testid="switch-billing-mode"
               />
               <span className={`text-sm ${billingMode === "even" ? "font-medium" : "text-muted-foreground"}`}>
-                Even
+                {t("contracts.even")}
               </span>
             </div>
           )}
@@ -545,7 +547,7 @@ function ContractCard({ contract, customerId, canUploadDocuments, onUploadClick,
                 /* Even mode - single input for all months */
                 <div className="p-3 border rounded-md">
                   <label className="text-sm text-muted-foreground mb-2 block">
-                    Same amount for all 12 months
+                    {t("customerDetail.sameAmountAll12")}
                   </label>
                   <div className="relative max-w-xs">
                     <span className="absolute left-3 top-1/2 -translate-y-1/2 text-sm text-muted-foreground">
@@ -561,7 +563,7 @@ function ContractCard({ contract, customerId, canUploadDocuments, onUploadClick,
                     />
                   </div>
                   <p className="text-xs text-muted-foreground mt-2">
-                    This amount will be applied to each of the 12 months
+                    {t("customerDetail.appliedToEach12")}
                   </p>
                 </div>
               ) : (
@@ -601,7 +603,7 @@ function ContractCard({ contract, customerId, canUploadDocuments, onUploadClick,
                 </div>
               )}
               <div className="flex items-center justify-between pt-2 border-t">
-                <p className="text-sm font-medium">Annual Total</p>
+                <p className="text-sm font-medium">{t("customerDetail.annualTotal")}</p>
                 <p className="text-lg font-semibold" data-testid="text-annual-total">
                   ${annualTotal.toFixed(2)}
                 </p>
@@ -622,49 +624,49 @@ function ContractCard({ contract, customerId, canUploadDocuments, onUploadClick,
           <>
             <Separator className="my-3" />
             <div>
-              <p className="text-sm font-medium mb-2">Applied Rates</p>
+              <p className="text-sm font-medium mb-2">{t("customerDetail.appliedRates")}</p>
               <div className="text-xs space-y-1.5 bg-muted/30 p-2 rounded-md">
                 {contract.serviceType.toLowerCase().includes('snow') || contract.serviceType.toLowerCase().includes('ice') ? (
                   <>
                     {rateSheet.handShovelLabor !== null && (
                       <div className="flex justify-between">
-                        <span className="text-muted-foreground">Hand Shovel:</span>
+                        <span className="text-muted-foreground">{t("customerDetail.handShovel")}:</span>
                         <span className="font-medium">${(rateSheet.handShovelLabor / 100).toFixed(2)}/hr</span>
                       </div>
                     )}
                     {rateSheet.plowTruck !== null && (
                       <div className="flex justify-between">
-                        <span className="text-muted-foreground">Plow Truck:</span>
+                        <span className="text-muted-foreground">{t("customerDetail.plowTruck")}:</span>
                         <span className="font-medium">${(rateSheet.plowTruck / 100).toFixed(2)}/hr</span>
                       </div>
                     )}
                     {rateSheet.atv !== null && (
                       <div className="flex justify-between">
-                        <span className="text-muted-foreground">ATV:</span>
+                        <span className="text-muted-foreground">{t("customerDetail.atv")}:</span>
                         <span className="font-medium">${(rateSheet.atv / 100).toFixed(2)}/hr</span>
                       </div>
                     )}
                     {rateSheet.skidSteer !== null && (
                       <div className="flex justify-between">
-                        <span className="text-muted-foreground">Skid Steer:</span>
+                        <span className="text-muted-foreground">{t("customerDetail.skidSteer")}:</span>
                         <span className="font-medium">${(rateSheet.skidSteer / 100).toFixed(2)}/hr</span>
                       </div>
                     )}
                     {rateSheet.snowBlower !== null && (
                       <div className="flex justify-between">
-                        <span className="text-muted-foreground">Snow Blower:</span>
+                        <span className="text-muted-foreground">{t("customerDetail.snowBlower")}:</span>
                         <span className="font-medium">${(rateSheet.snowBlower / 100).toFixed(2)}/hr</span>
                       </div>
                     )}
                     {rateSheet.iceMeltMaterial !== null && (
                       <div className="flex justify-between">
-                        <span className="text-muted-foreground">Ice Melt Material:</span>
+                        <span className="text-muted-foreground">{t("customerDetail.iceMeltMaterial")}:</span>
                         <span className="font-medium">${(rateSheet.iceMeltMaterial / 100).toFixed(2)}/lb</span>
                       </div>
                     )}
                     {rateSheet.iceMeltApplicationLabor !== null && (
                       <div className="flex justify-between">
-                        <span className="text-muted-foreground">Ice Melt Application:</span>
+                        <span className="text-muted-foreground">{t("customerDetail.iceMeltApplication")}:</span>
                         <span className="font-medium">${(rateSheet.iceMeltApplicationLabor / 100).toFixed(2)}/hr</span>
                       </div>
                     )}
@@ -673,31 +675,31 @@ function ContractCard({ contract, customerId, canUploadDocuments, onUploadClick,
                   <>
                     {rateSheet.generalLabor !== null && (
                       <div className="flex justify-between">
-                        <span className="text-muted-foreground">General Labor:</span>
+                        <span className="text-muted-foreground">{t("customerDetail.generalLabor")}:</span>
                         <span className="font-medium">${(rateSheet.generalLabor / 100).toFixed(2)}/hr</span>
                       </div>
                     )}
                     {rateSheet.operatorLabor !== null && (
                       <div className="flex justify-between">
-                        <span className="text-muted-foreground">Operator Labor:</span>
+                        <span className="text-muted-foreground">{t("customerDetail.operatorLabor")}:</span>
                         <span className="font-medium">${(rateSheet.operatorLabor / 100).toFixed(2)}/hr</span>
                       </div>
                     )}
                     {rateSheet.irrigationLabor !== null && (
                       <div className="flex justify-between">
-                        <span className="text-muted-foreground">Irrigation Labor:</span>
+                        <span className="text-muted-foreground">{t("customerDetail.irrigationLabor")}:</span>
                         <span className="font-medium">${(rateSheet.irrigationLabor / 100).toFixed(2)}/hr</span>
                       </div>
                     )}
                     {rateSheet.emergencyGeneralLabor !== null && (
                       <div className="flex justify-between">
-                        <span className="text-muted-foreground">Emergency General:</span>
+                        <span className="text-muted-foreground">{t("customerDetail.emergencyGeneral")}:</span>
                         <span className="font-medium">${(rateSheet.emergencyGeneralLabor / 100).toFixed(2)}/hr</span>
                       </div>
                     )}
                     {rateSheet.emergencyIrrigationLabor !== null && (
                       <div className="flex justify-between">
-                        <span className="text-muted-foreground">Emergency Irrigation:</span>
+                        <span className="text-muted-foreground">{t("customerDetail.emergencyIrrigation")}:</span>
                         <span className="font-medium">${(rateSheet.emergencyIrrigationLabor / 100).toFixed(2)}/hr</span>
                       </div>
                     )}
@@ -720,7 +722,7 @@ function ContractCard({ contract, customerId, canUploadDocuments, onUploadClick,
                   data-testid={`button-edit-contract-${contract.id}`}
                 >
                   <Edit className="w-3 h-3 mr-1" />
-                  Edit Details
+                  {t("common.edit")}
                 </Button>
               )}
               {canEndContract && (
@@ -730,7 +732,7 @@ function ContractCard({ contract, customerId, canUploadDocuments, onUploadClick,
                   onClick={() => setShowEndConfirm(true)}
                   data-testid={`button-end-contract-${contract.id}`}
                 >
-                  End Contract
+                  {t("contracts.endContract")}
                 </Button>
               )}
               {canDeleteContract && (
@@ -740,7 +742,7 @@ function ContractCard({ contract, customerId, canUploadDocuments, onUploadClick,
                   onClick={() => setShowDeleteConfirm(true)}
                   data-testid={`button-delete-contract-${contract.id}`}
                 >
-                  Delete Contract
+                  {t("contracts.deleteContract")}
                 </Button>
               )}
             </div>
@@ -751,18 +753,18 @@ function ContractCard({ contract, customerId, canUploadDocuments, onUploadClick,
       <AlertDialog open={showEndConfirm} onOpenChange={setShowEndConfirm}>
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>End this contract?</AlertDialogTitle>
+            <AlertDialogTitle>{t("contracts.endContract")}</AlertDialogTitle>
             <AlertDialogDescription>
-              This will mark the contract as ended. This action can be reversed by changing the status back to active.
+              {t("contracts.endContractMsg")}
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
-            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogCancel>{t("common.cancel")}</AlertDialogCancel>
             <AlertDialogAction 
               onClick={() => endContractMutation.mutate()}
               disabled={endContractMutation.isPending}
             >
-              {endContractMutation.isPending ? "Ending..." : "End Contract"}
+              {endContractMutation.isPending ? t("common.saving") : t("contracts.endContract")}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
@@ -771,19 +773,19 @@ function ContractCard({ contract, customerId, canUploadDocuments, onUploadClick,
       <AlertDialog open={showDeleteConfirm} onOpenChange={setShowDeleteConfirm}>
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>Delete this contract permanently?</AlertDialogTitle>
+            <AlertDialogTitle>{t("contracts.deleteContract")}</AlertDialogTitle>
             <AlertDialogDescription>
-              This will permanently delete the contract, including all monthly amounts, documents, and service records. This action cannot be undone.
+              {t("contracts.deleteContractMsg")}
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
-            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogCancel>{t("common.cancel")}</AlertDialogCancel>
             <AlertDialogAction 
               onClick={() => deleteContractMutation.mutate()}
               disabled={deleteContractMutation.isPending}
               className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
             >
-              {deleteContractMutation.isPending ? "Deleting..." : "Delete Permanently"}
+              {deleteContractMutation.isPending ? t("common.deleting") : t("common.delete")}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
@@ -792,15 +794,15 @@ function ContractCard({ contract, customerId, canUploadDocuments, onUploadClick,
       <Dialog open={isEditContractOpen} onOpenChange={setIsEditContractOpen}>
         <DialogContent className="max-w-xl">
           <DialogHeader>
-            <DialogTitle>Edit Contract Details</DialogTitle>
+            <DialogTitle>{t("customerDetail.editContractDetails")}</DialogTitle>
             <DialogDescription>
-              Update contract information and billing settings
+              {t("customerDetail.updateContractInfo")}
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-4">
             <div className="grid grid-cols-2 gap-4">
               <div>
-                <Label>Service Type</Label>
+                <Label>{t("contracts.serviceType")}</Label>
                 <Select 
                   value={editContractData.serviceType} 
                   onValueChange={(v) => setEditContractData({...editContractData, serviceType: v as any})}
@@ -809,16 +811,16 @@ function ContractCard({ contract, customerId, canUploadDocuments, onUploadClick,
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="Maintenance">Maintenance</SelectItem>
-                    <SelectItem value="Chemical">Chemical</SelectItem>
-                    <SelectItem value="Snow">Snow & Ice</SelectItem>
-                    <SelectItem value="Irrigation">Irrigation</SelectItem>
-                    <SelectItem value="Other">Other</SelectItem>
+                    <SelectItem value="Maintenance">{t("serviceTypes.maintenance")}</SelectItem>
+                    <SelectItem value="Chemical">{t("serviceTypes.chemical")}</SelectItem>
+                    <SelectItem value="Snow">{t("serviceTypes.snow")}</SelectItem>
+                    <SelectItem value="Irrigation">{t("serviceTypes.irrigation")}</SelectItem>
+                    <SelectItem value="Other">{t("serviceTypes.other")}</SelectItem>
                   </SelectContent>
                 </Select>
               </div>
               <div>
-                <Label>Billing Pattern</Label>
+                <Label>{t("contracts.billingSchedule")}</Label>
                 <Select 
                   value={editContractData.billingPattern} 
                   onValueChange={(v) => setEditContractData({...editContractData, billingPattern: v as any})}
@@ -827,16 +829,16 @@ function ContractCard({ contract, customerId, canUploadDocuments, onUploadClick,
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="monthly">Monthly</SelectItem>
-                    <SelectItem value="seasonal">Seasonal</SelectItem>
-                    <SelectItem value="12-of-12">12 of 12</SelectItem>
+                    <SelectItem value="monthly">{t("contracts.monthly")}</SelectItem>
+                    <SelectItem value="seasonal">{t("contracts.seasonal")}</SelectItem>
+                    <SelectItem value="12-of-12">{t("contracts.twelveOfTwelve")}</SelectItem>
                   </SelectContent>
                 </Select>
               </div>
             </div>
             <div className="grid grid-cols-2 gap-4">
               <div>
-                <Label>Start Date</Label>
+                <Label>{t("contracts.startDate")}</Label>
                 <Input
                   type="date"
                   value={editContractData.startDate}
@@ -845,7 +847,7 @@ function ContractCard({ contract, customerId, canUploadDocuments, onUploadClick,
                 />
               </div>
               <div>
-                <Label>End Date</Label>
+                <Label>{t("contracts.endDate")}</Label>
                 <Input
                   type="date"
                   value={editContractData.endDate}
@@ -855,20 +857,20 @@ function ContractCard({ contract, customerId, canUploadDocuments, onUploadClick,
               </div>
             </div>
             <div>
-              <Label>PO Number</Label>
+              <Label>{t("contracts.poNumber")}</Label>
               <Input
                 value={editContractData.po}
                 onChange={(e) => setEditContractData({...editContractData, po: e.target.value})}
-                placeholder="Optional purchase order number"
+                placeholder={t("contracts.poNumber")}
                 data-testid="edit-input-po"
               />
             </div>
             <div>
-              <Label>Notes</Label>
+              <Label>{t("common.notes")}</Label>
               <Textarea
                 value={editContractData.notes}
                 onChange={(e) => setEditContractData({...editContractData, notes: e.target.value})}
-                placeholder="Additional contract notes"
+                placeholder={t("contracts.additionalNotes")}
                 data-testid="edit-input-notes"
               />
             </div>
@@ -883,12 +885,12 @@ function ContractCard({ contract, customerId, canUploadDocuments, onUploadClick,
                     data-testid="edit-checkbox-mobilization"
                   />
                   <label htmlFor="edit-has-mobilization" className="text-sm font-medium cursor-pointer">
-                    Includes Mobilization Fee
+                    {t("customerDetail.includesMobilizationFee")}
                   </label>
                 </div>
                 {editContractData.hasMobilizationFee && (
                   <div>
-                    <Label>Mobilization Fee Amount</Label>
+                    <Label>{t("customerDetail.mobilizationFeeAmount")}</Label>
                     <div className="relative">
                       <span className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground">$</span>
                       <Input
@@ -905,7 +907,7 @@ function ContractCard({ contract, customerId, canUploadDocuments, onUploadClick,
                         data-testid="edit-input-mobilization-amount"
                       />
                     </div>
-                    <p className="text-xs text-muted-foreground mt-1">Monthly recurring fee added to each billing period</p>
+                    <p className="text-xs text-muted-foreground mt-1">{t("customerDetail.mobilizationFeeDesc")}</p>
                   </div>
                 )}
               </div>
@@ -913,14 +915,14 @@ function ContractCard({ contract, customerId, canUploadDocuments, onUploadClick,
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setIsEditContractOpen(false)} data-testid="edit-button-cancel">
-              Cancel
+              {t("common.cancel")}
             </Button>
             <Button 
               onClick={() => updateContractMutation.mutate()}
               disabled={updateContractMutation.isPending}
               data-testid="edit-button-save"
             >
-              {updateContractMutation.isPending ? "Saving..." : "Save Changes"}
+              {updateContractMutation.isPending ? t("common.saving") : t("contracts.saveChanges")}
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -936,6 +938,7 @@ interface VersionHistoryDialogProps {
 }
 
 function VersionHistoryDialog({ contractId, onClose, formatFileSize }: VersionHistoryDialogProps) {
+  const { t } = useTranslation();
   const { data: documents = [], isLoading } = useQuery<ContractDocument[]>({
     queryKey: ["/api/contracts", contractId, "documents"],
     enabled: !!contractId,
@@ -945,9 +948,9 @@ function VersionHistoryDialog({ contractId, onClose, formatFileSize }: VersionHi
     <Dialog open={!!contractId} onOpenChange={(open) => !open && onClose()}>
       <DialogContent className="max-w-3xl">
         <DialogHeader>
-          <DialogTitle>Version History</DialogTitle>
+          <DialogTitle>{t("contracts.versionHistory")}</DialogTitle>
           <DialogDescription>
-            All versions of the signed agreement for this contract
+            {t("customerDetail.signedAgreement")}
           </DialogDescription>
         </DialogHeader>
         
@@ -957,17 +960,17 @@ function VersionHistoryDialog({ contractId, onClose, formatFileSize }: VersionHi
             <Skeleton className="h-12 w-full" />
           </div>
         ) : documents.length === 0 ? (
-          <p className="text-sm text-muted-foreground py-4">No documents found</p>
+          <p className="text-sm text-muted-foreground py-4">{t("customerDetail.noDocumentsFound")}</p>
         ) : (
           <div className="border rounded-md">
             <Table>
               <TableHeader>
                 <TableRow>
-                  <TableHead>Version</TableHead>
-                  <TableHead>Filename</TableHead>
-                  <TableHead>Uploaded</TableHead>
-                  <TableHead>Size</TableHead>
-                  <TableHead className="text-right">Actions</TableHead>
+                  <TableHead>{t("customerDetail.version")}</TableHead>
+                  <TableHead>{t("common.name")}</TableHead>
+                  <TableHead>{t("common.date")}</TableHead>
+                  <TableHead>{t("customerDetail.size")}</TableHead>
+                  <TableHead className="text-right">{t("common.actions")}</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -1016,6 +1019,7 @@ function VersionHistoryDialog({ contractId, onClose, formatFileSize }: VersionHi
 }
 
 export default function CustomerDetail() {
+  const { t } = useTranslation();
   const [, params] = useRoute("/dashboard/customers/:id");
   const [, navigate] = useLocation();
   const id = params?.id;
@@ -1081,8 +1085,8 @@ export default function CustomerDetail() {
   const canEditContracts = user?.activeRole === "admin" || user?.activeRole === "office";
 
   useSetBreadcrumbs([
-    { label: "Customers", href: "/dashboard/customers" },
-    { label: customer?.name || "Loading..." },
+    { label: t("customers.title"), href: "/dashboard/customers" },
+    { label: customer?.name || t("common.loading") },
   ], [customer?.name]);
 
   const contractForm = useForm<Omit<InsertContract, "companyId" | "customerId">>({
@@ -1128,16 +1132,16 @@ export default function CustomerDetail() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/customers", id, "contracts"] });
       toast({
-        title: "Success",
-        description: "Contract created successfully",
+        title: t("common.success"),
+        description: t("contracts.contractUpdated"),
       });
       setIsAddContractDialogOpen(false);
       contractForm.reset();
     },
     onError: (error: Error) => {
       toast({
-        title: "Error",
-        description: error.message || "Failed to create contract",
+        title: t("common.error"),
+        description: error.message,
         variant: "destructive",
       });
     },
@@ -1234,17 +1238,16 @@ export default function CustomerDetail() {
       queryClient.invalidateQueries({ queryKey: ["/api/customers", id] });
       queryClient.invalidateQueries({ queryKey: ["/api/customers"] });
       toast({
-        title: "Success",
-        description: "Customer updated successfully",
+        title: t("common.success"),
+        description: t("customers.updated"),
       });
       setIsEditCustomerDialogOpen(false);
     },
     onError: (error: Error) => {
-      // Check if it's a conflict error
       if (error.message.startsWith("CONFLICT:")) {
         toast({
-          title: "Update Conflict",
-          description: "This customer was modified by another user. The page will refresh to show the latest data.",
+          title: t("common.error"),
+          description: t("customers.updateFailed"),
           variant: "destructive",
         });
         // Refresh the data
@@ -1252,8 +1255,8 @@ export default function CustomerDetail() {
         setIsEditCustomerDialogOpen(false);
       } else {
         toast({
-          title: "Error",
-          description: error.message || "Failed to update customer",
+          title: t("common.error"),
+          description: error.message,
           variant: "destructive",
         });
       }
@@ -1284,8 +1287,8 @@ export default function CustomerDetail() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/customers", id, "contacts"] });
       toast({
-        title: "Success",
-        description: "Contact created successfully",
+        title: t("common.success"),
+        description: t("customerDetail.contactCreated"),
       });
       setIsAddContactDialogOpen(false);
       setSelectedPmCompanyForContact(null);
@@ -1293,8 +1296,8 @@ export default function CustomerDetail() {
     },
     onError: (error: Error) => {
       toast({
-        title: "Error",
-        description: error.message || "Failed to create contact",
+        title: t("common.error"),
+        description: error.message,
         variant: "destructive",
       });
     },
@@ -1308,8 +1311,8 @@ export default function CustomerDetail() {
       queryClient.invalidateQueries({ queryKey: ["/api/customers", id, "contacts"] });
       queryClient.invalidateQueries({ queryKey: ["/api/property-managers"] });
       toast({
-        title: "Success",
-        description: "Contact updated successfully",
+        title: t("common.success"),
+        description: t("customerDetail.contactUpdated"),
       });
       setEditingContact(null);
       setSelectedPmCompanyForContact(null);
@@ -1317,8 +1320,8 @@ export default function CustomerDetail() {
     },
     onError: (error: Error) => {
       toast({
-        title: "Error",
-        description: error.message || "Failed to update contact",
+        title: t("common.error"),
+        description: error.message,
         variant: "destructive",
       });
     },
@@ -1331,14 +1334,14 @@ export default function CustomerDetail() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/customers", id, "contacts"] });
       toast({
-        title: "Success",
-        description: "Contact deleted successfully",
+        title: t("common.success"),
+        description: t("customerDetail.contactDeleted"),
       });
     },
     onError: (error: Error) => {
       toast({
-        title: "Error",
-        description: error.message || "Failed to delete contact",
+        title: t("common.error"),
+        description: error.message,
         variant: "destructive",
       });
     },
@@ -1362,16 +1365,16 @@ export default function CustomerDetail() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/customers", id, "notes"] });
       toast({
-        title: "Success",
-        description: "Note created successfully",
+        title: t("common.success"),
+        description: t("customerDetail.noteCreated"),
       });
       setIsAddNoteDialogOpen(false);
       noteForm.reset();
     },
     onError: (error: Error) => {
       toast({
-        title: "Error",
-        description: error.message || "Failed to create note",
+        title: t("common.error"),
+        description: error.message,
         variant: "destructive",
       });
     },
@@ -1384,16 +1387,16 @@ export default function CustomerDetail() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/customers", id, "notes"] });
       toast({
-        title: "Success",
-        description: "Note updated successfully",
+        title: t("common.success"),
+        description: t("customerDetail.noteUpdated"),
       });
       setEditingNote(null);
       noteForm.reset();
     },
     onError: (error: Error) => {
       toast({
-        title: "Error",
-        description: error.message || "Failed to update note",
+        title: t("common.error"),
+        description: error.message,
         variant: "destructive",
       });
     },
@@ -1406,14 +1409,14 @@ export default function CustomerDetail() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/customers", id, "notes"] });
       toast({
-        title: "Success",
-        description: "Note deleted successfully",
+        title: t("common.success"),
+        description: t("customerDetail.noteDeleted"),
       });
     },
     onError: (error: Error) => {
       toast({
-        title: "Error",
-        description: error.message || "Failed to delete note",
+        title: t("common.error"),
+        description: error.message,
         variant: "destructive",
       });
     },
@@ -1435,8 +1438,8 @@ export default function CustomerDetail() {
 
     if (file.type !== "application/pdf") {
       toast({
-        title: "Invalid file type",
-        description: "Please upload a PDF file (.pdf)",
+        title: t("common.error"),
+        description: t("customerDetail.invalidFileType"),
         variant: "destructive",
       });
       return;
@@ -1445,8 +1448,8 @@ export default function CustomerDetail() {
     const maxSize = 20 * 1024 * 1024;
     if (file.size > maxSize) {
       toast({
-        title: "File too large",
-        description: "File must be under 20 MB",
+        title: t("common.error"),
+        description: t("customerDetail.fileTooLarge"),
         variant: "destructive",
       });
       return;
@@ -1481,8 +1484,8 @@ export default function CustomerDetail() {
       await queryClient.invalidateQueries({ queryKey: ["/api/customers", id, "contracts"] });
 
       toast({
-        title: "Success",
-        description: isReplace ? "Contract document replaced successfully" : "Contract document uploaded successfully",
+        title: t("common.success"),
+        description: t("customerDetail.documentUploaded"),
       });
 
       setUploadingContractId(null);
@@ -1493,8 +1496,8 @@ export default function CustomerDetail() {
     } catch (error) {
       console.error("Upload error:", error);
       toast({
-        title: "Upload failed",
-        description: "Please try again",
+        title: t("common.error"),
+        description: t("customerDetail.uploadFailed"),
         variant: "destructive",
       });
     } finally {
@@ -1532,7 +1535,7 @@ export default function CustomerDetail() {
   if (!customer) {
     return (
       <div className="flex items-center justify-center h-96">
-        <p className="text-muted-foreground">Customer not found</p>
+        <p className="text-muted-foreground">{t("customers.noCustomersFound")}</p>
       </div>
     );
   }
@@ -1562,13 +1565,13 @@ export default function CustomerDetail() {
     const hasSnow = currentContracts.some(c => c.serviceType === "Snow");
     
     if (hasMaintenance && hasSnow) {
-      return "Maintenance & Snow";
+      return t("customerDetail.coverageMaintAndSnow");
     } else if (hasMaintenance) {
-      return "Maintenance Only";
+      return t("customerDetail.coverageMaintOnly");
     } else if (hasSnow) {
-      return "Snow Only";
+      return t("customerDetail.coverageSnowOnly");
     } else {
-      return "No Coverage";
+      return t("customerDetail.noCoverage");
     }
   };
 
@@ -1609,23 +1612,23 @@ export default function CustomerDetail() {
             <StatusBadge status={customer.status} />
             {isParentCustomer && (
               <Badge variant="secondary" data-testid="badge-parent-customer">
-                Parent Account
+                {t("customerDetail.parentAccount")}
               </Badge>
             )}
             {isChildCustomer && (
               <Badge variant="outline" data-testid="badge-branch-customer">
-                Branch
+                {t("customerDetail.branch")}
               </Badge>
             )}
             <Badge 
-              variant={coverage === "Maintenance & Snow" ? "default" : coverage === "No Coverage" ? "outline" : "secondary"}
+              variant={coverage === t("customerDetail.coverageMaintAndSnow") ? "default" : coverage === t("customerDetail.noCoverage") ? "outline" : "secondary"}
               data-testid="badge-coverage-status"
             >
               {coverage}
             </Badge>
             {customer.includeInRoute && (
               <Badge variant="secondary" data-testid="badge-include-in-route">
-                On Route
+                {t("customers.onRoute")}
               </Badge>
             )}
           </div>
@@ -1649,7 +1652,7 @@ export default function CustomerDetail() {
             }}
           >
             <MessageSquare className="w-4 h-4 mr-2" />
-            Add Note
+            {t("customerDetail.addNote")}
           </Button>
           {(user?.activeRole === "admin" || user?.activeRole === "office") && (
             <Button 
@@ -1658,7 +1661,7 @@ export default function CustomerDetail() {
               onClick={() => navigate(`/dashboard/tickets/new?customerId=${customer.id}`)}
             >
               <TicketIcon className="w-4 h-4 mr-2" />
-              Add Ticket
+              {t("customerDetail.addTicket")}
             </Button>
           )}
           <Button 
@@ -1666,48 +1669,48 @@ export default function CustomerDetail() {
             onClick={() => setIsEditCustomerDialogOpen(true)}
           >
             <Edit className="w-4 h-4 mr-2" />
-            Edit
+            {t("common.edit")}
           </Button>
         </div>
       </div>
 
       <Tabs value={activeTab} onValueChange={setActiveTab}>
         <TabsList>
-          <TabsTrigger value="overview" data-testid="tab-overview">Overview</TabsTrigger>
+          <TabsTrigger value="overview" data-testid="tab-overview">{t("customerDetail.tabs.overview")}</TabsTrigger>
           <TabsTrigger value="contacts" data-testid="tab-contacts">
-            Contacts ({contacts.length})
+            {t("customerDetail.tabs.contacts")} ({contacts.length})
           </TabsTrigger>
           <TabsTrigger value="notes" data-testid="tab-notes">
-            Notes ({notes.length})
+            {t("customerDetail.tabs.notes")} ({notes.length})
           </TabsTrigger>
           <TabsTrigger value="tickets" data-testid="tab-tickets">
-            Tickets ({tickets.length})
+            {t("customerDetail.tabs.tickets")} ({tickets.length})
           </TabsTrigger>
           {(user?.activeRole === "admin" || user?.activeRole === "office") && (
             <>
               <TabsTrigger value="billing" data-testid="tab-billing">
-                Billing
+                {t("customerDetail.tabs.billing")}
               </TabsTrigger>
               <TabsTrigger value="scheduling" data-testid="tab-scheduling">
-                Scheduling
+                {t("customerDetail.tabs.scheduling")}
               </TabsTrigger>
               <TabsTrigger value="proposals" data-testid="tab-proposals">
-                Proposals
+                {t("customerDetail.tabs.proposals")}
               </TabsTrigger>
               <TabsTrigger value="visual-scopes" data-testid="tab-visual-scopes">
-                Visual Scopes
+                {t("customerDetail.tabs.visualScopes")}
               </TabsTrigger>
             </>
           )}
           {customer.snowEnabled && (
             <TabsTrigger value="snow" data-testid="tab-snow">
               <Snowflake className="w-4 h-4 mr-1" />
-              Snow History
+              {t("customerDetail.tabs.snow")}
             </TabsTrigger>
           )}
           <TabsTrigger value="maps" data-testid="tab-maps">
             <Map className="w-4 h-4 mr-1" />
-            Maps
+            {t("customerDetail.tabs.maps")}
           </TabsTrigger>
         </TabsList>
 
@@ -1715,11 +1718,11 @@ export default function CustomerDetail() {
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
             <Card>
               <CardHeader>
-                <CardTitle className="text-lg">Customer Details</CardTitle>
+                <CardTitle className="text-lg">{t("customerDetail.title")}</CardTitle>
               </CardHeader>
               <CardContent className="space-y-3">
                 <div>
-                  <p className="text-sm font-medium text-muted-foreground">Address</p>
+                  <p className="text-sm font-medium text-muted-foreground">{t("common.address")}</p>
                   <div className="flex items-start gap-1.5 mt-1">
                     <MapPin className="w-4 h-4 mt-0.5 text-muted-foreground" />
                     <div>
@@ -1736,12 +1739,12 @@ export default function CustomerDetail() {
                 {(customer.propertyManagementCompanyId || customer.propertyManagerId) && (
                   <>
                     <div className="space-y-2">
-                      <p className="text-sm font-medium text-muted-foreground">Property Management</p>
+                      <p className="text-sm font-medium text-muted-foreground">{t("customerDetail.propertyManagement")}</p>
                       {customer.propertyManagementCompanyId && (
                         <div className="flex items-center gap-1.5">
                           <Building className="w-4 h-4 text-muted-foreground" />
                           <p className="text-sm" data-testid="text-pm-company">
-                            {pmCompanies.find(c => c.id === customer.propertyManagementCompanyId)?.name || "Unknown Company"}
+                            {pmCompanies.find(c => c.id === customer.propertyManagementCompanyId)?.name || t("common.unknown")}
                           </p>
                         </div>
                       )}
@@ -1749,7 +1752,7 @@ export default function CustomerDetail() {
                         <div className="flex items-center gap-1.5 ml-5">
                           <Users className="w-4 h-4 text-muted-foreground" />
                           <p className="text-sm" data-testid="text-pm-manager">
-                            {pmManagers.find(m => m.id === customer.propertyManagerId)?.name || "Unknown Manager"}
+                            {pmManagers.find(m => m.id === customer.propertyManagerId)?.name || t("common.unknown")}
                           </p>
                         </div>
                       )}
@@ -1759,21 +1762,21 @@ export default function CustomerDetail() {
                 )}
                 <div className="grid grid-cols-2 gap-4">
                   <div>
-                    <p className="text-sm font-medium text-muted-foreground">Acres</p>
+                    <p className="text-sm font-medium text-muted-foreground">{t("customers.acres")}</p>
                     <p className="text-sm mt-1" data-testid="text-customer-acres">
                       {customer.acres || "—"}
                     </p>
                   </div>
                   <div>
-                    <p className="text-sm font-medium text-muted-foreground">Complexity</p>
+                    <p className="text-sm font-medium text-muted-foreground">{t("customers.complexity")}</p>
                     <p className="text-sm mt-1" data-testid="text-customer-complexity">
-                      {customer.complexityScore ? `Level ${customer.complexityScore}` : "—"}
+                      {customer.complexityScore ? `${t("customers.complexity")} ${customer.complexityScore}` : "—"}
                     </p>
                   </div>
                 </div>
                 <Separator />
                 <div>
-                  <p className="text-sm font-medium text-muted-foreground">Tags</p>
+                  <p className="text-sm font-medium text-muted-foreground">{t("common.filter")}</p>
                   <div className="flex gap-2 flex-wrap mt-1">
                     {customer.tags && customer.tags.length > 0 ? (
                       customer.tags.map((tag) => (
@@ -1782,7 +1785,7 @@ export default function CustomerDetail() {
                         </Badge>
                       ))
                     ) : (
-                      <p className="text-sm text-muted-foreground">No tags</p>
+                      <p className="text-sm text-muted-foreground">{t("common.none")}</p>
                     )}
                   </div>
                 </div>
@@ -1791,13 +1794,13 @@ export default function CustomerDetail() {
 
             <Card>
               <CardHeader>
-                <CardTitle className="text-lg">Quick Stats</CardTitle>
+                <CardTitle className="text-lg">{t("customerDetail.quickStats")}</CardTitle>
               </CardHeader>
               <CardContent className="space-y-3">
                 <div className="flex justify-between items-center">
                   <div className="flex items-center gap-2">
                     <Users className="w-4 h-4 text-muted-foreground" />
-                    <span className="text-sm">Contacts</span>
+                    <span className="text-sm">{t("customerDetail.tabs.contacts")}</span>
                   </div>
                   <span className="text-sm font-medium" data-testid="text-contacts-count">
                     {contacts.length}
@@ -1807,7 +1810,7 @@ export default function CustomerDetail() {
                 <div className="flex justify-between items-center">
                   <div className="flex items-center gap-2">
                     <FileText className="w-4 h-4 text-muted-foreground" />
-                    <span className="text-sm">Active Contracts</span>
+                    <span className="text-sm">{t("customerDetail.activeContracts")}</span>
                   </div>
                   <span className="text-sm font-medium" data-testid="text-contracts-count">
                     {contracts.filter(c => c.status === "active").length}
@@ -1817,7 +1820,7 @@ export default function CustomerDetail() {
                 <div className="flex justify-between items-center">
                   <div className="flex items-center gap-2">
                     <MessageSquare className="w-4 h-4 text-muted-foreground" />
-                    <span className="text-sm">Notes</span>
+                    <span className="text-sm">{t("customerDetail.tabs.notes")}</span>
                   </div>
                   <span className="text-sm font-medium" data-testid="text-notes-count">
                     {notes.length}
@@ -1832,7 +1835,7 @@ export default function CustomerDetail() {
               <CardHeader className="flex flex-row items-center justify-between gap-2">
                 <CardTitle className="text-lg flex items-center gap-2">
                   <GitBranch className="w-5 h-5" />
-                  Branches ({childCustomers.length})
+                  {t("customerDetail.childProperties")} ({childCustomers.length})
                 </CardTitle>
               </CardHeader>
               <CardContent>
@@ -1840,10 +1843,10 @@ export default function CustomerDetail() {
                   <Table>
                     <TableHeader>
                       <TableRow>
-                        <TableHead>Branch Name</TableHead>
-                        <TableHead>Address</TableHead>
-                        <TableHead>Status</TableHead>
-                        <TableHead className="text-right">Actions</TableHead>
+                        <TableHead>{t("common.name")}</TableHead>
+                        <TableHead>{t("common.address")}</TableHead>
+                        <TableHead>{t("common.status")}</TableHead>
+                        <TableHead className="text-right">{t("common.actions")}</TableHead>
                       </TableRow>
                     </TableHeader>
                     <TableBody>
@@ -1868,7 +1871,7 @@ export default function CustomerDetail() {
                             <Button variant="ghost" size="sm" asChild data-testid={`button-view-branch-${child.id}`}>
                               <Link href={`/dashboard/customers/${child.id}`}>
                                 <Eye className="w-4 h-4 mr-2" />
-                                View
+                                {t("common.view")}
                               </Link>
                             </Button>
                           </TableCell>
@@ -1895,15 +1898,15 @@ export default function CustomerDetail() {
                   if (allEmails.length > 0) {
                     navigator.clipboard.writeText(allEmails.join(", "));
                     toast({
-                      title: "Copied",
-                      description: `${allEmails.length} email${allEmails.length > 1 ? 's' : ''} copied to clipboard`,
+                      title: t("common.success"),
+                      description: `${allEmails.length} email${allEmails.length > 1 ? 's' : ''}`,
                     });
                   }
                 }}
                 data-testid="button-copy-all-emails"
               >
                 <Mail className="w-4 h-4 mr-2" />
-                Copy All Emails
+                {t("common.email")}
               </Button>
             )}
             <Button 
@@ -1912,7 +1915,7 @@ export default function CustomerDetail() {
               data-testid="button-add-contact"
             >
               <Plus className="w-4 h-4 mr-2" />
-              Add Contact
+              {t("customerDetail.addContact")}
             </Button>
           </div>
           {isLoadingContacts ? (
@@ -1926,7 +1929,7 @@ export default function CustomerDetail() {
               <CardContent className="flex items-center justify-center p-12">
                 <div className="text-center">
                   <Users className="w-12 h-12 mx-auto text-muted-foreground mb-3" />
-                  <p className="text-sm text-muted-foreground">No contacts yet</p>
+                  <p className="text-sm text-muted-foreground">{t("customerDetail.noContacts")}</p>
                 </div>
               </CardContent>
             </Card>
@@ -1939,7 +1942,7 @@ export default function CustomerDetail() {
                       <div className="flex items-center gap-2">
                         <p className="font-medium">{contact.name}</p>
                         {contact.isPrimary === "true" && (
-                          <Badge variant="secondary" className="text-xs">Primary</Badge>
+                          <Badge variant="secondary" className="text-xs">{t("customerDetail.isPrimary")}</Badge>
                         )}
                       </div>
                       {contact.role && (
@@ -1964,8 +1967,8 @@ export default function CustomerDetail() {
                                   e.stopPropagation();
                                   navigator.clipboard.writeText(email);
                                   toast({
-                                    title: "Copied",
-                                    description: "Email copied to clipboard",
+                                    title: t("common.success"),
+                                    description: t("common.email"),
                                   });
                                 }}
                                 data-testid={`button-copy-email-${contact.id}-${idx}`}
@@ -2012,18 +2015,18 @@ export default function CustomerDetail() {
                         </AlertDialogTrigger>
                         <AlertDialogContent>
                           <AlertDialogHeader>
-                            <AlertDialogTitle>Delete Contact</AlertDialogTitle>
+                            <AlertDialogTitle>{t("common.delete")} {t("customerDetail.tabs.contacts")}</AlertDialogTitle>
                             <AlertDialogDescription>
-                              Are you sure you want to delete this contact? This action cannot be undone.
+                              {t("ticketDetail.cannotUndo")}
                             </AlertDialogDescription>
                           </AlertDialogHeader>
                           <AlertDialogFooter>
-                            <AlertDialogCancel>Cancel</AlertDialogCancel>
+                            <AlertDialogCancel>{t("common.cancel")}</AlertDialogCancel>
                             <AlertDialogAction
                               onClick={() => deleteContactMutation.mutate(contact.id)}
                               className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
                             >
-                              Delete
+                              {t("common.delete")}
                             </AlertDialogAction>
                           </AlertDialogFooter>
                         </AlertDialogContent>
@@ -2048,7 +2051,7 @@ export default function CustomerDetail() {
               data-testid="button-add-note-tab"
             >
               <Plus className="w-4 h-4 mr-2" />
-              Add Note
+              {t("customerDetail.addNote")}
             </Button>
           </div>
           {isLoadingNotes ? (
@@ -2062,7 +2065,7 @@ export default function CustomerDetail() {
               <CardContent className="flex items-center justify-center p-12">
                 <div className="text-center">
                   <MessageSquare className="w-12 h-12 mx-auto text-muted-foreground mb-3" />
-                  <p className="text-sm text-muted-foreground">No notes yet</p>
+                  <p className="text-sm text-muted-foreground">{t("customerDetail.noNotes")}</p>
                 </div>
               </CardContent>
             </Card>
@@ -2074,7 +2077,7 @@ export default function CustomerDetail() {
                     <div className="flex justify-between items-start gap-4 mb-2">
                       <div className="flex-1">
                         <div className="flex justify-between items-center mb-1">
-                          <p className="text-sm font-medium">Note</p>
+                          <p className="text-sm font-medium">{t("customerDetail.tabs.notes")}</p>
                           <p className="text-xs text-muted-foreground" data-testid={`text-note-date-${note.id}`}>
                             {format(new Date(note.createdAt), "MMM d, yyyy")}
                           </p>
@@ -2107,18 +2110,18 @@ export default function CustomerDetail() {
                           </AlertDialogTrigger>
                           <AlertDialogContent>
                             <AlertDialogHeader>
-                              <AlertDialogTitle>Delete Note</AlertDialogTitle>
+                              <AlertDialogTitle>{t("common.delete")} {t("customerDetail.tabs.notes")}</AlertDialogTitle>
                               <AlertDialogDescription>
-                                Are you sure you want to delete this note? This action cannot be undone.
+                                {t("ticketDetail.cannotUndo")}
                               </AlertDialogDescription>
                             </AlertDialogHeader>
                             <AlertDialogFooter>
-                              <AlertDialogCancel>Cancel</AlertDialogCancel>
+                              <AlertDialogCancel>{t("common.cancel")}</AlertDialogCancel>
                               <AlertDialogAction
                                 onClick={() => deleteNoteMutation.mutate(note.id)}
                                 className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
                               >
-                                Delete
+                                {t("common.delete")}
                               </AlertDialogAction>
                             </AlertDialogFooter>
                           </AlertDialogContent>
@@ -2148,16 +2151,16 @@ export default function CustomerDetail() {
             <Tabs value={billingSubTab} onValueChange={setBillingSubTab}>
               <TabsList className="mb-4">
                 <TabsTrigger value="contracts" data-testid="subtab-contracts">
-                  Contracts ({isChildCustomer ? (contracts.length + parentContracts.length) : contracts.length})
+                  {t("customerDetail.billingTabs.contracts")} ({isChildCustomer ? (contracts.length + parentContracts.length) : contracts.length})
                 </TabsTrigger>
                 <TabsTrigger value="rate-sheet" data-testid="subtab-rate-sheet">
-                  Rate Sheet
+                  {t("customerDetail.billingTabs.rateSheet")}
                 </TabsTrigger>
                 <TabsTrigger value="revenue" data-testid="subtab-revenue">
-                  Revenue
+                  {t("customerDetail.billingTabs.revenue")}
                 </TabsTrigger>
                 <TabsTrigger value="monthly-summary" data-testid="subtab-monthly-summary">
-                  Monthly Summary
+                  {t("customerDetail.billingTabs.monthlySummary")}
                 </TabsTrigger>
               </TabsList>
 
@@ -2169,10 +2172,10 @@ export default function CustomerDetail() {
                         <div className="flex items-center gap-2 text-sm text-muted-foreground">
                           <Building2 className="w-4 h-4" />
                           <span>
-                            New contracts are managed on the parent account.{" "}
+                            {t("customerDetail.parentContractsManaged")}{" "}
                             <Link href={`/dashboard/customers/${parentCustomer.id}`}>
                               <span className="text-primary hover:underline cursor-pointer" data-testid="link-parent-contracts">
-                                View {parentCustomer.name} contracts
+                                {t("common.view")} {parentCustomer.name} {t("customerDetail.billingTabs.contracts")}
                               </span>
                             </Link>
                           </span>
@@ -2186,7 +2189,7 @@ export default function CustomerDetail() {
                             <div>
                               <p className="font-medium">{contract.serviceType}</p>
                               <p className="text-sm text-muted-foreground">
-                                {contract.billingPattern} billing
+                                {contract.billingPattern} {t("customerDetail.tabs.billing")}
                               </p>
                             </div>
                             <Badge variant={contract.status === "active" ? "default" : "secondary"}>
@@ -2201,7 +2204,7 @@ export default function CustomerDetail() {
                         <div className="flex items-center gap-2 mt-6 mb-2">
                           <Clock className="w-4 h-4 text-muted-foreground" />
                           <h3 className="text-sm font-medium text-muted-foreground">
-                            Legacy Branch Contracts
+                            {t("customerDetail.legacyContracts")}
                           </h3>
                         </div>
                         {contracts.map((contract) => (
@@ -2211,14 +2214,14 @@ export default function CustomerDetail() {
                                 <div>
                                   <p className="font-medium">{contract.serviceType}</p>
                                   <p className="text-sm text-muted-foreground">
-                                    {contract.billingPattern} billing
+                                    {contract.billingPattern} {t("customerDetail.tabs.billing")}
                                     {contract.endDate && (
-                                      <span> · Ends {new Date(contract.endDate).toLocaleDateString()}</span>
+                                      <span> · {t("contracts.endDate")} {new Date(contract.endDate).toLocaleDateString()}</span>
                                     )}
                                   </p>
                                 </div>
                                 <div className="flex items-center gap-2">
-                                  <Badge variant="outline">Legacy</Badge>
+                                  <Badge variant="outline">{t("customerDetail.legacy")}</Badge>
                                   <Badge variant={contract.status === "active" ? "default" : (contract.status === "ended" ? "destructive" : "secondary")}>
                                     {contract.status}
                                   </Badge>
@@ -2244,13 +2247,13 @@ export default function CustomerDetail() {
                       htmlFor="show-ended-contracts"
                       className="text-sm font-medium cursor-pointer"
                     >
-                      Show Ended Contracts
+                      {t("customerDetail.showEnded")}
                     </label>
                   </div>
                   {canEditContracts && (
                     <Button size="sm" onClick={() => setIsAddContractDialogOpen(true)} data-testid="button-add-contract">
                       <Plus className="w-4 h-4 mr-2" />
-                      Add Contract
+                      {t("customerDetail.newContract")}
                     </Button>
                   )}
                 </div>
@@ -2280,7 +2283,7 @@ export default function CustomerDetail() {
                         <div className="text-center">
                           <FileText className="w-12 h-12 mx-auto text-muted-foreground mb-3" />
                           <p className="text-sm text-muted-foreground">
-                            {showEndedContracts ? "No contracts yet" : "No active or paused contracts"}
+                            {showEndedContracts ? t("customerDetail.noDocumentsFound") : t("customerDetail.noDocumentsFound")}
                           </p>
                         </div>
                       </CardContent>
@@ -2306,15 +2309,15 @@ export default function CustomerDetail() {
                 <AlertDialog open={showReplaceConfirm !== null} onOpenChange={(open) => !open && setShowReplaceConfirm(null)}>
                   <AlertDialogContent>
                     <AlertDialogHeader>
-                      <AlertDialogTitle>Replace signed agreement?</AlertDialogTitle>
+                      <AlertDialogTitle>{t("customerDetail.replaceDocument")}</AlertDialogTitle>
                       <AlertDialogDescription>
-                        This will supersede the current signed agreement. The old file will remain in version history. Continue?
+                        {t("customerDetail.replaceDocumentMsg")}
                       </AlertDialogDescription>
                     </AlertDialogHeader>
                     <AlertDialogFooter>
-                      <AlertDialogCancel>Cancel</AlertDialogCancel>
+                      <AlertDialogCancel>{t("common.cancel")}</AlertDialogCancel>
                       <AlertDialogAction onClick={() => showReplaceConfirm && confirmReplace(showReplaceConfirm)}>
-                        Continue
+                        {t("customerDetail.replaceBtn")}
                       </AlertDialogAction>
                     </AlertDialogFooter>
                   </AlertDialogContent>
@@ -2376,9 +2379,9 @@ export default function CustomerDetail() {
       <Dialog open={isAddContractDialogOpen} onOpenChange={setIsAddContractDialogOpen}>
         <DialogContent className="max-w-2xl">
           <DialogHeader>
-            <DialogTitle>Add New Contract</DialogTitle>
+            <DialogTitle>{t("customerDetail.addContractTitle")}</DialogTitle>
             <DialogDescription>
-              Create a new service contract for this customer
+              {t("customerDetail.addContractDesc")}
             </DialogDescription>
           </DialogHeader>
           <Form {...contractForm}>
@@ -2389,19 +2392,19 @@ export default function CustomerDetail() {
                   name="serviceType"
                   render={({ field }) => (
                     <FormItem>
-                      <FormLabel>Service Type *</FormLabel>
+                      <FormLabel>{t("contracts.serviceType")} *</FormLabel>
                       <Select onValueChange={field.onChange} value={field.value}>
                         <FormControl>
                           <SelectTrigger data-testid="select-service-type">
-                            <SelectValue placeholder="Select service type" />
+                            <SelectValue placeholder={t("contracts.serviceType")} />
                           </SelectTrigger>
                         </FormControl>
                         <SelectContent>
-                          <SelectItem value="Maintenance">Maintenance</SelectItem>
-                          <SelectItem value="Chemical">Chemical</SelectItem>
-                          <SelectItem value="Snow">Snow & Ice</SelectItem>
-                          <SelectItem value="Irrigation">Irrigation</SelectItem>
-                          <SelectItem value="Other">Other</SelectItem>
+                          <SelectItem value="Maintenance">{t("serviceTypes.maintenance")}</SelectItem>
+                          <SelectItem value="Chemical">{t("serviceTypes.chemical")}</SelectItem>
+                          <SelectItem value="Snow">{t("serviceTypes.snow")}</SelectItem>
+                          <SelectItem value="Irrigation">{t("serviceTypes.irrigation")}</SelectItem>
+                          <SelectItem value="Other">{t("serviceTypes.other")}</SelectItem>
                         </SelectContent>
                       </Select>
                       <FormMessage />
@@ -2413,17 +2416,17 @@ export default function CustomerDetail() {
                   name="billingPattern"
                   render={({ field }) => (
                     <FormItem>
-                      <FormLabel>Billing Pattern *</FormLabel>
+                      <FormLabel>{t("contracts.billingSchedule")} *</FormLabel>
                       <Select onValueChange={field.onChange} value={field.value}>
                         <FormControl>
                           <SelectTrigger data-testid="select-billing-pattern">
-                            <SelectValue placeholder="Select pattern" />
+                            <SelectValue placeholder={t("contracts.billingSchedule")} />
                           </SelectTrigger>
                         </FormControl>
                         <SelectContent>
-                          <SelectItem value="monthly">Monthly</SelectItem>
-                          <SelectItem value="seasonal">Seasonal</SelectItem>
-                          <SelectItem value="12-of-12">12 of 12</SelectItem>
+                          <SelectItem value="monthly">{t("contracts.monthly")}</SelectItem>
+                          <SelectItem value="seasonal">{t("contracts.seasonal")}</SelectItem>
+                          <SelectItem value="12-of-12">{t("contracts.twelveOfTwelve")}</SelectItem>
                         </SelectContent>
                       </Select>
                       <FormMessage />
@@ -2441,7 +2444,7 @@ export default function CustomerDetail() {
                       : '';
                     return (
                       <FormItem>
-                        <FormLabel>Start Date *</FormLabel>
+                        <FormLabel>{t("contracts.startDate")} *</FormLabel>
                         <FormControl>
                           <Input
                             type="date"
@@ -2470,7 +2473,7 @@ export default function CustomerDetail() {
                       : '';
                     return (
                       <FormItem>
-                        <FormLabel>End Date (Optional)</FormLabel>
+                        <FormLabel>{t("contracts.endDate")}</FormLabel>
                         <FormControl>
                           <Input
                             type="date"
@@ -2498,17 +2501,17 @@ export default function CustomerDetail() {
                 name="status"
                 render={({ field }) => (
                   <FormItem>
-                    <FormLabel>Status *</FormLabel>
+                    <FormLabel>{t("common.status")} *</FormLabel>
                     <Select onValueChange={field.onChange} value={field.value}>
                       <FormControl>
                         <SelectTrigger data-testid="select-status">
-                          <SelectValue placeholder="Select status" />
+                          <SelectValue placeholder={t("common.status")} />
                         </SelectTrigger>
                       </FormControl>
                       <SelectContent>
-                        <SelectItem value="active">Active</SelectItem>
-                        <SelectItem value="paused">Paused</SelectItem>
-                        <SelectItem value="ended">Ended</SelectItem>
+                        <SelectItem value="active">{t("statuses.active")}</SelectItem>
+                        <SelectItem value="paused">{t("statuses.paused")}</SelectItem>
+                        <SelectItem value="ended">{t("statuses.ended")}</SelectItem>
                       </SelectContent>
                     </Select>
                     <FormMessage />
@@ -2520,9 +2523,9 @@ export default function CustomerDetail() {
                 name="po"
                 render={({ field }) => (
                   <FormItem>
-                    <FormLabel>PO Number (Optional)</FormLabel>
+                    <FormLabel>{t("contracts.poNumber")}</FormLabel>
                     <FormControl>
-                      <Input placeholder="Enter PO number" {...field} value={field.value || ""} data-testid="input-po" />
+                      <Input placeholder={t("contracts.poNumber")} {...field} value={field.value || ""} data-testid="input-po" />
                     </FormControl>
                     <FormMessage />
                   </FormItem>
@@ -2533,10 +2536,10 @@ export default function CustomerDetail() {
                 name="notes"
                 render={({ field }) => (
                   <FormItem>
-                    <FormLabel>Notes (Optional)</FormLabel>
+                    <FormLabel>{t("common.notes")}</FormLabel>
                     <FormControl>
                       <Textarea
-                        placeholder="Add any additional notes about this contract"
+                        placeholder={t("contracts.additionalNotes")}
                         {...field}
                         value={field.value || ""}
                         data-testid="textarea-notes"
@@ -2563,7 +2566,7 @@ export default function CustomerDetail() {
                           />
                         </FormControl>
                         <FormLabel className="font-medium cursor-pointer">
-                          Includes Mobilization Fee
+                          {t("customerDetail.includesMobilizationFee")}
                         </FormLabel>
                       </FormItem>
                     )}
@@ -2574,7 +2577,7 @@ export default function CustomerDetail() {
                       name="mobilizationFeeAmount"
                       render={({ field }) => (
                         <FormItem>
-                          <FormLabel>Mobilization Fee Amount</FormLabel>
+                          <FormLabel>{t("customerDetail.mobilizationFeeAmount")}</FormLabel>
                           <FormControl>
                             <div className="relative">
                               <span className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground">$</span>
@@ -2593,7 +2596,7 @@ export default function CustomerDetail() {
                               />
                             </div>
                           </FormControl>
-                          <FormDescription>Monthly recurring fee added to each billing period</FormDescription>
+                          <FormDescription>{t("customerDetail.mobilizationFeeDesc")}</FormDescription>
                           <FormMessage />
                         </FormItem>
                       )}
@@ -2603,10 +2606,10 @@ export default function CustomerDetail() {
               )}
               <DialogFooter>
                 <Button type="button" variant="outline" onClick={() => setIsAddContractDialogOpen(false)} data-testid="button-cancel">
-                  Cancel
+                  {t("common.cancel")}
                 </Button>
                 <Button type="submit" disabled={createContractMutation.isPending} data-testid="button-save-contract">
-                  {createContractMutation.isPending ? "Creating..." : "Create Contract"}
+                  {createContractMutation.isPending ? t("common.creating") : t("common.create")}
                 </Button>
               </DialogFooter>
             </form>
@@ -2624,9 +2627,9 @@ export default function CustomerDetail() {
       }}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>{editingContact ? "Edit Contact" : "Add Contact"}</DialogTitle>
+            <DialogTitle>{editingContact ? t("customerDetail.editContact") : t("customerDetail.addContact")}</DialogTitle>
             <DialogDescription>
-              {editingContact ? "Update contact information" : "Add a new contact for this customer"}
+              {editingContact ? t("customerDetail.updateContactInfo") : t("customerDetail.addContactDesc")}
             </DialogDescription>
           </DialogHeader>
           <Form {...contactForm}>
@@ -2646,7 +2649,7 @@ export default function CustomerDetail() {
                 name="name"
                 render={({ field }) => (
                   <FormItem>
-                    <FormLabel>Name *</FormLabel>
+                    <FormLabel>{t("common.name")} *</FormLabel>
                     <FormControl>
                       <Input placeholder="John Doe" {...field} data-testid="input-contact-name" />
                     </FormControl>
@@ -2659,7 +2662,7 @@ export default function CustomerDetail() {
                 name="phones"
                 render={({ field }) => (
                   <FormItem>
-                    <FormLabel>Phone Numbers</FormLabel>
+                    <FormLabel>{t("common.phone")}</FormLabel>
                     <div className="space-y-2">
                       {(field.value || []).map((phone: string, index: number) => (
                         <div key={index} className="flex gap-2">
@@ -2695,7 +2698,7 @@ export default function CustomerDetail() {
                         data-testid="button-add-phone"
                       >
                         <Plus className="w-4 h-4 mr-2" />
-                        Add Phone
+                        {t("common.add")} {t("common.phone")}
                       </Button>
                     </div>
                     <FormMessage />
@@ -2707,7 +2710,7 @@ export default function CustomerDetail() {
                 name="emails"
                 render={({ field }) => (
                   <FormItem>
-                    <FormLabel>Email Addresses</FormLabel>
+                    <FormLabel>{t("common.email")}</FormLabel>
                     <div className="space-y-2">
                       {(field.value || []).map((email: string, index: number) => (
                         <div key={index} className="flex gap-2">
@@ -2744,7 +2747,7 @@ export default function CustomerDetail() {
                         data-testid="button-add-email"
                       >
                         <Plus className="w-4 h-4 mr-2" />
-                        Add Email
+                        {t("common.add")} {t("common.email")}
                       </Button>
                     </div>
                     <FormMessage />
@@ -2756,17 +2759,17 @@ export default function CustomerDetail() {
                 name="role"
                 render={({ field }) => (
                   <FormItem>
-                    <FormLabel>Role</FormLabel>
+                    <FormLabel>{t("customerDetail.contactRole")}</FormLabel>
                     <Select onValueChange={field.onChange} value={field.value || ""}>
                       <FormControl>
                         <SelectTrigger data-testid="select-contact-role">
-                          <SelectValue placeholder="Select a role" />
+                          <SelectValue placeholder={t("customerDetail.contactRole")} />
                         </SelectTrigger>
                       </FormControl>
                       <SelectContent>
-                        <SelectItem value="Property Manager">Property Manager</SelectItem>
-                        <SelectItem value="Board President">Board President</SelectItem>
-                        <SelectItem value="HOA Contact">HOA Contact</SelectItem>
+                        <SelectItem value="Property Manager">{t("customerDetail.propertyManager")}</SelectItem>
+                        <SelectItem value="Board President">{t("customerDetail.boardPresident")}</SelectItem>
+                        <SelectItem value="HOA Contact">{t("customerDetail.hoaContact")}</SelectItem>
                       </SelectContent>
                     </Select>
                     <FormMessage />
@@ -2775,14 +2778,14 @@ export default function CustomerDetail() {
               />
               {contactForm.watch("role") === "Property Manager" && (
                 <FormItem>
-                  <FormLabel>Property Management Company</FormLabel>
+                  <FormLabel>{t("customerDetail.propertyManagement")}</FormLabel>
                   <Select 
                     value={selectedPmCompanyForContact || ""} 
                     onValueChange={setSelectedPmCompanyForContact}
                   >
                     <FormControl>
                       <SelectTrigger data-testid="select-pm-company-for-contact">
-                        <SelectValue placeholder="Select a company" />
+                        <SelectValue placeholder={t("customerDetail.propertyManagement")} />
                       </SelectTrigger>
                     </FormControl>
                     <SelectContent>
@@ -2794,7 +2797,7 @@ export default function CustomerDetail() {
                     </SelectContent>
                   </Select>
                   <FormDescription>
-                    Select the property management company this contact belongs to
+                    {t("customerDetail.propertyManagement")}
                   </FormDescription>
                 </FormItem>
               )}
@@ -2810,7 +2813,7 @@ export default function CustomerDetail() {
                         data-testid="checkbox-contact-primary"
                       />
                     </FormControl>
-                    <FormLabel className="!mt-0">Primary Contact</FormLabel>
+                    <FormLabel className="!mt-0">{t("customers.primaryContact")}</FormLabel>
                   </FormItem>
                 )}
               />
@@ -2819,9 +2822,9 @@ export default function CustomerDetail() {
                 name="notes"
                 render={({ field }) => (
                   <FormItem>
-                    <FormLabel>Notes</FormLabel>
+                    <FormLabel>{t("common.notes")}</FormLabel>
                     <FormControl>
-                      <Textarea placeholder="Additional notes..." {...field} value={field.value || ""} rows={3} data-testid="textarea-contact-notes" />
+                      <Textarea placeholder={t("common.notes")} {...field} value={field.value || ""} rows={3} data-testid="textarea-contact-notes" />
                     </FormControl>
                     <FormMessage />
                   </FormItem>
@@ -2834,12 +2837,12 @@ export default function CustomerDetail() {
                   setSelectedPmCompanyForContact(null);
                   contactForm.reset();
                 }} data-testid="button-cancel-contact">
-                  Cancel
+                  {t("common.cancel")}
                 </Button>
                 <Button type="submit" disabled={createContactMutation.isPending || updateContactMutation.isPending} data-testid="button-save-contact">
                   {editingContact 
-                    ? (updateContactMutation.isPending ? "Updating..." : "Update Contact")
-                    : (createContactMutation.isPending ? "Creating..." : "Create Contact")
+                    ? (updateContactMutation.isPending ? t("common.saving") : t("common.save"))
+                    : (createContactMutation.isPending ? t("common.creating") : t("common.create"))
                   }
                 </Button>
               </DialogFooter>
@@ -2857,9 +2860,9 @@ export default function CustomerDetail() {
       }}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>{editingNote ? "Edit Note" : "Add Note"}</DialogTitle>
+            <DialogTitle>{editingNote ? t("customerDetail.editNote") : t("customerDetail.addNote")}</DialogTitle>
             <DialogDescription>
-              {editingNote ? "Update the note" : "Add a new note for this customer"}
+              {editingNote ? t("customerDetail.updateNoteDesc") : t("customerDetail.addNoteDesc")}
             </DialogDescription>
           </DialogHeader>
           <Form {...noteForm}>
@@ -2875,9 +2878,9 @@ export default function CustomerDetail() {
                 name="body"
                 render={({ field }) => (
                   <FormItem>
-                    <FormLabel>Note *</FormLabel>
+                    <FormLabel>{t("customerDetail.noteContent")} *</FormLabel>
                     <FormControl>
-                      <Textarea placeholder="Enter your note here..." {...field} rows={5} data-testid="textarea-note-body" />
+                      <Textarea placeholder={t("customerDetail.noteContent")} {...field} rows={5} data-testid="textarea-note-body" />
                     </FormControl>
                     <FormMessage />
                   </FormItem>
@@ -2889,12 +2892,12 @@ export default function CustomerDetail() {
                   setEditingNote(null);
                   noteForm.reset();
                 }} data-testid="button-cancel-note">
-                  Cancel
+                  {t("common.cancel")}
                 </Button>
                 <Button type="submit" disabled={createNoteMutation.isPending || updateNoteMutation.isPending} data-testid="button-save-note">
                   {editingNote 
-                    ? (updateNoteMutation.isPending ? "Updating..." : "Update Note")
-                    : (createNoteMutation.isPending ? "Creating..." : "Create Note")
+                    ? (updateNoteMutation.isPending ? t("common.saving") : t("common.save"))
+                    : (createNoteMutation.isPending ? t("common.creating") : t("common.create"))
                   }
                 </Button>
               </DialogFooter>
@@ -2906,9 +2909,9 @@ export default function CustomerDetail() {
       <Dialog open={isEditCustomerDialogOpen} onOpenChange={setIsEditCustomerDialogOpen}>
         <DialogContent className="max-w-2xl">
           <DialogHeader>
-            <DialogTitle>Edit Customer</DialogTitle>
+            <DialogTitle>{t("customerDetail.editCustomer")}</DialogTitle>
             <DialogDescription>
-              Update customer information
+              {t("customerDetail.updateCustomerInfo")}
             </DialogDescription>
           </DialogHeader>
           <Form {...customerForm}>
@@ -2919,7 +2922,7 @@ export default function CustomerDetail() {
                   name="name"
                   render={({ field }) => (
                     <FormItem>
-                      <FormLabel>Customer Name *</FormLabel>
+                      <FormLabel>{t("customers.customerName")} *</FormLabel>
                       <FormControl>
                         <Input placeholder="ABC Corporation" {...field} data-testid="input-customer-name" />
                       </FormControl>
@@ -2932,7 +2935,7 @@ export default function CustomerDetail() {
                   name="customerNumber"
                   render={({ field }) => (
                     <FormItem>
-                      <FormLabel>Customer Number</FormLabel>
+                      <FormLabel>{t("customers.customerNumber")}</FormLabel>
                       <FormControl>
                         <Input placeholder="CUST-001" {...field} value={field.value || ""} data-testid="input-customer-number" />
                       </FormControl>
@@ -2947,17 +2950,17 @@ export default function CustomerDetail() {
                   name="status"
                   render={({ field }) => (
                     <FormItem>
-                      <FormLabel>Status *</FormLabel>
+                      <FormLabel>{t("common.status")} *</FormLabel>
                       <Select onValueChange={field.onChange} value={field.value}>
                         <FormControl>
                           <SelectTrigger data-testid="select-customer-status">
-                            <SelectValue placeholder="Select status" />
+                            <SelectValue placeholder={t("common.status")} />
                           </SelectTrigger>
                         </FormControl>
                         <SelectContent>
-                          <SelectItem value="active">Active</SelectItem>
-                          <SelectItem value="prospect">Prospect</SelectItem>
-                          <SelectItem value="inactive">Inactive</SelectItem>
+                          <SelectItem value="active">{t("statuses.active")}</SelectItem>
+                          <SelectItem value="prospect">{t("statuses.prospect")}</SelectItem>
+                          <SelectItem value="inactive">{t("statuses.inactive")}</SelectItem>
                         </SelectContent>
                       </Select>
                       <FormMessage />
@@ -2969,7 +2972,7 @@ export default function CustomerDetail() {
                   name="acres"
                   render={({ field }) => (
                     <FormItem>
-                      <FormLabel>Acres</FormLabel>
+                      <FormLabel>{t("customers.acres")}</FormLabel>
                       <FormControl>
                         <Input placeholder="1.5" {...field} value={field.value || ""} data-testid="input-customer-acres" />
                       </FormControl>
@@ -2983,7 +2986,7 @@ export default function CustomerDetail() {
                 name="street"
                 render={({ field }) => (
                   <FormItem>
-                    <FormLabel>Street Address *</FormLabel>
+                    <FormLabel>{t("customers.streetAddress")} *</FormLabel>
                     <FormControl>
                       <Input placeholder="123 Main St" {...field} data-testid="input-customer-street" />
                     </FormControl>
@@ -2997,7 +3000,7 @@ export default function CustomerDetail() {
                   name="city"
                   render={({ field }) => (
                     <FormItem>
-                      <FormLabel>City *</FormLabel>
+                      <FormLabel>{t("customers.city")} *</FormLabel>
                       <FormControl>
                         <Input placeholder="Cityville" {...field} data-testid="input-customer-city" />
                       </FormControl>
@@ -3010,7 +3013,7 @@ export default function CustomerDetail() {
                   name="state"
                   render={({ field }) => (
                     <FormItem>
-                      <FormLabel>State *</FormLabel>
+                      <FormLabel>{t("customers.state")} *</FormLabel>
                       <FormControl>
                         <Input placeholder="TX" {...field} data-testid="input-customer-state" />
                       </FormControl>
@@ -3023,7 +3026,7 @@ export default function CustomerDetail() {
                   name="zip"
                   render={({ field }) => (
                     <FormItem>
-                      <FormLabel>ZIP Code *</FormLabel>
+                      <FormLabel>{t("customers.zipCode")} *</FormLabel>
                       <FormControl>
                         <Input placeholder="12345" {...field} data-testid="input-customer-zip" />
                       </FormControl>
@@ -3037,19 +3040,19 @@ export default function CustomerDetail() {
                 name="complexityScore"
                 render={({ field }) => (
                   <FormItem>
-                    <FormLabel>Complexity Score</FormLabel>
+                    <FormLabel>{t("customers.complexity")}</FormLabel>
                     <Select onValueChange={field.onChange} value={field.value}>
                       <FormControl>
                         <SelectTrigger data-testid="select-customer-complexity">
-                          <SelectValue placeholder="Select complexity" />
+                          <SelectValue placeholder={t("customers.complexity")} />
                         </SelectTrigger>
                       </FormControl>
                       <SelectContent>
-                        <SelectItem value="1">1 - Simple</SelectItem>
-                        <SelectItem value="2">2 - Below Average</SelectItem>
-                        <SelectItem value="3">3 - Average</SelectItem>
-                        <SelectItem value="4">4 - Above Average</SelectItem>
-                        <SelectItem value="5">5 - Complex</SelectItem>
+                        <SelectItem value="1">{t("customerDetail.complexitySimple")}</SelectItem>
+                        <SelectItem value="2">{t("customerDetail.complexityBelowAvg")}</SelectItem>
+                        <SelectItem value="3">{t("customerDetail.complexityAverage")}</SelectItem>
+                        <SelectItem value="4">{t("customerDetail.complexityAboveAvg")}</SelectItem>
+                        <SelectItem value="5">{t("customerDetail.complexityComplex")}</SelectItem>
                       </SelectContent>
                     </Select>
                     <FormMessage />
@@ -3062,9 +3065,9 @@ export default function CustomerDetail() {
                 render={({ field }) => (
                   <FormItem className="flex flex-row items-center justify-between rounded-lg border p-3">
                     <div className="space-y-0.5">
-                      <FormLabel>Snow Enabled</FormLabel>
+                      <FormLabel>{t("customerDetail.snowEnabled")}</FormLabel>
                       <p className="text-xs text-muted-foreground">
-                        Include this property in snow storm event selections
+                        {t("customerDetail.snowEnabledDesc")}
                       </p>
                     </div>
                     <FormControl>
@@ -3083,9 +3086,9 @@ export default function CustomerDetail() {
                 render={({ field }) => (
                   <FormItem className="flex flex-row items-center justify-between rounded-lg border p-3">
                     <div className="space-y-0.5">
-                      <FormLabel>Include in Route</FormLabel>
+                      <FormLabel>{t("customerDetail.includeInRoute")}</FormLabel>
                       <p className="text-xs text-muted-foreground">
-                        Show this property on the Route Planning Map
+                        {t("customerDetail.includeInRouteDesc")}
                       </p>
                     </div>
                     <FormControl>
@@ -3103,18 +3106,18 @@ export default function CustomerDetail() {
                 name="parentCustomerId"
                 render={({ field }) => (
                   <FormItem>
-                    <FormLabel>Parent Account</FormLabel>
+                    <FormLabel>{t("customerDetail.parentAccount")}</FormLabel>
                     <Select 
                       onValueChange={(value) => field.onChange(value === "_none" ? null : value)} 
                       value={field.value || "_none"}
                     >
                       <FormControl>
                         <SelectTrigger data-testid="select-customer-parent">
-                          <SelectValue placeholder="Select parent account" />
+                          <SelectValue placeholder={t("customerDetail.parentAccount")} />
                         </SelectTrigger>
                       </FormControl>
                       <SelectContent>
-                        <SelectItem value="_none">None (Standalone)</SelectItem>
+                        <SelectItem value="_none">{t("common.none")}</SelectItem>
                         {availableParentCustomers.map((p) => (
                           <SelectItem key={p.id} value={p.id}>
                             {p.name}
@@ -3132,18 +3135,18 @@ export default function CustomerDetail() {
                   name="propertyManagementCompanyId"
                   render={({ field }) => (
                     <FormItem>
-                      <FormLabel>Property Management Company</FormLabel>
+                      <FormLabel>{t("customerDetail.propertyManagement")}</FormLabel>
                       <Select 
                         onValueChange={(value) => field.onChange(value === "_none" ? null : value)} 
                         value={field.value || "_none"}
                       >
                         <FormControl>
                           <SelectTrigger data-testid="select-customer-pm-company">
-                            <SelectValue placeholder="Select company" />
+                            <SelectValue placeholder={t("customerDetail.propertyManagement")} />
                           </SelectTrigger>
                         </FormControl>
                         <SelectContent>
-                          <SelectItem value="_none">None</SelectItem>
+                          <SelectItem value="_none">{t("common.none")}</SelectItem>
                           {pmCompanies.map((company) => (
                             <SelectItem key={company.id} value={company.id}>
                               {company.name}
@@ -3165,18 +3168,18 @@ export default function CustomerDetail() {
                       : pmManagers;
                     return (
                       <FormItem>
-                        <FormLabel>Property Manager</FormLabel>
+                        <FormLabel>{t("customerDetail.propertyManager")}</FormLabel>
                         <Select 
                           onValueChange={(value) => field.onChange(value === "_none" ? null : value)} 
                           value={field.value || "_none"}
                         >
                           <FormControl>
                             <SelectTrigger data-testid="select-customer-pm-manager">
-                              <SelectValue placeholder="Select manager" />
+                              <SelectValue placeholder={t("customerDetail.propertyManager")} />
                             </SelectTrigger>
                           </FormControl>
                           <SelectContent>
-                            <SelectItem value="_none">None</SelectItem>
+                            <SelectItem value="_none">{t("common.none")}</SelectItem>
                             {filteredManagers.map((manager) => (
                               <SelectItem key={manager.id} value={manager.id}>
                                 {manager.name}
@@ -3200,10 +3203,10 @@ export default function CustomerDetail() {
                   }} 
                   data-testid="button-cancel-customer"
                 >
-                  Cancel
+                  {t("common.cancel")}
                 </Button>
                 <Button type="submit" disabled={updateCustomerMutation.isPending} data-testid="button-save-customer">
-                  {updateCustomerMutation.isPending ? "Updating..." : "Update Customer"}
+                  {updateCustomerMutation.isPending ? t("common.saving") : t("common.save")}
                 </Button>
               </DialogFooter>
             </form>
@@ -3220,6 +3223,7 @@ interface MonthlyBillingSummaryProps {
 }
 
 function MonthlyBillingSummarySection({ customerId, contracts }: MonthlyBillingSummaryProps) {
+  const { t } = useTranslation();
   const currentYear = new Date().getFullYear();
   const [selectedYear, setSelectedYear] = useState(currentYear);
   
@@ -3227,7 +3231,7 @@ function MonthlyBillingSummarySection({ customerId, contracts }: MonthlyBillingS
     queryKey: ["/api/customers", customerId, "all-monthly-amounts", selectedYear],
   });
   
-  const monthNames = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+  const monthNames = [t("months.jan"), t("months.feb"), t("months.mar"), t("months.apr"), t("months.may"), t("months.jun"), t("months.jul"), t("months.aug"), t("months.sep"), t("months.oct"), t("months.nov"), t("months.dec")];
   
   const activeContracts = contracts.filter(c => c.status === "active" || c.status === "paused");
   
@@ -3297,8 +3301,8 @@ function MonthlyBillingSummarySection({ customerId, contracts }: MonthlyBillingS
     <div className="space-y-6">
       <div className="flex items-center justify-between gap-4">
         <div>
-          <h3 className="text-lg font-semibold">Monthly Billing Summary</h3>
-          <p className="text-sm text-muted-foreground">Consolidated view of all contract billing</p>
+          <h3 className="text-lg font-semibold">{t("customerDetail.monthlySummaryTitle")}</h3>
+          <p className="text-sm text-muted-foreground">{t("customerDetail.monthlySummaryDesc")}</p>
         </div>
         <div className="flex items-center gap-2">
           <Button
@@ -3324,7 +3328,7 @@ function MonthlyBillingSummarySection({ customerId, contracts }: MonthlyBillingS
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
         <Card>
           <CardHeader className="pb-2">
-            <CardTitle className="text-sm font-medium text-muted-foreground">Annual Total</CardTitle>
+            <CardTitle className="text-sm font-medium text-muted-foreground">{t("customerDetail.annualTotal")}</CardTitle>
           </CardHeader>
           <CardContent>
             <p className="text-2xl font-bold" data-testid="text-summary-annual-total">
@@ -3332,14 +3336,14 @@ function MonthlyBillingSummarySection({ customerId, contracts }: MonthlyBillingS
             </p>
             {monthlyMobilizationTotal > 0 && (
               <p className="text-xs text-muted-foreground mt-1">
-                Includes ${annualMobilization.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} mobilization
+                {t("customerDetail.includesMobilizationFee")} ${annualMobilization.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
               </p>
             )}
           </CardContent>
         </Card>
         <Card>
           <CardHeader className="pb-2">
-            <CardTitle className="text-sm font-medium text-muted-foreground">Active Contracts</CardTitle>
+            <CardTitle className="text-sm font-medium text-muted-foreground">{t("customerDetail.activeContracts")}</CardTitle>
           </CardHeader>
           <CardContent>
             <p className="text-2xl font-bold" data-testid="text-summary-active-contracts">
@@ -3350,7 +3354,7 @@ function MonthlyBillingSummarySection({ customerId, contracts }: MonthlyBillingS
         {monthlyMobilizationTotal > 0 && (
           <Card>
             <CardHeader className="pb-2">
-              <CardTitle className="text-sm font-medium text-muted-foreground">Monthly Mobilization</CardTitle>
+              <CardTitle className="text-sm font-medium text-muted-foreground">{t("customerDetail.mobilizationFeeAmount")}</CardTitle>
             </CardHeader>
             <CardContent>
               <p className="text-2xl font-bold" data-testid="text-summary-mobilization">
@@ -3366,20 +3370,20 @@ function MonthlyBillingSummarySection({ customerId, contracts }: MonthlyBillingS
       
       <Card>
         <CardHeader>
-          <CardTitle className="text-lg">Monthly Breakdown</CardTitle>
+          <CardTitle className="text-lg">{t("customerDetail.monthlyBreakdown")}</CardTitle>
         </CardHeader>
         <CardContent>
           <Table>
             <TableHeader>
               <TableRow>
-                <TableHead>Month</TableHead>
-                <TableHead className="text-right">Maintenance</TableHead>
-                <TableHead className="text-right">Chemical</TableHead>
-                <TableHead className="text-right">Other</TableHead>
+                <TableHead>{t("contracts.month")}</TableHead>
+                <TableHead className="text-right">{t("serviceTypes.maintenance")}</TableHead>
+                <TableHead className="text-right">{t("serviceTypes.chemical")}</TableHead>
+                <TableHead className="text-right">{t("serviceTypes.other")}</TableHead>
                 {monthlyMobilizationTotal > 0 && (
-                  <TableHead className="text-right">Mobilization</TableHead>
+                  <TableHead className="text-right">{t("customerDetail.mobilizationFeeAmount")}</TableHead>
                 )}
-                <TableHead className="text-right">Total</TableHead>
+                <TableHead className="text-right">{t("common.total")}</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -3421,7 +3425,7 @@ function MonthlyBillingSummarySection({ customerId, contracts }: MonthlyBillingS
                 );
               })}
               <TableRow className="font-bold border-t-2">
-                <TableCell>Total</TableCell>
+                <TableCell>{t("common.total")}</TableCell>
                 <TableCell className="text-right">
                   ${maintenanceMonthly.reduce((sum, m) => sum + m.amount, 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                 </TableCell>
@@ -3456,6 +3460,7 @@ interface CustomerRevenueData {
 }
 
 function RevenueSection({ customerId }: { customerId: string }) {
+  const { t } = useTranslation();
   const currentYear = new Date().getFullYear();
   const [selectedYear, setSelectedYear] = useState(currentYear);
   
@@ -3463,7 +3468,7 @@ function RevenueSection({ customerId }: { customerId: string }) {
     queryKey: ["/api/customers", customerId, "revenue", selectedYear],
   });
   
-  const monthNames = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+  const monthNames = [t("months.jan"), t("months.feb"), t("months.mar"), t("months.apr"), t("months.may"), t("months.jun"), t("months.jul"), t("months.aug"), t("months.sep"), t("months.oct"), t("months.nov"), t("months.dec")];
   
   if (isLoading) {
     return (
@@ -3479,7 +3484,7 @@ function RevenueSection({ customerId }: { customerId: string }) {
     return (
       <Card>
         <CardContent className="flex items-center justify-center p-12">
-          <p className="text-sm text-muted-foreground">No revenue data available</p>
+          <p className="text-sm text-muted-foreground">{t("customerDetail.noDocumentsFound")}</p>
         </CardContent>
       </Card>
     );
@@ -3489,8 +3494,8 @@ function RevenueSection({ customerId }: { customerId: string }) {
     <div className="space-y-4">
       <div className="flex items-center justify-between gap-4">
         <div>
-          <h3 className="text-lg font-semibold">Revenue Projection</h3>
-          <p className="text-sm text-muted-foreground">Based on contract monthly amounts</p>
+          <h3 className="text-lg font-semibold">{t("customerDetail.revenueOverview")}</h3>
+          <p className="text-sm text-muted-foreground">{t("customerDetail.revenueDesc")}</p>
         </div>
         <div className="flex items-center gap-2">
           <Button
@@ -3515,14 +3520,14 @@ function RevenueSection({ customerId }: { customerId: string }) {
       
       <Card>
         <CardHeader>
-          <CardTitle className="text-lg">Annual Projection</CardTitle>
+          <CardTitle className="text-lg">{t("customerDetail.annualProjection")}</CardTitle>
         </CardHeader>
         <CardContent>
           <p className="text-4xl font-bold" data-testid="text-annual-projection">
             ${revenueData.annualProjection.toFixed(2)}
           </p>
           <p className="text-sm text-muted-foreground mt-1">
-            Total projected revenue for {selectedYear}
+            {t("customerDetail.annualTotal")} {selectedYear}
           </p>
         </CardContent>
       </Card>
@@ -3543,24 +3548,24 @@ function RevenueSection({ customerId }: { customerId: string }) {
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <Card>
               <CardHeader className="pb-2">
-                <CardTitle className="text-base">Maintenance Revenue</CardTitle>
+                <CardTitle className="text-base">{t("serviceTypes.maintenance")} {t("customerDetail.billingTabs.revenue")}</CardTitle>
               </CardHeader>
               <CardContent>
                 <p className="text-2xl font-bold" data-testid="text-maintenance-total">
                   ${maintenanceTotal.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                 </p>
-                <p className="text-xs text-muted-foreground mt-1">Annual total for {selectedYear}</p>
+                <p className="text-xs text-muted-foreground mt-1">{t("customerDetail.annualTotal")} {selectedYear}</p>
               </CardContent>
             </Card>
             <Card>
               <CardHeader className="pb-2">
-                <CardTitle className="text-base">Chemical Revenue</CardTitle>
+                <CardTitle className="text-base">{t("serviceTypes.chemical")} {t("customerDetail.billingTabs.revenue")}</CardTitle>
               </CardHeader>
               <CardContent>
                 <p className="text-2xl font-bold" data-testid="text-chemical-total">
                   ${chemicalTotal.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                 </p>
-                <p className="text-xs text-muted-foreground mt-1">Annual total for {selectedYear}</p>
+                <p className="text-xs text-muted-foreground mt-1">{t("customerDetail.annualTotal")} {selectedYear}</p>
               </CardContent>
             </Card>
           </div>
@@ -3569,7 +3574,7 @@ function RevenueSection({ customerId }: { customerId: string }) {
       
       <Card>
         <CardHeader>
-          <CardTitle className="text-lg">By Month</CardTitle>
+          <CardTitle className="text-lg">{t("contracts.month")}</CardTitle>
         </CardHeader>
         <CardContent>
           <div className="grid grid-cols-3 gap-3">
@@ -3599,20 +3604,20 @@ function RevenueSection({ customerId }: { customerId: string }) {
       
       <Card>
         <CardHeader>
-          <CardTitle className="text-lg">By Contract</CardTitle>
+          <CardTitle className="text-lg">{t("customerDetail.billingTabs.contracts")}</CardTitle>
         </CardHeader>
         <CardContent>
           {revenueData.contractBreakdown.length === 0 ? (
-            <p className="text-sm text-muted-foreground text-center py-4">No contracts</p>
+            <p className="text-sm text-muted-foreground text-center py-4">{t("customerDetail.noDocumentsFound")}</p>
           ) : (
             <div className="border rounded-md">
               <table className="w-full">
                 <thead>
                   <tr className="border-b bg-muted/30">
-                    <th className="text-left p-3 text-xs font-medium">Service Type</th>
-                    <th className="text-left p-3 text-xs font-medium">Status</th>
-                    <th className="text-left p-3 text-xs font-medium">Date Range</th>
-                    <th className="text-right p-3 text-xs font-medium">Annual Total</th>
+                    <th className="text-left p-3 text-xs font-medium">{t("contracts.serviceType")}</th>
+                    <th className="text-left p-3 text-xs font-medium">{t("common.status")}</th>
+                    <th className="text-left p-3 text-xs font-medium">{t("contracts.startDate")}</th>
+                    <th className="text-right p-3 text-xs font-medium">{t("customerDetail.annualTotal")}</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -3624,7 +3629,7 @@ function RevenueSection({ customerId }: { customerId: string }) {
                       </td>
                       <td className="p-3 text-sm text-muted-foreground">
                         {format(new Date(contract.startDate), "MMM d, yyyy")}
-                        {contract.endDate ? ` - ${format(new Date(contract.endDate), "MMM d, yyyy")}` : " - Ongoing"}
+                        {contract.endDate ? ` - ${format(new Date(contract.endDate), "MMM d, yyyy")}` : ` - ${t("customerDetail.ongoing")}`}
                       </td>
                       <td className="p-3 text-sm font-semibold text-right" data-testid={`text-contract-${contract.contractId}-total`}>
                         ${contract.annualTotal.toFixed(2)}
@@ -3676,6 +3681,7 @@ function RateInput({ label, field, unit, value, onChange, canEdit, isPending }: 
 }
 
 function RateSheetSection({ customerId }: { customerId: string }) {
+  const { t } = useTranslation();
   const { user } = useAuth();
   const { toast } = useToast();
   const canEdit = user?.activeRole === "admin" || user?.activeRole === "office";
@@ -3760,14 +3766,14 @@ function RateSheetSection({ customerId }: { customerId: string }) {
       queryClient.invalidateQueries({ queryKey: ["/api/customers", customerId, "rate-sheet"] });
       setHasChanges(false);
       toast({
-        title: "Success",
-        description: "Rate sheet saved",
+        title: t("common.success"),
+        description: t("customerDetail.rateSheetSaved"),
       });
     },
     onError: (error: Error) => {
       toast({
-        title: "Error",
-        description: error.message || "Failed to save rate sheet",
+        title: t("common.error"),
+        description: error.message || t("customerDetail.rateSheetError"),
         variant: "destructive",
       });
     },
@@ -3787,17 +3793,17 @@ function RateSheetSection({ customerId }: { customerId: string }) {
       <Accordion type="multiple" defaultValue={["maintenance", "snow"]} className="space-y-4">
         <AccordionItem value="maintenance">
           <AccordionTrigger className="text-lg font-semibold" data-testid="accordion-maintenance">
-            Maintenance & Emergency Labor
+            {t("customerDetail.landscapingRates")}
           </AccordionTrigger>
           <AccordionContent>
             <Card>
               <CardContent className="pt-6 space-y-4">
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  <RateInput label="General Labor" field="generalLabor" unit="per hour" value={localRates.generalLabor || ""} onChange={handleRateChange} canEdit={canEdit} isPending={saveMutation.isPending} />
-                  <RateInput label="Operator Labor" field="operatorLabor" unit="per hour" value={localRates.operatorLabor || ""} onChange={handleRateChange} canEdit={canEdit} isPending={saveMutation.isPending} />
-                  <RateInput label="Irrigation Labor" field="irrigationLabor" unit="per hour" value={localRates.irrigationLabor || ""} onChange={handleRateChange} canEdit={canEdit} isPending={saveMutation.isPending} />
-                  <RateInput label="Emergency General Labor" field="emergencyGeneralLabor" unit="per hour" value={localRates.emergencyGeneralLabor || ""} onChange={handleRateChange} canEdit={canEdit} isPending={saveMutation.isPending} />
-                  <RateInput label="Emergency Irrigation Labor" field="emergencyIrrigationLabor" unit="per hour" value={localRates.emergencyIrrigationLabor || ""} onChange={handleRateChange} canEdit={canEdit} isPending={saveMutation.isPending} />
+                  <RateInput label={t("customerDetail.generalLabor")} field="generalLabor" unit={t("customerDetail.perHour")} value={localRates.generalLabor || ""} onChange={handleRateChange} canEdit={canEdit} isPending={saveMutation.isPending} />
+                  <RateInput label={t("customerDetail.operatorLabor")} field="operatorLabor" unit={t("customerDetail.perHour")} value={localRates.operatorLabor || ""} onChange={handleRateChange} canEdit={canEdit} isPending={saveMutation.isPending} />
+                  <RateInput label={t("customerDetail.irrigationLabor")} field="irrigationLabor" unit={t("customerDetail.perHour")} value={localRates.irrigationLabor || ""} onChange={handleRateChange} canEdit={canEdit} isPending={saveMutation.isPending} />
+                  <RateInput label={t("customerDetail.emergencyGeneralLabor")} field="emergencyGeneralLabor" unit={t("customerDetail.perHour")} value={localRates.emergencyGeneralLabor || ""} onChange={handleRateChange} canEdit={canEdit} isPending={saveMutation.isPending} />
+                  <RateInput label={t("customerDetail.emergencyIrrigationLabor")} field="emergencyIrrigationLabor" unit={t("customerDetail.perHour")} value={localRates.emergencyIrrigationLabor || ""} onChange={handleRateChange} canEdit={canEdit} isPending={saveMutation.isPending} />
                 </div>
               </CardContent>
             </Card>
@@ -3806,19 +3812,19 @@ function RateSheetSection({ customerId }: { customerId: string }) {
 
         <AccordionItem value="snow">
           <AccordionTrigger className="text-lg font-semibold" data-testid="accordion-snow">
-            Snow & Ice Services
+            {t("customerDetail.snowRates")}
           </AccordionTrigger>
           <AccordionContent>
             <Card>
               <CardContent className="pt-6 space-y-4">
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  <RateInput label="Hand Shovel Labor" field="handShovelLabor" unit="per hour" value={localRates.handShovelLabor || ""} onChange={handleRateChange} canEdit={canEdit} isPending={saveMutation.isPending} />
-                  <RateInput label="Plow Truck" field="plowTruck" unit="per hour" value={localRates.plowTruck || ""} onChange={handleRateChange} canEdit={canEdit} isPending={saveMutation.isPending} />
-                  <RateInput label="ATV" field="atv" unit="per hour" value={localRates.atv || ""} onChange={handleRateChange} canEdit={canEdit} isPending={saveMutation.isPending} />
-                  <RateInput label="Skid Steer" field="skidSteer" unit="per hour" value={localRates.skidSteer || ""} onChange={handleRateChange} canEdit={canEdit} isPending={saveMutation.isPending} />
-                  <RateInput label="Snow Blower" field="snowBlower" unit="per hour" value={localRates.snowBlower || ""} onChange={handleRateChange} canEdit={canEdit} isPending={saveMutation.isPending} />
-                  <RateInput label="Ice Melt Material" field="iceMeltMaterial" unit="per pound" value={localRates.iceMeltMaterial || ""} onChange={handleRateChange} canEdit={canEdit} isPending={saveMutation.isPending} />
-                  <RateInput label="Ice Melt Application Labor" field="iceMeltApplicationLabor" unit="per hour" value={localRates.iceMeltApplicationLabor || ""} onChange={handleRateChange} canEdit={canEdit} isPending={saveMutation.isPending} />
+                  <RateInput label={t("customerDetail.handShovel")} field="handShovelLabor" unit={t("customerDetail.perHour")} value={localRates.handShovelLabor || ""} onChange={handleRateChange} canEdit={canEdit} isPending={saveMutation.isPending} />
+                  <RateInput label={t("customerDetail.plowTruck")} field="plowTruck" unit={t("customerDetail.perHour")} value={localRates.plowTruck || ""} onChange={handleRateChange} canEdit={canEdit} isPending={saveMutation.isPending} />
+                  <RateInput label={t("customerDetail.atv")} field="atv" unit={t("customerDetail.perHour")} value={localRates.atv || ""} onChange={handleRateChange} canEdit={canEdit} isPending={saveMutation.isPending} />
+                  <RateInput label={t("customerDetail.skidSteer")} field="skidSteer" unit={t("customerDetail.perHour")} value={localRates.skidSteer || ""} onChange={handleRateChange} canEdit={canEdit} isPending={saveMutation.isPending} />
+                  <RateInput label={t("customerDetail.snowBlower")} field="snowBlower" unit={t("customerDetail.perHour")} value={localRates.snowBlower || ""} onChange={handleRateChange} canEdit={canEdit} isPending={saveMutation.isPending} />
+                  <RateInput label={t("customerDetail.iceMeltMaterial")} field="iceMeltMaterial" unit={t("customerDetail.perPound")} value={localRates.iceMeltMaterial || ""} onChange={handleRateChange} canEdit={canEdit} isPending={saveMutation.isPending} />
+                  <RateInput label={t("customerDetail.iceMeltApplicationLabor")} field="iceMeltApplicationLabor" unit={t("customerDetail.perHour")} value={localRates.iceMeltApplicationLabor || ""} onChange={handleRateChange} canEdit={canEdit} isPending={saveMutation.isPending} />
                 </div>
               </CardContent>
             </Card>
@@ -3828,14 +3834,14 @@ function RateSheetSection({ customerId }: { customerId: string }) {
 
       <Card>
         <CardHeader>
-          <CardTitle className="text-lg">Notes</CardTitle>
+          <CardTitle className="text-lg">{t("customerDetail.rateNotes")}</CardTitle>
         </CardHeader>
         <CardContent>
           <Textarea
             data-testid="textarea-rate-notes"
             value={localNotes}
             onChange={(e) => handleNotesChange(e.target.value)}
-            placeholder={canEdit ? "Add pricing exceptions or inclusions..." : "—"}
+            placeholder={canEdit ? t("customerDetail.rateNotesPlaceholder") : "—"}
             disabled={!canEdit || saveMutation.isPending}
             rows={3}
           />
@@ -3844,7 +3850,7 @@ function RateSheetSection({ customerId }: { customerId: string }) {
 
       {rateSheet?.lastUpdatedBy && rateSheet?.lastUpdatedAt && (
         <div className="text-sm text-muted-foreground" data-testid="text-last-updated">
-          Last updated {format(new Date(rateSheet.lastUpdatedAt), "PPp")}
+          {t("customerDetail.lastUpdated")} {format(new Date(rateSheet.lastUpdatedAt), "PPp")}
         </div>
       )}
 
@@ -3855,14 +3861,14 @@ function RateSheetSection({ customerId }: { customerId: string }) {
             onClick={() => saveMutation.mutate()}
             disabled={saveMutation.isPending}
           >
-            {saveMutation.isPending ? "Saving..." : "Save Rate Sheet"}
+            {saveMutation.isPending ? t("common.saving") : t("customerDetail.saveRates")}
           </Button>
         </div>
       )}
 
       {!canEdit && (
         <div className="text-sm text-muted-foreground text-center p-4 bg-muted/50 rounded-md">
-          You do not have permission to edit the rate sheet
+          {t("customerDetail.noPermission")}
         </div>
       )}
     </div>
@@ -3910,6 +3916,7 @@ const PRESET_COLORS = [
 ];
 
 function CustomerSnowHistory({ customerId, customerName }: { customerId: string; customerName: string }) {
+  const { t } = useTranslation();
   const { data: impacts = [], isLoading } = useQuery<(SnowEventPropertyImpact & { snowEvent: SnowEvent })[]>({
     queryKey: [`/api/customers/${customerId}/snow-impacts`],
   });
@@ -3931,17 +3938,17 @@ function CustomerSnowHistory({ customerId, customerName }: { customerId: string;
       <Card>
         <CardContent className="py-8 text-center">
           <Snowflake className="w-10 h-10 mx-auto text-muted-foreground mb-3" />
-          <p className="text-muted-foreground">No snow event history for this property</p>
+          <p className="text-muted-foreground">{t("customerDetail.noSnowHistory")}</p>
         </CardContent>
       </Card>
     );
   }
 
   const billingStatusLabels: Record<string, string> = {
-    not_created: "Pending",
-    ticket_created: "Ticket Created",
-    invoiced: "Invoiced",
-    paid: "Paid",
+    not_created: t("statuses.pending"),
+    ticket_created: t("statuses.ticketCreated"),
+    invoiced: t("statuses.invoiced"),
+    paid: t("statuses.paid"),
   };
 
   const billingStatusVariant = (status: string) => {
@@ -3956,9 +3963,9 @@ function CustomerSnowHistory({ customerId, customerName }: { customerId: string;
   return (
     <div className="space-y-4">
       <div className="flex items-center justify-between flex-wrap gap-2">
-        <h3 className="text-lg font-semibold">Snow Event History</h3>
+        <h3 className="text-lg font-semibold">{t("customerDetail.snowProfile")}</h3>
         <Badge variant="secondary" data-testid="badge-snow-count">
-          {impacts.length} event{impacts.length !== 1 ? "s" : ""}
+          {impacts.length} {t("customerDetail.stormEvent")}{impacts.length !== 1 ? "s" : ""}
         </Badge>
       </div>
 
@@ -4026,6 +4033,7 @@ function CustomerSnowHistory({ customerId, customerName }: { customerId: string;
 }
 
 function CustomerMapsSection({ customerId }: { customerId: string }) {
+  const { t } = useTranslation();
   const { user } = useAuth();
   const { toast } = useToast();
   const [uploadingLayer, setUploadingLayer] = useState(false);
@@ -4049,12 +4057,12 @@ function CustomerMapsSection({ customerId }: { customerId: string }) {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/customers", customerId, "map-layers"] });
-      toast({ title: "Layer uploaded successfully" });
+      toast({ title: t("propertyMaps.layerUploaded") });
       setShowUploadDialog(false);
       resetForm();
     },
     onError: () => {
-      toast({ title: "Failed to create layer", variant: "destructive" });
+      toast({ title: t("propertyMaps.layerCreateFailed"), variant: "destructive" });
     },
   });
 
@@ -4064,12 +4072,12 @@ function CustomerMapsSection({ customerId }: { customerId: string }) {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/customers", customerId, "map-layers"] });
-      toast({ title: "Layer updated successfully" });
+      toast({ title: t("propertyMaps.layerUploaded") });
       setShowUploadDialog(false);
       resetForm();
     },
     onError: () => {
-      toast({ title: "Failed to update layer", variant: "destructive" });
+      toast({ title: t("propertyMaps.layerCreateFailed"), variant: "destructive" });
     },
   });
 
@@ -4079,10 +4087,10 @@ function CustomerMapsSection({ customerId }: { customerId: string }) {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/customers", customerId, "map-layers"] });
-      toast({ title: "Layer deleted" });
+      toast({ title: t("propertyMaps.layerDeleted") });
     },
     onError: () => {
-      toast({ title: "Failed to delete layer", variant: "destructive" });
+      toast({ title: t("propertyMaps.layerCreateFailed"), variant: "destructive" });
     },
   });
 
@@ -4108,7 +4116,7 @@ function CustomerMapsSection({ customerId }: { customerId: string }) {
     // For custom layers, require name and color
     if (selectedCategory === "custom") {
       if (!file || !customName.trim() || !selectedColor) {
-        toast({ title: "Please provide a layer name and select a color", variant: "destructive" });
+        toast({ title: t("propertyMaps.provideNameAndColor"), variant: "destructive" });
         return;
       }
     } else {
@@ -4184,7 +4192,7 @@ function CustomerMapsSection({ customerId }: { customerId: string }) {
       }
     } catch (error) {
       console.error("Upload error:", error);
-      toast({ title: "Failed to upload file", variant: "destructive" });
+      toast({ title: t("propertyMaps.layerCreateFailed"), variant: "destructive" });
     } finally {
       setUploadingLayer(false);
     }
@@ -4208,9 +4216,9 @@ function CustomerMapsSection({ customerId }: { customerId: string }) {
     <div className="space-y-6">
       <div className="flex justify-between items-center flex-wrap gap-2">
         <div>
-          <h3 className="text-lg font-semibold">Property Maps & Layers</h3>
+          <h3 className="text-lg font-semibold">{t("propertyMaps.title")}</h3>
           <p className="text-sm text-muted-foreground">
-            Upload KML files to define service zones and routes
+            {t("propertyMaps.description")}
           </p>
         </div>
         <div className="flex gap-2">
@@ -4221,7 +4229,7 @@ function CustomerMapsSection({ customerId }: { customerId: string }) {
               onClick={() => setShowMapViewer(true)}
             >
               <Map className="w-4 h-4 mr-2" />
-              View Map
+              {t("propertyMaps.viewMap")}
             </Button>
           )}
           {canEdit && (
@@ -4230,7 +4238,7 @@ function CustomerMapsSection({ customerId }: { customerId: string }) {
               onClick={() => setShowUploadDialog(true)}
             >
               <Upload className="w-4 h-4 mr-2" />
-              Add Layer
+              {t("propertyMaps.addLayer")}
             </Button>
           )}
         </div>
@@ -4249,13 +4257,13 @@ function CustomerMapsSection({ customerId }: { customerId: string }) {
         <CardHeader>
           <CardTitle className="text-base flex items-center gap-2">
             <Layers className="w-4 h-4" />
-            Base Layers
+            {t("propertyMaps.baseLayers")}
           </CardTitle>
         </CardHeader>
         <CardContent>
           {baseLayers.length === 0 ? (
             <p className="text-sm text-muted-foreground text-center py-4">
-              No base layers uploaded
+              {t("propertyMaps.noBaseLayers")}
             </p>
           ) : (
             <div className="space-y-2">
@@ -4300,13 +4308,13 @@ function CustomerMapsSection({ customerId }: { customerId: string }) {
         <CardHeader>
           <CardTitle className="text-base flex items-center gap-2">
             <Layers className="w-4 h-4" />
-            Community Season
+            {t("propertyMaps.communitySeason")}
           </CardTitle>
         </CardHeader>
         <CardContent>
           {communityLayers.length === 0 ? (
             <p className="text-sm text-muted-foreground text-center py-4">
-              No community season layers uploaded
+              {t("propertyMaps.noCommunityLayers")}
             </p>
           ) : (
             <div className="space-y-2">
@@ -4351,13 +4359,13 @@ function CustomerMapsSection({ customerId }: { customerId: string }) {
         <CardHeader>
           <CardTitle className="text-base flex items-center gap-2">
             <Layers className="w-4 h-4" />
-            Snow Season
+            {t("propertyMaps.snowSeason")}
           </CardTitle>
         </CardHeader>
         <CardContent>
           {snowLayers.length === 0 ? (
             <p className="text-sm text-muted-foreground text-center py-4">
-              No snow season layers uploaded
+              {t("propertyMaps.noSnowLayers")}
             </p>
           ) : (
             <div className="space-y-2">
@@ -4402,13 +4410,13 @@ function CustomerMapsSection({ customerId }: { customerId: string }) {
         <CardHeader>
           <CardTitle className="text-base flex items-center gap-2">
             <Layers className="w-4 h-4" />
-            Custom Layers
+            {t("propertyMaps.customLayers")}
           </CardTitle>
         </CardHeader>
         <CardContent>
           {customLayers.length === 0 ? (
             <p className="text-sm text-muted-foreground text-center py-4">
-              No custom layers uploaded
+              {t("propertyMaps.noCustomLayers")}
             </p>
           ) : (
             <div className="space-y-2">
@@ -4426,7 +4434,7 @@ function CustomerMapsSection({ customerId }: { customerId: string }) {
                     <div>
                       <p className="font-medium text-sm">{layer.name}</p>
                       <p className="text-xs text-muted-foreground">
-                        Custom Layer
+                        {t("propertyMaps.customLayers")}
                       </p>
                     </div>
                   </div>
@@ -4452,14 +4460,14 @@ function CustomerMapsSection({ customerId }: { customerId: string }) {
       <Dialog open={showUploadDialog} onOpenChange={setShowUploadDialog}>
         <DialogContent className="max-w-md">
           <DialogHeader>
-            <DialogTitle>Add Map Layer</DialogTitle>
+            <DialogTitle>{t("propertyMaps.addMapLayer")}</DialogTitle>
             <DialogDescription>
-              Upload a KML file to define a service zone or route
+              {t("propertyMaps.description")}
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-4">
             <div className="space-y-2">
-              <Label>Layer Category</Label>
+              <Label>{t("propertyMaps.layerCategory")}</Label>
               <Select
                 value={selectedCategory}
                 onValueChange={(v) => {
@@ -4472,17 +4480,17 @@ function CustomerMapsSection({ customerId }: { customerId: string }) {
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="base">Base Layers</SelectItem>
-                  <SelectItem value="community">Community Season</SelectItem>
-                  <SelectItem value="snow">Snow Season</SelectItem>
-                  <SelectItem value="custom">Custom Layer</SelectItem>
+                  <SelectItem value="base">{t("propertyMaps.baseLayers")}</SelectItem>
+                  <SelectItem value="community">{t("propertyMaps.communitySeason")}</SelectItem>
+                  <SelectItem value="snow">{t("propertyMaps.snowSeason")}</SelectItem>
+                  <SelectItem value="custom">{t("propertyMaps.customLayers")}</SelectItem>
                 </SelectContent>
               </Select>
             </div>
 
             {selectedCategory !== "custom" && (
               <div className="space-y-2">
-                <Label>Layer Type</Label>
+                <Label>{t("propertyMaps.layerType")}</Label>
                 <Select value={selectedLayerType} onValueChange={(v) => {
                   setSelectedLayerType(v);
                   // Auto-select the color for preset types
@@ -4490,7 +4498,7 @@ function CustomerMapsSection({ customerId }: { customerId: string }) {
                   if (config) setSelectedColor(config.color);
                 }}>
                   <SelectTrigger data-testid="select-layer-type">
-                    <SelectValue placeholder="Select layer type" />
+                    <SelectValue placeholder={t("propertyMaps.selectLayerType")} />
                   </SelectTrigger>
                   <SelectContent>
                     {LAYER_TYPES[selectedCategory].map((type) => (
@@ -4511,24 +4519,24 @@ function CustomerMapsSection({ customerId }: { customerId: string }) {
 
             {selectedCategory === "custom" && (
               <div className="space-y-2">
-                <Label>Layer Name <span className="text-destructive">*</span></Label>
+                <Label>{t("propertyMaps.layerName")} <span className="text-destructive">*</span></Label>
                 <Input
                   data-testid="input-custom-layer-name"
                   value={customName}
                   onChange={(e) => setCustomName(e.target.value)}
-                  placeholder="Enter a name for this layer"
+                  placeholder={t("propertyMaps.enterLayerName")}
                 />
               </div>
             )}
 
             {selectedCategory !== "custom" && (
               <div className="space-y-2">
-                <Label>Custom Name (Optional)</Label>
+                <Label>{t("propertyMaps.customName")}</Label>
                 <Input
                   data-testid="input-layer-name"
                   value={customName}
                   onChange={(e) => setCustomName(e.target.value)}
-                  placeholder="Override the default layer name"
+                  placeholder={t("propertyMaps.overrideDefault")}
                 />
               </div>
             )}
@@ -4536,12 +4544,12 @@ function CustomerMapsSection({ customerId }: { customerId: string }) {
             {/* Color Selection - always show for custom, optionally for others */}
             <div className="space-y-2">
               <Label>
-                Layer Color {selectedCategory === "custom" && <span className="text-destructive">*</span>}
+                {t("propertyMaps.layerColor")} {selectedCategory === "custom" && <span className="text-destructive">*</span>}
               </Label>
               <p className="text-xs text-muted-foreground mb-2">
                 {availableColors.length === 0 
-                  ? "All colors are in use. Delete a layer to free up a color."
-                  : "Select a color (already used colors are disabled)"}
+                  ? t("propertyMaps.allColorsInUse")
+                  : t("propertyMaps.selectColor")}
               </p>
               <div className="flex flex-wrap gap-2">
                 {PRESET_COLORS.map((color) => {
@@ -4579,7 +4587,7 @@ function CustomerMapsSection({ customerId }: { customerId: string }) {
             </div>
 
             <div className="space-y-2">
-              <Label>KML File</Label>
+              <Label>{t("propertyMaps.kmlFile")}</Label>
               <Input
                 ref={fileInputRef}
                 type="file"
@@ -4594,7 +4602,7 @@ function CustomerMapsSection({ customerId }: { customerId: string }) {
                 }
               />
               <p className="text-xs text-muted-foreground">
-                Accepts .kml or .kmz files
+                {t("propertyMaps.acceptsKml")}
               </p>
             </div>
           </div>
@@ -4606,7 +4614,7 @@ function CustomerMapsSection({ customerId }: { customerId: string }) {
                 resetForm();
               }}
             >
-              Cancel
+              {t("common.cancel")}
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -4618,6 +4626,7 @@ function CustomerMapsSection({ customerId }: { customerId: string }) {
 // ==================== CUSTOMER PROPOSALS SECTION ====================
 
 function CustomerVisualScopesSection({ customerId }: { customerId: string }) {
+  const { t } = useTranslation();
   const [, navigate] = useLocation();
   const { toast } = useToast();
   const [creating, setCreating] = useState(false);
@@ -4636,7 +4645,7 @@ function CustomerVisualScopesSection({ customerId }: { customerId: string }) {
     try {
       const res = await apiRequest("POST", "/api/visual-scope-sheets", {
         customerId,
-        title: "Visual Scope",
+        title: t("customerDetail.tabs.visualScopes"),
         scopeDate: new Date().toISOString().split("T")[0],
       });
       if (!res.ok) throw new Error("Failed to create visual scope sheet");
@@ -4644,7 +4653,7 @@ function CustomerVisualScopesSection({ customerId }: { customerId: string }) {
       queryClient.invalidateQueries({ queryKey: ["/api/customers", customerId, "visual-scope-sheets"] });
       navigate(`/dashboard/tools/visual-scope/${sheet.id}`);
     } catch {
-      toast({ title: "Error", description: "Failed to create visual scope sheet", variant: "destructive" });
+      toast({ title: t("common.error"), description: t("customerDetail.noVisualScopes"), variant: "destructive" });
     } finally {
       setCreating(false);
     }
@@ -4658,9 +4667,9 @@ function CustomerVisualScopesSection({ customerId }: { customerId: string }) {
   return (
     <div>
       <div className="flex items-center justify-between mb-4 flex-wrap gap-2">
-        <h3 className="text-base font-medium">Visual Scope Sheets</h3>
+        <h3 className="text-base font-medium">{t("customerDetail.tabs.visualScopes")}</h3>
         <Button size="sm" onClick={handleNew} disabled={creating} data-testid="button-new-visual-scope-customer">
-          {creating ? <><Loader2 className="w-4 h-4 mr-2 animate-spin" />Creating...</> : <><Plus className="w-4 h-4 mr-2" />New Visual Scope</>}
+          {creating ? <><Loader2 className="w-4 h-4 mr-2 animate-spin" />{t("common.creating")}</> : <><Plus className="w-4 h-4 mr-2" />{t("customerDetail.createVisualScope")}</>}
         </Button>
       </div>
 
@@ -4671,7 +4680,7 @@ function CustomerVisualScopesSection({ customerId }: { customerId: string }) {
       ) : sheets.length === 0 ? (
         <div className="text-center py-10 text-muted-foreground text-sm">
           <Map className="w-8 h-8 mx-auto mb-2 opacity-40" />
-          No visual scope sheets yet for this customer.
+          {t("customerDetail.noVisualScopes")}
         </div>
       ) : (
         <div className="space-y-2">
@@ -4687,7 +4696,7 @@ function CustomerVisualScopesSection({ customerId }: { customerId: string }) {
                   <span className="font-medium text-sm" data-testid={`text-visual-scope-title-${sheet.id}`}>{sheet.title}</span>
                   <Badge variant="secondary" className="text-xs capitalize">{sheet.status}</Badge>
                   {sheet.baseImagePath && (
-                    <Badge variant="outline" className="text-xs">Base image captured</Badge>
+                    <Badge variant="outline" className="text-xs">{t("customerDetail.baseImageCaptured")}</Badge>
                   )}
                 </div>
                 <p className="text-xs text-muted-foreground mt-0.5">{formatDate(sheet.scopeDate ?? "")}</p>
@@ -4698,7 +4707,7 @@ function CustomerVisualScopesSection({ customerId }: { customerId: string }) {
                 onClick={(e) => { e.stopPropagation(); navigate(`/dashboard/tools/visual-scope/${sheet.id}`); }}
                 data-testid={`button-open-visual-scope-${sheet.id}`}
               >
-                Open
+                {t("common.view")}
               </Button>
             </div>
           ))}
@@ -4709,6 +4718,7 @@ function CustomerVisualScopesSection({ customerId }: { customerId: string }) {
 }
 
 function CustomerProposalsSection({ customerId }: { customerId: string }) {
+  const { t } = useTranslation();
   const [, navigate] = useLocation();
   const { toast } = useToast();
   const [creating, setCreating] = useState(false);
@@ -4727,7 +4737,7 @@ function CustomerProposalsSection({ customerId }: { customerId: string }) {
     try {
       const res = await apiRequest("POST", "/api/proposals", {
         customerId,
-        title: "Proposal",
+        title: t("customerDetail.tabs.proposals"),
         proposalDate: new Date().toISOString().split("T")[0],
       });
       if (!res.ok) throw new Error("Failed to create proposal");
@@ -4735,7 +4745,7 @@ function CustomerProposalsSection({ customerId }: { customerId: string }) {
       queryClient.invalidateQueries({ queryKey: ["/api/customers", customerId, "proposals"] });
       navigate(`/dashboard/tools/proposals/${p.id}`);
     } catch {
-      toast({ title: "Error", description: "Failed to create proposal", variant: "destructive" });
+      toast({ title: t("common.error"), description: t("customerDetail.noProposals"), variant: "destructive" });
     } finally {
       setCreating(false);
     }
@@ -4749,9 +4759,9 @@ function CustomerProposalsSection({ customerId }: { customerId: string }) {
   return (
     <div>
       <div className="flex items-center justify-between mb-4 flex-wrap gap-2">
-        <h3 className="text-base font-medium">Proposals</h3>
+        <h3 className="text-base font-medium">{t("customerDetail.tabs.proposals")}</h3>
         <Button size="sm" onClick={handleNewProposal} disabled={creating} data-testid="button-new-proposal-customer">
-          {creating ? <><Loader2 className="w-4 h-4 mr-2 animate-spin" />Creating...</> : <><Plus className="w-4 h-4 mr-2" />New Proposal</>}
+          {creating ? <><Loader2 className="w-4 h-4 mr-2 animate-spin" />{t("common.creating")}</> : <><Plus className="w-4 h-4 mr-2" />{t("customerDetail.createProposal")}</>}
         </Button>
       </div>
 
@@ -4762,7 +4772,7 @@ function CustomerProposalsSection({ customerId }: { customerId: string }) {
       ) : proposals.length === 0 ? (
         <div className="text-center py-10 text-muted-foreground text-sm">
           <FileText className="w-8 h-8 mx-auto mb-2 opacity-40" />
-          No proposals yet for this customer.
+          {t("customerDetail.noProposals")}
         </div>
       ) : (
         <div className="space-y-2">
@@ -4776,7 +4786,7 @@ function CustomerProposalsSection({ customerId }: { customerId: string }) {
               <div className="flex-1 min-w-0">
                 <div className="flex items-center gap-2 flex-wrap">
                   <span className="font-medium text-sm" data-testid={`text-proposal-title-${p.id}`}>{p.title}</span>
-                  <Badge variant="secondary" className="text-xs">Draft</Badge>
+                  <Badge variant="secondary" className="text-xs">{t("statuses.draft")}</Badge>
                   {p.versions && p.versions.length > 0 && (
                     <Badge variant="outline" className="text-xs" data-testid={`badge-version-${p.id}`}>
                       v{p.versions[p.versions.length - 1].versionNumber}
@@ -4790,7 +4800,7 @@ function CustomerProposalsSection({ customerId }: { customerId: string }) {
                   {formatDate(p.proposalDate)}
                   {p.versions && p.versions.length > 0 && (
                     <span className="ml-2">
-                      &middot; Finalized {(() => {
+                      &middot; {t("customerDetail.finalized")} {(() => {
                         const d = new Date(p.versions[p.versions.length - 1].finalizedAt);
                         return d.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
                       })()}

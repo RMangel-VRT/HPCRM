@@ -1,4 +1,5 @@
 import { useState, useMemo } from "react";
+import { useTranslation } from "react-i18next";
 import { useQuery } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -45,12 +46,12 @@ interface ReportData {
   rows: Record<string, string>[];
 }
 
-const REPORT_TYPES = [
-  { id: "customers", label: "Customer / Property List", icon: Building2, description: "All properties with addresses and details" },
-  { id: "contacts", label: "Contacts by Customer", icon: Users, description: "Contact info grouped by property" },
-  { id: "equipment", label: "Equipment List", icon: Truck, description: "All equipment with type, status, and details" },
-  { id: "contracts", label: "Contracts List", icon: FileText, description: "Contracts with service type and status" },
-  { id: "tickets", label: "Tickets Summary", icon: ClipboardList, description: "All tickets with status and assignment" },
+const REPORT_TYPE_KEYS = [
+  { id: "customers", labelKey: "reports.types.customerPropertyList", icon: Building2, descKey: "reports.types.customerPropertyDesc" },
+  { id: "contacts", labelKey: "reports.types.contactsByCustomer", icon: Users, descKey: "reports.types.contactsByCustomerDesc" },
+  { id: "equipment", labelKey: "reports.types.equipmentList", icon: Truck, descKey: "reports.types.equipmentListDesc" },
+  { id: "contracts", labelKey: "reports.types.contractsList", icon: FileText, descKey: "reports.types.contractsListDesc" },
+  { id: "tickets", labelKey: "reports.types.ticketsSummary", icon: ClipboardList, descKey: "reports.types.ticketsSummaryDesc" },
 ];
 
 function downloadCSV(data: ReportData, filename: string) {
@@ -74,6 +75,7 @@ function downloadCSV(data: ReportData, filename: string) {
 }
 
 export default function ReportsPage() {
+  const { t } = useTranslation();
   const [selectedType, setSelectedType] = useState("customers");
   const [search, setSearch] = useState("");
   const [sortKey, setSortKey] = useState<string | null>(null);
@@ -119,15 +121,15 @@ export default function ReportsPage() {
   const handleDownload = () => {
     if (!reportData) return;
     const filtered = { ...reportData, rows: filteredAndSortedRows };
-    const type = REPORT_TYPES.find(t => t.id === selectedType);
-    downloadCSV(filtered, (type?.label || "report").replace(/\s+/g, "_").toLowerCase());
+    const type = REPORT_TYPE_KEYS.find(rt => rt.id === selectedType);
+    downloadCSV(filtered, (type ? t(type.labelKey) : t("reports.report")).replace(/\s+/g, "_").toLowerCase());
   };
 
   const handlePrint = () => {
     window.print();
   };
 
-  const selectedReportInfo = REPORT_TYPES.find(t => t.id === selectedType);
+  const selectedReportInfo = REPORT_TYPE_KEYS.find(rt => rt.id === selectedType);
   const hasData = !!reportData && filteredAndSortedRows.length > 0;
 
   return (
@@ -135,25 +137,25 @@ export default function ReportsPage() {
       {/* Print-only header — hidden on screen */}
       <div className="print-only-block" id="print-report-header">
         <h1 style={{ fontSize: "18pt", fontWeight: "bold", marginBottom: "4px" }}>
-          {reportData?.title || selectedReportInfo?.label || "Report"}
+          {reportData?.title || (selectedReportInfo ? t(selectedReportInfo.labelKey) : t("reports.report"))}
         </h1>
         <p style={{ fontSize: "9pt", color: "#666", marginBottom: "16px" }}>
-          Generated: {new Date().toLocaleString()} &nbsp;·&nbsp; {filteredAndSortedRows.length} records
-          {search ? ` (filtered by "${search}")` : ""}
+          {t("reports.generated")} {new Date().toLocaleString()} &nbsp;·&nbsp; {filteredAndSortedRows.length} {t("reports.records")}
+          {search ? ` (${t("reports.filteredBy")} "${search}")` : ""}
         </p>
       </div>
 
       <div data-print-hide>
         <h1 className="text-2xl md:text-3xl font-semibold tracking-tight" data-testid="text-reports-title">
-          Reports
+          {t("reports.title")}
         </h1>
         <p className="text-sm text-muted-foreground mt-0.5">
-          Generate and export lists from your data
+          {t("reports.description")}
         </p>
       </div>
 
       <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-5 gap-3" data-print-hide>
-        {REPORT_TYPES.map(rt => (
+        {REPORT_TYPE_KEYS.map(rt => (
           <Card
             key={rt.id}
             className={`cursor-pointer transition-colors hover-elevate active-elevate-2 ${
@@ -168,7 +170,7 @@ export default function ReportsPage() {
           >
             <CardContent className="p-3 md:p-4 flex flex-col items-center text-center gap-2">
               <rt.icon className={`w-6 h-6 ${selectedType === rt.id ? "text-primary" : "text-muted-foreground"}`} />
-              <span className="text-xs md:text-sm font-medium leading-tight">{rt.label}</span>
+              <span className="text-xs md:text-sm font-medium leading-tight">{t(rt.labelKey)}</span>
             </CardContent>
           </Card>
         ))}
@@ -180,11 +182,11 @@ export default function ReportsPage() {
             <FileBarChart className="w-5 h-5 text-muted-foreground shrink-0" />
             <div className="min-w-0">
               <CardTitle className="text-lg" data-testid="text-report-title">
-                {reportData?.title || selectedReportInfo?.label || "Report"}
+                {reportData?.title || (selectedReportInfo ? t(selectedReportInfo.labelKey) : t("reports.report"))}
               </CardTitle>
               {reportData && (
                 <p className="text-xs text-muted-foreground mt-0.5">
-                  {filteredAndSortedRows.length} of {reportData.rows.length} records
+                  {filteredAndSortedRows.length} / {reportData.rows.length} {t("reports.records")}
                 </p>
               )}
             </div>
@@ -198,7 +200,7 @@ export default function ReportsPage() {
               className="gap-2"
             >
               <Printer className="w-4 h-4" />
-              <span className="hidden sm:inline">Print</span>
+              <span className="hidden sm:inline">{t("reports.printReport")}</span>
             </Button>
             <Button
               variant="outline"
@@ -208,7 +210,7 @@ export default function ReportsPage() {
               className="gap-2"
             >
               <Download className="w-4 h-4" />
-              <span className="hidden sm:inline">Download CSV</span>
+              <span className="hidden sm:inline">{t("reports.downloadCsv")}</span>
             </Button>
           </div>
         </CardHeader>
@@ -216,7 +218,7 @@ export default function ReportsPage() {
           <div className="relative" data-print-hide>
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
             <Input
-              placeholder="Search across all columns..."
+              placeholder={t("reports.searchPlaceholder")}
               value={search}
               onChange={e => setSearch(e.target.value)}
               className="pl-9"
@@ -275,7 +277,7 @@ export default function ReportsPage() {
             <div className="flex flex-col items-center justify-center py-12 text-center" data-print-hide>
               <FileBarChart className="w-12 h-12 text-muted-foreground/30 mb-3" />
               <p className="text-sm text-muted-foreground">
-                {search ? "No records match your search." : "No data available for this report."}
+                {search ? t("reports.noRecordsMatch") : t("reports.noDataAvailable")}
               </p>
             </div>
           ) : null}

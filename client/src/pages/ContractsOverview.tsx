@@ -1,5 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
 import { useState, useMemo } from "react";
+import { useTranslation } from "react-i18next";
 import { Link } from "wouter";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -75,6 +76,7 @@ function getStatusVariant(status: string): "default" | "secondary" | "destructiv
 }
 
 export default function ContractsOverview() {
+  const { t } = useTranslation();
   const [searchQuery, setSearchQuery] = useState("");
   const [serviceTypeFilter, setServiceTypeFilter] = useState<string>("all");
   const [statusFilter, setStatusFilter] = useState<string>("all");
@@ -187,16 +189,16 @@ export default function ContractsOverview() {
   return (
     <div className="p-6 space-y-6 overflow-auto h-full">
       <div>
-        <h1 className="text-2xl font-bold" data-testid="text-page-title">Contracts Overview</h1>
+        <h1 className="text-2xl font-bold" data-testid="text-page-title">{t("contracts.contractsOverview")}</h1>
         <p className="text-sm text-muted-foreground mt-1">
-          View all contracts across customers
+          {t("contracts.viewAllContracts")}
         </p>
       </div>
 
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
         <Card>
           <CardHeader className="flex flex-row items-center justify-between gap-2 space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">Total Contracts</CardTitle>
+            <CardTitle className="text-sm font-medium">{t("contracts.totalContracts")}</CardTitle>
             <FileText className="h-4 w-4 text-muted-foreground" />
           </CardHeader>
           <CardContent>
@@ -208,7 +210,7 @@ export default function ContractsOverview() {
 
         <Card>
           <CardHeader className="flex flex-row items-center justify-between gap-2 space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">Active Contracts</CardTitle>
+            <CardTitle className="text-sm font-medium">{t("dashboard.activeContracts")}</CardTitle>
             <TrendingUp className="h-4 w-4 text-muted-foreground" />
           </CardHeader>
           <CardContent>
@@ -220,7 +222,7 @@ export default function ContractsOverview() {
 
         <Card>
           <CardHeader className="flex flex-row items-center justify-between gap-2 space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">Total Annual Value</CardTitle>
+            <CardTitle className="text-sm font-medium">{t("contracts.totalAnnualValue")}</CardTitle>
             <DollarSign className="h-4 w-4 text-muted-foreground" />
           </CardHeader>
           <CardContent>
@@ -232,7 +234,7 @@ export default function ContractsOverview() {
 
         <Card>
           <CardHeader className="flex flex-row items-center justify-between gap-2 space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">Avg Contract Value</CardTitle>
+            <CardTitle className="text-sm font-medium">{t("contracts.avgContractValue")}</CardTitle>
             <DollarSign className="h-4 w-4 text-muted-foreground" />
           </CardHeader>
           <CardContent>
@@ -247,7 +249,7 @@ export default function ContractsOverview() {
         <div className="relative flex-1 min-w-[200px]">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
           <Input
-            placeholder="Search by customer or service type..."
+            placeholder={t("contracts.searchByCustomer")}
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
             className="pl-9"
@@ -256,10 +258,10 @@ export default function ContractsOverview() {
         </div>
         <Select value={serviceTypeFilter} onValueChange={setServiceTypeFilter}>
           <SelectTrigger className="w-[160px]" data-testid="select-service-type-filter">
-            <SelectValue placeholder="Service Type" />
+            <SelectValue placeholder={t("contracts.serviceType")} />
           </SelectTrigger>
           <SelectContent>
-            <SelectItem value="all">All Types</SelectItem>
+            <SelectItem value="all">{t("tickets.allTypes")}</SelectItem>
             {Object.entries(SERVICE_TYPE_LABELS).map(([value, label]) => (
               <SelectItem key={value} value={value}>{label}</SelectItem>
             ))}
@@ -267,14 +269,14 @@ export default function ContractsOverview() {
         </Select>
         <Select value={statusFilter} onValueChange={setStatusFilter}>
           <SelectTrigger className="w-[140px]" data-testid="select-status-filter">
-            <SelectValue placeholder="Status" />
+            <SelectValue placeholder={t("common.status")} />
           </SelectTrigger>
           <SelectContent>
-            <SelectItem value="all">All Statuses</SelectItem>
-            <SelectItem value="active">Active</SelectItem>
-            <SelectItem value="pending">Pending</SelectItem>
-            <SelectItem value="ended">Ended</SelectItem>
-            <SelectItem value="cancelled">Cancelled</SelectItem>
+            <SelectItem value="all">{t("common.all")} {t("common.status")}</SelectItem>
+            <SelectItem value="active">{t("statuses.active")}</SelectItem>
+            <SelectItem value="pending">{t("statuses.pending")}</SelectItem>
+            <SelectItem value="ended">{t("statuses.ended")}</SelectItem>
+            <SelectItem value="cancelled">{t("statuses.cancelled")}</SelectItem>
           </SelectContent>
         </Select>
       </div>
@@ -285,22 +287,22 @@ export default function ContractsOverview() {
             <TableHeader>
               <TableRow>
                 <TableHead>
-                  <SortButton field="customerName">Customer</SortButton>
+                  <SortButton field="customerName">{t("common.customer")}</SortButton>
                 </TableHead>
                 <TableHead>
-                  <SortButton field="serviceType">Service Type</SortButton>
+                  <SortButton field="serviceType">{t("contracts.serviceType")}</SortButton>
                 </TableHead>
                 <TableHead>
-                  <SortButton field="billingPattern">Billing</SortButton>
+                  <SortButton field="billingPattern">{t("contracts.billingSchedule")}</SortButton>
                 </TableHead>
                 <TableHead className="text-right">
-                  <SortButton field="annualTotal">Annual Value</SortButton>
+                  <SortButton field="annualTotal">{t("contracts.totalAnnualValue")}</SortButton>
                 </TableHead>
                 <TableHead>
-                  <SortButton field="status">Status</SortButton>
+                  <SortButton field="status">{t("common.status")}</SortButton>
                 </TableHead>
                 <TableHead>
-                  <SortButton field="startDate">Start Date</SortButton>
+                  <SortButton field="startDate">{t("contracts.startDate")}</SortButton>
                 </TableHead>
                 <TableHead className="w-[50px]"></TableHead>
               </TableRow>
@@ -310,8 +312,8 @@ export default function ContractsOverview() {
                 <TableRow>
                   <TableCell colSpan={7} className="text-center py-8 text-muted-foreground">
                     {contracts && contracts.length > 0
-                      ? "No contracts match your filters"
-                      : "No contracts found"}
+                      ? t("common.noResults")
+                      : t("common.noResults")}
                   </TableCell>
                 </TableRow>
               ) : (

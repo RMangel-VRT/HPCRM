@@ -1,4 +1,5 @@
 import { useState, useMemo, Fragment, useEffect } from "react";
+import { useTranslation } from "react-i18next";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import {
   DndContext,
@@ -67,13 +68,13 @@ import type {
 } from "@shared/schema";
 import { CREW_COLORS } from "@shared/schema";
 
-const DAYS_OF_WEEK: { key: DayOfWeek; label: string; short: string }[] = [
-  { key: "monday", label: "Monday", short: "Mon" },
-  { key: "tuesday", label: "Tuesday", short: "Tue" },
-  { key: "wednesday", label: "Wednesday", short: "Wed" },
-  { key: "thursday", label: "Thursday", short: "Thu" },
-  { key: "friday", label: "Friday", short: "Fri" },
-  { key: "saturday", label: "Saturday", short: "Sat" },
+const DAYS_OF_WEEK: { key: DayOfWeek; labelKey: string; shortKey: string }[] = [
+  { key: "monday", labelKey: "days.monday", shortKey: "days.mon" },
+  { key: "tuesday", labelKey: "days.tuesday", shortKey: "days.tue" },
+  { key: "wednesday", labelKey: "days.wednesday", shortKey: "days.wed" },
+  { key: "thursday", labelKey: "days.thursday", shortKey: "days.thu" },
+  { key: "friday", labelKey: "days.friday", shortKey: "days.fri" },
+  { key: "saturday", labelKey: "days.saturday", shortKey: "days.sat" },
 ];
 
 interface VisitConfigWithCustomer extends MaintenanceVisitConfig {
@@ -157,6 +158,7 @@ interface DroppableCellProps {
 }
 
 function DroppableCell({ crewId, day, blocks, canEdit, onAddClick, onRemoveBlock, isOver, totalMinutes, capacityMinutes }: DroppableCellProps) {
+  const { t } = useTranslation();
   const { setNodeRef } = useDroppable({
     id: `${crewId}::${day}`,
   });
@@ -190,7 +192,7 @@ function DroppableCell({ crewId, day, blocks, canEdit, onAddClick, onRemoveBlock
             data-testid={`button-add-${crewId}-${day}`}
           >
             <Plus className="h-3 w-3 mr-1" />
-            Add
+            {t("common.add")}
           </Button>
         )}
       </div>
@@ -227,6 +229,7 @@ function BlockOverlay({ block }: { block: ScheduleBlockWithDetails }) {
 }
 
 export default function WeeklySchedulerPage() {
+  const { t } = useTranslation();
   const { user } = useAuth();
   const { toast } = useToast();
   const [selectedTemplateId, setSelectedTemplateId] = useState<string | null>(null);
@@ -329,10 +332,10 @@ export default function WeeklySchedulerPage() {
       setShowAddPropertyDialog(false);
       setAddPropertyTarget(null);
       setSearchProperty("");
-      toast({ title: "Property added to schedule" });
+      toast({ title: t("schedule.propertyAdded") });
     },
     onError: () => {
-      toast({ title: "Failed to add property", variant: "destructive" });
+      toast({ title: t("schedule.propertyAdded"), variant: "destructive" });
     },
   });
 
@@ -342,10 +345,10 @@ export default function WeeklySchedulerPage() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/schedule-templates", activeTemplate?.id, "blocks"] });
-      toast({ title: "Property removed from schedule" });
+      toast({ title: t("schedule.propertyRemoved") });
     },
     onError: () => {
-      toast({ title: "Failed to remove property", variant: "destructive" });
+      toast({ title: t("schedule.propertyRemoved"), variant: "destructive" });
     },
   });
 
@@ -358,10 +361,10 @@ export default function WeeklySchedulerPage() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/schedule-templates", activeTemplate?.id, "blocks"] });
-      toast({ title: "Property moved" });
+      toast({ title: t("schedule.propertyMoved") });
     },
     onError: () => {
-      toast({ title: "Failed to move property", variant: "destructive" });
+      toast({ title: t("schedule.propertyMoved"), variant: "destructive" });
     },
   });
 
@@ -373,10 +376,10 @@ export default function WeeklySchedulerPage() {
     onSuccess: (data: WeeklyScheduleTemplate) => {
       queryClient.invalidateQueries({ queryKey: ["/api/schedule-templates"] });
       setSelectedTemplateId(data.id);
-      toast({ title: "Template created" });
+      toast({ title: t("schedule.templateCreated") });
     },
     onError: () => {
-      toast({ title: "Failed to create template", variant: "destructive" });
+      toast({ title: t("schedule.templateCreated"), variant: "destructive" });
     },
   });
 
@@ -391,10 +394,10 @@ export default function WeeklySchedulerPage() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/schedule-templates"] });
       setShowTemplateSettings(false);
-      toast({ title: "Template updated" });
+      toast({ title: t("schedule.templateUpdated") });
     },
     onError: () => {
-      toast({ title: "Failed to update template", variant: "destructive" });
+      toast({ title: t("schedule.templateUpdated"), variant: "destructive" });
     },
   });
 
@@ -406,10 +409,10 @@ export default function WeeklySchedulerPage() {
       queryClient.invalidateQueries({ queryKey: ["/api/schedule-templates"] });
       setShowTemplateSettings(false);
       setSelectedTemplateId(null);
-      toast({ title: "Template deleted" });
+      toast({ title: t("schedule.templateDeleted") });
     },
     onError: () => {
-      toast({ title: "Failed to delete template", variant: "destructive" });
+      toast({ title: t("schedule.templateDeleted"), variant: "destructive" });
     },
   });
 
@@ -421,10 +424,10 @@ export default function WeeklySchedulerPage() {
     onSuccess: (data: WeeklyScheduleTemplate) => {
       queryClient.invalidateQueries({ queryKey: ["/api/schedule-templates"] });
       setSelectedTemplateId(data.id);
-      toast({ title: "Template duplicated", description: `Created "${data.name}"` });
+      toast({ title: t("schedule.templateDuplicated"), description: `Created "${data.name}"` });
     },
     onError: () => {
-      toast({ title: "Failed to duplicate template", variant: "destructive" });
+      toast({ title: t("schedule.templateDuplicated"), variant: "destructive" });
     },
   });
 
@@ -436,10 +439,10 @@ export default function WeeklySchedulerPage() {
       queryClient.invalidateQueries({ queryKey: ["/api/schedule-templates"] });
       setRenamingTemplateId(null);
       setRenameValue("");
-      toast({ title: "Template renamed" });
+      toast({ title: t("schedule.templateRenamed") });
     },
     onError: () => {
-      toast({ title: "Failed to rename template", variant: "destructive" });
+      toast({ title: t("schedule.templateRenamed"), variant: "destructive" });
     },
   });
 
@@ -453,10 +456,10 @@ export default function WeeklySchedulerPage() {
       setNewCrewColor(CREW_COLORS[0]);
       setNewCrewHours(8);
       setNewCrewActive(true);
-      toast({ title: "Crew created" });
+      toast({ title: t("schedule.crewCreated") });
     },
     onError: () => {
-      toast({ title: "Failed to create crew", variant: "destructive" });
+      toast({ title: t("schedule.crewCreated"), variant: "destructive" });
     },
   });
 
@@ -472,10 +475,10 @@ export default function WeeklySchedulerPage() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/maintenance-crews"] });
       setEditingCrew(null);
-      toast({ title: "Crew updated" });
+      toast({ title: t("schedule.crewUpdated") });
     },
     onError: () => {
-      toast({ title: "Failed to update crew", variant: "destructive" });
+      toast({ title: t("schedule.crewUpdated"), variant: "destructive" });
     },
   });
 
@@ -485,10 +488,10 @@ export default function WeeklySchedulerPage() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/maintenance-crews"] });
-      toast({ title: "Crew deleted" });
+      toast({ title: t("schedule.crewDeleted") });
     },
     onError: () => {
-      toast({ title: "Failed to delete crew", variant: "destructive" });
+      toast({ title: t("schedule.crewDeleted"), variant: "destructive" });
     },
   });
 
@@ -573,18 +576,18 @@ export default function WeeklySchedulerPage() {
   };
 
   const MONTHS = [
-    { value: 1, label: "January" },
-    { value: 2, label: "February" },
-    { value: 3, label: "March" },
-    { value: 4, label: "April" },
-    { value: 5, label: "May" },
-    { value: 6, label: "June" },
-    { value: 7, label: "July" },
-    { value: 8, label: "August" },
-    { value: 9, label: "September" },
-    { value: 10, label: "October" },
-    { value: 11, label: "November" },
-    { value: 12, label: "December" },
+    { value: 1, labelKey: "months.january" },
+    { value: 2, labelKey: "months.february" },
+    { value: 3, labelKey: "months.march" },
+    { value: 4, labelKey: "months.april" },
+    { value: 5, labelKey: "months.mayFull" },
+    { value: 6, labelKey: "months.june" },
+    { value: 7, labelKey: "months.july" },
+    { value: 8, labelKey: "months.august" },
+    { value: 9, labelKey: "months.september" },
+    { value: 10, labelKey: "months.october" },
+    { value: 11, labelKey: "months.november" },
+    { value: 12, labelKey: "months.december" },
   ];
 
   const handleAddProperty = (configId: string) => {
@@ -654,23 +657,23 @@ export default function WeeklySchedulerPage() {
       <div className="space-y-6">
         <div>
           <h1 className="text-2xl md:text-3xl font-semibold tracking-tight" data-testid="text-page-title">
-            Weekly Scheduler
+            {t("schedule.title")}
           </h1>
           <p className="text-sm text-muted-foreground mt-0.5">
-            Assign properties to crews for weekly maintenance visits
+            {t("schedule.builder")}
           </p>
         </div>
         <Card>
           <CardContent className="py-12 text-center">
             <Users className="h-12 w-12 mx-auto text-muted-foreground mb-4" />
-            <h3 className="text-lg font-medium mb-2">No Crews Configured</h3>
+            <h3 className="text-lg font-medium mb-2">{t("schedule.noCrewsFound")}</h3>
             <p className="text-muted-foreground mb-4">
-              Create maintenance crews before building a schedule.
+              {t("schedule.noCrewsFound")}
             </p>
             {canEdit && (
               <Button onClick={openCrewManager} data-testid="button-add-first-crew">
                 <Plus className="h-4 w-4 mr-2" />
-                Add First Crew
+                {t("schedule.addCrew")}
               </Button>
             )}
           </CardContent>
@@ -679,14 +682,14 @@ export default function WeeklySchedulerPage() {
         <Dialog open={showCrewManager} onOpenChange={setShowCrewManager}>
           <DialogContent className="sm:max-w-lg">
             <DialogHeader>
-              <DialogTitle>Manage Crews</DialogTitle>
+              <DialogTitle>{t("schedule.crewManager")}</DialogTitle>
             </DialogHeader>
             <div className="space-y-4">
               <div className="space-y-3 border rounded-md p-3">
-                <div className="text-sm font-medium">{editingCrew ? "Edit Crew" : "Add New Crew"}</div>
+                <div className="text-sm font-medium">{editingCrew ? t("common.edit") : t("schedule.addCrew")}</div>
                 <div className="grid grid-cols-[1fr,100px] gap-2">
                   <Input
-                    placeholder="Crew name"
+                    placeholder={t("schedule.crewName")}
                     value={newCrewName}
                     onChange={(e) => setNewCrewName(e.target.value)}
                     data-testid="input-crew-name"
@@ -695,7 +698,7 @@ export default function WeeklySchedulerPage() {
                     type="number"
                     min={1}
                     max={24}
-                    placeholder="Hours"
+                    placeholder={t("schedule.dailyCapacity")}
                     value={newCrewHours}
                     onChange={(e) => setNewCrewHours(Number(e.target.value))}
                     data-testid="input-crew-hours"
@@ -710,12 +713,12 @@ export default function WeeklySchedulerPage() {
                       className="rounded border-input"
                       data-testid="checkbox-crew-active"
                     />
-                    Active
+                    {t("common.active")}
                   </Label>
                   <div className="flex gap-2">
                     {editingCrew && (
                       <Button size="sm" variant="ghost" onClick={cancelEditCrew}>
-                        Cancel
+                        {t("common.cancel")}
                       </Button>
                     )}
                     <Button
@@ -724,7 +727,7 @@ export default function WeeklySchedulerPage() {
                       disabled={!newCrewName.trim() || createCrewMutation.isPending || updateCrewMutation.isPending}
                       data-testid="button-save-crew"
                     >
-                      {editingCrew ? "Update" : "Add Crew"}
+                      {editingCrew ? t("common.save") : t("schedule.addCrew")}
                     </Button>
                   </div>
                 </div>
@@ -732,7 +735,7 @@ export default function WeeklySchedulerPage() {
 
               {crews.length > 0 && (
                 <div className="space-y-2">
-                  <div className="text-sm font-medium">Existing Crews</div>
+                  <div className="text-sm font-medium">{t("schedule.crew")}</div>
                   {crews.map((crew) => (
                     <div
                       key={crew.id}
@@ -742,7 +745,7 @@ export default function WeeklySchedulerPage() {
                       <div className="flex items-center gap-2">
                         <span className="font-medium text-sm">{crew.name}</span>
                         <Badge variant={crew.isActive ? "default" : "secondary"} className="text-xs">
-                          {crew.isActive ? "Active" : "Inactive"}
+                          {crew.isActive ? t("statuses.active") : t("statuses.inactive")}
                         </Badge>
                         <span className="text-xs text-muted-foreground">{crew.defaultHoursPerDay}h/day</span>
                       </div>
@@ -768,19 +771,19 @@ export default function WeeklySchedulerPage() {
                           </AlertDialogTrigger>
                           <AlertDialogContent>
                             <AlertDialogHeader>
-                              <AlertDialogTitle>Delete Crew</AlertDialogTitle>
+                              <AlertDialogTitle>{t("common.delete")} {t("schedule.crew")}</AlertDialogTitle>
                               <AlertDialogDescription>
-                                Are you sure you want to delete "{crew.name}"? This action cannot be undone.
+                                {t("common.confirm")}
                               </AlertDialogDescription>
                             </AlertDialogHeader>
                             <AlertDialogFooter>
-                              <AlertDialogCancel data-testid={`button-cancel-delete-crew-${crew.id}`}>Cancel</AlertDialogCancel>
+                              <AlertDialogCancel data-testid={`button-cancel-delete-crew-${crew.id}`}>{t("common.cancel")}</AlertDialogCancel>
                               <AlertDialogAction
                                 onClick={() => deleteCrewMutation.mutate(crew.id)}
                                 className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
                                 data-testid={`button-confirm-delete-crew-${crew.id}`}
                               >
-                                Delete
+                                {t("common.delete")}
                               </AlertDialogAction>
                             </AlertDialogFooter>
                           </AlertDialogContent>
@@ -793,7 +796,7 @@ export default function WeeklySchedulerPage() {
             </div>
             <DialogFooter>
               <Button variant="outline" onClick={() => setShowCrewManager(false)}>
-                Close
+                {t("common.close")}
               </Button>
             </DialogFooter>
           </DialogContent>
@@ -807,10 +810,10 @@ export default function WeeklySchedulerPage() {
       <div className="flex items-center justify-between gap-3 flex-wrap">
         <div>
           <h1 className="text-2xl md:text-3xl font-semibold tracking-tight" data-testid="text-page-title">
-            Weekly Scheduler
+            {t("schedule.title")}
           </h1>
           <p className="text-sm text-muted-foreground mt-0.5">
-            Assign properties to crews for weekly maintenance visits
+            {t("schedule.builder")}
           </p>
         </div>
         <div className="flex items-center gap-2 flex-wrap">
@@ -819,12 +822,12 @@ export default function WeeklySchedulerPage() {
             onValueChange={(val) => setSelectedTemplateId(val)}
           >
             <SelectTrigger className="w-[200px]" data-testid="select-template">
-              <SelectValue placeholder="Select template" />
+              <SelectValue placeholder={t("schedule.selectTemplate")} />
             </SelectTrigger>
             <SelectContent>
-              {templates.map((t) => (
-                <SelectItem key={t.id} value={t.id}>
-                  {t.name}
+              {templates.map((tmpl) => (
+                <SelectItem key={tmpl.id} value={tmpl.id}>
+                  {tmpl.name}
                 </SelectItem>
               ))}
             </SelectContent>
@@ -837,7 +840,7 @@ export default function WeeklySchedulerPage() {
               data-testid="button-manage-templates"
             >
               <FileText className="h-4 w-4 mr-1" />
-              Manage Templates
+              {t("schedule.templateManager")}
             </Button>
           )}
           {canEdit && (
@@ -848,7 +851,7 @@ export default function WeeklySchedulerPage() {
               data-testid="button-manage-crews"
             >
               <Users className="h-4 w-4 mr-1" />
-              Manage Crews
+              {t("schedule.crewManager")}
             </Button>
           )}
           {canEdit && (
@@ -867,12 +870,12 @@ export default function WeeklySchedulerPage() {
               {isLocked ? (
                 <>
                   <Lock className="h-4 w-4 mr-1" />
-                  Locked
+                  {t("schedule.lock")}
                 </>
               ) : (
                 <>
                   <LockOpen className="h-4 w-4 mr-1" />
-                  Editing
+                  {t("schedule.unlock")}
                 </>
               )}
             </Button>
@@ -883,7 +886,7 @@ export default function WeeklySchedulerPage() {
       {canEdit && !isLocked && (
         <div className="flex items-center gap-2 p-2 rounded-md bg-amber-500/10 border border-amber-500/30 text-amber-600 dark:text-amber-400 text-sm">
           <LockOpen className="h-4 w-4" />
-          <span>Schedule unlocked - you can now drag properties and make changes</span>
+          <span>{t("schedule.unlock")}</span>
         </div>
       )}
 
@@ -898,11 +901,11 @@ export default function WeeklySchedulerPage() {
           <div className="flex-1 overflow-x-auto">
             <div className="min-w-[800px]">
               <div className="grid gap-2" style={{ gridTemplateColumns: `180px repeat(${DAYS_OF_WEEK.length}, 1fr)` }}>
-                <div className="p-2 font-medium text-sm text-muted-foreground">Crew</div>
+                <div className="p-2 font-medium text-sm text-muted-foreground">{t("schedule.crew")}</div>
                 {DAYS_OF_WEEK.map((day) => (
                   <div key={day.key} className="p-2 font-medium text-center text-sm">
-                    <span className="hidden sm:inline">{day.label}</span>
-                    <span className="sm:hidden">{day.short}</span>
+                    <span className="hidden sm:inline">{t(day.labelKey)}</span>
+                    <span className="sm:hidden">{t(day.shortKey)}</span>
                   </div>
                 ))}
 
@@ -949,13 +952,13 @@ export default function WeeklySchedulerPage() {
             <CardHeader className="pb-2">
               <CardTitle className="text-base flex items-center gap-2">
                 <Calendar className="h-4 w-4" />
-                Unscheduled Properties
+                {t("schedule.propertyUnscheduled")}
               </CardTitle>
             </CardHeader>
             <CardContent>
               {unscheduledConfigs.length === 0 ? (
                 <p className="text-sm text-muted-foreground text-center py-4">
-                  All configured properties are scheduled
+                  {t("schedule.noProperties")}
                 </p>
               ) : (
                 <ScrollArea className="h-[400px] pr-3">
@@ -1002,10 +1005,10 @@ export default function WeeklySchedulerPage() {
         <DialogContent>
           <DialogHeader>
             <DialogTitle>
-              Add Property to{" "}
+              {t("common.add")} {t("common.property")}{" "}
               {addPropertyTarget && (
                 <span className="capitalize">
-                  {DAYS_OF_WEEK.find((d) => d.key === addPropertyTarget.day)?.label} -{" "}
+                  {t(DAYS_OF_WEEK.find((d) => d.key === addPropertyTarget.day)?.labelKey || "")} -{" "}
                   {activeCrews.find((c) => c.id === addPropertyTarget.crewId)?.name}
                 </span>
               )}
@@ -1013,7 +1016,7 @@ export default function WeeklySchedulerPage() {
           </DialogHeader>
           <div className="space-y-4">
             <Input
-              placeholder="Search properties..."
+              placeholder={t("schedule.searchProperties")}
               value={searchProperty}
               onChange={(e) => setSearchProperty(e.target.value)}
               data-testid="input-search-property"
@@ -1022,7 +1025,7 @@ export default function WeeklySchedulerPage() {
               <div className="space-y-2">
                 {filteredUnscheduled.length === 0 ? (
                   <p className="text-sm text-muted-foreground text-center py-4">
-                    No unscheduled properties found
+                    {t("schedule.noProperties")}
                   </p>
                 ) : (
                   filteredUnscheduled.map((vc) => (
@@ -1047,7 +1050,7 @@ export default function WeeklySchedulerPage() {
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setShowAddPropertyDialog(false)}>
-              Cancel
+              {t("common.cancel")}
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -1063,20 +1066,20 @@ export default function WeeklySchedulerPage() {
       }}>
         <DialogContent className="sm:max-w-lg">
           <DialogHeader>
-            <DialogTitle>Manage Templates</DialogTitle>
+            <DialogTitle>{t("schedule.templateManager")}</DialogTitle>
           </DialogHeader>
           <div className="space-y-4">
             <div className="space-y-2">
-              {templates.map((t) => {
-                const blockCount = t.id === activeTemplate?.id ? blocks.length : 0;
-                const isRenaming = renamingTemplateId === t.id;
-                const isDeleting = deleteConfirmId === t.id;
+              {templates.map((tmpl) => {
+                const blockCount = tmpl.id === activeTemplate?.id ? blocks.length : 0;
+                const isRenaming = renamingTemplateId === tmpl.id;
+                const isDeleting = deleteConfirmId === tmpl.id;
 
                 return (
                   <div
-                    key={t.id}
-                    className={`flex items-center justify-between gap-2 p-3 rounded-md border ${t.id === activeTemplate?.id ? "border-primary/40 bg-accent/30" : "bg-card"}`}
-                    data-testid={`template-item-${t.id}`}
+                    key={tmpl.id}
+                    className={`flex items-center justify-between gap-2 p-3 rounded-md border ${tmpl.id === activeTemplate?.id ? "border-primary/40 bg-accent/30" : "bg-card"}`}
+                    data-testid={`template-item-${tmpl.id}`}
                   >
                     <div className="flex-1 min-w-0">
                       {isRenaming ? (
@@ -1086,7 +1089,7 @@ export default function WeeklySchedulerPage() {
                             onChange={(e) => setRenameValue(e.target.value)}
                             onKeyDown={(e) => {
                               if (e.key === "Enter" && renameValue.trim()) {
-                                renameTemplateMutation.mutate({ id: t.id, name: renameValue.trim() });
+                                renameTemplateMutation.mutate({ id: tmpl.id, name: renameValue.trim() });
                               }
                               if (e.key === "Escape") {
                                 setRenamingTemplateId(null);
@@ -1095,19 +1098,19 @@ export default function WeeklySchedulerPage() {
                             }}
                             autoFocus
                             className="h-8"
-                            data-testid={`input-rename-template-${t.id}`}
+                            data-testid={`input-rename-template-${tmpl.id}`}
                           />
                           <Button
                             size="sm"
                             onClick={() => {
                               if (renameValue.trim()) {
-                                renameTemplateMutation.mutate({ id: t.id, name: renameValue.trim() });
+                                renameTemplateMutation.mutate({ id: tmpl.id, name: renameValue.trim() });
                               }
                             }}
                             disabled={!renameValue.trim() || renameTemplateMutation.isPending}
-                            data-testid={`button-save-rename-${t.id}`}
+                            data-testid={`button-save-rename-${tmpl.id}`}
                           >
-                            Save
+                            {t("common.save")}
                           </Button>
                           <Button
                             size="sm"
@@ -1122,14 +1125,14 @@ export default function WeeklySchedulerPage() {
                         </div>
                       ) : (
                         <div>
-                          <div className="font-medium text-sm truncate">{t.name}</div>
+                          <div className="font-medium text-sm truncate">{tmpl.name}</div>
                           <div className="text-xs text-muted-foreground mt-0.5">
-                            {t.id === activeTemplate?.id && blockCount > 0
-                              ? `${blockCount} scheduled properties`
-                              : t.isActive ? "Active" : "Inactive"
+                            {tmpl.id === activeTemplate?.id && blockCount > 0
+                              ? `${blockCount} ${t("schedule.stops")}`
+                              : tmpl.isActive ? t("statuses.active") : t("statuses.inactive")
                             }
-                            {t.seasonStartMonth && t.seasonEndMonth && (
-                              <span> &middot; {MONTHS.find(m => m.value === t.seasonStartMonth)?.label?.slice(0,3)} - {MONTHS.find(m => m.value === t.seasonEndMonth)?.label?.slice(0,3)}</span>
+                            {tmpl.seasonStartMonth && tmpl.seasonEndMonth && (
+                              <span> &middot; {t(MONTHS.find(m => m.value === tmpl.seasonStartMonth)?.labelKey || "")?.slice(0,3)} - {t(MONTHS.find(m => m.value === tmpl.seasonEndMonth)?.labelKey || "")?.slice(0,3)}</span>
                             )}
                           </div>
                         </div>
@@ -1139,25 +1142,25 @@ export default function WeeklySchedulerPage() {
                       <div className="flex items-center gap-1 shrink-0">
                         {isDeleting ? (
                           <div className="flex items-center gap-1">
-                            <span className="text-xs text-destructive mr-1">Delete?</span>
+                            <span className="text-xs text-destructive mr-1">{t("common.delete")}?</span>
                             <Button
                               size="sm"
                               variant="destructive"
                               onClick={() => {
-                                deleteTemplateMutation.mutate(t.id);
+                                deleteTemplateMutation.mutate(tmpl.id);
                                 setDeleteConfirmId(null);
                               }}
                               disabled={deleteTemplateMutation.isPending}
-                              data-testid={`button-confirm-delete-template-${t.id}`}
+                              data-testid={`button-confirm-delete-template-${tmpl.id}`}
                             >
-                              Yes
+                              {t("common.yes")}
                             </Button>
                             <Button
                               size="sm"
                               variant="ghost"
                               onClick={() => setDeleteConfirmId(null)}
                             >
-                              No
+                              {t("common.no")}
                             </Button>
                           </div>
                         ) : (
@@ -1166,61 +1169,61 @@ export default function WeeklySchedulerPage() {
                               size="icon"
                               variant="ghost"
                               onClick={() => {
-                                setSelectedTemplateId(t.id);
+                                setSelectedTemplateId(tmpl.id);
                                 setShowTemplateManager(false);
                               }}
-                              title="Select this template"
-                              data-testid={`button-select-template-${t.id}`}
+                              title={t("schedule.selectTemplate")}
+                              data-testid={`button-select-template-${tmpl.id}`}
                             >
                               <ChevronRight className="h-4 w-4" />
                             </Button>
                             <DropdownMenu>
                               <DropdownMenuTrigger asChild>
-                                <Button size="icon" variant="ghost" data-testid={`button-template-menu-${t.id}`}>
+                                <Button size="icon" variant="ghost" data-testid={`button-template-menu-${tmpl.id}`}>
                                   <MoreHorizontal className="h-4 w-4" />
                                 </Button>
                               </DropdownMenuTrigger>
                               <DropdownMenuContent align="end">
                                 <DropdownMenuItem
                                   onClick={() => {
-                                    setRenamingTemplateId(t.id);
-                                    setRenameValue(t.name);
+                                    setRenamingTemplateId(tmpl.id);
+                                    setRenameValue(tmpl.name);
                                   }}
-                                  data-testid={`menu-rename-template-${t.id}`}
+                                  data-testid={`menu-rename-template-${tmpl.id}`}
                                 >
                                   <Pencil className="h-4 w-4 mr-2" />
-                                  Rename
+                                  {t("schedule.rename")}
                                 </DropdownMenuItem>
                                 <DropdownMenuItem
                                   onClick={() => {
                                     openTemplateSettings();
                                     setShowTemplateManager(false);
-                                    setSelectedTemplateId(t.id);
+                                    setSelectedTemplateId(tmpl.id);
                                   }}
-                                  data-testid={`menu-settings-template-${t.id}`}
+                                  data-testid={`menu-settings-template-${tmpl.id}`}
                                 >
                                   <Settings className="h-4 w-4 mr-2" />
-                                  Season Settings
+                                  {t("schedule.templateSettings")}
                                 </DropdownMenuItem>
                                 <DropdownMenuItem
                                   onClick={() => {
-                                    duplicateTemplateMutation.mutate({ id: t.id, name: `${t.name} (Copy)` });
+                                    duplicateTemplateMutation.mutate({ id: tmpl.id, name: `${tmpl.name} (Copy)` });
                                   }}
                                   disabled={duplicateTemplateMutation.isPending}
-                                  data-testid={`menu-duplicate-template-${t.id}`}
+                                  data-testid={`menu-duplicate-template-${tmpl.id}`}
                                 >
                                   <Copy className="h-4 w-4 mr-2" />
-                                  Duplicate
+                                  {t("schedule.duplicate")}
                                 </DropdownMenuItem>
                                 <DropdownMenuSeparator />
                                 <DropdownMenuItem
-                                  onClick={() => setDeleteConfirmId(t.id)}
+                                  onClick={() => setDeleteConfirmId(tmpl.id)}
                                   disabled={templates.length <= 1}
                                   className="text-destructive"
-                                  data-testid={`menu-delete-template-${t.id}`}
+                                  data-testid={`menu-delete-template-${tmpl.id}`}
                                 >
                                   <Trash2 className="h-4 w-4 mr-2" />
-                                  Delete
+                                  {t("common.delete")}
                                 </DropdownMenuItem>
                               </DropdownMenuContent>
                             </DropdownMenu>
@@ -1240,12 +1243,12 @@ export default function WeeklySchedulerPage() {
               data-testid="button-new-template"
             >
               <Plus className="h-4 w-4 mr-2" />
-              Create New Template
+              {t("schedule.createTemplate")}
             </Button>
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setShowTemplateManager(false)}>
-              Close
+              {t("common.close")}
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -1254,12 +1257,12 @@ export default function WeeklySchedulerPage() {
       <Dialog open={showTemplateSettings} onOpenChange={setShowTemplateSettings}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>Season Settings - {activeTemplate?.name}</DialogTitle>
+            <DialogTitle>{t("schedule.templateSettings")} - {activeTemplate?.name}</DialogTitle>
           </DialogHeader>
           <div className="space-y-4">
             <div className="grid grid-cols-2 gap-4">
               <div className="space-y-2">
-                <Label>Season Start</Label>
+                <Label>{t("schedule.seasonStart")}</Label>
                 <Select
                   value={String(seasonStartMonth)}
                   onValueChange={(val) => setSeasonStartMonth(Number(val))}
@@ -1270,14 +1273,14 @@ export default function WeeklySchedulerPage() {
                   <SelectContent>
                     {MONTHS.map((m) => (
                       <SelectItem key={m.value} value={String(m.value)}>
-                        {m.label}
+                        {t(m.labelKey)}
                       </SelectItem>
                     ))}
                   </SelectContent>
                 </Select>
               </div>
               <div className="space-y-2">
-                <Label>Season End</Label>
+                <Label>{t("schedule.seasonEnd")}</Label>
                 <Select
                   value={String(seasonEndMonth)}
                   onValueChange={(val) => setSeasonEndMonth(Number(val))}
@@ -1288,7 +1291,7 @@ export default function WeeklySchedulerPage() {
                   <SelectContent>
                     {MONTHS.map((m) => (
                       <SelectItem key={m.value} value={String(m.value)}>
-                        {m.label}
+                        {t(m.labelKey)}
                       </SelectItem>
                     ))}
                   </SelectContent>
@@ -1298,14 +1301,14 @@ export default function WeeklySchedulerPage() {
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setShowTemplateSettings(false)}>
-              Cancel
+              {t("common.cancel")}
             </Button>
             <Button
               onClick={handleSaveTemplate}
               disabled={updateTemplateMutation.isPending}
               data-testid="button-save-template"
             >
-              Save Changes
+              {t("settings.saveChanges")}
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -1314,14 +1317,14 @@ export default function WeeklySchedulerPage() {
       <Dialog open={showCrewManager} onOpenChange={setShowCrewManager}>
         <DialogContent className="sm:max-w-lg">
           <DialogHeader>
-            <DialogTitle>Manage Crews</DialogTitle>
+            <DialogTitle>{t("schedule.crewManager")}</DialogTitle>
           </DialogHeader>
           <div className="space-y-4">
             <div className="space-y-3 border rounded-md p-3">
-              <div className="text-sm font-medium">{editingCrew ? "Edit Crew" : "Add New Crew"}</div>
+              <div className="text-sm font-medium">{editingCrew ? t("common.edit") : t("schedule.addCrew")}</div>
               <div className="grid grid-cols-[1fr,100px] gap-2">
                 <Input
-                  placeholder="Crew name"
+                  placeholder={t("schedule.crewName")}
                   value={newCrewName}
                   onChange={(e) => setNewCrewName(e.target.value)}
                   data-testid="input-crew-name"
@@ -1330,14 +1333,14 @@ export default function WeeklySchedulerPage() {
                   type="number"
                   min={1}
                   max={24}
-                  placeholder="Hours"
+                  placeholder={t("schedule.dailyCapacity")}
                   value={newCrewHours}
                   onChange={(e) => setNewCrewHours(Number(e.target.value))}
                   data-testid="input-crew-hours"
                 />
               </div>
               <div className="space-y-1.5">
-                <Label className="text-xs text-muted-foreground">Crew Color</Label>
+                <Label className="text-xs text-muted-foreground">{t("schedule.crewColor")}</Label>
                 <div className="flex flex-wrap gap-1.5">
                   {CREW_COLORS.map((color) => (
                     <button
@@ -1364,12 +1367,12 @@ export default function WeeklySchedulerPage() {
                     className="rounded border-input"
                     data-testid="checkbox-crew-active"
                   />
-                  Active
+                  {t("common.active")}
                 </Label>
                 <div className="flex gap-2">
                   {editingCrew && (
                     <Button size="sm" variant="ghost" onClick={cancelEditCrew}>
-                      Cancel
+                      {t("common.cancel")}
                     </Button>
                   )}
                   <Button
@@ -1378,7 +1381,7 @@ export default function WeeklySchedulerPage() {
                     disabled={!newCrewName.trim() || createCrewMutation.isPending || updateCrewMutation.isPending}
                     data-testid="button-save-crew"
                   >
-                    {editingCrew ? "Update" : "Add Crew"}
+                    {editingCrew ? t("common.save") : t("schedule.addCrew")}
                   </Button>
                 </div>
               </div>
@@ -1386,7 +1389,7 @@ export default function WeeklySchedulerPage() {
 
             {crews.length > 0 && (
               <div className="space-y-2">
-                <div className="text-sm font-medium">Existing Crews</div>
+                <div className="text-sm font-medium">{t("schedule.crew")}</div>
                 <ScrollArea className="max-h-[250px]">
                   <div className="space-y-2 pr-2">
                     {crews.map((crew) => (
@@ -1402,7 +1405,7 @@ export default function WeeklySchedulerPage() {
                           />
                           <span className="font-medium text-sm">{crew.name}</span>
                           <Badge variant={crew.isActive ? "default" : "secondary"} className="text-xs">
-                            {crew.isActive ? "Active" : "Inactive"}
+                            {crew.isActive ? t("statuses.active") : t("statuses.inactive")}
                           </Badge>
                           <span className="text-xs text-muted-foreground">{crew.defaultHoursPerDay}h/day</span>
                         </div>
@@ -1434,7 +1437,7 @@ export default function WeeklySchedulerPage() {
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setShowCrewManager(false)}>
-              Close
+              {t("common.close")}
             </Button>
           </DialogFooter>
         </DialogContent>

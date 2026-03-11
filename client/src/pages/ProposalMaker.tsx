@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { useLocation, useSearch } from "wouter";
+import { useTranslation } from "react-i18next";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -19,6 +20,7 @@ export default function ProposalMaker() {
   const [, navigate] = useLocation();
   const search = useSearch();
   const { toast } = useToast();
+  const { t } = useTranslation();
 
   const params = new URLSearchParams(search);
   const contextTicketId = params.get("ticketId") || null;
@@ -62,7 +64,7 @@ export default function ProposalMaker() {
       navigate(dest);
     },
     onError: () => {
-      toast({ title: "Error", description: "Failed to create proposal", variant: "destructive" });
+      toast({ title: t("common.error"), description: t("proposals.createFailed"), variant: "destructive" });
     },
   });
 
@@ -84,7 +86,7 @@ export default function ProposalMaker() {
       navigate(dest);
     },
     onError: () => {
-      toast({ title: "Error", description: "Failed to link proposal", variant: "destructive" });
+      toast({ title: t("common.error"), description: t("proposals.linkFailed"), variant: "destructive" });
     },
   });
 
@@ -129,12 +131,12 @@ export default function ProposalMaker() {
 
   const getStatusBadge = (status: string | null | undefined) => {
     if (status === "finalized") {
-      return <Badge variant="outline" className="text-green-600 dark:text-green-400 border-green-500/50">Finalized</Badge>;
+      return <Badge variant="outline" className="text-green-600 dark:text-green-400 border-green-500/50">{t("statuses.finalized")}</Badge>;
     }
     if (status === "published") {
-      return <Badge>Published</Badge>;
+      return <Badge>{t("statuses.published")}</Badge>;
     }
-    return <Badge variant="secondary">Draft</Badge>;
+    return <Badge variant="secondary">{t("statuses.draft")}</Badge>;
   };
 
   return (
@@ -144,7 +146,7 @@ export default function ProposalMaker() {
           <div className="flex items-center gap-2 min-w-0">
             <FileText className="w-4 h-4 text-muted-foreground shrink-0" />
             <div className="min-w-0">
-              <p className="text-xs text-muted-foreground">Linking to ticket</p>
+              <p className="text-xs text-muted-foreground">{t("proposals.linkingToTicket")}</p>
               <p className="text-sm font-medium truncate">{contextTicketTitle}</p>
             </div>
           </div>
@@ -156,7 +158,7 @@ export default function ProposalMaker() {
             data-testid="button-back-to-ticket"
           >
             <ArrowLeft className="w-3.5 h-3.5" />
-            Back to ticket
+            {t("proposals.backToTicket")}
           </Button>
         </div>
       )}
@@ -164,10 +166,10 @@ export default function ProposalMaker() {
       <div className="flex items-center justify-between mb-6 flex-wrap gap-3">
         <div>
           <h1 className="text-2xl font-semibold tracking-tight" data-testid="text-page-title">
-            Proposal Maker
+            {t("proposals.title")}
           </h1>
           <p className="text-muted-foreground text-sm mt-1">
-            Build and store proposal drafts with QB estimate PDFs and scope of work
+            {t("tools.proposalMakerDesc")}
           </p>
         </div>
         <div className="flex items-center gap-2">
@@ -178,12 +180,12 @@ export default function ProposalMaker() {
               data-testid="button-link-existing-proposal"
             >
               <Link2 className="w-4 h-4 mr-2" />
-              Link Existing
+              {t("proposals.linkExisting")}
             </Button>
           )}
           <Button onClick={handleOpenCreateDialog} data-testid="button-new-proposal">
             <Plus className="w-4 h-4 mr-2" />
-            New Proposal
+            {t("proposals.newProposal")}
           </Button>
         </div>
       </div>
@@ -202,13 +204,13 @@ export default function ProposalMaker() {
       ) : proposals.length === 0 ? (
         <div className="flex flex-col items-center justify-center py-20 text-center">
           <ClipboardList className="w-12 h-12 text-muted-foreground mb-4" />
-          <h3 className="text-lg font-medium mb-1">No proposals yet</h3>
+          <h3 className="text-lg font-medium mb-1">{t("proposals.noProposals")}</h3>
           <p className="text-muted-foreground text-sm mb-4">
-            Create your first proposal draft to get started
+            {t("proposals.createFirst")}
           </p>
           <Button onClick={handleOpenCreateDialog} data-testid="button-new-proposal-empty">
             <Plus className="w-4 h-4 mr-2" />
-            New Proposal
+            {t("proposals.newProposal")}
           </Button>
         </div>
       ) : (
@@ -240,7 +242,7 @@ export default function ProposalMaker() {
                 {p.ticketId && (
                   <Badge variant="outline" className="text-xs gap-1 mt-1 w-fit" data-testid={`badge-linked-ticket-${p.id}`}>
                     <Link2 className="w-3 h-3" />
-                    Linked to ticket
+                    {t("proposals.linkedToTicket")}
                   </Badge>
                 )}
               </CardHeader>
@@ -263,15 +265,14 @@ export default function ProposalMaker() {
         </div>
       )}
 
-      {/* Create Proposal Dialog */}
       <Dialog open={createDialogOpen} onOpenChange={(open) => { setCreateDialogOpen(open); if (!open) resetCreateDialog(); }}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>New Proposal</DialogTitle>
+            <DialogTitle>{t("proposals.newProposal")}</DialogTitle>
           </DialogHeader>
           <div className="space-y-4 py-2">
             <div className="space-y-2">
-              <Label>Customer <span className="text-destructive">*</span></Label>
+              <Label>{t("common.customer")} <span className="text-destructive">*</span></Label>
               <Popover open={customerPopoverOpen} onOpenChange={setCustomerPopoverOpen}>
                 <PopoverTrigger asChild>
                   <Button
@@ -280,15 +281,15 @@ export default function ProposalMaker() {
                     className="w-full justify-between font-normal"
                     data-testid="button-select-customer"
                   >
-                    {selectedCustomer ? selectedCustomer.name : "Select a customer..."}
+                    {selectedCustomer ? selectedCustomer.name : t("proposals.selectCustomer")}
                     <ChevronDown className="ml-2 w-4 h-4 opacity-50 shrink-0" />
                   </Button>
                 </PopoverTrigger>
                 <PopoverContent className="w-[300px] p-0" align="start">
                   <Command>
-                    <CommandInput placeholder="Search customers..." data-testid="input-customer-search" />
+                    <CommandInput placeholder={t("proposals.searchCustomers")} data-testid="input-customer-search" />
                     <CommandList>
-                      <CommandEmpty>No customers found.</CommandEmpty>
+                      <CommandEmpty>{t("proposals.noCustomersFound")}</CommandEmpty>
                       <CommandGroup>
                         {customers.map((c) => (
                           <CommandItem
@@ -312,7 +313,7 @@ export default function ProposalMaker() {
             </div>
 
             <div className="space-y-2">
-              <Label htmlFor="proposal-title">Title</Label>
+              <Label htmlFor="proposal-title">{t("common.title")}</Label>
               <Input
                 id="proposal-title"
                 value={title}
@@ -324,37 +325,36 @@ export default function ProposalMaker() {
 
             {hasTicketContext && (
               <p className="text-xs text-muted-foreground">
-                This proposal will be linked to: <span className="font-medium text-foreground">{contextTicketTitle}</span>
+                {t("proposals.linkingToTicket")}: <span className="font-medium text-foreground">{contextTicketTitle}</span>
               </p>
             )}
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => { setCreateDialogOpen(false); resetCreateDialog(); }} data-testid="button-cancel-dialog">
-              Cancel
+              {t("common.cancel")}
             </Button>
             <Button
               onClick={handleCreate}
               disabled={!selectedCustomer || submitting}
               data-testid="button-create-proposal"
             >
-              {submitting ? "Creating..." : "Create Proposal"}
+              {submitting ? t("common.creating") : t("common.create")}
             </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
 
-      {/* Link Existing Proposal Dialog */}
       <Dialog open={linkDialogOpen} onOpenChange={setLinkDialogOpen}>
         <DialogContent className="max-w-lg">
           <DialogHeader>
-            <DialogTitle>Link Existing Proposal</DialogTitle>
+            <DialogTitle>{t("proposals.linkExisting")}</DialogTitle>
           </DialogHeader>
           <div className="space-y-3 py-1">
             <p className="text-sm text-muted-foreground">
-              Select an unlinked proposal to connect to <span className="font-medium text-foreground">{contextTicketTitle}</span>.
+              {t("proposals.selectUnlinked")} <span className="font-medium text-foreground">{contextTicketTitle}</span>.
             </p>
             <Input
-              placeholder="Search proposals..."
+              placeholder={t("proposals.searchProposals")}
               value={linkSearch}
               onChange={(e) => setLinkSearch(e.target.value)}
               data-testid="input-link-search"
@@ -362,11 +362,11 @@ export default function ProposalMaker() {
             <div className="space-y-2 max-h-72 overflow-y-auto">
               {proposals.length === 0 ? (
                 <div className="py-8 text-center text-sm text-muted-foreground">
-                  No proposals found.
+                  {t("proposals.noProposalsFound")}
                 </div>
               ) : filteredLinkable.length === 0 ? (
                 <div className="py-8 text-center text-sm text-muted-foreground">
-                  No proposals match your search.
+                  {t("proposals.noProposalsMatch")}
                 </div>
               ) : (
                 filteredLinkable.map(p => {
@@ -385,10 +385,10 @@ export default function ProposalMaker() {
                       </div>
                       <div className="shrink-0 flex items-center gap-2">
                         {alreadyLinkedHere && (
-                          <Badge variant="secondary" className="text-xs">Already linked</Badge>
+                          <Badge variant="secondary" className="text-xs">{t("proposals.alreadyLinked")}</Badge>
                         )}
                         {!alreadyLinkedHere && p.ticketId && (
-                          <Badge variant="outline" className="text-xs">Relink</Badge>
+                          <Badge variant="outline" className="text-xs">{t("proposals.relink")}</Badge>
                         )}
                         {linkMutation.isPending && !alreadyLinkedHere ? (
                           <Loader2 className="w-4 h-4 animate-spin text-muted-foreground" />
@@ -404,7 +404,7 @@ export default function ProposalMaker() {
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setLinkDialogOpen(false)} data-testid="button-cancel-link">
-              Cancel
+              {t("common.cancel")}
             </Button>
           </DialogFooter>
         </DialogContent>

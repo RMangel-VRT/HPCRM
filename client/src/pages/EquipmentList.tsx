@@ -6,6 +6,7 @@ import { useToast } from "@/hooks/use-toast";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
+import { useTranslation } from "react-i18next";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -55,21 +56,6 @@ import { useState } from "react";
 import { useAuth } from "@/hooks/use-auth";
 import type { EquipmentWithTicketCount } from "@shared/schema";
 
-const TICKET_CATEGORIES = [
-  { value: "preventative_maintenance", label: "Preventative Maintenance" },
-  { value: "repair", label: "Repair" },
-  { value: "inspection", label: "Inspection" },
-  { value: "safety", label: "Safety" },
-  { value: "breakdown", label: "Breakdown" },
-];
-
-const TICKET_PRIORITIES = [
-  { value: "low", label: "Low" },
-  { value: "normal", label: "Normal" },
-  { value: "high", label: "High" },
-  { value: "urgent", label: "Urgent" },
-];
-
 const newEquipTicketSchema = z.object({
   equipmentId: z.string().min(1, "Select equipment"),
   category: z.enum(["preventative_maintenance", "repair", "inspection", "safety", "breakdown"]),
@@ -81,46 +67,23 @@ const newEquipTicketSchema = z.object({
 
 type NewEquipTicketFormData = z.infer<typeof newEquipTicketSchema>;
 
-const EQUIPMENT_TYPES = [
-  { value: "all", label: "All Types" },
-  { value: "truck", label: "Truck" },
-  { value: "mower", label: "Mower" },
-  { value: "trailer", label: "Trailer" },
-  { value: "skid_steer", label: "Skid Steer" },
-  { value: "atv_utv", label: "ATV/UTV" },
-  { value: "specialty", label: "Specialty Equipment" },
-  { value: "other_vehicle", label: "Other Vehicle" },
-];
-
-const STATUS_OPTIONS = [
-  { value: "all", label: "All Status" },
-  { value: "active", label: "Active" },
-  { value: "in_repair", label: "In Repair" },
-  { value: "out_of_service", label: "Out of Service" },
-  { value: "retired", label: "Retired" },
-];
-
-function getStatusBadge(status: string) {
+function getStatusBadge(status: string, t: (key: string) => string) {
   switch (status) {
     case "active":
-      return <Badge variant="default" className="bg-green-600 hover:bg-green-600"><CheckCircle className="w-3 h-3 mr-1" />Active</Badge>;
+      return <Badge variant="default" className="bg-green-600 hover:bg-green-600"><CheckCircle className="w-3 h-3 mr-1" />{t("equipment.statusLabels.active")}</Badge>;
     case "in_repair":
-      return <Badge variant="default" className="bg-yellow-600 hover:bg-yellow-600"><WrenchIcon className="w-3 h-3 mr-1" />In Repair</Badge>;
+      return <Badge variant="default" className="bg-yellow-600 hover:bg-yellow-600"><WrenchIcon className="w-3 h-3 mr-1" />{t("equipment.statusLabels.in_repair")}</Badge>;
     case "out_of_service":
-      return <Badge variant="default" className="bg-red-600 hover:bg-red-600"><XCircle className="w-3 h-3 mr-1" />Out of Service</Badge>;
+      return <Badge variant="default" className="bg-red-600 hover:bg-red-600"><XCircle className="w-3 h-3 mr-1" />{t("equipment.statusLabels.out_of_service")}</Badge>;
     case "retired":
-      return <Badge variant="secondary"><XCircle className="w-3 h-3 mr-1" />Retired</Badge>;
+      return <Badge variant="secondary"><XCircle className="w-3 h-3 mr-1" />{t("equipment.statusLabels.retired")}</Badge>;
     default:
       return <Badge variant="outline">{status}</Badge>;
   }
 }
 
-function getEquipmentTypeLabel(type: string) {
-  const found = EQUIPMENT_TYPES.find(t => t.value === type);
-  return found ? found.label : type;
-}
-
 export default function EquipmentList() {
+  const { t } = useTranslation();
   const { user } = useAuth();
   const { toast } = useToast();
   const [searchTerm, setSearchTerm] = useState("");
@@ -132,6 +95,40 @@ export default function EquipmentList() {
 
   const canEdit = user?.activeRole === "admin" || user?.activeRole === "shop_manager" || user?.activeRole === "office";
   const canDelete = user?.activeRole === "admin" || user?.activeRole === "office" || user?.activeRole === "shop_manager";
+
+  const TICKET_CATEGORIES = [
+    { value: "preventative_maintenance", label: t("equipmentTicket.categories.preventative_maintenance") },
+    { value: "repair", label: t("equipmentTicket.categories.repair") },
+    { value: "inspection", label: t("equipmentTicket.categories.inspection") },
+    { value: "safety", label: t("equipmentTicket.categories.safety") },
+    { value: "breakdown", label: t("equipmentTicket.categories.breakdown") },
+  ];
+
+  const TICKET_PRIORITIES = [
+    { value: "low", label: t("priorities.low") },
+    { value: "normal", label: t("priorities.normal") },
+    { value: "high", label: t("priorities.high") },
+    { value: "urgent", label: t("priorities.urgent") },
+  ];
+
+  const EQUIPMENT_TYPES = [
+    { value: "all", label: t("equipment.allTypes") },
+    { value: "truck", label: t("equipment.types.truck") },
+    { value: "mower", label: t("equipment.types.mower") },
+    { value: "trailer", label: t("equipment.types.trailer") },
+    { value: "skid_steer", label: t("equipment.types.skid_steer") },
+    { value: "atv_utv", label: t("equipment.types.atv_utv") },
+    { value: "specialty", label: t("equipment.types.specialty") },
+    { value: "other_vehicle", label: t("equipment.types.other_vehicle") },
+  ];
+
+  const STATUS_OPTIONS = [
+    { value: "all", label: t("equipment.filterByStatus") },
+    { value: "active", label: t("equipment.statusLabels.active") },
+    { value: "in_repair", label: t("equipment.statusLabels.in_repair") },
+    { value: "out_of_service", label: t("equipment.statusLabels.out_of_service") },
+    { value: "retired", label: t("equipment.statusLabels.retired") },
+  ];
 
   const { data: equipment, isLoading } = useQuery<EquipmentWithTicketCount[]>({
     queryKey: ["/api/equipment"],
@@ -166,10 +163,10 @@ export default function EquipmentList() {
       queryClient.invalidateQueries({ queryKey: ["/api/equipment-tickets"] });
       setNewTicketOpen(false);
       newTicketForm.reset();
-      toast({ title: "Equipment ticket created" });
+      toast({ title: t("equipment.ticketCreated") });
     },
     onError: (error: Error) => {
-      toast({ title: "Failed to create ticket", description: error.message, variant: "destructive" });
+      toast({ title: t("equipment.ticketCreateFailed"), description: error.message, variant: "destructive" });
     },
   });
 
@@ -180,16 +177,16 @@ export default function EquipmentList() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/equipment"] });
       toast({
-        title: "Success",
-        description: "Equipment deleted successfully",
+        title: t("common.success"),
+        description: t("equipment.deleted"),
       });
       setDeleteDialogOpen(false);
       setEquipmentToDelete(null);
     },
     onError: () => {
       toast({
-        title: "Error",
-        description: "Failed to delete equipment",
+        title: t("common.error"),
+        description: t("equipment.deleteFailed"),
         variant: "destructive",
       });
     },
@@ -204,6 +201,11 @@ export default function EquipmentList() {
     if (equipmentToDelete) {
       deleteMutation.mutate(equipmentToDelete.id);
     }
+  };
+
+  const getEquipmentTypeLabel = (type: string) => {
+    const found = EQUIPMENT_TYPES.find(t => t.value === type);
+    return found ? found.label : type;
   };
 
   const filteredEquipment = equipment?.filter((item) => {
@@ -232,21 +234,21 @@ export default function EquipmentList() {
     <div className="p-6 space-y-6" data-testid="equipment-list-page">
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
         <div>
-          <h1 className="text-2xl font-bold" data-testid="text-page-title">Equipment</h1>
-          <p className="text-muted-foreground">Manage trucks, mowers, trailers, and other equipment</p>
+          <h1 className="text-2xl font-bold" data-testid="text-page-title">{t("equipment.title")}</h1>
+          <p className="text-muted-foreground">{t("equipment.manage")}</p>
         </div>
         <div className="flex items-center gap-2 flex-wrap">
           {canEdit && (
             <Button variant="outline" onClick={() => setNewTicketOpen(true)} data-testid="button-new-equipment-ticket">
               <ClipboardPlus className="w-4 h-4 mr-2" />
-              New Ticket
+              {t("equipment.newTicket")}
             </Button>
           )}
           {canEdit && (
             <Button asChild data-testid="button-add-equipment">
               <Link href="/dashboard/equipment/new">
                 <Plus className="w-4 h-4 mr-2" />
-                Add Equipment
+                {t("equipment.addEquipment")}
               </Link>
             </Button>
           )}
@@ -256,7 +258,7 @@ export default function EquipmentList() {
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
         <Card>
           <CardHeader className="pb-2">
-            <CardTitle className="text-sm font-medium text-muted-foreground">Total Equipment</CardTitle>
+            <CardTitle className="text-sm font-medium text-muted-foreground">{t("equipment.totalEquipment")}</CardTitle>
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-bold" data-testid="text-stat-total">{stats.total}</div>
@@ -264,7 +266,7 @@ export default function EquipmentList() {
         </Card>
         <Card>
           <CardHeader className="pb-2">
-            <CardTitle className="text-sm font-medium text-muted-foreground">Active</CardTitle>
+            <CardTitle className="text-sm font-medium text-muted-foreground">{t("equipment.active")}</CardTitle>
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-bold text-green-600" data-testid="text-stat-active">{stats.active}</div>
@@ -272,7 +274,7 @@ export default function EquipmentList() {
         </Card>
         <Card>
           <CardHeader className="pb-2">
-            <CardTitle className="text-sm font-medium text-muted-foreground">In Repair</CardTitle>
+            <CardTitle className="text-sm font-medium text-muted-foreground">{t("equipment.inRepair")}</CardTitle>
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-bold text-yellow-600" data-testid="text-stat-repair">{stats.inRepair}</div>
@@ -280,7 +282,7 @@ export default function EquipmentList() {
         </Card>
         <Card>
           <CardHeader className="pb-2">
-            <CardTitle className="text-sm font-medium text-muted-foreground">Open Tickets</CardTitle>
+            <CardTitle className="text-sm font-medium text-muted-foreground">{t("equipment.openTickets")}</CardTitle>
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-bold text-blue-600" data-testid="text-stat-tickets">{stats.openTickets}</div>
@@ -294,7 +296,7 @@ export default function EquipmentList() {
             <div className="relative flex-1">
               <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-muted-foreground w-4 h-4" />
               <Input
-                placeholder="Search equipment..."
+                placeholder={t("equipment.searchPlaceholder")}
                 value={searchTerm}
                 onChange={(e) => setSearchTerm(e.target.value)}
                 className="pl-10"
@@ -303,7 +305,7 @@ export default function EquipmentList() {
             </div>
             <Select value={typeFilter} onValueChange={setTypeFilter}>
               <SelectTrigger className="w-[180px]" data-testid="select-type-filter">
-                <SelectValue placeholder="Filter by type" />
+                <SelectValue placeholder={t("equipment.filterByType")} />
               </SelectTrigger>
               <SelectContent>
                 {EQUIPMENT_TYPES.map((type) => (
@@ -315,7 +317,7 @@ export default function EquipmentList() {
             </Select>
             <Select value={statusFilter} onValueChange={setStatusFilter}>
               <SelectTrigger className="w-[180px]" data-testid="select-status-filter">
-                <SelectValue placeholder="Filter by status" />
+                <SelectValue placeholder={t("equipment.filterByStatus")} />
               </SelectTrigger>
               <SelectContent>
                 {STATUS_OPTIONS.map((status) => (
@@ -337,10 +339,10 @@ export default function EquipmentList() {
           ) : filteredEquipment?.length === 0 ? (
             <div className="text-center py-12 text-muted-foreground">
               <Truck className="w-12 h-12 mx-auto mb-4 opacity-50" />
-              <p>No equipment found</p>
+              <p>{t("equipment.noEquipmentFound")}</p>
               {canEdit && (
                 <Button asChild variant="outline" className="mt-4">
-                  <Link href="/dashboard/equipment/new">Add your first equipment</Link>
+                  <Link href="/dashboard/equipment/new">{t("equipment.addFirstEquipment")}</Link>
                 </Button>
               )}
             </div>
@@ -348,12 +350,12 @@ export default function EquipmentList() {
             <Table>
               <TableHeader>
                 <TableRow>
-                  <TableHead>Name</TableHead>
-                  <TableHead>Type</TableHead>
-                  <TableHead>Make/Model</TableHead>
-                  <TableHead>Status</TableHead>
-                  <TableHead>Open Tickets</TableHead>
-                  <TableHead className="text-right">Actions</TableHead>
+                  <TableHead>{t("common.name")}</TableHead>
+                  <TableHead>{t("common.type")}</TableHead>
+                  <TableHead>{t("equipment.makeModel")}</TableHead>
+                  <TableHead>{t("common.status")}</TableHead>
+                  <TableHead>{t("equipment.openTickets")}</TableHead>
+                  <TableHead className="text-right">{t("common.actions")}</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -382,7 +384,7 @@ export default function EquipmentList() {
                         <span className="text-muted-foreground">-</span>
                       )}
                     </TableCell>
-                    <TableCell>{getStatusBadge(item.status)}</TableCell>
+                    <TableCell>{getStatusBadge(item.status, t)}</TableCell>
                     <TableCell>
                       {item.openTicketCount > 0 ? (
                         <Badge variant="outline" className="text-orange-600 border-orange-600">
@@ -396,7 +398,7 @@ export default function EquipmentList() {
                     <TableCell className="text-right">
                       <div className="flex items-center justify-end gap-1">
                         <Button asChild variant="ghost" size="sm" data-testid={`button-view-${item.id}`}>
-                          <Link href={`/dashboard/equipment/${item.id}`}>View</Link>
+                          <Link href={`/dashboard/equipment/${item.id}`}>{t("common.view")}</Link>
                         </Button>
                         {canDelete && (
                           <Button 
@@ -421,19 +423,19 @@ export default function EquipmentList() {
       <AlertDialog open={deleteDialogOpen} onOpenChange={setDeleteDialogOpen}>
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>Delete Equipment</AlertDialogTitle>
+            <AlertDialogTitle>{t("equipment.deleteEquipment")}</AlertDialogTitle>
             <AlertDialogDescription>
-              Are you sure you want to delete "{equipmentToDelete?.name}"? This action cannot be undone.
+              {t("equipment.deleteConfirm", { name: equipmentToDelete?.name })}
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
-            <AlertDialogCancel data-testid="button-cancel-delete">Cancel</AlertDialogCancel>
+            <AlertDialogCancel data-testid="button-cancel-delete">{t("common.cancel")}</AlertDialogCancel>
             <AlertDialogAction 
               onClick={confirmDelete}
               className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
               data-testid="button-confirm-delete"
             >
-              {deleteMutation.isPending ? "Deleting..." : "Delete"}
+              {deleteMutation.isPending ? t("common.deleting") : t("common.delete")}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
@@ -442,7 +444,7 @@ export default function EquipmentList() {
       <Dialog open={newTicketOpen} onOpenChange={setNewTicketOpen}>
         <DialogContent className="max-w-lg">
           <DialogHeader>
-            <DialogTitle>New Equipment Ticket</DialogTitle>
+            <DialogTitle>{t("equipment.newTicket")}</DialogTitle>
           </DialogHeader>
           <Form {...newTicketForm}>
             <form onSubmit={newTicketForm.handleSubmit((data) => createTicketMutation.mutate(data))} className="space-y-4">
@@ -451,11 +453,11 @@ export default function EquipmentList() {
                 name="equipmentId"
                 render={({ field }) => (
                   <FormItem>
-                    <FormLabel>Equipment *</FormLabel>
+                    <FormLabel>{t("equipment.title")} *</FormLabel>
                     <Select value={field.value} onValueChange={field.onChange}>
                       <FormControl>
                         <SelectTrigger data-testid="select-ticket-equipment">
-                          <SelectValue placeholder="Select equipment" />
+                          <SelectValue placeholder={t("equipment.title")} />
                         </SelectTrigger>
                       </FormControl>
                       <SelectContent>
@@ -475,9 +477,9 @@ export default function EquipmentList() {
                 name="title"
                 render={({ field }) => (
                   <FormItem>
-                    <FormLabel>Title *</FormLabel>
+                    <FormLabel>{t("common.title")} *</FormLabel>
                     <FormControl>
-                      <Input {...field} placeholder="Brief description of the issue" data-testid="input-equip-ticket-title" />
+                      <Input {...field} placeholder={t("equipmentTicket.workPerformedPlaceholder")} data-testid="input-equip-ticket-title" />
                     </FormControl>
                     <FormMessage />
                   </FormItem>
@@ -489,7 +491,7 @@ export default function EquipmentList() {
                   name="category"
                   render={({ field }) => (
                     <FormItem>
-                      <FormLabel>Category</FormLabel>
+                      <FormLabel>{t("tickets.ticketType")}</FormLabel>
                       <Select value={field.value} onValueChange={field.onChange}>
                         <FormControl>
                           <SelectTrigger data-testid="select-equip-ticket-category">
@@ -511,7 +513,7 @@ export default function EquipmentList() {
                   name="priority"
                   render={({ field }) => (
                     <FormItem>
-                      <FormLabel>Priority</FormLabel>
+                      <FormLabel>{t("common.priority")}</FormLabel>
                       <Select value={field.value} onValueChange={field.onChange}>
                         <FormControl>
                           <SelectTrigger data-testid="select-equip-ticket-priority">
@@ -534,9 +536,9 @@ export default function EquipmentList() {
                 name="description"
                 render={({ field }) => (
                   <FormItem>
-                    <FormLabel>Description *</FormLabel>
+                    <FormLabel>{t("common.description")} *</FormLabel>
                     <FormControl>
-                      <Textarea {...field} rows={3} placeholder="Detailed description of the issue or work needed" data-testid="input-equip-ticket-description" />
+                      <Textarea {...field} rows={3} placeholder={t("equipmentTicket.workPerformedPlaceholder")} data-testid="input-equip-ticket-description" />
                     </FormControl>
                     <FormMessage />
                   </FormItem>
@@ -547,7 +549,7 @@ export default function EquipmentList() {
                 name="dueDate"
                 render={({ field }) => (
                   <FormItem>
-                    <FormLabel>Due Date</FormLabel>
+                    <FormLabel>{t("ticketDetail.dueDate")}</FormLabel>
                     <FormControl>
                       <Input {...field} type="date" data-testid="input-equip-ticket-due" />
                     </FormControl>
@@ -557,10 +559,10 @@ export default function EquipmentList() {
               />
               <div className="flex justify-end gap-2 pt-2">
                 <Button type="button" variant="outline" onClick={() => setNewTicketOpen(false)} data-testid="button-cancel-equip-ticket">
-                  Cancel
+                  {t("common.cancel")}
                 </Button>
                 <Button type="submit" disabled={createTicketMutation.isPending} data-testid="button-submit-equip-ticket">
-                  {createTicketMutation.isPending ? "Creating..." : "Create Ticket"}
+                  {createTicketMutation.isPending ? t("common.creating") : t("newTicket.createTicket")}
                 </Button>
               </div>
             </form>

@@ -1,4 +1,5 @@
 import { useQuery } from "@tanstack/react-query";
+import { useTranslation } from "react-i18next";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -144,6 +145,7 @@ function generatePrintContent(
 }
 
 export default function ScheduleViewer() {
+  const { t } = useTranslation();
   const [selectedTemplateId, setSelectedTemplateId] = useState<string | null>(null);
   const [viewMode, setViewMode] = useState<"crews" | "combined">("crews");
   const contentRef = useRef<HTMLDivElement>(null);
@@ -236,7 +238,7 @@ export default function ScheduleViewer() {
       <Alert>
         <AlertCircle className="h-4 w-4" />
         <AlertDescription>
-          No schedule templates found. Create a template in the Builder tab first.
+          {t("schedule.noTemplatesFound")}
         </AlertDescription>
       </Alert>
     );
@@ -254,7 +256,7 @@ export default function ScheduleViewer() {
             onValueChange={setSelectedTemplateId}
           >
             <SelectTrigger className="w-[200px]" data-testid="select-template-viewer">
-              <SelectValue placeholder="Select template" />
+              <SelectValue placeholder={t("schedule.selectTemplate")} />
             </SelectTrigger>
             <SelectContent>
               {templates.map((t) => (
@@ -267,7 +269,7 @@ export default function ScheduleViewer() {
           <div className="flex items-center gap-3 text-sm text-muted-foreground">
             <span className="flex items-center gap-1">
               <MapPin className="h-3.5 w-3.5" />
-              {totalProperties} properties
+              {totalProperties} {t("common.properties")}
             </span>
             <span className="flex items-center gap-1">
               <Clock className="h-3.5 w-3.5" />
@@ -281,11 +283,11 @@ export default function ScheduleViewer() {
             <TabsList>
               <TabsTrigger value="crews" data-testid="button-view-crews">
                 <Rows3 className="h-4 w-4 mr-1.5" />
-                By Crew
+                {t("schedule.byCrew")}
               </TabsTrigger>
               <TabsTrigger value="combined" data-testid="button-view-combined">
                 <LayoutGrid className="h-4 w-4 mr-1.5" />
-                Combined
+                {t("schedule.combined")}
               </TabsTrigger>
             </TabsList>
           </Tabs>
@@ -294,13 +296,13 @@ export default function ScheduleViewer() {
             <DropdownMenuTrigger asChild>
               <Button variant="outline" size="sm" data-testid="button-print-schedule">
                 <Printer className="h-4 w-4 mr-1" />
-                Print / PDF
+                {t("schedule.printPdf")}
               </Button>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end">
               <DropdownMenuItem onClick={() => handlePrint()} data-testid="menu-print-all">
                 <Download className="h-4 w-4 mr-2" />
-                Full Schedule
+                {t("schedule.fullSchedule")}
               </DropdownMenuItem>
               {activeCrews.length > 0 && <DropdownMenuSeparator />}
               {activeCrews.map(crew => (
@@ -342,7 +344,7 @@ export default function ScheduleViewer() {
       {activeCrews.length === 0 && (
         <Card>
           <CardContent className="py-8 text-center text-muted-foreground">
-            No active crews found. Add crews in the Builder tab.
+            {t("schedule.noCrewsFound")}
           </CardContent>
         </Card>
       )}

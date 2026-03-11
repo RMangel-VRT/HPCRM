@@ -1,6 +1,7 @@
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Users, FileText, DollarSign, TrendingUp } from "lucide-react";
 import { useQuery } from "@tanstack/react-query";
+import { useTranslation } from "react-i18next";
 import { Skeleton } from "@/components/ui/skeleton";
 import TopCustomers from "@/components/TopCustomers";
 import UpcomingRenewals from "@/components/UpcomingRenewals";
@@ -66,6 +67,7 @@ export default function Dashboard() {
 }
 
 function AdminOfficeDashboard() {
+  const { t } = useTranslation();
   const { data: stats, isLoading, error } = useQuery<DashboardStats>({
     queryKey: ["/api/dashboard/stats"],
   });
@@ -83,12 +85,12 @@ function AdminOfficeDashboard() {
 
   const dashboardCards = stats ? [
     { 
-      title: "Active Customers", 
+      title: t("dashboard.activeCustomers"), 
       value: stats.customersCount.toString(), 
       icon: Users,
     },
     { 
-      title: "Active Contracts", 
+      title: t("dashboard.activeContracts"), 
       value: stats.activeContractsCount.toString(), 
       icon: FileText,
     },
@@ -98,7 +100,7 @@ function AdminOfficeDashboard() {
       icon: DollarSign,
     },
     { 
-      title: "YTD Revenue", 
+      title: t("dashboard.ytdRevenue"), 
       value: formatCurrency(stats.ytdRevenue), 
       icon: TrendingUp,
     },
@@ -109,22 +111,22 @@ function AdminOfficeDashboard() {
       <div className="space-y-6">
         <div>
           <h1 className="text-3xl font-semibold tracking-tight" data-testid="text-page-title">
-            Dashboard
+            {t("dashboard.title")}
           </h1>
           <p className="text-sm text-muted-foreground mt-1">
-            Overview of your landscaping business
+            {t("dashboard.businessOverview")}
           </p>
         </div>
         <Card className="border-destructive">
           <CardHeader>
-            <CardTitle className="text-destructive">Unable to Load Dashboard</CardTitle>
+            <CardTitle className="text-destructive">{t("dashboard.unableToLoad")}</CardTitle>
           </CardHeader>
           <CardContent className="space-y-4">
             <p className="text-sm text-muted-foreground">
-              There was a problem loading your dashboard statistics. This usually happens due to a session issue.
+              {t("dashboard.loadError")}
             </p>
             <p className="text-sm font-mono text-muted-foreground">
-              Error: {error instanceof Error ? error.message : "Unknown error"}
+              {t("common.error")}: {error instanceof Error ? error.message : t("common.unknown")}
             </p>
             <div className="flex flex-wrap gap-2">
               <button
@@ -132,7 +134,7 @@ function AdminOfficeDashboard() {
                 className="px-4 py-2 bg-primary text-primary-foreground rounded-md hover:bg-primary/90"
                 data-testid="button-reload"
               >
-                Reload Page
+                {t("dashboard.reloadPage")}
               </button>
               <button
                 onClick={() => {
@@ -144,7 +146,7 @@ function AdminOfficeDashboard() {
                 className="px-4 py-2 bg-secondary text-secondary-foreground rounded-md hover:bg-secondary/90"
                 data-testid="button-relogin"
               >
-                Clear Session & Re-login
+                {t("dashboard.clearSession")}
               </button>
             </div>
           </CardContent>
@@ -157,10 +159,10 @@ function AdminOfficeDashboard() {
     <div className="space-y-4">
       <div>
         <h1 className="text-2xl font-semibold tracking-tight" data-testid="text-page-title">
-          Dashboard
+          {t("dashboard.title")}
         </h1>
         <p className="text-sm text-muted-foreground">
-          Overview of your landscaping business
+          {t("dashboard.businessOverview")}
         </p>
       </div>
 

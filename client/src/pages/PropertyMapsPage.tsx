@@ -1,4 +1,5 @@
 import { useState, useRef } from "react";
+import { useTranslation } from "react-i18next";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import type { Customer, CustomerMapLayer } from "@shared/schema";
 import { Input } from "@/components/ui/input";
@@ -59,6 +60,7 @@ const PRESET_COLORS = [
 ];
 
 function CustomerMapManager({ customerId, customerName, onClose }: { customerId: string; customerName: string; onClose: () => void }) {
+  const { t } = useTranslation();
   const { user } = useAuth();
   const { toast } = useToast();
   const [activeTab, setActiveTab] = useState<"view" | "edit">("view");
@@ -86,12 +88,12 @@ function CustomerMapManager({ customerId, customerName, onClose }: { customerId:
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/customers", customerId, "map-layers"] });
-      toast({ title: "Layer uploaded successfully" });
+      toast({ title: t("propertyMaps.layerUploaded") });
       setShowUploadDialog(false);
       resetForm();
     },
     onError: () => {
-      toast({ title: "Failed to create layer", variant: "destructive" });
+      toast({ title: t("propertyMaps.layerCreateFailed"), variant: "destructive" });
     },
   });
 
@@ -116,7 +118,7 @@ function CustomerMapManager({ customerId, customerName, onClose }: { customerId:
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/customers", customerId, "map-layers"] });
-      toast({ title: "Layer deleted" });
+      toast({ title: t("propertyMaps.layerDeleted") });
     },
     onError: () => {
       toast({ title: "Failed to delete layer", variant: "destructive" });
@@ -287,7 +289,7 @@ function CustomerMapManager({ customerId, customerName, onClose }: { customerId:
           </Button>
           <div>
             <h1 className="text-lg font-semibold" data-testid="text-customer-name">{customerName}</h1>
-            <p className="text-sm text-muted-foreground">Property Maps</p>
+            <p className="text-sm text-muted-foreground">{t("propertyMaps.title")}</p>
           </div>
         </div>
       </div>
@@ -297,12 +299,12 @@ function CustomerMapManager({ customerId, customerName, onClose }: { customerId:
           <TabsList className="h-12">
             <TabsTrigger value="view" className="gap-2" data-testid="tab-view-map">
               <Map className="w-4 h-4" />
-              View Map
+              {t("propertyMaps.viewMap")}
             </TabsTrigger>
             {canEdit && (
               <TabsTrigger value="edit" className="gap-2" data-testid="tab-edit-layers">
                 <Pencil className="w-4 h-4" />
-                Edit Layers
+                {t("propertyMaps.editLayers")}
               </TabsTrigger>
             )}
           </TabsList>
@@ -323,7 +325,7 @@ function CustomerMapManager({ customerId, customerName, onClose }: { customerId:
                 <div>
                   <h3 className="text-lg font-semibold">Property Maps & Layers</h3>
                   <p className="text-sm text-muted-foreground">
-                    Upload KML files to define service zones and routes
+                    {t("propertyMaps.description")}
                   </p>
                 </div>
                 <Button
@@ -331,7 +333,7 @@ function CustomerMapManager({ customerId, customerName, onClose }: { customerId:
                   onClick={() => setShowUploadDialog(true)}
                 >
                   <Upload className="w-4 h-4 mr-2" />
-                  Add Layer
+                  {t("propertyMaps.addLayer")}
                 </Button>
               </div>
 
@@ -346,11 +348,11 @@ function CustomerMapManager({ customerId, customerName, onClose }: { customerId:
                   <CardHeader>
                     <CardTitle className="text-base flex items-center gap-2">
                       <Layers className="w-4 h-4" />
-                      Base Layers
+                      {t("propertyMaps.baseLayers")}
                     </CardTitle>
                   </CardHeader>
                   <CardContent>
-                    {renderLayerList(baseLayers, "No base layers uploaded", LAYER_TYPES.base)}
+                    {renderLayerList(baseLayers, t("propertyMaps.noBaseLayers"), LAYER_TYPES.base)}
                   </CardContent>
                 </Card>
 
@@ -358,11 +360,11 @@ function CustomerMapManager({ customerId, customerName, onClose }: { customerId:
                   <CardHeader>
                     <CardTitle className="text-base flex items-center gap-2">
                       <Layers className="w-4 h-4" />
-                      Community Season
+                      {t("propertyMaps.communitySeason")}
                     </CardTitle>
                   </CardHeader>
                   <CardContent>
-                    {renderLayerList(communityLayers, "No community season layers uploaded", LAYER_TYPES.community)}
+                    {renderLayerList(communityLayers, t("propertyMaps.noCommunityLayers"), LAYER_TYPES.community)}
                   </CardContent>
                 </Card>
 
@@ -370,11 +372,11 @@ function CustomerMapManager({ customerId, customerName, onClose }: { customerId:
                   <CardHeader>
                     <CardTitle className="text-base flex items-center gap-2">
                       <Layers className="w-4 h-4" />
-                      Snow Season
+                      {t("propertyMaps.snowSeason")}
                     </CardTitle>
                   </CardHeader>
                   <CardContent>
-                    {renderLayerList(snowLayers, "No snow season layers uploaded", LAYER_TYPES.snow)}
+                    {renderLayerList(snowLayers, t("propertyMaps.noSnowLayers"), LAYER_TYPES.snow)}
                   </CardContent>
                 </Card>
 
@@ -382,12 +384,12 @@ function CustomerMapManager({ customerId, customerName, onClose }: { customerId:
                   <CardHeader>
                     <CardTitle className="text-base flex items-center gap-2">
                       <Layers className="w-4 h-4" />
-                      Custom Layers
+                      {t("propertyMaps.customLayers")}
                     </CardTitle>
                   </CardHeader>
                   <CardContent>
                     {customLayers.length === 0 ? (
-                      <p className="text-sm text-muted-foreground text-center py-4">No custom layers uploaded</p>
+                      <p className="text-sm text-muted-foreground text-center py-4">{t("propertyMaps.noCustomLayers")}</p>
                     ) : (
                       <div className="space-y-2">
                         {customLayers.map((layer) => (
@@ -434,14 +436,14 @@ function CustomerMapManager({ customerId, customerName, onClose }: { customerId:
       <Dialog open={showUploadDialog} onOpenChange={setShowUploadDialog}>
         <DialogContent className="max-w-md">
           <DialogHeader>
-            <DialogTitle>Add Map Layer</DialogTitle>
+            <DialogTitle>{t("propertyMaps.addMapLayer")}</DialogTitle>
             <DialogDescription>
               Upload a KML file to define a service zone or route
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-4">
             <div className="space-y-2">
-              <Label>Layer Category</Label>
+              <Label>{t("propertyMaps.layerCategory")}</Label>
               <Select
                 value={selectedCategory}
                 onValueChange={(v) => {
@@ -454,24 +456,24 @@ function CustomerMapManager({ customerId, customerName, onClose }: { customerId:
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="base">Base Layers</SelectItem>
-                  <SelectItem value="community">Community Season</SelectItem>
-                  <SelectItem value="snow">Snow Season</SelectItem>
-                  <SelectItem value="custom">Custom Layer</SelectItem>
+                  <SelectItem value="base">{t("propertyMaps.baseLayers")}</SelectItem>
+                  <SelectItem value="community">{t("propertyMaps.communitySeason")}</SelectItem>
+                  <SelectItem value="snow">{t("propertyMaps.snowSeason")}</SelectItem>
+                  <SelectItem value="custom">{t("propertyMaps.customLayers")}</SelectItem>
                 </SelectContent>
               </Select>
             </div>
 
             {selectedCategory !== "custom" && (
               <div className="space-y-2">
-                <Label>Layer Type</Label>
+                <Label>{t("propertyMaps.layerType")}</Label>
                 <Select value={selectedLayerType} onValueChange={(v) => {
                   setSelectedLayerType(v);
                   const config = [...LAYER_TYPES.base, ...LAYER_TYPES.community, ...LAYER_TYPES.snow].find(l => l.value === v);
                   if (config) setSelectedColor(config.color);
                 }}>
                   <SelectTrigger data-testid="select-layer-type">
-                    <SelectValue placeholder="Select layer type" />
+                    <SelectValue placeholder={t("propertyMaps.selectLayerType")} />
                   </SelectTrigger>
                   <SelectContent>
                     {LAYER_TYPES[selectedCategory].map((type) => (
@@ -492,24 +494,24 @@ function CustomerMapManager({ customerId, customerName, onClose }: { customerId:
 
             {selectedCategory === "custom" && (
               <div className="space-y-2">
-                <Label>Layer Name <span className="text-destructive">*</span></Label>
+                <Label>{t("propertyMaps.layerName")} <span className="text-destructive">*</span></Label>
                 <Input
                   data-testid="input-custom-layer-name"
                   value={customName}
                   onChange={(e) => setCustomName(e.target.value)}
-                  placeholder="Enter a name for this layer"
+                  placeholder={t("propertyMaps.enterLayerName")}
                 />
               </div>
             )}
 
             {selectedCategory !== "custom" && (
               <div className="space-y-2">
-                <Label>Custom Name (Optional)</Label>
+                <Label>{t("propertyMaps.customName")}</Label>
                 <Input
                   data-testid="input-layer-name"
                   value={customName}
                   onChange={(e) => setCustomName(e.target.value)}
-                  placeholder="Override the default layer name"
+                  placeholder={t("propertyMaps.overrideDefault")}
                 />
               </div>
             )}

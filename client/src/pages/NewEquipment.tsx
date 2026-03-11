@@ -26,33 +26,8 @@ import {
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useAuth } from "@/hooks/use-auth";
+import { useTranslation } from "react-i18next";
 import type { User } from "@shared/schema";
-
-const EQUIPMENT_TYPES = [
-  { value: "truck", label: "Truck" },
-  { value: "mower", label: "Mower" },
-  { value: "trailer", label: "Trailer" },
-  { value: "skid_steer", label: "Skid Steer" },
-  { value: "atv_utv", label: "ATV/UTV" },
-  { value: "specialty", label: "Specialty Equipment" },
-  { value: "other_vehicle", label: "Other Vehicle" },
-];
-
-const STATUS_OPTIONS = [
-  { value: "active", label: "Active" },
-  { value: "in_repair", label: "In Repair" },
-  { value: "out_of_service", label: "Out of Service" },
-  { value: "retired", label: "Retired" },
-];
-
-const FUEL_TYPES = [
-  { value: "not_specified", label: "Not specified" },
-  { value: "gasoline", label: "Gasoline" },
-  { value: "diesel", label: "Diesel" },
-  { value: "propane", label: "Propane" },
-  { value: "electric", label: "Electric" },
-  { value: "hybrid", label: "Hybrid" },
-];
 
 const equipmentFormSchema = z.object({
   name: z.string().min(1, "Name is required"),
@@ -68,7 +43,6 @@ const equipmentFormSchema = z.object({
   fuelType: z.string().optional(),
   notes: z.string().optional(),
   customSpecs: z.record(z.string(), z.string()).optional().nullable(),
-  // Type-specific fields
   currentMileage: z.coerce.number().nullable().optional(),
   currentHours: z.coerce.number().nullable().optional(),
   deckSize: z.string().optional(),
@@ -82,11 +56,38 @@ const equipmentFormSchema = z.object({
 type EquipmentFormData = z.infer<typeof equipmentFormSchema>;
 
 export default function NewEquipment() {
+  const { t } = useTranslation();
   const [, navigate] = useLocation();
   const { toast } = useToast();
   const { user } = useAuth();
   
   const canRetireOrDelete = user?.activeRole === "admin" || user?.activeRole === "shop_manager";
+
+  const EQUIPMENT_TYPES = [
+    { value: "truck", label: t("equipment.types.truck") },
+    { value: "mower", label: t("equipment.types.mower") },
+    { value: "trailer", label: t("equipment.types.trailer") },
+    { value: "skid_steer", label: t("equipment.types.skid_steer") },
+    { value: "atv_utv", label: t("equipment.types.atv_utv") },
+    { value: "specialty", label: t("equipment.types.specialty") },
+    { value: "other_vehicle", label: t("equipment.types.other_vehicle") },
+  ];
+
+  const STATUS_OPTIONS = [
+    { value: "active", label: t("equipment.statusLabels.active") },
+    { value: "in_repair", label: t("equipment.statusLabels.in_repair") },
+    { value: "out_of_service", label: t("equipment.statusLabels.out_of_service") },
+    { value: "retired", label: t("equipment.statusLabels.retired") },
+  ];
+
+  const FUEL_TYPES = [
+    { value: "not_specified", label: t("equipment.fuelTypes.not_specified") },
+    { value: "gasoline", label: t("equipment.fuelTypes.gasoline") },
+    { value: "diesel", label: t("equipment.fuelTypes.diesel") },
+    { value: "propane", label: t("equipment.fuelTypes.propane") },
+    { value: "electric", label: t("equipment.fuelTypes.electric") },
+    { value: "hybrid", label: t("equipment.fuelTypes.hybrid") },
+  ];
 
   const { data: users } = useQuery<User[]>({
     queryKey: ["/api/users"],
@@ -108,7 +109,6 @@ export default function NewEquipment() {
       fuelType: "not_specified",
       notes: "",
       customSpecs: null,
-      // Type-specific fields
       currentMileage: null,
       currentHours: null,
       deckSize: "",
@@ -127,7 +127,6 @@ export default function NewEquipment() {
         assignedToId: data.assignedToId === "none" ? null : data.assignedToId || null,
         year: data.year ?? null,
         customSpecs: data.customSpecs || null,
-        // Type-specific fields - use nullish coalescing (??) to preserve 0 values
         currentMileage: data.currentMileage ?? null,
         currentHours: data.currentHours ?? null,
         deckSize: data.deckSize || null,
@@ -142,11 +141,11 @@ export default function NewEquipment() {
     },
     onSuccess: (result) => {
       queryClient.invalidateQueries({ queryKey: ["/api/equipment"] });
-      toast({ title: "Equipment created successfully" });
+      toast({ title: t("equipment.created") });
       navigate(`/dashboard/equipment/${result.id}`);
     },
     onError: (error: Error) => {
-      toast({ title: "Failed to create equipment", description: error.message, variant: "destructive" });
+      toast({ title: t("equipment.createFailed"), description: error.message, variant: "destructive" });
     },
   });
 
@@ -165,8 +164,8 @@ export default function NewEquipment() {
           </Link>
         </Button>
         <div>
-          <h1 className="text-2xl font-bold" data-testid="text-page-title">Add Equipment</h1>
-          <p className="text-muted-foreground">Add a new truck, mower, trailer, or other equipment</p>
+          <h1 className="text-2xl font-bold" data-testid="text-page-title">{t("equipment.addEquipment")}</h1>
+          <p className="text-muted-foreground">{t("equipment.manage")}</p>
         </div>
       </div>
 
@@ -175,7 +174,7 @@ export default function NewEquipment() {
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
             <Card>
               <CardHeader>
-                <CardTitle>Basic Information</CardTitle>
+                <CardTitle>{t("equipment.basicInfo")}</CardTitle>
               </CardHeader>
               <CardContent className="space-y-4">
                 <FormField
@@ -183,7 +182,7 @@ export default function NewEquipment() {
                   name="name"
                   render={({ field }) => (
                     <FormItem>
-                      <FormLabel>Name *</FormLabel>
+                      <FormLabel>{t("common.name")} *</FormLabel>
                       <FormControl>
                         <Input {...field} placeholder='e.g., "Truck 12", "Wright Stand-On #3"' data-testid="input-name" />
                       </FormControl>
@@ -196,7 +195,7 @@ export default function NewEquipment() {
                   name="equipmentType"
                   render={({ field }) => (
                     <FormItem>
-                      <FormLabel>Type *</FormLabel>
+                      <FormLabel>{t("common.type")} *</FormLabel>
                       <Select value={field.value} onValueChange={field.onChange}>
                         <FormControl>
                           <SelectTrigger data-testid="select-type">
@@ -218,7 +217,7 @@ export default function NewEquipment() {
                   name="status"
                   render={({ field }) => (
                     <FormItem>
-                      <FormLabel>Status</FormLabel>
+                      <FormLabel>{t("common.status")}</FormLabel>
                       <Select value={field.value} onValueChange={field.onChange}>
                         <FormControl>
                           <SelectTrigger data-testid="select-status">
@@ -242,7 +241,7 @@ export default function NewEquipment() {
                   name="assignedToId"
                   render={({ field }) => (
                     <FormItem>
-                      <FormLabel>Assigned To</FormLabel>
+                      <FormLabel>{t("ticketDetail.assignedTo")}</FormLabel>
                       <Select value={field.value || "none"} onValueChange={field.onChange}>
                         <FormControl>
                           <SelectTrigger data-testid="select-assigned">
@@ -250,7 +249,7 @@ export default function NewEquipment() {
                           </SelectTrigger>
                         </FormControl>
                         <SelectContent>
-                          <SelectItem value="none">Unassigned</SelectItem>
+                          <SelectItem value="none">{t("common.unassigned")}</SelectItem>
                           {users?.map((u) => (
                             <SelectItem key={u.id} value={u.id}>{u.name}</SelectItem>
                           ))}
@@ -265,7 +264,7 @@ export default function NewEquipment() {
                   name="location"
                   render={({ field }) => (
                     <FormItem>
-                      <FormLabel>Location</FormLabel>
+                      <FormLabel>{t("ticketDetail.location")}</FormLabel>
                       <FormControl>
                         <Input {...field} placeholder="Shop, Yard, etc." data-testid="input-location" />
                       </FormControl>
@@ -278,7 +277,7 @@ export default function NewEquipment() {
 
             <Card>
               <CardHeader>
-                <CardTitle>Make & Model</CardTitle>
+                <CardTitle>{t("equipment.makeModel")}</CardTitle>
               </CardHeader>
               <CardContent className="space-y-4">
                 <FormField
@@ -286,7 +285,7 @@ export default function NewEquipment() {
                   name="make"
                   render={({ field }) => (
                     <FormItem>
-                      <FormLabel>Make</FormLabel>
+                      <FormLabel>{t("equipment.make")}</FormLabel>
                       <FormControl>
                         <Input {...field} placeholder="Manufacturer/brand" data-testid="input-make" />
                       </FormControl>
@@ -299,7 +298,7 @@ export default function NewEquipment() {
                   name="model"
                   render={({ field }) => (
                     <FormItem>
-                      <FormLabel>Model</FormLabel>
+                      <FormLabel>{t("equipment.model")}</FormLabel>
                       <FormControl>
                         <Input {...field} data-testid="input-model" />
                       </FormControl>
@@ -312,7 +311,7 @@ export default function NewEquipment() {
                   name="year"
                   render={({ field }) => (
                     <FormItem>
-                      <FormLabel>Year</FormLabel>
+                      <FormLabel>{t("equipment.year")}</FormLabel>
                       <FormControl>
                         <Input type="number" {...field} value={field.value || ""} data-testid="input-year" />
                       </FormControl>
@@ -325,7 +324,7 @@ export default function NewEquipment() {
                   name="serialNumber"
                   render={({ field }) => (
                     <FormItem>
-                      <FormLabel>Serial Number / VIN</FormLabel>
+                      <FormLabel>{t("equipment.serialNumber")}</FormLabel>
                       <FormControl>
                         <Input {...field} data-testid="input-serial" />
                       </FormControl>
@@ -338,7 +337,7 @@ export default function NewEquipment() {
                   name="licensePlate"
                   render={({ field }) => (
                     <FormItem>
-                      <FormLabel>License Plate</FormLabel>
+                      <FormLabel>{t("equipment.licensePlate")}</FormLabel>
                       <FormControl>
                         <Input {...field} data-testid="input-plate" />
                       </FormControl>
@@ -351,11 +350,11 @@ export default function NewEquipment() {
                   name="fuelType"
                   render={({ field }) => (
                     <FormItem>
-                      <FormLabel>Fuel Type</FormLabel>
+                      <FormLabel>{t("equipment.fuelType")}</FormLabel>
                       <Select value={field.value || ""} onValueChange={field.onChange}>
                         <FormControl>
                           <SelectTrigger data-testid="select-fuel">
-                            <SelectValue placeholder="Select fuel type" />
+                            <SelectValue placeholder={t("equipment.fuelType")} />
                           </SelectTrigger>
                         </FormControl>
                         <SelectContent>
@@ -372,11 +371,10 @@ export default function NewEquipment() {
             </Card>
           </div>
 
-          {/* Truck & Other Vehicle: Mileage + Registration */}
           {(equipmentType === "truck" || equipmentType === "other_vehicle") && (
             <Card>
               <CardHeader>
-                <CardTitle>{equipmentType === "truck" ? "Truck Details" : "Vehicle Details"}</CardTitle>
+                <CardTitle>{equipmentType === "truck" ? t("equipment.types.truck") : t("equipment.types.other_vehicle")}</CardTitle>
               </CardHeader>
               <CardContent className="grid grid-cols-1 md:grid-cols-3 gap-4">
                 <FormField
@@ -384,7 +382,7 @@ export default function NewEquipment() {
                   name="currentMileage"
                   render={({ field }) => (
                     <FormItem>
-                      <FormLabel>Current Mileage</FormLabel>
+                      <FormLabel>{t("equipment.currentMileage")}</FormLabel>
                       <FormControl>
                         <Input type="number" {...field} value={field.value || ""} placeholder="e.g., 45000" data-testid="input-mileage" />
                       </FormControl>
@@ -397,7 +395,7 @@ export default function NewEquipment() {
                   name="registrationExpiration"
                   render={({ field }) => (
                     <FormItem>
-                      <FormLabel>Registration Expiration</FormLabel>
+                      <FormLabel>{t("equipment.registrationExpiration")}</FormLabel>
                       <FormControl>
                         <Input type="date" {...field} data-testid="input-reg-exp" />
                       </FormControl>
@@ -410,7 +408,7 @@ export default function NewEquipment() {
                   name="insuranceExpiration"
                   render={({ field }) => (
                     <FormItem>
-                      <FormLabel>Insurance Expiration</FormLabel>
+                      <FormLabel>{t("equipment.insuranceExpiration")}</FormLabel>
                       <FormControl>
                         <Input type="date" {...field} data-testid="input-ins-exp" />
                       </FormControl>
@@ -422,11 +420,10 @@ export default function NewEquipment() {
             </Card>
           )}
 
-          {/* Mower: Deck Size + Engine Hours */}
           {equipmentType === "mower" && (
             <Card>
               <CardHeader>
-                <CardTitle>Mower Details</CardTitle>
+                <CardTitle>{t("equipment.types.mower")}</CardTitle>
               </CardHeader>
               <CardContent className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <FormField
@@ -434,7 +431,7 @@ export default function NewEquipment() {
                   name="deckSize"
                   render={({ field }) => (
                     <FormItem>
-                      <FormLabel>Deck Size</FormLabel>
+                      <FormLabel>{t("equipment.deckSize")}</FormLabel>
                       <FormControl>
                         <Input {...field} placeholder='e.g., 60"' data-testid="input-deck" />
                       </FormControl>
@@ -447,7 +444,7 @@ export default function NewEquipment() {
                   name="currentHours"
                   render={({ field }) => (
                     <FormItem>
-                      <FormLabel>Engine Hours</FormLabel>
+                      <FormLabel>{t("equipment.currentHours")}</FormLabel>
                       <FormControl>
                         <Input type="number" step="0.1" {...field} value={field.value || ""} placeholder="e.g., 1250" data-testid="input-hours" />
                       </FormControl>
@@ -459,11 +456,10 @@ export default function NewEquipment() {
             </Card>
           )}
 
-          {/* Trailer: Axle Count, Load Rating, Tire Size */}
           {equipmentType === "trailer" && (
             <Card>
               <CardHeader>
-                <CardTitle>Trailer Details</CardTitle>
+                <CardTitle>{t("equipment.types.trailer")}</CardTitle>
               </CardHeader>
               <CardContent className="grid grid-cols-1 md:grid-cols-3 gap-4">
                 <FormField
@@ -471,7 +467,7 @@ export default function NewEquipment() {
                   name="axleCount"
                   render={({ field }) => (
                     <FormItem>
-                      <FormLabel>Axle Count</FormLabel>
+                      <FormLabel>{t("equipment.axleCount")}</FormLabel>
                       <FormControl>
                         <Input type="number" {...field} value={field.value || ""} placeholder="e.g., 2" data-testid="input-axle" />
                       </FormControl>
@@ -484,7 +480,7 @@ export default function NewEquipment() {
                   name="loadRating"
                   render={({ field }) => (
                     <FormItem>
-                      <FormLabel>Load Rating</FormLabel>
+                      <FormLabel>{t("equipment.loadRating")}</FormLabel>
                       <FormControl>
                         <Input {...field} placeholder="e.g., 7,000 lbs" data-testid="input-load" />
                       </FormControl>
@@ -497,7 +493,7 @@ export default function NewEquipment() {
                   name="tireSize"
                   render={({ field }) => (
                     <FormItem>
-                      <FormLabel>Tire Size</FormLabel>
+                      <FormLabel>{t("equipment.tireSize")}</FormLabel>
                       <FormControl>
                         <Input {...field} placeholder="e.g., 205/75R15" data-testid="input-tire" />
                       </FormControl>
@@ -509,11 +505,10 @@ export default function NewEquipment() {
             </Card>
           )}
 
-          {/* Skid Steer & ATV/UTV: Engine Hours */}
           {(equipmentType === "skid_steer" || equipmentType === "atv_utv") && (
             <Card>
               <CardHeader>
-                <CardTitle>{equipmentType === "skid_steer" ? "Skid Steer Details" : "ATV/UTV Details"}</CardTitle>
+                <CardTitle>{equipmentType === "skid_steer" ? t("equipment.types.skid_steer") : t("equipment.types.atv_utv")}</CardTitle>
               </CardHeader>
               <CardContent>
                 <FormField
@@ -521,7 +516,7 @@ export default function NewEquipment() {
                   name="currentHours"
                   render={({ field }) => (
                     <FormItem>
-                      <FormLabel>Engine Hours</FormLabel>
+                      <FormLabel>{t("equipment.currentHours")}</FormLabel>
                       <FormControl>
                         <Input type="number" step="0.1" {...field} value={field.value || ""} placeholder="e.g., 500" data-testid="input-hours" />
                       </FormControl>
@@ -533,15 +528,14 @@ export default function NewEquipment() {
             </Card>
           )}
 
-          {/* Specialty Equipment: Custom Specifications */}
           {equipmentType === "specialty" && (
             <Card>
               <CardHeader>
-                <CardTitle>Custom Specifications</CardTitle>
+                <CardTitle>{t("equipment.types.specialty")}</CardTitle>
               </CardHeader>
               <CardContent className="space-y-4">
                 <p className="text-sm text-muted-foreground mb-4">
-                  Add custom specifications for this specialty equipment (e.g., pump capacity, spray width, hopper size).
+                  {t("equipment.manage")}
                 </p>
                 <FormField
                   control={form.control}
@@ -580,14 +574,14 @@ export default function NewEquipment() {
                           {specEntries.map(([key, value], index) => (
                             <div key={index} className="flex items-center gap-2">
                               <Input
-                                placeholder="Name"
+                                placeholder={t("common.name")}
                                 value={key}
                                 onChange={(e) => updateSpecKey(key, e.target.value)}
                                 className="flex-1"
                                 data-testid={`input-spec-name-${index}`}
                               />
                               <Input
-                                placeholder="Value"
+                                placeholder={t("common.details")}
                                 value={value}
                                 onChange={(e) => updateSpecValue(key, e.target.value)}
                                 className="flex-1"
@@ -611,7 +605,7 @@ export default function NewEquipment() {
                             data-testid="button-add-spec"
                           >
                             <Plus className="w-4 h-4 mr-2" />
-                            Add Specification
+                            {t("common.add")}
                           </Button>
                         </div>
                         <FormMessage />
@@ -625,7 +619,7 @@ export default function NewEquipment() {
 
           <Card>
             <CardHeader>
-              <CardTitle>Notes</CardTitle>
+              <CardTitle>{t("common.notes")}</CardTitle>
             </CardHeader>
             <CardContent>
               <FormField
@@ -634,7 +628,7 @@ export default function NewEquipment() {
                 render={({ field }) => (
                   <FormItem>
                     <FormControl>
-                      <Textarea {...field} rows={4} placeholder="Additional notes about this equipment..." data-testid="input-notes" />
+                      <Textarea {...field} rows={4} placeholder={t("common.notes")} data-testid="input-notes" />
                     </FormControl>
                     <FormMessage />
                   </FormItem>
@@ -645,11 +639,11 @@ export default function NewEquipment() {
 
           <div className="flex justify-end gap-4">
             <Button asChild variant="outline" data-testid="button-cancel">
-              <Link href="/dashboard/equipment">Cancel</Link>
+              <Link href="/dashboard/equipment">{t("common.cancel")}</Link>
             </Button>
             <Button type="submit" disabled={createMutation.isPending} data-testid="button-save">
               {createMutation.isPending ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <Save className="w-4 h-4 mr-2" />}
-              Create Equipment
+              {t("common.create")} {t("equipment.title")}
             </Button>
           </div>
         </form>

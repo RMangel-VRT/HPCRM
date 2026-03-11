@@ -1,4 +1,5 @@
 import { useState, useEffect, useMemo } from "react";
+import { useTranslation } from "react-i18next";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { queryClient, apiRequest } from "@/lib/queryClient";
 import { useSetBreadcrumbs } from "@/hooks/use-breadcrumbs";
@@ -85,13 +86,14 @@ type ContractBuilderDocument = {
 };
 
 export default function ContractBuilderPage() {
+  const { t } = useTranslation();
   const { toast } = useToast();
   const [, setLocation] = useLocation();
   const [selectedCustomer, setSelectedCustomer] = useState<Customer | null>(null);
 
   useSetBreadcrumbs([
-    { label: "Tools", href: "/dashboard/tools" },
-    { label: "Contract Builder" },
+    { label: t("nav.tools"), href: "/dashboard/tools" },
+    { label: t("contracts.contractBuilder") },
   ], []);
   const [customerSearch, setCustomerSearch] = useState("");
   const [isCustomerDialogOpen, setIsCustomerDialogOpen] = useState(false);
@@ -179,14 +181,14 @@ export default function ContractBuilderPage() {
       setNewCustomerForm({ name: "", street: "", city: "", state: "", zip: "" });
       setIsCreatingCustomer(false);
       toast({
-        title: "Customer created",
-        description: `${newCustomer.name} has been created successfully.`,
+        title: t("customers.created"),
+        description: `${newCustomer.name}`,
       });
     },
     onError: () => {
       toast({
-        title: "Error",
-        description: "Failed to create customer. Please try again.",
+        title: t("common.error"),
+        description: t("customers.createFailed"),
         variant: "destructive",
       });
     },
@@ -308,14 +310,14 @@ export default function ContractBuilderPage() {
       console.log('[Contract Builder] Closing draft selection dialog');
       setIsDraftSelectionOpen(false);
       toast({
-        title: "Document created",
-        description: "Contract document initialized successfully",
+        title: t("contracts.documentCreated"),
+        description: t("contracts.documentCreatedMsg"),
       });
     },
     onError: (error: Error) => {
       console.error('[Contract Builder] onError called with error:', error);
       toast({
-        title: "Error",
+        title: t("common.error"),
         description: error.message,
         variant: "destructive",
       });
@@ -346,13 +348,13 @@ export default function ContractBuilderPage() {
       queryClient.invalidateQueries({ queryKey: ["/api/contract-builder/documents", documentId] });
       queryClient.invalidateQueries({ queryKey: ["/api/contract-builder/documents", documentId, "sections"] });
       toast({
-        title: "Sections saved",
-        description: "Contract sections updated successfully",
+        title: t("contracts.sectionsSaved"),
+        description: t("contracts.sectionsSavedMsg"),
       });
     },
     onError: (error: Error) => {
       toast({
-        title: "Save failed",
+        title: t("common.error"),
         description: error.message,
         variant: "destructive",
       });
@@ -376,13 +378,13 @@ export default function ContractBuilderPage() {
       queryClient.invalidateQueries({ queryKey: ["/api/contract-builder/documents", documentId] });
       queryClient.invalidateQueries({ queryKey: ["/api/contract-builder/documents", documentId, "variables"] });
       toast({
-        title: "Variables saved",
-        description: "Contract variables updated successfully",
+        title: t("contracts.variablesSaved"),
+        description: t("contracts.variablesSavedMsg"),
       });
     },
     onError: (error: Error) => {
       toast({
-        title: "Save failed",
+        title: t("common.error"),
         description: error.message,
         variant: "destructive",
       });
@@ -401,13 +403,13 @@ export default function ContractBuilderPage() {
       queryClient.invalidateQueries({ queryKey: ["/api/contract-builder/documents", documentId] });
       queryClient.invalidateQueries({ queryKey: ["/api/customers", selectedCustomer?.id, "documents"] });
       toast({
-        title: "PDF exported successfully",
-        description: `Document saved as ${data.fileName}. Use "Publish & Create Contract" to add this as an active contract in the CRM.`,
+        title: t("contracts.pdfExported"),
+        description: data.fileName,
       });
     },
     onError: (error: Error) => {
       toast({
-        title: "Export failed",
+        title: t("common.error"),
         description: error.message,
         variant: "destructive",
       });
@@ -433,8 +435,8 @@ export default function ContractBuilderPage() {
       queryClient.invalidateQueries({ queryKey: ["/api/customers", data.contract.customerId, "contracts"] });
       queryClient.invalidateQueries({ queryKey: ["/api/customers", data.contract.customerId] });
       toast({
-        title: "Contract created successfully",
-        description: "The contract has been created and the PDF has been attached",
+        title: t("common.success"),
+        description: t("contracts.contractUpdated"),
       });
       console.log('[Publish] Navigating to customer page:', `/customers/${data.contract.customerId}`);
       // Navigate to customer detail page, contracts tab
@@ -463,7 +465,7 @@ export default function ContractBuilderPage() {
       }
       
       toast({
-        title: "Publish failed",
+        title: t("common.error"),
         description: errorMessage,
         variant: "destructive",
       });
@@ -668,14 +670,14 @@ export default function ContractBuilderPage() {
 
       setIsDraftSelectionOpen(false);
       toast({
-        title: "Draft loaded",
-        description: "Your saved draft has been loaded successfully.",
+        title: t("contracts.draftLoaded"),
+        description: t("contracts.draftLoadedMsg"),
       });
     },
     onError: (error: Error) => {
       toast({
-        title: "Error",
-        description: `Failed to load draft: ${error.message}`,
+        title: t("common.error"),
+        description: error.message,
         variant: "destructive",
       });
     },
@@ -693,13 +695,13 @@ export default function ContractBuilderPage() {
     onSuccess: (deletedId) => {
       queryClient.invalidateQueries({ queryKey: ['/api/contract-builder/documents'] });
       toast({
-        title: "Draft deleted",
-        description: "The draft has been permanently deleted.",
+        title: t("contracts.draftDeleted"),
+        description: t("contracts.draftDeletedMsg"),
       });
     },
     onError: (error: Error) => {
       toast({
-        title: "Error",
+        title: t("common.error"),
         description: error.message,
         variant: "destructive",
       });
@@ -709,8 +711,8 @@ export default function ContractBuilderPage() {
   const handleCreateCustomer = () => {
     if (!newCustomerForm.name || !newCustomerForm.street || !newCustomerForm.city || !newCustomerForm.state || !newCustomerForm.zip) {
       toast({
-        title: "Missing information",
-        description: "Please fill in all fields to create a customer.",
+        title: t("customers.missingInfo"),
+        description: t("customers.fillAllFields"),
         variant: "destructive",
       });
       return;
@@ -805,35 +807,35 @@ export default function ContractBuilderPage() {
             <Link href="/dashboard/tools">
               <Button variant="ghost" size="sm" className="mb-4" data-testid="button-back">
                 <ArrowLeft className="w-4 h-4 mr-2" />
-                Back to Tools
+                {t("common.back")}
               </Button>
             </Link>
             <h1 className="text-3xl font-semibold tracking-tight mb-2" data-testid="text-page-title">
-              Contract Builder
+              {t("contracts.contractBuilder")}
             </h1>
             <p className="text-muted-foreground" data-testid="text-page-description">
-              Create customized landscape maintenance contracts
+              {t("tools.contractBuilderDesc")}
             </p>
           </div>
 
           <Card>
             <CardHeader>
-              <CardTitle>Select Customer</CardTitle>
+              <CardTitle>{t("contracts.selectCustomer")}</CardTitle>
             </CardHeader>
             <CardContent>
               <p className="text-sm text-muted-foreground mb-4">
-                Choose a customer to create a contract for
+                {t("contracts.selectCustomer")}
               </p>
               <Dialog open={isCustomerDialogOpen} onOpenChange={setIsCustomerDialogOpen}>
                 <DialogTrigger asChild>
                   <Button className="w-full" data-testid="button-select-customer">
                     <Search className="w-4 h-4 mr-2" />
-                    Search Customers
+                    {t("common.search")} {t("customers.title")}
                   </Button>
                 </DialogTrigger>
                 <DialogContent className="max-w-2xl">
                   <DialogHeader>
-                    <DialogTitle>{isCreatingCustomer ? "New Customer" : "Select Customer"}</DialogTitle>
+                    <DialogTitle>{isCreatingCustomer ? t("customers.addCustomer") : t("contracts.selectCustomer")}</DialogTitle>
                   </DialogHeader>
                   
                   <div className="flex gap-2 mb-4">
@@ -845,7 +847,7 @@ export default function ContractBuilderPage() {
                       data-testid="button-search-mode"
                     >
                       <Search className="w-4 h-4 mr-2" />
-                      Search
+                      {t("common.search")}
                     </Button>
                     <Button
                       variant={isCreatingCustomer ? "default" : "outline"}
@@ -854,23 +856,23 @@ export default function ContractBuilderPage() {
                       className="flex-1"
                       data-testid="button-create-mode"
                     >
-                      New Customer
+                      {t("customers.addCustomer")}
                     </Button>
                   </div>
 
                   {!isCreatingCustomer ? (
                     <div className="space-y-4">
                       <Input
-                        placeholder="Search by name or address..."
+                        placeholder={t("customers.searchPlaceholder")}
                         value={customerSearch}
                         onChange={(e) => setCustomerSearch(e.target.value)}
                         data-testid="input-customer-search"
                       />
                       <ScrollArea className="h-96">
                         {customersLoading ? (
-                          <p className="text-sm text-muted-foreground p-4">Loading customers...</p>
+                          <p className="text-sm text-muted-foreground p-4">{t("common.loading")}</p>
                         ) : filteredCustomers.length === 0 ? (
-                          <p className="text-sm text-muted-foreground p-4">No customers found</p>
+                          <p className="text-sm text-muted-foreground p-4">{t("customers.noCustomersFound")}</p>
                         ) : (
                           <div className="space-y-2">
                             {filteredCustomers.map((customer) => (
@@ -897,7 +899,7 @@ export default function ContractBuilderPage() {
                   ) : (
                     <div className="space-y-4">
                       <div className="space-y-2">
-                        <Label htmlFor="customer-name">Customer Name *</Label>
+                        <Label htmlFor="customer-name">{t("customers.customerName")} *</Label>
                         <Input
                           id="customer-name"
                           placeholder="Enter customer name"
@@ -907,7 +909,7 @@ export default function ContractBuilderPage() {
                         />
                       </div>
                       <div className="space-y-2">
-                        <Label htmlFor="customer-street">Street Address *</Label>
+                        <Label htmlFor="customer-street">{t("customers.streetAddress")} *</Label>
                         <Input
                           id="customer-street"
                           placeholder="123 Main St"
@@ -918,7 +920,7 @@ export default function ContractBuilderPage() {
                       </div>
                       <div className="grid grid-cols-3 gap-4">
                         <div className="space-y-2 col-span-1">
-                          <Label htmlFor="customer-city">City *</Label>
+                          <Label htmlFor="customer-city">{t("customers.city")} *</Label>
                           <Input
                             id="customer-city"
                             placeholder="Denver"
@@ -928,7 +930,7 @@ export default function ContractBuilderPage() {
                           />
                         </div>
                         <div className="space-y-2 col-span-1">
-                          <Label htmlFor="customer-state">State *</Label>
+                          <Label htmlFor="customer-state">{t("customers.state")} *</Label>
                           <Input
                             id="customer-state"
                             placeholder="CO"
@@ -939,7 +941,7 @@ export default function ContractBuilderPage() {
                           />
                         </div>
                         <div className="space-y-2 col-span-1">
-                          <Label htmlFor="customer-zip">ZIP *</Label>
+                          <Label htmlFor="customer-zip">{t("customers.zipCode")} *</Label>
                           <Input
                             id="customer-zip"
                             placeholder="80202"
@@ -960,7 +962,7 @@ export default function ContractBuilderPage() {
                           className="flex-1"
                           data-testid="button-cancel-create"
                         >
-                          Cancel
+                          {t("common.cancel")}
                         </Button>
                         <Button
                           onClick={handleCreateCustomer}
@@ -968,7 +970,7 @@ export default function ContractBuilderPage() {
                           className="flex-1"
                           data-testid="button-confirm-create"
                         >
-                          {createCustomerMutation.isPending ? "Creating..." : "Create & Continue"}
+                          {createCustomerMutation.isPending ? t("common.creating") : t("common.create")}
                         </Button>
                       </div>
                     </div>
@@ -996,7 +998,7 @@ export default function ContractBuilderPage() {
               data-testid="button-back-to-customer"
             >
               <ArrowLeft className="w-4 h-4 mr-2" />
-              Back to Customer Selection
+              {t("common.back")}
             </Button>
             <h1 className="text-3xl font-semibold tracking-tight mb-2">
               Contract for {selectedCustomer.name}
@@ -1012,7 +1014,7 @@ export default function ContractBuilderPage() {
           }}>
             <DialogContent className="max-w-2xl" data-testid="dialog-draft-selection">
               <DialogHeader>
-                <DialogTitle>Load Draft or Create New?</DialogTitle>
+                <DialogTitle>{t("contracts.draftLoaded")}</DialogTitle>
               </DialogHeader>
               
               <div className="space-y-4">
@@ -1061,19 +1063,19 @@ export default function ContractBuilderPage() {
                                     </AlertDialogTrigger>
                                     <AlertDialogContent onClick={(e) => e.stopPropagation()}>
                                       <AlertDialogHeader>
-                                        <AlertDialogTitle>Delete Draft?</AlertDialogTitle>
+                                        <AlertDialogTitle>{t("common.delete")}</AlertDialogTitle>
                                         <AlertDialogDescription>
-                                          This will permanently delete "{draft.documentTitle}". This action cannot be undone.
+                                          {t("contracts.deleteContractMsg")}
                                         </AlertDialogDescription>
                                       </AlertDialogHeader>
                                       <AlertDialogFooter>
-                                        <AlertDialogCancel data-testid="button-cancel-delete">Cancel</AlertDialogCancel>
+                                        <AlertDialogCancel data-testid="button-cancel-delete">{t("common.cancel")}</AlertDialogCancel>
                                         <AlertDialogAction
                                           onClick={() => deleteDraftMutation.mutate(draft.id)}
                                           className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
                                           data-testid="button-confirm-delete"
                                         >
-                                          Delete
+                                          {t("common.delete")}
                                         </AlertDialogAction>
                                       </AlertDialogFooter>
                                     </AlertDialogContent>
@@ -1106,7 +1108,7 @@ export default function ContractBuilderPage() {
                     className="flex-1"
                     data-testid="button-cancel-draft-selection"
                   >
-                    Cancel
+                    {t("common.cancel")}
                   </Button>
                   <Button
                     onClick={handleCreateNewDraft}
@@ -1114,7 +1116,7 @@ export default function ContractBuilderPage() {
                     className="flex-1"
                     data-testid="button-create-new-draft"
                   >
-                    {createDocumentMutation.isPending ? "Creating..." : "Create New Draft"}
+                    {createDocumentMutation.isPending ? t("common.creating") : t("common.create")}
                   </Button>
                 </div>
               </div>
@@ -1125,13 +1127,13 @@ export default function ContractBuilderPage() {
           {draftsLoading ? (
             <Card>
               <CardContent className="p-8 text-center">
-                <p className="text-muted-foreground">Checking for existing drafts...</p>
+                <p className="text-muted-foreground">{t("common.loading")}</p>
               </CardContent>
             </Card>
           ) : !isDraftSelectionOpen ? (
             <Card>
               <CardContent className="p-8 text-center">
-                <p className="text-muted-foreground">Loading contract builder...</p>
+                <p className="text-muted-foreground">{t("common.loading")}</p>
               </CardContent>
             </Card>
           ) : null}
@@ -1148,7 +1150,7 @@ export default function ContractBuilderPage() {
             <Link href="/dashboard/tools">
               <Button variant="ghost" size="sm" data-testid="button-back">
                 <ArrowLeft className="w-4 h-4 mr-2" />
-                Back
+                {t("common.back")}
               </Button>
             </Link>
             <div className="min-w-0">
@@ -1169,7 +1171,7 @@ export default function ContractBuilderPage() {
               size="sm"
             >
               <Save className="w-4 h-4 sm:mr-2" />
-              <span className="sr-only sm:not-sr-only">Save Draft</span>
+              <span className="sr-only sm:not-sr-only">{t("common.save")}</span>
             </Button>
             <Button 
               variant="outline"
@@ -1179,7 +1181,7 @@ export default function ContractBuilderPage() {
               data-testid="button-export-pdf"
             >
               <Download className="w-4 h-4 sm:mr-2" />
-              <span className="sr-only sm:not-sr-only">{exportPdfMutation.isPending ? "Exporting..." : "Export PDF"}</span>
+              <span className="sr-only sm:not-sr-only">{exportPdfMutation.isPending ? t("common.saving") : t("contracts.exportPdf")}</span>
             </Button>
             <Button 
               variant="default"
@@ -1189,7 +1191,7 @@ export default function ContractBuilderPage() {
               data-testid="button-publish-create"
             >
               <FileCheck className="w-4 h-4 sm:mr-2" />
-              <span className="sr-only sm:not-sr-only">{publishAndCreateMutation.isPending ? "Publishing..." : "Publish"}</span>
+              <span className="sr-only sm:not-sr-only">{publishAndCreateMutation.isPending ? t("common.saving") : t("contracts.publishCreate")}</span>
             </Button>
           </div>
         </div>
@@ -1199,13 +1201,13 @@ export default function ContractBuilderPage() {
         <Tabs defaultValue="sections" className="h-full flex flex-col">
           <TabsList className="mx-4 mt-4">
             <TabsTrigger value="sections" data-testid="tab-sections">
-              Sections
+              {t("contracts.tabs.sections")}
             </TabsTrigger>
             <TabsTrigger value="variables" data-testid="tab-variables">
-              Variables ({allVariables.length})
+              {t("contracts.tabs.variables")} ({allVariables.length})
             </TabsTrigger>
             <TabsTrigger value="preview" data-testid="tab-preview">
-              Preview
+              {t("contracts.tabs.preview")}
             </TabsTrigger>
           </TabsList>
 
@@ -1213,7 +1215,7 @@ export default function ContractBuilderPage() {
             <ScrollArea className="h-full">
               <div className="space-y-4 pr-4">
                 {templatesLoading ? (
-                  <p className="text-sm text-muted-foreground">Loading sections...</p>
+                  <p className="text-sm text-muted-foreground">{t("common.loading")}</p>
                 ) : (
                   (() => {
                     const sortedTemplates = templates?.sort((a, b) => a.displayOrder - b.displayOrder) || [];
@@ -1331,7 +1333,7 @@ export default function ContractBuilderPage() {
             <ScrollArea className="h-full">
               <div className="space-y-6 pr-4">
                 {templatesLoading ? (
-                  <p className="text-sm text-muted-foreground">Loading variables...</p>
+                  <p className="text-sm text-muted-foreground">{t("common.loading")}</p>
                 ) : (
                   (() => {
                     const categoryLabels: Record<string, string> = {

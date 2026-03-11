@@ -1,9 +1,11 @@
+import { useTranslation } from "react-i18next";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { FileQuestion } from "lucide-react";
 import { Link } from "wouter";
 
 export default function NotFound() {
+  const { t } = useTranslation();
   return (
     <div className="min-h-screen flex items-center justify-center bg-muted/30">
       <Card className="w-full max-w-md">
@@ -14,18 +16,18 @@ export default function NotFound() {
             </div>
           </div>
           <div>
-            <CardTitle className="text-2xl">Page Not Found</CardTitle>
+            <CardTitle className="text-2xl">{t("notFound.title")}</CardTitle>
             <CardDescription>
-              The page you're looking for doesn't exist
+              {t("notFound.description")}
             </CardDescription>
           </div>
         </CardHeader>
         <CardContent className="text-center">
           <p className="text-sm text-muted-foreground mb-6">
-            It might have been moved or deleted, or you may have mistyped the URL.
+            {t("notFound.details")}
           </p>
           <Button asChild data-testid="button-back-home">
-            <Link href="/dashboard">Return to Dashboard</Link>
+            <Link href="/dashboard">{t("notFound.returnToDashboard")}</Link>
           </Button>
         </CardContent>
       </Card>

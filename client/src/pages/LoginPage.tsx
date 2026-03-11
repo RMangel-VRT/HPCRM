@@ -1,5 +1,6 @@
 import { useState, useEffect } from "react";
 import { useLocation } from "wouter";
+import { useTranslation } from "react-i18next";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -8,6 +9,7 @@ import { useAuth } from "@/hooks/use-auth";
 import logoImage from "@assets/TRUCK_DECAL-06_1766432157419.png";
 
 export default function LoginPage() {
+  const { t } = useTranslation();
   const { user, loginMutation } = useAuth();
   const [, setLocation] = useLocation();
   const [email, setEmail] = useState("");
@@ -49,18 +51,18 @@ export default function LoginPage() {
             <img src={logoImage} alt="High Plains Logo" className="w-16 h-16 rounded-full" />
           </div>
           <div>
-            <CardTitle className="text-2xl">Welcome Back</CardTitle>
-            <CardDescription>Sign in to your High Plains account</CardDescription>
+            <CardTitle className="text-2xl">{t("login.welcomeBack")}</CardTitle>
+            <CardDescription>{t("login.signInDescription")}</CardDescription>
           </div>
         </CardHeader>
         <CardContent>
           <form onSubmit={handleSubmit} className="space-y-4">
             <div className="space-y-2">
-              <Label htmlFor="email">Email</Label>
+              <Label htmlFor="email">{t("login.emailLabel")}</Label>
               <Input
                 id="email"
                 type="email"
-                placeholder="you@company.com"
+                placeholder={t("login.emailPlaceholder")}
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
                 disabled={loginMutation.isPending}
@@ -68,11 +70,11 @@ export default function LoginPage() {
               />
             </div>
             <div className="space-y-2">
-              <Label htmlFor="password">Password</Label>
+              <Label htmlFor="password">{t("login.passwordLabel")}</Label>
               <Input
                 id="password"
                 type="password"
-                placeholder="Enter your password"
+                placeholder={t("login.passwordPlaceholder")}
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
                 disabled={loginMutation.isPending}
@@ -85,7 +87,7 @@ export default function LoginPage() {
               disabled={loginMutation.isPending}
               data-testid="button-login"
             >
-              {loginMutation.isPending ? "Signing in..." : "Sign In"}
+              {loginMutation.isPending ? t("login.signingIn") : t("login.signIn")}
             </Button>
           </form>
         </CardContent>

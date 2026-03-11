@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { useTranslation } from "react-i18next";
 import { useMutation } from "@tanstack/react-query";
 import { useLocation, Link } from "wouter";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -20,6 +21,7 @@ import { SNOW_RANGES } from "@shared/schema";
 import type { SnowEvent } from "@shared/schema";
 
 export default function NewSnowEvent() {
+  const { t } = useTranslation();
   const [, navigate] = useLocation();
   const { toast } = useToast();
 
@@ -41,7 +43,7 @@ export default function NewSnowEvent() {
     },
     onSuccess: (event) => {
       queryClient.invalidateQueries({ queryKey: ["/api/snow-events"] });
-      toast({ title: "Storm event created" });
+      toast({ title: t("snow.stormCreated") });
       navigate(`/dashboard/snow/${event.id}`);
     },
     onError: (err: Error) => {
@@ -52,7 +54,7 @@ export default function NewSnowEvent() {
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (!snowRange || !startDateTime) {
-      toast({ title: "Missing fields", description: "Start date and accumulation range are required.", variant: "destructive" });
+      toast({ title: t("snow.missingFields"), description: t("snow.missingFieldsMsg"), variant: "destructive" });
       return;
     }
     createMutation.mutate({
@@ -75,32 +77,32 @@ export default function NewSnowEvent() {
           </Button>
         </Link>
         <Snowflake className="h-5 w-5 text-primary" />
-        <h1 className="text-2xl font-bold tracking-tight">New Storm Event</h1>
+        <h1 className="text-2xl font-bold tracking-tight">{t("snow.newStormEvent")}</h1>
       </div>
 
       <Card>
         <CardHeader>
-          <CardTitle>Storm Details</CardTitle>
+          <CardTitle>{t("snow.stormDetails")}</CardTitle>
         </CardHeader>
         <CardContent>
           <form onSubmit={handleSubmit} className="space-y-4">
             <div>
-              <Label htmlFor="eventName">Event Name</Label>
+              <Label htmlFor="eventName">{t("snow.eventName")}</Label>
               <Input
                 id="eventName"
                 value={eventName}
                 onChange={(e) => setEventName(e.target.value)}
-                placeholder="Auto-generated if left blank"
+                placeholder={t("snow.autoGenerateName")}
                 data-testid="input-event-name"
               />
               <p className="text-xs text-muted-foreground mt-1">
-                Leave blank to auto-generate (e.g. "Snow Event - 2026-02-15")
+                {t("snow.autoGenerateName")}
               </p>
             </div>
 
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div>
-                <Label htmlFor="startDateTime">Start Date/Time *</Label>
+                <Label htmlFor="startDateTime">{t("snow.startDateTime")}</Label>
                 <Input
                   id="startDateTime"
                   type="datetime-local"
@@ -111,7 +113,7 @@ export default function NewSnowEvent() {
                 />
               </div>
               <div>
-                <Label htmlFor="endDateTime">End Date/Time</Label>
+                <Label htmlFor="endDateTime">{t("snow.endDateTime")}</Label>
                 <Input
                   id="endDateTime"
                   type="datetime-local"
@@ -123,10 +125,10 @@ export default function NewSnowEvent() {
             </div>
 
             <div>
-              <Label htmlFor="snowRange">Accumulation Range *</Label>
+              <Label htmlFor="snowRange">{t("snow.accumulationRange")}</Label>
               <Select value={snowRange} onValueChange={setSnowRange} required>
                 <SelectTrigger data-testid="select-snow-range">
-                  <SelectValue placeholder="Select range" />
+                  <SelectValue placeholder={t("snow.selectRange")} />
                 </SelectTrigger>
                 <SelectContent>
                   {SNOW_RANGES.map(r => (
@@ -137,7 +139,7 @@ export default function NewSnowEvent() {
             </div>
 
             <div>
-              <Label htmlFor="reportedTotalInches">Reported Total Inches</Label>
+              <Label htmlFor="reportedTotalInches">{t("snow.reportedTotalInches")}</Label>
               <Input
                 id="reportedTotalInches"
                 value={reportedTotalInches}
@@ -148,33 +150,31 @@ export default function NewSnowEvent() {
             </div>
 
             <div>
-              <Label htmlFor="measurementNotes">Measurement Notes</Label>
+              <Label htmlFor="measurementNotes">{t("snow.measurementNotes").replace(":", "")}</Label>
               <Textarea
                 id="measurementNotes"
                 value={measurementNotes}
                 onChange={(e) => setMeasurementNotes(e.target.value)}
-                placeholder="Where measurement was sourced, conditions, drifting..."
                 data-testid="input-measurement-notes"
               />
             </div>
 
             <div>
-              <Label htmlFor="eventNotes">Event Notes</Label>
+              <Label htmlFor="eventNotes">{t("snow.eventNotes").replace(":", "")}</Label>
               <Textarea
                 id="eventNotes"
                 value={eventNotes}
                 onChange={(e) => setEventNotes(e.target.value)}
-                placeholder="Wind/drift notes, temps, ice, timing..."
                 data-testid="input-event-notes"
               />
             </div>
 
             <div className="flex justify-end gap-2 pt-2">
               <Link href="/dashboard/snow">
-                <Button type="button" variant="outline">Cancel</Button>
+                <Button type="button" variant="outline">{t("snow.cancelBtn")}</Button>
               </Link>
               <Button type="submit" disabled={createMutation.isPending} data-testid="button-create-event">
-                {createMutation.isPending ? "Creating..." : "Create & Continue"}
+                {createMutation.isPending ? "Creating..." : t("snow.createContinue")}
               </Button>
             </div>
           </form>

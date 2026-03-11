@@ -2425,7 +2425,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       return res.status(403).send("Forbidden");
     }
 
-    const { email, name, password, role } = req.body;
+    const { email, name, password, role, language } = req.body;
 
     if (!email || !name || !password || !role) {
       return res.status(400).json({ message: "Email, name, password, and role are required" });
@@ -2450,6 +2450,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         passwordHash,
         isSuperAdmin: "false",
         defaultCompanyId: currentUser.activeCompanyId,
+        language: language === "es" ? "es" : "en",
       });
 
       await storage.createCompanyUser({

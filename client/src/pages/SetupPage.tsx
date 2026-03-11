@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { useLocation } from "wouter";
+import { useTranslation } from "react-i18next";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -10,6 +11,7 @@ import { apiRequest } from "@/lib/queryClient";
 import logoImage from "@assets/TRUCK_DECAL-06_1766432157419.png";
 
 export default function SetupPage() {
+  const { t } = useTranslation();
   const [, setLocation] = useLocation();
   const { toast } = useToast();
   const queryClient = useQueryClient();
@@ -27,7 +29,7 @@ export default function SetupPage() {
     },
     onSuccess: () => {
       toast({
-        title: "Setup Complete",
+        title: t("setup.setupComplete"),
         description: "Your account has been created. Welcome to High Plains!",
       });
       queryClient.invalidateQueries({ queryKey: ["/api/auth/me"] });
@@ -36,7 +38,7 @@ export default function SetupPage() {
     },
     onError: (error: Error) => {
       toast({
-        title: "Setup Failed",
+        title: t("setup.setupFailed"),
         description: error.message || "Something went wrong during setup.",
         variant: "destructive",
       });
@@ -48,7 +50,7 @@ export default function SetupPage() {
 
     if (adminPassword !== confirmPassword) {
       toast({
-        title: "Passwords Don't Match",
+        title: t("setup.passwordsDontMatch"),
         description: "Please ensure both password fields are identical.",
         variant: "destructive",
       });
@@ -57,7 +59,7 @@ export default function SetupPage() {
 
     if (adminPassword.length < 6) {
       toast({
-        title: "Password Too Short",
+        title: t("setup.passwordTooShort"),
         description: "Password must be at least 6 characters.",
         variant: "destructive",
       });
@@ -80,18 +82,18 @@ export default function SetupPage() {
             <img src={logoImage} alt="High Plains Logo" className="w-16 h-16 rounded-full" />
           </div>
           <div>
-            <CardTitle className="text-2xl">Welcome to High Plains</CardTitle>
-            <CardDescription>Set up your company and create your first admin account</CardDescription>
+            <CardTitle className="text-2xl">{t("setup.welcome")}</CardTitle>
+            <CardDescription>{t("setup.description")}</CardDescription>
           </div>
         </CardHeader>
         <CardContent>
           <form onSubmit={handleSubmit} className="space-y-4">
             <div className="space-y-2">
-              <Label htmlFor="companyName">Company Name</Label>
+              <Label htmlFor="companyName">{t("setup.companyName")}</Label>
               <Input
                 id="companyName"
                 type="text"
-                placeholder="Your Company Name"
+                placeholder={t("setup.companyPlaceholder")}
                 value={companyName}
                 onChange={(e) => setCompanyName(e.target.value)}
                 disabled={setupMutation.isPending}
@@ -100,11 +102,11 @@ export default function SetupPage() {
               />
             </div>
             <div className="space-y-2">
-              <Label htmlFor="adminName">Your Name</Label>
+              <Label htmlFor="adminName">{t("setup.yourName")}</Label>
               <Input
                 id="adminName"
                 type="text"
-                placeholder="John Smith"
+                placeholder={t("setup.namePlaceholder")}
                 value={adminName}
                 onChange={(e) => setAdminName(e.target.value)}
                 disabled={setupMutation.isPending}
@@ -113,11 +115,11 @@ export default function SetupPage() {
               />
             </div>
             <div className="space-y-2">
-              <Label htmlFor="adminEmail">Email</Label>
+              <Label htmlFor="adminEmail">{t("common.email")}</Label>
               <Input
                 id="adminEmail"
                 type="email"
-                placeholder="you@company.com"
+                placeholder={t("setup.emailPlaceholder")}
                 value={adminEmail}
                 onChange={(e) => setAdminEmail(e.target.value)}
                 disabled={setupMutation.isPending}
@@ -126,11 +128,11 @@ export default function SetupPage() {
               />
             </div>
             <div className="space-y-2">
-              <Label htmlFor="adminPassword">Password</Label>
+              <Label htmlFor="adminPassword">{t("setup.passwordLabel")}</Label>
               <Input
                 id="adminPassword"
                 type="password"
-                placeholder="At least 6 characters"
+                placeholder={t("setup.passwordPlaceholder")}
                 value={adminPassword}
                 onChange={(e) => setAdminPassword(e.target.value)}
                 disabled={setupMutation.isPending}
@@ -139,11 +141,11 @@ export default function SetupPage() {
               />
             </div>
             <div className="space-y-2">
-              <Label htmlFor="confirmPassword">Confirm Password</Label>
+              <Label htmlFor="confirmPassword">{t("setup.confirmPassword")}</Label>
               <Input
                 id="confirmPassword"
                 type="password"
-                placeholder="Re-enter your password"
+                placeholder={t("setup.confirmPlaceholder")}
                 value={confirmPassword}
                 onChange={(e) => setConfirmPassword(e.target.value)}
                 disabled={setupMutation.isPending}
@@ -157,7 +159,7 @@ export default function SetupPage() {
               disabled={setupMutation.isPending}
               data-testid="button-setup"
             >
-              {setupMutation.isPending ? "Setting up..." : "Create Account & Continue"}
+              {setupMutation.isPending ? t("setup.settingUp") : t("setup.createAccount")}
             </Button>
           </form>
         </CardContent>

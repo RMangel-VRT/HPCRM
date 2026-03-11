@@ -8,6 +8,9 @@ import { AuthProvider, useAuth } from "@/hooks/use-auth";
 import { BreadcrumbsProvider } from "@/hooks/use-breadcrumbs";
 import { ProtectedRoute } from "@/lib/protected-route";
 import { Loader2 } from "lucide-react";
+import { useEffect } from "react";
+import { useTranslation } from "react-i18next";
+import "@/i18n";
 import AppSidebar from "@/components/AppSidebar";
 import AppBreadcrumb from "@/components/AppBreadcrumb";
 import NotificationsDropdown from "@/components/NotificationsDropdown";
@@ -49,6 +52,13 @@ import NotFound from "@/pages/not-found";
 
 function Router() {
   const { user, isLoading, logoutMutation } = useAuth();
+  const { i18n } = useTranslation();
+
+  useEffect(() => {
+    if (user?.language) {
+      i18n.changeLanguage(user.language);
+    }
+  }, [user?.language, i18n]);
   
   const { data: setupStatus, isLoading: setupLoading } = useQuery<{ needsSetup: boolean }>({
     queryKey: ["/api/setup/status"],

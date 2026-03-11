@@ -15,6 +15,7 @@ import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useAuth } from "@/hooks/use-auth";
 import RoleBadge from "@/components/RoleBadge";
 import { Badge } from "@/components/ui/badge";
+import { useTranslation } from "react-i18next";
 
 type CompanyUserWithDetails = {
   companyUser: {
@@ -38,6 +39,7 @@ const createUserSchema = z.object({
   name: z.string().min(1, "Name is required"),
   password: z.string().min(8, "Password must be at least 8 characters"),
   role: z.enum(["admin", "office", "field_manager", "chemical_manager", "field", "irrigation_manager", "shop_manager", "mapping"]),
+  language: z.enum(["en", "es"]).default("en"),
 });
 
 type CreateUserForm = z.infer<typeof createUserSchema>;
@@ -53,6 +55,7 @@ type EditUserForm = z.infer<typeof editUserSchema>;
 export default function UsersPage() {
   const { user: currentUser } = useAuth();
   const { toast } = useToast();
+  const { t } = useTranslation();
   const [addDialogOpen, setAddDialogOpen] = useState(false);
   const [editDialogOpen, setEditDialogOpen] = useState(false);
   const [selectedUser, setSelectedUser] = useState<CompanyUserWithDetails | null>(null);
@@ -68,6 +71,7 @@ export default function UsersPage() {
       email: "",
       name: "",
       password: "",
+      language: "en",
     },
   });
 
@@ -236,22 +240,43 @@ export default function UsersPage() {
                     name="role"
                     render={({ field }) => (
                       <FormItem>
-                        <FormLabel>Role</FormLabel>
+                        <FormLabel>{t("users.role")}</FormLabel>
                         <Select onValueChange={field.onChange} defaultValue={field.value}>
                           <FormControl>
                             <SelectTrigger data-testid="select-role">
-                              <SelectValue placeholder="Select role" />
+                              <SelectValue placeholder={t("users.selectRole")} />
                             </SelectTrigger>
                           </FormControl>
                           <SelectContent>
-                            <SelectItem value="admin">Admin</SelectItem>
-                            <SelectItem value="office">Office</SelectItem>
-                            <SelectItem value="field_manager">Field Manager</SelectItem>
-                            <SelectItem value="chemical_manager">Chemical Manager</SelectItem>
-                            <SelectItem value="field">Field</SelectItem>
-                            <SelectItem value="irrigation_manager">Irrigation Manager</SelectItem>
-                            <SelectItem value="shop_manager">Shop Manager</SelectItem>
-                            <SelectItem value="mapping">Mapping</SelectItem>
+                            <SelectItem value="admin">{t("roles.admin")}</SelectItem>
+                            <SelectItem value="office">{t("roles.office")}</SelectItem>
+                            <SelectItem value="field_manager">{t("roles.field_manager")}</SelectItem>
+                            <SelectItem value="chemical_manager">{t("roles.chemical_manager")}</SelectItem>
+                            <SelectItem value="field">{t("roles.field")}</SelectItem>
+                            <SelectItem value="irrigation_manager">{t("roles.irrigation_manager")}</SelectItem>
+                            <SelectItem value="shop_manager">{t("roles.shop_manager")}</SelectItem>
+                            <SelectItem value="mapping">{t("roles.mapping")}</SelectItem>
+                          </SelectContent>
+                        </Select>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+                  <FormField
+                    control={createUserForm.control}
+                    name="language"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>{t("sidebar.language")}</FormLabel>
+                        <Select onValueChange={field.onChange} defaultValue={field.value}>
+                          <FormControl>
+                            <SelectTrigger data-testid="select-language">
+                              <SelectValue placeholder={t("sidebar.language")} />
+                            </SelectTrigger>
+                          </FormControl>
+                          <SelectContent>
+                            <SelectItem value="en">English</SelectItem>
+                            <SelectItem value="es">Español</SelectItem>
                           </SelectContent>
                         </Select>
                         <FormMessage />

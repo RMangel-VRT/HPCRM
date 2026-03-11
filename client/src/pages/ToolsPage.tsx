@@ -1,45 +1,48 @@
+import { useTranslation } from "react-i18next";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { FileText, Camera, Calculator, ClipboardList, Map } from "lucide-react";
 import { Link } from "wouter";
 
 export default function ToolsPage() {
+  const { t } = useTranslation();
+
   const tools = [
     {
-      title: "Contract Builder",
-      description: "Create customized landscape maintenance contracts with automated variable substitution and PDF export",
+      title: t("tools.contractBuilder"),
+      description: t("tools.contractBuilderDesc"),
       icon: FileText,
       href: "/dashboard/tools/contract-builder",
       available: true,
       testId: "card-contract-builder",
     },
     {
-      title: "Proposal Maker",
-      description: "Build and store proposal drafts with QB estimate PDFs, scope of work, and supporting images",
+      title: t("tools.proposalMaker"),
+      description: t("tools.proposalMakerDesc"),
       icon: ClipboardList,
       href: "/dashboard/tools/proposals",
       available: true,
       testId: "card-proposal-maker",
     },
     {
-      title: "Visual Scope Sheet",
-      description: "Create satellite-based visual scopes for customer proposals using map capture or image upload",
+      title: t("tools.visualScope"),
+      description: t("tools.visualScopeDesc"),
       icon: Map,
       href: "/dashboard/tools/visual-scope",
       available: true,
       testId: "card-visual-scope",
     },
     {
-      title: "Snow Damage Capture",
-      description: "Document and track snow removal damage with photo capture, customer info, and PDF reports",
+      title: t("tools.snowDamage"),
+      description: t("tools.snowDamageDesc"),
       icon: Camera,
       href: "/dashboard/tools/snow-damage",
       available: false,
       testId: "card-snow-damage",
     },
     {
-      title: "Estimate Builder",
-      description: "Generate professional service estimates with itemized pricing and customizable terms",
+      title: t("tools.estimateBuilder"),
+      description: t("tools.estimateBuilderDesc"),
       icon: Calculator,
       href: "/dashboard/tools/estimate-builder",
       available: false,
@@ -52,10 +55,10 @@ export default function ToolsPage() {
       <div className="max-w-6xl mx-auto">
         <div className="mb-8">
           <h1 className="text-3xl font-semibold tracking-tight mb-2" data-testid="text-page-title">
-            Tools
+            {t("tools.title")}
           </h1>
           <p className="text-muted-foreground" data-testid="text-page-description">
-            Streamline your workflow with specialized document creation and management tools
+            {t("tools.description")}
           </p>
         </div>
 
@@ -69,7 +72,7 @@ export default function ToolsPage() {
                   </div>
                   {!tool.available && (
                     <span className="text-xs font-medium text-muted-foreground">
-                      Coming Soon
+                      {t("tools.comingSoon")}
                     </span>
                   )}
                 </div>
@@ -87,7 +90,7 @@ export default function ToolsPage() {
                       className="w-full" 
                       data-testid={`button-open-${tool.testId}`}
                     >
-                      Open Tool
+                      {t("tools.openTool")}
                     </Button>
                   </Link>
                 ) : (
@@ -97,7 +100,7 @@ export default function ToolsPage() {
                     disabled
                     data-testid={`button-${tool.testId}-disabled`}
                   >
-                    Coming Soon
+                    {t("tools.comingSoon")}
                   </Button>
                 )}
               </CardContent>

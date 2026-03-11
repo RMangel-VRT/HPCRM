@@ -2,6 +2,7 @@ import { useState, useMemo, useEffect } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { useRoute, Link, useLocation } from "wouter";
 import { useSetBreadcrumbs } from "@/hooks/use-breadcrumbs";
+import { useTranslation } from "react-i18next";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -114,6 +115,7 @@ interface CompanyUserWithDetails {
 }
 
 export default function TicketDetail() {
+  const { t } = useTranslation();
   const [, params] = useRoute("/dashboard/tickets/:id");
   const ticketId = params?.id;
   const { toast } = useToast();
@@ -191,8 +193,8 @@ export default function TicketDetail() {
   });
 
   useSetBreadcrumbs([
-    { label: "Tickets", href: "/dashboard/tickets" },
-    { label: details?.ticket?.title || "Loading..." },
+    { label: t('ticketDetail.breadcrumb'), href: "/dashboard/tickets" },
+    { label: details?.ticket?.title || t('common.loading') },
   ], [details?.ticket?.title]);
 
   // Fetch company users for reassignment/delegation dropdown
@@ -224,10 +226,10 @@ export default function TicketDetail() {
       queryClient.invalidateQueries({ queryKey: ["/api/tickets", ticketId, "details"] });
       queryClient.invalidateQueries({ queryKey: ["/api/tickets"] });
       queryClient.invalidateQueries({ queryKey: ["/api/tickets/my"] });
-      toast({ title: "Ticket reassigned successfully" });
+      toast({ title: t('ticketDetail.reassigned') });
     },
     onError: (error: Error) => {
-      toast({ title: "Failed to reassign ticket", description: error.message, variant: "destructive" });
+      toast({ title: t('ticketDetail.reassignFailed'), description: error.message, variant: "destructive" });
     },
   });
 
@@ -245,10 +247,10 @@ export default function TicketDetail() {
       queryClient.invalidateQueries({ queryKey: ["/api/tickets/my"] });
       setShowDelegateDialog(false);
       setDelegateTargetId(null);
-      toast({ title: "Ticket delegated successfully" });
+      toast({ title: t('ticketDetail.delegated') });
     },
     onError: (error: Error) => {
-      toast({ title: "Failed to delegate ticket", description: error.message, variant: "destructive" });
+      toast({ title: t('ticketDetail.reassignFailed'), description: error.message, variant: "destructive" });
     },
   });
 
@@ -260,11 +262,11 @@ export default function TicketDetail() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/tickets"] });
       queryClient.invalidateQueries({ queryKey: ["/api/tickets/my"] });
-      toast({ title: "Ticket deleted successfully" });
+      toast({ title: t('ticketDetail.deleted') });
       setLocation("/dashboard/tickets");
     },
     onError: (error: Error) => {
-      toast({ title: "Failed to delete ticket", description: error.message, variant: "destructive" });
+      toast({ title: t('tickets.deleteFailed'), description: error.message, variant: "destructive" });
     },
   });
 
@@ -285,10 +287,10 @@ export default function TicketDetail() {
       queryClient.invalidateQueries({ queryKey: ["/api/tickets"] });
       queryClient.invalidateQueries({ queryKey: ["/api/tickets/my"] });
       setShowEditDialog(false);
-      toast({ title: "Ticket updated successfully" });
+      toast({ title: t('ticketDetail.updated') });
     },
     onError: (error: Error) => {
-      toast({ title: "Failed to update ticket", description: error.message, variant: "destructive" });
+      toast({ title: t('tickets.unexpectedError'), description: error.message, variant: "destructive" });
     },
   });
 
@@ -335,7 +337,7 @@ export default function TicketDetail() {
       setFieldInputs({});
       setStatusNotes("");
       setStepBackInvoiceWarning(null);
-      toast({ title: "Status updated successfully" });
+      toast({ title: t('ticketDetail.statusUpdated') });
     },
     onError: (error: any) => {
       if (error?.isInvoiceConflict) {
@@ -346,7 +348,7 @@ export default function TicketDetail() {
         });
         return;
       }
-      toast({ title: "Failed to update status", description: error.message, variant: "destructive" });
+      toast({ title: t('ticketDetail.statusUpdated'), description: error.message, variant: "destructive" });
     },
   });
 
@@ -366,7 +368,7 @@ export default function TicketDetail() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/tickets", ticketId, "details"] });
       setNewComment("");
-      toast({ title: "Comment added" });
+      toast({ title: t('ticketDetail.commentAdded') });
     },
   });
 
@@ -386,10 +388,10 @@ export default function TicketDetail() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/email-logs", { ticketId }] });
-      toast({ title: "Email resent successfully" });
+      toast({ title: t('ticketDetail.emailResent') });
     },
     onError: () => {
-      toast({ title: "Failed to resend email", variant: "destructive" });
+      toast({ title: t('tickets.unexpectedError'), variant: "destructive" });
     },
   });
 
@@ -453,10 +455,10 @@ export default function TicketDetail() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/email-logs", { ticketId }] });
-      toast({ title: "Completion email sent successfully" });
+      toast({ title: t('ticketDetail.completionEmailSent') });
     },
     onError: (err: any) => {
-      toast({ title: err?.message || "Failed to send completion email", variant: "destructive" });
+      toast({ title: err?.message || t('ticketDetail.completionEmailSent'), variant: "destructive" });
     },
   });
 
@@ -751,7 +753,7 @@ export default function TicketDetail() {
             {isComplete && (
               <Badge variant="default" className="text-xs bg-green-600">
                 <Check className="w-3 h-3 mr-1" />
-                Complete
+                {t('statuses.completed')}
               </Badge>
             )}
           </div>
@@ -793,7 +795,7 @@ export default function TicketDetail() {
           data-testid="tab-overview"
         >
           <ClipboardList className="w-4 h-4" />
-          Overview
+          {t('ticketDetail.tabs.overview')}
         </button>
         <button
           className={`px-4 py-2 text-sm font-medium border-b-2 transition-colors ${
@@ -804,7 +806,7 @@ export default function TicketDetail() {
           onClick={() => setActiveTab("workflow")}
           data-testid="tab-workflow"
         >
-          Workflow
+          {t('ticketDetail.tabs.workflow')}
         </button>
         <button
           className={`px-4 py-2 text-sm font-medium border-b-2 transition-colors flex items-center gap-1.5 ${
@@ -851,7 +853,7 @@ export default function TicketDetail() {
             <CardContent className="p-4">
               <div className="grid grid-cols-2 gap-4">
                 <div className="space-y-1">
-                  <p className="text-xs text-muted-foreground uppercase tracking-wide">Priority</p>
+                  <p className="text-xs text-muted-foreground uppercase tracking-wide">{t('common.priority')}</p>
                   <div className={`flex items-center gap-1.5 ${priority.textColor}`}>
                     <div className={`w-2.5 h-2.5 rounded-full ${priority.color}`} />
                     <span className="font-medium">{priority.label}</span>
@@ -859,7 +861,7 @@ export default function TicketDetail() {
                 </div>
                 
                 <div className="space-y-1">
-                  <p className="text-xs text-muted-foreground uppercase tracking-wide">Work Type</p>
+                  <p className="text-xs text-muted-foreground uppercase tracking-wide">{t('tickets.workType')}</p>
                   {ticket.workType && WORK_TYPE_CATALOG[ticket.workType as WorkType] ? (
                     <Badge 
                       variant={WORK_TYPE_CATALOG[ticket.workType as WorkType].badgeVariant}
@@ -868,32 +870,32 @@ export default function TicketDetail() {
                       {WORK_TYPE_CATALOG[ticket.workType as WorkType].billingLabel}
                     </Badge>
                   ) : (
-                    <span className="text-sm text-muted-foreground">Not set</span>
+                    <span className="text-sm text-muted-foreground">{t('common.none')}</span>
                   )}
                 </div>
 
                 <div className="space-y-1">
-                  <p className="text-xs text-muted-foreground uppercase tracking-wide">Status</p>
+                  <p className="text-xs text-muted-foreground uppercase tracking-wide">{t('common.status')}</p>
                   <Badge variant="outline" className="font-medium">
-                    {currentStatus?.name || "Unknown"}
+                    {currentStatus?.name || t('common.unknown')}
                   </Badge>
                 </div>
 
                 <div className="space-y-1">
-                  <p className="text-xs text-muted-foreground uppercase tracking-wide">Due Date</p>
+                  <p className="text-xs text-muted-foreground uppercase tracking-wide">{t('ticketDetail.dueDate')}</p>
                   {ticket.dueDate ? (
                     <div className="flex items-center gap-1.5">
                       <CalendarDays className="w-4 h-4 text-muted-foreground" />
                       <span className="font-medium">{format(new Date(ticket.dueDate), "MMM d, yyyy")}</span>
                     </div>
                   ) : (
-                    <span className="text-sm text-muted-foreground">Not set</span>
+                    <span className="text-sm text-muted-foreground">{t('common.none')}</span>
                   )}
                 </div>
 
                 {ticket.workCompletedDate && (
                   <div className="space-y-1">
-                    <p className="text-xs text-muted-foreground uppercase tracking-wide">Work Completed</p>
+                    <p className="text-xs text-muted-foreground uppercase tracking-wide">{t('ticketDetail.workCompletedDate')}</p>
                     <div className="flex items-center gap-1.5">
                       <CalendarDays className="w-4 h-4 text-muted-foreground" />
                       <span className="font-medium">{format(new Date(ticket.workCompletedDate), "MMM d, yyyy")}</span>
@@ -902,7 +904,7 @@ export default function TicketDetail() {
                 )}
 
                 <div className="col-span-2 space-y-1">
-                  <p className="text-xs text-muted-foreground uppercase tracking-wide">Assigned To</p>
+                  <p className="text-xs text-muted-foreground uppercase tracking-wide">{t('ticketDetail.assignedTo')}</p>
                   {canReassign ? (
                     <div className="flex items-center gap-2">
                       <Avatar className="w-6 h-6">
@@ -921,7 +923,7 @@ export default function TicketDetail() {
                           <SelectValue placeholder="Select assignee..." />
                         </SelectTrigger>
                         <SelectContent>
-                          <SelectItem value="unassigned">Unassigned</SelectItem>
+                          <SelectItem value="unassigned">{t('common.unassigned')}</SelectItem>
                           {teamMembers.map((member) => (
                             <SelectItem key={member.id} value={member.id}>
                               {member.name} ({member.role})
@@ -940,19 +942,19 @@ export default function TicketDetail() {
                           <User className="w-3 h-3" />
                         </AvatarFallback>
                       </Avatar>
-                      <span className="font-medium">{assignedUser?.email || "Unassigned"}</span>
+                      <span className="font-medium">{assignedUser?.email || t('common.unassigned')}</span>
                     </div>
                   )}
                 </div>
                 
                 {isDelegated && delegatedByUser && (
                   <div className="col-span-2 space-y-1" data-testid="delegation-indicator">
-                    <p className="text-xs text-muted-foreground uppercase tracking-wide">Delegated By</p>
+                    <p className="text-xs text-muted-foreground uppercase tracking-wide">{t('ticketDetail.delegateTicket')}</p>
                     <div className="flex items-center gap-2 rounded-md bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 px-3 py-2">
                       <CornerDownLeft className="w-4 h-4 text-amber-600 dark:text-amber-400 shrink-0" />
                       <div className="min-w-0">
                         <span className="text-sm font-medium text-amber-700 dark:text-amber-300">{delegatedByUser.email}</span>
-                        <p className="text-xs text-amber-600 dark:text-amber-400">Will auto-return when work is completed</p>
+                        <p className="text-xs text-amber-600 dark:text-amber-400">{t('ticketDetail.delegateTicket')}</p>
                       </div>
                     </div>
                   </div>
@@ -966,7 +968,7 @@ export default function TicketDetail() {
             <Card data-testid="card-service-request">
               <CardContent className="p-4">
                 <div className="space-y-1">
-                  <p className="text-xs text-muted-foreground uppercase tracking-wide">Service Request</p>
+                  <p className="text-xs text-muted-foreground uppercase tracking-wide">{t('newTicket.serviceRequestType')}</p>
                   <p className="font-medium">
                     {fieldValues.find(fv => {
                       const field = statuses.flatMap(s => s.fields || []).find(f => f.id === fv.fieldId);
@@ -983,7 +985,7 @@ export default function TicketDetail() {
               <CardHeader className="pb-2">
                 <CardTitle className="text-sm flex items-center gap-2">
                   <FileText className="w-4 h-4" />
-                  Description
+                  {t('common.description')}
                 </CardTitle>
               </CardHeader>
               <CardContent className="pt-0">
@@ -997,7 +999,7 @@ export default function TicketDetail() {
               <CardHeader className="pb-2">
                 <CardTitle className="text-sm flex items-center gap-2">
                   <Briefcase className="w-4 h-4" />
-                  Customer & Property
+                  {t('common.customer')} & {t('common.property')}
                 </CardTitle>
               </CardHeader>
               <CardContent className="pt-0 space-y-3">
@@ -1016,11 +1018,11 @@ export default function TicketDetail() {
                       onClick={() => setShowPropertyMaps(true)}
                     >
                       <Layers className="w-3 h-3 mr-1" />
-                      Maps
+                      {t('customerDetail.tabs.maps')}
                     </Button>
                     <Link href={`/dashboard/customers/${customer.id}`}>
                       <Button variant="outline" size="sm" data-testid="button-view-customer">
-                        View
+                        {t('common.view')}
                         <ExternalLink className="w-3 h-3 ml-1" />
                       </Button>
                     </Link>
@@ -1029,7 +1031,7 @@ export default function TicketDetail() {
 
                 {contract && (
                   <div className="pt-2 border-t">
-                    <p className="text-xs text-muted-foreground mb-1">Related Contract</p>
+                    <p className="text-xs text-muted-foreground mb-1">{t('common.contract')}</p>
                     <Link href={`/dashboard/customers/${customer.id}`}>
                       <Badge variant="secondary" className="hover-elevate cursor-pointer">
                         {contract.serviceType?.replace(/_/g, " ") || "Contract"}
@@ -1046,7 +1048,7 @@ export default function TicketDetail() {
               <CardHeader className="pb-2">
                 <CardTitle className="text-sm flex items-center gap-2">
                   <Link2 className="w-4 h-4" />
-                  {ticketType?.name === "Invoice" ? "Source Work" : "Linked Tickets"}
+                  {t('ticketDetail.linkedTickets')}
                 </CardTitle>
               </CardHeader>
               <CardContent className="pt-0 space-y-2">
@@ -1125,7 +1127,7 @@ export default function TicketDetail() {
                   data-testid="button-open-proposal-maker"
                 >
                   <FileText className="w-4 h-4" />
-                  Open Proposal Maker
+                  {t('ticketDetail.openProposalMaker')}
                   <ExternalLink className="w-3 h-3 ml-auto opacity-50" />
                 </Button>
               );
@@ -1171,7 +1173,7 @@ export default function TicketDetail() {
                             }}
                             data-testid={`button-view-proposal-${proposal.id}`}
                           >
-                            View Proposal
+                            {t('common.view')}
                             <ExternalLink className="w-3 h-3 ml-auto opacity-50" />
                           </Button>
                         </div>
@@ -1187,7 +1189,7 @@ export default function TicketDetail() {
                   data-testid="button-open-proposal-maker"
                 >
                   <Plus className="w-4 h-4" />
-                  Open Proposal Maker
+                  {t('ticketDetail.openProposalMaker')}
                 </Button>
               </div>
             );
@@ -1364,7 +1366,7 @@ export default function TicketDetail() {
                 <CardHeader className="pb-2">
                   <CardTitle className="text-sm flex items-center gap-2">
                     <ClipboardList className="w-4 h-4" />
-                    Collected Details
+                    {t('common.details')}
                   </CardTitle>
                 </CardHeader>
                 <CardContent className="pt-0 space-y-3">
@@ -1446,7 +1448,7 @@ export default function TicketDetail() {
                   >
                     <Button variant="default" size="sm" data-testid="button-navigate">
                       <Navigation className="w-4 h-4 mr-1" />
-                      Navigate
+                      {t('ticketDetail.location')}
                     </Button>
                   </a>
                 </div>
@@ -1459,7 +1461,7 @@ export default function TicketDetail() {
               <CardHeader className="pb-2">
                 <CardTitle className="text-sm flex items-center gap-2">
                   <ImageIcon className="w-4 h-4" />
-                  Photos ({ticket.photos.length})
+                  {t('ticketDetail.photos')} ({ticket.photos.length})
                 </CardTitle>
               </CardHeader>
               <CardContent className="pb-3">
@@ -1495,10 +1497,10 @@ export default function TicketDetail() {
               <CardHeader className="pb-2 flex flex-row items-center justify-between">
                 <CardTitle className="text-sm flex items-center gap-2">
                   <MessageSquare className="w-4 h-4" />
-                  Recent Comments
+                  {t('ticketDetail.tabs.comments')}
                 </CardTitle>
                 <Button variant="ghost" size="sm" onClick={() => setActiveTab("comments")} data-testid="button-view-all-comments">
-                  View All
+                  {t('common.view')}
                 </Button>
               </CardHeader>
               <CardContent className="pt-0">
@@ -1522,16 +1524,16 @@ export default function TicketDetail() {
                 <div className="flex items-center gap-2">
                   <Mail className="w-4 h-4 text-muted-foreground" />
                   <div>
-                    <p className="text-sm font-medium">Send Completion Email</p>
+                    <p className="text-sm font-medium">{t('ticketDetail.sendCompletionEmail')}</p>
                     <p className="text-xs text-muted-foreground">
-                      Notify the customer that work has been completed
+                      {t('ticketDetail.sendCompletionEmail')}
                     </p>
                   </div>
                 </div>
                 {contactEmailOptions.length > 0 ? (
                   <div className="space-y-2">
                     <div className="flex items-center justify-between">
-                      <Label className="text-xs text-muted-foreground">Recipients</Label>
+                      <Label className="text-xs text-muted-foreground">{t('ticketDetail.sendCompletionEmail')}</Label>
                       <button
                         type="button"
                         className="text-xs text-muted-foreground hover:underline"
@@ -1546,7 +1548,7 @@ export default function TicketDetail() {
                           }
                         }}
                       >
-                        {contactEmailOptions.every(o => selectedRecipientEmails.has(o.email)) ? "Deselect All" : "Select All"}
+                        {contactEmailOptions.every(o => selectedRecipientEmails.has(o.email)) ? t('common.clear') : t('common.select')}
                       </button>
                     </div>
                     <div className="space-y-1">
@@ -1585,12 +1587,12 @@ export default function TicketDetail() {
                       ) : (
                         <Send className="w-4 h-4 mr-2" />
                       )}
-                      Send to {selectedRecipientEmails.size} Recipient{selectedRecipientEmails.size !== 1 ? "s" : ""}
+                      {t('ticketDetail.sendCompletionEmail')} ({selectedRecipientEmails.size})
                     </Button>
                   </div>
                 ) : (
                   <p className="text-xs text-muted-foreground">
-                    No contacts with email addresses found for this customer
+                    {t('customers.noCustomersFound')}
                   </p>
                 )}
               </CardContent>
@@ -1673,7 +1675,7 @@ export default function TicketDetail() {
                       <div className="flex items-center justify-between">
                         <h3 className="font-medium">{status.name}</h3>
                         {isCurrent && (
-                          <Badge variant="secondary" className="text-xs">Current</Badge>
+                          <Badge variant="secondary" className="text-xs">{t('statuses.active')}</Badge>
                         )}
                       </div>
                       
@@ -1709,7 +1711,7 @@ export default function TicketDetail() {
             <Card>
               <CardContent className="py-8 text-center">
                 <MessageSquare className="w-8 h-8 mx-auto text-muted-foreground mb-2" />
-                <p className="text-sm text-muted-foreground">No comments yet</p>
+                <p className="text-sm text-muted-foreground">{t('tickets.noTicketsFound')}</p>
               </CardContent>
             </Card>
           ) : (
@@ -1764,7 +1766,7 @@ export default function TicketDetail() {
                   ) : (
                     <>
                       <Send className="w-4 h-4 mr-1" />
-                      Send
+                      {t('ticketDetail.sendComment')}
                     </>
                   )}
                 </Button>
@@ -1780,7 +1782,7 @@ export default function TicketDetail() {
             <Card>
               <CardContent className="py-8 text-center">
                 <History className="w-8 h-8 mx-auto text-muted-foreground mb-2" />
-                <p className="text-sm text-muted-foreground">No history yet</p>
+                <p className="text-sm text-muted-foreground">{t('ticketDetail.activityLog')}</p>
               </CardContent>
             </Card>
           ) : (
@@ -1830,15 +1832,15 @@ export default function TicketDetail() {
             <Card>
               <CardContent className="p-4 space-y-3">
                 <div>
-                  <p className="text-sm font-medium">Send Completion Email</p>
+                  <p className="text-sm font-medium">{t('ticketDetail.sendCompletionEmail')}</p>
                   <p className="text-xs text-muted-foreground">
-                    Notify the customer that work has been completed on this ticket
+                    {t('ticketDetail.sendCompletionEmail')}
                   </p>
                 </div>
                 {contactEmailOptions.length > 0 ? (
                   <div className="space-y-2">
                     <div className="flex items-center justify-between">
-                      <Label className="text-xs text-muted-foreground">Recipients</Label>
+                      <Label className="text-xs text-muted-foreground">{t('ticketDetail.sendCompletionEmail')}</Label>
                       <button
                         type="button"
                         className="text-xs text-muted-foreground hover:underline"
@@ -1853,7 +1855,7 @@ export default function TicketDetail() {
                           }
                         }}
                       >
-                        {contactEmailOptions.every(o => selectedRecipientEmails.has(o.email)) ? "Deselect All" : "Select All"}
+                        {contactEmailOptions.every(o => selectedRecipientEmails.has(o.email)) ? t('common.clear') : t('common.select')}
                       </button>
                     </div>
                     <div className="space-y-1">
@@ -1892,12 +1894,12 @@ export default function TicketDetail() {
                       ) : (
                         <Send className="w-4 h-4 mr-2" />
                       )}
-                      Send to {selectedRecipientEmails.size} Recipient{selectedRecipientEmails.size !== 1 ? "s" : ""}
+                      {t('ticketDetail.sendCompletionEmail')} ({selectedRecipientEmails.size})
                     </Button>
                   </div>
                 ) : (
                   <p className="text-xs text-muted-foreground">
-                    No contacts with email addresses found for this customer
+                    {t('customers.noCustomersFound')}
                   </p>
                 )}
               </CardContent>
@@ -1909,8 +1911,8 @@ export default function TicketDetail() {
                 <Mail className="w-8 h-8 mx-auto text-muted-foreground mb-2" />
                 <p className="text-sm text-muted-foreground">
                   {(isComplete || currentStatus?.isFinal === "true")
-                    ? "No completion emails sent yet — use the button above to notify the customer"
-                    : "No emails sent for this ticket"}
+                    ? t('ticketDetail.sendCompletionEmail')
+                    : t('ticketDetail.emailResent')}
                 </p>
               </CardContent>
             </Card>
@@ -1972,7 +1974,7 @@ export default function TicketDetail() {
         <div className="fixed bottom-0 left-0 right-0 p-4 bg-background border-t md:left-64">
           <div className="flex items-center justify-center gap-2 text-muted-foreground">
             <Loader2 className="w-4 h-4 animate-spin" />
-            <span className="text-sm">Waiting for linked Invoice ticket to be completed</span>
+            <span className="text-sm">{t('ticketDetail.linkedTickets')}</span>
           </div>
         </div>
       )}
@@ -1999,7 +2001,7 @@ export default function TicketDetail() {
                 data-testid="button-delegate-ticket"
               >
                 <UserRoundCheck className="w-5 h-5" />
-                Delegate for Completion
+                {t('ticketDetail.delegateTicket')}
               </Button>
               <Button 
                 className="flex-1 h-12 text-base gap-2" 
@@ -2057,7 +2059,7 @@ export default function TicketDetail() {
           <div className="flex items-center justify-between gap-2">
             <div className="flex items-center gap-2 text-green-600 dark:text-green-400 flex-1 justify-center">
               <Check className="w-5 h-5" />
-              <span className="font-medium">Ticket Completed</span>
+              <span className="font-medium">{t('statuses.completed')}</span>
             </div>
             {isAdminOrOffice && previousStatus && (
               <Button 
@@ -2068,7 +2070,7 @@ export default function TicketDetail() {
                 data-testid="button-step-back-completed"
               >
                 <Undo2 className="w-4 h-4" />
-                Reopen
+                {t('ticketDetail.stepBack')}
               </Button>
             )}
           </div>
@@ -2195,7 +2197,7 @@ export default function TicketDetail() {
             )}
             
             <div className="space-y-2">
-              <Label htmlFor="statusNotes">Notes (optional)</Label>
+              <Label htmlFor="statusNotes">{t('ticketDetail.statusChangeNotes')}</Label>
               <Textarea
                 id="statusNotes"
                 value={statusNotes}
@@ -2209,7 +2211,7 @@ export default function TicketDetail() {
           
           <DialogFooter className="gap-2">
             <Button variant="outline" onClick={() => setShowStatusDialog(false)}>
-              Cancel
+              {t('common.cancel')}
             </Button>
             <Button 
               onClick={handleConfirmStatusChange}
@@ -2219,7 +2221,7 @@ export default function TicketDetail() {
               {(updateStatusMutation.isPending || saveFieldValueMutation.isPending) ? (
                 <Loader2 className="w-4 h-4 animate-spin" />
               ) : (
-                "Confirm"
+                t('common.confirm')
               )}
             </Button>
           </DialogFooter>
@@ -2242,7 +2244,7 @@ export default function TicketDetail() {
               <div className="p-3 rounded-md border border-destructive bg-destructive/10 space-y-2">
                 <div className="flex items-center gap-2 text-destructive">
                   <AlertTriangle className="w-4 h-4 shrink-0" />
-                  <span className="text-sm font-medium">Completed Invoice Will Be Deleted</span>
+                  <span className="text-sm font-medium">{t('ticketDetail.deleteTicket')}</span>
                 </div>
                 <p className="text-sm text-muted-foreground">
                   Invoice ticket "{stepBackInvoiceWarning.invoiceTicketTitle}" has already been completed. 
@@ -2260,7 +2262,7 @@ export default function TicketDetail() {
                   </div>
                 </div>
                 <div className="space-y-2">
-                  <Label htmlFor="step-back-notes">Reason (optional)</Label>
+                  <Label htmlFor="step-back-notes">{t('ticketDetail.statusChangeNotes')}</Label>
                   <Textarea
                     id="step-back-notes"
                     placeholder="Why is this ticket being stepped back?"
@@ -2275,7 +2277,7 @@ export default function TicketDetail() {
           </div>
           <DialogFooter className="flex gap-2">
             <Button variant="outline" onClick={() => { setShowStepBackDialog(false); setStepBackNotes(""); setStepBackInvoiceWarning(null); }} data-testid="button-cancel-step-back">
-              Cancel
+              {t('common.cancel')}
             </Button>
             {stepBackInvoiceWarning ? (
               <Button 
@@ -2302,7 +2304,7 @@ export default function TicketDetail() {
                 ) : (
                   <Undo2 className="w-4 h-4 mr-2" />
                 )}
-                Step Back
+                {t('ticketDetail.stepBack')}
               </Button>
             )}
           </DialogFooter>
@@ -2324,14 +2326,14 @@ export default function TicketDetail() {
       }}>
         <DialogContent className="sm:max-w-md">
           <DialogHeader>
-            <DialogTitle>Delegate for Completion</DialogTitle>
+            <DialogTitle>{t('ticketDetail.delegateTicket')}</DialogTitle>
             <DialogDescription>
               Choose a team member to handle this work. When they mark it as completed, the ticket will automatically return to you for the final billing steps.
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-4 py-4">
             <div className="space-y-2">
-              <Label>Assign to</Label>
+              <Label>{t('ticketDetail.assignedTo')}</Label>
               <Select
                 value={delegateTargetId || ""}
                 onValueChange={setDelegateTargetId}
@@ -2353,7 +2355,7 @@ export default function TicketDetail() {
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setShowDelegateDialog(false)} data-testid="button-cancel-delegate">
-              Cancel
+              {t('common.cancel')}
             </Button>
             <Button
               onClick={() => {
@@ -2369,7 +2371,7 @@ export default function TicketDetail() {
               ) : (
                 <UserRoundCheck className="w-4 h-4 mr-2" />
               )}
-              Delegate
+              {t('ticketDetail.delegate')}
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -2379,14 +2381,13 @@ export default function TicketDetail() {
       <AlertDialog open={showDeleteDialog} onOpenChange={setShowDeleteDialog}>
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>Delete Ticket</AlertDialogTitle>
+            <AlertDialogTitle>{t('ticketDetail.deleteTicket')}</AlertDialogTitle>
             <AlertDialogDescription>
-              Are you sure you want to delete this ticket? This action cannot be undone.
-              All comments, history, and linked data will be permanently removed.
+              {t('ticketDetail.deleteConfirm')} {t('ticketDetail.cannotUndo')}
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
-            <AlertDialogCancel data-testid="button-cancel-delete">Cancel</AlertDialogCancel>
+            <AlertDialogCancel data-testid="button-cancel-delete">{t('common.cancel')}</AlertDialogCancel>
             <AlertDialogAction
               className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
               onClick={() => deleteTicketMutation.mutate()}
@@ -2396,7 +2397,7 @@ export default function TicketDetail() {
               {deleteTicketMutation.isPending ? (
                 <Loader2 className="w-4 h-4 animate-spin mr-2" />
               ) : null}
-              Delete
+              {t('common.delete')}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
@@ -2406,15 +2407,15 @@ export default function TicketDetail() {
       <Dialog open={showEditDialog} onOpenChange={setShowEditDialog}>
         <DialogContent className="sm:max-w-lg">
           <DialogHeader>
-            <DialogTitle>Edit Ticket</DialogTitle>
+            <DialogTitle>{t('common.edit')}</DialogTitle>
             <DialogDescription>
-              Update the ticket details below.
+              {t('common.edit')}
             </DialogDescription>
           </DialogHeader>
           
           <div className="space-y-4 py-4">
             <div className="space-y-2">
-              <Label htmlFor="edit-title">Title</Label>
+              <Label htmlFor="edit-title">{t('newTicket.titleLabel')}</Label>
               <Input
                 id="edit-title"
                 value={editForm.title}
@@ -2425,7 +2426,7 @@ export default function TicketDetail() {
             </div>
             
             <div className="space-y-2">
-              <Label htmlFor="edit-description">Description</Label>
+              <Label htmlFor="edit-description">{t('common.description')}</Label>
               <Textarea
                 id="edit-description"
                 value={editForm.description}
@@ -2438,7 +2439,7 @@ export default function TicketDetail() {
             
             <div className="grid grid-cols-2 gap-4">
               <div className="space-y-2">
-                <Label htmlFor="edit-priority">Priority</Label>
+                <Label htmlFor="edit-priority">{t('common.priority')}</Label>
                 <Select 
                   value={editForm.priority} 
                   onValueChange={(value: "low" | "normal" | "high" | "urgent") => 
@@ -2449,16 +2450,16 @@ export default function TicketDetail() {
                     <SelectValue placeholder="Select priority" />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="low">Low</SelectItem>
-                    <SelectItem value="normal">Normal</SelectItem>
-                    <SelectItem value="high">High</SelectItem>
-                    <SelectItem value="urgent">Urgent</SelectItem>
+                    <SelectItem value="low">{t('priorities.low')}</SelectItem>
+                    <SelectItem value="normal">{t('priorities.normal')}</SelectItem>
+                    <SelectItem value="high">{t('priorities.high')}</SelectItem>
+                    <SelectItem value="urgent">{t('priorities.urgent')}</SelectItem>
                   </SelectContent>
                 </Select>
               </div>
               
               <div className="space-y-2">
-                <Label htmlFor="edit-dueDate">Due Date</Label>
+                <Label htmlFor="edit-dueDate">{t('ticketDetail.dueDate')}</Label>
                 <Input
                   id="edit-dueDate"
                   type="date"
@@ -2470,7 +2471,7 @@ export default function TicketDetail() {
             </div>
             
             <div className="space-y-2">
-              <Label htmlFor="edit-workCompletedDate">Work Completed Date</Label>
+              <Label htmlFor="edit-workCompletedDate">{t('ticketDetail.workCompletedDate')}</Label>
               <Input
                 id="edit-workCompletedDate"
                 type="date"
@@ -2482,7 +2483,7 @@ export default function TicketDetail() {
 
             {ticketType?.name === "Invoice" && (
               <div className="space-y-2">
-                <Label htmlFor="edit-invoiceCategory">Invoice Category</Label>
+                <Label htmlFor="edit-invoiceCategory">{t('ticketDetail.invoiceCategory')}</Label>
                 <Select 
                   value={editForm.invoiceCategory || ""} 
                   onValueChange={(value: "general_maintenance" | "snow") => 
@@ -2506,7 +2507,7 @@ export default function TicketDetail() {
           
           <DialogFooter className="gap-2">
             <Button variant="outline" onClick={() => setShowEditDialog(false)}>
-              Cancel
+              {t('common.cancel')}
             </Button>
             <Button 
               onClick={handleSaveEdit}
@@ -2516,7 +2517,7 @@ export default function TicketDetail() {
               {editTicketMutation.isPending ? (
                 <Loader2 className="w-4 h-4 animate-spin mr-2" />
               ) : null}
-              Save Changes
+              {t('common.save')}
             </Button>
           </DialogFooter>
         </DialogContent>

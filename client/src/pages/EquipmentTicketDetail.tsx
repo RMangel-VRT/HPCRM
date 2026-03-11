@@ -31,65 +31,8 @@ import {
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useAuth } from "@/hooks/use-auth";
+import { useTranslation } from "react-i18next";
 import type { EquipmentTicket, Equipment, User as UserType } from "@shared/schema";
-
-const TICKET_CATEGORIES = [
-  { value: "preventative_maintenance", label: "Preventative Maintenance" },
-  { value: "repair", label: "Repair" },
-  { value: "inspection", label: "Inspection" },
-  { value: "safety", label: "Safety" },
-  { value: "breakdown", label: "Breakdown" },
-];
-
-const TICKET_PRIORITIES = [
-  { value: "low", label: "Low" },
-  { value: "normal", label: "Normal" },
-  { value: "high", label: "High" },
-  { value: "urgent", label: "Urgent" },
-];
-
-const TICKET_STATUSES = [
-  { value: "new", label: "New", color: "bg-primary" },
-  { value: "diagnosing", label: "Diagnosing", color: "bg-blue-600" },
-  { value: "waiting_on_parts", label: "Waiting on Parts", color: "bg-yellow-600" },
-  { value: "in_repair", label: "In Repair", color: "bg-orange-600" },
-  { value: "completed", label: "Completed", color: "bg-green-600" },
-  { value: "closed", label: "Closed", color: "bg-secondary" },
-];
-
-function getTicketStatusBadge(status: string) {
-  switch (status) {
-    case "new":
-      return <Badge variant="default"><CircleDot className="w-3 h-3 mr-1" />New</Badge>;
-    case "diagnosing":
-      return <Badge variant="default" className="bg-blue-600 hover:bg-blue-600"><Clock className="w-3 h-3 mr-1" />Diagnosing</Badge>;
-    case "waiting_on_parts":
-      return <Badge variant="default" className="bg-yellow-600 hover:bg-yellow-600"><Clock className="w-3 h-3 mr-1" />Waiting on Parts</Badge>;
-    case "in_repair":
-      return <Badge variant="default" className="bg-orange-600 hover:bg-orange-600"><WrenchIcon className="w-3 h-3 mr-1" />In Repair</Badge>;
-    case "completed":
-      return <Badge variant="default" className="bg-green-600 hover:bg-green-600"><CheckCircle className="w-3 h-3 mr-1" />Completed</Badge>;
-    case "closed":
-      return <Badge variant="secondary"><CheckCircle className="w-3 h-3 mr-1" />Closed</Badge>;
-    default:
-      return <Badge variant="outline">{status}</Badge>;
-  }
-}
-
-function getPriorityBadge(priority: string) {
-  switch (priority) {
-    case "low":
-      return <Badge variant="outline">Low Priority</Badge>;
-    case "normal":
-      return <Badge variant="outline">Normal Priority</Badge>;
-    case "high":
-      return <Badge variant="default" className="bg-orange-600 hover:bg-orange-600">High Priority</Badge>;
-    case "urgent":
-      return <Badge variant="default" className="bg-red-600 hover:bg-red-600"><AlertTriangle className="w-3 h-3 mr-1" />Urgent</Badge>;
-    default:
-      return <Badge variant="outline">{priority}</Badge>;
-  }
-}
 
 const updateTicketSchema = z.object({
   status: z.string(),
@@ -105,12 +48,71 @@ const updateTicketSchema = z.object({
 type UpdateTicketFormData = z.infer<typeof updateTicketSchema>;
 
 export default function EquipmentTicketDetail() {
+  const { t } = useTranslation();
   const [, params] = useRoute("/dashboard/equipment-tickets/:id");
   const id = params?.id;
   const { toast } = useToast();
   const { user } = useAuth();
   
   const canModify = user && (user.activeRole === "admin" || user.activeRole === "shop_manager");
+
+  const TICKET_CATEGORIES = [
+    { value: "preventative_maintenance", label: t("equipmentTicket.categories.preventative_maintenance") },
+    { value: "repair", label: t("equipmentTicket.categories.repair") },
+    { value: "inspection", label: t("equipmentTicket.categories.inspection") },
+    { value: "safety", label: t("equipmentTicket.categories.safety") },
+    { value: "breakdown", label: t("equipmentTicket.categories.breakdown") },
+  ];
+
+  const TICKET_PRIORITIES = [
+    { value: "low", label: t("priorities.low") },
+    { value: "normal", label: t("priorities.normal") },
+    { value: "high", label: t("priorities.high") },
+    { value: "urgent", label: t("priorities.urgent") },
+  ];
+
+  const TICKET_STATUSES = [
+    { value: "new", label: t("equipmentTicket.ticketStatuses.new"), color: "bg-primary" },
+    { value: "diagnosing", label: t("equipmentTicket.ticketStatuses.diagnosing"), color: "bg-blue-600" },
+    { value: "waiting_on_parts", label: t("equipmentTicket.ticketStatuses.waiting_on_parts"), color: "bg-yellow-600" },
+    { value: "in_repair", label: t("equipmentTicket.ticketStatuses.in_repair"), color: "bg-orange-600" },
+    { value: "completed", label: t("equipmentTicket.ticketStatuses.completed"), color: "bg-green-600" },
+    { value: "closed", label: t("equipmentTicket.ticketStatuses.closed"), color: "bg-secondary" },
+  ];
+
+  function getTicketStatusBadge(status: string) {
+    switch (status) {
+      case "new":
+        return <Badge variant="default"><CircleDot className="w-3 h-3 mr-1" />{t("equipmentTicket.ticketStatuses.new")}</Badge>;
+      case "diagnosing":
+        return <Badge variant="default" className="bg-blue-600 hover:bg-blue-600"><Clock className="w-3 h-3 mr-1" />{t("equipmentTicket.ticketStatuses.diagnosing")}</Badge>;
+      case "waiting_on_parts":
+        return <Badge variant="default" className="bg-yellow-600 hover:bg-yellow-600"><Clock className="w-3 h-3 mr-1" />{t("equipmentTicket.ticketStatuses.waiting_on_parts")}</Badge>;
+      case "in_repair":
+        return <Badge variant="default" className="bg-orange-600 hover:bg-orange-600"><WrenchIcon className="w-3 h-3 mr-1" />{t("equipmentTicket.ticketStatuses.in_repair")}</Badge>;
+      case "completed":
+        return <Badge variant="default" className="bg-green-600 hover:bg-green-600"><CheckCircle className="w-3 h-3 mr-1" />{t("equipmentTicket.ticketStatuses.completed")}</Badge>;
+      case "closed":
+        return <Badge variant="secondary"><CheckCircle className="w-3 h-3 mr-1" />{t("equipmentTicket.ticketStatuses.closed")}</Badge>;
+      default:
+        return <Badge variant="outline">{status}</Badge>;
+    }
+  }
+
+  function getPriorityBadge(priority: string) {
+    switch (priority) {
+      case "low":
+        return <Badge variant="outline">{t("priorities.low")} {t("common.priority")}</Badge>;
+      case "normal":
+        return <Badge variant="outline">{t("priorities.normal")} {t("common.priority")}</Badge>;
+      case "high":
+        return <Badge variant="default" className="bg-orange-600 hover:bg-orange-600">{t("priorities.high")} {t("common.priority")}</Badge>;
+      case "urgent":
+        return <Badge variant="default" className="bg-red-600 hover:bg-red-600"><AlertTriangle className="w-3 h-3 mr-1" />{t("priorities.urgent")}</Badge>;
+      default:
+        return <Badge variant="outline">{priority}</Badge>;
+    }
+  }
 
   const { data: ticket, isLoading } = useQuery<EquipmentTicket>({
     queryKey: ["/api/equipment-tickets", id],
@@ -163,10 +165,10 @@ export default function EquipmentTicketDetail() {
       queryClient.invalidateQueries({ queryKey: ["/api/equipment-tickets", id] });
       queryClient.invalidateQueries({ queryKey: ["/api/equipment", ticket?.equipmentId, "tickets"] });
       queryClient.invalidateQueries({ queryKey: ["/api/equipment", ticket?.equipmentId] });
-      toast({ title: "Ticket updated successfully" });
+      toast({ title: t("equipmentTicket.updated") });
     },
     onError: (error: Error) => {
-      toast({ title: "Failed to update ticket", description: error.message, variant: "destructive" });
+      toast({ title: t("equipmentTicket.updateFailed"), description: error.message, variant: "destructive" });
     },
   });
 
@@ -195,8 +197,8 @@ export default function EquipmentTicketDetail() {
   const onSubmit = (data: UpdateTicketFormData) => {
     if ((data.status === "completed" || data.status === "closed") && !data.workPerformedNotes) {
       toast({ 
-        title: "Work notes required", 
-        description: "Please provide work performed notes before completing the ticket", 
+        title: t("equipmentTicket.workNotesRequired"), 
+        description: t("equipmentTicket.workNotesRequiredMsg"), 
         variant: "destructive" 
       });
       return;
@@ -225,9 +227,9 @@ export default function EquipmentTicketDetail() {
       <div className="p-6">
         <Card>
           <CardContent className="py-16 text-center">
-            <p className="text-muted-foreground">Ticket not found</p>
+            <p className="text-muted-foreground">{t("equipmentTicket.ticketNotFound")}</p>
             <Button variant="ghost" asChild className="mt-4">
-              <Link href="/dashboard/equipment">Back to Equipment</Link>
+              <Link href="/dashboard/equipment">{t("equipmentTicket.backToEquipment")}</Link>
             </Button>
           </CardContent>
         </Card>
@@ -257,17 +259,17 @@ export default function EquipmentTicketDetail() {
         <div className="lg:col-span-2 space-y-6">
           <Card>
             <CardHeader>
-              <CardTitle>Details</CardTitle>
+              <CardTitle>{t("equipmentTicket.details")}</CardTitle>
             </CardHeader>
             <CardContent className="space-y-4">
               <div>
-                <h4 className="font-medium text-sm text-muted-foreground mb-1">Description</h4>
+                <h4 className="font-medium text-sm text-muted-foreground mb-1">{t("common.description")}</h4>
                 <p data-testid="text-ticket-description">{ticket.description}</p>
               </div>
               
               {equipment && (
                 <div>
-                  <h4 className="font-medium text-sm text-muted-foreground mb-1">Equipment</h4>
+                  <h4 className="font-medium text-sm text-muted-foreground mb-1">{t("equipment.title")}</h4>
                   <Link 
                     href={`/dashboard/equipment/${equipment.id}`}
                     className="flex items-center gap-2 text-primary hover:underline"
@@ -281,12 +283,12 @@ export default function EquipmentTicketDetail() {
 
               <div className="grid grid-cols-2 gap-4">
                 <div>
-                  <h4 className="font-medium text-sm text-muted-foreground mb-1">Created</h4>
+                  <h4 className="font-medium text-sm text-muted-foreground mb-1">{t("common.date")}</h4>
                   <p>{format(new Date(ticket.createdAt), "MMM d, yyyy 'at' h:mm a")}</p>
                 </div>
                 {ticket.dueDate && (
                   <div>
-                    <h4 className="font-medium text-sm text-muted-foreground mb-1">Due Date</h4>
+                    <h4 className="font-medium text-sm text-muted-foreground mb-1">{t("ticketDetail.dueDate")}</h4>
                     <p className="flex items-center gap-1">
                       <Clock className="w-4 h-4" />
                       {format(new Date(ticket.dueDate), "MMM d, yyyy")}
@@ -297,10 +299,10 @@ export default function EquipmentTicketDetail() {
 
               {ticket.assignedToId && (
                 <div>
-                  <h4 className="font-medium text-sm text-muted-foreground mb-1">Assigned To</h4>
+                  <h4 className="font-medium text-sm text-muted-foreground mb-1">{t("ticketDetail.assignedTo")}</h4>
                   <p className="flex items-center gap-2">
                     <UserIcon className="w-4 h-4" />
-                    {getAssignedUser()?.name || "Unknown User"}
+                    {getAssignedUser()?.name || t("users.unknownUser")}
                   </p>
                 </div>
               )}
@@ -312,13 +314,13 @@ export default function EquipmentTicketDetail() {
               <CardHeader>
                 <CardTitle className="flex items-center gap-2">
                   <CheckCircle className="w-5 h-5 text-green-600" />
-                  Completion Notes
+                  {t("equipmentTicket.completionNotes")}
                 </CardTitle>
               </CardHeader>
               <CardContent className="space-y-4">
                 {ticket.workPerformedNotes && (
                   <div>
-                    <h4 className="font-medium text-sm text-muted-foreground mb-1">Work Performed</h4>
+                    <h4 className="font-medium text-sm text-muted-foreground mb-1">{t("equipmentTicket.workPerformed")}</h4>
                     <p data-testid="text-work-notes">{ticket.workPerformedNotes}</p>
                   </div>
                 )}
@@ -326,19 +328,19 @@ export default function EquipmentTicketDetail() {
                 <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
                   {ticket.laborTime && (
                     <div>
-                      <h4 className="font-medium text-sm text-muted-foreground mb-1">Labor Time</h4>
-                      <p>{ticket.laborTime} hours</p>
+                      <h4 className="font-medium text-sm text-muted-foreground mb-1">{t("equipmentTicket.laborTime")}</h4>
+                      <p>{ticket.laborTime} {t("equipmentTicket.hours")}</p>
                     </div>
                   )}
                   {ticket.totalCost && (
                     <div>
-                      <h4 className="font-medium text-sm text-muted-foreground mb-1">Total Cost</h4>
+                      <h4 className="font-medium text-sm text-muted-foreground mb-1">{t("equipmentTicket.totalCost")}</h4>
                       <p>${(ticket.totalCost / 100).toFixed(2)}</p>
                     </div>
                   )}
                   {ticket.partsUsed && (
                     <div className="col-span-2">
-                      <h4 className="font-medium text-sm text-muted-foreground mb-1">Parts Used</h4>
+                      <h4 className="font-medium text-sm text-muted-foreground mb-1">{t("equipmentTicket.partsUsed")}</h4>
                       <p>{ticket.partsUsed}</p>
                     </div>
                   )}
@@ -346,14 +348,14 @@ export default function EquipmentTicketDetail() {
                 
                 {ticket.vendorUsed && (
                   <div>
-                    <h4 className="font-medium text-sm text-muted-foreground mb-1">Vendor Used</h4>
+                    <h4 className="font-medium text-sm text-muted-foreground mb-1">{t("equipmentTicket.vendorUsed")}</h4>
                     <p>{ticket.vendorUsed}</p>
                   </div>
                 )}
                 
                 {ticket.completedAt && (
                   <div>
-                    <h4 className="font-medium text-sm text-muted-foreground mb-1">Completed On</h4>
+                    <h4 className="font-medium text-sm text-muted-foreground mb-1">{t("equipmentTicket.completedOn")}</h4>
                     <p>{format(new Date(ticket.completedAt), "MMM d, yyyy 'at' h:mm a")}</p>
                   </div>
                 )}
@@ -366,8 +368,8 @@ export default function EquipmentTicketDetail() {
           {canModify && (
             <Card>
               <CardHeader>
-                <CardTitle>Update Ticket</CardTitle>
-                <CardDescription>Change status, priority, or assignment</CardDescription>
+                <CardTitle>{t("equipmentTicket.updateTicket")}</CardTitle>
+                <CardDescription>{t("equipmentTicket.changeStatus")}</CardDescription>
               </CardHeader>
               <CardContent>
                 <Form {...form}>
@@ -377,7 +379,7 @@ export default function EquipmentTicketDetail() {
                       name="status"
                       render={({ field }) => (
                         <FormItem>
-                          <FormLabel>Status</FormLabel>
+                          <FormLabel>{t("common.status")}</FormLabel>
                           <Select value={field.value} onValueChange={field.onChange}>
                             <FormControl>
                               <SelectTrigger data-testid="select-update-status">
@@ -400,7 +402,7 @@ export default function EquipmentTicketDetail() {
                       name="priority"
                       render={({ field }) => (
                         <FormItem>
-                          <FormLabel>Priority</FormLabel>
+                          <FormLabel>{t("common.priority")}</FormLabel>
                           <Select value={field.value} onValueChange={field.onChange}>
                             <FormControl>
                               <SelectTrigger data-testid="select-update-priority">
@@ -423,7 +425,7 @@ export default function EquipmentTicketDetail() {
                       name="assignedToId"
                       render={({ field }) => (
                         <FormItem>
-                          <FormLabel>Assigned To</FormLabel>
+                          <FormLabel>{t("ticketDetail.assignedTo")}</FormLabel>
                           <Select value={field.value || "none"} onValueChange={field.onChange}>
                             <FormControl>
                               <SelectTrigger data-testid="select-update-assigned">
@@ -431,7 +433,7 @@ export default function EquipmentTicketDetail() {
                               </SelectTrigger>
                             </FormControl>
                             <SelectContent>
-                              <SelectItem value="none">Unassigned</SelectItem>
+                              <SelectItem value="none">{t("common.unassigned")}</SelectItem>
                               {users?.map((u) => (
                                 <SelectItem key={u.id} value={u.id}>{u.name}</SelectItem>
                               ))}
@@ -446,23 +448,23 @@ export default function EquipmentTicketDetail() {
                       <>
                         <Separator />
                         <div className="space-y-4">
-                          <h4 className="font-medium">Completion Details</h4>
+                          <h4 className="font-medium">{t("equipmentTicket.completionDetails")}</h4>
                           
                           <FormField
                             control={form.control}
                             name="workPerformedNotes"
                             render={({ field }) => (
                               <FormItem>
-                                <FormLabel>Work Performed *</FormLabel>
+                                <FormLabel>{t("equipmentTicket.workPerformedLabel")}</FormLabel>
                                 <FormControl>
                                   <Textarea 
                                     {...field} 
                                     rows={3} 
-                                    placeholder="Describe the work completed"
+                                    placeholder={t("equipmentTicket.workPerformedPlaceholder")}
                                     data-testid="input-work-notes"
                                   />
                                 </FormControl>
-                                <FormDescription>Required when completing a ticket</FormDescription>
+                                <FormDescription>{t("equipmentTicket.requiredCompletion")}</FormDescription>
                                 <FormMessage />
                               </FormItem>
                             )}
@@ -474,7 +476,7 @@ export default function EquipmentTicketDetail() {
                               name="laborTime"
                               render={({ field }) => (
                                 <FormItem>
-                                  <FormLabel>Labor Hours</FormLabel>
+                                  <FormLabel>{t("equipmentTicket.laborHours")}</FormLabel>
                                   <FormControl>
                                     <Input 
                                       type="number" 
@@ -496,7 +498,7 @@ export default function EquipmentTicketDetail() {
                               name="totalCost"
                               render={({ field }) => (
                                 <FormItem>
-                                  <FormLabel>Total Cost ($)</FormLabel>
+                                  <FormLabel>{t("equipmentTicket.totalCost")}</FormLabel>
                                   <FormControl>
                                     <Input 
                                       type="number" 
@@ -519,11 +521,11 @@ export default function EquipmentTicketDetail() {
                             name="partsUsed"
                             render={({ field }) => (
                               <FormItem>
-                                <FormLabel>Parts Used</FormLabel>
+                                <FormLabel>{t("equipmentTicket.partsUsed")}</FormLabel>
                                 <FormControl>
                                   <Input 
                                     {...field} 
-                                    placeholder="List parts used"
+                                    placeholder={t("equipmentTicket.partsPlaceholder")}
                                     data-testid="input-parts-used"
                                   />
                                 </FormControl>
@@ -537,11 +539,11 @@ export default function EquipmentTicketDetail() {
                             name="vendorUsed"
                             render={({ field }) => (
                               <FormItem>
-                                <FormLabel>Vendor Used</FormLabel>
+                                <FormLabel>{t("equipmentTicket.vendorUsed")}</FormLabel>
                                 <FormControl>
                                   <Input 
                                     {...field} 
-                                    placeholder="Vendor name (if any)"
+                                    placeholder={t("equipmentTicket.vendorPlaceholder")}
                                     data-testid="input-vendor-used"
                                   />
                                 </FormControl>
@@ -564,7 +566,7 @@ export default function EquipmentTicketDetail() {
                       ) : (
                         <Save className="w-4 h-4 mr-2" />
                       )}
-                      Update Ticket
+                      {t("equipmentTicket.updateTicket")}
                     </Button>
                   </form>
                 </Form>
@@ -575,21 +577,21 @@ export default function EquipmentTicketDetail() {
           {!canModify && (
             <Card>
               <CardHeader>
-                <CardTitle>Status</CardTitle>
+                <CardTitle>{t("common.status")}</CardTitle>
               </CardHeader>
               <CardContent className="space-y-4">
                 <div>
-                  <h4 className="font-medium text-sm text-muted-foreground mb-2">Current Status</h4>
+                  <h4 className="font-medium text-sm text-muted-foreground mb-2">{t("common.status")}</h4>
                   {getTicketStatusBadge(ticket.status)}
                 </div>
                 <div>
-                  <h4 className="font-medium text-sm text-muted-foreground mb-2">Priority</h4>
+                  <h4 className="font-medium text-sm text-muted-foreground mb-2">{t("common.priority")}</h4>
                   {getPriorityBadge(ticket.priority)}
                 </div>
                 {ticket.assignedToId && (
                   <div>
-                    <h4 className="font-medium text-sm text-muted-foreground mb-2">Assigned To</h4>
-                    <p>{getAssignedUser()?.name || "Unknown User"}</p>
+                    <h4 className="font-medium text-sm text-muted-foreground mb-2">{t("ticketDetail.assignedTo")}</h4>
+                    <p>{getAssignedUser()?.name || t("users.unknownUser")}</p>
                   </div>
                 )}
               </CardContent>

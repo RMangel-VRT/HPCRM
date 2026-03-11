@@ -1,13 +1,16 @@
+import { useTranslation } from "react-i18next";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Building2, Users, Settings } from "lucide-react";
 
 export default function SuperAdminHome() {
+  const { t } = useTranslation();
+
   return (
     <div className="space-y-6">
       <div>
-        <h1 className="text-3xl font-bold">Super Admin Portal</h1>
+        <h1 className="text-3xl font-bold">{t("superAdmin.portal")}</h1>
         <p className="text-muted-foreground mt-2">
-          Platform administration and management
+          {t("superAdmin.platformAdmin")}
         </p>
       </div>
 
@@ -15,14 +18,14 @@ export default function SuperAdminHome() {
         <Card>
           <CardHeader>
             <Building2 className="h-8 w-8 mb-2 text-primary" />
-            <CardTitle>Companies</CardTitle>
+            <CardTitle>{t("superAdmin.companies")}</CardTitle>
             <CardDescription>
-              Manage all companies on the platform
+              {t("superAdmin.manageCompanies")}
             </CardDescription>
           </CardHeader>
           <CardContent>
             <p className="text-sm text-muted-foreground">
-              Coming soon: View and manage company accounts, subscriptions, and settings.
+              {t("superAdmin.comingSoon")}
             </p>
           </CardContent>
         </Card>
@@ -30,14 +33,14 @@ export default function SuperAdminHome() {
         <Card>
           <CardHeader>
             <Users className="h-8 w-8 mb-2 text-primary" />
-            <CardTitle>Users</CardTitle>
+            <CardTitle>{t("superAdmin.users")}</CardTitle>
             <CardDescription>
-              Cross-company user management
+              {t("superAdmin.crossCompanyUsers")}
             </CardDescription>
           </CardHeader>
           <CardContent>
             <p className="text-sm text-muted-foreground">
-              Coming soon: Manage users across all companies, reset passwords, and control access.
+              {t("superAdmin.comingSoon")}
             </p>
           </CardContent>
         </Card>
@@ -45,14 +48,14 @@ export default function SuperAdminHome() {
         <Card>
           <CardHeader>
             <Settings className="h-8 w-8 mb-2 text-primary" />
-            <CardTitle>Platform Settings</CardTitle>
+            <CardTitle>{t("superAdmin.platformSettings")}</CardTitle>
             <CardDescription>
-              System-wide configuration
+              {t("superAdmin.systemConfig")}
             </CardDescription>
           </CardHeader>
           <CardContent>
             <p className="text-sm text-muted-foreground">
-              Coming soon: Configure platform settings, feature flags, and system preferences.
+              {t("superAdmin.comingSoon")}
             </p>
           </CardContent>
         </Card>
@@ -60,16 +63,11 @@ export default function SuperAdminHome() {
 
       <Card>
         <CardHeader>
-          <CardTitle>Welcome to the Admin Portal</CardTitle>
+          <CardTitle>{t("superAdmin.welcome")}</CardTitle>
         </CardHeader>
         <CardContent className="space-y-4">
           <p className="text-sm text-muted-foreground">
-            As a super administrator, you have system-wide access to manage the platform. 
-            The full admin portal is currently under development.
-          </p>
-          <p className="text-sm text-muted-foreground">
-            For now, you can use the company switcher to access specific company accounts 
-            when needed for support or troubleshooting.
+            {t("superAdmin.platformAdmin")}
           </p>
         </CardContent>
       </Card>

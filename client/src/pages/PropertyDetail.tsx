@@ -1,3 +1,4 @@
+import { useTranslation } from "react-i18next";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -6,6 +7,8 @@ import { Edit, Plus, FileText, Ticket as TicketIcon } from "lucide-react";
 import { Link } from "wouter";
 
 export default function PropertyDetail() {
+  const { t } = useTranslation();
+
   const property = {
     id: "1",
     name: "Main Entrance",
@@ -64,12 +67,12 @@ export default function PropertyDetail() {
             </h1>
             {property.active && (
               <Badge className="bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-400">
-                Active
+                {t("statuses.active")}
               </Badge>
             )}
           </div>
           <p className="text-sm text-muted-foreground">
-            Customer:{" "}
+            {t("customers.title")}:{" "}
             <Link href={`/dashboard/customers/${property.customerId}`} className="text-primary hover:underline">
               {property.customer}
             </Link>
@@ -77,28 +80,28 @@ export default function PropertyDetail() {
         </div>
         <Button data-testid="button-edit-property">
           <Edit className="w-4 h-4 mr-2" />
-          Edit Property
+          {t("propertyDetail.editProperty")}
         </Button>
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
         <Card>
           <CardHeader>
-            <CardTitle className="text-lg">Property Details</CardTitle>
+            <CardTitle className="text-lg">{t("propertyDetail.title")}</CardTitle>
           </CardHeader>
           <CardContent className="space-y-3">
             <div>
-              <p className="text-sm font-medium text-muted-foreground">Address</p>
+              <p className="text-sm font-medium text-muted-foreground">{t("common.address")}</p>
               <p className="text-sm">{property.address}</p>
             </div>
             <Separator />
             <div>
-              <p className="text-sm font-medium text-muted-foreground">Size</p>
+              <p className="text-sm font-medium text-muted-foreground">{t("propertyDetail.size")}</p>
               <p className="text-sm">{property.acres} acres</p>
             </div>
             <Separator />
             <div>
-              <p className="text-sm font-medium text-muted-foreground">Complexity Score</p>
+              <p className="text-sm font-medium text-muted-foreground">{t("propertyDetail.complexityScore")}</p>
               <Badge
                 variant="secondary"
                 className={
@@ -116,7 +119,7 @@ export default function PropertyDetail() {
               <>
                 <Separator />
                 <div>
-                  <p className="text-sm font-medium text-muted-foreground mb-1">Notes</p>
+                  <p className="text-sm font-medium text-muted-foreground mb-1">{t("common.notes")}</p>
                   <p className="text-sm">{property.notes}</p>
                 </div>
               </>
@@ -126,7 +129,7 @@ export default function PropertyDetail() {
 
         <Card>
           <CardHeader className="flex flex-row items-center justify-between gap-2 space-y-0">
-            <CardTitle className="text-lg">Active Contracts</CardTitle>
+            <CardTitle className="text-lg">{t("propertyDetail.activeContracts")}</CardTitle>
             <Button variant="ghost" size="icon" data-testid="button-add-contract">
               <Plus className="w-4 h-4" />
             </Button>
@@ -137,7 +140,7 @@ export default function PropertyDetail() {
                 <div className="flex items-center justify-between">
                   <p className="text-sm font-medium">{contract.serviceType}</p>
                   <Badge variant="secondary" className="bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-400">
-                    Active
+                    {t("statuses.active")}
                   </Badge>
                 </div>
                 <p className="text-sm text-muted-foreground">
@@ -153,7 +156,7 @@ export default function PropertyDetail() {
 
         <Card>
           <CardHeader className="flex flex-row items-center justify-between gap-2 space-y-0">
-            <CardTitle className="text-lg">Recent Tickets</CardTitle>
+            <CardTitle className="text-lg">{t("propertyDetail.recentTickets")}</CardTitle>
             <Button variant="ghost" size="icon" data-testid="button-add-ticket">
               <Plus className="w-4 h-4" />
             </Button>
@@ -174,7 +177,7 @@ export default function PropertyDetail() {
                     {ticket.status.replace("_", " ")}
                   </Badge>
                   <span className="text-xs text-muted-foreground">
-                    Due: {new Date(ticket.dueDate).toLocaleDateString()}
+                    {t("propertyDetail.due")} {new Date(ticket.dueDate).toLocaleDateString()}
                   </span>
                 </div>
                 {ticket.id !== tickets[tickets.length - 1].id && <Separator className="mt-3" />}

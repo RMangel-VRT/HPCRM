@@ -1,4 +1,5 @@
 import { useQuery, useMutation } from "@tanstack/react-query";
+import { useTranslation } from "react-i18next";
 import { useState } from "react";
 import { useRoute, Link, useLocation } from "wouter";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -72,6 +73,7 @@ function getBillingStatusVariant(status: string): "default" | "secondary" | "des
 }
 
 export default function SnowEventDetail() {
+  const { t } = useTranslation();
   const [, params] = useRoute("/dashboard/snow/:id");
   const [, navigate] = useLocation();
   const { toast } = useToast();
@@ -115,7 +117,7 @@ export default function SnowEventDetail() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/snow-events"] });
       setShowEditEvent(false);
-      toast({ title: "Event updated" });
+      toast({ title: t("snow.eventUpdated") });
     },
     onError: (err: Error) => {
       toast({ title: "Error", description: err.message, variant: "destructive" });
@@ -129,7 +131,7 @@ export default function SnowEventDetail() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/snow-events"] });
       navigate("/dashboard/snow");
-      toast({ title: "Event deleted" });
+      toast({ title: t("snow.eventDeleted") });
     },
     onError: (err: Error) => {
       toast({ title: "Error", description: err.message, variant: "destructive" });
@@ -144,7 +146,7 @@ export default function SnowEventDetail() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/snow-events"] });
       setShowLockConfirm(false);
-      toast({ title: "Event locked" });
+      toast({ title: t("snow.eventLocked") });
     },
     onError: (err: Error) => {
       toast({ title: "Error", description: err.message, variant: "destructive" });
@@ -163,7 +165,7 @@ export default function SnowEventDetail() {
       setSelectedCustomerIds([]);
       setBulkServiceTypes([]);
       setPropertySearch("");
-      toast({ title: "Properties added" });
+      toast({ title: t("snow.propertiesAdded") });
     },
     onError: (err: Error) => {
       toast({ title: "Error", description: err.message, variant: "destructive" });
@@ -177,7 +179,7 @@ export default function SnowEventDetail() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/snow-events", eventId, "impacts"] });
       queryClient.invalidateQueries({ queryKey: ["/api/snow-events"] });
-      toast({ title: "Property removed" });
+      toast({ title: t("snow.propertyRemoved") });
     },
   });
 
@@ -199,10 +201,10 @@ export default function SnowEventDetail() {
     onSuccess: (data: { created: number }) => {
       queryClient.invalidateQueries({ queryKey: ["/api/snow-events"] });
       queryClient.invalidateQueries({ queryKey: ["/api/snow-events", eventId, "impacts"] });
-      toast({ title: `${data.created} ticket(s) created` });
+      toast({ title: t("snow.ticketsGenerated", { count: data.created }) });
     },
     onError: (err: Error) => {
-      toast({ title: "Error generating tickets", description: err.message, variant: "destructive" });
+      toast({ title: t("snow.errorGenerating"), description: err.message, variant: "destructive" });
     },
   });
 
@@ -254,9 +256,9 @@ export default function SnowEventDetail() {
   if (!event) {
     return (
       <div className="text-center py-12 text-muted-foreground">
-        <p>Snow event not found.</p>
+        <p>{t("snow.noEventsFound")}</p>
         <Link href="/dashboard/snow">
-          <Button variant="outline" className="mt-4">Back to Events</Button>
+          <Button variant="outline" className="mt-4">{t("snow.backToEvents")}</Button>
         </Link>
       </div>
     );
@@ -274,7 +276,7 @@ export default function SnowEventDetail() {
           <div className="flex items-center gap-2 flex-wrap">
             <Snowflake className="h-5 w-5 text-primary" />
             <h1 className="text-2xl font-bold tracking-tight" data-testid="text-event-name">
-              {event.eventName || "Untitled Storm"}
+              {event.eventName || t("snow.untitledStorm")}
             </h1>
             <Badge variant={getStatusVariant(event.status)} data-testid="badge-event-status">
               {event.status}
@@ -285,13 +287,13 @@ export default function SnowEventDetail() {
           {!isLocked && (
             <>
               <Button variant="outline" size="sm" onClick={openEditDialog} data-testid="button-edit-event">
-                <Edit className="h-4 w-4 mr-1" /> Edit
+                <Edit className="h-4 w-4 mr-1" /> {t("common.edit")}
               </Button>
               <Button variant="outline" size="sm" onClick={() => setShowLockConfirm(true)} data-testid="button-lock-event">
-                <Lock className="h-4 w-4 mr-1" /> Lock
+                <Lock className="h-4 w-4 mr-1" /> {t("snow.lockEvent")}
               </Button>
               <Button variant="destructive" size="sm" onClick={() => setShowDeleteConfirm(true)} data-testid="button-delete-event">
-                <Trash2 className="h-4 w-4 mr-1" /> Delete
+                <Trash2 className="h-4 w-4 mr-1" /> {t("common.delete")}
               </Button>
             </>
           )}
@@ -301,7 +303,7 @@ export default function SnowEventDetail() {
       <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
         <Card>
           <CardContent className="pt-4">
-            <div className="text-sm text-muted-foreground">Date</div>
+            <div className="text-sm text-muted-foreground">{t("common.date")}</div>
             <div className="text-lg font-semibold" data-testid="text-event-date">
               {new Date(event.eventStartDateTime).toLocaleDateString()}
             </div>
@@ -314,7 +316,7 @@ export default function SnowEventDetail() {
         </Card>
         <Card>
           <CardContent className="pt-4">
-            <div className="text-sm text-muted-foreground">Accumulation</div>
+            <div className="text-sm text-muted-foreground">{t("snow.accumulation")}</div>
             <div className="text-lg font-semibold" data-testid="text-event-range">
               {event.snowRange}
             </div>
@@ -327,7 +329,7 @@ export default function SnowEventDetail() {
         </Card>
         <Card>
           <CardContent className="pt-4">
-            <div className="text-sm text-muted-foreground">Properties</div>
+            <div className="text-sm text-muted-foreground">{t("common.properties")}</div>
             <div className="text-lg font-semibold" data-testid="text-property-count">
               {impacts?.length || 0}
             </div>
@@ -335,7 +337,7 @@ export default function SnowEventDetail() {
         </Card>
         <Card>
           <CardContent className="pt-4">
-            <div className="text-sm text-muted-foreground">Tickets Created</div>
+            <div className="text-sm text-muted-foreground">{t("snow.ticketsCreated")}</div>
             <div className="text-lg font-semibold" data-testid="text-ticket-count">
               {impacts?.filter(i => i.ticketId).length || 0}
             </div>
@@ -348,13 +350,13 @@ export default function SnowEventDetail() {
           <CardContent className="pt-4 space-y-2">
             {event.eventNotes && (
               <div>
-                <span className="text-sm font-medium text-muted-foreground">Event Notes:</span>
+                <span className="text-sm font-medium text-muted-foreground">{t("snow.eventNotes")}</span>
                 <p className="text-sm mt-1" data-testid="text-event-notes">{event.eventNotes}</p>
               </div>
             )}
             {event.measurementNotes && (
               <div>
-                <span className="text-sm font-medium text-muted-foreground">Measurement Notes:</span>
+                <span className="text-sm font-medium text-muted-foreground">{t("snow.measurementNotes")}</span>
                 <p className="text-sm mt-1">{event.measurementNotes}</p>
               </div>
             )}
@@ -367,7 +369,7 @@ export default function SnowEventDetail() {
           <div className="flex items-center justify-between gap-4 flex-wrap">
             <CardTitle className="flex items-center gap-2">
               <Building2 className="h-5 w-5" />
-              Affected Properties
+              {t("snow.affectedProperties")}
             </CardTitle>
             <div className="flex items-center gap-2">
               {!isLocked && pendingCount > 0 && (
@@ -377,13 +379,13 @@ export default function SnowEventDetail() {
                   data-testid="button-generate-tickets"
                 >
                   <Ticket className="h-4 w-4 mr-1" />
-                  {generateTicketsMutation.isPending ? "Generating..." : `Generate Tickets (${pendingCount})`}
+                  {generateTicketsMutation.isPending ? t("snow.generating") : t("snow.generateTickets", { count: pendingCount })}
                 </Button>
               )}
               {!isLocked && (
                 <Button variant="outline" onClick={() => setShowAddProperties(true)} data-testid="button-add-properties">
                   <Plus className="h-4 w-4 mr-1" />
-                  Add Properties
+                  {t("snow.addPropertiesBtn")}
                 </Button>
               )}
             </div>
@@ -397,10 +399,10 @@ export default function SnowEventDetail() {
           ) : !impacts || impacts.length === 0 ? (
             <div className="text-center py-8 text-muted-foreground">
               <CloudSnow className="h-10 w-10 mx-auto mb-2 opacity-50" />
-              <p>No properties assigned to this storm event yet.</p>
+              <p>{t("snow.noPropertiesAssigned")}</p>
               {!isLocked && (
                 <Button variant="outline" className="mt-3" onClick={() => setShowAddProperties(true)}>
-                  <Plus className="h-4 w-4 mr-1" /> Add Properties
+                  <Plus className="h-4 w-4 mr-1" /> {t("snow.addPropertiesBtn")}
                 </Button>
               )}
             </div>
@@ -409,11 +411,11 @@ export default function SnowEventDetail() {
               <Table>
                 <TableHeader>
                   <TableRow>
-                    <TableHead>Property</TableHead>
-                    <TableHead>Services</TableHead>
-                    <TableHead>Site Notes</TableHead>
-                    <TableHead>Billing Status</TableHead>
-                    <TableHead>Ticket</TableHead>
+                    <TableHead>{t("common.property")}</TableHead>
+                    <TableHead>{t("serviceTypes.other")}</TableHead>
+                    <TableHead>{t("snow.siteNotes")}</TableHead>
+                    <TableHead>{t("snow.billingStatus")}</TableHead>
+                    <TableHead>{t("snow.ticket")}</TableHead>
                     {!isLocked && <TableHead></TableHead>}
                   </TableRow>
                 </TableHeader>
@@ -448,7 +450,7 @@ export default function SnowEventDetail() {
                         {impact.ticketId ? (
                           <Link href={`/dashboard/tickets/${impact.ticketId}`}>
                             <Button variant="ghost" size="sm" className="gap-1" data-testid={`link-ticket-${impact.ticketId}`}>
-                              <Ticket className="h-3 w-3" /> View
+                              <Ticket className="h-3 w-3" /> {t("common.view")}
                             </Button>
                           </Link>
                         ) : (
@@ -481,15 +483,15 @@ export default function SnowEventDetail() {
       <Dialog open={showAddProperties} onOpenChange={setShowAddProperties}>
         <DialogContent className="max-w-2xl max-h-[80vh] overflow-y-auto">
           <DialogHeader>
-            <DialogTitle>Add Properties to Storm Event</DialogTitle>
+            <DialogTitle>{t("snow.addProperties")}</DialogTitle>
             <DialogDescription>
-              Select snow-enabled properties affected by this storm. Only properties with snow enabled are shown.
+              {t("snow.selectSnowProperties")}
             </DialogDescription>
           </DialogHeader>
 
           <div className="space-y-4">
             <div>
-              <Label>Apply Services to All Selected</Label>
+              <Label>{t("snow.applyServicesToAll")}</Label>
               <div className="flex flex-wrap gap-2 mt-2">
                 {SNOW_SERVICE_TYPES.map(st => (
                   <Badge
@@ -513,7 +515,7 @@ export default function SnowEventDetail() {
             <div className="relative">
               <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
               <Input
-                placeholder="Search properties..."
+                placeholder={t("schedule.searchProperties")}
                 className="pl-8"
                 value={propertySearch}
                 onChange={(e) => setPropertySearch(e.target.value)}
@@ -523,7 +525,7 @@ export default function SnowEventDetail() {
 
             {availableCustomers.length === 0 ? (
               <div className="text-center py-6 text-muted-foreground text-sm">
-                No snow-enabled properties available. Enable snow on customer profiles first.
+                {t("snow.enableSnow")}
               </div>
             ) : (
               <div className="border rounded-md max-h-[300px] overflow-y-auto">
@@ -549,7 +551,7 @@ export default function SnowEventDetail() {
                 ))}
                 {filteredAvailable.length === 0 && (
                   <div className="p-4 text-center text-sm text-muted-foreground">
-                    No matching properties found.
+                    {t("snow.noMatchingProperties")}
                   </div>
                 )}
               </div>
@@ -564,7 +566,7 @@ export default function SnowEventDetail() {
 
           <DialogFooter>
             <Button variant="outline" onClick={() => setShowAddProperties(false)}>
-              Cancel
+              {t("common.cancel")}
             </Button>
             <Button
               onClick={() => addPropertiesMutation.mutate({
@@ -574,7 +576,7 @@ export default function SnowEventDetail() {
               disabled={selectedCustomerIds.length === 0 || addPropertiesMutation.isPending}
               data-testid="button-confirm-add-properties"
             >
-              {addPropertiesMutation.isPending ? "Adding..." : `Add ${selectedCustomerIds.length} Properties`}
+              {addPropertiesMutation.isPending ? t("common.loading") : `${t("common.add")} ${selectedCustomerIds.length} ${t("common.properties")}`}
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -584,15 +586,15 @@ export default function SnowEventDetail() {
       <Dialog open={showEditEvent} onOpenChange={setShowEditEvent}>
         <DialogContent className="max-w-lg">
           <DialogHeader>
-            <DialogTitle>Edit Storm Event</DialogTitle>
+            <DialogTitle>{t("snow.editEvent")}</DialogTitle>
           </DialogHeader>
           <div className="space-y-4">
             <div>
-              <Label>Event Name</Label>
+              <Label>{t("snow.eventName")}</Label>
               <Input value={editName} onChange={(e) => setEditName(e.target.value)} data-testid="input-edit-name" />
             </div>
             <div>
-              <Label>Accumulation Range *</Label>
+              <Label>{t("snow.accumulationRange")} *</Label>
               <Select value={editRange} onValueChange={setEditRange}>
                 <SelectTrigger data-testid="select-edit-range">
                   <SelectValue />
@@ -606,31 +608,31 @@ export default function SnowEventDetail() {
             </div>
             <div className="grid grid-cols-2 gap-4">
               <div>
-                <Label>Start Date/Time *</Label>
+                <Label>{t("snow.startDateTime")} *</Label>
                 <Input type="datetime-local" value={editStartDate} onChange={(e) => setEditStartDate(e.target.value)} data-testid="input-edit-start" />
               </div>
               <div>
-                <Label>End Date/Time</Label>
+                <Label>{t("snow.endDateTime")}</Label>
                 <Input type="datetime-local" value={editEndDate} onChange={(e) => setEditEndDate(e.target.value)} data-testid="input-edit-end" />
               </div>
             </div>
             <div>
-              <Label>Reported Total Inches</Label>
+              <Label>{t("snow.reportedTotalInches")}</Label>
               <Input value={editTotalInches} onChange={(e) => setEditTotalInches(e.target.value)} placeholder="e.g. 3.5" data-testid="input-edit-inches" />
             </div>
             <div>
-              <Label>Measurement Notes</Label>
+              <Label>{t("snow.measurementNotes")}</Label>
               <Textarea value={editMeasurementNotes} onChange={(e) => setEditMeasurementNotes(e.target.value)} data-testid="input-edit-measurement-notes" />
             </div>
             <div>
-              <Label>Event Notes</Label>
+              <Label>{t("snow.eventNotes")}</Label>
               <Textarea value={editEventNotes} onChange={(e) => setEditEventNotes(e.target.value)} data-testid="input-edit-event-notes" />
             </div>
           </div>
           <DialogFooter>
-            <Button variant="outline" onClick={() => setShowEditEvent(false)}>Cancel</Button>
+            <Button variant="outline" onClick={() => setShowEditEvent(false)}>{t("common.cancel")}</Button>
             <Button onClick={handleUpdateEvent} disabled={updateEventMutation.isPending} data-testid="button-save-edit">
-              {updateEventMutation.isPending ? "Saving..." : "Save Changes"}
+              {updateEventMutation.isPending ? t("common.saving") : t("settings.saveChanges")}
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -640,15 +642,15 @@ export default function SnowEventDetail() {
       <Dialog open={showDeleteConfirm} onOpenChange={setShowDeleteConfirm}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>Delete Storm Event?</DialogTitle>
+            <DialogTitle>{t("snow.deleteEvent")}?</DialogTitle>
             <DialogDescription>
-              This will permanently delete this storm event and all associated property impacts. This action cannot be undone.
+              {t("snow.deleteConfirm")}
             </DialogDescription>
           </DialogHeader>
           <DialogFooter>
-            <Button variant="outline" onClick={() => setShowDeleteConfirm(false)}>Cancel</Button>
+            <Button variant="outline" onClick={() => setShowDeleteConfirm(false)}>{t("common.cancel")}</Button>
             <Button variant="destructive" onClick={() => deleteEventMutation.mutate()} disabled={deleteEventMutation.isPending} data-testid="button-confirm-delete">
-              {deleteEventMutation.isPending ? "Deleting..." : "Delete"}
+              {deleteEventMutation.isPending ? t("common.deleting") : t("common.delete")}
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -658,16 +660,16 @@ export default function SnowEventDetail() {
       <Dialog open={showLockConfirm} onOpenChange={setShowLockConfirm}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>Lock Storm Event?</DialogTitle>
+            <DialogTitle>{t("snow.lockEvent")}?</DialogTitle>
             <DialogDescription>
-              Locking prevents any changes to the event details, accumulation range, or property list. This is recommended after invoicing to maintain billing history integrity.
+              {t("snow.lockConfirm")}
             </DialogDescription>
           </DialogHeader>
           <DialogFooter>
-            <Button variant="outline" onClick={() => setShowLockConfirm(false)}>Cancel</Button>
+            <Button variant="outline" onClick={() => setShowLockConfirm(false)}>{t("common.cancel")}</Button>
             <Button onClick={() => lockEventMutation.mutate()} disabled={lockEventMutation.isPending} data-testid="button-confirm-lock">
               <Lock className="h-4 w-4 mr-1" />
-              {lockEventMutation.isPending ? "Locking..." : "Lock Event"}
+              {lockEventMutation.isPending ? t("common.loading") : t("snow.lockEvent")}
             </Button>
           </DialogFooter>
         </DialogContent>

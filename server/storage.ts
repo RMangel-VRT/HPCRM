@@ -13,6 +13,7 @@ export interface IStorage {
   getUserByEmail(email: string): Promise<User | undefined>;
   createUser(user: InsertUser): Promise<User>;
   updateUserPassword(userId: string, passwordHash: string): Promise<void>;
+  updateUserLanguage(userId: string, language: "en" | "es"): Promise<void>;
   hasAnyUsers(): Promise<boolean>;
   deleteAllUsers(): Promise<void>;
   
@@ -460,6 +461,12 @@ export class PgStorage implements IStorage {
   async updateUserPassword(userId: string, passwordHash: string): Promise<void> {
     await db.update(users)
       .set({ passwordHash })
+      .where(eq(users.id, userId));
+  }
+
+  async updateUserLanguage(userId: string, language: "en" | "es"): Promise<void> {
+    await db.update(users)
+      .set({ language })
       .where(eq(users.id, userId));
   }
 

@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { useTranslation } from "react-i18next";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
@@ -56,6 +57,7 @@ const mockContracts = [
 ];
 
 export default function ContractsList() {
+  const { t } = useTranslation();
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState("all");
   const [contracts] = useState(mockContracts);
@@ -71,15 +73,15 @@ export default function ContractsList() {
       <div className="flex items-center justify-between gap-4 flex-wrap">
         <div>
           <h1 className="text-3xl font-semibold tracking-tight" data-testid="text-page-title">
-            Contracts
+            {t("contracts.title")}
           </h1>
           <p className="text-sm text-muted-foreground mt-1">
-            Manage service contracts and billing
+            {t("contracts.manage")}
           </p>
         </div>
         <Button data-testid="button-add-contract">
           <Plus className="w-4 h-4 mr-2" />
-          New Contract
+          {t("contracts.newContract")}
         </Button>
       </div>
 
@@ -87,7 +89,7 @@ export default function ContractsList() {
         <div className="relative flex-1 min-w-[240px]">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
           <Input
-            placeholder="Search contracts..."
+            placeholder={t("contracts.searchPlaceholder")}
             value={search}
             onChange={(e) => setSearch(e.target.value)}
             className="pl-9"
@@ -96,13 +98,13 @@ export default function ContractsList() {
         </div>
         <Select value={statusFilter} onValueChange={setStatusFilter}>
           <SelectTrigger className="w-[180px]" data-testid="select-status-filter">
-            <SelectValue placeholder="Filter by status" />
+            <SelectValue placeholder={t("common.status")} />
           </SelectTrigger>
           <SelectContent>
-            <SelectItem value="all">All Statuses</SelectItem>
-            <SelectItem value="active">Active</SelectItem>
-            <SelectItem value="paused">Paused</SelectItem>
-            <SelectItem value="ended">Ended</SelectItem>
+            <SelectItem value="all">{t("common.all")} {t("common.status")}</SelectItem>
+            <SelectItem value="active">{t("statuses.active")}</SelectItem>
+            <SelectItem value="paused">{t("statuses.paused")}</SelectItem>
+            <SelectItem value="ended">{t("statuses.ended")}</SelectItem>
           </SelectContent>
         </Select>
       </div>
@@ -110,9 +112,9 @@ export default function ContractsList() {
       {filteredContracts.length === 0 ? (
         <EmptyState
           icon={FileText}
-          title="No contracts found"
-          description="Try adjusting your search or filters, or create a new contract."
-          actionLabel="New Contract"
+          title={t("common.noResults")}
+          description={t("contracts.searchByCustomer")}
+          actionLabel={t("contracts.newContract")}
           onAction={() => console.log("New contract")}
         />
       ) : (
@@ -120,13 +122,13 @@ export default function ContractsList() {
           <Table>
             <TableHeader>
               <TableRow>
-                <TableHead>Property</TableHead>
-                <TableHead>Service Type</TableHead>
-                <TableHead>Billing</TableHead>
-                <TableHead>Status</TableHead>
-                <TableHead>Period</TableHead>
-                <TableHead>Annual Value</TableHead>
-                <TableHead className="text-right">Actions</TableHead>
+                <TableHead>{t("common.property")}</TableHead>
+                <TableHead>{t("contracts.serviceType")}</TableHead>
+                <TableHead>{t("contracts.billingSchedule")}</TableHead>
+                <TableHead>{t("common.status")}</TableHead>
+                <TableHead>{t("common.date")}</TableHead>
+                <TableHead>{t("contracts.totalAnnualValue")}</TableHead>
+                <TableHead className="text-right">{t("common.actions")}</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>

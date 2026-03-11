@@ -1,6 +1,7 @@
 import { useState, useRef, useEffect, useCallback } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { Link, useParams } from "wouter";
+import { useTranslation } from "react-i18next";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -44,6 +45,7 @@ function MapCapture({
   onWebGLError?: () => void;
   onBearingChange?: (bearing: number) => void;
 }) {
+  const { t } = useTranslation();
   const containerRef = useRef<HTMLDivElement>(null);
   const [mapReady, setMapReady] = useState(false);
   const [capturing, setCapturing] = useState(false);
@@ -142,9 +144,9 @@ function MapCapture({
         data-testid="button-capture-standard"
       >
         {capturing ? (
-          <><Loader2 className="w-4 h-4 mr-2 animate-spin" /> Capturing…</>
+          <><Loader2 className="w-4 h-4 mr-2 animate-spin" /> {t("visualScope.capturing")}</>
         ) : (
-          <><Camera className="w-4 h-4 mr-2" /> Capture View (Standard)</>
+          <><Camera className="w-4 h-4 mr-2" /> {t("visualScope.captureStandard")}</>
         )}
       </Button>
     </div>
@@ -152,6 +154,7 @@ function MapCapture({
 }
 
 function UploadFallback({ onFile }: { onFile: (file: File) => void }) {
+  const { t } = useTranslation();
   const inputRef = useRef<HTMLInputElement>(null);
   return (
     <div className="space-y-3">
@@ -161,8 +164,8 @@ function UploadFallback({ onFile }: { onFile: (file: File) => void }) {
         data-testid="zone-upload-image"
       >
         <ImageIcon className="w-8 h-8 mx-auto mb-2 text-muted-foreground" />
-        <p className="text-sm font-medium">Click to upload a base image</p>
-        <p className="text-xs text-muted-foreground mt-1">JPG or PNG, up to 50 MB</p>
+        <p className="text-sm font-medium">{t("visualScope.clickToUpload")}</p>
+        <p className="text-xs text-muted-foreground mt-1">{t("visualScope.fileTypes")}</p>
       </div>
       <input
         ref={inputRef}
@@ -192,6 +195,7 @@ function CaptureUI({
   onHighResSuccess: () => void;
 }) {
   const { toast } = useToast();
+  const { t } = useTranslation();
   const [mode, setMode] = useState<"map" | "upload">(token ? "map" : "upload");
   const [captureWidth, setCaptureWidth] = useState<2000 | 3000 | 4000>(2000);
   const [highResCapturing, setHighResCapturing] = useState(false);
@@ -220,7 +224,7 @@ function CaptureUI({
     const lng = params?.lng ?? map?.getCenter().lng;
     const zoom = params?.zoom ?? map?.getZoom();
     if (lat == null || lng == null || zoom == null || isNaN(Number(lat)) || isNaN(Number(lng)) || isNaN(Number(zoom))) {
-      toast({ title: "Invalid coordinates", description: "Please enter valid lat, lng, and zoom values.", variant: "destructive" });
+      toast({ title: t("common.error"), variant: "destructive" });
       return;
     }
     const bearing = map?.getBearing() ?? 0;
@@ -241,7 +245,7 @@ function CaptureUI({
       }
       onHighResSuccess();
     } catch (err: any) {
-      toast({ title: "High-res capture failed", description: err.message, variant: "destructive" });
+      toast({ title: t("common.error"), description: err.message, variant: "destructive" });
     } finally {
       setHighResCapturing(false);
     }
@@ -249,10 +253,9 @@ function CaptureUI({
 
   return (
     <div className="space-y-4">
-      {/* Width selector */}
       {token && (
         <div className="flex items-center gap-2 flex-wrap">
-          <span className="text-sm text-muted-foreground">Width:</span>
+          <span className="text-sm text-muted-foreground">{t("visualScope.width")}</span>
           {([2000, 3000, 4000] as const).map((w) => (
             <Button
               key={w}
@@ -267,7 +270,6 @@ function CaptureUI({
         </div>
       )}
 
-      {/* Map mode */}
       {token && mode === "map" && !webglFallbackMode && (
         <div className="space-y-3">
           <MapCapture
@@ -278,13 +280,12 @@ function CaptureUI({
             onWebGLError={() => setWebglFallbackMode(true)}
             onBearingChange={setBearing}
           />
-          {/* Rotation control */}
           {mapReady && (
             <div className="space-y-1.5">
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
                   <Compass className="w-3.5 h-3.5" />
-                  <span>Rotation</span>
+                  <span>{t("visualScope.rotation")}</span>
                 </div>
                 <div className="flex items-center gap-2">
                   <span className="text-xs font-mono text-foreground w-12 text-right">
@@ -298,7 +299,7 @@ function CaptureUI({
                     data-testid="button-reset-north"
                   >
                     <RotateCcw className="w-3 h-3" />
-                    North
+                    {t("visualScope.north")}
                   </Button>
                 </div>
               </div>
@@ -319,34 +320,33 @@ function CaptureUI({
             data-testid="button-capture-highres"
           >
             {highResCapturing ? (
-              <><Loader2 className="w-4 h-4 mr-2 animate-spin" />Generating High-Res…</>
+              <><Loader2 className="w-4 h-4 mr-2 animate-spin" />{t("visualScope.generatingHighRes")}</>
             ) : (
-              <><Zap className="w-4 h-4 mr-2" />Capture View (High-Res)</>
+              <><Zap className="w-4 h-4 mr-2" />{t("visualScope.captureHighRes")}</>
             )}
           </Button>
           <p className="text-xs text-muted-foreground text-center">
-            Pan, zoom, and rotate to frame the area, then capture. High-Res is recommended for proposals.
+            {t("visualScope.captureBaseImage")}
           </p>
           <button
             className="text-xs text-muted-foreground underline underline-offset-2 w-full text-center"
             onClick={() => setMode("upload")}
             data-testid="link-switch-to-upload"
           >
-            Upload an image instead
+            {t("visualScope.uploadImage")}
           </button>
         </div>
       )}
 
-      {/* WebGL fallback: manual coordinate input */}
       {token && mode === "map" && webglFallbackMode && (
         <div className="space-y-3">
           <div className="flex items-start gap-2 p-3 rounded-md bg-muted text-sm text-muted-foreground">
             <Info className="w-4 h-4 mt-0.5 shrink-0" />
-            <span>Interactive map not available. Enter coordinates to capture a high-res satellite image.</span>
+            <span>{t("visualScope.mapNotAvailable")}</span>
           </div>
           <div className="grid grid-cols-3 gap-2">
             <div>
-              <label className="text-xs text-muted-foreground block mb-1">Latitude</label>
+              <label className="text-xs text-muted-foreground block mb-1">{t("visualScope.latitude")}</label>
               <Input
                 value={manualLat}
                 onChange={e => setManualLat(e.target.value)}
@@ -355,7 +355,7 @@ function CaptureUI({
               />
             </div>
             <div>
-              <label className="text-xs text-muted-foreground block mb-1">Longitude</label>
+              <label className="text-xs text-muted-foreground block mb-1">{t("visualScope.longitude")}</label>
               <Input
                 value={manualLng}
                 onChange={e => setManualLng(e.target.value)}
@@ -364,7 +364,7 @@ function CaptureUI({
               />
             </div>
             <div>
-              <label className="text-xs text-muted-foreground block mb-1">Zoom</label>
+              <label className="text-xs text-muted-foreground block mb-1">{t("visualScope.zoom")}</label>
               <Input
                 value={manualZoom}
                 onChange={e => setManualZoom(e.target.value)}
@@ -386,9 +386,9 @@ function CaptureUI({
             data-testid="button-capture-highres-manual"
           >
             {highResCapturing ? (
-              <><Loader2 className="w-4 h-4 mr-2 animate-spin" />Generating…</>
+              <><Loader2 className="w-4 h-4 mr-2 animate-spin" />{t("visualScope.generating")}</>
             ) : (
-              <><Zap className="w-4 h-4 mr-2" />Capture High-Res</>
+              <><Zap className="w-4 h-4 mr-2" />{t("visualScope.recaptureHighRes")}</>
             )}
           </Button>
           <button
@@ -396,20 +396,18 @@ function CaptureUI({
             onClick={() => setMode("upload")}
             data-testid="link-switch-to-upload"
           >
-            Upload an image instead
+            {t("visualScope.uploadImage")}
           </button>
         </div>
       )}
 
-      {/* No token */}
       {!token && (
         <div className="flex items-start gap-2 p-3 rounded-md bg-muted text-sm text-muted-foreground">
           <Info className="w-4 h-4 mt-0.5 shrink-0" />
-          <span>Map capture requires a Mapbox token. Upload an image instead.</span>
+          <span>{t("visualScope.uploadImage")}</span>
         </div>
       )}
 
-      {/* Upload mode */}
       {(mode === "upload" || !token) && (
         <div className="space-y-2">
           <UploadFallback onFile={onFile} />
@@ -419,7 +417,7 @@ function CaptureUI({
               onClick={() => setMode("map")}
               data-testid="link-switch-to-map"
             >
-              Use map capture instead
+              {t("visualScope.useMapCapture")}
             </button>
           )}
         </div>
@@ -431,6 +429,7 @@ function CaptureUI({
 export default function VisualScopeDraft() {
   const { id } = useParams<{ id: string }>();
   const { toast } = useToast();
+  const { t } = useTranslation();
   const [replaceOpen, setReplaceOpen] = useState(false);
   const [uploading, setUploading] = useState(false);
   const [reCapturing, setReCapturing] = useState(false);
@@ -506,10 +505,10 @@ export default function VisualScopeDraft() {
 
       queryClient.invalidateQueries({ queryKey: ["/api/visual-scope-sheets", id] });
       queryClient.invalidateQueries({ queryKey: ["/api/visual-scope-sheets"] });
-      toast({ title: isReplace ? "Base image replaced" : "Base image saved" });
+      toast({ title: isReplace ? t("visualScope.baseReplaced") : t("visualScope.baseSaved") });
       setReplaceOpen(false);
     } catch (err: any) {
-      toast({ title: "Upload failed", description: err.message, variant: "destructive" });
+      toast({ title: t("proposals.uploadFailed"), description: err.message, variant: "destructive" });
     } finally {
       setUploading(false);
     }
@@ -526,7 +525,7 @@ export default function VisualScopeDraft() {
   function handleHighResSuccess() {
     queryClient.invalidateQueries({ queryKey: ["/api/visual-scope-sheets", id] });
     queryClient.invalidateQueries({ queryKey: ["/api/visual-scope-sheets"] });
-    toast({ title: "High-res base image captured", description: "Satellite image saved successfully." });
+    toast({ title: t("visualScope.highResCaptured"), description: t("visualScope.satelliteSaved") });
     setReplaceOpen(false);
   }
 
@@ -549,9 +548,9 @@ export default function VisualScopeDraft() {
       }
       queryClient.invalidateQueries({ queryKey: ["/api/visual-scope-sheets", id] });
       queryClient.invalidateQueries({ queryKey: ["/api/visual-scope-sheets"] });
-      toast({ title: "Re-captured high-res image", description: "Base image updated with current satellite data." });
+      toast({ title: t("visualScope.highResCaptured"), description: t("visualScope.satelliteSaved") });
     } catch (err: any) {
-      toast({ title: "Re-capture failed", description: err.message, variant: "destructive" });
+      toast({ title: t("common.error"), description: err.message, variant: "destructive" });
     } finally {
       setReCapturing(false);
     }
@@ -571,7 +570,7 @@ export default function VisualScopeDraft() {
 
   if (!sheet) {
     return (
-      <div className="p-6 text-center text-muted-foreground">Visual scope sheet not found.</div>
+      <div className="p-6 text-center text-muted-foreground">{t("visualScope.noSheets")}</div>
     );
   }
 
@@ -584,7 +583,6 @@ export default function VisualScopeDraft() {
 
   return (
     <div className="p-6 max-w-4xl mx-auto space-y-6">
-      {/* Header */}
       <div className="flex items-start gap-3">
         <Link href="/dashboard/tools/visual-scope">
           <Button variant="ghost" size="icon" data-testid="button-back-list">
@@ -627,12 +625,11 @@ export default function VisualScopeDraft() {
         </div>
       </div>
 
-      {/* Base Image + Markup Editor Area */}
       {sheet.baseImagePath ? (
         <Card>
           <CardHeader className="pb-3">
             <div className="flex items-center justify-between gap-2 flex-wrap">
-              <CardTitle className="text-base">Visual Scope Editor</CardTitle>
+              <CardTitle className="text-base">{t("visualScope.markupLayer")}</CardTitle>
               <div className="flex items-center gap-2 flex-wrap">
                 {captureParams && (
                   <Button
@@ -643,15 +640,15 @@ export default function VisualScopeDraft() {
                     data-testid="button-recapture-highres"
                   >
                     {reCapturing ? (
-                      <><Loader2 className="w-4 h-4 mr-1 animate-spin" />Re-capturing…</>
+                      <><Loader2 className="w-4 h-4 mr-1 animate-spin" />{t("visualScope.generatingHighRes")}</>
                     ) : (
-                      <><Zap className="w-4 h-4 mr-1" />Re-capture High-Res</>
+                      <><Zap className="w-4 h-4 mr-1" />{t("visualScope.recaptureCurrent")}</>
                     )}
                   </Button>
                 )}
                 <a href={baseImageApiUrl} download={sheet.baseImageFilename ?? "base-image"}>
                   <Button variant="outline" size="sm" data-testid="button-download-image">
-                    <Download className="w-4 h-4 mr-1" /> Download
+                    <Download className="w-4 h-4 mr-1" /> {t("common.download")}
                   </Button>
                 </a>
                 <Button
@@ -660,7 +657,7 @@ export default function VisualScopeDraft() {
                   onClick={() => setReplaceOpen(true)}
                   data-testid="button-replace-image"
                 >
-                  <RefreshCw className="w-4 h-4 mr-1" /> Replace
+                  <RefreshCw className="w-4 h-4 mr-1" /> {t("visualScope.replaceBaseImage")}
                 </Button>
               </div>
             </div>
@@ -683,14 +680,13 @@ export default function VisualScopeDraft() {
       ) : (
         <Card>
           <CardHeader>
-            <CardTitle className="text-base">Base Image</CardTitle>
-            <p className="text-sm text-muted-foreground">Capture a satellite view or upload an image to get started.</p>
+            <CardTitle className="text-base">{t("visualScope.captureBaseImage")}</CardTitle>
           </CardHeader>
           <CardContent>
             {uploading ? (
               <div className="flex items-center justify-center py-10 gap-2 text-muted-foreground">
                 <Loader2 className="w-5 h-5 animate-spin" />
-                <span>Uploading…</span>
+                <span>{t("proposals.uploading")}</span>
               </div>
             ) : (
               <CaptureUI
@@ -706,18 +702,17 @@ export default function VisualScopeDraft() {
         </Card>
       )}
 
-      {/* VS3 Exports */}
       {sheet.baseImagePath && (
         <Card>
           <CardHeader className="pb-3">
-            <CardTitle className="text-base">Exports</CardTitle>
+            <CardTitle className="text-base">{t("visualScope.downloadCombined")}</CardTitle>
           </CardHeader>
           <CardContent className="space-y-4">
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
               {(["base", "overlay", "combined"] as const).map((type) => (
                 <div key={type} className="flex flex-col gap-2">
                   <p className="text-sm font-medium text-foreground">
-                    {type === "base" ? "Base Image" : type === "overlay" ? "Overlay Only" : "Combined + Legend"}
+                    {type === "base" ? t("proposalVersion.downloadBase") : type === "overlay" ? t("proposalVersion.downloadOverlay") : t("proposalVersion.downloadCombined")}
                   </p>
                   <div className="flex gap-1 flex-wrap">
                     <Button
@@ -726,7 +721,7 @@ export default function VisualScopeDraft() {
                       data-testid={`button-export-preview-${type}`}
                       onClick={() => window.open(`/api/visual-scope-sheets/${id}/export/${type}?inline=1`, "_blank")}
                     >
-                      <Eye className="w-3 h-3 mr-1" />Preview
+                      <Eye className="w-3 h-3 mr-1" />{t("common.preview")}
                     </Button>
                     <Button
                       size="sm"
@@ -739,34 +734,25 @@ export default function VisualScopeDraft() {
                         a.click();
                       }}
                     >
-                      <Download className="w-3 h-3 mr-1" />Download
+                      <Download className="w-3 h-3 mr-1" />{t("common.download")}
                     </Button>
                   </div>
                 </div>
               ))}
             </div>
-            <p className="text-xs text-muted-foreground">
-              Exports render server-side at 2000 px wide. Append{" "}
-              <code className="bg-muted px-1 rounded text-xs">?w=3000</code>{" "}
-              to the URL for higher resolution (max 4000 px).
-            </p>
           </CardContent>
         </Card>
       )}
 
-      {/* Replace Sheet */}
       <Sheet open={replaceOpen} onOpenChange={setReplaceOpen}>
         <SheetContent side="right" className="w-full sm:max-w-lg overflow-y-auto">
           <SheetHeader className="mb-4">
-            <SheetTitle>Replace Base Image</SheetTitle>
-            <p className="text-sm text-muted-foreground">
-              Your current image stays until the new one is saved successfully.
-            </p>
+            <SheetTitle>{t("visualScope.replaceBaseImage")}</SheetTitle>
           </SheetHeader>
           {uploading ? (
             <div className="flex items-center justify-center py-16 gap-2 text-muted-foreground">
               <Loader2 className="w-5 h-5 animate-spin" />
-              <span>Uploading…</span>
+              <span>{t("proposals.uploading")}</span>
             </div>
           ) : (
             <CaptureUI

@@ -10,6 +10,7 @@ import {
   Truck
 } from "lucide-react";
 import { useQuery } from "@tanstack/react-query";
+import { useTranslation } from "react-i18next";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Link } from "wouter";
 import { format } from "date-fns";
@@ -61,6 +62,7 @@ const equipStatusLabels: Record<string, string> = {
 };
 
 export default function ShopManagerDashboard() {
+  const { t } = useTranslation();
   const { user } = useAuth();
 
   const { data: myTickets = [], isLoading } = useQuery<Ticket[]>({
@@ -77,36 +79,36 @@ export default function ShopManagerDashboard() {
     enabled: !!user?.id,
   });
 
-  const activeTickets = myTickets.filter(t => 
-    t.currentStatus?.name?.toLowerCase() !== "completed" && 
-    t.currentStatus?.name?.toLowerCase() !== "closed"
+  const activeTickets = myTickets.filter(tk => 
+    tk.currentStatus?.name?.toLowerCase() !== "completed" && 
+    tk.currentStatus?.name?.toLowerCase() !== "closed"
   );
   
-  const completedTickets = myTickets.filter(t => 
-    t.currentStatus?.name?.toLowerCase() === "completed"
+  const completedTickets = myTickets.filter(tk => 
+    tk.currentStatus?.name?.toLowerCase() === "completed"
   );
 
-  const activeEquipTickets = equipmentTickets.filter(t => 
-    t.status !== "completed" && t.status !== "closed"
+  const activeEquipTickets = equipmentTickets.filter(tk => 
+    tk.status !== "completed" && tk.status !== "closed"
   );
 
-  const urgentTickets = activeTickets.filter(t => t.priority === "urgent" || t.priority === "high");
+  const urgentTickets = activeTickets.filter(tk => tk.priority === "urgent" || tk.priority === "high");
   
   const stats = [
     {
-      title: "Active Tasks",
+      title: t("shopDashboard.activeTasks"),
       value: activeTickets.length.toString(),
       icon: ClipboardList,
       color: "text-blue-500",
     },
     {
-      title: "Equipment",
+      title: t("shopDashboard.equipment"),
       value: activeEquipTickets.length.toString(),
       icon: Wrench,
       color: "text-orange-500",
     },
     {
-      title: "Completed",
+      title: t("shopDashboard.completed"),
       value: completedTickets.length.toString(),
       icon: CheckCircle2,
       color: "text-green-500",
@@ -149,7 +151,7 @@ export default function ShopManagerDashboard() {
     <div className="space-y-4 pb-20">
       <div>
         <h1 className="text-2xl font-semibold tracking-tight" data-testid="text-page-title">
-          Shop Manager Dashboard
+          {t("shopDashboard.title")}
         </h1>
         <p className="text-sm text-muted-foreground">
           {format(new Date(), "EEEE, MMMM d")}
@@ -170,10 +172,10 @@ export default function ShopManagerDashboard() {
 
       <Card>
         <CardHeader className="flex flex-row items-center justify-between gap-2 pb-3">
-          <CardTitle className="text-lg">My Tickets</CardTitle>
+          <CardTitle className="text-lg">{t("shopDashboard.myTickets")}</CardTitle>
           <Link href="/dashboard/tickets/my">
             <Button variant="ghost" size="sm" data-testid="button-view-all-tickets">
-              View All
+              {t("shopDashboard.viewAll")}
               <ArrowRight className="w-4 h-4 ml-1" />
             </Button>
           </Link>
@@ -182,7 +184,7 @@ export default function ShopManagerDashboard() {
           {activeTickets.length === 0 ? (
             <div className="text-center py-8 text-muted-foreground">
               <ClipboardList className="w-12 h-12 mx-auto mb-3 opacity-50" />
-              <p>No active tickets assigned to you</p>
+              <p>{t("shopDashboard.noActiveTickets")}</p>
             </div>
           ) : (
             <div className="space-y-2">
@@ -239,11 +241,11 @@ export default function ShopManagerDashboard() {
         <CardHeader className="flex flex-row items-center justify-between gap-2 pb-3">
           <CardTitle className="text-lg flex items-center gap-2">
             <Wrench className="w-5 h-5" />
-            Equipment Tickets
+            {t("shopDashboard.equipmentTickets")}
           </CardTitle>
           <Link href="/dashboard/equipment">
             <Button variant="ghost" size="sm" data-testid="button-view-equipment">
-              Equipment
+              {t("shopDashboard.equipment")}
               <ArrowRight className="w-4 h-4 ml-1" />
             </Button>
           </Link>
@@ -252,7 +254,7 @@ export default function ShopManagerDashboard() {
           {activeEquipTickets.length === 0 ? (
             <div className="text-center py-8 text-muted-foreground">
               <Truck className="w-12 h-12 mx-auto mb-3 opacity-50" />
-              <p>No active equipment tickets</p>
+              <p>{t("shopDashboard.noEquipmentTickets")}</p>
             </div>
           ) : (
             <div className="space-y-2">

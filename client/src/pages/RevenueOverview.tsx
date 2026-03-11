@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { useTranslation } from "react-i18next";
 import { useQuery } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -40,6 +41,7 @@ interface RevenueOverviewData {
 type BreakdownType = 'maintenanceMonth' | 'maintenanceYtd' | 'maintenanceAnnual' | 'chemicalMonth' | 'chemicalYtd' | 'chemicalAnnual';
 
 export default function RevenueOverview() {
+  const { t } = useTranslation();
   const currentDate = new Date();
   const [selectedMonth, setSelectedMonth] = useState(currentDate.getMonth() + 1);
   const [selectedYear, setSelectedYear] = useState(currentDate.getFullYear());
@@ -53,7 +55,7 @@ export default function RevenueOverview() {
     queryKey: [`/api/revenue/overview?month=${selectedMonth}&year=${selectedYear}`],
   });
   
-  const monthNames = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
+  const monthNames = [t("months.january"), t("months.february"), t("months.march"), t("months.april"), t("months.mayFull"), t("months.june"), t("months.july"), t("months.august"), t("months.september"), t("months.october"), t("months.november"), t("months.december")];
   
   const openBreakdownDialog = (type: BreakdownType, title: string) => {
     setBreakdownDialog({ open: true, type, title });
@@ -93,9 +95,9 @@ export default function RevenueOverview() {
     <div className="space-y-6">
       <div className="flex items-center justify-between gap-4 flex-wrap">
         <div>
-          <h1 className="text-3xl font-semibold tracking-tight" data-testid="text-page-title">Revenue Overview</h1>
+          <h1 className="text-3xl font-semibold tracking-tight" data-testid="text-page-title">{t("revenue.title")}</h1>
           <p className="text-muted-foreground mt-1">
-            Projected revenue across all customers
+            {t("revenue.description")}
           </p>
         </div>
         <div className="flex items-center gap-2">
@@ -137,7 +139,7 @@ export default function RevenueOverview() {
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
         <Card>
           <CardHeader>
-            <CardTitle className="text-lg">Selected Month Total</CardTitle>
+            <CardTitle className="text-lg">{t("revenue.selectedMonthTotal")}</CardTitle>
           </CardHeader>
           <CardContent>
             <p className="text-4xl font-bold" data-testid="text-selected-month-total">
@@ -151,28 +153,28 @@ export default function RevenueOverview() {
         
         <Card>
           <CardHeader>
-            <CardTitle className="text-lg">Year-to-Date Total</CardTitle>
+            <CardTitle className="text-lg">{t("revenue.ytdTotal")}</CardTitle>
           </CardHeader>
           <CardContent>
             <p className="text-4xl font-bold" data-testid="text-ytd-total">
               ${(overviewData?.yearToDateTotal ?? 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
             </p>
             <p className="text-sm text-muted-foreground mt-1">
-              January - {monthNames[selectedMonth - 1]} {selectedYear}
+              {t("revenue.janToMonth", { month: monthNames[selectedMonth - 1] })} {selectedYear}
             </p>
           </CardContent>
         </Card>
         
         <Card>
           <CardHeader>
-            <CardTitle className="text-lg">Full Year Total</CardTitle>
+            <CardTitle className="text-lg">{t("revenue.fullYearTotal")}</CardTitle>
           </CardHeader>
           <CardContent>
             <p className="text-4xl font-bold" data-testid="text-full-year-total">
               ${(overviewData?.fullYearTotal ?? 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
             </p>
             <p className="text-sm text-muted-foreground mt-1">
-              January - December {selectedYear}
+              {t("revenue.janToDec", { year: selectedYear })}
             </p>
           </CardContent>
         </Card>
@@ -181,14 +183,14 @@ export default function RevenueOverview() {
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
         <Card>
           <CardHeader>
-            <CardTitle className="text-lg">Maintenance Revenue</CardTitle>
+            <CardTitle className="text-lg">{t("revenue.maintenanceRevenue")}</CardTitle>
           </CardHeader>
           <CardContent>
             <div className="space-y-3">
               <div className="flex justify-between items-center">
                 <span className="text-sm text-muted-foreground">{monthNames[selectedMonth - 1]}</span>
                 <button
-                  onClick={() => openBreakdownDialog('maintenanceMonth', `Maintenance Revenue - ${monthNames[selectedMonth - 1]} ${selectedYear}`)}
+                  onClick={() => openBreakdownDialog('maintenanceMonth', t("revenue.maintenanceMonth", { month: `${monthNames[selectedMonth - 1]} ${selectedYear}` }))}
                   className="font-semibold text-primary hover:underline cursor-pointer"
                   data-testid="button-maintenance-month"
                 >
@@ -196,9 +198,9 @@ export default function RevenueOverview() {
                 </button>
               </div>
               <div className="flex justify-between items-center">
-                <span className="text-sm text-muted-foreground">Year-to-Date</span>
+                <span className="text-sm text-muted-foreground">{t("revenue.ytdTotal")}</span>
                 <button
-                  onClick={() => openBreakdownDialog('maintenanceYtd', `Maintenance Revenue - YTD ${selectedYear}`)}
+                  onClick={() => openBreakdownDialog('maintenanceYtd', t("revenue.maintenanceYtd", { year: selectedYear }))}
                   className="font-semibold text-primary hover:underline cursor-pointer"
                   data-testid="button-maintenance-ytd"
                 >
@@ -206,9 +208,9 @@ export default function RevenueOverview() {
                 </button>
               </div>
               <div className="flex justify-between items-center border-t pt-2">
-                <span className="text-sm text-muted-foreground">Full Year</span>
+                <span className="text-sm text-muted-foreground">{t("revenue.fullYearTotal")}</span>
                 <button
-                  onClick={() => openBreakdownDialog('maintenanceAnnual', `Maintenance Revenue - Full Year ${selectedYear}`)}
+                  onClick={() => openBreakdownDialog('maintenanceAnnual', t("revenue.maintenanceFullYear", { year: selectedYear }))}
                   className="font-bold text-lg text-primary hover:underline cursor-pointer"
                   data-testid="button-maintenance-annual"
                 >
@@ -221,14 +223,14 @@ export default function RevenueOverview() {
         
         <Card>
           <CardHeader>
-            <CardTitle className="text-lg">Chemical Revenue</CardTitle>
+            <CardTitle className="text-lg">{t("revenue.chemicalRevenue")}</CardTitle>
           </CardHeader>
           <CardContent>
             <div className="space-y-3">
               <div className="flex justify-between items-center">
                 <span className="text-sm text-muted-foreground">{monthNames[selectedMonth - 1]}</span>
                 <button
-                  onClick={() => openBreakdownDialog('chemicalMonth', `Chemical Revenue - ${monthNames[selectedMonth - 1]} ${selectedYear}`)}
+                  onClick={() => openBreakdownDialog('chemicalMonth', `${t("revenue.chemicalRevenue")} - ${monthNames[selectedMonth - 1]} ${selectedYear}`)}
                   className="font-semibold text-primary hover:underline cursor-pointer"
                   data-testid="button-chemical-month"
                 >
@@ -236,9 +238,9 @@ export default function RevenueOverview() {
                 </button>
               </div>
               <div className="flex justify-between items-center">
-                <span className="text-sm text-muted-foreground">Year-to-Date</span>
+                <span className="text-sm text-muted-foreground">{t("revenue.ytdTotal")}</span>
                 <button
-                  onClick={() => openBreakdownDialog('chemicalYtd', `Chemical Revenue - YTD ${selectedYear}`)}
+                  onClick={() => openBreakdownDialog('chemicalYtd', `${t("revenue.chemicalRevenue")} - YTD ${selectedYear}`)}
                   className="font-semibold text-primary hover:underline cursor-pointer"
                   data-testid="button-chemical-ytd"
                 >
@@ -246,9 +248,9 @@ export default function RevenueOverview() {
                 </button>
               </div>
               <div className="flex justify-between items-center border-t pt-2">
-                <span className="text-sm text-muted-foreground">Full Year</span>
+                <span className="text-sm text-muted-foreground">{t("revenue.fullYearTotal")}</span>
                 <button
-                  onClick={() => openBreakdownDialog('chemicalAnnual', `Chemical Revenue - Full Year ${selectedYear}`)}
+                  onClick={() => openBreakdownDialog('chemicalAnnual', `${t("revenue.chemicalRevenue")} - ${t("revenue.fullYearTotal")} ${selectedYear}`)}
                   className="font-bold text-lg text-primary hover:underline cursor-pointer"
                   data-testid="button-chemical-annual"
                 >
@@ -262,21 +264,21 @@ export default function RevenueOverview() {
       
       <Card>
         <CardHeader>
-          <CardTitle className="text-lg">Customers</CardTitle>
+          <CardTitle className="text-lg">{t("customers.title")}</CardTitle>
         </CardHeader>
         <CardContent>
           {!overviewData?.customers || overviewData.customers.length === 0 ? (
-            <p className="text-sm text-muted-foreground text-center py-8">No customers found</p>
+            <p className="text-sm text-muted-foreground text-center py-8">{t("revenue.noCustomersFound")}</p>
           ) : (
             <div className="border rounded-md">
               <table className="w-full">
                 <thead>
                   <tr className="border-b bg-muted/30">
-                    <th className="text-left p-3 text-xs font-medium">Customer</th>
+                    <th className="text-left p-3 text-xs font-medium">{t("customers.title")}</th>
                     <th className="text-right p-3 text-xs font-medium">
-                      {monthNames[selectedMonth - 1]} Revenue
+                      {t("revenue.monthRevenue", { month: monthNames[selectedMonth - 1] })}
                     </th>
-                    <th className="text-right p-3 text-xs font-medium">Annual Projection</th>
+                    <th className="text-right p-3 text-xs font-medium">{t("revenue.annualProjection")}</th>
                     <th className="w-20"></th>
                   </tr>
                 </thead>
@@ -321,7 +323,7 @@ export default function RevenueOverview() {
           <ScrollArea className="max-h-[400px]">
             {getCustomerBreakdown().length === 0 ? (
               <p className="text-sm text-muted-foreground text-center py-8">
-                No customers contribute to this total
+                {t("revenue.noCustomersContribute")}
               </p>
             ) : (
               <div className="space-y-2">

@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { useTranslation } from "react-i18next";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { useSetBreadcrumbs } from "@/hooks/use-breadcrumbs";
 import type { Customer, InsertCustomer } from "@shared/schema";
@@ -101,6 +102,7 @@ function SortableHeader({
 }
 
 export default function CustomersList() {
+  const { t } = useTranslation();
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState("all");
   const [showArchived, setShowArchived] = useState(false);
@@ -112,7 +114,7 @@ export default function CustomersList() {
   const { toast } = useToast();
 
   useSetBreadcrumbs([
-    { label: "Customers" },
+    { label: t("customers.title") },
   ], []);
 
   const { data: customers = [], isLoading } = useQuery<Customer[]>({
@@ -146,16 +148,16 @@ export default function CustomersList() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/customers"] });
       toast({
-        title: "Success",
-        description: "Customer created successfully",
+        title: t("common.success"),
+        description: t("customers.created"),
       });
       setIsAddDialogOpen(false);
       form.reset();
     },
     onError: () => {
       toast({
-        title: "Error",
-        description: "Failed to create customer",
+        title: t("common.error"),
+        description: t("customers.createFailed"),
         variant: "destructive",
       });
     },
@@ -168,14 +170,14 @@ export default function CustomersList() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/customers"] });
       toast({
-        title: "Success",
-        description: "Customer updated successfully",
+        title: t("common.success"),
+        description: t("customers.updated"),
       });
     },
     onError: () => {
       toast({
-        title: "Error",
-        description: "Failed to update customer",
+        title: t("common.error"),
+        description: t("customers.updateFailed"),
         variant: "destructive",
       });
     },
@@ -188,16 +190,16 @@ export default function CustomersList() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/customers"] });
       toast({
-        title: "Success",
-        description: "Customer deleted successfully",
+        title: t("common.success"),
+        description: t("customers.deleted"),
       });
       setDeleteDialogOpen(false);
       setCustomerToDelete(null);
     },
     onError: () => {
       toast({
-        title: "Error",
-        description: "Failed to delete customer",
+        title: t("common.error"),
+        description: t("customers.deleteFailed"),
         variant: "destructive",
       });
     },
@@ -321,15 +323,15 @@ export default function CustomersList() {
       <div className="flex items-center justify-between gap-4 flex-wrap">
         <div>
           <h1 className="text-3xl font-semibold tracking-tight" data-testid="text-page-title">
-            Customers
+            {t("customers.title")}
           </h1>
           <p className="text-sm text-muted-foreground mt-1">
-            Manage your customer accounts
+            {t("customers.manage")}
           </p>
         </div>
         <Button onClick={() => setIsAddDialogOpen(true)} data-testid="button-add-customer">
           <Plus className="w-4 h-4 mr-2" />
-          Add Customer
+          {t("customers.addCustomer")}
         </Button>
       </div>
 
@@ -337,7 +339,7 @@ export default function CustomersList() {
         <div className="relative flex-1 min-w-[240px]">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
           <Input
-            placeholder="Search customers..."
+            placeholder={t("customers.searchPlaceholder")}
             value={search}
             onChange={(e) => setSearch(e.target.value)}
             className="pl-9"
@@ -346,13 +348,13 @@ export default function CustomersList() {
         </div>
         <Select value={statusFilter} onValueChange={setStatusFilter}>
           <SelectTrigger className="w-[180px]" data-testid="select-status-filter">
-            <SelectValue placeholder="Filter by status" />
+            <SelectValue placeholder={t("common.status")} />
           </SelectTrigger>
           <SelectContent>
-            <SelectItem value="all">All Statuses</SelectItem>
-            <SelectItem value="active">Active</SelectItem>
-            <SelectItem value="prospect">Prospect</SelectItem>
-            <SelectItem value="inactive">Inactive</SelectItem>
+            <SelectItem value="all">{t("common.all")} {t("common.status")}</SelectItem>
+            <SelectItem value="active">{t("statuses.active")}</SelectItem>
+            <SelectItem value="prospect">{t("statuses.prospect")}</SelectItem>
+            <SelectItem value="inactive">{t("statuses.inactive")}</SelectItem>
           </SelectContent>
         </Select>
         <div className="flex items-center gap-2">
@@ -363,7 +365,7 @@ export default function CustomersList() {
             data-testid="toggle-show-archived"
           />
           <Label htmlFor="show-archived" className="text-sm cursor-pointer">
-            Show archived
+            {t("customers.showArchived")}
           </Label>
         </div>
       </div>
@@ -377,9 +379,9 @@ export default function CustomersList() {
       ) : totalFiltered === 0 ? (
         <EmptyState
           image={emptyCustomersImage}
-          title="No customers found"
-          description="Try adjusting your search or filters, or add a new customer to get started."
-          actionLabel="Add Customer"
+          title={t("customers.noCustomersFound")}
+          description={t("customers.tryAdjusting")}
+          actionLabel={t("customers.addCustomer")}
           onAction={() => setIsAddDialogOpen(true)}
         />
       ) : (
@@ -387,12 +389,12 @@ export default function CustomersList() {
           <Table>
             <TableHeader>
               <TableRow>
-                <SortableHeader column="name" label="Customer Name" currentSort={sortColumn} currentDirection={sortDirection} onSort={handleSort} />
-                <SortableHeader column="city" label="Address" currentSort={sortColumn} currentDirection={sortDirection} onSort={handleSort} />
-                <SortableHeader column="status" label="Status" currentSort={sortColumn} currentDirection={sortDirection} onSort={handleSort} />
-                <SortableHeader column="acres" label="Acres" currentSort={sortColumn} currentDirection={sortDirection} onSort={handleSort} />
-                <SortableHeader column="complexity" label="Complexity" currentSort={sortColumn} currentDirection={sortDirection} onSort={handleSort} />
-                <TableHead className="text-right">Actions</TableHead>
+                <SortableHeader column="name" label={t("customers.customerName")} currentSort={sortColumn} currentDirection={sortDirection} onSort={handleSort} />
+                <SortableHeader column="city" label={t("common.address")} currentSort={sortColumn} currentDirection={sortDirection} onSort={handleSort} />
+                <SortableHeader column="status" label={t("common.status")} currentSort={sortColumn} currentDirection={sortDirection} onSort={handleSort} />
+                <SortableHeader column="acres" label={t("customers.acres")} currentSort={sortColumn} currentDirection={sortDirection} onSort={handleSort} />
+                <SortableHeader column="complexity" label={t("customers.complexity")} currentSort={sortColumn} currentDirection={sortDirection} onSort={handleSort} />
+                <TableHead className="text-right">{t("common.actions")}</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -452,7 +454,7 @@ export default function CustomersList() {
                       <Button variant="ghost" size="sm" asChild data-testid={`button-view-${customer.id}`}>
                         <Link href={`/dashboard/customers/${customer.id}`}>
                           <Eye className="w-4 h-4 mr-2" />
-                          View
+                          {t("common.view")}
                         </Link>
                       </Button>
                       {!isParent && (
@@ -470,12 +472,12 @@ export default function CustomersList() {
                             {customer.active === "false" ? (
                               <>
                                 <ArchiveRestore className="w-4 h-4 mr-2" />
-                                Unarchive
+                                {t("customers.unarchive")}
                               </>
                             ) : (
                               <>
                                 <Archive className="w-4 h-4 mr-2" />
-                                Archive
+                                {t("customers.archive")}
                               </>
                             )}
                           </Button>
@@ -501,19 +503,19 @@ export default function CustomersList() {
       <AlertDialog open={deleteDialogOpen} onOpenChange={setDeleteDialogOpen}>
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>Delete Customer</AlertDialogTitle>
+            <AlertDialogTitle>{t("customers.deleteCustomer")}</AlertDialogTitle>
             <AlertDialogDescription>
-              Are you sure you want to delete "{customerToDelete?.name}"? This action cannot be undone.
+              {t("customers.deleteConfirm", { name: customerToDelete?.name })}
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
-            <AlertDialogCancel data-testid="button-cancel-delete">Cancel</AlertDialogCancel>
+            <AlertDialogCancel data-testid="button-cancel-delete">{t("common.cancel")}</AlertDialogCancel>
             <AlertDialogAction 
               onClick={confirmDelete}
               className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
               data-testid="button-confirm-delete"
             >
-              {deleteMutation.isPending ? "Deleting..." : "Delete"}
+              {deleteMutation.isPending ? t("common.deleting") : t("common.delete")}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
@@ -522,9 +524,9 @@ export default function CustomersList() {
       <Dialog open={isAddDialogOpen} onOpenChange={setIsAddDialogOpen}>
         <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
           <DialogHeader>
-            <DialogTitle>Add New Customer</DialogTitle>
+            <DialogTitle>{t("customers.addCustomer")}</DialogTitle>
             <DialogDescription>
-              Create a new customer account with their basic information.
+              {t("customers.manage")}
             </DialogDescription>
           </DialogHeader>
 
@@ -535,7 +537,7 @@ export default function CustomersList() {
                 name="name"
                 render={({ field }) => (
                   <FormItem>
-                    <FormLabel>Customer Name</FormLabel>
+                    <FormLabel>{t("customers.customerName")}</FormLabel>
                     <FormControl>
                       <Input placeholder="e.g., Sunset Village Apartments" {...field} data-testid="input-customer-name" />
                     </FormControl>
@@ -550,18 +552,18 @@ export default function CustomersList() {
                   name="parentCustomerId"
                   render={({ field }) => (
                     <FormItem>
-                      <FormLabel>Parent Customer (Optional)</FormLabel>
+                      <FormLabel>{t("customers.parentCustomer")}</FormLabel>
                       <Select 
                         onValueChange={(v) => field.onChange(v === "__none__" ? null : v)} 
                         value={field.value || "__none__"}
                       >
                         <FormControl>
                           <SelectTrigger data-testid="select-parent-customer">
-                            <SelectValue placeholder="None (standalone customer)" />
+                            <SelectValue placeholder={t("customers.noneStandalone")} />
                           </SelectTrigger>
                         </FormControl>
                         <SelectContent>
-                          <SelectItem value="__none__">None (standalone customer)</SelectItem>
+                          <SelectItem value="__none__">{t("customers.noneStandalone")}</SelectItem>
                           {parentCustomers.map((p) => (
                             <SelectItem key={p.id} value={p.id}>
                               {p.name}
@@ -584,7 +586,7 @@ export default function CustomersList() {
                   name="street"
                   render={({ field }) => (
                     <FormItem className="col-span-2">
-                      <FormLabel>Street Address</FormLabel>
+                      <FormLabel>{t("customers.streetAddress")}</FormLabel>
                       <FormControl>
                         <Input placeholder="123 Main St" {...field} data-testid="input-street" />
                       </FormControl>
@@ -598,7 +600,7 @@ export default function CustomersList() {
                   name="city"
                   render={({ field }) => (
                     <FormItem>
-                      <FormLabel>City</FormLabel>
+                      <FormLabel>{t("customers.city")}</FormLabel>
                       <FormControl>
                         <Input placeholder="Springfield" {...field} data-testid="input-city" />
                       </FormControl>
@@ -612,7 +614,7 @@ export default function CustomersList() {
                   name="state"
                   render={({ field }) => (
                     <FormItem>
-                      <FormLabel>State</FormLabel>
+                      <FormLabel>{t("customers.state")}</FormLabel>
                       <FormControl>
                         <Input placeholder="IL" {...field} data-testid="input-state" />
                       </FormControl>
@@ -626,7 +628,7 @@ export default function CustomersList() {
                   name="zip"
                   render={({ field }) => (
                     <FormItem>
-                      <FormLabel>ZIP Code</FormLabel>
+                      <FormLabel>{t("customers.zipCode")}</FormLabel>
                       <FormControl>
                         <Input placeholder="62701" {...field} data-testid="input-zip" />
                       </FormControl>
@@ -640,17 +642,17 @@ export default function CustomersList() {
                   name="status"
                   render={({ field }) => (
                     <FormItem>
-                      <FormLabel>Status</FormLabel>
+                      <FormLabel>{t("common.status")}</FormLabel>
                       <Select onValueChange={field.onChange} value={field.value}>
                         <FormControl>
                           <SelectTrigger data-testid="select-status">
-                            <SelectValue placeholder="Select status" />
+                            <SelectValue placeholder={t("common.status")} />
                           </SelectTrigger>
                         </FormControl>
                         <SelectContent>
-                          <SelectItem value="active">Active</SelectItem>
-                          <SelectItem value="prospect">Prospect</SelectItem>
-                          <SelectItem value="inactive">Inactive</SelectItem>
+                          <SelectItem value="active">{t("statuses.active")}</SelectItem>
+                          <SelectItem value="prospect">{t("statuses.prospect")}</SelectItem>
+                          <SelectItem value="inactive">{t("statuses.inactive")}</SelectItem>
                         </SelectContent>
                       </Select>
                       <FormMessage />
@@ -663,7 +665,7 @@ export default function CustomersList() {
                   name="acres"
                   render={({ field }) => (
                     <FormItem>
-                      <FormLabel>Acres (Optional)</FormLabel>
+                      <FormLabel>{t("customers.acres")} ({t("common.optional")})</FormLabel>
                       <FormControl>
                         <Input placeholder="5.2" {...field} value={field.value || ""} data-testid="input-acres" />
                       </FormControl>
@@ -677,7 +679,7 @@ export default function CustomersList() {
                   name="complexityScore"
                   render={({ field }) => (
                     <FormItem>
-                      <FormLabel>Complexity (Optional)</FormLabel>
+                      <FormLabel>{t("customers.complexity")} ({t("common.optional")})</FormLabel>
                       <Select onValueChange={field.onChange} value={field.value}>
                         <FormControl>
                           <SelectTrigger data-testid="select-complexity">
@@ -705,14 +707,14 @@ export default function CustomersList() {
                   onClick={() => setIsAddDialogOpen(false)}
                   data-testid="button-cancel"
                 >
-                  Cancel
+                  {t("common.cancel")}
                 </Button>
                 <Button
                   type="submit"
                   disabled={createMutation.isPending}
                   data-testid="button-submit"
                 >
-                  {createMutation.isPending ? "Creating..." : "Create Customer"}
+                  {createMutation.isPending ? t("common.creating") : t("customers.addCustomer")}
                 </Button>
               </DialogFooter>
             </form>

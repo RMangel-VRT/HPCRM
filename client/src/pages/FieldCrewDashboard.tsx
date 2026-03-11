@@ -11,6 +11,7 @@ import {
   Calendar
 } from "lucide-react";
 import { useQuery } from "@tanstack/react-query";
+import { useTranslation } from "react-i18next";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Link } from "wouter";
 import { format, isToday, isTomorrow, parseISO } from "date-fns";
@@ -52,37 +53,38 @@ const workTypeLabels: Record<string, string> = {
 };
 
 export default function FieldCrewDashboard() {
+  const { t } = useTranslation();
   const { data: myTickets = [], isLoading } = useQuery<Ticket[]>({
     queryKey: ["/api/tickets/my"],
   });
 
-  const activeTickets = myTickets.filter(t => 
-    t.currentStatus?.name?.toLowerCase() !== "completed" && 
-    t.currentStatus?.name?.toLowerCase() !== "closed"
+  const activeTickets = myTickets.filter(tk => 
+    tk.currentStatus?.name?.toLowerCase() !== "completed" && 
+    tk.currentStatus?.name?.toLowerCase() !== "closed"
   );
   
-  const completedToday = myTickets.filter(t => {
-    if (t.currentStatus?.name?.toLowerCase() !== "completed") return false;
+  const completedToday = myTickets.filter(tk => {
+    if (tk.currentStatus?.name?.toLowerCase() !== "completed") return false;
     return true;
   });
 
-  const urgentTickets = activeTickets.filter(t => t.priority === "urgent" || t.priority === "high");
+  const urgentTickets = activeTickets.filter(tk => tk.priority === "urgent" || tk.priority === "high");
   
   const stats = [
     {
-      title: "Active Tasks",
+      title: t("fieldDashboard.activeTasks"),
       value: activeTickets.length.toString(),
       icon: ClipboardList,
       color: "text-blue-500",
     },
     {
-      title: "High Priority",
+      title: t("fieldDashboard.highPriority"),
       value: urgentTickets.length.toString(),
       icon: AlertCircle,
       color: "text-orange-500",
     },
     {
-      title: "Completed",
+      title: t("fieldDashboard.completed"),
       value: completedToday.length.toString(),
       icon: CheckCircle2,
       color: "text-green-500",
@@ -93,7 +95,7 @@ export default function FieldCrewDashboard() {
     <div className="space-y-4 pb-20">
       <div>
         <h1 className="text-2xl font-semibold tracking-tight" data-testid="text-page-title">
-          My Work
+          {t("fieldDashboard.myWork")}
         </h1>
         <p className="text-sm text-muted-foreground">
           {format(new Date(), "EEEE, MMMM d")}
@@ -114,10 +116,10 @@ export default function FieldCrewDashboard() {
 
       <Card>
         <CardHeader className="flex flex-row items-center justify-between gap-2 pb-3">
-          <CardTitle className="text-lg">My Tickets</CardTitle>
+          <CardTitle className="text-lg">{t("fieldDashboard.myTickets")}</CardTitle>
           <Link href="/dashboard/tickets/my">
             <Button variant="ghost" size="sm" data-testid="button-view-all-tickets">
-              View All
+              {t("fieldDashboard.viewAll")}
               <ArrowRight className="w-4 h-4 ml-1" />
             </Button>
           </Link>
@@ -132,8 +134,8 @@ export default function FieldCrewDashboard() {
           ) : activeTickets.length === 0 ? (
             <div className="text-center py-8">
               <CheckCircle2 className="w-12 h-12 mx-auto text-green-500 mb-3" />
-              <p className="font-medium">All caught up!</p>
-              <p className="text-sm text-muted-foreground">No active tasks assigned to you</p>
+              <p className="font-medium">{t("fieldDashboard.allCaughtUp")}</p>
+              <p className="text-sm text-muted-foreground">{t("fieldDashboard.noActiveTasks")}</p>
             </div>
           ) : (
             <div className="space-y-3">
@@ -193,7 +195,7 @@ export default function FieldCrewDashboard() {
               {activeTickets.length > 5 && (
                 <Link href="/dashboard/tickets/my">
                   <Button variant="outline" className="w-full" size="sm">
-                    View {activeTickets.length - 5} more tickets
+                    {t("fieldDashboard.viewMoreTickets", { count: activeTickets.length - 5 })}
                   </Button>
                 </Link>
               )}
@@ -206,20 +208,20 @@ export default function FieldCrewDashboard() {
         <CardHeader className="pb-3">
           <CardTitle className="text-lg flex items-center gap-2">
             <Calendar className="w-5 h-5" />
-            Quick Actions
+            {t("fieldDashboard.quickActions")}
           </CardTitle>
         </CardHeader>
         <CardContent className="grid grid-cols-2 gap-3">
           <Link href="/dashboard/tickets/my">
             <Button variant="outline" className="w-full h-auto py-4 flex-col gap-2">
               <ClipboardList className="w-5 h-5" />
-              <span className="text-xs">All My Tickets</span>
+              <span className="text-xs">{t("fieldDashboard.allMyTickets")}</span>
             </Button>
           </Link>
           <Link href="/dashboard/customers">
             <Button variant="outline" className="w-full h-auto py-4 flex-col gap-2">
               <MapPin className="w-5 h-5" />
-              <span className="text-xs">Customer List</span>
+              <span className="text-xs">{t("fieldDashboard.customerList")}</span>
             </Button>
           </Link>
         </CardContent>

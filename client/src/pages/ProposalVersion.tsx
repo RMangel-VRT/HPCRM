@@ -1,5 +1,6 @@
 import { useParams, useLocation, Link } from "wouter";
 import { useQuery } from "@tanstack/react-query";
+import { useTranslation } from "react-i18next";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -25,6 +26,7 @@ function formatDate(dateStr: string) {
 export default function ProposalVersion() {
   const { id, versionId } = useParams<{ id: string; versionId: string }>();
   const [, navigate] = useLocation();
+  const { t } = useTranslation();
 
   const { data: proposal, isLoading, isError } = useQuery<ProposalWithDetails>({
     queryKey: ["/api/proposals", id],
@@ -45,7 +47,7 @@ export default function ProposalVersion() {
   if (isError || !proposal) {
     return (
       <div className="p-6 max-w-3xl mx-auto">
-        <p className="text-muted-foreground">Proposal not found.</p>
+        <p className="text-muted-foreground">{t("proposalVersion.proposalNotFound")}</p>
       </div>
     );
   }
@@ -55,7 +57,7 @@ export default function ProposalVersion() {
   if (!version) {
     return (
       <div className="p-6 max-w-3xl mx-auto">
-        <p className="text-muted-foreground">Version not found.</p>
+        <p className="text-muted-foreground">{t("proposalVersion.versionNotFound")}</p>
       </div>
     );
   }
@@ -66,12 +68,11 @@ export default function ProposalVersion() {
 
   return (
     <div className="p-6 max-w-3xl mx-auto space-y-6">
-      {/* Breadcrumb */}
       <div className="flex items-center gap-2 text-sm text-muted-foreground flex-wrap">
         <Link href="/dashboard/tools/proposals">
           <button className="flex items-center gap-1 hover:text-foreground transition-colors" data-testid="link-back-to-list">
             <ArrowLeft className="w-3.5 h-3.5" />
-            Proposal Maker
+            {t("proposals.title")}
           </button>
         </Link>
         <span>/</span>
@@ -84,7 +85,6 @@ export default function ProposalVersion() {
         <span className="text-foreground font-medium">v{version.versionNumber}</span>
       </div>
 
-      {/* Header */}
       <div>
         <div className="flex items-center gap-3 flex-wrap mb-2">
           <h1 className="text-xl font-semibold tracking-tight" data-testid="text-version-title">
@@ -92,11 +92,11 @@ export default function ProposalVersion() {
           </h1>
           <Badge variant="secondary" className="flex items-center gap-1" data-testid="badge-version-status">
             <CheckCircle2 className="w-3 h-3" />
-            Finalized v{version.versionNumber}
+            {t("proposalVersion.finalizedVersion", { version: version.versionNumber })}
           </Badge>
         </div>
         <p className="text-sm text-muted-foreground">
-          Customer:{" "}
+          {t("common.customer")}:{" "}
           <Link href={`/dashboard/customers/${proposal.customerId}`}>
             <span className="text-foreground hover:underline cursor-pointer" data-testid="link-customer-name">
               {proposal.customerName}
@@ -105,31 +105,30 @@ export default function ProposalVersion() {
         </p>
       </div>
 
-      {/* Version Details Card */}
       <Card>
         <CardHeader>
-          <CardTitle className="text-base">Version Details</CardTitle>
+          <CardTitle className="text-base">{t("proposalVersion.versionDetails")}</CardTitle>
         </CardHeader>
         <CardContent className="space-y-3">
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 text-sm">
             <div>
-              <p className="text-xs text-muted-foreground mb-0.5">Proposal Date</p>
+              <p className="text-xs text-muted-foreground mb-0.5">{t("proposals.proposalDate")}</p>
               <p className="font-medium" data-testid="text-proposal-date">{formatDate(version.proposalDate)}</p>
             </div>
             {version.estimateNumber && (
               <div>
-                <p className="text-xs text-muted-foreground mb-0.5">QB Estimate #</p>
+                <p className="text-xs text-muted-foreground mb-0.5">{t("proposalVersion.qbEstimate")}</p>
                 <p className="font-medium" data-testid="text-estimate-number">#{version.estimateNumber}</p>
               </div>
             )}
             <div>
-              <p className="text-xs text-muted-foreground mb-0.5">Finalized By</p>
+              <p className="text-xs text-muted-foreground mb-0.5">{t("proposalVersion.finalizedBy")}</p>
               <p className="font-medium" data-testid="text-finalized-by">
-                {version.finalizedByName ?? "Unknown"}
+                {version.finalizedByName ?? t("common.unknown")}
               </p>
             </div>
             <div>
-              <p className="text-xs text-muted-foreground mb-0.5">Finalized On</p>
+              <p className="text-xs text-muted-foreground mb-0.5">{t("proposalVersion.finalizedOn")}</p>
               <p className="font-medium" data-testid="text-finalized-at">
                 {formatDateTime(version.finalizedAt)}
               </p>
@@ -138,14 +137,13 @@ export default function ProposalVersion() {
         </CardContent>
       </Card>
 
-      {/* Actions Card */}
       <Card>
         <CardHeader>
-          <CardTitle className="text-base">PDF Document</CardTitle>
+          <CardTitle className="text-base">{t("proposalVersion.pdfDocument")}</CardTitle>
         </CardHeader>
         <CardContent>
           <p className="text-sm text-muted-foreground mb-4">
-            This is a permanent, immutable copy of the proposal as it was on {formatDateTime(version.finalizedAt)}.
+            {t("proposalVersion.immutableCopy")}
           </p>
           <div className="flex items-center gap-3 flex-wrap">
             <Button
@@ -154,50 +152,49 @@ export default function ProposalVersion() {
               data-testid="button-preview-version-pdf"
             >
               <Eye className="w-4 h-4 mr-2" />
-              Preview PDF
+              {t("proposals.previewPdf")}
             </Button>
             <a href={downloadUrl} download data-testid="button-download-version-pdf">
               <Button>
                 <Download className="w-4 h-4 mr-2" />
-                Download PDF
+                {t("proposals.downloadPdf")}
               </Button>
             </a>
           </div>
         </CardContent>
       </Card>
 
-      {/* Visual Scope Snapshot Card */}
       {version.vsCombinedPath && (
         <Card>
           <CardHeader>
             <CardTitle className="text-base flex items-center gap-2">
               <Map className="w-4 h-4" />
-              Visual Scope Snapshot (Frozen)
+              {t("proposalVersion.visualScopeSnapshot")}
             </CardTitle>
           </CardHeader>
           <CardContent className="space-y-4">
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-sm">
               {version.visualScopeTitle && (
                 <div>
-                  <p className="text-xs text-muted-foreground mb-0.5">Sheet Title</p>
+                  <p className="text-xs text-muted-foreground mb-0.5">{t("proposalVersion.sheetTitle")}</p>
                   <p className="font-medium" data-testid="text-vs-snapshot-title">{version.visualScopeTitle}</p>
                 </div>
               )}
               {version.visualScopeDate && (
                 <div>
-                  <p className="text-xs text-muted-foreground mb-0.5">Scope Date</p>
+                  <p className="text-xs text-muted-foreground mb-0.5">{t("proposalVersion.scopeDate")}</p>
                   <p className="font-medium" data-testid="text-vs-snapshot-date">{formatDate(version.visualScopeDate)}</p>
                 </div>
               )}
               {version.vsFrozenAt && (
                 <div>
-                  <p className="text-xs text-muted-foreground mb-0.5">Frozen At</p>
+                  <p className="text-xs text-muted-foreground mb-0.5">{t("proposalVersion.frozenAt")}</p>
                   <p className="font-medium" data-testid="text-vs-frozen-at">{formatDateTime(version.vsFrozenAt)}</p>
                 </div>
               )}
             </div>
             <p className="text-xs text-muted-foreground">
-              These images are permanent snapshots captured at the time of finalization. They will not change even if the Visual Scope Sheet is later edited.
+              {t("proposalVersion.frozenSnapshots")}
             </p>
             <div className="flex items-center gap-3 flex-wrap">
               <Button
@@ -206,11 +203,11 @@ export default function ProposalVersion() {
                 onClick={() => window.open(`/api/proposals/${id}/versions/${versionId}/visual-scope/combined?inline=1`, "_blank")}
                 data-testid="button-preview-vs-combined"
               >
-                <Eye className="w-4 h-4 mr-2" /> Preview Combined
+                <Eye className="w-4 h-4 mr-2" /> {t("proposalVersion.previewCombined")}
               </Button>
               <a href={`/api/proposals/${id}/versions/${versionId}/visual-scope/combined`} download data-testid="button-download-vs-combined">
                 <Button variant="outline" size="sm">
-                  <Download className="w-4 h-4 mr-2" /> Download Combined
+                  <Download className="w-4 h-4 mr-2" /> {t("proposalVersion.downloadCombined")}
                 </Button>
               </a>
               {version.vsBasePath && (
@@ -221,11 +218,11 @@ export default function ProposalVersion() {
                     onClick={() => window.open(`/api/proposals/${id}/versions/${versionId}/visual-scope/base?inline=1`, "_blank")}
                     data-testid="button-preview-vs-base"
                   >
-                    <Eye className="w-4 h-4 mr-2" /> Preview Base
+                    <Eye className="w-4 h-4 mr-2" /> {t("proposalVersion.previewBase")}
                   </Button>
                   <a href={`/api/proposals/${id}/versions/${versionId}/visual-scope/base`} download data-testid="button-download-vs-base">
                     <Button variant="outline" size="sm">
-                      <Download className="w-4 h-4 mr-2" /> Download Base
+                      <Download className="w-4 h-4 mr-2" /> {t("proposalVersion.downloadBase")}
                     </Button>
                   </a>
                 </>
@@ -238,11 +235,11 @@ export default function ProposalVersion() {
                     onClick={() => window.open(`/api/proposals/${id}/versions/${versionId}/visual-scope/overlay?inline=1`, "_blank")}
                     data-testid="button-preview-vs-overlay"
                   >
-                    <Eye className="w-4 h-4 mr-2" /> Preview Overlay
+                    <Eye className="w-4 h-4 mr-2" /> {t("proposalVersion.previewOverlay")}
                   </Button>
                   <a href={`/api/proposals/${id}/versions/${versionId}/visual-scope/overlay`} download data-testid="button-download-vs-overlay">
                     <Button variant="outline" size="sm">
-                      <Download className="w-4 h-4 mr-2" /> Download Overlay
+                      <Download className="w-4 h-4 mr-2" /> {t("proposalVersion.downloadOverlay")}
                     </Button>
                   </a>
                 </>
@@ -252,14 +249,13 @@ export default function ProposalVersion() {
         </Card>
       )}
 
-      {/* Navigation Card */}
       <Card>
         <CardHeader>
-          <CardTitle className="text-base">Proposal Draft</CardTitle>
+          <CardTitle className="text-base">{t("proposalVersion.proposalDraft")}</CardTitle>
         </CardHeader>
         <CardContent className="space-y-3">
           <p className="text-sm text-muted-foreground">
-            The draft remains editable. Finalizing it again will create v{version.versionNumber + 1}.
+            {t("proposalVersion.draftEditable", { next: version.versionNumber + 1 })}
           </p>
           <div className="flex items-center gap-3 flex-wrap">
             <Button
@@ -268,26 +264,25 @@ export default function ProposalVersion() {
               data-testid="button-back-to-draft"
             >
               <ArrowLeft className="w-4 h-4 mr-2" />
-              Back to Draft
+              {t("proposalVersion.backToDraft")}
             </Button>
             <Button
               onClick={() => navigate(`/dashboard/tools/proposals/${id}`)}
               data-testid="button-create-new-version"
             >
               <Plus className="w-4 h-4 mr-2" />
-              Create New Version
+              {t("proposalVersion.createNewVersion")}
             </Button>
           </div>
         </CardContent>
       </Card>
 
-      {/* Other Versions */}
       {otherVersions.length > 0 && (
         <Card data-testid="div-other-versions">
           <CardHeader>
             <CardTitle className="text-base flex items-center gap-2">
               <History className="w-4 h-4" />
-              Other Versions
+              {t("proposalVersion.otherVersions")}
             </CardTitle>
           </CardHeader>
           <CardContent className="space-y-2">

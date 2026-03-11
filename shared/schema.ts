@@ -33,6 +33,7 @@ export const users = pgTable("users", {
   name: text("name").notNull(),
   isSuperAdmin: text("is_super_admin").notNull().default("false").$type<"true" | "false">(),
   defaultCompanyId: varchar("default_company_id").references(() => companies.id, { onDelete: "set null" }),
+  language: text("language").notNull().default("en").$type<"en" | "es">(),
   createdAt: timestamp("created_at").notNull().defaultNow(),
 });
 
@@ -42,6 +43,7 @@ export const insertUserSchema = createInsertSchema(users).omit({
 }).extend({
   isSuperAdmin: z.enum(["true", "false"]).default("false"),
   defaultCompanyId: z.string().optional(),
+  language: z.enum(["en", "es"]).default("en"),
 });
 
 export type InsertUser = z.infer<typeof insertUserSchema>;

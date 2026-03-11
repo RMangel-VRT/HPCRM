@@ -1,4 +1,5 @@
 import { useState, useEffect } from "react";
+import { useTranslation } from "react-i18next";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
@@ -35,7 +36,12 @@ interface ManagerPhoneInput {
   isPrimary: "true" | "false";
 }
 
-const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+const MONTHS_WITH_KEYS = [
+  { value: "Jan", key: "months.jan" }, { value: "Feb", key: "months.feb" }, { value: "Mar", key: "months.mar" },
+  { value: "Apr", key: "months.apr" }, { value: "May", key: "months.may" }, { value: "Jun", key: "months.jun" },
+  { value: "Jul", key: "months.jul" }, { value: "Aug", key: "months.aug" }, { value: "Sep", key: "months.sep" },
+  { value: "Oct", key: "months.oct" }, { value: "Nov", key: "months.nov" }, { value: "Dec", key: "months.dec" },
+];
 
 const companySchema = z.object({
   companyName: z.string().min(1, "Company name is required"),
@@ -67,6 +73,7 @@ const pmManagerSchema = z.object({
 });
 
 export default function SettingsPage() {
+  const { t } = useTranslation();
   const { toast } = useToast();
   const { user: currentUser } = useAuth();
   const [, setLocation] = useLocation();
@@ -76,7 +83,7 @@ export default function SettingsPage() {
   const [activeTab, setActiveTab] = useState(isAdmin ? "company" : "property-management");
 
   useSetBreadcrumbs([
-    { label: "Settings" },
+    { label: t("settings.title") },
   ], []);
   const [mowingMonths, setMowingMonths] = useState<string[]>([]);
   const [cleanupMonths, setCleanupMonths] = useState<string[]>([]);
@@ -132,10 +139,10 @@ export default function SettingsPage() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/email-templates"] });
       setEditingTemplate(null);
-      toast({ title: "Template updated" });
+      toast({ title: t("settings.templateUpdated") });
     },
     onError: () => {
-      toast({ title: "Failed to update template", variant: "destructive" });
+      toast({ title: t("settings.templateFailed"), variant: "destructive" });
     },
   });
 
@@ -145,10 +152,10 @@ export default function SettingsPage() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/email-rules"] });
-      toast({ title: "Rule updated" });
+      toast({ title: t("settings.ruleUpdated") });
     },
     onError: () => {
-      toast({ title: "Failed to update rule", variant: "destructive" });
+      toast({ title: t("settings.ruleFailed"), variant: "destructive" });
     },
   });
 
@@ -159,14 +166,14 @@ export default function SettingsPage() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/settings"] });
       toast({
-        title: "Settings saved",
-        description: "Your changes have been saved successfully.",
+        title: t("settings.saved"),
+        description: t("settings.savedMsg"),
       });
     },
     onError: () => {
       toast({
-        title: "Error",
-        description: "Failed to save settings. Please try again.",
+        title: t("common.error"),
+        description: t("settings.saveFailed"),
         variant: "destructive",
       });
     },
@@ -209,10 +216,10 @@ export default function SettingsPage() {
       setPmCompanyDialogOpen(false);
       setEditingPmCompany(null);
       pmCompanyForm.reset();
-      toast({ title: "Success", description: "Property management company created." });
+      toast({ title: t("common.success"), description: t("settings.pmCompanyCreated") });
     },
     onError: () => {
-      toast({ title: "Error", description: "Failed to create company.", variant: "destructive" });
+      toast({ title: t("common.error"), description: t("settings.pmCompanyCreateFailed"), variant: "destructive" });
     },
   });
   
@@ -225,10 +232,10 @@ export default function SettingsPage() {
       setPmCompanyDialogOpen(false);
       setEditingPmCompany(null);
       pmCompanyForm.reset();
-      toast({ title: "Success", description: "Company updated." });
+      toast({ title: t("common.success"), description: t("settings.pmCompanyUpdated") });
     },
     onError: () => {
-      toast({ title: "Error", description: "Failed to update company.", variant: "destructive" });
+      toast({ title: t("common.error"), description: t("settings.pmCompanyUpdateFailed"), variant: "destructive" });
     },
   });
   
@@ -239,10 +246,10 @@ export default function SettingsPage() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/property-management-companies"] });
       queryClient.invalidateQueries({ queryKey: ["/api/property-managers"] });
-      toast({ title: "Deleted", description: "Company deleted." });
+      toast({ title: t("common.delete"), description: t("settings.pmCompanyUpdated") });
     },
     onError: () => {
-      toast({ title: "Error", description: "Failed to delete company.", variant: "destructive" });
+      toast({ title: t("common.error"), description: t("settings.pmCompanyDeleteFailed"), variant: "destructive" });
     },
   });
   
@@ -263,10 +270,10 @@ export default function SettingsPage() {
       pmManagerForm.reset();
       setManagerEmails([]);
       setManagerPhones([]);
-      toast({ title: "Success", description: "Property manager created." });
+      toast({ title: t("common.success"), description: t("settings.pmCompanyCreated") });
     },
     onError: () => {
-      toast({ title: "Error", description: "Failed to create manager.", variant: "destructive" });
+      toast({ title: t("common.error"), description: t("settings.pmManagerCreateFailed"), variant: "destructive" });
     },
   });
   
@@ -284,10 +291,10 @@ export default function SettingsPage() {
       pmManagerForm.reset();
       setManagerEmails([]);
       setManagerPhones([]);
-      toast({ title: "Success", description: "Manager updated." });
+      toast({ title: t("common.success"), description: t("settings.pmManagerUpdated") });
     },
     onError: () => {
-      toast({ title: "Error", description: "Failed to update manager.", variant: "destructive" });
+      toast({ title: t("common.error"), description: t("settings.pmManagerUpdateFailed"), variant: "destructive" });
     },
   });
   
@@ -297,10 +304,10 @@ export default function SettingsPage() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/property-managers"] });
-      toast({ title: "Deleted", description: "Manager deleted." });
+      toast({ title: t("common.delete"), description: t("settings.pmManagerUpdated") });
     },
     onError: () => {
-      toast({ title: "Error", description: "Failed to delete manager.", variant: "destructive" });
+      toast({ title: t("common.error"), description: t("settings.pmManagerDeleteFailed"), variant: "destructive" });
     },
   });
   
@@ -448,8 +455,8 @@ export default function SettingsPage() {
     return (
       <div className="space-y-6">
         <div>
-          <h1 className="text-3xl font-semibold tracking-tight">Settings</h1>
-          <p className="text-sm text-muted-foreground mt-1">Loading settings...</p>
+          <h1 className="text-3xl font-semibold tracking-tight">{t("settings.title")}</h1>
+          <p className="text-sm text-muted-foreground mt-1">{t("common.loading")}</p>
         </div>
       </div>
     );
@@ -459,10 +466,10 @@ export default function SettingsPage() {
     <div className="space-y-6">
       <div>
         <h1 className="text-3xl font-semibold tracking-tight" data-testid="text-page-title">
-          Settings
+          {t("settings.title")}
         </h1>
         <p className="text-sm text-muted-foreground mt-1">
-          Manage company settings and feature flags
+          {t("settings.manage")}
         </p>
       </div>
 
@@ -470,37 +477,37 @@ export default function SettingsPage() {
         <TabsList className="flex-wrap h-auto gap-1">
           {isAdmin && (
             <>
-              <TabsTrigger value="company" data-testid="tab-company">Company</TabsTrigger>
-              <TabsTrigger value="seasons" data-testid="tab-seasons">Seasons</TabsTrigger>
-              <TabsTrigger value="benchmarks" data-testid="tab-benchmarks">Benchmarks</TabsTrigger>
+              <TabsTrigger value="company" data-testid="tab-company">{t("settings.tabs.company")}</TabsTrigger>
+              <TabsTrigger value="seasons" data-testid="tab-seasons">{t("settings.tabs.seasons")}</TabsTrigger>
+              <TabsTrigger value="benchmarks" data-testid="tab-benchmarks">{t("settings.tabs.benchmarks")}</TabsTrigger>
             </>
           )}
           {canAccessPropertyManagement && (
-            <TabsTrigger value="property-management" data-testid="tab-property-management">Property Management</TabsTrigger>
+            <TabsTrigger value="property-management" data-testid="tab-property-management">{t("settings.tabs.propertyMgmt")}</TabsTrigger>
           )}
           {isAdmin && (
-            <TabsTrigger value="features" data-testid="tab-features">Feature Flags</TabsTrigger>
+            <TabsTrigger value="features" data-testid="tab-features">{t("settings.tabs.featureFlags")}</TabsTrigger>
           )}
           {isAdmin && (
-            <TabsTrigger value="email-templates" data-testid="tab-email-templates">Email Templates</TabsTrigger>
+            <TabsTrigger value="email-templates" data-testid="tab-email-templates">{t("settings.tabs.emailTemplates")}</TabsTrigger>
           )}
           {isAdmin && (
-            <TabsTrigger value="billing" data-testid="tab-billing">Billing</TabsTrigger>
+            <TabsTrigger value="billing" data-testid="tab-billing">{t("settings.tabs.billing")}</TabsTrigger>
           )}
         </TabsList>
 
         <TabsContent value="company" className="space-y-6">
           <Card>
             <CardHeader>
-              <CardTitle>Company Information</CardTitle>
+              <CardTitle>{t("settings.companyInfo")}</CardTitle>
               <CardDescription>
-                Basic company details used throughout the system
+                {t("settings.companyInfoDesc")}
               </CardDescription>
             </CardHeader>
             <CardContent className="space-y-4">
               <form onSubmit={handleCompanySubmit} className="space-y-4">
                 <div className="space-y-2">
-                  <Label htmlFor="companyName">Company Name *</Label>
+                  <Label htmlFor="companyName">{t("settings.companyName")}</Label>
                   <Input
                     id="companyName"
                     {...companyForm.register("companyName")}
@@ -518,7 +525,7 @@ export default function SettingsPage() {
                     disabled={updateSettingsMutation.isPending}
                     data-testid="button-save-company"
                   >
-                    {updateSettingsMutation.isPending ? "Saving..." : "Save Changes"}
+                    {updateSettingsMutation.isPending ? t("common.saving") : t("settings.saveChanges")}
                   </Button>
                 </div>
               </form>
@@ -529,30 +536,30 @@ export default function SettingsPage() {
         <TabsContent value="seasons" className="space-y-6">
           <Card>
             <CardHeader>
-              <CardTitle>Service Seasons</CardTitle>
+              <CardTitle>{t("settings.serviceSeasons")}</CardTitle>
               <CardDescription>
-                Define which months each service type is active
+                {t("settings.seasonDesc")}
               </CardDescription>
             </CardHeader>
             <CardContent className="space-y-6">
               <div>
-                <Label className="text-base">Mowing Season</Label>
+                <Label className="text-base">{t("settings.mowingSeason")}</Label>
                 <p className="text-sm text-muted-foreground mb-3">
-                  Click months to toggle selection
+                  {t("settings.clickToToggle")}
                 </p>
                 <div className="flex flex-wrap gap-2">
-                  {MONTHS.map((month) => (
+                  {MONTHS_WITH_KEYS.map((month) => (
                     <Badge
-                      key={month}
-                      onClick={() => toggleMonth(month, "mowing")}
+                      key={month.value}
+                      onClick={() => toggleMonth(month.value, "mowing")}
                       className={
-                        mowingMonths.includes(month)
+                        mowingMonths.includes(month.value)
                           ? "bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-400 cursor-pointer hover-elevate active-elevate-2"
                           : "bg-muted text-muted-foreground cursor-pointer hover-elevate active-elevate-2"
                       }
-                      data-testid={`badge-mowing-${month.toLowerCase()}`}
+                      data-testid={`badge-mowing-${month.value.toLowerCase()}`}
                     >
-                      {month}
+                      {t(month.key)}
                     </Badge>
                   ))}
                 </div>
@@ -561,23 +568,23 @@ export default function SettingsPage() {
               <Separator />
 
               <div>
-                <Label className="text-base">Cleanup Season</Label>
+                <Label className="text-base">{t("settings.cleanupSeason")}</Label>
                 <p className="text-sm text-muted-foreground mb-3">
-                  Click months to toggle selection
+                  {t("settings.clickToToggle")}
                 </p>
                 <div className="flex flex-wrap gap-2">
-                  {MONTHS.map((month) => (
+                  {MONTHS_WITH_KEYS.map((month) => (
                     <Badge
-                      key={month}
-                      onClick={() => toggleMonth(month, "cleanup")}
+                      key={month.value}
+                      onClick={() => toggleMonth(month.value, "cleanup")}
                       className={
-                        cleanupMonths.includes(month)
+                        cleanupMonths.includes(month.value)
                           ? "bg-orange-100 text-orange-800 dark:bg-orange-900/30 dark:text-orange-400 cursor-pointer hover-elevate active-elevate-2"
                           : "bg-muted text-muted-foreground cursor-pointer hover-elevate active-elevate-2"
                       }
-                      data-testid={`badge-cleanup-${month.toLowerCase()}`}
+                      data-testid={`badge-cleanup-${month.value.toLowerCase()}`}
                     >
-                      {month}
+                      {t(month.key)}
                     </Badge>
                   ))}
                 </div>
@@ -589,7 +596,7 @@ export default function SettingsPage() {
                   disabled={updateSettingsMutation.isPending}
                   data-testid="button-save-seasons"
                 >
-                  {updateSettingsMutation.isPending ? "Saving..." : "Save Changes"}
+                  {updateSettingsMutation.isPending ? t("common.saving") : t("settings.saveChanges")}
                 </Button>
               </div>
             </CardContent>
@@ -599,9 +606,9 @@ export default function SettingsPage() {
         <TabsContent value="benchmarks" className="space-y-6">
           <Card>
             <CardHeader>
-              <CardTitle>Hourly Rate Benchmarks</CardTitle>
+              <CardTitle>{t("settings.tabs.benchmarks")}</CardTitle>
               <CardDescription>
-                Standard hourly rates for different property types ($/hour)
+                {t("settings.companyInfoDesc")}
               </CardDescription>
             </CardHeader>
             <CardContent className="space-y-4">
@@ -656,7 +663,7 @@ export default function SettingsPage() {
                     disabled={updateSettingsMutation.isPending}
                     data-testid="button-save-benchmarks"
                   >
-                    {updateSettingsMutation.isPending ? "Saving..." : "Save Changes"}
+                    {updateSettingsMutation.isPending ? t("common.saving") : t("settings.saveChanges")}
                   </Button>
                 </div>
               </form>
@@ -671,30 +678,30 @@ export default function SettingsPage() {
               <div>
                 <CardTitle className="flex items-center gap-2">
                   <Building2 className="h-5 w-5" />
-                  Property Management Companies
+                  {t("settings.tabs.propertyMgmt")}
                 </CardTitle>
                 <CardDescription>
-                  Manage companies that oversee multiple properties
+                  {t("settings.manage")}
                 </CardDescription>
               </div>
               <Button onClick={() => handleOpenPmCompanyDialog()} data-testid="button-add-pm-company" className="w-full sm:w-auto">
                 <Plus className="h-4 w-4 mr-2" />
-                Add Company
+                {t("common.add")}
               </Button>
             </CardHeader>
             <CardContent>
               {pmCompanies.length === 0 ? (
-                <p className="text-muted-foreground text-center py-4">No property management companies yet.</p>
+                <p className="text-muted-foreground text-center py-4">{t("common.noResults")}</p>
               ) : (
                 <>
                   <div className="hidden sm:block">
                     <Table>
                       <TableHeader>
                         <TableRow>
-                          <TableHead>Name</TableHead>
-                          <TableHead>Phone</TableHead>
-                          <TableHead>Email</TableHead>
-                          <TableHead className="text-right">Actions</TableHead>
+                          <TableHead>{t("common.name")}</TableHead>
+                          <TableHead>{t("common.phone")}</TableHead>
+                          <TableHead>{t("common.email")}</TableHead>
+                          <TableHead className="text-right">{t("common.actions")}</TableHead>
                         </TableRow>
                       </TableHeader>
                       <TableBody>
@@ -751,10 +758,10 @@ export default function SettingsPage() {
               <div>
                 <CardTitle className="flex items-center gap-2">
                   <User className="h-5 w-5" />
-                  Property Managers
+                  {t("settings.tabs.propertyMgmt")}
                 </CardTitle>
                 <CardDescription>
-                  Individual managers who handle specific properties
+                  {t("settings.manage")}
                 </CardDescription>
               </div>
               <div className="flex flex-wrap gap-2 w-full sm:w-auto">
@@ -769,37 +776,37 @@ export default function SettingsPage() {
                       if (allEmails.length > 0) {
                         navigator.clipboard.writeText(allEmails.join(", "));
                         toast({
-                          title: "Copied",
-                          description: `${allEmails.length} email${allEmails.length > 1 ? 's' : ''} copied to clipboard`,
+                          title: t("common.success"),
+                          description: `${allEmails.length} email${allEmails.length > 1 ? 's' : ''}`,
                         });
                       }
                     }}
                     data-testid="button-copy-all-pm-emails"
                   >
                     <Mail className="h-4 w-4 mr-2" />
-                    Copy Emails
+                    {t("common.email")}
                   </Button>
                 )}
                 <Button onClick={() => handleOpenPmManagerDialog()} data-testid="button-add-pm-manager" className="flex-1 sm:flex-initial">
                   <Plus className="h-4 w-4 mr-2" />
-                  Add Manager
+                  {t("common.add")}
                 </Button>
               </div>
             </CardHeader>
             <CardContent>
               {pmManagers.length === 0 ? (
-                <p className="text-muted-foreground text-center py-4">No property managers yet.</p>
+                <p className="text-muted-foreground text-center py-4">{t("common.noResults")}</p>
               ) : (
                 <>
                   <div className="hidden sm:block">
                     <Table>
                       <TableHeader>
                         <TableRow>
-                          <TableHead>Name</TableHead>
-                          <TableHead>Company</TableHead>
-                          <TableHead>Phone</TableHead>
-                          <TableHead>Email</TableHead>
-                          <TableHead className="text-right">Actions</TableHead>
+                          <TableHead>{t("common.name")}</TableHead>
+                          <TableHead>{t("settings.tabs.company")}</TableHead>
+                          <TableHead>{t("common.phone")}</TableHead>
+                          <TableHead>{t("common.email")}</TableHead>
+                          <TableHead className="text-right">{t("common.actions")}</TableHead>
                         </TableRow>
                       </TableHeader>
                       <TableBody>
@@ -821,8 +828,7 @@ export default function SettingsPage() {
                                         e.stopPropagation();
                                         navigator.clipboard.writeText(manager.email!);
                                         toast({
-                                          title: "Copied",
-                                          description: "Email copied to clipboard",
+                                          title: t("common.success"),
                                         });
                                       }}
                                       data-testid={`button-copy-pm-email-${manager.id}`}
@@ -879,7 +885,7 @@ export default function SettingsPage() {
                                 onClick={(e) => {
                                   e.stopPropagation();
                                   navigator.clipboard.writeText(manager.email!);
-                                  toast({ title: "Copied", description: "Email copied to clipboard" });
+                                  toast({ title: t("common.success") });
                                 }}
                                 data-testid={`button-copy-pm-email-m-${manager.id}`}
                               >
@@ -901,9 +907,9 @@ export default function SettingsPage() {
         <TabsContent value="features" className="space-y-6">
           <Card>
             <CardHeader>
-              <CardTitle>Feature Flags</CardTitle>
+              <CardTitle>{t("settings.tabs.featureFlags")}</CardTitle>
               <CardDescription>
-                Enable or disable experimental features
+                {t("settings.manage")}
               </CardDescription>
             </CardHeader>
             <CardContent className="space-y-6">
@@ -963,7 +969,7 @@ export default function SettingsPage() {
                   disabled={updateSettingsMutation.isPending}
                   data-testid="button-save-features"
                 >
-                  {updateSettingsMutation.isPending ? "Saving..." : "Save Changes"}
+                  {updateSettingsMutation.isPending ? t("common.saving") : t("settings.saveChanges")}
                 </Button>
               </div>
             </CardContent>
@@ -973,14 +979,14 @@ export default function SettingsPage() {
         <TabsContent value="email-templates" className="space-y-6">
           <Card>
             <CardHeader>
-              <CardTitle>Email Templates</CardTitle>
+              <CardTitle>{t("settings.tabs.emailTemplates")}</CardTitle>
               <CardDescription>
                 Manage email templates used for notifications. Available variables: {"{{ticketTitle}}"}, {"{{customerName}}"}, {"{{companyName}}"}, {"{{completionDate}}"}, {"{{ticketDescription}}"}
               </CardDescription>
             </CardHeader>
             <CardContent className="space-y-4">
               {emailTemplates.length === 0 ? (
-                <p className="text-sm text-muted-foreground text-center py-4">No email templates found</p>
+                <p className="text-sm text-muted-foreground text-center py-4">{t("common.noResults")}</p>
               ) : (
                 <div className="space-y-3">
                   {emailTemplates.map((template: any) => (
@@ -997,7 +1003,7 @@ export default function SettingsPage() {
                         </div>
                         <div className="flex items-center gap-2">
                           <Badge variant={template.isActive ? "default" : "secondary"}>
-                            {template.isActive ? "Active" : "Inactive"}
+                            {template.isActive ? t("statuses.active") : t("statuses.inactive")}
                           </Badge>
                           <Button
                             variant="outline"
@@ -1010,7 +1016,7 @@ export default function SettingsPage() {
                             data-testid={`button-edit-template-${template.id}`}
                           >
                             <Pencil className="w-3 h-3 mr-1" />
-                            Edit
+                            {t("common.edit")}
                           </Button>
                         </div>
                       </div>
@@ -1026,24 +1032,24 @@ export default function SettingsPage() {
 
           <Card>
             <CardHeader>
-              <CardTitle>Email Rules</CardTitle>
+              <CardTitle>{t("settings.tabs.emailTemplates")}</CardTitle>
               <CardDescription>
-                Control which events trigger email notifications
+                {t("settings.manage")}
               </CardDescription>
             </CardHeader>
             <CardContent>
               {emailRules.length === 0 ? (
-                <p className="text-sm text-muted-foreground text-center py-4">No email rules configured</p>
+                <p className="text-sm text-muted-foreground text-center py-4">{t("common.noResults")}</p>
               ) : (
                 <div className="space-y-3">
                   {emailRules.map((rule: any) => {
-                    const linkedTemplate = emailTemplates.find((t: any) => t.id === rule.templateId);
+                    const linkedTemplate = emailTemplates.find((tmpl: any) => tmpl.id === rule.templateId);
                     return (
                       <div key={rule.id} className="flex items-center justify-between gap-2 flex-wrap p-3 border rounded-md">
                         <div className="min-w-0">
                           <p className="text-sm font-medium">{rule.eventKey.replace(/\./g, " ").replace(/\b\w/g, (c: string) => c.toUpperCase())}</p>
                           <p className="text-xs text-muted-foreground">
-                            Template: {linkedTemplate?.name || "Unknown"}
+                            {linkedTemplate?.name || t("common.unknown")}
                           </p>
                         </div>
                         <Switch
@@ -1070,18 +1076,18 @@ export default function SettingsPage() {
       <Dialog open={!!editingTemplate} onOpenChange={(open) => { if (!open) setEditingTemplate(null); }}>
         <DialogContent className="max-w-2xl">
           <DialogHeader>
-            <DialogTitle>Edit Email Template</DialogTitle>
+            <DialogTitle>{t("common.edit")} {t("settings.tabs.emailTemplates")}</DialogTitle>
             <DialogDescription>
               Modify the subject and body of this template. Use {"{{variableName}}"} for dynamic content.
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-4">
             <div className="space-y-2">
-              <Label>Template Name</Label>
+              <Label>{t("schedule.templateName")}</Label>
               <p className="text-sm text-muted-foreground">{editingTemplate?.name}</p>
             </div>
             <div className="space-y-2">
-              <Label htmlFor="template-subject">Subject</Label>
+              <Label htmlFor="template-subject">{t("common.title")}</Label>
               <Input
                 id="template-subject"
                 value={templateSubject}
@@ -1103,7 +1109,7 @@ export default function SettingsPage() {
             <div className="space-y-2">
               <div className="flex items-center gap-2">
                 <Eye className="w-4 h-4 text-muted-foreground" />
-                <Label>Preview</Label>
+                <Label>{t("common.preview")}</Label>
               </div>
               <iframe
                 className="border rounded-md w-full bg-white"
@@ -1128,11 +1134,11 @@ export default function SettingsPage() {
                 }}
                 data-testid="switch-template-active"
               />
-              <Label>Active</Label>
+              <Label>{t("common.active")}</Label>
             </div>
           </div>
           <DialogFooter>
-            <Button variant="outline" onClick={() => setEditingTemplate(null)}>Cancel</Button>
+            <Button variant="outline" onClick={() => setEditingTemplate(null)}>{t("common.cancel")}</Button>
             <Button
               onClick={() => {
                 if (editingTemplate) {
@@ -1149,7 +1155,7 @@ export default function SettingsPage() {
               disabled={updateTemplateMutation.isPending}
               data-testid="button-save-template"
             >
-              {updateTemplateMutation.isPending ? "Saving..." : "Save Template"}
+              {updateTemplateMutation.isPending ? t("common.saving") : t("common.save")}
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -1159,9 +1165,9 @@ export default function SettingsPage() {
       <Dialog open={pmCompanyDialogOpen} onOpenChange={setPmCompanyDialogOpen}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>{editingPmCompany ? "Edit Company" : "Add Property Management Company"}</DialogTitle>
+            <DialogTitle>{editingPmCompany ? t("common.edit") : t("common.add")}</DialogTitle>
             <DialogDescription>
-              {editingPmCompany ? "Update the company details below." : "Enter the details for the new property management company."}
+              {editingPmCompany ? t("settings.manage") : t("settings.manage")}
             </DialogDescription>
           </DialogHeader>
           <Form {...pmCompanyForm}>
@@ -1171,7 +1177,7 @@ export default function SettingsPage() {
                 name="name"
                 render={({ field }) => (
                   <FormItem>
-                    <FormLabel>Company Name *</FormLabel>
+                    <FormLabel>{t("settings.companyName")}</FormLabel>
                     <FormControl>
                       <Input {...field} data-testid="input-pm-company-name" />
                     </FormControl>
@@ -1185,7 +1191,7 @@ export default function SettingsPage() {
                   name="phone"
                   render={({ field }) => (
                     <FormItem>
-                      <FormLabel>Phone</FormLabel>
+                      <FormLabel>{t("common.phone")}</FormLabel>
                       <FormControl>
                         <Input {...field} data-testid="input-pm-company-phone" />
                       </FormControl>
@@ -1198,7 +1204,7 @@ export default function SettingsPage() {
                   name="email"
                   render={({ field }) => (
                     <FormItem>
-                      <FormLabel>Email</FormLabel>
+                      <FormLabel>{t("common.email")}</FormLabel>
                       <FormControl>
                         <Input type="email" {...field} data-testid="input-pm-company-email" />
                       </FormControl>
@@ -1212,7 +1218,7 @@ export default function SettingsPage() {
                 name="street"
                 render={({ field }) => (
                   <FormItem>
-                    <FormLabel>Street Address</FormLabel>
+                    <FormLabel>{t("common.address")}</FormLabel>
                     <FormControl>
                       <Input {...field} data-testid="input-pm-company-street" />
                     </FormControl>
@@ -1226,7 +1232,7 @@ export default function SettingsPage() {
                   name="city"
                   render={({ field }) => (
                     <FormItem>
-                      <FormLabel>City</FormLabel>
+                      <FormLabel>{t("customers.city")}</FormLabel>
                       <FormControl>
                         <Input {...field} data-testid="input-pm-company-city" />
                       </FormControl>
@@ -1239,7 +1245,7 @@ export default function SettingsPage() {
                   name="state"
                   render={({ field }) => (
                     <FormItem>
-                      <FormLabel>State</FormLabel>
+                      <FormLabel>{t("customers.state")}</FormLabel>
                       <FormControl>
                         <Input {...field} data-testid="input-pm-company-state" />
                       </FormControl>
@@ -1252,7 +1258,7 @@ export default function SettingsPage() {
                   name="zip"
                   render={({ field }) => (
                     <FormItem>
-                      <FormLabel>ZIP</FormLabel>
+                      <FormLabel>{t("customers.zipCode")}</FormLabel>
                       <FormControl>
                         <Input {...field} data-testid="input-pm-company-zip" />
                       </FormControl>
@@ -1266,7 +1272,7 @@ export default function SettingsPage() {
                 name="notes"
                 render={({ field }) => (
                   <FormItem>
-                    <FormLabel>Notes</FormLabel>
+                    <FormLabel>{t("common.notes")}</FormLabel>
                     <FormControl>
                       <Input {...field} data-testid="input-pm-company-notes" />
                     </FormControl>
@@ -1275,9 +1281,9 @@ export default function SettingsPage() {
                 )}
               />
               <DialogFooter>
-                <Button type="button" variant="outline" onClick={() => setPmCompanyDialogOpen(false)}>Cancel</Button>
+                <Button type="button" variant="outline" onClick={() => setPmCompanyDialogOpen(false)}>{t("common.cancel")}</Button>
                 <Button type="submit" disabled={createPmCompanyMutation.isPending || updatePmCompanyMutation.isPending} data-testid="button-save-pm-company">
-                  {createPmCompanyMutation.isPending || updatePmCompanyMutation.isPending ? "Saving..." : "Save"}
+                  {createPmCompanyMutation.isPending || updatePmCompanyMutation.isPending ? t("common.saving") : t("common.save")}
                 </Button>
               </DialogFooter>
             </form>
@@ -1289,9 +1295,9 @@ export default function SettingsPage() {
       <Dialog open={pmManagerDialogOpen} onOpenChange={setPmManagerDialogOpen}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>{editingPmManager ? "Edit Manager" : "Add Property Manager"}</DialogTitle>
+            <DialogTitle>{editingPmManager ? t("common.edit") : t("common.add")}</DialogTitle>
             <DialogDescription>
-              {editingPmManager ? "Update the manager details below." : "Enter the details for the new property manager."}
+              {editingPmManager ? t("settings.manage") : t("settings.manage")}
             </DialogDescription>
           </DialogHeader>
           <Form {...pmManagerForm}>
@@ -1301,7 +1307,7 @@ export default function SettingsPage() {
                 name="name"
                 render={({ field }) => (
                   <FormItem>
-                    <FormLabel>Manager Name *</FormLabel>
+                    <FormLabel>{t("common.name")} *</FormLabel>
                     <FormControl>
                       <Input {...field} data-testid="input-pm-manager-name" />
                     </FormControl>
@@ -1314,11 +1320,11 @@ export default function SettingsPage() {
                 name="propertyManagementCompanyId"
                 render={({ field }) => (
                   <FormItem>
-                    <FormLabel>Property Management Company</FormLabel>
+                    <FormLabel>{t("settings.tabs.propertyMgmt")}</FormLabel>
                     <Select value={field.value || ""} onValueChange={field.onChange}>
                       <FormControl>
                         <SelectTrigger data-testid="select-pm-manager-company">
-                          <SelectValue placeholder="Select a company (optional)" />
+                          <SelectValue placeholder={t("common.select")} />
                         </SelectTrigger>
                       </FormControl>
                       <SelectContent>
@@ -1335,7 +1341,7 @@ export default function SettingsPage() {
               />
               <div className="space-y-3">
                 <div className="flex items-center justify-between">
-                  <Label className="text-sm font-medium flex items-center gap-1"><Mail className="h-4 w-4" /> Email Addresses</Label>
+                  <Label className="text-sm font-medium flex items-center gap-1"><Mail className="h-4 w-4" /> {t("common.email")}</Label>
                   <Button
                     type="button"
                     variant="ghost"
@@ -1343,11 +1349,11 @@ export default function SettingsPage() {
                     onClick={() => setManagerEmails([...managerEmails, { email: "", isPrimary: "false" }])}
                     data-testid="button-add-manager-email"
                   >
-                    <Plus className="h-4 w-4 mr-1" /> Add Email
+                    <Plus className="h-4 w-4 mr-1" /> {t("common.add")}
                   </Button>
                 </div>
                 {managerEmails.length === 0 ? (
-                  <p className="text-sm text-muted-foreground">No email addresses added</p>
+                  <p className="text-sm text-muted-foreground">{t("common.noResults")}</p>
                 ) : (
                   <div className="space-y-2">
                     {managerEmails.map((emailItem, index) => (
@@ -1381,7 +1387,7 @@ export default function SettingsPage() {
               
               <div className="space-y-3">
                 <div className="flex items-center justify-between">
-                  <Label className="text-sm font-medium flex items-center gap-1"><Phone className="h-4 w-4" /> Phone Numbers</Label>
+                  <Label className="text-sm font-medium flex items-center gap-1"><Phone className="h-4 w-4" /> {t("common.phone")}</Label>
                   <Button
                     type="button"
                     variant="ghost"
@@ -1389,11 +1395,11 @@ export default function SettingsPage() {
                     onClick={() => setManagerPhones([...managerPhones, { phone: "", phoneType: "company", isPrimary: "false" }])}
                     data-testid="button-add-manager-phone"
                   >
-                    <Plus className="h-4 w-4 mr-1" /> Add Phone
+                    <Plus className="h-4 w-4 mr-1" /> {t("common.add")}
                   </Button>
                 </div>
                 {managerPhones.length === 0 ? (
-                  <p className="text-sm text-muted-foreground">No phone numbers added</p>
+                  <p className="text-sm text-muted-foreground">{t("common.noResults")}</p>
                 ) : (
                   <div className="space-y-2">
                     {managerPhones.map((phoneItem, index) => (
@@ -1444,7 +1450,7 @@ export default function SettingsPage() {
                 name="notes"
                 render={({ field }) => (
                   <FormItem>
-                    <FormLabel>Notes</FormLabel>
+                    <FormLabel>{t("common.notes")}</FormLabel>
                     <FormControl>
                       <Input {...field} data-testid="input-pm-manager-notes" />
                     </FormControl>
@@ -1453,9 +1459,9 @@ export default function SettingsPage() {
                 )}
               />
               <DialogFooter>
-                <Button type="button" variant="outline" onClick={() => setPmManagerDialogOpen(false)}>Cancel</Button>
+                <Button type="button" variant="outline" onClick={() => setPmManagerDialogOpen(false)}>{t("common.cancel")}</Button>
                 <Button type="submit" disabled={createPmManagerMutation.isPending || updatePmManagerMutation.isPending} data-testid="button-save-pm-manager">
-                  {createPmManagerMutation.isPending || updatePmManagerMutation.isPending ? "Saving..." : "Save"}
+                  {createPmManagerMutation.isPending || updatePmManagerMutation.isPending ? t("common.saving") : t("common.save")}
                 </Button>
               </DialogFooter>
             </form>
@@ -1497,15 +1503,15 @@ function BillingSettings() {
   const toggleBillingTag = async (companyUserId: string, currentTags: string[] | null) => {
     const tags = currentTags || [];
     const newTags = tags.includes("billing")
-      ? tags.filter(t => t !== "billing")
+      ? tags.filter(tag => tag !== "billing")
       : [...tags, "billing"];
     
     try {
       await apiRequest("PATCH", `/api/company-users/${companyUserId}/tags`, { tags: newTags });
       queryClient.invalidateQueries({ queryKey: ["/api/company-users"] });
-      toast({ title: newTags.includes("billing") ? "Billing tag added" : "Billing tag removed" });
+      toast({ title: t("common.success") });
     } catch (err) {
-      toast({ title: "Failed to update tags", variant: "destructive" });
+      toast({ title: t("common.error"), variant: "destructive" });
     }
   };
 
@@ -1516,7 +1522,7 @@ function BillingSettings() {
       setMigrationPreview(data.tickets);
       setMigrationComplete(false);
     } catch (err) {
-      toast({ title: "Failed to preview migration", variant: "destructive" });
+      toast({ title: t("common.error"), variant: "destructive" });
     }
   };
 
@@ -1525,12 +1531,12 @@ function BillingSettings() {
     try {
       const res = await apiRequest("POST", "/api/admin/migrate-invoices", { dryRun: false });
       const data = await res.json();
-      toast({ title: `Migration complete: ${data.count} Invoice tickets created` });
+      toast({ title: t("common.success") });
       setMigrationComplete(true);
       setMigrationPreview(null);
       queryClient.invalidateQueries({ queryKey: ["/api/pending-invoices"] });
     } catch (err) {
-      toast({ title: "Migration failed", variant: "destructive" });
+      toast({ title: t("common.error"), variant: "destructive" });
     } finally {
       setMigrationRunning(false);
     }
@@ -1540,14 +1546,14 @@ function BillingSettings() {
     <>
       <Card>
         <CardHeader>
-          <CardTitle>Billing User Assignment</CardTitle>
+          <CardTitle>{t("settings.tabs.billing")}</CardTitle>
           <CardDescription>
-            Tag a team member as the billing user. All auto-created Invoice tickets will be assigned to this person.
+            {t("settings.manage")}
           </CardDescription>
         </CardHeader>
         <CardContent>
           {teamLoading ? (
-            <p className="text-sm text-muted-foreground">Loading team members...</p>
+            <p className="text-sm text-muted-foreground">{t("common.loading")}</p>
           ) : (
             <div className="space-y-2">
               {teamMembers?.filter(m => m.status === "active" && (m.role === "admin" || m.role === "office")).map(member => (
@@ -1576,23 +1582,22 @@ function BillingSettings() {
 
       <Card>
         <CardHeader>
-          <CardTitle>Invoice Ticket Migration</CardTitle>
+          <CardTitle>{t("settings.tabs.billing")}</CardTitle>
           <CardDescription>
-            Create Invoice tickets for existing tickets that are at billing-ready statuses but don't have linked Invoice tickets yet. 
-            This ensures the pending invoices list is populated exclusively with Invoice tickets going forward.
+            {t("settings.manage")}
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
           {migrationComplete ? (
             <div className="p-4 rounded-md bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800">
-              <p className="text-sm font-medium text-green-800 dark:text-green-300">Migration completed successfully.</p>
-              <p className="text-xs text-green-600 dark:text-green-400 mt-1">All billing-ready tickets now have linked Invoice tickets.</p>
+              <p className="text-sm font-medium text-green-800 dark:text-green-300">{t("common.success")}</p>
+              <p className="text-xs text-green-600 dark:text-green-400 mt-1">{t("statuses.completed")}</p>
             </div>
           ) : migrationPreview ? (
             <>
               <div className="p-3 rounded-md bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800">
                 <p className="text-sm font-medium text-amber-800 dark:text-amber-300">
-                  Preview: {migrationPreview.length} ticket{migrationPreview.length !== 1 ? "s" : ""} will get Invoice tickets created
+                  {t("common.preview")}: {migrationPreview.length}
                 </p>
               </div>
               {migrationPreview.length > 0 && (
@@ -1601,33 +1606,33 @@ function BillingSettings() {
                     <Table>
                       <TableHeader>
                         <TableRow>
-                          <TableHead>Title</TableHead>
-                          <TableHead>Type</TableHead>
-                          <TableHead>Status</TableHead>
-                          <TableHead>Customer</TableHead>
+                          <TableHead>{t("common.title")}</TableHead>
+                          <TableHead>{t("common.type")}</TableHead>
+                          <TableHead>{t("common.status")}</TableHead>
+                          <TableHead>{t("common.customer")}</TableHead>
                         </TableRow>
                       </TableHeader>
                       <TableBody>
-                        {migrationPreview.map(t => (
-                          <TableRow key={t.ticketId}>
-                            <TableCell className="text-sm">{t.title}</TableCell>
-                            <TableCell><Badge variant="outline">{t.ticketType}</Badge></TableCell>
-                            <TableCell className="text-sm">{t.currentStatus}</TableCell>
-                            <TableCell className="text-sm text-muted-foreground">{t.customerName}</TableCell>
+                        {migrationPreview.map(item => (
+                          <TableRow key={item.ticketId}>
+                            <TableCell className="text-sm">{item.title}</TableCell>
+                            <TableCell><Badge variant="outline">{item.ticketType}</Badge></TableCell>
+                            <TableCell className="text-sm">{item.currentStatus}</TableCell>
+                            <TableCell className="text-sm text-muted-foreground">{item.customerName}</TableCell>
                           </TableRow>
                         ))}
                       </TableBody>
                     </Table>
                   </div>
                   <div className="sm:hidden space-y-2">
-                    {migrationPreview.map(t => (
-                      <div key={t.ticketId} className="border rounded-md p-3 space-y-1" data-testid={`card-migration-ticket-${t.ticketId}`}>
-                        <p className="text-sm font-medium" data-testid={`text-migration-title-${t.ticketId}`}>{t.title}</p>
+                    {migrationPreview.map(item => (
+                      <div key={item.ticketId} className="border rounded-md p-3 space-y-1" data-testid={`card-migration-ticket-${item.ticketId}`}>
+                        <p className="text-sm font-medium" data-testid={`text-migration-title-${item.ticketId}`}>{item.title}</p>
                         <div className="flex items-center gap-2 flex-wrap">
-                          <Badge variant="outline">{t.ticketType}</Badge>
-                          <span className="text-xs text-muted-foreground" data-testid={`text-migration-status-${t.ticketId}`}>{t.currentStatus}</span>
+                          <Badge variant="outline">{item.ticketType}</Badge>
+                          <span className="text-xs text-muted-foreground" data-testid={`text-migration-status-${item.ticketId}`}>{item.currentStatus}</span>
                         </div>
-                        <p className="text-xs text-muted-foreground" data-testid={`text-migration-customer-${t.ticketId}`}>{t.customerName}</p>
+                        <p className="text-xs text-muted-foreground" data-testid={`text-migration-customer-${item.ticketId}`}>{item.customerName}</p>
                       </div>
                     ))}
                   </div>
@@ -1639,17 +1644,17 @@ function BillingSettings() {
                   disabled={migrationRunning || migrationPreview.length === 0}
                   data-testid="button-execute-migration"
                 >
-                  {migrationRunning ? "Migrating..." : `Create ${migrationPreview.length} Invoice Ticket${migrationPreview.length !== 1 ? "s" : ""}`}
+                  {migrationRunning ? t("common.loading") : t("common.confirm")}
                 </Button>
                 <Button variant="outline" onClick={() => setMigrationPreview(null)} data-testid="button-cancel-migration">
-                  Cancel
+                  {t("common.cancel")}
                 </Button>
               </div>
             </>
           ) : (
             <Button onClick={runDryRun} variant="outline" data-testid="button-preview-migration">
               <Eye className="w-4 h-4 mr-2" />
-              Preview Migration
+              {t("common.preview")}
             </Button>
           )}
         </CardContent>

@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { useTranslation } from "react-i18next";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
@@ -46,6 +47,7 @@ const mockProperties = [
 ];
 
 export default function PropertiesList() {
+  const { t } = useTranslation();
   const [search, setSearch] = useState("");
   const [properties] = useState(mockProperties);
 
@@ -68,22 +70,22 @@ export default function PropertiesList() {
       <div className="flex items-center justify-between gap-4 flex-wrap">
         <div>
           <h1 className="text-3xl font-semibold tracking-tight" data-testid="text-page-title">
-            Properties
+            {t("propertiesList.title")}
           </h1>
           <p className="text-sm text-muted-foreground mt-1">
-            Manage customer properties and service locations
+            {t("propertiesList.manage")}
           </p>
         </div>
         <Button data-testid="button-add-property">
           <Plus className="w-4 h-4 mr-2" />
-          Add Property
+          {t("propertiesList.addProperty")}
         </Button>
       </div>
 
       <div className="relative max-w-md">
         <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
         <Input
-          placeholder="Search properties..."
+          placeholder={t("propertiesList.searchPlaceholder")}
           value={search}
           onChange={(e) => setSearch(e.target.value)}
           className="pl-9"
@@ -94,9 +96,9 @@ export default function PropertiesList() {
       {filteredProperties.length === 0 ? (
         <EmptyState
           image={emptyPropertiesImage}
-          title="No properties found"
-          description="Try adjusting your search or add a new property to get started."
-          actionLabel="Add Property"
+          title={t("propertiesList.noProperties")}
+          description=""
+          actionLabel={t("propertiesList.addProperty")}
           onAction={() => console.log("Add property")}
         />
       ) : (
@@ -104,12 +106,12 @@ export default function PropertiesList() {
           <Table>
             <TableHeader>
               <TableRow>
-                <TableHead>Property Name</TableHead>
-                <TableHead>Customer</TableHead>
-                <TableHead>Address</TableHead>
-                <TableHead>Acres</TableHead>
-                <TableHead>Complexity</TableHead>
-                <TableHead className="text-right">Actions</TableHead>
+                <TableHead>{t("propertiesList.propertyName")}</TableHead>
+                <TableHead>{t("customers.title")}</TableHead>
+                <TableHead>{t("common.address")}</TableHead>
+                <TableHead>{t("common.acres")}</TableHead>
+                <TableHead>{t("common.complexity")}</TableHead>
+                <TableHead className="text-right">{t("common.actions")}</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>

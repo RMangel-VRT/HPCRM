@@ -46,6 +46,9 @@ import RoleBadge from "./RoleBadge";
 import ThemeToggle from "./ThemeToggle";
 import { Link, useLocation } from "wouter";
 import logoImage from "@assets/TRUCK_DECAL-06_1766432157419.png";
+import { useTranslation } from "react-i18next";
+import { Globe } from "lucide-react";
+import { apiRequest, queryClient } from "@/lib/queryClient";
 
 interface AppSidebarProps {
   userRole?: "admin" | "office" | "field_manager" | "chemical_manager" | "field" | "irrigation_manager" | "shop_manager" | "mapping";
@@ -61,11 +64,22 @@ export default function AppSidebar({
   onLogout,
 }: AppSidebarProps) {
   const [location] = useLocation();
+  const { t, i18n } = useTranslation();
 
-  // Super admins see admin portal navigation
+  const toggleLanguage = async () => {
+    const newLang = i18n.language === "es" ? "en" : "es";
+    try {
+      await apiRequest("PATCH", "/api/auth/language", { language: newLang });
+      i18n.changeLanguage(newLang);
+      queryClient.invalidateQueries({ queryKey: ["/api/auth/me"] });
+    } catch (e) {
+      console.error("Failed to update language", e);
+    }
+  };
+
   const superAdminItems = isSuperAdmin
     ? [
-        { title: "Admin Home", url: "/admin", icon: Shield },
+        { title: t("nav.adminHome"), url: "/admin", icon: Shield },
       ]
     : [];
 
@@ -76,22 +90,22 @@ export default function AppSidebar({
     const items: NavItem[] = [];
 
     if (userRole === "shop_manager") {
-      items.push({ title: "Dashboard", url: "/dashboard", icon: LayoutDashboard });
-      items.push({ title: "My Tickets", url: "/dashboard/tickets/my", icon: UserCheck });
+      items.push({ title: t("nav.dashboard"), url: "/dashboard", icon: LayoutDashboard });
+      items.push({ title: t("nav.myTickets"), url: "/dashboard/tickets/my", icon: UserCheck });
       return items;
     }
 
     if (userRole === "mapping") return [];
 
     if (userRole === "admin" || userRole === "office" || userRole === "field_manager" || userRole === "chemical_manager") {
-      items.push({ title: "Dashboard", url: "/dashboard", icon: LayoutDashboard });
+      items.push({ title: t("nav.dashboard"), url: "/dashboard", icon: LayoutDashboard });
     }
 
     if (userRole === "admin") {
-      items.push({ title: "Tickets", url: "/dashboard/tickets", icon: ClipboardList });
+      items.push({ title: t("nav.tickets"), url: "/dashboard/tickets", icon: ClipboardList });
     }
 
-    items.push({ title: "My Tickets", url: "/dashboard/tickets/my", icon: UserCheck });
+    items.push({ title: t("nav.myTickets"), url: "/dashboard/tickets/my", icon: UserCheck });
 
     return items;
   };
@@ -103,34 +117,34 @@ export default function AppSidebar({
     if (userRole === "shop_manager") return [];
 
     if (userRole === "mapping") {
-      items.push({ title: "Customer Maps", url: "/dashboard/maps", icon: Map });
+      items.push({ title: t("nav.customerMaps"), url: "/dashboard/maps", icon: Map });
       return items;
     }
 
     if (userRole === "admin" || userRole === "office" || userRole === "field_manager" || userRole === "chemical_manager") {
-      items.push({ title: "Customers", url: "/dashboard/customers", icon: Building2 });
+      items.push({ title: t("nav.customers"), url: "/dashboard/customers", icon: Building2 });
     }
 
     if (userRole === "admin" || userRole === "field_manager" || userRole === "chemical_manager") {
-      items.push({ title: "Route Map", url: "/dashboard/customers/map", icon: MapPin });
+      items.push({ title: t("nav.routeMap"), url: "/dashboard/customers/map", icon: MapPin });
     }
 
     if (userRole === "admin" || userRole === "office") {
-      items.push({ title: "Contracts", url: "/dashboard/contracts", icon: FileText });
+      items.push({ title: t("nav.contracts"), url: "/dashboard/contracts", icon: FileText });
     }
 
-    items.push({ title: "Property Maps", url: "/dashboard/maps", icon: Map });
+    items.push({ title: t("nav.propertyMaps"), url: "/dashboard/maps", icon: Map });
 
     if (userRole === "admin" || userRole === "office" || userRole === "irrigation_manager") {
-      items.push({ title: "Schedule", url: "/dashboard/schedule", icon: CalendarDays });
+      items.push({ title: t("nav.schedule"), url: "/dashboard/schedule", icon: CalendarDays });
     }
 
     if (userRole === "admin" || userRole === "office") {
-      items.push({ title: "Snow", url: "/dashboard/snow", icon: Snowflake });
+      items.push({ title: t("nav.snow"), url: "/dashboard/snow", icon: Snowflake });
     }
 
     if (userRole === "admin" || userRole === "office") {
-      items.push({ title: "Revenue", url: "/dashboard/revenue", icon: DollarSign });
+      items.push({ title: t("nav.revenue"), url: "/dashboard/revenue", icon: DollarSign });
     }
 
     return items;
@@ -141,19 +155,19 @@ export default function AppSidebar({
     const items: NavItem[] = [];
 
     if (userRole === "admin" || userRole === "office" || userRole === "shop_manager") {
-      items.push({ title: "Equipment", url: "/dashboard/equipment", icon: Truck });
+      items.push({ title: t("nav.equipment"), url: "/dashboard/equipment", icon: Truck });
     }
 
     if (userRole === "admin" || userRole === "office") {
-      items.push({ title: "Tools", url: "/dashboard/tools", icon: Wrench });
+      items.push({ title: t("nav.tools"), url: "/dashboard/tools", icon: Wrench });
     }
 
     if (userRole === "admin" || userRole === "office") {
-      items.push({ title: "Reports", url: "/dashboard/reports", icon: FileBarChart });
+      items.push({ title: t("nav.reports"), url: "/dashboard/reports", icon: FileBarChart });
     }
 
     if (userRole === "admin") {
-      items.push({ title: "Team", url: "/dashboard/users", icon: Users });
+      items.push({ title: t("nav.team"), url: "/dashboard/users", icon: Users });
     }
 
     return items;
@@ -164,7 +178,7 @@ export default function AppSidebar({
   const managementItems = getManagementItems();
 
   const adminItems = (!isSuperAdmin && (userRole === "admin" || userRole === "office"))
-    ? [{ title: "Settings", url: "/dashboard/settings", icon: Settings }]
+    ? [{ title: t("nav.settings"), url: "/dashboard/settings", icon: Settings }]
     : [];
 
   const isActive = (url: string) => {
@@ -187,7 +201,7 @@ export default function AppSidebar({
       <SidebarContent>
         {superAdminItems.length > 0 && (
           <SidebarGroup>
-            <SidebarGroupLabel>Platform Admin</SidebarGroupLabel>
+            <SidebarGroupLabel>{t("nav.platformAdmin")}</SidebarGroupLabel>
             <SidebarMenu>
               {superAdminItems.map((item) => (
                 <SidebarMenuItem key={item.title}>
@@ -205,7 +219,7 @@ export default function AppSidebar({
 
         {dashboardItems.length > 0 && (
           <SidebarGroup>
-            <SidebarGroupLabel>Dashboard</SidebarGroupLabel>
+            <SidebarGroupLabel>{t("nav.dashboard")}</SidebarGroupLabel>
             <SidebarMenu>
               {dashboardItems.map((item) => (
                 <SidebarMenuItem key={item.title}>
@@ -223,7 +237,7 @@ export default function AppSidebar({
 
         {crmItems.length > 0 && (
           <SidebarGroup>
-            <SidebarGroupLabel>High Plains CRM</SidebarGroupLabel>
+            <SidebarGroupLabel>{t("sidebar.highPlainsCRM")}</SidebarGroupLabel>
             <SidebarMenu>
               {crmItems.map((item) => (
                 <SidebarMenuItem key={item.title}>
@@ -241,7 +255,7 @@ export default function AppSidebar({
 
         {managementItems.length > 0 && (
           <SidebarGroup>
-            <SidebarGroupLabel>Management</SidebarGroupLabel>
+            <SidebarGroupLabel>{t("nav.management")}</SidebarGroupLabel>
             <SidebarMenu>
               {managementItems.map((item) => (
                 <SidebarMenuItem key={item.title}>
@@ -259,7 +273,7 @@ export default function AppSidebar({
 
         {adminItems.length > 0 && (
           <SidebarGroup>
-            <SidebarGroupLabel>Admin</SidebarGroupLabel>
+            <SidebarGroupLabel>{t("roles.admin")}</SidebarGroupLabel>
             <SidebarMenu>
               {adminItems.map((item) => (
                 <SidebarMenuItem key={item.title}>
@@ -295,7 +309,7 @@ export default function AppSidebar({
             data-testid="button-logout"
           >
             <LogOut className="w-4 h-4" />
-            <span>Log Out</span>
+            <span>{t("nav.logOut")}</span>
           </SidebarMenuButton>
           <Dialog>
             <DialogTrigger asChild>
@@ -305,14 +319,14 @@ export default function AppSidebar({
             </DialogTrigger>
             <DialogContent className="sm:max-w-md">
               <DialogHeader>
-                <DialogTitle>Help & Support</DialogTitle>
+                <DialogTitle>{t("sidebar.helpSupport")}</DialogTitle>
                 <DialogDescription>
-                  Get help with High Plains Property Maintenance
+                  {t("sidebar.helpDescription")}
                 </DialogDescription>
               </DialogHeader>
               <div className="space-y-4 py-4">
                 <div className="space-y-3">
-                  <h4 className="text-sm font-medium">Contact Support</h4>
+                  <h4 className="text-sm font-medium">{t("sidebar.contactSupport")}</h4>
                   <div className="space-y-2">
                     <a 
                       href="mailto:support@highplainsprop.com"
@@ -321,7 +335,7 @@ export default function AppSidebar({
                     >
                       <Mail className="w-4 h-4 text-muted-foreground" />
                       <div>
-                        <p className="text-sm font-medium">Email Support</p>
+                        <p className="text-sm font-medium">{t("sidebar.emailSupport")}</p>
                         <p className="text-xs text-muted-foreground">support@highplainsprop.com</p>
                       </div>
                     </a>
@@ -332,32 +346,40 @@ export default function AppSidebar({
                     >
                       <Phone className="w-4 h-4 text-muted-foreground" />
                       <div>
-                        <p className="text-sm font-medium">Phone Support</p>
+                        <p className="text-sm font-medium">{t("sidebar.phoneSupport")}</p>
                         <p className="text-xs text-muted-foreground">1-800-555-1234</p>
                       </div>
                     </a>
                   </div>
                 </div>
                 <div className="space-y-3">
-                  <h4 className="text-sm font-medium">Quick Tips</h4>
+                  <h4 className="text-sm font-medium">{t("sidebar.quickTips")}</h4>
                   <div className="space-y-2 text-sm text-muted-foreground">
                     <div className="flex items-start gap-2">
                       <MessageSquare className="w-4 h-4 mt-0.5 shrink-0" />
-                      <p>Use the search bar on the Customers page to quickly find clients</p>
+                      <p>{t("sidebar.tipSearch")}</p>
                     </div>
                     <div className="flex items-start gap-2">
                       <MessageSquare className="w-4 h-4 mt-0.5 shrink-0" />
-                      <p>Create tickets from customer profiles for faster workflow</p>
+                      <p>{t("sidebar.tipTickets")}</p>
                     </div>
                     <div className="flex items-start gap-2">
                       <MessageSquare className="w-4 h-4 mt-0.5 shrink-0" />
-                      <p>Check your notifications for task assignments and due dates</p>
+                      <p>{t("sidebar.tipNotifications")}</p>
                     </div>
                   </div>
                 </div>
               </div>
             </DialogContent>
           </Dialog>
+          <Button
+            size="icon"
+            variant="ghost"
+            onClick={toggleLanguage}
+            data-testid="button-language-toggle"
+          >
+            <Globe className="w-4 h-4" />
+          </Button>
           <ThemeToggle />
         </div>
       </SidebarFooter>

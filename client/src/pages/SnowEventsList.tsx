@@ -1,4 +1,5 @@
 import { useQuery } from "@tanstack/react-query";
+import { useTranslation } from "react-i18next";
 import { useState, useMemo } from "react";
 import { Link } from "wouter";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -47,6 +48,7 @@ function getStatusVariant(status: string): "default" | "secondary" | "destructiv
 }
 
 export default function SnowEventsList() {
+  const { t } = useTranslation();
   const [searchQuery, setSearchQuery] = useState("");
   const [rangeFilter, setRangeFilter] = useState<string>("all");
   const [statusFilter, setStatusFilter] = useState<string>("all");
@@ -132,12 +134,12 @@ export default function SnowEventsList() {
       <div className="flex items-center justify-between gap-4 flex-wrap">
         <div className="flex items-center gap-2">
           <Snowflake className="h-6 w-6 text-primary" />
-          <h1 className="text-2xl font-bold tracking-tight" data-testid="text-page-title">Storm Events</h1>
+          <h1 className="text-2xl font-bold tracking-tight" data-testid="text-page-title">{t("snow.stormEvents")}</h1>
         </div>
         <Link href="/dashboard/snow/new">
           <Button data-testid="button-new-storm">
             <Plus className="w-4 h-4 mr-2" />
-            New Storm Event
+            {t("snow.newStormEvent")}
           </Button>
         </Link>
       </div>
@@ -145,7 +147,7 @@ export default function SnowEventsList() {
       <div className="grid gap-4 md:grid-cols-4">
         <Card>
           <CardHeader className="flex flex-row items-center justify-between gap-2 space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">Total Events</CardTitle>
+            <CardTitle className="text-sm font-medium">{t("snow.totalEvents")}</CardTitle>
             <CloudSnow className="h-4 w-4 text-muted-foreground" />
           </CardHeader>
           <CardContent>
@@ -154,7 +156,7 @@ export default function SnowEventsList() {
         </Card>
         <Card>
           <CardHeader className="flex flex-row items-center justify-between gap-2 space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">Draft</CardTitle>
+            <CardTitle className="text-sm font-medium">{t("statuses.draft")}</CardTitle>
             <Calendar className="h-4 w-4 text-muted-foreground" />
           </CardHeader>
           <CardContent>
@@ -163,7 +165,7 @@ export default function SnowEventsList() {
         </Card>
         <Card>
           <CardHeader className="flex flex-row items-center justify-between gap-2 space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">Ready</CardTitle>
+            <CardTitle className="text-sm font-medium">{t("statuses.ready")}</CardTitle>
             <BarChart3 className="h-4 w-4 text-muted-foreground" />
           </CardHeader>
           <CardContent>
@@ -172,7 +174,7 @@ export default function SnowEventsList() {
         </Card>
         <Card>
           <CardHeader className="flex flex-row items-center justify-between gap-2 space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">Locked</CardTitle>
+            <CardTitle className="text-sm font-medium">{t("statuses.locked")}</CardTitle>
             <Snowflake className="h-4 w-4 text-muted-foreground" />
           </CardHeader>
           <CardContent>
@@ -184,12 +186,12 @@ export default function SnowEventsList() {
       <Card>
         <CardHeader>
           <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
-            <CardTitle>Storm Events</CardTitle>
+            <CardTitle>{t("snow.stormEvents")}</CardTitle>
             <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
               <div className="relative">
                 <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
                 <Input
-                  placeholder="Search events..."
+                  placeholder={t("snow.searchPlaceholder")}
                   className="pl-8 w-full sm:w-[200px]"
                   value={searchQuery}
                   onChange={(e) => setSearchQuery(e.target.value)}
@@ -198,10 +200,10 @@ export default function SnowEventsList() {
               </div>
               <Select value={rangeFilter} onValueChange={setRangeFilter}>
                 <SelectTrigger className="w-full sm:w-[140px]" data-testid="select-range-filter">
-                  <SelectValue placeholder="All Ranges" />
+                  <SelectValue placeholder={t("snow.allRanges")} />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="all">All Ranges</SelectItem>
+                  <SelectItem value="all">{t("snow.allRanges")}</SelectItem>
                   {SNOW_RANGES.map(r => (
                     <SelectItem key={r} value={r}>{r}</SelectItem>
                   ))}
@@ -209,13 +211,13 @@ export default function SnowEventsList() {
               </Select>
               <Select value={statusFilter} onValueChange={setStatusFilter}>
                 <SelectTrigger className="w-full sm:w-[130px]" data-testid="select-status-filter">
-                  <SelectValue placeholder="All Status" />
+                  <SelectValue placeholder={t("snow.allStatus")} />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="all">All Status</SelectItem>
-                  <SelectItem value="draft">Draft</SelectItem>
-                  <SelectItem value="ready">Ready</SelectItem>
-                  <SelectItem value="locked">Locked</SelectItem>
+                  <SelectItem value="all">{t("snow.allStatus")}</SelectItem>
+                  <SelectItem value="draft">{t("statuses.draft")}</SelectItem>
+                  <SelectItem value="ready">{t("statuses.ready")}</SelectItem>
+                  <SelectItem value="locked">{t("statuses.locked")}</SelectItem>
                 </SelectContent>
               </Select>
             </div>
@@ -225,9 +227,9 @@ export default function SnowEventsList() {
           {filtered.length === 0 ? (
             <div className="text-center py-12 text-muted-foreground">
               <Snowflake className="h-12 w-12 mx-auto mb-3 opacity-50" />
-              <p>No storm events found</p>
+              <p>{t("snow.noEventsFound")}</p>
               {events?.length === 0 && (
-                <p className="text-sm mt-1">Create your first storm event to get started.</p>
+                <p className="text-sm mt-1">{t("snow.createFirst")}</p>
               )}
             </div>
           ) : (
@@ -237,28 +239,28 @@ export default function SnowEventsList() {
                   <TableRow>
                     <TableHead>
                       <Button variant="ghost" size="sm" className="gap-1 -ml-3" onClick={() => handleSort("date")} data-testid="button-sort-date">
-                        Date <ArrowUpDown className="h-3 w-3" />
+                        {t("common.date")} <ArrowUpDown className="h-3 w-3" />
                       </Button>
                     </TableHead>
-                    <TableHead>Name</TableHead>
+                    <TableHead>{t("common.name")}</TableHead>
                     <TableHead>
                       <Button variant="ghost" size="sm" className="gap-1 -ml-3" onClick={() => handleSort("range")} data-testid="button-sort-range">
-                        Range <ArrowUpDown className="h-3 w-3" />
+                        {t("snow.range")} <ArrowUpDown className="h-3 w-3" />
                       </Button>
                     </TableHead>
                     <TableHead>
                       <Button variant="ghost" size="sm" className="gap-1 -ml-3" onClick={() => handleSort("properties")} data-testid="button-sort-properties">
-                        Properties <ArrowUpDown className="h-3 w-3" />
+                        {t("common.properties")} <ArrowUpDown className="h-3 w-3" />
                       </Button>
                     </TableHead>
                     <TableHead>
                       <Button variant="ghost" size="sm" className="gap-1 -ml-3" onClick={() => handleSort("tickets")} data-testid="button-sort-tickets">
-                        Tickets <ArrowUpDown className="h-3 w-3" />
+                        {t("tickets.title")} <ArrowUpDown className="h-3 w-3" />
                       </Button>
                     </TableHead>
                     <TableHead>
                       <Button variant="ghost" size="sm" className="gap-1 -ml-3" onClick={() => handleSort("status")} data-testid="button-sort-status">
-                        Status <ArrowUpDown className="h-3 w-3" />
+                        {t("common.status")} <ArrowUpDown className="h-3 w-3" />
                       </Button>
                     </TableHead>
                     <TableHead></TableHead>

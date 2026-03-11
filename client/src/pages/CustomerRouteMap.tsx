@@ -1,4 +1,5 @@
 import { useState, useRef, useEffect } from "react";
+import { useTranslation } from "react-i18next";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { useLocation } from "wouter";
 import { Button } from "@/components/ui/button";
@@ -65,6 +66,7 @@ function addLayerToMap(map: mapboxgl.Map, geojson: GeoJSON.FeatureCollection) {
 }
 
 export default function CustomerRouteMap() {
+  const { t } = useTranslation();
   const [, setLocation] = useLocation();
   const { toast } = useToast();
   const { user } = useAuth();
@@ -100,12 +102,12 @@ export default function CustomerRouteMap() {
       const geocoded = data?.geocoded ?? 0;
       const failed = data?.failed ?? 0;
       toast({
-        title: geocoded > 0 ? `Geocoded ${geocoded} customer${geocoded !== 1 ? "s" : ""}` : "No new customers geocoded",
+        title: geocoded > 0 ? t("routeMap.geocoded", { count: geocoded }) : t("routeMap.noNewGeocoded"),
         description: failed > 0 ? `${failed} address${failed !== 1 ? "es" : ""} could not be located` : undefined,
       });
     },
     onError: () => {
-      toast({ title: "Geocoding failed", description: "Could not geocode customers", variant: "destructive" });
+      toast({ title: t("common.error"), description: t("common.error"), variant: "destructive" });
     },
   });
 
@@ -240,10 +242,10 @@ export default function CustomerRouteMap() {
           <ArrowLeft className="w-5 h-5" />
         </Button>
         <div className="flex items-center gap-2 flex-1 min-w-0">
-          <h1 className="text-base font-semibold">Route Planning Map</h1>
+          <h1 className="text-base font-semibold">{t("routeMap.title")}</h1>
           {!loadingCustomers && (
             <Badge variant="secondary" className="shrink-0" data-testid="badge-customer-count">
-              {mappedCustomers.length} / {routeCustomers.length} on route
+              {mappedCustomers.length} / {routeCustomers.length} {t("routeMap.onRoute")}
             </Badge>
           )}
         </div>
@@ -256,9 +258,9 @@ export default function CustomerRouteMap() {
             data-testid="button-toggle-basemap"
           >
             {useSatellite ? (
-              <><MapIcon className="w-4 h-4 mr-1.5" />Street</>
+              <><MapIcon className="w-4 h-4 mr-1.5" />{t("routeMap.street")}</>
             ) : (
-              <><Satellite className="w-4 h-4 mr-1.5" />Satellite</>
+              <><Satellite className="w-4 h-4 mr-1.5" />{t("routeMap.satellite")}</>
             )}
           </Button>
 
@@ -275,7 +277,7 @@ export default function CustomerRouteMap() {
               ) : (
                 <MapPin className="w-4 h-4 mr-1.5" />
               )}
-              Geocode Unmapped ({unmappedCount})
+              {t("routeMap.geocodeUnmapped", { count: unmappedCount })}
             </Button>
           )}
         </div>
@@ -285,11 +287,11 @@ export default function CustomerRouteMap() {
       <div className="absolute bottom-8 left-3 z-10 bg-white/90 dark:bg-black/80 backdrop-blur-sm rounded-lg shadow px-3 py-2 flex flex-col gap-1.5 text-xs">
         <div className="flex items-center gap-2">
           <div className="w-3 h-3 rounded-full bg-green-500 border-2 border-white shadow-sm" />
-          <span className="text-foreground">Active customer</span>
+          <span className="text-foreground">{t("routeMap.activeCustomer")}</span>
         </div>
         <div className="flex items-center gap-2">
           <div className="w-3 h-3 rounded-full bg-gray-400 border-2 border-white shadow-sm" />
-          <span className="text-foreground">Prospect / inactive</span>
+          <span className="text-foreground">{t("routeMap.prospectInactive")}</span>
         </div>
       </div>
 
@@ -299,14 +301,14 @@ export default function CustomerRouteMap() {
           <div className="absolute inset-0 flex items-center justify-center z-10 bg-muted/30">
             <div className="bg-card rounded-lg shadow p-6 text-center max-w-sm">
               <MapPin className="w-10 h-10 mx-auto mb-3 text-muted-foreground opacity-50" />
-              <p className="font-medium mb-1">Map unavailable</p>
-              <p className="text-sm text-muted-foreground">WebGL is required to display the interactive map. Please use a modern browser with hardware acceleration enabled.</p>
+              <p className="font-medium mb-1">{t("routeMap.mapUnavailable")}</p>
+              <p className="text-sm text-muted-foreground">{t("routeMap.webglRequired")}</p>
             </div>
           </div>
         )}
         {!token && !loadingCustomers && !webglError && (
           <div className="absolute inset-0 flex items-center justify-center">
-            <p className="text-muted-foreground">Map token not configured.</p>
+            <p className="text-muted-foreground">{t("routeMap.mapTokenMissing")}</p>
           </div>
         )}
         {loadingCustomers && (
@@ -318,11 +320,11 @@ export default function CustomerRouteMap() {
           <div className="absolute inset-0 flex items-center justify-center z-10 pointer-events-none">
             <div className="bg-white/95 dark:bg-black/80 backdrop-blur-sm rounded-lg shadow px-6 py-4 text-center max-w-xs pointer-events-auto">
               <MapPin className="w-8 h-8 mx-auto mb-2 text-muted-foreground opacity-50" />
-              <p className="font-medium mb-1">No route customers mapped yet</p>
+              <p className="font-medium mb-1">{t("routeMap.noRouteCustomers")}</p>
               <p className="text-sm text-muted-foreground mb-3">
                 {routeCustomers.length > 0
                   ? `${routeCustomers.length} route customer${routeCustomers.length !== 1 ? "s" : ""} need${routeCustomers.length === 1 ? "s" : ""} coordinates.`
-                  : "No customers are flagged to include in route. Edit a customer to enable this."}
+                  : t("routeMap.noRouteCustomers")}
               </p>
               {canGeocode && (
                 <Button
@@ -336,7 +338,7 @@ export default function CustomerRouteMap() {
                   ) : (
                     <MapPin className="w-4 h-4 mr-1.5" />
                   )}
-                  Geocode All Customers
+                  {t("routeMap.geocodeAll")}
                 </Button>
               )}
             </div>

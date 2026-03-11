@@ -1,9 +1,11 @@
+import { useTranslation } from "react-i18next";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { ShieldAlert } from "lucide-react";
 import { Link } from "wouter";
 
 export default function AccessDenied() {
+  const { t } = useTranslation();
   return (
     <div className="min-h-screen flex items-center justify-center bg-muted/30">
       <Card className="w-full max-w-md">
@@ -14,19 +16,18 @@ export default function AccessDenied() {
             </div>
           </div>
           <div>
-            <CardTitle className="text-2xl">Access Denied</CardTitle>
+            <CardTitle className="text-2xl">{t("accessDenied.title")}</CardTitle>
             <CardDescription>
-              You don't have permission to access this page
+              {t("accessDenied.description")}
             </CardDescription>
           </div>
         </CardHeader>
         <CardContent className="text-center">
           <p className="text-sm text-muted-foreground mb-6">
-            This page is restricted to users with specific roles. Please contact your
-            administrator if you believe you should have access.
+            {t("accessDenied.details")}
           </p>
           <Button asChild data-testid="button-back-dashboard">
-            <Link href="/dashboard">Return to Dashboard</Link>
+            <Link href="/dashboard">{t("accessDenied.returnToDashboard")}</Link>
           </Button>
         </CardContent>
       </Card>

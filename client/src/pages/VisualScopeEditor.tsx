@@ -1,4 +1,5 @@
 import { useState, useRef, useEffect, useCallback } from "react";
+import { useTranslation } from "react-i18next";
 import { Button } from "@/components/ui/button";
 import { Separator } from "@/components/ui/separator";
 import {
@@ -307,6 +308,7 @@ function InProgressShape({ points, preview, tool }: InProgressShapeProps) {
 }
 
 export default function VisualScopeEditor({ sheetId, baseImagePath, initialMarkup, onSaved }: VisualScopeEditorProps) {
+  const { t } = useTranslation();
   const [objects, setObjects] = useState<MarkupObject[]>(initialMarkup);
   const [activeTool, setActiveTool] = useState<ActiveTool>("select");
   const [selectedId, setSelectedId] = useState<string | null>(null);
@@ -587,9 +589,9 @@ export default function VisualScopeEditor({ sheetId, baseImagePath, initialMarku
         )}
 
         <div className="ml-auto flex items-center gap-1 text-xs text-muted-foreground" data-testid="text-save-status">
-          {saveStatus === "saving" && <><Loader2 className="w-3 h-3 animate-spin" />Saving…</>}
-          {saveStatus === "saved" && <><Check className="w-3 h-3 text-green-600" />Saved</>}
-          {saveStatus === "unsaved" && "Unsaved"}
+          {saveStatus === "saving" && <><Loader2 className="w-3 h-3 animate-spin" />{t("common.saving")}</>}
+          {saveStatus === "saved" && <><Check className="w-3 h-3 text-green-600" />{t("common.save")}</>}
+          {saveStatus === "unsaved" && t("common.save")}
         </div>
       </div>
 

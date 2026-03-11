@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
+import { useTranslation } from "react-i18next";
 import { queryClient, apiRequest } from "@/lib/queryClient";
 import { useSetBreadcrumbs } from "@/hooks/use-breadcrumbs";
 import { Button } from "@/components/ui/button";
@@ -53,16 +54,19 @@ function getNotificationTextColor(type: string, muted = false) {
   }
 }
 
-function getNotificationTypeLabel(type: string) {
-  switch (type) {
-    case "assigned": return "Assigned";
-    case "completed": return "Completed";
-    case "due_tomorrow": return "Due Tomorrow";
-    case "due_today": return "Due Today";
-    case "overdue": return "Overdue";
-    case "mentioned": return "Mentioned";
-    default: return "Notification";
-  }
+function useNotificationTypeLabel() {
+  const { t } = useTranslation();
+  return (type: string) => {
+    switch (type) {
+      case "assigned": return t("notifications.types.assigned");
+      case "completed": return t("notifications.types.completed");
+      case "due_tomorrow": return t("notifications.types.dueTomorrow");
+      case "due_today": return t("notifications.types.dueToday");
+      case "overdue": return t("notifications.types.overdue");
+      case "mentioned": return t("notifications.types.mentioned");
+      default: return t("notifications.types.notification");
+    }
+  };
 }
 
 interface NotificationRowProps {
@@ -73,6 +77,7 @@ interface NotificationRowProps {
 
 function NotificationRow({ notification, isHigh, onMarkRead }: NotificationRowProps) {
   const muted = !isHigh;
+  const getTypeLabel = useNotificationTypeLabel();
   return (
     <div
       className={`flex items-start gap-4 p-4 rounded-md hover-elevate cursor-pointer transition-colors ${
@@ -93,7 +98,7 @@ function NotificationRow({ notification, isHigh, onMarkRead }: NotificationRowPr
         <Link href={`/dashboard/tickets/${notification.ticketId}`} className="block">
           <div className="flex items-center gap-2 mb-0.5">
             <span className={`text-xs font-semibold ${getNotificationTextColor(notification.type, muted)}`}>
-              {getNotificationTypeLabel(notification.type)}
+              {getTypeLabel(notification.type)}
             </span>
             {!notification.isRead && (
               <span className={`w-2 h-2 rounded-full shrink-0 ${isHigh ? "bg-destructive" : "bg-muted-foreground/50"}`} />
@@ -132,6 +137,7 @@ interface UrgentSectionProps {
 }
 
 function UrgentSection({ unread, read, onMarkRead }: UrgentSectionProps) {
+  const { t } = useTranslation();
   return (
     <div className="space-y-1">
       {unread.map(n => (
@@ -141,7 +147,7 @@ function UrgentSection({ unread, read, onMarkRead }: UrgentSectionProps) {
         <>
           {unread.length > 0 && <div className="border-t my-3" />}
           <p className="text-xs font-semibold tracking-wider text-muted-foreground uppercase mb-1 px-1">
-            Read
+            {t("notifications.read")}
           </p>
           {read.map(n => (
             <NotificationRow key={n.id} notification={n} isHigh={false} onMarkRead={onMarkRead} />
@@ -162,9 +168,10 @@ function EmptyState({ message }: { message: string }) {
 }
 
 export default function NotificationsPage() {
+  const { t } = useTranslation();
   const [activeTab, setActiveTab] = useState("all");
 
-  useSetBreadcrumbs([{ label: "Notifications" }]);
+  useSetBreadcrumbs([{ label: t("notifications.title") }]);
 
   const { data: notifications = [], isLoading } = useQuery<TicketNotification[]>({
     queryKey: ["/api/notifications"],
@@ -205,13 +212,13 @@ export default function NotificationsPage() {
   }
 
   function renderAllTab() {
-    if (notifications.length === 0) return <EmptyState message="No notifications yet" />;
+    if (notifications.length === 0) return <EmptyState message={t("notifications.noNotifications")} />;
     return (
       <>
         {urgentAll.length > 0 && (
           <div className="mb-4">
             <p className="text-xs font-semibold tracking-wider text-muted-foreground uppercase mb-2" data-testid="section-needs-attention">
-              Needs Attention
+              {t("notifications.needsAttention")}
             </p>
             <UrgentSection unread={urgentUnread} read={urgentRead} onMarkRead={handleMarkRead} />
           </div>
@@ -222,7 +229,7 @@ export default function NotificationsPage() {
         {standardAll.length > 0 && (
           <div className="mb-4">
             <p className="text-xs font-semibold tracking-wider text-muted-foreground uppercase mb-2" data-testid="section-updates">
-              Updates
+              {t("notifications.updates")}
             </p>
             <div className="space-y-1">
               {standardAll.map(n => (
@@ -239,9 +246,9 @@ export default function NotificationsPage() {
     <div className="max-w-2xl mx-auto">
       <div className="flex items-center justify-between gap-4 mb-6 flex-wrap">
         <div>
-          <h1 className="text-2xl font-semibold tracking-tight">Notifications</h1>
+          <h1 className="text-2xl font-semibold tracking-tight">{t("notifications.title")}</h1>
           <p className="text-sm text-muted-foreground mt-0.5">
-            {totalUnread > 0 ? `${totalUnread} unread` : "All caught up"}
+            {totalUnread > 0 ? `${totalUnread} ${t("notifications.unread").toLowerCase()}` : t("notifications.allCaughtUp")}
           </p>
         </div>
         {totalUnread > 0 && (
@@ -258,7 +265,7 @@ export default function NotificationsPage() {
             ) : (
               <CheckCheck className="h-4 w-4" />
             )}
-            Mark all read
+            {t("notifications.markAllRead")}
           </Button>
         )}
       </div>
@@ -271,7 +278,7 @@ export default function NotificationsPage() {
         <Tabs value={activeTab} onValueChange={setActiveTab}>
           <TabsList className="mb-6" data-testid="tabs-notifications">
             <TabsTrigger value="all" className="gap-2" data-testid="tab-all">
-              All
+              {t("common.all")}
               {notifications.length > 0 && (
                 <Badge variant="secondary" className="text-xs px-1.5">
                   {notifications.length}
@@ -279,7 +286,7 @@ export default function NotificationsPage() {
               )}
             </TabsTrigger>
             <TabsTrigger value="needs-attention" className="gap-2" data-testid="tab-needs-attention">
-              Needs Attention
+              {t("notifications.needsAttention")}
               {urgentUnreadCount > 0 && (
                 <Badge variant="destructive" className="text-xs px-1.5">
                   {urgentUnreadCount}
@@ -287,7 +294,7 @@ export default function NotificationsPage() {
               )}
             </TabsTrigger>
             <TabsTrigger value="updates" className="gap-2" data-testid="tab-updates">
-              Updates
+              {t("notifications.updates")}
               {standardUnread > 0 && (
                 <Badge variant="secondary" className="text-xs px-1.5">
                   {standardUnread}
@@ -295,7 +302,7 @@ export default function NotificationsPage() {
               )}
             </TabsTrigger>
             <TabsTrigger value="unread" className="gap-2" data-testid="tab-unread">
-              Unread
+              {t("notifications.unread")}
               {totalUnread > 0 && (
                 <Badge variant="secondary" className="text-xs px-1.5">
                   {totalUnread}
@@ -310,14 +317,14 @@ export default function NotificationsPage() {
 
           <TabsContent value="needs-attention">
             {urgentAll.length === 0
-              ? <EmptyState message="Nothing needs your attention right now" />
+              ? <EmptyState message={t("notifications.nothingNeedsAttention")} />
               : <UrgentSection unread={urgentUnread} read={urgentRead} onMarkRead={handleMarkRead} />
             }
           </TabsContent>
 
           <TabsContent value="updates">
             {standardAll.length === 0
-              ? <EmptyState message="No updates" />
+              ? <EmptyState message={t("notifications.noUpdates")} />
               : (
                 <div className="space-y-1">
                   {standardAll.map(n => (
@@ -330,7 +337,7 @@ export default function NotificationsPage() {
 
           <TabsContent value="unread">
             {unreadAll.length === 0
-              ? <EmptyState message="You're all caught up" />
+              ? <EmptyState message={t("notifications.youreAllCaughtUp")} />
               : (() => {
                   const urgUnread = urgentAll.filter(n => !n.isRead);
                   const stdUnread = standardAll.filter(n => !n.isRead);
@@ -339,7 +346,7 @@ export default function NotificationsPage() {
                       {urgUnread.length > 0 && (
                         <div className="mb-4">
                           <p className="text-xs font-semibold tracking-wider text-muted-foreground uppercase mb-2">
-                            Needs Attention
+                            {t("notifications.needsAttention")}
                           </p>
                           <div className="space-y-1">
                             {urgUnread.map(n => (
@@ -352,7 +359,7 @@ export default function NotificationsPage() {
                       {stdUnread.length > 0 && (
                         <div className="mb-4">
                           <p className="text-xs font-semibold tracking-wider text-muted-foreground uppercase mb-2">
-                            Updates
+                            {t("notifications.updates")}
                           </p>
                           <div className="space-y-1">
                             {stdUnread.map(n => (

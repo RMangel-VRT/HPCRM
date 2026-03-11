@@ -1,3 +1,4 @@
+import { useTranslation } from "react-i18next";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -15,6 +16,7 @@ interface PlatformStats {
 }
 
 export default function SuperAdminDashboard() {
+  const { t } = useTranslation();
   const { data: companies = [], isLoading: companiesLoading } = useQuery<Company[]>({
     queryKey: ["/api/admin/companies"],
   });
@@ -28,28 +30,24 @@ export default function SuperAdminDashboard() {
 
   const statCards = [
     {
-      title: "Total Companies",
+      title: t("superAdmin.totalCompanies"),
       value: platformStats.totalCompanies.toString(),
       icon: Building2,
-      description: "Active companies on platform",
     },
     {
-      title: "Total Users",
+      title: t("superAdmin.totalUsers"),
       value: platformStats.totalUsers.toString(),
       icon: Users,
-      description: "Users across all companies",
     },
     {
-      title: "Total Customers",
+      title: t("superAdmin.totalCustomers"),
       value: platformStats.totalCustomers.toString(),
       icon: FileText,
-      description: "Customers being managed",
     },
     {
-      title: "Active Contracts",
+      title: t("superAdmin.activeContracts"),
       value: platformStats.totalContracts.toString(),
       icon: TrendingUp,
-      description: "Contracts across platform",
     },
   ];
 
@@ -57,10 +55,10 @@ export default function SuperAdminDashboard() {
     <div className="space-y-6">
       <div>
         <h1 className="text-3xl font-semibold tracking-tight" data-testid="text-page-title">
-          System Administration
+          {t("superAdmin.systemAdmin")}
         </h1>
         <p className="text-sm text-muted-foreground mt-1">
-          Platform overview and company management
+          {t("superAdmin.platformOverview")}
         </p>
       </div>
 
@@ -89,7 +87,6 @@ export default function SuperAdminDashboard() {
               </CardHeader>
               <CardContent>
                 <div className="text-2xl font-bold">{card.value}</div>
-                <p className="text-xs text-muted-foreground mt-1">{card.description}</p>
               </CardContent>
             </Card>
           ))}
@@ -99,12 +96,11 @@ export default function SuperAdminDashboard() {
       <Card>
         <CardHeader className="flex flex-row items-center justify-between gap-2">
           <div>
-            <CardTitle>Companies</CardTitle>
-            <CardDescription>All companies on the platform</CardDescription>
+            <CardTitle>{t("superAdmin.companies")}</CardTitle>
           </div>
           <Link href="/admin">
             <Button variant="outline" size="sm" data-testid="button-view-all-companies">
-              Manage Companies
+              {t("superAdmin.manageCompaniesBtn")}
               <ArrowRight className="w-4 h-4 ml-2" />
             </Button>
           </Link>
@@ -118,7 +114,7 @@ export default function SuperAdminDashboard() {
             </div>
           ) : companies.length === 0 ? (
             <p className="text-sm text-muted-foreground text-center py-8">
-              No companies registered yet
+              {t("superAdmin.noCompanies")}
             </p>
           ) : (
             <div className="space-y-3">
@@ -138,7 +134,7 @@ export default function SuperAdminDashboard() {
                     </div>
                   </div>
                   <Badge variant="secondary">
-                    Active
+                    {t("statuses.active")}
                   </Badge>
                 </div>
               ))}

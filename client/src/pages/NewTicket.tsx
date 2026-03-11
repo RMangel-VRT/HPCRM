@@ -2,6 +2,7 @@ import { useState, useMemo, useEffect } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { useLocation, Link } from "wouter";
 import { useSetBreadcrumbs } from "@/hooks/use-breadcrumbs";
+import { useTranslation } from "react-i18next";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -97,6 +98,7 @@ function MapCenterUpdater({ center }: { center: [number, number] }) {
 }
 
 export default function NewTicket() {
+  const { t } = useTranslation();
   const [, navigate] = useLocation();
   const { toast } = useToast();
   
@@ -166,8 +168,8 @@ export default function NewTicket() {
   });
 
   useSetBreadcrumbs([
-    { label: "Tickets", href: "/dashboard/tickets" },
-    { label: "New Ticket" },
+    { label: t('tickets.title'), href: "/dashboard/tickets" },
+    { label: t('newTicket.title') },
   ], []);
 
   interface CompanyUserWithDetails {
@@ -318,10 +320,10 @@ export default function NewTicket() {
       setNewProspectContactEmail("");
       setNewProspectContactPhone("");
       handleSelectCustomer(customer.id);
-      toast({ title: "Prospect created successfully" });
+      toast({ title: t('newTicket.prospectCreated') });
     },
     onError: (error: Error) => {
-      toast({ title: "Failed to create prospect", description: error.message, variant: "destructive" });
+      toast({ title: t('newTicket.createFailed'), description: error.message, variant: "destructive" });
     },
   });
 
@@ -368,11 +370,11 @@ export default function NewTicket() {
     onSuccess: async (res) => {
       const ticket = await res.json();
       queryClient.invalidateQueries({ queryKey: ["/api/tickets"] });
-      toast({ title: "Ticket created successfully" });
+      toast({ title: t('newTicket.ticketCreated') });
       navigate(`/dashboard/tickets/${ticket.id}`);
     },
     onError: (error: Error) => {
-      toast({ title: "Failed to create ticket", description: error.message, variant: "destructive" });
+      toast({ title: t('newTicket.createFailed'), description: error.message, variant: "destructive" });
     },
   });
 
@@ -450,7 +452,7 @@ export default function NewTicket() {
     ].filter(Boolean).join(", ");
 
     if (!address) {
-      toast({ title: "No address available for this customer", variant: "destructive" });
+      toast({ title: t('newTicket.usePropertyAddress'), variant: "destructive" });
       return;
     }
 
@@ -467,14 +469,14 @@ export default function NewTicket() {
         setLocationLng(data.lng);
         setMapCenter([data.lat, data.lng]);
         setLocationLabel(selectedCustomer.name);
-        toast({ title: "Location set to property address" });
+        toast({ title: t('newTicket.locationSet') });
       } else if (response.status === 404) {
-        toast({ title: "Could not find coordinates for this address", variant: "destructive" });
+        toast({ title: t('newTicket.locationSet'), variant: "destructive" });
       } else {
-        toast({ title: "Geocoding service error", variant: "destructive" });
+        toast({ title: t('newTicket.createFailed'), variant: "destructive" });
       }
     } catch (error) {
-      toast({ title: "Failed to geocode address", variant: "destructive" });
+      toast({ title: t('newTicket.createFailed'), variant: "destructive" });
     } finally {
       setIsGeocodingLoading(false);
     }
@@ -482,7 +484,7 @@ export default function NewTicket() {
 
   const handleGetCurrentLocation = () => {
     if (!navigator.geolocation) {
-      toast({ title: "Geolocation not supported", variant: "destructive" });
+      toast({ title: t('newTicket.getCurrentLocation'), variant: "destructive" });
       return;
     }
 
@@ -493,11 +495,11 @@ export default function NewTicket() {
         setLocationLat(lat);
         setLocationLng(lng);
         setMapCenter([lat, lng]);
-        setLocationLabel("Current Location");
-        toast({ title: "Location set to your current position" });
+        setLocationLabel(t('newTicket.getCurrentLocation'));
+        toast({ title: t('newTicket.locationSet') });
       },
       (error) => {
-        toast({ title: "Could not get your location", description: error.message, variant: "destructive" });
+        toast({ title: t('newTicket.getCurrentLocation'), description: error.message, variant: "destructive" });
       }
     );
   };
@@ -527,12 +529,12 @@ export default function NewTicket() {
     try {
       for (const file of Array.from(files)) {
         if (!file.type.startsWith("image/")) {
-          toast({ title: "Only images are allowed", variant: "destructive" });
+          toast({ title: t('newTicket.photoAdded'), variant: "destructive" });
           continue;
         }
 
         if (file.size > 10 * 1024 * 1024) {
-          toast({ title: "Image must be under 10MB", variant: "destructive" });
+          toast({ title: t('newTicket.photoAdded'), variant: "destructive" });
           continue;
         }
 
@@ -553,11 +555,11 @@ export default function NewTicket() {
 
         const previewUrl = URL.createObjectURL(file);
         setPhotos((prev) => [...prev, { path: objectPath, previewUrl }]);
-        toast({ title: "Photo added" });
+        toast({ title: t('newTicket.photoAdded') });
       }
     } catch (error) {
       console.error("Photo upload error:", error);
-      toast({ title: "Failed to upload photo", variant: "destructive" });
+      toast({ title: t('newTicket.createFailed'), variant: "destructive" });
     } finally {
       setIsUploadingPhoto(false);
       event.target.value = "";
@@ -578,25 +580,25 @@ export default function NewTicket() {
     
     // RFP and Invoice have required titles, regular tickets need manual title
     if (!isRFPRequest && !isInvoice && !title.trim()) {
-      toast({ title: "Please enter a title", variant: "destructive" });
+      toast({ title: t('newTicket.enterTitle'), variant: "destructive" });
       return;
     }
     
     // RFP requires service request type
     if (isRFPRequest && !serviceRequestType) {
-      toast({ title: "Please select a service request type", variant: "destructive" });
+      toast({ title: t('newTicket.serviceRequestType'), variant: "destructive" });
       return;
     }
     
     // Invoice requires a title
     if (isInvoice && !title.trim()) {
-      toast({ title: "Please enter a title or description for the invoice", variant: "destructive" });
+      toast({ title: t('newTicket.enterTitle'), variant: "destructive" });
       return;
     }
     
     // Invoice requires category selection
     if (isInvoice && !invoiceCategory) {
-      toast({ title: "Please select an invoice category", variant: "destructive" });
+      toast({ title: t('newTicket.invoiceCategory'), variant: "destructive" });
       return;
     }
     
@@ -624,13 +626,13 @@ export default function NewTicket() {
           </Button>
         </Link>
         <h1 className="text-xl md:text-2xl font-semibold tracking-tight">
-          New Ticket
+          {t('newTicket.title')}
         </h1>
       </div>
 
       {step === "workType" && (
         <div className="space-y-4">
-          <p className="text-muted-foreground">What type of work is this?</p>
+          <p className="text-muted-foreground">{t('newTicket.whatType')}</p>
           
           <div className="grid gap-3">
             {workTypeOptions.map((type) => {
@@ -761,7 +763,7 @@ export default function NewTicket() {
               {isRFPRequest ? "RFP Request" : isInvoice ? "Invoice" : isProjectNoEstimate ? "Project (No Estimate)" : selectedWorkTypeConfig?.name}
             </span>
             <span>/</span>
-            <span>Select Customer</span>
+            <span>{t('newTicket.selectCustomer')}</span>
           </div>
           
           <Card 
@@ -772,7 +774,7 @@ export default function NewTicket() {
             <CardContent className="p-4 flex items-center gap-3">
               <MapPin className="w-5 h-5 text-muted-foreground" />
               <span className="text-muted-foreground">
-                {selectedCustomer ? selectedCustomer.name : "Select a customer..."}
+                {selectedCustomer ? selectedCustomer.name : t('newTicket.selectCustomer')}
               </span>
             </CardContent>
           </Card>
@@ -780,13 +782,13 @@ export default function NewTicket() {
           <Dialog open={showCustomerDialog} onOpenChange={setShowCustomerDialog}>
             <DialogContent className="sm:max-w-md max-h-[80vh] flex flex-col">
               <DialogHeader>
-                <DialogTitle>Select Customer</DialogTitle>
+                <DialogTitle>{t('newTicket.selectCustomer')}</DialogTitle>
               </DialogHeader>
               
               <div className="relative">
                 <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
                 <Input
-                  placeholder="Search customers..."
+                  placeholder={t('tickets.searchPlaceholder')}
                   value={customerSearch}
                   onChange={(e) => setCustomerSearch(e.target.value)}
                   className="pl-9"
@@ -806,14 +808,14 @@ export default function NewTicket() {
                   data-testid="button-create-prospect"
                 >
                   <UserPlus className="w-4 h-4 mr-2" />
-                  Create New Prospect
+                  {t('newTicket.createNewProspect')}
                 </Button>
               )}
               
               <div className="flex-1 overflow-y-auto -mx-6 px-6 space-y-2 min-h-[200px] max-h-[400px]">
                 {filteredCustomers.length === 0 ? (
                   <p className="text-center text-muted-foreground py-8">
-                    No customers found
+                    {t('customers.noCustomersFound')}
                   </p>
                 ) : (
                   filteredCustomers.map((customer) => (
@@ -850,13 +852,13 @@ export default function NewTicket() {
           <Dialog open={showCreateProspectDialog} onOpenChange={setShowCreateProspectDialog}>
             <DialogContent className="sm:max-w-md">
               <DialogHeader>
-                <DialogTitle>Create New Prospect</DialogTitle>
+                <DialogTitle>{t('newTicket.createNewProspect')}</DialogTitle>
               </DialogHeader>
               
               <div className="space-y-4">
                 <div className="space-y-2">
                   <Label htmlFor="prospect-name">
-                    Community Name <span className="text-red-500">*</span>
+                    {t('newTicket.contactName')} <span className="text-red-500">*</span>
                   </Label>
                   <Input
                     id="prospect-name"
@@ -868,7 +870,7 @@ export default function NewTicket() {
                 </div>
                 
                 <div className="space-y-2">
-                  <Label htmlFor="prospect-contact-name">Primary Contact Name</Label>
+                  <Label htmlFor="prospect-contact-name">{t('newTicket.contactName')}</Label>
                   <Input
                     id="prospect-contact-name"
                     value={newProspectContactName}
@@ -879,7 +881,7 @@ export default function NewTicket() {
                 </div>
                 
                 <div className="space-y-2">
-                  <Label htmlFor="prospect-contact-email">Contact Email</Label>
+                  <Label htmlFor="prospect-contact-email">{t('newTicket.contactEmail')}</Label>
                   <Input
                     id="prospect-contact-email"
                     type="email"
@@ -891,7 +893,7 @@ export default function NewTicket() {
                 </div>
                 
                 <div className="space-y-2">
-                  <Label htmlFor="prospect-contact-phone">Contact Phone</Label>
+                  <Label htmlFor="prospect-contact-phone">{t('newTicket.contactPhone')}</Label>
                   <Input
                     id="prospect-contact-phone"
                     type="tel"
@@ -908,7 +910,7 @@ export default function NewTicket() {
                   variant="outline"
                   onClick={() => setShowCreateProspectDialog(false)}
                 >
-                  Cancel
+                  {t('common.cancel')}
                 </Button>
                 <Button
                   onClick={() => createProspectMutation.mutate()}
@@ -920,7 +922,7 @@ export default function NewTicket() {
                   ) : (
                     <UserPlus className="w-4 h-4 mr-2" />
                   )}
-                  Create Prospect
+                  {t('newTicket.createProspect')}
                 </Button>
               </DialogFooter>
             </DialogContent>
@@ -950,7 +952,7 @@ export default function NewTicket() {
               </>
             )}
             <span>/</span>
-            <span>Details</span>
+            <span>{t('ticketDetail.tabs.overview')}</span>
           </div>
 
           {/* Hide billing behavior for Invoice tickets since it's already clear it's for billing */}
@@ -973,7 +975,7 @@ export default function NewTicket() {
             {/* RFP Request has auto-generated title */}
             {isRFPRequest ? (
               <div className="space-y-2">
-                <Label>Title</Label>
+                <Label>{t('newTicket.titleLabel')}</Label>
                 <div className="h-11 px-3 flex items-center rounded-md border bg-muted/50 text-sm">
                   Request for Proposal - {selectedCustomer?.name}
                 </div>
@@ -981,13 +983,13 @@ export default function NewTicket() {
             ) : (
               <div className="space-y-2">
                 <Label htmlFor="title">
-                  Title <span className="text-red-500">*</span>
+                  {t('newTicket.titleLabel')} <span className="text-red-500">*</span>
                 </Label>
                 <Input
                   id="title"
                   value={title}
                   onChange={(e) => setTitle(e.target.value)}
-                  placeholder="Brief description of the work"
+                  placeholder={t('newTicket.titlePlaceholder')}
                   className="h-11"
                   data-testid="input-title"
                 />
@@ -998,7 +1000,7 @@ export default function NewTicket() {
             {isRFPRequest && (
               <div className="space-y-2">
                 <Label htmlFor="serviceRequestType">
-                  Service Request <span className="text-red-500">*</span>
+                  {t('newTicket.serviceRequestType')} <span className="text-red-500">*</span>
                 </Label>
                 <Select value={serviceRequestType} onValueChange={setServiceRequestType}>
                   <SelectTrigger id="serviceRequestType" className="h-11" data-testid="select-service-request-type">
@@ -1015,12 +1017,12 @@ export default function NewTicket() {
             )}
 
             <div className="space-y-2">
-              <Label htmlFor="description">Description</Label>
+              <Label htmlFor="description">{t('common.description')}</Label>
               <Textarea
                 id="description"
                 value={description}
                 onChange={(e) => setDescription(e.target.value)}
-                placeholder="Add any additional details..."
+                placeholder={t('newTicket.descriptionPlaceholder')}
                 rows={3}
                 data-testid="input-description"
               />
@@ -1029,7 +1031,7 @@ export default function NewTicket() {
             {/* Equipment selection - Shop to-do only */}
             {selectedWorkType === "shop_todo" && (
               <div className="space-y-2">
-                <Label htmlFor="equipment">Equipment (optional)</Label>
+                <Label htmlFor="equipment">{t('tickets.equipment')}</Label>
                 <Select 
                   value={selectedEquipmentId || "none"} 
                   onValueChange={(value) => setSelectedEquipmentId(value === "none" ? null : value)}
@@ -1038,7 +1040,7 @@ export default function NewTicket() {
                     <SelectValue placeholder="Link to equipment..." />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="none">None</SelectItem>
+                    <SelectItem value="none">{t('common.none')}</SelectItem>
                     {equipmentList
                       .filter(e => e.status !== "retired")
                       .map((equipment) => (
@@ -1055,7 +1057,7 @@ export default function NewTicket() {
             )}
 
             <div className="space-y-2">
-              <Label>Location (optional)</Label>
+              <Label>{t('ticketDetail.location')}</Label>
               {hasLocation ? (
                 <div className="p-3 rounded-lg border bg-muted/30 space-y-2">
                   <div className="flex items-center justify-between gap-2">
@@ -1107,7 +1109,7 @@ export default function NewTicket() {
             {/* Photo upload - hidden for RFP requests only */}
             {!isRFPRequest && (
               <div className="space-y-2">
-                <Label>Photos (optional)</Label>
+                <Label>{t('ticketDetail.photos')}</Label>
                 <div className="space-y-3">
                   {photos.length > 0 && (
                     <div className="grid grid-cols-3 gap-2">
@@ -1193,22 +1195,22 @@ export default function NewTicket() {
 
             <div className="grid grid-cols-2 gap-4">
               <div className="space-y-2">
-                <Label htmlFor="priority">Priority</Label>
+                <Label htmlFor="priority">{t('common.priority')}</Label>
                 <Select value={priority} onValueChange={setPriority}>
                   <SelectTrigger id="priority" data-testid="select-priority">
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="low">Low</SelectItem>
-                    <SelectItem value="normal">Normal</SelectItem>
-                    <SelectItem value="high">High</SelectItem>
-                    <SelectItem value="urgent">Urgent</SelectItem>
+                    <SelectItem value="low">{t('priorities.low')}</SelectItem>
+                    <SelectItem value="normal">{t('priorities.normal')}</SelectItem>
+                    <SelectItem value="high">{t('priorities.high')}</SelectItem>
+                    <SelectItem value="urgent">{t('priorities.urgent')}</SelectItem>
                   </SelectContent>
                 </Select>
               </div>
 
               <div className="space-y-2">
-                <Label htmlFor="dueDate">Due Date</Label>
+                <Label htmlFor="dueDate">{t('newTicket.dueDate')}</Label>
                 <Input
                   id="dueDate"
                   type="date"
@@ -1223,7 +1225,7 @@ export default function NewTicket() {
             {/* Work Completed Date - only for Invoice tickets */}
             {isInvoice && (
               <div className="space-y-2">
-                <Label htmlFor="workCompletedDate">Work Completed Date</Label>
+                <Label htmlFor="workCompletedDate">{t('newTicket.workCompletedDate')}</Label>
                 <Input
                   id="workCompletedDate"
                   type="date"
@@ -1241,7 +1243,7 @@ export default function NewTicket() {
             {/* Invoice Category - only for Invoice tickets */}
             {isInvoice && (
               <div className="space-y-2">
-                <Label htmlFor="invoiceCategory">Invoice Category <span className="text-destructive">*</span></Label>
+                <Label htmlFor="invoiceCategory">{t('newTicket.invoiceCategory')} <span className="text-destructive">*</span></Label>
                 <Select 
                   value={invoiceCategory || ""} 
                   onValueChange={(v) => setInvoiceCategory(v as "general_maintenance" | "snow")}
@@ -1261,7 +1263,7 @@ export default function NewTicket() {
             )}
 
             <div className="space-y-2">
-              <Label htmlFor="assignedTo">Assign To <span className="text-destructive">*</span></Label>
+              <Label htmlFor="assignedTo">{t('newTicket.assignedTo')} <span className="text-destructive">*</span></Label>
               <Select 
                 value={assignedToId || ""} 
                 onValueChange={(v) => setAssignedToId(v)}
@@ -1295,7 +1297,7 @@ export default function NewTicket() {
               {createTicketMutation.isPending ? (
                 <Loader2 className="w-5 h-5 animate-spin" />
               ) : (
-                "Create Ticket"
+                t('newTicket.createTicket')
               )}
             </Button>
           </div>
@@ -1305,12 +1307,12 @@ export default function NewTicket() {
       <Dialog open={showLocationDialog} onOpenChange={setShowLocationDialog}>
         <DialogContent className="sm:max-w-lg max-h-[90vh] flex flex-col">
           <DialogHeader>
-            <DialogTitle>Set Location</DialogTitle>
+            <DialogTitle>{t('newTicket.setLocation')}</DialogTitle>
           </DialogHeader>
           
           <div className="space-y-4 flex-1 overflow-y-auto">
             <p className="text-sm text-muted-foreground">
-              Tap on the map or use one of the options below.
+              {t('newTicket.setLocation')}
             </p>
 
             <div className="flex flex-wrap gap-2">
@@ -1326,7 +1328,7 @@ export default function NewTicket() {
                 ) : (
                   <Building2 className="w-4 h-4 mr-2" />
                 )}
-                {isGeocodingLoading ? "Finding..." : "Use Property Address"}
+                {isGeocodingLoading ? t('common.loading') : t('newTicket.usePropertyAddress')}
               </Button>
               <Button 
                 variant="outline" 
@@ -1335,7 +1337,7 @@ export default function NewTicket() {
                 data-testid="button-current-location"
               >
                 <Navigation className="w-4 h-4 mr-2" />
-                My Location
+                {t('newTicket.getCurrentLocation')}
               </Button>
               {hasLocation && (
                 <Button 
@@ -1345,7 +1347,7 @@ export default function NewTicket() {
                   data-testid="button-dialog-clear-location"
                 >
                   <X className="w-4 h-4 mr-2" />
-                  Clear
+                  {t('common.clear')}
                 </Button>
               )}
             </div>
@@ -1381,7 +1383,7 @@ export default function NewTicket() {
                 </div>
                 
                 <div className="space-y-2">
-                  <Label htmlFor="locationLabel" className="text-xs">Location Name (optional)</Label>
+                  <Label htmlFor="locationLabel" className="text-xs">{t('ticketDetail.location')}</Label>
                   <Input
                     id="locationLabel"
                     placeholder="e.g., Near the pool, Back gate entrance..."
@@ -1393,10 +1395,10 @@ export default function NewTicket() {
                 </div>
 
                 <div className="space-y-2">
-                  <Label htmlFor="locationDescription" className="text-xs">Additional Notes (optional)</Label>
+                  <Label htmlFor="locationDescription" className="text-xs">{t('common.description')}</Label>
                   <Textarea
                     id="locationDescription"
-                    placeholder="Any specific instructions to find this spot..."
+                    placeholder={t('newTicket.descriptionPlaceholder')}
                     value={locationDescription}
                     onChange={(e) => setLocationDescription(e.target.value)}
                     rows={2}
@@ -1425,9 +1427,9 @@ export default function NewTicket() {
               {isGeocodingLoading ? (
                 <Loader2 className="w-4 h-4 animate-spin" />
               ) : hasLocation ? (
-                "Save Location"
+                t('newTicket.setLocation')
               ) : (
-                "Skip Location"
+                t('common.skip')
               )}
             </Button>
           </div>

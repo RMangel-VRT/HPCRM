@@ -1,4 +1,5 @@
 import { useState, useEffect } from "react";
+import { useTranslation } from "react-i18next";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -26,6 +27,7 @@ import { apiRequest, queryClient } from "@/lib/queryClient";
 import { Plus, MapPin, User, Phone, Mail, Building, Trash2, Pencil } from "lucide-react";
 
 export default function PropertiesPage() {
+  const { t } = useTranslation();
   const { toast } = useToast();
   const [isDialogOpen, setIsDialogOpen] = useState(false);
   const [selectedProperty, setSelectedProperty] = useState<Property | null>(null);
@@ -47,7 +49,7 @@ export default function PropertiesPage() {
   if (isLoading) {
     return (
       <div className="p-8">
-        <div className="text-muted-foreground">Loading properties...</div>
+        <div className="text-muted-foreground">{t("common.loading")}</div>
       </div>
     );
   }
@@ -56,16 +58,16 @@ export default function PropertiesPage() {
     <div className="p-8">
       <div className="mb-8 flex items-center justify-between gap-4">
         <div>
-          <h1 className="text-3xl font-semibold tracking-tight">Properties</h1>
+          <h1 className="text-3xl font-semibold tracking-tight">{t("propertiesPage.title")}</h1>
           <p className="text-sm text-muted-foreground mt-1">
-            Manage your customer properties and contacts
+            {t("propertiesList.manage")}
           </p>
         </div>
         <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
           <DialogTrigger asChild>
             <Button onClick={() => openDialog()} data-testid="button-add-property">
               <Plus className="w-4 h-4 mr-2" />
-              Add Property
+              {t("propertiesPage.addProperty")}
             </Button>
           </DialogTrigger>
           <PropertyDialog 
@@ -79,13 +81,13 @@ export default function PropertiesPage() {
         <Card>
           <CardContent className="py-16 text-center">
             <Building className="w-12 h-12 mx-auto mb-4 text-muted-foreground" />
-            <h3 className="text-lg font-medium mb-2">No properties yet</h3>
+            <h3 className="text-lg font-medium mb-2">{t("propertiesPage.noProperties")}</h3>
             <p className="text-sm text-muted-foreground mb-6">
-              Get started by adding your first property
+              {t("propertiesPage.getStarted")}
             </p>
             <Button onClick={() => openDialog()} data-testid="button-add-first-property">
               <Plus className="w-4 h-4 mr-2" />
-              Add Property
+              {t("propertiesPage.addProperty")}
             </Button>
           </CardContent>
         </Card>
@@ -105,6 +107,7 @@ export default function PropertiesPage() {
 }
 
 function PropertyCard({ property, onEdit }: { property: Property; onEdit: () => void }) {
+  const { t } = useTranslation();
   const { toast } = useToast();
 
   const deleteMutation = useMutation({
@@ -113,7 +116,7 @@ function PropertyCard({ property, onEdit }: { property: Property; onEdit: () => 
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/properties"] });
-      toast({ title: "Property deleted successfully" });
+      toast({ title: t("propertiesPage.deleted") });
     },
     onError: () => {
       toast({ title: "Failed to delete property", variant: "destructive" });
@@ -147,19 +150,19 @@ function PropertyCard({ property, onEdit }: { property: Property; onEdit: () => 
               </AlertDialogTrigger>
               <AlertDialogContent>
                 <AlertDialogHeader>
-                  <AlertDialogTitle>Delete Property</AlertDialogTitle>
+                  <AlertDialogTitle>{t("propertiesPage.deleteProperty")}</AlertDialogTitle>
                   <AlertDialogDescription>
-                    Are you sure you want to delete "{property.name}"? This action cannot be undone.
+                    {t("propertiesPage.deleteConfirm")}
                   </AlertDialogDescription>
                 </AlertDialogHeader>
                 <AlertDialogFooter>
-                  <AlertDialogCancel data-testid={`button-cancel-delete-property-${property.id}`}>Cancel</AlertDialogCancel>
+                  <AlertDialogCancel data-testid={`button-cancel-delete-property-${property.id}`}>{t("common.cancel")}</AlertDialogCancel>
                   <AlertDialogAction
                     onClick={() => deleteMutation.mutate()}
                     className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
                     data-testid={`button-confirm-delete-property-${property.id}`}
                   >
-                    Delete
+                    {t("common.delete")}
                   </AlertDialogAction>
                 </AlertDialogFooter>
               </AlertDialogContent>
@@ -180,7 +183,7 @@ function PropertyCard({ property, onEdit }: { property: Property; onEdit: () => 
 
         {property.propertyManagerName && (
           <div className="pt-2 border-t space-y-2">
-            <div className="text-xs font-medium text-muted-foreground">Property Manager</div>
+            <div className="text-xs font-medium text-muted-foreground">{t("propertiesPage.propertyManager")}</div>
             <div className="flex items-center gap-2 text-sm">
               <User className="w-4 h-4 text-muted-foreground shrink-0" />
               <span data-testid={`text-manager-name-${property.id}`}>{property.propertyManagerName}</span>
@@ -205,6 +208,7 @@ function PropertyCard({ property, onEdit }: { property: Property; onEdit: () => 
 }
 
 function PropertyDialog({ property, onClose }: { property: Property | null; onClose: () => void }) {
+  const { t } = useTranslation();
   const { toast } = useToast();
   const isEditing = !!property;
 
@@ -255,7 +259,7 @@ function PropertyDialog({ property, onClose }: { property: Property | null; onCl
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/properties"] });
-      toast({ title: "Property created successfully" });
+      toast({ title: t("propertiesPage.created") });
       onClose();
       form.reset();
     },
@@ -271,7 +275,7 @@ function PropertyDialog({ property, onClose }: { property: Property | null; onCl
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/properties"] });
-      toast({ title: "Property updated successfully" });
+      toast({ title: t("propertiesPage.updated") });
       onClose();
     },
     onError: () => {
@@ -292,9 +296,9 @@ function PropertyDialog({ property, onClose }: { property: Property | null; onCl
   return (
     <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
       <DialogHeader>
-        <DialogTitle>{isEditing ? "Edit Property" : "Add Property"}</DialogTitle>
+        <DialogTitle>{isEditing ? t("propertiesPage.editProperty") : t("propertiesPage.addProperty")}</DialogTitle>
         <DialogDescription>
-          {isEditing ? "Update property information and contacts" : "Enter property information and contacts"}
+          {isEditing ? t("propertiesPage.updateProperty") : t("propertiesPage.createProperty")}
         </DialogDescription>
       </DialogHeader>
 
@@ -306,7 +310,7 @@ function PropertyDialog({ property, onClose }: { property: Property | null; onCl
               name="name"
               render={({ field }) => (
                 <FormItem>
-                  <FormLabel>Property Name</FormLabel>
+                  <FormLabel>{t("propertiesPage.propertyName")}</FormLabel>
                   <FormControl>
                     <Input {...field} placeholder="Greenwood HOA" data-testid="input-property-name" />
                   </FormControl>
@@ -316,7 +320,7 @@ function PropertyDialog({ property, onClose }: { property: Property | null; onCl
             />
 
             <div className="space-y-2">
-              <FormLabel>Address</FormLabel>
+              <FormLabel>{t("common.address")}</FormLabel>
               <div className="grid grid-cols-1 gap-4">
                 <FormField
                   control={form.control}
@@ -337,7 +341,7 @@ function PropertyDialog({ property, onClose }: { property: Property | null; onCl
                     render={({ field }) => (
                       <FormItem className="col-span-2">
                         <FormControl>
-                          <Input {...field} placeholder="City" data-testid="input-city" />
+                          <Input {...field} placeholder={t("propertiesPage.city")} data-testid="input-city" />
                         </FormControl>
                         <FormMessage />
                       </FormItem>
@@ -349,7 +353,7 @@ function PropertyDialog({ property, onClose }: { property: Property | null; onCl
                     render={({ field }) => (
                       <FormItem>
                         <FormControl>
-                          <Input {...field} placeholder="State" data-testid="input-state" />
+                          <Input {...field} placeholder={t("propertiesPage.state")} data-testid="input-state" />
                         </FormControl>
                         <FormMessage />
                       </FormItem>
@@ -362,7 +366,7 @@ function PropertyDialog({ property, onClose }: { property: Property | null; onCl
                   render={({ field }) => (
                     <FormItem>
                       <FormControl>
-                        <Input {...field} placeholder="ZIP Code" data-testid="input-zip" />
+                        <Input {...field} placeholder={t("propertiesPage.zipCode")} data-testid="input-zip" />
                       </FormControl>
                       <FormMessage />
                     </FormItem>
@@ -372,14 +376,14 @@ function PropertyDialog({ property, onClose }: { property: Property | null; onCl
             </div>
 
             <div className="border-t pt-4 space-y-4">
-              <h3 className="text-sm font-medium">Property Manager (Optional)</h3>
+              <h3 className="text-sm font-medium">{t("propertiesPage.propertyManager")}</h3>
               
               <FormField
                 control={form.control}
                 name="propertyManagerName"
                 render={({ field }) => (
                   <FormItem>
-                    <FormLabel>Name</FormLabel>
+                    <FormLabel>{t("common.name")}</FormLabel>
                     <FormControl>
                       <Input {...field} placeholder="John Smith" data-testid="input-manager-name" />
                     </FormControl>
@@ -394,7 +398,7 @@ function PropertyDialog({ property, onClose }: { property: Property | null; onCl
                   name="propertyManagerPhone"
                   render={({ field }) => (
                     <FormItem>
-                      <FormLabel>Phone</FormLabel>
+                      <FormLabel>{t("common.phone")}</FormLabel>
                       <FormControl>
                         <Input {...field} placeholder="(555) 123-4567" data-testid="input-manager-phone" />
                       </FormControl>
@@ -408,7 +412,7 @@ function PropertyDialog({ property, onClose }: { property: Property | null; onCl
                   name="propertyManagerEmail"
                   render={({ field }) => (
                     <FormItem>
-                      <FormLabel>Email</FormLabel>
+                      <FormLabel>{t("common.email")}</FormLabel>
                       <FormControl>
                         <Input {...field} type="email" placeholder="john@example.com" data-testid="input-manager-email" />
                       </FormControl>
@@ -424,7 +428,7 @@ function PropertyDialog({ property, onClose }: { property: Property | null; onCl
               name="notes"
               render={({ field }) => (
                 <FormItem>
-                  <FormLabel>Notes</FormLabel>
+                  <FormLabel>{t("common.notes")}</FormLabel>
                   <FormControl>
                     <Textarea 
                       {...field} 
@@ -441,10 +445,10 @@ function PropertyDialog({ property, onClose }: { property: Property | null; onCl
 
           <div className="flex justify-end gap-3">
             <Button type="button" variant="outline" onClick={onClose} data-testid="button-cancel">
-              Cancel
+              {t("common.cancel")}
             </Button>
             <Button type="submit" disabled={isPending} data-testid="button-save-property">
-              {isPending ? "Saving..." : isEditing ? "Update Property" : "Create Property"}
+              {isPending ? t("common.saving") : isEditing ? t("propertiesPage.updateProperty") : t("propertiesPage.createProperty")}
             </Button>
           </div>
         </form>

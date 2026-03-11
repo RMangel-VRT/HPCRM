@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { useTranslation } from "react-i18next";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -26,6 +27,7 @@ const months = [
 ];
 
 export default function ContractForm() {
+  const { t } = useTranslation();
   const [monthlyAmounts, setMonthlyAmounts] = useState<Record<number, string>>(
     Object.fromEntries(months.map((_, i) => [i + 1, "0.00"]))
   );
@@ -43,24 +45,24 @@ export default function ContractForm() {
     <div className="space-y-6 max-w-4xl">
       <div>
         <h1 className="text-3xl font-semibold tracking-tight" data-testid="text-page-title">
-          New Contract
+          {t("contracts.newContract")}
         </h1>
         <p className="text-sm text-muted-foreground mt-1">
-          Create a new service contract with monthly billing breakdown
+          {t("contracts.createContract")}
         </p>
       </div>
 
       <Card>
         <CardHeader>
-          <CardTitle>Contract Details</CardTitle>
+          <CardTitle>{t("common.details")}</CardTitle>
         </CardHeader>
         <CardContent className="space-y-6">
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
             <div className="space-y-2">
-              <Label htmlFor="property">Property *</Label>
+              <Label htmlFor="property">{t("common.property")} *</Label>
               <Select>
                 <SelectTrigger id="property" data-testid="select-property">
-                  <SelectValue placeholder="Select property" />
+                  <SelectValue placeholder={t("contracts.selectProperty")} />
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="1">Main Entrance - Riverside HOA</SelectItem>
@@ -71,37 +73,37 @@ export default function ContractForm() {
             </div>
 
             <div className="space-y-2">
-              <Label htmlFor="serviceType">Service Type *</Label>
+              <Label htmlFor="serviceType">{t("contracts.serviceType")} *</Label>
               <Select>
                 <SelectTrigger id="serviceType" data-testid="select-service-type">
-                  <SelectValue placeholder="Select service type" />
+                  <SelectValue placeholder={t("contracts.serviceType")} />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="maintenance">Maintenance</SelectItem>
-                  <SelectItem value="chemical">Chemical Application</SelectItem>
-                  <SelectItem value="snow">Snow Removal</SelectItem>
-                  <SelectItem value="irrigation">Irrigation</SelectItem>
-                  <SelectItem value="other">Other</SelectItem>
+                  <SelectItem value="maintenance">{t("serviceTypes.maintenance")}</SelectItem>
+                  <SelectItem value="chemical">{t("serviceTypes.chemical")}</SelectItem>
+                  <SelectItem value="snow">{t("serviceTypes.snow")}</SelectItem>
+                  <SelectItem value="irrigation">{t("serviceTypes.irrigation")}</SelectItem>
+                  <SelectItem value="other">{t("serviceTypes.other")}</SelectItem>
                 </SelectContent>
               </Select>
             </div>
 
             <div className="space-y-2">
-              <Label htmlFor="billingSchedule">Billing Schedule *</Label>
+              <Label htmlFor="billingSchedule">{t("contracts.billingSchedule")} *</Label>
               <Select>
                 <SelectTrigger id="billingSchedule" data-testid="select-billing-schedule">
-                  <SelectValue placeholder="Select billing schedule" />
+                  <SelectValue placeholder={t("contracts.billingSchedule")} />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="monthly">Monthly</SelectItem>
-                  <SelectItem value="seasonal">Seasonal</SelectItem>
-                  <SelectItem value="12of12">12 of 12</SelectItem>
+                  <SelectItem value="monthly">{t("contracts.monthly")}</SelectItem>
+                  <SelectItem value="seasonal">{t("contracts.seasonal")}</SelectItem>
+                  <SelectItem value="12of12">{t("contracts.twelveOfTwelve")}</SelectItem>
                 </SelectContent>
               </Select>
             </div>
 
             <div className="space-y-2">
-              <Label htmlFor="poNumber">PO Number</Label>
+              <Label htmlFor="poNumber">{t("contracts.poNumber")}</Label>
               <Input
                 id="poNumber"
                 placeholder="PO-12345"
@@ -110,7 +112,7 @@ export default function ContractForm() {
             </div>
 
             <div className="space-y-2">
-              <Label htmlFor="startDate">Start Date *</Label>
+              <Label htmlFor="startDate">{t("contracts.startDate")} *</Label>
               <Input
                 id="startDate"
                 type="date"
@@ -119,7 +121,7 @@ export default function ContractForm() {
             </div>
 
             <div className="space-y-2">
-              <Label htmlFor="endDate">End Date *</Label>
+              <Label htmlFor="endDate">{t("contracts.endDate")} *</Label>
               <Input
                 id="endDate"
                 type="date"
@@ -129,10 +131,10 @@ export default function ContractForm() {
           </div>
 
           <div className="space-y-2">
-            <Label htmlFor="notes">Notes</Label>
+            <Label htmlFor="notes">{t("common.notes")}</Label>
             <Textarea
               id="notes"
-              placeholder="Additional contract notes..."
+              placeholder={t("contracts.additionalNotes")}
               rows={3}
               data-testid="input-notes"
             />
@@ -142,15 +144,15 @@ export default function ContractForm() {
 
       <Card>
         <CardHeader>
-          <CardTitle>Monthly Amounts</CardTitle>
+          <CardTitle>{t("contracts.month")}</CardTitle>
         </CardHeader>
         <CardContent>
           <div className="border rounded-lg">
             <Table>
               <TableHeader>
                 <TableRow>
-                  <TableHead>Month</TableHead>
-                  <TableHead className="text-right">Amount ($)</TableHead>
+                  <TableHead>{t("contracts.month")}</TableHead>
+                  <TableHead className="text-right">{t("contracts.amount")}</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -176,7 +178,7 @@ export default function ContractForm() {
 
           <div className="mt-4 p-4 bg-muted rounded-lg">
             <div className="flex items-center justify-between">
-              <span className="text-lg font-semibold">Total Annual Value</span>
+              <span className="text-lg font-semibold">{t("contracts.totalAnnualValue")}</span>
               <span className="text-2xl font-bold" data-testid="text-total-annual">
                 ${totalAnnual.toFixed(2)}
               </span>
@@ -187,10 +189,10 @@ export default function ContractForm() {
 
       <div className="flex justify-end gap-4">
         <Button variant="outline" data-testid="button-cancel">
-          Cancel
+          {t("common.cancel")}
         </Button>
         <Button data-testid="button-save">
-          Create Contract
+          {t("contracts.newContract")}
         </Button>
       </div>
     </div>

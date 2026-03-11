@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { Link, useLocation } from "wouter";
+import { useTranslation } from "react-i18next";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -42,6 +43,7 @@ function todayStr() {
 export default function VisualScopeList() {
   const [, navigate] = useLocation();
   const { toast } = useToast();
+  const { t } = useTranslation();
   const [dialogOpen, setDialogOpen] = useState(false);
   const [customerOpen, setCustomerOpen] = useState(false);
   const [selectedCustomerId, setSelectedCustomerId] = useState("");
@@ -73,7 +75,7 @@ export default function VisualScopeList() {
       navigate(`/dashboard/tools/visual-scope/${sheet.id}`);
     },
     onError: (err: any) => {
-      toast({ title: "Failed to create", description: err.message, variant: "destructive" });
+      toast({ title: t("visualScope.createFailed"), description: err.message, variant: "destructive" });
     },
   });
 
@@ -99,11 +101,11 @@ export default function VisualScopeList() {
           </Button>
         </Link>
         <div className="flex-1">
-          <h1 className="text-2xl font-semibold" data-testid="text-page-title">Visual Scope Sheets</h1>
-          <p className="text-sm text-muted-foreground">Satellite-based visual scopes for customer proposals</p>
+          <h1 className="text-2xl font-semibold" data-testid="text-page-title">{t("visualScope.title")}</h1>
+          <p className="text-sm text-muted-foreground">{t("visualScope.description")}</p>
         </div>
         <Button onClick={() => setDialogOpen(true)} data-testid="button-new-visual-scope">
-          <Plus className="w-4 h-4 mr-2" /> New Visual Scope
+          <Plus className="w-4 h-4 mr-2" /> {t("visualScope.newVisualScope")}
         </Button>
       </div>
 
@@ -115,10 +117,10 @@ export default function VisualScopeList() {
         <Card>
           <CardContent className="py-16 text-center">
             <Map className="w-10 h-10 mx-auto mb-3 text-muted-foreground" />
-            <p className="font-medium mb-1">No visual scope sheets yet</p>
-            <p className="text-sm text-muted-foreground mb-4">Create your first one to get started with map-based visuals</p>
+            <p className="font-medium mb-1">{t("visualScope.noSheets")}</p>
+            <p className="text-sm text-muted-foreground mb-4">{t("visualScope.createFirst")}</p>
             <Button onClick={() => setDialogOpen(true)} data-testid="button-new-empty-state">
-              <Plus className="w-4 h-4 mr-2" /> New Visual Scope
+              <Plus className="w-4 h-4 mr-2" /> {t("visualScope.newVisualScope")}
             </Button>
           </CardContent>
         </Card>
@@ -140,7 +142,7 @@ export default function VisualScopeList() {
                 </Badge>
                 <Link href={`/dashboard/tools/visual-scope/${sheet.id}`}>
                   <Button size="sm" variant="outline" data-testid={`button-open-scope-${sheet.id}`}>
-                    <FolderOpen className="w-4 h-4 mr-1" /> Open
+                    <FolderOpen className="w-4 h-4 mr-1" /> {t("tools.openTool")}
                   </Button>
                 </Link>
               </CardContent>
@@ -152,11 +154,11 @@ export default function VisualScopeList() {
       <Dialog open={dialogOpen} onOpenChange={open => { setDialogOpen(open); if (!open) resetForm(); }}>
         <DialogContent data-testid="dialog-new-scope">
           <DialogHeader>
-            <DialogTitle>New Visual Scope Sheet</DialogTitle>
+            <DialogTitle>{t("visualScope.newSheetTitle")}</DialogTitle>
           </DialogHeader>
           <form onSubmit={handleSubmit} className="space-y-4 pt-2">
             <div className="space-y-2">
-              <Label>Customer <span className="text-destructive">*</span></Label>
+              <Label>{t("common.customer")} <span className="text-destructive">*</span></Label>
               <Popover open={customerOpen} onOpenChange={setCustomerOpen}>
                 <PopoverTrigger asChild>
                   <Button
@@ -164,15 +166,15 @@ export default function VisualScopeList() {
                     className="w-full justify-between"
                     data-testid="button-select-customer"
                   >
-                    {selectedCustomerName || "Select customer…"}
+                    {selectedCustomerName || t("proposals.selectCustomer")}
                     <ChevronDown className="w-4 h-4 ml-2 opacity-50" />
                   </Button>
                 </PopoverTrigger>
                 <PopoverContent className="w-full p-0" align="start">
                   <Command>
-                    <CommandInput placeholder="Search customers…" data-testid="input-customer-search" />
+                    <CommandInput placeholder={t("proposals.searchCustomers")} data-testid="input-customer-search" />
                     <CommandList>
-                      <CommandEmpty>No customers found.</CommandEmpty>
+                      <CommandEmpty>{t("proposals.noCustomersFound")}</CommandEmpty>
                       <CommandGroup>
                         {(customers ?? []).map(c => (
                           <CommandItem
@@ -197,7 +199,7 @@ export default function VisualScopeList() {
             </div>
 
             <div className="space-y-2">
-              <Label htmlFor="vs-title">Title</Label>
+              <Label htmlFor="vs-title">{t("common.title")}</Label>
               <Input
                 id="vs-title"
                 value={title}
@@ -208,7 +210,7 @@ export default function VisualScopeList() {
             </div>
 
             <div className="space-y-2">
-              <Label htmlFor="vs-date">Date</Label>
+              <Label htmlFor="vs-date">{t("common.date")}</Label>
               <Input
                 id="vs-date"
                 type="date"
@@ -220,14 +222,14 @@ export default function VisualScopeList() {
 
             <DialogFooter>
               <Button type="button" variant="outline" onClick={() => setDialogOpen(false)} data-testid="button-cancel-new-scope">
-                Cancel
+                {t("common.cancel")}
               </Button>
               <Button
                 type="submit"
                 disabled={!selectedCustomerId || createMutation.isPending}
                 data-testid="button-create-scope"
               >
-                {createMutation.isPending ? "Creating…" : "Create"}
+                {createMutation.isPending ? t("common.creating") : t("common.create")}
               </Button>
             </DialogFooter>
           </form>
