@@ -47,7 +47,6 @@ import ThemeToggle from "./ThemeToggle";
 import { Link, useLocation } from "wouter";
 import logoImage from "@assets/TRUCK_DECAL-06_1766432157419.png";
 import { useTranslation } from "react-i18next";
-import { Globe } from "lucide-react";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 
 interface AppSidebarProps {
@@ -373,12 +372,15 @@ export default function AppSidebar({
             </DialogContent>
           </Dialog>
           <Button
-            size="icon"
             variant="ghost"
+            size="sm"
             onClick={toggleLanguage}
             data-testid="button-language-toggle"
+            className="gap-1 px-2 text-xs font-medium"
           >
-            <Globe className="w-4 h-4" />
+            <span className={i18n.language === "en" ? "font-bold" : "text-muted-foreground"}>EN</span>
+            <span className="text-muted-foreground">/</span>
+            <span className={i18n.language === "es" ? "font-bold" : "text-muted-foreground"}>ES</span>
           </Button>
           <ThemeToggle />
         </div>

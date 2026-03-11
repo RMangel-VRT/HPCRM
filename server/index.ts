@@ -1,5 +1,5 @@
 import express, { type Request, Response, NextFunction } from "express";
-import { registerRoutes, migrateProjectSchedulingStatus, migrateFirstBankHierarchy, migrateExtraBillableTicketType, removeProjectInvoicingFields, fixExtraBillableDoneOrder, fixEstimateRequestBillingBehavior, fixProjectDisplayOrders, migrateEstimateSentToProposalWorkflow, migrateProjectNoEstimateTicketType } from "./routes";
+import { registerRoutes, migrateProjectSchedulingStatus, migrateFirstBankHierarchy, migrateExtraBillableTicketType, removeProjectInvoicingFields, fixExtraBillableDoneOrder, fixEstimateRequestBillingBehavior, fixProjectDisplayOrders, migrateEstimateSentToProposalWorkflow, migrateProjectNoEstimateTicketType, migrateUserLanguageColumn } from "./routes";
 import { setupVite, serveStatic, log } from "./vite";
 import { runDueDateNotifications } from "./due-date-notifications";
 
@@ -60,6 +60,7 @@ app.use((req, res, next) => {
   await fixEstimateRequestBillingBehavior(); // Fix billing_behavior for Project tickets from estimate_requests
   await migrateEstimateSentToProposalWorkflow(); // Replace Estimate Sent with Create Proposal + Proposal Sent
   await migrateProjectNoEstimateTicketType(); // Ensure Project (No Estimate) ticket type exists for all companies
+  await migrateUserLanguageColumn(); // Ensure language column exists on users table
 
   app.use((err: any, _req: Request, res: Response, _next: NextFunction) => {
     const status = err.status || err.statusCode || 500;

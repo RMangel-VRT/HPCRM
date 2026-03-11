@@ -89,13 +89,13 @@ export default function UsersPage() {
       setAddDialogOpen(false);
       createUserForm.reset();
       toast({
-        title: "User created",
-        description: "User has been successfully created and added to the company",
+        title: t("users.userCreated"),
+        description: t("users.userCreatedMsg"),
       });
     },
     onError: (error: Error) => {
       toast({
-        title: "Failed to create user",
+        title: t("users.createFailed"),
         description: error.message,
         variant: "destructive",
       });
@@ -112,13 +112,13 @@ export default function UsersPage() {
       setEditDialogOpen(false);
       setSelectedUser(null);
       toast({
-        title: "User updated",
-        description: "User details have been successfully updated",
+        title: t("users.userUpdated"),
+        description: t("users.userUpdatedMsg"),
       });
     },
     onError: (error: Error) => {
       toast({
-        title: "Failed to update user",
+        title: t("users.updateFailed"),
         description: error.message,
         variant: "destructive",
       });
@@ -132,13 +132,13 @@ export default function UsersPage() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/companies/users"] });
       toast({
-        title: "User removed",
-        description: "User has been successfully removed from the company",
+        title: t("users.userRemoved"),
+        description: t("users.userRemovedMsg"),
       });
     },
     onError: (error: Error) => {
       toast({
-        title: "Failed to remove user",
+        title: t("users.removeFailed"),
         description: error.message,
         variant: "destructive",
       });
@@ -164,7 +164,7 @@ export default function UsersPage() {
     return (
       <div className="p-6">
         <div className="flex items-center justify-center h-64">
-          <div className="text-muted-foreground">Loading...</div>
+          <div className="text-muted-foreground">{t("common.loading")}</div>
         </div>
       </div>
     );
@@ -176,22 +176,22 @@ export default function UsersPage() {
     <div className="p-6">
       <div className="flex justify-between items-center mb-6">
         <div>
-          <h1 className="text-3xl font-bold">Team</h1>
-          <p className="text-muted-foreground">Manage users in your company</p>
+          <h1 className="text-3xl font-bold">{t("users.title")}</h1>
+          <p className="text-muted-foreground">{t("users.manage")}</p>
         </div>
         {canManageUsers && (
           <Dialog open={addDialogOpen} onOpenChange={setAddDialogOpen}>
             <DialogTrigger asChild>
               <Button data-testid="button-add-user">
                 <Plus className="w-4 h-4 mr-2" />
-                Add User
+                {t("users.addUser")}
               </Button>
             </DialogTrigger>
             <DialogContent>
               <DialogHeader>
-                <DialogTitle>Create New User</DialogTitle>
+                <DialogTitle>{t("users.createNewUser")}</DialogTitle>
                 <DialogDescription>
-                  Create a new user account and add them to your company
+                  {t("users.createDescription")}
                 </DialogDescription>
               </DialogHeader>
               <Form {...createUserForm}>
@@ -201,9 +201,9 @@ export default function UsersPage() {
                     name="email"
                     render={({ field }) => (
                       <FormItem>
-                        <FormLabel>Email</FormLabel>
+                        <FormLabel>{t("users.emailLabel")}</FormLabel>
                         <FormControl>
-                          <Input {...field} data-testid="input-email" type="email" placeholder="user@example.com" />
+                          <Input {...field} data-testid="input-email" type="email" placeholder={t("users.emailPlaceholder")} />
                         </FormControl>
                         <FormMessage />
                       </FormItem>
@@ -214,9 +214,9 @@ export default function UsersPage() {
                     name="name"
                     render={({ field }) => (
                       <FormItem>
-                        <FormLabel>Full Name</FormLabel>
+                        <FormLabel>{t("users.fullName")}</FormLabel>
                         <FormControl>
-                          <Input {...field} data-testid="input-name" placeholder="John Doe" />
+                          <Input {...field} data-testid="input-name" placeholder={t("users.namePlaceholder")} />
                         </FormControl>
                         <FormMessage />
                       </FormItem>
@@ -227,9 +227,9 @@ export default function UsersPage() {
                     name="password"
                     render={({ field }) => (
                       <FormItem>
-                        <FormLabel>Password</FormLabel>
+                        <FormLabel>{t("users.passwordLabel")}</FormLabel>
                         <FormControl>
-                          <Input {...field} data-testid="input-password" type="password" placeholder="Min 8 characters" />
+                          <Input {...field} data-testid="input-password" type="password" placeholder={t("users.passwordPlaceholder")} />
                         </FormControl>
                         <FormMessage />
                       </FormItem>
@@ -285,7 +285,7 @@ export default function UsersPage() {
                   />
                   <DialogFooter>
                     <Button type="submit" disabled={createUserMutation.isPending} data-testid="button-submit-create-user">
-                      {createUserMutation.isPending ? "Creating..." : "Create User"}
+                      {createUserMutation.isPending ? t("common.creating") : t("users.createUser")}
                     </Button>
                   </DialogFooter>
                 </form>
@@ -299,22 +299,22 @@ export default function UsersPage() {
         {users.map((userItem) => (
           <Card key={userItem.companyUser.id} data-testid={`card-user-${userItem.companyUser.id}`}>
             <CardHeader>
-              <CardTitle className="text-lg">{userItem.user?.name || "Unknown User"}</CardTitle>
+              <CardTitle className="text-lg">{userItem.user?.name || t("users.unknownUser")}</CardTitle>
               <CardDescription>{userItem.user?.email}</CardDescription>
             </CardHeader>
             <CardContent>
               <div className="space-y-3">
                 <div className="flex justify-between items-center">
-                  <span className="text-sm text-muted-foreground">Role:</span>
+                  <span className="text-sm text-muted-foreground">{t("users.role")}:</span>
                   <RoleBadge 
                     role={userItem.companyUser.role as "admin" | "office" | "field_manager" | "chemical_manager" | "field" | "irrigation_manager" | "shop_manager" | "mapping"} 
                     isSuperAdmin={userItem.isSuperAdmin}
                   />
                 </div>
                 <div className="flex justify-between items-center">
-                  <span className="text-sm text-muted-foreground">Status:</span>
+                  <span className="text-sm text-muted-foreground">{t("common.status")}:</span>
                   <Badge variant="secondary" className="text-xs capitalize">
-                    {userItem.companyUser.status}
+                    {t(`statuses.${userItem.companyUser.status}`, userItem.companyUser.status)}
                   </Badge>
                 </div>
               </div>
@@ -345,7 +345,7 @@ export default function UsersPage() {
 
       {users.length === 0 && (
         <div className="text-center py-12">
-          <p className="text-muted-foreground">No users in this company yet</p>
+          <p className="text-muted-foreground">{t("common.noResults")}</p>
         </div>
       )}
 
@@ -353,9 +353,9 @@ export default function UsersPage() {
         <Dialog open={editDialogOpen} onOpenChange={setEditDialogOpen}>
           <DialogContent>
             <DialogHeader>
-              <DialogTitle>Edit User</DialogTitle>
+              <DialogTitle>{t("users.editUser")}</DialogTitle>
               <DialogDescription>
-                Update role and status for {selectedUser.user?.name || selectedUser.user?.email}
+                {t("users.updateDescription", { name: selectedUser.user?.name || selectedUser.user?.email })}
               </DialogDescription>
             </DialogHeader>
             <Form {...editUserForm}>
@@ -363,11 +363,11 @@ export default function UsersPage() {
                 {selectedUser.isSuperAdmin ? (
                   <div className="space-y-2">
                     <div className="flex items-center justify-between">
-                      <span className="text-sm font-medium">Role</span>
+                      <span className="text-sm font-medium">{t("users.role")}</span>
                       <RoleBadge role="admin" isSuperAdmin={true} />
                     </div>
                     <p className="text-sm text-muted-foreground">
-                      Super admins always have full admin access across all companies. Role cannot be changed.
+                      {t("users.superAdminNote")}
                     </p>
                   </div>
                 ) : (
@@ -376,22 +376,22 @@ export default function UsersPage() {
                     name="role"
                     render={({ field }) => (
                       <FormItem>
-                        <FormLabel>Role</FormLabel>
+                        <FormLabel>{t("users.role")}</FormLabel>
                         <Select onValueChange={field.onChange} value={field.value}>
                           <FormControl>
                             <SelectTrigger data-testid="select-edit-role">
-                              <SelectValue placeholder="Select role" />
+                              <SelectValue placeholder={t("users.selectRole")} />
                             </SelectTrigger>
                           </FormControl>
                           <SelectContent>
-                            <SelectItem value="admin">Admin</SelectItem>
-                            <SelectItem value="office">Office</SelectItem>
-                            <SelectItem value="field_manager">Field Manager</SelectItem>
-                            <SelectItem value="chemical_manager">Chemical Manager</SelectItem>
-                            <SelectItem value="field">Field</SelectItem>
-                            <SelectItem value="irrigation_manager">Irrigation Manager</SelectItem>
-                            <SelectItem value="shop_manager">Shop Manager</SelectItem>
-                            <SelectItem value="mapping">Mapping</SelectItem>
+                            <SelectItem value="admin">{t("roles.admin")}</SelectItem>
+                            <SelectItem value="office">{t("roles.office")}</SelectItem>
+                            <SelectItem value="field_manager">{t("roles.field_manager")}</SelectItem>
+                            <SelectItem value="chemical_manager">{t("roles.chemical_manager")}</SelectItem>
+                            <SelectItem value="field">{t("roles.field")}</SelectItem>
+                            <SelectItem value="irrigation_manager">{t("roles.irrigation_manager")}</SelectItem>
+                            <SelectItem value="shop_manager">{t("roles.shop_manager")}</SelectItem>
+                            <SelectItem value="mapping">{t("roles.mapping")}</SelectItem>
                           </SelectContent>
                         </Select>
                         <FormMessage />
@@ -404,17 +404,17 @@ export default function UsersPage() {
                   name="status"
                   render={({ field }) => (
                     <FormItem>
-                      <FormLabel>Status</FormLabel>
+                      <FormLabel>{t("common.status")}</FormLabel>
                       <Select onValueChange={field.onChange} value={field.value}>
                         <FormControl>
                           <SelectTrigger data-testid="select-edit-status">
-                            <SelectValue placeholder="Select status" />
+                            <SelectValue placeholder={t("users.selectStatus")} />
                           </SelectTrigger>
                         </FormControl>
                         <SelectContent>
-                          <SelectItem value="active">Active</SelectItem>
-                          <SelectItem value="invited">Invited</SelectItem>
-                          <SelectItem value="suspended">Suspended</SelectItem>
+                          <SelectItem value="active">{t("statuses.active")}</SelectItem>
+                          <SelectItem value="invited">{t("statuses.invited")}</SelectItem>
+                          <SelectItem value="suspended">{t("statuses.suspended")}</SelectItem>
                         </SelectContent>
                       </Select>
                       <FormMessage />
@@ -426,9 +426,9 @@ export default function UsersPage() {
                   name="password"
                   render={({ field }) => (
                     <FormItem>
-                      <FormLabel>Reset Password (Optional)</FormLabel>
+                      <FormLabel>{t("users.resetPassword")}</FormLabel>
                       <FormControl>
-                        <Input {...field} data-testid="input-edit-password" type="password" placeholder="Leave empty to keep current password" />
+                        <Input {...field} data-testid="input-edit-password" type="password" placeholder={t("users.resetPasswordHint")} />
                       </FormControl>
                       <FormMessage />
                     </FormItem>
@@ -436,7 +436,7 @@ export default function UsersPage() {
                 />
                 <DialogFooter>
                   <Button type="submit" disabled={updateUserMutation.isPending} data-testid="button-submit-edit-user">
-                    {updateUserMutation.isPending ? "Updating..." : "Update User"}
+                    {updateUserMutation.isPending ? t("common.updating") : t("users.updateUser")}
                   </Button>
                 </DialogFooter>
               </form>

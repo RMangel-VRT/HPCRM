@@ -4,6 +4,7 @@ import { Express } from "express";
 import session from "express-session";
 import { scrypt, randomBytes, timingSafeEqual } from "crypto";
 import { promisify } from "util";
+import { z } from "zod";
 import { storage } from "./storage";
 import { User as SelectUser } from "@shared/schema";
 
@@ -248,19 +249,23 @@ export function setupAuth(app: Express) {
     });
   });
 
+  const languageSchema = z.object({
+    language: z.enum(["en", "es"]),
+  });
+
   app.patch("/api/auth/language", async (req, res) => {
     if (!req.isAuthenticated()) return res.sendStatus(401);
 
-    const { language } = req.body;
-    if (language !== "en" && language !== "es") {
+    const parsed = languageSchema.safeParse(req.body);
+    if (!parsed.success) {
       return res.status(400).json({ message: "Language must be 'en' or 'es'" });
     }
 
     const user = req.user as UserWithContext;
     try {
-      await storage.updateUserLanguage(user.id, language);
-      (req.user as any).language = language;
-      res.json({ language });
+      await storage.updateUserLanguage(user.id, parsed.data.language);
+      user.language = parsed.data.language;
+      res.json({ language: parsed.data.language });
     } catch (error) {
       console.error("Error updating language:", error);
       res.status(500).json({ message: "Failed to update language" });
