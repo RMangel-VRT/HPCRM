@@ -44,6 +44,7 @@ import ProposalVersion from "@/pages/ProposalVersion";
 import NotificationsPage from "@/pages/NotificationsPage";
 import VisualScopeList from "@/pages/VisualScopeList";
 import VisualScopeDraft from "@/pages/VisualScopeDraft";
+import CustomerRouteMap from "@/pages/CustomerRouteMap";
 import NotFound from "@/pages/not-found";
 
 function Router() {
@@ -111,6 +112,7 @@ function Router() {
             <Switch>
               <ProtectedRoute path="/admin" component={SuperAdminHome} superAdminOnly />
               <ProtectedRoute path="/dashboard" component={Dashboard} allowedRoles={["admin", "office", "field_manager", "shop_manager"]} />
+              <ProtectedRoute path="/dashboard/customers/map" component={CustomerRouteMap} allowedRoles={["admin", "field_manager"]} />
               <ProtectedRoute path="/dashboard/customers/:id" component={CustomerDetail} allowedRoles={["admin", "office", "field_manager"]} />
               <ProtectedRoute path="/dashboard/customers" component={CustomersList} allowedRoles={["admin", "office", "field_manager"]} />
               <ProtectedRoute path="/dashboard/tickets/new" component={NewTicket} allowedRoles={["admin"]} />

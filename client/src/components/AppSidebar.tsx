@@ -30,6 +30,7 @@ import {
   FileText,
   Snowflake,
   FileBarChart,
+  MapPin,
 } from "lucide-react";
 import {
   Dialog,
@@ -108,6 +109,10 @@ export default function AppSidebar({
 
     if (userRole === "admin" || userRole === "office" || userRole === "field_manager") {
       items.push({ title: "Customers", url: "/dashboard/customers", icon: Building2 });
+    }
+
+    if (userRole === "admin" || userRole === "field_manager") {
+      items.push({ title: "Route Map", url: "/dashboard/customers/map", icon: MapPin });
     }
 
     if (userRole === "admin" || userRole === "office") {

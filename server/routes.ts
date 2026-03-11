@@ -3851,6 +3851,41 @@ export async function registerRoutes(app: Express): Promise<Server> {
     res.status(200).send("Deleted");
   });
 
+  // Batch geocode all customers missing coordinates
+  app.post("/api/customers/geocode-missing", async (req, res) => {
+    if (!req.isAuthenticated()) return res.status(401).send("Not authenticated");
+    const user = req.user as UserWithContext;
+    if (!["admin", "office"].includes(user.activeRole)) return res.status(403).send("Insufficient permissions");
+    const mapboxToken = process.env.MAPBOX_PUBLIC_KEY;
+    if (!mapboxToken) return res.status(500).send("Mapbox token not configured");
+
+    const customers = await storage.getCustomers(user.activeCompanyId);
+    let geocoded = 0, failed = 0, skipped = 0;
+
+    for (const customer of customers) {
+      if (customer.locationLat != null && customer.locationLng != null) { skipped++; continue; }
+      const addr = [customer.street, customer.city, customer.state, customer.zip].filter(Boolean).join(", ");
+      try {
+        const url = `https://api.mapbox.com/geocoding/v5/mapbox.places/${encodeURIComponent(addr)}.json?access_token=${mapboxToken}&country=US&limit=1`;
+        const r = await fetch(url);
+        const data = await r.json();
+        const feature = data?.features?.[0];
+        if (feature?.center) {
+          const [lng, lat] = feature.center;
+          await storage.updateCustomer(customer.id, user.activeCompanyId, { locationLat: lat, locationLng: lng });
+          geocoded++;
+        } else {
+          failed++;
+        }
+      } catch {
+        failed++;
+      }
+      await new Promise(resolve => setTimeout(resolve, 200));
+    }
+
+    res.json({ geocoded, failed, skipped });
+  });
+
   // Geocoding route (server-side to set proper User-Agent)
   app.get("/api/geocode", async (req, res) => {
     if (!req.isAuthenticated()) {
