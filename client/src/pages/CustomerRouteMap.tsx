@@ -85,10 +85,13 @@ export default function CustomerRouteMap() {
     queryKey: ["/api/customers"],
   });
 
-  const mappedCustomers = customers.filter(
+  const routeCustomers = customers.filter((c) => c.includeInRoute);
+  const mappedCustomers = routeCustomers.filter(
     (c) => c.locationLat != null && c.locationLng != null
   );
-  const unmappedCount = customers.length - mappedCustomers.length;
+  const unmappedCount = routeCustomers.filter(
+    (c) => c.locationLat == null || c.locationLng == null
+  ).length;
 
   const geocodeMutation = useMutation({
     mutationFn: () => apiRequest("POST", "/api/customers/geocode-missing"),
@@ -240,7 +243,7 @@ export default function CustomerRouteMap() {
           <h1 className="text-base font-semibold">Route Planning Map</h1>
           {!loadingCustomers && (
             <Badge variant="secondary" className="shrink-0" data-testid="badge-customer-count">
-              {mappedCustomers.length} / {customers.length} mapped
+              {mappedCustomers.length} / {routeCustomers.length} on route
             </Badge>
           )}
         </div>
@@ -315,9 +318,11 @@ export default function CustomerRouteMap() {
           <div className="absolute inset-0 flex items-center justify-center z-10 pointer-events-none">
             <div className="bg-white/95 dark:bg-black/80 backdrop-blur-sm rounded-lg shadow px-6 py-4 text-center max-w-xs pointer-events-auto">
               <MapPin className="w-8 h-8 mx-auto mb-2 text-muted-foreground opacity-50" />
-              <p className="font-medium mb-1">No customers mapped yet</p>
+              <p className="font-medium mb-1">No route customers mapped yet</p>
               <p className="text-sm text-muted-foreground mb-3">
-                {customers.length} customer{customers.length !== 1 ? "s" : ""} need{customers.length === 1 ? "s" : ""} coordinates.
+                {routeCustomers.length > 0
+                  ? `${routeCustomers.length} route customer${routeCustomers.length !== 1 ? "s" : ""} need${routeCustomers.length === 1 ? "s" : ""} coordinates.`
+                  : "No customers are flagged to include in route. Edit a customer to enable this."}
               </p>
               {canGeocode && (
                 <Button

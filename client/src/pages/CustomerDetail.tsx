@@ -1161,6 +1161,7 @@ export default function CustomerDetail() {
       complexityScore: customer?.complexityScore || undefined,
       active: customer?.active || "true",
       snowEnabled: customer?.snowEnabled || false,
+      includeInRoute: customer?.includeInRoute || false,
       propertyManagementCompanyId: customer?.propertyManagementCompanyId || null,
       propertyManagerId: customer?.propertyManagerId || null,
       parentCustomerId: customer?.parentCustomerId || null,
@@ -1183,6 +1184,7 @@ export default function CustomerDetail() {
         complexityScore: customer.complexityScore || undefined,
         active: customer.active,
         snowEnabled: customer.snowEnabled,
+        includeInRoute: customer.includeInRoute,
         propertyManagementCompanyId: customer.propertyManagementCompanyId || null,
         propertyManagerId: customer.propertyManagerId || null,
         parentCustomerId: customer.parentCustomerId || null,
@@ -1621,6 +1623,11 @@ export default function CustomerDetail() {
             >
               {coverage}
             </Badge>
+            {customer.includeInRoute && (
+              <Badge variant="secondary" data-testid="badge-include-in-route">
+                On Route
+              </Badge>
+            )}
           </div>
           <div className="flex gap-2 flex-wrap">
             {customer.tags?.map((tag) => (
@@ -3065,6 +3072,27 @@ export default function CustomerDetail() {
                         checked={field.value}
                         onCheckedChange={field.onChange}
                         data-testid="checkbox-snow-enabled"
+                      />
+                    </FormControl>
+                  </FormItem>
+                )}
+              />
+              <FormField
+                control={customerForm.control}
+                name="includeInRoute"
+                render={({ field }) => (
+                  <FormItem className="flex flex-row items-center justify-between rounded-lg border p-3">
+                    <div className="space-y-0.5">
+                      <FormLabel>Include in Route</FormLabel>
+                      <p className="text-xs text-muted-foreground">
+                        Show this property on the Route Planning Map
+                      </p>
+                    </div>
+                    <FormControl>
+                      <Checkbox
+                        checked={field.value}
+                        onCheckedChange={field.onChange}
+                        data-testid="checkbox-include-in-route"
                       />
                     </FormControl>
                   </FormItem>

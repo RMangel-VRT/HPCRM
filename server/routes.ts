@@ -3859,7 +3859,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
     const mapboxToken = process.env.MAPBOX_PUBLIC_KEY;
     if (!mapboxToken) return res.status(500).send("Mapbox token not configured");
 
-    const customers = await storage.getCustomers(user.activeCompanyId);
+    const allCustomers = await storage.getCustomers(user.activeCompanyId);
+    const customers = allCustomers.filter(c => c.includeInRoute);
     let geocoded = 0, failed = 0, skipped = 0;
 
     for (const customer of customers) {

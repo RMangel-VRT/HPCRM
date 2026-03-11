@@ -93,6 +93,7 @@ export const customers = pgTable("customers", {
   isParent: text("is_parent").notNull().default("false").$type<"true" | "false">(),
   active: text("active").notNull().default("true").$type<"true" | "false">(),
   snowEnabled: boolean("snow_enabled").notNull().default(false),
+  includeInRoute: boolean("include_in_route").notNull().default(false),
   locationLat: real("location_lat"),
   locationLng: real("location_lng"),
   createdAt: timestamp("created_at").notNull().defaultNow(),
