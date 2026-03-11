@@ -1284,7 +1284,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
     const user = req.user as UserWithContext;
     
-    if (user.activeRole === "field_manager" || user.activeRole === "field" || user.activeRole === "irrigation_manager") {
+    if (user.activeRole === "field_manager" || user.activeRole === "chemical_manager" || user.activeRole === "field" || user.activeRole === "irrigation_manager") {
       return res.status(403).send("Insufficient permissions - admin or office role required");
     }
 
@@ -1321,7 +1321,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
     const user = req.user as UserWithContext;
     
-    if (user.activeRole === "field_manager" || user.activeRole === "field" || user.activeRole === "irrigation_manager") {
+    if (user.activeRole === "field_manager" || user.activeRole === "chemical_manager" || user.activeRole === "field" || user.activeRole === "irrigation_manager") {
       return res.status(403).send("Insufficient permissions - admin or office role required");
     }
 
@@ -1478,7 +1478,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
     const user = req.user as UserWithContext;
     
-    if (user.activeRole === "field_manager" || user.activeRole === "field" || user.activeRole === "irrigation_manager") {
+    if (user.activeRole === "field_manager" || user.activeRole === "chemical_manager" || user.activeRole === "field" || user.activeRole === "irrigation_manager") {
       return res.status(403).send("Insufficient permissions - admin or office role required");
     }
 
@@ -1504,7 +1504,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
     const user = req.user as UserWithContext;
     
-    if (user.activeRole === "field_manager" || user.activeRole === "field" || user.activeRole === "irrigation_manager") {
+    if (user.activeRole === "field_manager" || user.activeRole === "chemical_manager" || user.activeRole === "field" || user.activeRole === "irrigation_manager") {
       return res.status(403).send("Insufficient permissions - admin or office role required");
     }
 
@@ -1583,7 +1583,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
     const user = req.user as UserWithContext;
     
-    if (user.activeRole === "field_manager" || user.activeRole === "field" || user.activeRole === "irrigation_manager") {
+    if (user.activeRole === "field_manager" || user.activeRole === "chemical_manager" || user.activeRole === "field" || user.activeRole === "irrigation_manager") {
       return res.status(403).send("Insufficient permissions - admin or office role required");
     }
 
@@ -1667,7 +1667,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
     const user = req.user as UserWithContext;
     
-    if (user.activeRole === "field_manager" || user.activeRole === "field" || user.activeRole === "irrigation_manager") {
+    if (user.activeRole === "field_manager" || user.activeRole === "chemical_manager" || user.activeRole === "field" || user.activeRole === "irrigation_manager") {
       return res.status(403).send("Insufficient permissions - admin or office role required");
     }
 
@@ -1815,7 +1815,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
     const user = req.user as UserWithContext;
     
-    if (user.activeRole === "field_manager" || user.activeRole === "field" || user.activeRole === "irrigation_manager") {
+    if (user.activeRole === "field_manager" || user.activeRole === "chemical_manager" || user.activeRole === "field" || user.activeRole === "irrigation_manager") {
       return res.status(403).send("Insufficient permissions - admin or office role required");
     }
 
@@ -1862,7 +1862,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
     const user = req.user as UserWithContext;
     
-    if (user.activeRole === "field_manager" || user.activeRole === "field" || user.activeRole === "irrigation_manager") {
+    if (user.activeRole === "field_manager" || user.activeRole === "chemical_manager" || user.activeRole === "field" || user.activeRole === "irrigation_manager") {
       return res.status(403).send("Insufficient permissions - admin or office role required");
     }
 
@@ -1908,7 +1908,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
     const user = req.user as UserWithContext;
     
-    if (user.activeRole === "field_manager" || user.activeRole === "field" || user.activeRole === "irrigation_manager") {
+    if (user.activeRole === "field_manager" || user.activeRole === "chemical_manager" || user.activeRole === "field" || user.activeRole === "irrigation_manager") {
       return res.status(403).send("Insufficient permissions - admin or office role required");
     }
 
@@ -1984,7 +1984,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
     const user = req.user as UserWithContext;
     
-    if (user.activeRole === "field_manager" || user.activeRole === "field" || user.activeRole === "irrigation_manager") {
+    if (user.activeRole === "field_manager" || user.activeRole === "chemical_manager" || user.activeRole === "field" || user.activeRole === "irrigation_manager") {
       return res.status(403).send("Insufficient permissions - admin or office role required");
     }
 
@@ -2010,7 +2010,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
     const user = req.user as UserWithContext;
     
-    if (user.activeRole === "field_manager" || user.activeRole === "field" || user.activeRole === "irrigation_manager") {
+    if (user.activeRole === "field_manager" || user.activeRole === "chemical_manager" || user.activeRole === "field" || user.activeRole === "irrigation_manager") {
       return res.status(403).send("Insufficient permissions - admin or office role required");
     }
 
@@ -2087,7 +2087,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
     const user = req.user as UserWithContext;
     
-    if (user.activeRole === "field_manager" || user.activeRole === "field" || user.activeRole === "irrigation_manager") {
+    if (user.activeRole === "field_manager" || user.activeRole === "chemical_manager" || user.activeRole === "field" || user.activeRole === "irrigation_manager") {
       return res.status(403).send("Insufficient permissions - admin or office role required");
     }
 
@@ -2113,7 +2113,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
     const user = req.user as UserWithContext;
     
-    if (user.activeRole === "field_manager" || user.activeRole === "field" || user.activeRole === "irrigation_manager") {
+    if (user.activeRole === "field_manager" || user.activeRole === "chemical_manager" || user.activeRole === "field" || user.activeRole === "irrigation_manager") {
       return res.status(403).send("Insufficient permissions - admin or office role required");
     }
 
@@ -2145,7 +2145,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
     const user = req.user as UserWithContext;
     
-    if (user.activeRole === "field_manager" || user.activeRole === "field" || user.activeRole === "irrigation_manager") {
+    if (user.activeRole === "field_manager" || user.activeRole === "chemical_manager" || user.activeRole === "field" || user.activeRole === "irrigation_manager") {
       return res.status(403).send("Insufficient permissions - admin or office role required");
     }
 
@@ -2164,7 +2164,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
     const user = req.user as UserWithContext;
     
-    if (user.activeRole === "field_manager" || user.activeRole === "field" || user.activeRole === "irrigation_manager") {
+    if (user.activeRole === "field_manager" || user.activeRole === "chemical_manager" || user.activeRole === "field" || user.activeRole === "irrigation_manager") {
       return res.status(403).send("Insufficient permissions - admin or office role required");
     }
 
@@ -2190,7 +2190,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
     const user = req.user as UserWithContext;
     
-    if (user.activeRole === "field_manager" || user.activeRole === "field" || user.activeRole === "irrigation_manager") {
+    if (user.activeRole === "field_manager" || user.activeRole === "chemical_manager" || user.activeRole === "field" || user.activeRole === "irrigation_manager") {
       return res.status(403).send("Insufficient permissions - admin or office role required");
     }
 
@@ -2245,7 +2245,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
     const user = req.user as UserWithContext;
     
-    if (user.activeRole === "field_manager" || user.activeRole === "field" || user.activeRole === "irrigation_manager") {
+    if (user.activeRole === "field_manager" || user.activeRole === "chemical_manager" || user.activeRole === "field" || user.activeRole === "irrigation_manager") {
       return res.status(403).send("No permission to edit rate sheet");
     }
 
@@ -2455,7 +2455,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       await storage.createCompanyUser({
         userId: newUser.id,
         companyId: currentUser.activeCompanyId,
-        role: role as "admin" | "office" | "field_manager" | "field" | "irrigation_manager" | "shop_manager" | "mapping",
+        role: role as "admin" | "office" | "field_manager" | "chemical_manager" | "field" | "irrigation_manager" | "shop_manager" | "mapping",
         status: "active",
       });
 
@@ -2688,7 +2688,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     const user = req.user as UserWithContext;
     const { customerId, year } = req.params;
     
-    if (user.activeRole === "field_manager" || user.activeRole === "field" || user.activeRole === "irrigation_manager" || user.activeRole === "shop_manager") {
+    if (user.activeRole === "field_manager" || user.activeRole === "chemical_manager" || user.activeRole === "field" || user.activeRole === "irrigation_manager" || user.activeRole === "shop_manager") {
       return res.status(403).send("Insufficient permissions");
     }
     
@@ -3154,7 +3154,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
     const user = req.user as UserWithContext;
 
-    if (user.activeRole === "field_manager" || user.activeRole === "field" || user.activeRole === "irrigation_manager") {
+    if (user.activeRole === "field_manager" || user.activeRole === "chemical_manager" || user.activeRole === "field" || user.activeRole === "irrigation_manager") {
       return res.status(403).send("Insufficient permissions - admin or office role required");
     }
 
@@ -3976,7 +3976,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
     
     // Ops users can only see their assigned tickets
-    if (user.activeRole === "field_manager" || user.activeRole === "irrigation_manager") {
+    if (user.activeRole === "field_manager" || user.activeRole === "chemical_manager" || user.activeRole === "irrigation_manager") {
       filters.assignedToId = user.id;
     }
 
@@ -3996,7 +3996,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
     
     // Ops users can only view their assigned tickets
-    if ((user.activeRole === "field_manager" || user.activeRole === "irrigation_manager") && ticket.assignedToId !== user.id) {
+    if ((user.activeRole === "field_manager" || user.activeRole === "chemical_manager" || user.activeRole === "irrigation_manager") && ticket.assignedToId !== user.id) {
       return res.status(403).send("Access denied - not assigned to this ticket");
     }
     
@@ -4368,7 +4368,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
     
     // Ops users can update their assigned tickets (for status changes and field values)
-    if ((user.activeRole === "field_manager" || user.activeRole === "irrigation_manager" || user.activeRole === "shop_manager") && existingTicket.assignedToId !== user.id) {
+    if ((user.activeRole === "field_manager" || user.activeRole === "chemical_manager" || user.activeRole === "irrigation_manager" || user.activeRole === "shop_manager") && existingTicket.assignedToId !== user.id) {
       return res.status(403).send("Access denied - not assigned to this ticket");
     }
     
@@ -4761,7 +4761,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     const user = req.user as UserWithContext;
     
     // Only admin and office can delete tickets
-    if (user.activeRole === "field_manager" || user.activeRole === "field" || user.activeRole === "irrigation_manager" || user.activeRole === "shop_manager") {
+    if (user.activeRole === "field_manager" || user.activeRole === "chemical_manager" || user.activeRole === "field" || user.activeRole === "irrigation_manager" || user.activeRole === "shop_manager") {
       return res.status(403).send("Insufficient permissions - admin or office role required");
     }
 
@@ -4777,7 +4777,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
     const user = req.user as UserWithContext;
     
-    if (user.activeRole === "field_manager" || user.activeRole === "field" || user.activeRole === "irrigation_manager") {
+    if (user.activeRole === "field_manager" || user.activeRole === "chemical_manager" || user.activeRole === "field" || user.activeRole === "irrigation_manager") {
       return res.status(403).send("Insufficient permissions - admin or office role required");
     }
 
@@ -4868,7 +4868,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
     
     // Ops users can only view their assigned tickets
-    if ((user.activeRole === "field_manager" || user.activeRole === "irrigation_manager") && ticket.assignedToId !== user.id) {
+    if ((user.activeRole === "field_manager" || user.activeRole === "chemical_manager" || user.activeRole === "irrigation_manager") && ticket.assignedToId !== user.id) {
       return res.status(403).send("Access denied");
     }
 
@@ -4889,7 +4889,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
     
     // Ops users can update field values for their assigned tickets
-    if ((user.activeRole === "field_manager" || user.activeRole === "irrigation_manager") && ticket.assignedToId !== user.id) {
+    if ((user.activeRole === "field_manager" || user.activeRole === "chemical_manager" || user.activeRole === "irrigation_manager") && ticket.assignedToId !== user.id) {
       return res.status(403).send("Access denied");
     }
     
@@ -4981,7 +4981,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
     
     // Ops users can only view comments on their assigned tickets
-    if ((user.activeRole === "field_manager" || user.activeRole === "irrigation_manager") && ticket.assignedToId !== user.id) {
+    if ((user.activeRole === "field_manager" || user.activeRole === "chemical_manager" || user.activeRole === "irrigation_manager") && ticket.assignedToId !== user.id) {
       return res.status(403).send("Access denied");
     }
 
@@ -5002,7 +5002,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
     
     // Ops users can add comments to their assigned tickets
-    if ((user.activeRole === "field_manager" || user.activeRole === "irrigation_manager") && ticket.assignedToId !== user.id) {
+    if ((user.activeRole === "field_manager" || user.activeRole === "chemical_manager" || user.activeRole === "irrigation_manager") && ticket.assignedToId !== user.id) {
       return res.status(403).send("Access denied");
     }
     
@@ -5071,7 +5071,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     const user = req.user as UserWithContext;
     
     // Only admin/office can delete comments
-    if (user.activeRole === "field_manager" || user.activeRole === "field" || user.activeRole === "irrigation_manager") {
+    if (user.activeRole === "field_manager" || user.activeRole === "chemical_manager" || user.activeRole === "field" || user.activeRole === "irrigation_manager") {
       return res.status(403).send("Insufficient permissions - admin or office role required");
     }
 
@@ -5129,7 +5129,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     const user = req.user as UserWithContext;
     
     // Only admin/office can create ticket links
-    if (user.activeRole === "field_manager" || user.activeRole === "field" || user.activeRole === "irrigation_manager") {
+    if (user.activeRole === "field_manager" || user.activeRole === "chemical_manager" || user.activeRole === "field" || user.activeRole === "irrigation_manager") {
       return res.status(403).send("Insufficient permissions - admin or office role required");
     }
 
@@ -5150,7 +5150,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     const user = req.user as UserWithContext;
     
     // Only admin/office can delete ticket links
-    if (user.activeRole === "field_manager" || user.activeRole === "field" || user.activeRole === "irrigation_manager") {
+    if (user.activeRole === "field_manager" || user.activeRole === "chemical_manager" || user.activeRole === "field" || user.activeRole === "irrigation_manager") {
       return res.status(403).send("Insufficient permissions - admin or office role required");
     }
 
@@ -5167,7 +5167,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
     const user = req.user as UserWithContext;
     
-    if (user.activeRole === "field_manager" || user.activeRole === "field" || user.activeRole === "irrigation_manager") {
+    if (user.activeRole === "field_manager" || user.activeRole === "chemical_manager" || user.activeRole === "field" || user.activeRole === "irrigation_manager") {
       return res.status(403).send("Insufficient permissions - admin or office role required");
     }
 
@@ -5376,7 +5376,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
     
     // Ops users can only view their assigned tickets
-    if ((user.activeRole === "field_manager" || user.activeRole === "irrigation_manager") && ticket.assignedToId !== user.id) {
+    if ((user.activeRole === "field_manager" || user.activeRole === "chemical_manager" || user.activeRole === "irrigation_manager") && ticket.assignedToId !== user.id) {
       return res.status(403).send("Access denied");
     }
 
@@ -5473,7 +5473,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       return res.status(401).send("Not authenticated");
     }
     const user = req.user as UserWithContext;
-    if (user.activeRole === "field_manager" || user.activeRole === "field" || user.activeRole === "irrigation_manager") {
+    if (user.activeRole === "field_manager" || user.activeRole === "chemical_manager" || user.activeRole === "field" || user.activeRole === "irrigation_manager") {
       return res.status(403).send("Insufficient permissions");
     }
 
@@ -5524,7 +5524,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       return res.status(401).send("Not authenticated");
     }
     const user = req.user as UserWithContext;
-    if (user.activeRole === "field_manager" || user.activeRole === "field" || user.activeRole === "irrigation_manager") {
+    if (user.activeRole === "field_manager" || user.activeRole === "chemical_manager" || user.activeRole === "field" || user.activeRole === "irrigation_manager") {
       return res.status(403).send("Insufficient permissions");
     }
 
@@ -5540,7 +5540,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       return res.status(401).send("Not authenticated");
     }
     const user = req.user as UserWithContext;
-    if (user.activeRole === "field_manager" || user.activeRole === "field" || user.activeRole === "irrigation_manager") {
+    if (user.activeRole === "field_manager" || user.activeRole === "chemical_manager" || user.activeRole === "field" || user.activeRole === "irrigation_manager") {
       return res.status(403).send("Insufficient permissions");
     }
 
@@ -5554,7 +5554,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       return res.status(401).send("Not authenticated");
     }
     const user = req.user as UserWithContext;
-    if (user.activeRole === "field_manager" || user.activeRole === "field" || user.activeRole === "irrigation_manager") {
+    if (user.activeRole === "field_manager" || user.activeRole === "chemical_manager" || user.activeRole === "field" || user.activeRole === "irrigation_manager") {
       return res.status(403).send("Insufficient permissions");
     }
 
@@ -5605,7 +5605,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       return res.status(401).send("Not authenticated");
     }
     const user = req.user as UserWithContext;
-    if (user.activeRole === "field_manager" || user.activeRole === "field" || user.activeRole === "irrigation_manager") {
+    if (user.activeRole === "field_manager" || user.activeRole === "chemical_manager" || user.activeRole === "field" || user.activeRole === "irrigation_manager") {
       return res.status(403).send("Insufficient permissions");
     }
 
@@ -5627,7 +5627,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       return res.status(401).send("Not authenticated");
     }
     const user = req.user as UserWithContext;
-    if (user.activeRole === "field_manager" || user.activeRole === "field" || user.activeRole === "irrigation_manager") {
+    if (user.activeRole === "field_manager" || user.activeRole === "chemical_manager" || user.activeRole === "field" || user.activeRole === "irrigation_manager") {
       return res.status(403).send("Insufficient permissions");
     }
 
@@ -5641,7 +5641,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       return res.status(401).send("Not authenticated");
     }
     const user = req.user as UserWithContext;
-    if (user.activeRole === "field_manager" || user.activeRole === "field" || user.activeRole === "irrigation_manager") {
+    if (user.activeRole === "field_manager" || user.activeRole === "chemical_manager" || user.activeRole === "field" || user.activeRole === "irrigation_manager") {
       return res.status(403).send("Insufficient permissions");
     }
 
@@ -5705,7 +5705,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       return res.status(401).send("Not authenticated");
     }
     const user = req.user as UserWithContext;
-    if (user.activeRole === "field_manager" || user.activeRole === "field" || user.activeRole === "irrigation_manager") {
+    if (user.activeRole === "field_manager" || user.activeRole === "chemical_manager" || user.activeRole === "field" || user.activeRole === "irrigation_manager") {
       return res.status(403).send("Insufficient permissions - admin or office role required");
     }
 
@@ -5726,7 +5726,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       return res.status(401).send("Not authenticated");
     }
     const user = req.user as UserWithContext;
-    if (user.activeRole === "field_manager" || user.activeRole === "field" || user.activeRole === "irrigation_manager") {
+    if (user.activeRole === "field_manager" || user.activeRole === "chemical_manager" || user.activeRole === "field" || user.activeRole === "irrigation_manager") {
       return res.status(403).send("Insufficient permissions - admin or office role required");
     }
 
@@ -5742,7 +5742,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       return res.status(401).send("Not authenticated");
     }
     const user = req.user as UserWithContext;
-    if (user.activeRole === "field_manager" || user.activeRole === "field" || user.activeRole === "irrigation_manager") {
+    if (user.activeRole === "field_manager" || user.activeRole === "chemical_manager" || user.activeRole === "field" || user.activeRole === "irrigation_manager") {
       return res.status(403).send("Insufficient permissions - admin or office role required");
     }
 
@@ -5765,7 +5765,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       return res.status(401).send("Not authenticated");
     }
     const user = req.user as UserWithContext;
-    if (user.activeRole === "field_manager" || user.activeRole === "field" || user.activeRole === "irrigation_manager") {
+    if (user.activeRole === "field_manager" || user.activeRole === "chemical_manager" || user.activeRole === "field" || user.activeRole === "irrigation_manager") {
       return res.status(403).send("Insufficient permissions - admin or office role required");
     }
 
@@ -5826,7 +5826,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       return res.status(401).send("Not authenticated");
     }
     const user = req.user as UserWithContext;
-    if (user.activeRole === "field_manager" || user.activeRole === "field" || user.activeRole === "irrigation_manager") {
+    if (user.activeRole === "field_manager" || user.activeRole === "chemical_manager" || user.activeRole === "field" || user.activeRole === "irrigation_manager") {
       return res.status(403).send("Insufficient permissions - admin or office role required");
     }
 
@@ -5847,7 +5847,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       return res.status(401).send("Not authenticated");
     }
     const user = req.user as UserWithContext;
-    if (user.activeRole === "field_manager" || user.activeRole === "field" || user.activeRole === "irrigation_manager") {
+    if (user.activeRole === "field_manager" || user.activeRole === "chemical_manager" || user.activeRole === "field" || user.activeRole === "irrigation_manager") {
       return res.status(403).send("Insufficient permissions - admin or office role required");
     }
 
@@ -5863,7 +5863,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       return res.status(401).send("Not authenticated");
     }
     const user = req.user as UserWithContext;
-    if (user.activeRole === "field_manager" || user.activeRole === "field" || user.activeRole === "irrigation_manager") {
+    if (user.activeRole === "field_manager" || user.activeRole === "chemical_manager" || user.activeRole === "field" || user.activeRole === "irrigation_manager") {
       return res.status(403).send("Insufficient permissions - admin or office role required");
     }
 
@@ -5876,7 +5876,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       return res.status(401).send("Not authenticated");
     }
     const user = req.user as UserWithContext;
-    if (user.activeRole === "field_manager" || user.activeRole === "field" || user.activeRole === "irrigation_manager") {
+    if (user.activeRole === "field_manager" || user.activeRole === "chemical_manager" || user.activeRole === "field" || user.activeRole === "irrigation_manager") {
       return res.status(403).send("Insufficient permissions - admin or office role required");
     }
 
@@ -5918,7 +5918,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       return res.status(401).send("Not authenticated");
     }
     const user = req.user as UserWithContext;
-    if (user.activeRole === "field_manager" || user.activeRole === "field" || user.activeRole === "irrigation_manager") {
+    if (user.activeRole === "field_manager" || user.activeRole === "chemical_manager" || user.activeRole === "field" || user.activeRole === "irrigation_manager") {
       return res.status(403).send("Insufficient permissions - admin or office role required");
     }
 
@@ -5945,7 +5945,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       return res.status(401).send("Not authenticated");
     }
     const user = req.user as UserWithContext;
-    if (user.activeRole === "field_manager" || user.activeRole === "field" || user.activeRole === "irrigation_manager") {
+    if (user.activeRole === "field_manager" || user.activeRole === "chemical_manager" || user.activeRole === "field" || user.activeRole === "irrigation_manager") {
       return res.status(403).send("Insufficient permissions - admin or office role required");
     }
 
@@ -5961,7 +5961,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       return res.status(401).send("Not authenticated");
     }
     const user = req.user as UserWithContext;
-    if (user.activeRole === "field_manager" || user.activeRole === "field" || user.activeRole === "irrigation_manager") {
+    if (user.activeRole === "field_manager" || user.activeRole === "chemical_manager" || user.activeRole === "field" || user.activeRole === "irrigation_manager") {
       return res.status(403).send("Insufficient permissions - admin or office role required");
     }
 

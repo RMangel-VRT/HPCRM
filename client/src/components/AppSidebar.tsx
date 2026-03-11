@@ -48,7 +48,7 @@ import { Link, useLocation } from "wouter";
 import logoImage from "@assets/TRUCK_DECAL-06_1766432157419.png";
 
 interface AppSidebarProps {
-  userRole?: "admin" | "office" | "field_manager" | "field" | "irrigation_manager" | "shop_manager" | "mapping";
+  userRole?: "admin" | "office" | "field_manager" | "chemical_manager" | "field" | "irrigation_manager" | "shop_manager" | "mapping";
   isSuperAdmin?: boolean;
   userName?: string;
   onLogout?: () => void;
@@ -83,7 +83,7 @@ export default function AppSidebar({
 
     if (userRole === "mapping") return [];
 
-    if (userRole === "admin" || userRole === "office" || userRole === "field_manager") {
+    if (userRole === "admin" || userRole === "office" || userRole === "field_manager" || userRole === "chemical_manager") {
       items.push({ title: "Dashboard", url: "/dashboard", icon: LayoutDashboard });
     }
 
@@ -107,11 +107,11 @@ export default function AppSidebar({
       return items;
     }
 
-    if (userRole === "admin" || userRole === "office" || userRole === "field_manager") {
+    if (userRole === "admin" || userRole === "office" || userRole === "field_manager" || userRole === "chemical_manager") {
       items.push({ title: "Customers", url: "/dashboard/customers", icon: Building2 });
     }
 
-    if (userRole === "admin" || userRole === "field_manager") {
+    if (userRole === "admin" || userRole === "field_manager" || userRole === "chemical_manager") {
       items.push({ title: "Route Map", url: "/dashboard/customers/map", icon: MapPin });
     }
 
@@ -125,7 +125,7 @@ export default function AppSidebar({
       items.push({ title: "Schedule", url: "/dashboard/schedule", icon: CalendarDays });
     }
 
-    if (userRole === "admin" || userRole === "office" || userRole === "field_manager") {
+    if (userRole === "admin" || userRole === "office" || userRole === "field_manager" || userRole === "chemical_manager") {
       items.push({ title: "Snow", url: "/dashboard/snow", icon: Snowflake });
     }
 
@@ -144,7 +144,7 @@ export default function AppSidebar({
       items.push({ title: "Equipment", url: "/dashboard/equipment", icon: Truck });
     }
 
-    if (userRole === "admin" || userRole === "office" || userRole === "field_manager") {
+    if (userRole === "admin" || userRole === "office" || userRole === "field_manager" || userRole === "chemical_manager") {
       items.push({ title: "Tools", url: "/dashboard/tools", icon: Wrench });
     }
 

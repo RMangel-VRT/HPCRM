@@ -51,7 +51,7 @@ export const companyUsers = pgTable("company_users", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
   userId: varchar("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
   companyId: varchar("company_id").notNull().references(() => companies.id, { onDelete: "cascade" }),
-  role: text("role").notNull().$type<"admin" | "office" | "field_manager" | "field" | "irrigation_manager" | "shop_manager" | "mapping">(),
+  role: text("role").notNull().$type<"admin" | "office" | "field_manager" | "chemical_manager" | "field" | "irrigation_manager" | "shop_manager" | "mapping">(),
   status: text("status").notNull().$type<"active" | "invited" | "suspended">().default("active"),
   tags: text("tags").array().default(sql`ARRAY[]::text[]`),
   invitedAt: timestamp("invited_at"),
@@ -65,7 +65,7 @@ export const insertCompanyUserSchema = createInsertSchema(companyUsers).omit({
   id: true,
   createdAt: true,
 }).extend({
-  role: z.enum(["admin", "office", "field_manager", "field", "irrigation_manager", "shop_manager", "mapping"]),
+  role: z.enum(["admin", "office", "field_manager", "chemical_manager", "field", "irrigation_manager", "shop_manager", "mapping"]),
   status: z.enum(["active", "invited", "suspended"]).default("active"),
   tags: z.array(z.string()).default([]),
 });
