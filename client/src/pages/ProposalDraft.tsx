@@ -36,6 +36,7 @@ import {
   ExternalLink,
   Link2,
   Unlink,
+  AlertTriangle,
 } from "lucide-react";
 import { Checkbox } from "@/components/ui/checkbox";
 import { apiRequest, queryClient } from "@/lib/queryClient";
@@ -314,6 +315,11 @@ export default function ProposalDraft() {
   const hasVersions = versions.length > 0;
   const nextVersionNumber = hasVersions ? (versions[versions.length - 1].versionNumber + 1) : 1;
 
+  const estimateBytes = estimatePdf?.fileSize ?? 0;
+  const imagesBytes = images.reduce((s, f) => s + (f.fileSize ?? 0), 0);
+  const estimatedPdfMB = (estimateBytes + imagesBytes / 10) / 1024 / 1024;
+  const showSizeWarning = estimatePdf != null && estimatedPdfMB > 20;
+
   const getStatusBadge = (status: string | null | undefined) => {
     if (status === "finalized") {
       return <Badge variant="outline" className="text-green-600 dark:text-green-400 border-green-500/50" data-testid="badge-draft-status">Finalized</Badge>;
@@ -387,6 +393,14 @@ export default function ProposalDraft() {
             );
           })()}
         </div>
+        {showSizeWarning && (
+          <div className="flex items-start gap-2 mb-3 p-2.5 rounded-md bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800 text-xs text-amber-800 dark:text-amber-300" data-testid="banner-size-warning">
+            <AlertTriangle className="w-3.5 h-3.5 shrink-0 mt-0.5" />
+            <span>
+              The QB Estimate PDF ({(estimateBytes / 1024 / 1024).toFixed(1)} MB) may cause the generated PDF to exceed the 25 MB email limit. Consider exporting a smaller or flattened version from QuickBooks.
+            </span>
+          </div>
+        )}
         <div className="flex items-center gap-3 flex-wrap">
           <h1 className="text-xl font-semibold tracking-tight" data-testid="text-proposal-title">
             {proposal.title}

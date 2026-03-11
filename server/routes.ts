@@ -7812,6 +7812,25 @@ export async function registerRoutes(app: Express): Promise<Server> {
     res.json({ success: true });
   });
 
+  // ---- Image compression helper for proposal PDF ----
+  async function compressImageForPdf(buffer: Buffer): Promise<Buffer> {
+    try {
+      const { createCanvas, loadImage } = await import("canvas");
+      const img = await loadImage(buffer);
+      const MAX_DIM = 1500;
+      const scale = Math.min(1, MAX_DIM / Math.max(img.width, img.height));
+      const w = Math.round(img.width * scale);
+      const h = Math.round(img.height * scale);
+      const canvas = createCanvas(w, h);
+      const ctx = canvas.getContext("2d");
+      ctx.drawImage(img as any, 0, 0, w, h);
+      return canvas.toBuffer("image/jpeg", { quality: 0.80 });
+    } catch (err) {
+      console.warn("compressImageForPdf: compression failed, using original buffer:", err);
+      return buffer;
+    }
+  }
+
   // ---- Proposal PDF helper (used by both the preview endpoint and the finalize endpoint) ----
   async function generateProposalPdf(proposal: import("@shared/schema").ProposalWithDetails, companyId: string): Promise<Buffer> {
     const estimateFile = await storage.getProposalEstimatePdf(proposal.id, companyId);
@@ -8073,7 +8092,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
       try {
         const gcsFile = await objectStorageService.getObjectEntityFile(img.storageObjectPath);
         const [imgData] = await gcsFile.download();
-        imageBuffers.push({ buffer: imgData as Buffer, filename: img.filename, caption: img.caption ?? null });
+        const rawBuffer = imgData as Buffer;
+        const compressed = await compressImageForPdf(rawBuffer);
+        imageBuffers.push({ buffer: compressed, filename: img.filename, caption: img.caption ?? null });
       } catch (err) {
         console.error(`Proposal PDF: failed to download image "${img.filename}":`, err);
         throw Object.assign(new Error(`Failed to load image "${img.filename}". The file may be missing or corrupted.`), { statusCode: 400 });
@@ -8315,6 +8336,21 @@ export async function registerRoutes(app: Express): Promise<Server> {
     } catch (err) {
       console.error('Proposal PDF: pdf-lib merge failed:', err);
       throw Object.assign(new Error("PDF merge failed. One or more documents may be corrupted or use an unsupported format."), { statusCode: 422 });
+    }
+
+    const MAX_PDF_BYTES = 25 * 1024 * 1024; // 25 MB
+    if (mergedBuffer.byteLength > MAX_PDF_BYTES) {
+      const totalMB = (mergedBuffer.byteLength / 1024 / 1024).toFixed(1);
+      const estimateMB = (estimateBuffer.byteLength / 1024 / 1024).toFixed(1);
+      const imageMB = (imageBuffers.reduce((sum, b) => sum + b.buffer.byteLength, 0) / 1024 / 1024).toFixed(1);
+      let guidance = `Generated PDF is ${totalMB} MB, which exceeds the 25 MB email limit.`;
+      if (estimateBuffer.byteLength > 10 * 1024 * 1024) {
+        guidance += ` Your QB Estimate PDF is ${estimateMB} MB — try exporting a smaller/flattened version from QuickBooks.`;
+      }
+      if (imageBuffers.length > 0) {
+        guidance += ` Supporting images total ${imageMB} MB after compression — consider reducing the number of images or their file sizes.`;
+      }
+      throw Object.assign(new Error(guidance), { statusCode: 400 });
     }
 
     return mergedBuffer;
