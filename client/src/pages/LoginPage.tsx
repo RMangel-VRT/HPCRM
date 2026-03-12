@@ -21,6 +21,13 @@ export default function LoginPage() {
     }
   }, [user, setLocation]);
 
+  useEffect(() => {
+    document.body.classList.add("no-mountain-bg");
+    return () => {
+      document.body.classList.remove("no-mountain-bg");
+    };
+  }, []);
+
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     loginMutation.mutate(
