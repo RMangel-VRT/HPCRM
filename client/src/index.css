@@ -68,6 +68,9 @@
 
   --destructive-foreground: 0 0% 98%;
 
+  --table-header: 150 20% 95%;
+  --table-border: 150 15% 85%;
+
   --input: 80 8% 75%;
   --ring: 80 61% 42%;
   --chart-1: 80 61% 42%;
@@ -186,6 +189,9 @@
   --destructive: 0 84% 35%;
 
   --destructive-foreground: 0 0% 98%;
+
+  --table-header: 150 10% 14%;
+  --table-border: 150 8% 22%;
 
   --input: 80 5% 30%;
   --ring: 80 61% 45%;
