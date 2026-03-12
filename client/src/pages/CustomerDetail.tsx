@@ -1723,10 +1723,12 @@ export default function CustomerDetail() {
               {t("customerDetail.tabs.billing")}
             </TabsTrigger>
           )}
-          <TabsTrigger value="settings" data-testid="tab-settings">
-            <Settings className="w-4 h-4 mr-1" />
-            {t("customerDetail.tabs.settings")}
-          </TabsTrigger>
+          {(user?.activeRole === "admin" || user?.activeRole === "office") && (
+            <TabsTrigger value="settings" data-testid="tab-settings">
+              <Settings className="w-4 h-4 mr-1" />
+              {t("customerDetail.tabs.settings")}
+            </TabsTrigger>
+          )}
         </TabsList>
 
         <TabsContent value="overview" className="space-y-6">
@@ -2410,9 +2412,11 @@ export default function CustomerDetail() {
           <CustomerMapsSection customerId={params?.id!} />
         </TabsContent>
 
-        <TabsContent value="settings" className="space-y-4">
-          <CustomerSchedulingSection customerId={params?.id!} />
-        </TabsContent>
+        {(user?.activeRole === "admin" || user?.activeRole === "office") && (
+          <TabsContent value="settings" className="space-y-4">
+            <CustomerSchedulingSection customerId={params?.id!} />
+          </TabsContent>
+        )}
       </Tabs>
 
       <Dialog open={isAddContractDialogOpen} onOpenChange={setIsAddContractDialogOpen}>
