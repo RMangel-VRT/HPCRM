@@ -52,6 +52,9 @@ Tracks contracted revenue by service type, providing monthly and YTD totals, ann
 #### Contracts Overview
 A cross-customer contracts overview page for Admin and Office roles with summary cards, search/filter, and a sortable table.
 
+#### Customer Detail Page Layout
+The Customer Detail page uses a 3-row header: Row 1 has the customer name with a customer switcher dropdown (navigates between active customers), Row 2 shows customer number, status/coverage badges, and tags, Row 3 has action buttons (Add Note, Add Ticket, Edit). The page has 7 top-level tabs: Overview, Contacts, Notes, Operations, Maps, Billing, Settings. The Operations tab contains a subbar with Tickets, Proposals (admin/office), Visual Scopes (admin/office), and Snow (if enabled). The Billing tab (admin/office only) has sub-tabs for Contracts, Rate Sheet, Revenue, and Monthly Summary. The Settings tab (formerly "Scheduling") contains the CustomerSchedulingSection.
+
 #### Customer Billing Tab
 Consolidates all billing information on customer detail pages with sub-tabs for Contracts, Rate Sheet, Revenue, and Monthly Summary.
 

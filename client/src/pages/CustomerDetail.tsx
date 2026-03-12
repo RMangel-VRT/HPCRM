@@ -31,7 +31,7 @@ import {
   FormLabel,
   FormMessage,
 } from "@/components/ui/form";
-import { Edit, Plus, Users, FileText, MessageSquare, MapPin, BarChart3, Upload, Download, Eye, Paperclip, History, RefreshCw, DollarSign, Map, Layers, Trash2, X, Ticket as TicketIcon, Building, Building2, Check, Loader2, Copy, Mail, Clock, AlertCircle, CheckCircle2, GitBranch, Snowflake } from "lucide-react";
+import { Edit, Plus, Users, FileText, MessageSquare, MapPin, BarChart3, Upload, Download, Eye, Paperclip, History, RefreshCw, DollarSign, Map, Layers, Trash2, X, Ticket as TicketIcon, Building, Building2, Check, Loader2, Copy, Mail, Clock, AlertCircle, CheckCircle2, GitBranch, Snowflake, ChevronsUpDown, Settings, Wrench } from "lucide-react";
 import { Switch } from "@/components/ui/switch";
 import StatusBadge from "@/components/StatusBadge";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -1025,6 +1025,7 @@ export default function CustomerDetail() {
   const id = params?.id;
   const [activeTab, setActiveTab] = useState("overview");
   const [billingSubTab, setBillingSubTab] = useState("contracts");
+  const [operationsSubTab, setOperationsSubTab] = useState("tickets");
   const [uploadingContractId, setUploadingContractId] = useState<string | null>(null);
   const [showVersionHistory, setShowVersionHistory] = useState<string | null>(null);
   const [showReplaceConfirm, setShowReplaceConfirm] = useState<string | null>(null);
@@ -1075,6 +1076,9 @@ export default function CustomerDetail() {
   const availableParentCustomers = allCustomers.filter(
     (c) => (c.isParent === "true" || !c.parentCustomerId) && c.id !== id
   );
+  const activeCustomersForSwitcher = allCustomers
+    .filter((c) => c.active === "true")
+    .sort((a, b) => (a.name || "").localeCompare(b.name || ""));
 
   const { data: parentContracts = [] } = useQuery<Contract[]>({
     queryKey: ["/api/customers", customer?.parentCustomerId, "contracts"],
@@ -1584,94 +1588,117 @@ export default function CustomerDetail() {
 
   return (
     <div className="space-y-6">
-      <div className="flex items-start justify-between gap-4 flex-wrap">
-        <div>
-          {isChildCustomer && parentCustomer && (
-            <div className="flex items-center gap-2 mb-1" data-testid="text-parent-link">
-              <Building2 className="w-4 h-4 text-muted-foreground" />
-              <Link href={`/dashboard/customers/${parentCustomer.id}`}>
-                <span className="text-sm text-muted-foreground hover:text-foreground cursor-pointer">
-                  {parentCustomer.name}
-                </span>
-              </Link>
-              <span className="text-sm text-muted-foreground">/</span>
-            </div>
-          )}
-          <div className="flex items-center gap-3 mb-2">
-            {isParentCustomer && (
-              <Building2 className="w-6 h-6 text-primary" />
-            )}
-            <h1 className="text-3xl font-semibold tracking-tight" data-testid="text-customer-name">
-              {customer.name}
-            </h1>
-            {customer.customerNumber && (
-              <span className="text-lg text-muted-foreground font-medium" data-testid="text-customer-number">
-                #{customer.customerNumber}
+      {/* Row 1: Customer name + switcher */}
+      <div className="flex items-center gap-3 flex-wrap">
+        {isChildCustomer && parentCustomer && (
+          <div className="flex items-center gap-2" data-testid="text-parent-link">
+            <Building2 className="w-4 h-4 text-muted-foreground" />
+            <Link href={`/dashboard/customers/${parentCustomer.id}`}>
+              <span className="text-sm text-muted-foreground hover:text-foreground cursor-pointer">
+                {parentCustomer.name}
               </span>
-            )}
-            <StatusBadge status={customer.status} />
-            {isParentCustomer && (
-              <Badge variant="secondary" data-testid="badge-parent-customer">
-                {t("customerDetail.parentAccount")}
-              </Badge>
-            )}
-            {isChildCustomer && (
-              <Badge variant="outline" data-testid="badge-branch-customer">
-                {t("customerDetail.branch")}
-              </Badge>
-            )}
-            <Badge 
-              variant={coverage === t("customerDetail.coverageMaintAndSnow") ? "default" : coverage === t("customerDetail.noCoverage") ? "outline" : "secondary"}
-              data-testid="badge-coverage-status"
-            >
-              {coverage}
-            </Badge>
-            {customer.includeInRoute && (
-              <Badge variant="secondary" data-testid="badge-include-in-route">
-                {t("customers.onRoute")}
-              </Badge>
-            )}
+            </Link>
+            <span className="text-sm text-muted-foreground">/</span>
           </div>
-          <div className="flex gap-2 flex-wrap">
-            {customer.tags?.map((tag) => (
+        )}
+        {isParentCustomer && (
+          <Building2 className="w-6 h-6 text-primary" />
+        )}
+        <h1 className="text-3xl font-semibold tracking-tight" data-testid="text-customer-name">
+          {customer.name}
+        </h1>
+        {activeCustomersForSwitcher.length > 1 && (
+          <Select
+            value={customer.id}
+            onValueChange={(val) => navigate(`/dashboard/customers/${val}`)}
+          >
+            <SelectTrigger className="w-[220px]" data-testid="select-customer-switcher">
+              <ChevronsUpDown className="w-4 h-4 mr-1 text-muted-foreground" />
+              <SelectValue placeholder={t("customerDetail.switchCustomer")} />
+            </SelectTrigger>
+            <SelectContent>
+              {activeCustomersForSwitcher.map((c) => (
+                <SelectItem key={c.id} value={c.id} data-testid={`option-customer-${c.id}`}>
+                  {c.name}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        )}
+      </div>
+
+      {/* Row 2: Customer number + badges */}
+      <div className="flex items-center gap-2 flex-wrap">
+        {customer.customerNumber && (
+          <span className="text-sm text-muted-foreground font-medium" data-testid="text-customer-number">
+            #{customer.customerNumber}
+          </span>
+        )}
+        <StatusBadge status={customer.status} />
+        {isParentCustomer && (
+          <Badge variant="secondary" data-testid="badge-parent-customer">
+            {t("customerDetail.parentAccount")}
+          </Badge>
+        )}
+        {isChildCustomer && (
+          <Badge variant="outline" data-testid="badge-branch-customer">
+            {t("customerDetail.branch")}
+          </Badge>
+        )}
+        <Badge 
+          variant={coverage === t("customerDetail.coverageMaintAndSnow") ? "default" : coverage === t("customerDetail.noCoverage") ? "outline" : "secondary"}
+          data-testid="badge-coverage-status"
+        >
+          {coverage}
+        </Badge>
+        {customer.includeInRoute && (
+          <Badge variant="secondary" data-testid="badge-include-in-route">
+            {t("customers.onRoute")}
+          </Badge>
+        )}
+        {customer.tags && customer.tags.length > 0 && (
+          <div className="flex gap-1.5 flex-wrap ml-2">
+            {customer.tags.map((tag) => (
               <Badge key={tag} variant="outline" className="text-xs">
                 {tag}
               </Badge>
             ))}
           </div>
-        </div>
-        <div className="flex gap-2">
+        )}
+      </div>
+
+      {/* Row 3: Action buttons */}
+      <div className="flex gap-2 flex-wrap">
+        <Button 
+          variant="outline" 
+          data-testid="button-add-note"
+          onClick={() => {
+            noteForm.reset({ body: "" });
+            setEditingNote(null);
+            setIsAddNoteDialogOpen(true);
+            setActiveTab("notes");
+          }}
+        >
+          <MessageSquare className="w-4 h-4 mr-2" />
+          {t("customerDetail.addNote")}
+        </Button>
+        {(user?.activeRole === "admin" || user?.activeRole === "office") && (
           <Button 
-            variant="outline" 
-            data-testid="button-add-note"
-            onClick={() => {
-              noteForm.reset({ body: "" });
-              setEditingNote(null);
-              setIsAddNoteDialogOpen(true);
-              setActiveTab("notes");
-            }}
+            variant="outline"
+            data-testid="button-add-ticket"
+            onClick={() => navigate(`/dashboard/tickets/new?customerId=${customer.id}`)}
           >
-            <MessageSquare className="w-4 h-4 mr-2" />
-            {t("customerDetail.addNote")}
+            <TicketIcon className="w-4 h-4 mr-2" />
+            {t("customerDetail.addTicket")}
           </Button>
-          {(user?.activeRole === "admin" || user?.activeRole === "office") && (
-            <Button 
-              variant="outline"
-              data-testid="button-add-ticket"
-              onClick={() => navigate(`/dashboard/tickets/new?customerId=${customer.id}`)}
-            >
-              <TicketIcon className="w-4 h-4 mr-2" />
-              {t("customerDetail.addTicket")}
-            </Button>
-          )}
-          <Button 
-            data-testid="button-edit-customer"
-            onClick={() => setIsEditCustomerDialogOpen(true)}
-          >
-            <Edit className="w-4 h-4 mr-2" />
-            {t("common.edit")}
-          </Button>
-        </div>
+        )}
+        <Button 
+          data-testid="button-edit-customer"
+          onClick={() => setIsEditCustomerDialogOpen(true)}
+        >
+          <Edit className="w-4 h-4 mr-2" />
+          {t("common.edit")}
+        </Button>
       </div>
 
       <Tabs value={activeTab} onValueChange={setActiveTab}>
@@ -1683,34 +1710,22 @@ export default function CustomerDetail() {
           <TabsTrigger value="notes" data-testid="tab-notes">
             {t("customerDetail.tabs.notes")} ({notes.length})
           </TabsTrigger>
-          <TabsTrigger value="tickets" data-testid="tab-tickets">
-            {t("customerDetail.tabs.tickets")} ({tickets.length})
+          <TabsTrigger value="operations" data-testid="tab-operations">
+            <Wrench className="w-4 h-4 mr-1" />
+            {t("customerDetail.tabs.operations")}
           </TabsTrigger>
-          {(user?.activeRole === "admin" || user?.activeRole === "office") && (
-            <>
-              <TabsTrigger value="billing" data-testid="tab-billing">
-                {t("customerDetail.tabs.billing")}
-              </TabsTrigger>
-              <TabsTrigger value="scheduling" data-testid="tab-scheduling">
-                {t("customerDetail.tabs.scheduling")}
-              </TabsTrigger>
-              <TabsTrigger value="proposals" data-testid="tab-proposals">
-                {t("customerDetail.tabs.proposals")}
-              </TabsTrigger>
-              <TabsTrigger value="visual-scopes" data-testid="tab-visual-scopes">
-                {t("customerDetail.tabs.visualScopes")}
-              </TabsTrigger>
-            </>
-          )}
-          {customer.snowEnabled && (
-            <TabsTrigger value="snow" data-testid="tab-snow">
-              <Snowflake className="w-4 h-4 mr-1" />
-              {t("customerDetail.tabs.snow")}
-            </TabsTrigger>
-          )}
           <TabsTrigger value="maps" data-testid="tab-maps">
             <Map className="w-4 h-4 mr-1" />
             {t("customerDetail.tabs.maps")}
+          </TabsTrigger>
+          {(user?.activeRole === "admin" || user?.activeRole === "office") && (
+            <TabsTrigger value="billing" data-testid="tab-billing">
+              {t("customerDetail.tabs.billing")}
+            </TabsTrigger>
+          )}
+          <TabsTrigger value="settings" data-testid="tab-settings">
+            <Settings className="w-4 h-4 mr-1" />
+            {t("customerDetail.tabs.settings")}
           </TabsTrigger>
         </TabsList>
 
@@ -2135,15 +2150,59 @@ export default function CustomerDetail() {
           )}
         </TabsContent>
 
-        <TabsContent value="tickets" className="space-y-4">
-          <TicketListView 
-            customerId={customer.id}
-            showHeader={false}
-            showCustomerColumn={false}
-            showBatchActions={false}
-            showQuickAdd={false}
-            showNewTicketButton={true}
-          />
+        <TabsContent value="operations" className="space-y-4">
+          <Tabs value={operationsSubTab} onValueChange={setOperationsSubTab}>
+            <TabsList className="mb-4">
+              <TabsTrigger value="tickets" data-testid="subtab-tickets">
+                {t("customerDetail.tabs.tickets")} ({tickets.length})
+              </TabsTrigger>
+              {(user?.activeRole === "admin" || user?.activeRole === "office") && (
+                <>
+                  <TabsTrigger value="proposals" data-testid="subtab-proposals">
+                    {t("customerDetail.tabs.proposals")}
+                  </TabsTrigger>
+                  <TabsTrigger value="visual-scopes" data-testid="subtab-visual-scopes">
+                    {t("customerDetail.tabs.visualScopes")}
+                  </TabsTrigger>
+                </>
+              )}
+              {customer.snowEnabled && (
+                <TabsTrigger value="snow" data-testid="subtab-snow">
+                  <Snowflake className="w-4 h-4 mr-1" />
+                  {t("customerDetail.tabs.snow")}
+                </TabsTrigger>
+              )}
+            </TabsList>
+
+            <TabsContent value="tickets" className="space-y-4">
+              <TicketListView 
+                customerId={customer.id}
+                showHeader={false}
+                showCustomerColumn={false}
+                showBatchActions={false}
+                showQuickAdd={false}
+                showNewTicketButton={true}
+              />
+            </TabsContent>
+
+            {(user?.activeRole === "admin" || user?.activeRole === "office") && (
+              <TabsContent value="proposals" className="space-y-4">
+                <CustomerProposalsSection customerId={params?.id!} />
+              </TabsContent>
+            )}
+
+            {(user?.activeRole === "admin" || user?.activeRole === "office") && (
+              <TabsContent value="visual-scopes" className="space-y-4">
+                <CustomerVisualScopesSection customerId={params?.id!} />
+              </TabsContent>
+            )}
+
+            {customer.snowEnabled && (
+              <TabsContent value="snow" className="space-y-4">
+                <CustomerSnowHistory customerId={params?.id!} customerName={customer.name} />
+              </TabsContent>
+            )}
+          </Tabs>
         </TabsContent>
 
         {(user?.activeRole === "admin" || user?.activeRole === "office") && (
@@ -2347,33 +2406,13 @@ export default function CustomerDetail() {
           </TabsContent>
         )}
 
-        {(user?.activeRole === "admin" || user?.activeRole === "office") && (
-          <TabsContent value="scheduling" className="space-y-4">
-            <CustomerSchedulingSection customerId={params?.id!} />
-          </TabsContent>
-        )}
-
-        {customer.snowEnabled && (
-          <TabsContent value="snow" className="space-y-4">
-            <CustomerSnowHistory customerId={params?.id!} customerName={customer.name} />
-          </TabsContent>
-        )}
-
         <TabsContent value="maps" className="space-y-4">
           <CustomerMapsSection customerId={params?.id!} />
         </TabsContent>
 
-        {(user?.activeRole === "admin" || user?.activeRole === "office") && (
-          <TabsContent value="proposals" className="space-y-4">
-            <CustomerProposalsSection customerId={params?.id!} />
-          </TabsContent>
-        )}
-
-        {(user?.activeRole === "admin" || user?.activeRole === "office") && (
-          <TabsContent value="visual-scopes" className="space-y-4">
-            <CustomerVisualScopesSection customerId={params?.id!} />
-          </TabsContent>
-        )}
+        <TabsContent value="settings" className="space-y-4">
+          <CustomerSchedulingSection customerId={params?.id!} />
+        </TabsContent>
       </Tabs>
 
       <Dialog open={isAddContractDialogOpen} onOpenChange={setIsAddContractDialogOpen}>
