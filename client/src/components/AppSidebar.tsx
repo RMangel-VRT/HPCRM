@@ -45,7 +45,7 @@ import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import RoleBadge from "./RoleBadge";
 import ThemeToggle from "./ThemeToggle";
 import { Link, useLocation } from "wouter";
-import logoImage from "@assets/TRUCK_DECAL-06_1766432157419.png";
+import logoImage from "@assets/LOGO_-_SPREAD-06_1773353516653.png";
 import { useTranslation } from "react-i18next";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 
@@ -186,13 +186,13 @@ export default function AppSidebar({
   };
 
   return (
-    <Sidebar data-testid="app-sidebar">
+    <Sidebar variant="floating" data-testid="app-sidebar">
       <SidebarHeader className="p-4">
         <div className="flex items-center gap-3">
-          <img src={logoImage} alt="High Plains Logo" className="w-10 h-10 rounded-full" />
+          <img src={logoImage} alt="High Plains Logo" className="h-12 w-12 object-cover rounded-full" />
           <div>
             <h2 className="text-lg font-semibold tracking-tight">{t("sidebar.highPlains")}</h2>
-            <p className="text-xs text-muted-foreground">{t("sidebar.propertyMaintenance")}</p>
+            <p className="text-xs text-sidebar-foreground/60">{t("sidebar.propertyMaintenance")}</p>
           </div>
         </div>
       </SidebarHeader>
@@ -289,9 +289,9 @@ export default function AppSidebar({
         )}
       </SidebarContent>
 
-      <SidebarFooter className="p-4">
-        <div className="flex items-center gap-3 mb-3">
-          <Avatar className="w-8 h-8">
+      <SidebarFooter className="p-4 space-y-3">
+        <div className="flex items-center gap-3">
+          <Avatar className="w-9 h-9">
             <AvatarFallback className="text-xs">
               {userName.split(" ").map((n) => n[0]).join("")}
             </AvatarFallback>
@@ -301,15 +301,14 @@ export default function AppSidebar({
             <RoleBadge role={userRole} isSuperAdmin={isSuperAdmin} />
           </div>
         </div>
-        <div className="flex items-center gap-2">
-          <SidebarMenuButton
-            onClick={onLogout}
-            className="flex-1"
-            data-testid="button-logout"
-          >
-            <LogOut className="w-4 h-4" />
-            <span>{t("nav.logOut")}</span>
-          </SidebarMenuButton>
+        <SidebarMenuButton
+          onClick={onLogout}
+          data-testid="button-logout"
+        >
+          <LogOut className="w-4 h-4" />
+          <span>{t("nav.logOut")}</span>
+        </SidebarMenuButton>
+        <div className="flex items-center justify-between gap-2 pt-1 border-t border-sidebar-border">
           <Dialog>
             <DialogTrigger asChild>
               <Button size="icon" variant="ghost" data-testid="button-help">
@@ -371,18 +370,20 @@ export default function AppSidebar({
               </div>
             </DialogContent>
           </Dialog>
-          <Button
-            variant="ghost"
-            size="sm"
-            onClick={toggleLanguage}
-            data-testid="button-language-toggle"
-            className="gap-1 px-2 text-xs font-medium"
-          >
-            <span className={i18n.language === "en" ? "font-bold" : "text-muted-foreground"}>EN</span>
-            <span className="text-muted-foreground">/</span>
-            <span className={i18n.language === "es" ? "font-bold" : "text-muted-foreground"}>ES</span>
-          </Button>
-          <ThemeToggle />
+          <div className="flex items-center gap-1">
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={toggleLanguage}
+              data-testid="button-language-toggle"
+              className="gap-1 px-2 text-xs font-medium"
+            >
+              <span className={i18n.language === "en" ? "font-bold" : "text-sidebar-foreground/50"}>EN</span>
+              <span className="text-sidebar-foreground/50">/</span>
+              <span className={i18n.language === "es" ? "font-bold" : "text-sidebar-foreground/50"}>ES</span>
+            </Button>
+            <ThemeToggle />
+          </div>
         </div>
       </SidebarFooter>
     </Sidebar>
