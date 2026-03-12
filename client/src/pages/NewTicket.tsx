@@ -1,4 +1,4 @@
-import { useState, useMemo, useEffect } from "react";
+import { useState, useMemo, useEffect, useCallback, useRef } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { useLocation, Link } from "wouter";
 import { useSetBreadcrumbs } from "@/hooks/use-breadcrumbs";
@@ -41,6 +41,7 @@ import {
   Pencil,
   Camera,
   Image as ImageIcon,
+  Upload,
   FilePlus,
   UserPlus,
   FileText,
@@ -520,14 +521,13 @@ export default function NewTicket() {
     setShowLocationDialog(false);
   };
 
-  const handlePhotoUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
-    const files = event.target.files;
-    if (!files || files.length === 0) return;
+  const uploadFiles = useCallback(async (fileList: File[]) => {
+    if (fileList.length === 0) return;
 
     setIsUploadingPhoto(true);
-    
+
     try {
-      for (const file of Array.from(files)) {
+      for (const file of fileList) {
         if (!file.type.startsWith("image/")) {
           toast({ title: t('newTicket.photoAdded'), variant: "destructive" });
           continue;
@@ -562,9 +562,40 @@ export default function NewTicket() {
       toast({ title: t('newTicket.createFailed'), variant: "destructive" });
     } finally {
       setIsUploadingPhoto(false);
-      event.target.value = "";
     }
+  }, [toast, t]);
+
+  const handlePhotoUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const files = event.target.files;
+    if (!files || files.length === 0) return;
+    await uploadFiles(Array.from(files));
+    event.target.value = "";
   };
+
+  const [isDraggingOver, setIsDraggingOver] = useState(false);
+  const dropzoneRef = useRef<HTMLDivElement>(null);
+
+  const handleDragOver = useCallback((e: React.DragEvent<HTMLDivElement>) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsDraggingOver(true);
+  }, []);
+
+  const handleDragLeave = useCallback((e: React.DragEvent<HTMLDivElement>) => {
+    e.preventDefault();
+    e.stopPropagation();
+    if (dropzoneRef.current && !dropzoneRef.current.contains(e.relatedTarget as Node)) {
+      setIsDraggingOver(false);
+    }
+  }, []);
+
+  const handleDrop = useCallback(async (e: React.DragEvent<HTMLDivElement>) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsDraggingOver(false);
+    const files = Array.from(e.dataTransfer.files);
+    await uploadFiles(files);
+  }, [uploadFiles]);
 
   const handleRemovePhoto = (index: number) => {
     setPhotos((prev) => {
@@ -1135,6 +1166,32 @@ export default function NewTicket() {
                     </div>
                   )}
                   
+                  <div
+                    ref={dropzoneRef}
+                    onDragOver={handleDragOver}
+                    onDragLeave={handleDragLeave}
+                    onDrop={handleDrop}
+                    onClick={() => document.getElementById("photo-gallery")?.click()}
+                    className={`flex flex-col items-center justify-center gap-2 rounded-md border-2 border-dashed p-6 cursor-pointer transition-colors ${
+                      isDraggingOver
+                        ? "border-primary bg-primary/5"
+                        : "border-muted-foreground/25 hover:border-muted-foreground/50"
+                    } ${isUploadingPhoto ? "pointer-events-none opacity-50" : ""}`}
+                    data-testid="dropzone-photo"
+                  >
+                    {isUploadingPhoto ? (
+                      <Loader2 className="w-8 h-8 text-muted-foreground animate-spin" />
+                    ) : (
+                      <Upload className="w-8 h-8 text-muted-foreground" />
+                    )}
+                    <p className="text-sm text-muted-foreground text-center">
+                      Drag & drop images here, or click to browse
+                    </p>
+                    <p className="text-xs text-muted-foreground/60">
+                      Max 10 MB per file
+                    </p>
+                  </div>
+
                   <div className="flex gap-2">
                     <input
                       type="file"
