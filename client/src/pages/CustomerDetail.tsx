@@ -31,7 +31,7 @@ import {
   FormLabel,
   FormMessage,
 } from "@/components/ui/form";
-import { Edit, Plus, Users, FileText, MessageSquare, MapPin, BarChart3, Upload, Download, Eye, Paperclip, History, RefreshCw, DollarSign, Map, Layers, Trash2, X, Ticket as TicketIcon, Building, Building2, Check, Loader2, Copy, Mail, Clock, AlertCircle, CheckCircle2, GitBranch, Snowflake, ChevronsUpDown, Settings, Wrench } from "lucide-react";
+import { Edit, Plus, Users, FileText, MessageSquare, MapPin, BarChart3, Upload, Download, Eye, Paperclip, History, RefreshCw, DollarSign, Map, Layers, Trash2, X, Ticket as TicketIcon, Building, Building2, Check, Loader2, Copy, Mail, Clock, AlertCircle, CheckCircle2, GitBranch, Snowflake, ChevronDown, Settings, Wrench } from "lucide-react";
 import { Switch } from "@/components/ui/switch";
 import StatusBadge from "@/components/StatusBadge";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -1604,17 +1604,16 @@ export default function CustomerDetail() {
         {isParentCustomer && (
           <Building2 className="w-6 h-6 text-primary" />
         )}
-        <h1 className="text-3xl font-semibold tracking-tight" data-testid="text-customer-name">
-          {customer.name}
-        </h1>
-        {activeCustomersForSwitcher.length > 1 && (
-          <Select
-            value={customer.id}
-            onValueChange={(val) => navigate(`/dashboard/customers/${val}`)}
-          >
-            <SelectTrigger className="w-[220px]" data-testid="select-customer-switcher">
-              <ChevronsUpDown className="w-4 h-4 mr-1 text-muted-foreground" />
-              <SelectValue placeholder={t("customerDetail.switchCustomer")} />
+        {activeCustomersForSwitcher.length > 1 ? (
+          <Select value={customer.id} onValueChange={(val) => navigate(`/dashboard/customers/${val}`)}>
+            <SelectTrigger
+              className="w-auto border-0 bg-transparent p-0 h-auto shadow-none focus:ring-0 [&>svg]:hidden gap-1.5 hover:opacity-75 transition-opacity"
+              data-testid="select-customer-switcher"
+            >
+              <span className="text-3xl font-semibold tracking-tight" data-testid="text-customer-name">
+                {customer.name}
+              </span>
+              <span className="flex-shrink-0"><ChevronDown className="w-5 h-5 text-muted-foreground mt-1" /></span>
             </SelectTrigger>
             <SelectContent>
               {activeCustomersForSwitcher.map((c) => (
@@ -1624,6 +1623,10 @@ export default function CustomerDetail() {
               ))}
             </SelectContent>
           </Select>
+        ) : (
+          <h1 className="text-3xl font-semibold tracking-tight" data-testid="text-customer-name">
+            {customer.name}
+          </h1>
         )}
       </div>
 
