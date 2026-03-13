@@ -78,6 +78,7 @@ export default function CustomerRouteMap() {
   const [webglError, setWebglError] = useState(false);
 
   const canGeocode = user?.activeRole === "admin" || user?.activeRole === "office";
+  const mappedCustomersRef = useRef<Customer[]>([]);
 
   const { data: mapboxConfig } = useQuery<{ token: string | null }>({
     queryKey: ["/api/config/mapbox-token"],
@@ -193,11 +194,14 @@ export default function CustomerRouteMap() {
     };
   }, [mapboxConfig?.token]);
 
+  useEffect(() => {
+    mappedCustomersRef.current = mappedCustomers;
+  }, [mappedCustomers]);
+
   // Toggle satellite/street style — re-add layer after style reloads
   useEffect(() => {
     if (!mapRef.current || !mapReady) return;
     const map = mapRef.current;
-    const geojson = buildGeoJSON(mappedCustomers);
 
     map.setStyle(
       useSatellite
@@ -206,9 +210,9 @@ export default function CustomerRouteMap() {
     );
 
     map.once("styledata", () => {
-      addLayerToMap(map, geojson);
+      addLayerToMap(map, buildGeoJSON(mappedCustomersRef.current));
     });
-  }, [useSatellite]);
+  }, [useSatellite, mapReady]);
 
   // Update/add GeoJSON data whenever customers or map readiness changes
   useEffect(() => {
@@ -216,7 +220,11 @@ export default function CustomerRouteMap() {
     const map = mapRef.current;
     const geojson = buildGeoJSON(mappedCustomers);
 
-    addLayerToMap(map, geojson);
+    if (map.isStyleLoaded()) {
+      addLayerToMap(map, geojson);
+    } else {
+      map.once("styledata", () => addLayerToMap(map, geojson));
+    }
 
     if (mappedCustomers.length > 0) {
       const bounds = new mapboxgl.LngLatBounds();
