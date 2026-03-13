@@ -70,6 +70,8 @@
 
   --table-header: 150 20% 95%;
   --table-border: 150 15% 85%;
+  --table-header-color: hsl(150, 20%, 95%);
+  --table-border-color: hsl(150, 15%, 85%);
 
   --input: 80 8% 75%;
   --ring: 80 61% 42%;
@@ -192,6 +194,8 @@
 
   --table-header: 150 10% 14%;
   --table-border: 150 8% 22%;
+  --table-header-color: hsl(150, 10%, 14%);
+  --table-border-color: hsl(150, 8%, 22%);
 
   --input: 80 5% 30%;
   --ring: 80 61% 45%;

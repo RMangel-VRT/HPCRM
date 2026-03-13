@@ -7,9 +7,12 @@ import { SidebarProvider, SidebarTrigger } from "@/components/ui/sidebar";
 import { AuthProvider, useAuth } from "@/hooks/use-auth";
 import { BreadcrumbsProvider } from "@/hooks/use-breadcrumbs";
 import { ProtectedRoute } from "@/lib/protected-route";
-import { Loader2 } from "lucide-react";
-import { useEffect } from "react";
+import { Loader2, AlertTriangle } from "lucide-react";
+import { Component, useEffect } from "react";
+import type { ErrorInfo, ReactNode } from "react";
 import { useTranslation } from "react-i18next";
+import { Button } from "@/components/ui/button";
+import { Card, CardContent } from "@/components/ui/card";
 import "@/i18n";
 import AppSidebar from "@/components/AppSidebar";
 import AppBreadcrumb from "@/components/AppBreadcrumb";
@@ -49,6 +52,59 @@ import VisualScopeList from "@/pages/VisualScopeList";
 import VisualScopeDraft from "@/pages/VisualScopeDraft";
 import CustomerRouteMap from "@/pages/CustomerRouteMap";
 import NotFound from "@/pages/not-found";
+
+interface ErrorBoundaryProps {
+  children: ReactNode;
+}
+
+interface ErrorBoundaryState {
+  hasError: boolean;
+}
+
+class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundaryState> {
+  constructor(props: ErrorBoundaryProps) {
+    super(props);
+    this.state = { hasError: false };
+  }
+
+  static getDerivedStateFromError(): ErrorBoundaryState {
+    return { hasError: true };
+  }
+
+  componentDidCatch(error: Error, errorInfo: ErrorInfo) {
+    console.error("App ErrorBoundary caught:", error, errorInfo);
+  }
+
+  render() {
+    if (this.state.hasError) {
+      return (
+        <div className="flex items-center justify-center min-h-screen p-6">
+          <Card className="max-w-md w-full">
+            <CardContent className="flex flex-col items-center text-center py-10 gap-4">
+              <div className="w-14 h-14 rounded-full bg-destructive/10 flex items-center justify-center">
+                <AlertTriangle className="w-7 h-7 text-destructive" />
+              </div>
+              <h2 className="text-lg font-semibold">Something went wrong</h2>
+              <p className="text-sm text-muted-foreground">
+                An unexpected error occurred. Please try reloading the page.
+              </p>
+              <Button
+                onClick={() => {
+                  this.setState({ hasError: false });
+                  window.location.reload();
+                }}
+                data-testid="button-error-reload"
+              >
+                Reload Page
+              </Button>
+            </CardContent>
+          </Card>
+        </div>
+      );
+    }
+    return this.props.children;
+  }
+}
 
 function Router() {
   const { user, isLoading, logoutMutation } = useAuth();
@@ -198,10 +254,12 @@ function App() {
   return (
     <QueryClientProvider client={queryClient}>
       <TooltipProvider>
-        <AuthProvider>
-          <Router />
-          <Toaster />
-        </AuthProvider>
+        <ErrorBoundary>
+          <AuthProvider>
+            <Router />
+            <Toaster />
+          </AuthProvider>
+        </ErrorBoundary>
       </TooltipProvider>
     </QueryClientProvider>
   );

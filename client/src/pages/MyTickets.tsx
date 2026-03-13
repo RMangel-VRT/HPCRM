@@ -173,6 +173,11 @@ export default function MyTickets() {
 
   const { data: companyUsersData = [] } = useQuery<CompanyUserWithDetails[]>({
     queryKey: ["/api/companies/users"],
+    queryFn: async () => {
+      const res = await fetch("/api/companies/users", { credentials: "include" });
+      if (!res.ok) return [];
+      return res.json();
+    },
   });
 
   const usersMap = useMemo(() => {
@@ -189,7 +194,7 @@ export default function MyTickets() {
     queryKey: ["/api/equipment-tickets", { assignedToId: user?.id }],
     queryFn: async () => {
       const res = await fetch(`/api/equipment-tickets?assignedToId=${user?.id}`, { credentials: "include" });
-      if (!res.ok) throw new Error("Failed to fetch equipment tickets");
+      if (!res.ok) return [];
       return res.json();
     },
     enabled: !!user?.id,
@@ -199,6 +204,11 @@ export default function MyTickets() {
 
   const { data: equipmentList = [] } = useQuery<Equipment[]>({
     queryKey: ["/api/equipment"],
+    queryFn: async () => {
+      const res = await fetch("/api/equipment", { credentials: "include" });
+      if (!res.ok) return [];
+      return res.json();
+    },
     refetchOnMount: "always",
   });
 
