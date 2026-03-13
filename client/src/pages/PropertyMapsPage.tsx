@@ -610,7 +610,7 @@ export default function PropertyMapsPage() {
 
   const filteredCustomers = customers
     .filter((customer) => {
-      if (customer.isActive !== "true") return false;
+      if (customer.active !== "true") return false;
       const searchLower = searchTerm.toLowerCase();
       return customer.name.toLowerCase().includes(searchLower) ||
         customer.street.toLowerCase().includes(searchLower) ||
