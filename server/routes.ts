@@ -789,8 +789,8 @@ export async function seedAllTicketTypes(companyId: string): Promise<void> {
   console.log(`All ticket types seeded for company ${companyId}`);
 }
 
-// Startup migration: Link "1st Bank" branches to a parent account
-// Creates a parent "1st Bank" customer and links all "1st Bank - *" branches to it
+// Startup migration: Ensure "1st Bank" parent-child hierarchy is correct
+// Idempotent: finds or creates a canonical parent, enforces correct flags on all branches
 export async function migrateFirstBankHierarchy(): Promise<void> {
   console.log("Running startup migration: Checking 1st Bank parent-child hierarchy...");
   
@@ -799,18 +799,12 @@ export async function migrateFirstBankHierarchy(): Promise<void> {
     
     for (const company of companies) {
       const customers = await storage.getCustomers(company.id);
-      const bankBranches = customers.filter(
-        (c) => c.name.startsWith("1st Bank - ") && !c.parentCustomerId
-      );
-      
-      if (bankBranches.length === 0) {
-        continue;
-      }
-      
-      let parentBank = customers.find(
-        (c) => c.name === "1st Bank" && c.isParent === "true"
-      );
-      
+      const branches = customers.filter((c) => c.name.startsWith("1st Bank - "));
+
+      if (branches.length === 0) continue;
+
+      let parentBank = customers.find((c) => c.name === "1st Bank" && !c.name.startsWith("1st Bank - "));
+
       if (!parentBank) {
         parentBank = await storage.createCustomer({
           name: "1st Bank",
@@ -825,26 +819,12 @@ export async function migrateFirstBankHierarchy(): Promise<void> {
         });
         console.log(`Created parent "1st Bank" customer: ${parentBank.id}`);
       }
-      
-      for (const branch of bankBranches) {
-        await storage.updateCustomer(branch.id, company.id, {
-          parentCustomerId: parentBank.id,
-        });
+
+      if (parentBank.isParent !== "true") {
+        await storage.updateCustomer(parentBank.id, company.id, { isParent: "true" });
+        console.log(`Fixed parent "1st Bank" isParent flag to "true"`);
       }
-      
-      console.log(`Linked ${bankBranches.length} branches to parent "1st Bank"`);
-    }
 
-    for (const company of companies) {
-      const customers = await storage.getCustomers(company.id);
-      const parentBank = customers.find(
-        (c) => c.name === "1st Bank" && c.isParent === "true"
-      );
-      if (!parentBank) continue;
-
-      const branches = customers.filter(
-        (c) => c.name.startsWith("1st Bank - ")
-      );
       let repaired = 0;
       for (const branch of branches) {
         const fixes: Record<string, string> = {};
@@ -861,62 +841,12 @@ export async function migrateFirstBankHierarchy(): Promise<void> {
         }
       }
       if (repaired > 0) {
-        console.log(`1st Bank data repair: fixed ${repaired} branches`);
+        console.log(`1st Bank data repair: fixed ${repaired} of ${branches.length} branches`);
       }
+
+      console.log(`1st Bank hierarchy verified: 1 parent + ${branches.length} branches`);
     }
 
-    const cutoverDate = new Date("2026-04-01T00:00:00");
-    const now = new Date();
-    
-    if (now >= cutoverDate) {
-      for (const company of companies) {
-        const customers = await storage.getCustomers(company.id);
-        const parentBank = customers.find(
-          (c) => c.name === "1st Bank" && c.isParent === "true"
-        );
-        if (!parentBank) continue;
-        
-        const branches = customers.filter(
-          (c) => c.parentCustomerId === parentBank.id
-        );
-        
-        for (const branch of branches) {
-          const branchContracts = await storage.getContractsByCustomerId(branch.id, company.id);
-          
-          if (branchContracts.length === 0) continue;
-          
-          try {
-            const contractIds = branchContracts.map(c => c.id);
-            
-            for (const contractId of contractIds) {
-              await db.delete(contractMonthlyAmounts).where(
-                and(eq(contractMonthlyAmounts.contractId, contractId), eq(contractMonthlyAmounts.companyId, company.id))
-              );
-              await db.delete(contractDocuments).where(
-                and(eq(contractDocuments.contractId, contractId), eq(contractDocuments.companyId, company.id))
-              );
-              await db.delete(contractServices).where(
-                and(eq(contractServices.contractId, contractId), eq(contractServices.companyId, company.id))
-              );
-              await db.delete(contractStatusHistory).where(
-                eq(contractStatusHistory.contractId, contractId)
-              );
-            }
-            
-            for (const contractId of contractIds) {
-              await storage.deleteContract(contractId, company.id);
-            }
-            
-            console.log(`Deleted ${branchContracts.length} legacy contracts from branch "${branch.name}"`);
-          } catch (branchError) {
-            console.error(`Error deleting contracts for branch "${branch.name}":`, branchError);
-          }
-        }
-      }
-      
-      console.log("1st Bank branch contract cleanup complete (post April 1, 2026)");
-    }
-    
     console.log("1st Bank hierarchy migration complete");
   } catch (error) {
     console.error("Error during 1st Bank hierarchy migration:", error);
