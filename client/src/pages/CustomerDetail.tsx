@@ -1582,8 +1582,8 @@ export default function CustomerDetail() {
   const coverage = calculateCoverage(contracts);
 
   const isChildCustomer = !!customer.parentCustomerId;
-  const isParentCustomer = customer.isParent === "true";
   const childCustomers = customer.childCustomers || [];
+  const isParentCustomer = customer.isParent === "true" || childCustomers.length > 0;
   const parentCustomer = customer.parentCustomer || null;
 
   return (

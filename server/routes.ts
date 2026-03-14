@@ -1232,9 +1232,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     let childCustomers: Customer[] = [];
     let parentCustomer: Customer | undefined;
 
-    if (customer.isParent === "true") {
-      childCustomers = await storage.getChildCustomers(customer.id, user.activeCompanyId);
-    }
+    childCustomers = await storage.getChildCustomers(customer.id, user.activeCompanyId);
 
     if (customer.parentCustomerId) {
       parentCustomer = await storage.getCustomerById(customer.parentCustomerId, user.activeCompanyId);
