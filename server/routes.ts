@@ -834,7 +834,37 @@ export async function migrateFirstBankHierarchy(): Promise<void> {
       
       console.log(`Linked ${bankBranches.length} branches to parent "1st Bank"`);
     }
-    
+
+    for (const company of companies) {
+      const customers = await storage.getCustomers(company.id);
+      const parentBank = customers.find(
+        (c) => c.name === "1st Bank" && c.isParent === "true"
+      );
+      if (!parentBank) continue;
+
+      const branches = customers.filter(
+        (c) => c.name.startsWith("1st Bank - ")
+      );
+      let repaired = 0;
+      for (const branch of branches) {
+        const fixes: Record<string, string> = {};
+        if (branch.parentCustomerId !== parentBank.id) {
+          fixes.parentCustomerId = parentBank.id;
+        }
+        if (branch.isParent === "true") {
+          fixes.isParent = "false";
+        }
+        if (Object.keys(fixes).length > 0) {
+          await storage.updateCustomer(branch.id, company.id, fixes);
+          repaired++;
+          console.log(`Repaired branch "${branch.name}": ${JSON.stringify(fixes)}`);
+        }
+      }
+      if (repaired > 0) {
+        console.log(`1st Bank data repair: fixed ${repaired} branches`);
+      }
+    }
+
     const cutoverDate = new Date("2026-04-01T00:00:00");
     const now = new Date();
     

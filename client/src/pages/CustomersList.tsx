@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { useTranslation } from "react-i18next";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { useSetBreadcrumbs } from "@/hooks/use-breadcrumbs";
@@ -225,7 +225,31 @@ export default function CustomersList() {
     }
   };
 
+  const childrenByParent = useMemo(() => customers.reduce<Record<string, Customer[]>>((acc, c) => {
+    if (c.parentCustomerId) {
+      if (!acc[c.parentCustomerId]) acc[c.parentCustomerId] = [];
+      acc[c.parentCustomerId].push(c);
+    }
+    return acc;
+  }, {}), [customers]);
+
+  const parentIdsWithChildren = useMemo(() => {
+    const ids = new Set<string>();
+    for (const [parentId, children] of Object.entries(childrenByParent)) {
+      if (children.length > 0) ids.add(parentId);
+    }
+    return ids;
+  }, [childrenByParent]);
+
   const [expandedParents, setExpandedParents] = useState<Set<string>>(new Set());
+  const [hasInitializedExpand, setHasInitializedExpand] = useState(false);
+
+  useEffect(() => {
+    if (!hasInitializedExpand && parentIdsWithChildren.size > 0) {
+      setExpandedParents(new Set(parentIdsWithChildren));
+      setHasInitializedExpand(true);
+    }
+  }, [parentIdsWithChildren, hasInitializedExpand]);
 
   const toggleParentExpand = (parentId: string) => {
     setExpandedParents(prev => {
@@ -238,14 +262,6 @@ export default function CustomersList() {
       return next;
     });
   };
-
-  const childrenByParent = customers.reduce<Record<string, Customer[]>>((acc, c) => {
-    if (c.parentCustomerId) {
-      if (!acc[c.parentCustomerId]) acc[c.parentCustomerId] = [];
-      acc[c.parentCustomerId].push(c);
-    }
-    return acc;
-  }, {});
 
   const topLevelCustomers = customers.filter(c => !c.parentCustomerId);
 
