@@ -1357,6 +1357,7 @@ const en = {
     itemLocation: "Location",
     itemCustomerLinks: "Customer & Property",
     itemUpdated: "Item updated",
+    viewPropertyMaps: "View Property Maps",
   },
 };
 

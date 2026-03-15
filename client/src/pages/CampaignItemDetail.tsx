@@ -258,85 +258,83 @@ export default function CampaignItemDetail() {
         </Card>
       )}
 
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-        <Card>
-          <CardHeader className="pb-3">
-            <CardTitle className="text-sm flex items-center gap-2">
-              <StickyNote className="w-4 h-4" />
-              {t("common.notes")}
-            </CardTitle>
-          </CardHeader>
-          <CardContent className="pt-0 space-y-3">
-            <Textarea
-              value={notes}
-              onChange={(e) => setNotes(e.target.value)}
-              placeholder={t("campaigns.notesPlaceholder")}
-              rows={5}
-              data-testid="textarea-item-notes"
-            />
-            <Button
-              size="sm"
-              variant="outline"
-              onClick={() => updateItemMutation.mutate({ notes })}
-              disabled={updateItemMutation.isPending}
-              data-testid="button-save-notes"
-            >
-              {updateItemMutation.isPending && <Loader2 className="w-3 h-3 mr-1 animate-spin" />}
-              {t("campaigns.saveNotes")}
-            </Button>
-          </CardContent>
-        </Card>
+      <Card>
+        <CardHeader className="pb-3">
+          <CardTitle className="text-sm flex items-center gap-2">
+            <StickyNote className="w-4 h-4" />
+            {t("common.notes")}
+          </CardTitle>
+        </CardHeader>
+        <CardContent className="pt-0 space-y-3">
+          <Textarea
+            value={notes}
+            onChange={(e) => setNotes(e.target.value)}
+            placeholder={t("campaigns.notesPlaceholder")}
+            rows={5}
+            data-testid="textarea-item-notes"
+          />
+          <Button
+            size="sm"
+            variant="outline"
+            onClick={() => updateItemMutation.mutate({ notes })}
+            disabled={updateItemMutation.isPending}
+            data-testid="button-save-notes"
+          >
+            {updateItemMutation.isPending && <Loader2 className="w-3 h-3 mr-1 animate-spin" />}
+            {t("campaigns.saveNotes")}
+          </Button>
+        </CardContent>
+      </Card>
 
-        <Card>
-          <CardHeader className="pb-3">
-            <CardTitle className="text-sm flex items-center gap-2">
-              <ImageIcon className="w-4 h-4" />
-              {t("campaigns.photos")}
-            </CardTitle>
-          </CardHeader>
-          <CardContent className="pt-0 space-y-3">
-            {photos.length > 0 ? (
-              <div className="grid grid-cols-3 gap-2">
-                {photos.map((photo, idx) => (
-                  <div key={idx} className="relative aspect-square rounded-md overflow-hidden border group">
-                    <img
-                      src={getPhotoUrl(photo)}
-                      alt=""
-                      className="w-full h-full object-cover cursor-pointer"
-                      onClick={() => setPreviewPhoto(getPhotoUrl(photo))}
-                      data-testid={`img-photo-${idx}`}
-                    />
-                    <button
-                      className="absolute top-1 right-1 bg-black/60 text-white rounded-md p-1 invisible group-hover:visible"
-                      onClick={() => removePhoto(idx)}
-                      data-testid={`button-remove-photo-${idx}`}
-                    >
-                      <X className="w-3 h-3" />
-                    </button>
-                  </div>
-                ))}
-              </div>
-            ) : (
-              <p className="text-sm text-muted-foreground">{t("campaigns.noPhotos")}</p>
-            )}
-            <label className="cursor-pointer inline-block">
-              <Button size="sm" variant="outline" asChild disabled={uploading}>
-                <span>
-                  {uploading ? <Loader2 className="w-3 h-3 mr-1 animate-spin" /> : <Camera className="w-3 h-3 mr-1" />}
-                  {t("campaigns.addPhoto")}
-                </span>
-              </Button>
-              <input
-                type="file"
-                accept="image/*"
-                className="hidden"
-                onChange={handlePhotoUpload}
-                data-testid="input-photo-upload"
-              />
-            </label>
-          </CardContent>
-        </Card>
-      </div>
+      <Card>
+        <CardHeader className="pb-3">
+          <CardTitle className="text-sm flex items-center gap-2">
+            <ImageIcon className="w-4 h-4" />
+            {t("campaigns.photos")}
+          </CardTitle>
+        </CardHeader>
+        <CardContent className="pt-0 space-y-3">
+          {photos.length > 0 ? (
+            <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-6 gap-2">
+              {photos.map((photo, idx) => (
+                <div key={idx} className="relative aspect-square rounded-md overflow-hidden border group">
+                  <img
+                    src={getPhotoUrl(photo)}
+                    alt=""
+                    className="w-full h-full object-cover cursor-pointer"
+                    onClick={() => setPreviewPhoto(getPhotoUrl(photo))}
+                    data-testid={`img-photo-${idx}`}
+                  />
+                  <button
+                    className="absolute top-1 right-1 bg-black/60 text-white rounded-md p-1 invisible group-hover:visible"
+                    onClick={() => removePhoto(idx)}
+                    data-testid={`button-remove-photo-${idx}`}
+                  >
+                    <X className="w-3 h-3" />
+                  </button>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <p className="text-sm text-muted-foreground">{t("campaigns.noPhotos")}</p>
+          )}
+          <label className="cursor-pointer inline-block">
+            <Button size="sm" variant="outline" asChild disabled={uploading}>
+              <span>
+                {uploading ? <Loader2 className="w-3 h-3 mr-1 animate-spin" /> : <Camera className="w-3 h-3 mr-1" />}
+                {t("campaigns.addPhoto")}
+              </span>
+            </Button>
+            <input
+              type="file"
+              accept="image/*"
+              className="hidden"
+              onChange={handlePhotoUpload}
+              data-testid="input-photo-upload"
+            />
+          </label>
+        </CardContent>
+      </Card>
 
       <Card>
         <CardHeader className="pb-3">
@@ -351,7 +349,7 @@ export default function CampaignItemDetail() {
               data-testid="button-view-property-maps"
             >
               <Layers className="w-3 h-3 mr-1" />
-              {t("customerDetail.tabs.maps")}
+              {t("campaigns.viewPropertyMaps")}
             </Button>
             <Link href={`/dashboard/customers/${item.customerId}`}>
               <Button variant="outline" size="sm" data-testid="button-view-customer">

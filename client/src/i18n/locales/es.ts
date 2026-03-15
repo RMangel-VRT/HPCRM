@@ -1261,6 +1261,7 @@ const es = {
     itemLocation: "Ubicacion",
     itemCustomerLinks: "Cliente y Propiedad",
     itemUpdated: "Elemento actualizado",
+    viewPropertyMaps: "Ver Mapas de Propiedad",
   },
 };
 
