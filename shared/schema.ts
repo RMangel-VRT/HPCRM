@@ -1579,6 +1579,58 @@ export interface CaptureParams {
   capturedAt: string;
 }
 
+export const campaigns = pgTable("campaigns", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  companyId: varchar("company_id").notNull().references(() => companies.id, { onDelete: "cascade" }),
+  title: text("title").notNull(),
+  description: text("description"),
+  assignedToId: varchar("assigned_to_id").references(() => users.id, { onDelete: "set null" }),
+  windowStart: varchar("window_start").notNull(),
+  windowEnd: varchar("window_end").notNull(),
+  status: text("status").$type<"active" | "completed" | "archived">().notNull().default("active"),
+  createdById: varchar("created_by_id").references(() => users.id, { onDelete: "set null" }),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  updatedAt: timestamp("updated_at").notNull().defaultNow(),
+});
+
+export const insertCampaignSchema = createInsertSchema(campaigns).omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+});
+
+export type InsertCampaign = z.infer<typeof insertCampaignSchema>;
+export type Campaign = typeof campaigns.$inferSelect;
+
+export const campaignItems = pgTable("campaign_items", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  campaignId: varchar("campaign_id").notNull().references(() => campaigns.id, { onDelete: "cascade" }),
+  companyId: varchar("company_id").notNull().references(() => companies.id, { onDelete: "cascade" }),
+  customerId: varchar("customer_id").notNull().references(() => customers.id, { onDelete: "cascade" }),
+  customerName: text("customer_name").notNull(),
+  status: text("status").$type<"pending" | "completed" | "skipped">().notNull().default("pending"),
+  notes: text("notes"),
+  skipReason: text("skip_reason"),
+  photos: text("photos").array().default(sql`'{}'::text[]`),
+  completedById: varchar("completed_by_id").references(() => users.id, { onDelete: "set null" }),
+  completedAt: timestamp("completed_at"),
+});
+
+export const insertCampaignItemSchema = createInsertSchema(campaignItems).omit({
+  id: true,
+});
+
+export type InsertCampaignItem = z.infer<typeof insertCampaignItemSchema>;
+export type CampaignItem = typeof campaignItems.$inferSelect;
+
+export type CampaignWithProgress = Campaign & {
+  totalItems: number;
+  completedItems: number;
+  skippedItems: number;
+  assignedToName?: string;
+  createdByName?: string;
+};
+
 export type MarkupPoint = [number, number];
 export type SymbolType = "tree" | "plant" | "boulder";
 export type MarkupObjectType = "polygon" | "polyline" | "symbol" | "text";

@@ -8932,6 +8932,144 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.get("/api/visual-scope-sheets/:id/export/overlay",  (req, res) => handleVsExport(req, res, "overlay"));
   app.get("/api/visual-scope-sheets/:id/export/combined", (req, res) => handleVsExport(req, res, "combined"));
 
+  // ─── Campaign System ───────────────────────────────────────────
+  app.get("/api/campaigns", async (req, res) => {
+    if (!req.isAuthenticated()) return res.status(401).send("Not authenticated");
+    const user = req.user as UserWithContext;
+    const campaigns = await storage.getCampaigns(user.activeCompanyId);
+    res.json(campaigns);
+  });
+
+  app.post("/api/campaigns", async (req, res) => {
+    if (!req.isAuthenticated()) return res.status(401).send("Not authenticated");
+    const user = req.user as UserWithContext;
+    if (user.activeRole !== "admin" && user.activeRole !== "office") {
+      return res.status(403).send("Only admin/office can create campaigns");
+    }
+    const { title, description, assignedToId, windowStart, windowEnd, customerIds } = req.body;
+    if (!title || !windowStart || !windowEnd || !customerIds || !Array.isArray(customerIds) || customerIds.length === 0) {
+      return res.status(400).json({ error: "Missing required fields" });
+    }
+    const campaign = await storage.createCampaign({
+      companyId: user.activeCompanyId,
+      title,
+      description: description || null,
+      assignedToId: assignedToId || null,
+      windowStart,
+      windowEnd,
+      status: "active",
+      createdById: user.id,
+    });
+    const allCustomers = await storage.getCustomers(user.activeCompanyId);
+    const customerMap = new Map(allCustomers.map(c => [c.id, c]));
+    for (const custId of customerIds) {
+      const cust = customerMap.get(custId);
+      if (cust) {
+        await storage.createCampaignItem({
+          campaignId: campaign.id,
+          companyId: user.activeCompanyId,
+          customerId: custId,
+          customerName: cust.name,
+          status: "pending",
+          notes: null,
+          skipReason: null,
+          photos: [],
+          completedById: null,
+          completedAt: null,
+        });
+      }
+    }
+    res.json(campaign);
+  });
+
+  app.get("/api/campaigns/:id", async (req, res) => {
+    if (!req.isAuthenticated()) return res.status(401).send("Not authenticated");
+    const user = req.user as UserWithContext;
+    const campaign = await storage.getCampaignById(req.params.id, user.activeCompanyId);
+    if (!campaign) return res.status(404).json({ error: "Not found" });
+    const items = await storage.getCampaignItems(req.params.id, user.activeCompanyId);
+    const assignedUser = campaign.assignedToId
+      ? await storage.getUserById(campaign.assignedToId)
+      : undefined;
+    const createdUser = campaign.createdById
+      ? await storage.getUserById(campaign.createdById)
+      : undefined;
+    res.json({
+      ...campaign,
+      items,
+      totalItems: items.length,
+      completedItems: items.filter(i => i.status === "completed").length,
+      skippedItems: items.filter(i => i.status === "skipped").length,
+      assignedToName: assignedUser?.name,
+      createdByName: createdUser?.name,
+    });
+  });
+
+  app.patch("/api/campaigns/:id", async (req, res) => {
+    if (!req.isAuthenticated()) return res.status(401).send("Not authenticated");
+    const user = req.user as UserWithContext;
+    if (user.activeRole !== "admin" && user.activeRole !== "office") {
+      return res.status(403).send("Only admin/office can update campaigns");
+    }
+    const updated = await storage.updateCampaign(req.params.id, user.activeCompanyId, req.body);
+    if (!updated) return res.status(404).json({ error: "Not found" });
+    res.json(updated);
+  });
+
+  app.delete("/api/campaigns/:id", async (req, res) => {
+    if (!req.isAuthenticated()) return res.status(401).send("Not authenticated");
+    const user = req.user as UserWithContext;
+    if (user.activeRole !== "admin" && user.activeRole !== "office") {
+      return res.status(403).send("Only admin/office can delete campaigns");
+    }
+    await storage.deleteCampaign(req.params.id, user.activeCompanyId);
+    res.json({ success: true });
+  });
+
+  app.patch("/api/campaigns/:id/items/:itemId", async (req, res) => {
+    if (!req.isAuthenticated()) return res.status(401).send("Not authenticated");
+    const user = req.user as UserWithContext;
+    const allowedRoles = ["admin", "office", "field_manager", "field"];
+    if (!allowedRoles.includes(user.activeRole)) {
+      return res.status(403).send("Insufficient permissions");
+    }
+    const { status, notes, skipReason, photos } = req.body;
+    const updates: any = {};
+    if (status !== undefined) updates.status = status;
+    if (notes !== undefined) updates.notes = notes;
+    if (skipReason !== undefined) updates.skipReason = skipReason;
+    if (photos !== undefined) updates.photos = photos;
+    if (status === "completed" || status === "skipped") {
+      updates.completedById = user.id;
+      updates.completedAt = new Date();
+    }
+    if (status === "pending") {
+      updates.completedById = null;
+      updates.completedAt = null;
+    }
+    const updated = await storage.updateCampaignItem(req.params.itemId, user.activeCompanyId, updates);
+    if (!updated) return res.status(404).json({ error: "Not found" });
+    const items = await storage.getCampaignItems(req.params.id, user.activeCompanyId);
+    const allDone = items.every(i => i.status === "completed" || i.status === "skipped");
+    if (allDone && items.length > 0) {
+      await storage.updateCampaign(req.params.id, user.activeCompanyId, { status: "completed" });
+    }
+    res.json(updated);
+  });
+
+  app.post("/api/campaigns/photo-upload-url", async (req, res) => {
+    if (!req.isAuthenticated()) return res.status(401).send("Not authenticated");
+    try {
+      const objectStorageService = new ObjectStorageService();
+      const uploadURL = await objectStorageService.getObjectEntityUploadURL();
+      const normalizedPath = objectStorageService.normalizeObjectEntityPath(uploadURL);
+      res.json({ uploadURL, objectPath: normalizedPath });
+    } catch (error) {
+      console.error("Error getting campaign photo upload URL:", error);
+      res.status(500).send("Failed to get upload URL");
+    }
+  });
+
   const httpServer = createServer(app);
 
   return httpServer;

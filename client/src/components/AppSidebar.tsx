@@ -31,6 +31,7 @@ import {
   Snowflake,
   FileBarChart,
   MapPin,
+  ClipboardCheck,
 } from "lucide-react";
 import {
   Dialog,
@@ -155,6 +156,10 @@ export default function AppSidebar({
 
     if (userRole === "admin" || userRole === "office" || userRole === "shop_manager") {
       items.push({ title: t("nav.equipment"), url: "/dashboard/equipment", icon: Truck });
+    }
+
+    if (userRole === "admin" || userRole === "office" || userRole === "field_manager" || userRole === "field") {
+      items.push({ title: t("nav.campaigns"), url: "/dashboard/campaigns", icon: ClipboardCheck });
     }
 
     if (userRole === "admin" || userRole === "office") {
