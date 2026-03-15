@@ -428,22 +428,7 @@ export default function MyTickets() {
         </div>
       )}
 
-      {!hasAnyCustomerTickets && !hasAnyEquipTickets ? (
-        <Card className="mt-8">
-          <CardContent className="flex flex-col items-center justify-center py-12 text-center">
-            <div className="w-16 h-16 rounded-full bg-muted flex items-center justify-center mb-4">
-              <Clock className="w-8 h-8 text-muted-foreground" />
-            </div>
-            <h3 className="text-lg font-medium mb-1">No tickets assigned to you</h3>
-            <p className="text-sm text-muted-foreground mb-4 max-w-sm">
-              {search || priorityFilter !== "all" || workTypeFilter !== "all" || typeFilter !== "all"
-                ? "Try adjusting your search or filters."
-                : "You don't have any tickets assigned to you yet."}
-            </p>
-          </CardContent>
-        </Card>
-      ) : (
-        <div className="space-y-4">
+      <div className="space-y-4">
           {hasAnyCustomerTickets && (
             <>
               {openTickets.length > 0 && (
@@ -677,7 +662,7 @@ export default function MyTickets() {
             </div>
           )}
 
-          {!hasAnyCustomerTickets && !equipTicketsLoading && !hasAnyEquipTickets && (
+          {!hasAnyCustomerTickets && !equipTicketsLoading && !hasAnyEquipTickets && !(showCampaigns && activeCampaigns.length > 0) && (
             <Card className="mt-8">
               <CardContent className="flex flex-col items-center justify-center py-12 text-center">
                 <div className="w-16 h-16 rounded-full bg-muted flex items-center justify-center mb-4">
@@ -691,7 +676,6 @@ export default function MyTickets() {
             </Card>
           )}
         </div>
-      )}
     </div>
   );
 }
