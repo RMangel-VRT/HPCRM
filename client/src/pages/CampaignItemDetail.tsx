@@ -108,7 +108,7 @@ export default function CampaignItemDetail() {
   const isChemicalCampaign = campaign?.category === "chemical";
   const [showChemReset, setShowChemReset] = useState(false);
   const primaryContact = contacts?.find(c => c.isPrimary === "true") || contacts?.[0];
-  const recipientEmail = primaryContact?.email || null;
+  const recipientEmail = primaryContact?.emails?.[0] || contacts?.find(c => c.emails && c.emails.length > 0)?.emails?.[0] || null;
 
   useEffect(() => {
     if (item) {
@@ -696,7 +696,7 @@ export default function CampaignItemDetail() {
                 </div>
               </div>
               {!recipientEmail && (
-                <div className="flex items-center gap-2 p-3 rounded-md bg-amber-50 dark:bg-amber-950/30 text-amber-800 dark:text-amber-200 text-sm">
+                <div className="flex items-center gap-2 p-3 rounded-md bg-destructive/10 text-destructive text-sm">
                   <AlertCircle className="w-4 h-4 shrink-0" />
                   <span>{t("campaigns.chemNoRecipientWarning")}</span>
                 </div>
@@ -713,12 +713,12 @@ export default function CampaignItemDetail() {
                   setShowEmailConfirm(null);
                   updateItemMutation.mutate({ chemAction: action, notes });
                 }}
-                disabled={updateItemMutation.isPending}
+                disabled={updateItemMutation.isPending || !recipientEmail}
                 data-testid="button-confirm-send-email"
               >
                 {updateItemMutation.isPending && <Loader2 className="w-4 h-4 mr-1 animate-spin" />}
                 {showEmailConfirm === "pre" ? <Mail className="w-4 h-4 mr-1" /> : <Send className="w-4 h-4 mr-1" />}
-                {recipientEmail ? t("campaigns.chemConfirmSend") : t("campaigns.chemAdvanceWithoutEmail")}
+                {t("campaigns.chemConfirmSend")}
               </Button>
             </div>
           </div>

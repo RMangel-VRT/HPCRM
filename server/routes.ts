@@ -9222,34 +9222,32 @@ export async function registerRoutes(app: Express): Promise<Server> {
         const company = await storage.getCompanyById(user.activeCompanyId);
         const customerContacts = await storage.getContactsByCustomerId(targetItem.customerId, user.activeCompanyId);
         const primaryContact = customerContacts.find(c => c.isPrimary === "true") || customerContacts[0];
-        if (primaryContact?.email) {
-          try {
-            const emailResults = await processEmailEvent('campaign.chemical_pre_notice', user.activeCompanyId, {
-              companyName: company?.name || '',
-              customerName: targetItem.customerName,
-              campaignTitle: campaign.title,
-              windowStart: campaign.windowStart,
-              windowEnd: campaign.windowEnd,
-              notes: notes || '',
-            }, {
-              customerId: targetItem.customerId,
-              toEmail: primaryContact.email,
-              sentById: user.id,
-            });
-            chemUpdates.chemWorkflowStep = "work_in_progress";
-            chemUpdates.chemPreSentAt = new Date();
-            chemUpdates.chemPreSentById = user.id;
-            if (emailResults.length > 0) {
-              chemUpdates.chemPreEmailLogId = emailResults[0].id;
-            }
-          } catch (emailErr) {
-            console.error("Failed to send chemical pre-notice email:", emailErr);
-            return res.status(500).json({ error: "Failed to send pre-work notification email" });
-          }
-        } else {
+        const recipientEmail = primaryContact?.emails?.[0] || customerContacts.find(c => c.emails && c.emails.length > 0)?.emails?.[0];
+        if (!recipientEmail) {
+          return res.status(400).json({ error: "No contact email found for this customer. Add a contact with an email address first." });
+        }
+        try {
+          const emailResults = await processEmailEvent('campaign.chemical_pre_notice', user.activeCompanyId, {
+            companyName: company?.name || '',
+            customerName: targetItem.customerName,
+            campaignTitle: campaign.title,
+            windowStart: campaign.windowStart,
+            windowEnd: campaign.windowEnd,
+            notes: notes || '',
+          }, {
+            customerId: targetItem.customerId,
+            toEmail: recipientEmail,
+            sentById: user.id,
+          });
           chemUpdates.chemWorkflowStep = "work_in_progress";
           chemUpdates.chemPreSentAt = new Date();
           chemUpdates.chemPreSentById = user.id;
+          if (emailResults.length > 0) {
+            chemUpdates.chemPreEmailLogId = emailResults[0].id;
+          }
+        } catch (emailErr) {
+          console.error("Failed to send chemical pre-notice email:", emailErr);
+          return res.status(500).json({ error: "Failed to send pre-work notification email" });
         }
       } else if (chemAction === "complete_work") {
         if (!chemWorkRoles.includes(user.activeRole)) {
@@ -9271,39 +9269,34 @@ export async function registerRoutes(app: Express): Promise<Server> {
         const company = await storage.getCompanyById(user.activeCompanyId);
         const customerContacts = await storage.getContactsByCustomerId(targetItem.customerId, user.activeCompanyId);
         const primaryContact = customerContacts.find(c => c.isPrimary === "true") || customerContacts[0];
-        if (primaryContact?.email) {
-          try {
-            const emailResults = await processEmailEvent('campaign.chemical_post_notice', user.activeCompanyId, {
-              companyName: company?.name || '',
-              customerName: targetItem.customerName,
-              campaignTitle: campaign.title,
-              completionDate: new Date().toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' }),
-              notes: notes || '',
-            }, {
-              customerId: targetItem.customerId,
-              toEmail: primaryContact.email,
-              sentById: user.id,
-            });
-            chemUpdates.chemWorkflowStep = "post_communication";
-            chemUpdates.chemPostSentAt = new Date();
-            chemUpdates.chemPostSentById = user.id;
-            chemUpdates.status = "completed";
-            chemUpdates.completedById = user.id;
-            chemUpdates.completedAt = new Date();
-            if (emailResults.length > 0) {
-              chemUpdates.chemPostEmailLogId = emailResults[0].id;
-            }
-          } catch (emailErr) {
-            console.error("Failed to send chemical post-notice email:", emailErr);
-            return res.status(500).json({ error: "Failed to send post-completion notification email" });
-          }
-        } else {
+        const recipientEmail = primaryContact?.emails?.[0] || customerContacts.find(c => c.emails && c.emails.length > 0)?.emails?.[0];
+        if (!recipientEmail) {
+          return res.status(400).json({ error: "No contact email found for this customer. Add a contact with an email address first." });
+        }
+        try {
+          const emailResults = await processEmailEvent('campaign.chemical_post_notice', user.activeCompanyId, {
+            companyName: company?.name || '',
+            customerName: targetItem.customerName,
+            campaignTitle: campaign.title,
+            completionDate: new Date().toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' }),
+            notes: notes || '',
+          }, {
+            customerId: targetItem.customerId,
+            toEmail: recipientEmail,
+            sentById: user.id,
+          });
           chemUpdates.chemWorkflowStep = "post_communication";
           chemUpdates.chemPostSentAt = new Date();
           chemUpdates.chemPostSentById = user.id;
           chemUpdates.status = "completed";
           chemUpdates.completedById = user.id;
           chemUpdates.completedAt = new Date();
+          if (emailResults.length > 0) {
+            chemUpdates.chemPostEmailLogId = emailResults[0].id;
+          }
+        } catch (emailErr) {
+          console.error("Failed to send chemical post-notice email:", emailErr);
+          return res.status(500).json({ error: "Failed to send post-completion notification email" });
         }
       } else if (chemAction === "reset") {
         if (user.activeRole !== "admin" && user.activeRole !== "office") {
@@ -9403,27 +9396,29 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const company = await storage.getCompanyById(user.activeCompanyId);
       const customerContacts = await storage.getContactsByCustomerId(targetItem.customerId, user.activeCompanyId);
       const primaryContact = customerContacts.find(c => c.isPrimary === "true") || customerContacts[0];
-      if (primaryContact?.email) {
-        try {
-          const emailResults = await processEmailEvent('campaign.chemical_pre_notice', user.activeCompanyId, {
-            companyName: company?.name || '',
-            customerName: targetItem.customerName,
-            campaignTitle: campaign.title,
-            windowStart: campaign.windowStart,
-            windowEnd: campaign.windowEnd,
-            notes: notes || '',
-          }, {
-            customerId: targetItem.customerId,
-            toEmail: primaryContact.email,
-            sentById: user.id,
-          });
-          if (emailResults.length > 0) {
-            chemUpdates.chemPreEmailLogId = emailResults[0].id;
-          }
-        } catch (emailErr) {
-          console.error("Failed to send chemical pre-notice email:", emailErr);
-          return res.status(500).json({ error: "Failed to send pre-work notification email" });
+      const recipientEmail = primaryContact?.emails?.[0] || customerContacts.find(c => c.emails && c.emails.length > 0)?.emails?.[0];
+      if (!recipientEmail) {
+        return res.status(400).json({ error: "No contact email found for this customer. Add a contact with an email address first." });
+      }
+      try {
+        const emailResults = await processEmailEvent('campaign.chemical_pre_notice', user.activeCompanyId, {
+          companyName: company?.name || '',
+          customerName: targetItem.customerName,
+          campaignTitle: campaign.title,
+          windowStart: campaign.windowStart,
+          windowEnd: campaign.windowEnd,
+          notes: notes || '',
+        }, {
+          customerId: targetItem.customerId,
+          toEmail: recipientEmail,
+          sentById: user.id,
+        });
+        if (emailResults.length > 0) {
+          chemUpdates.chemPreEmailLogId = emailResults[0].id;
         }
+      } catch (emailErr) {
+        console.error("Failed to send chemical pre-notice email:", emailErr);
+        return res.status(500).json({ error: "Failed to send pre-work notification email" });
       }
       chemUpdates.chemWorkflowStep = "work_in_progress";
       chemUpdates.chemPreSentAt = new Date();
@@ -9496,26 +9491,28 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const company = await storage.getCompanyById(user.activeCompanyId);
       const customerContacts = await storage.getContactsByCustomerId(targetItem.customerId, user.activeCompanyId);
       const primaryContact = customerContacts.find(c => c.isPrimary === "true") || customerContacts[0];
-      if (primaryContact?.email) {
-        try {
-          const emailResults = await processEmailEvent('campaign.chemical_post_notice', user.activeCompanyId, {
-            companyName: company?.name || '',
-            customerName: targetItem.customerName,
-            campaignTitle: campaign.title,
-            completionDate: new Date().toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' }),
-            notes: notes || '',
-          }, {
-            customerId: targetItem.customerId,
-            toEmail: primaryContact.email,
-            sentById: user.id,
-          });
-          if (emailResults.length > 0) {
-            chemUpdates.chemPostEmailLogId = emailResults[0].id;
-          }
-        } catch (emailErr) {
-          console.error("Failed to send chemical post-notice email:", emailErr);
-          return res.status(500).json({ error: "Failed to send post-completion notification email" });
+      const recipientEmail = primaryContact?.emails?.[0] || customerContacts.find(c => c.emails && c.emails.length > 0)?.emails?.[0];
+      if (!recipientEmail) {
+        return res.status(400).json({ error: "No contact email found for this customer. Add a contact with an email address first." });
+      }
+      try {
+        const emailResults = await processEmailEvent('campaign.chemical_post_notice', user.activeCompanyId, {
+          companyName: company?.name || '',
+          customerName: targetItem.customerName,
+          campaignTitle: campaign.title,
+          completionDate: new Date().toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' }),
+          notes: notes || '',
+        }, {
+          customerId: targetItem.customerId,
+          toEmail: recipientEmail,
+          sentById: user.id,
+        });
+        if (emailResults.length > 0) {
+          chemUpdates.chemPostEmailLogId = emailResults[0].id;
         }
+      } catch (emailErr) {
+        console.error("Failed to send chemical post-notice email:", emailErr);
+        return res.status(500).json({ error: "Failed to send post-completion notification email" });
       }
       chemUpdates.chemWorkflowStep = "post_communication";
       chemUpdates.chemPostSentAt = new Date();
