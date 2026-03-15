@@ -8969,9 +8969,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
       return res.status(400).json({ error: "Start date must be before or equal to end date" });
     }
     if (assignedToId) {
-      const assignee = await storage.getUserById(assignedToId);
-      if (!assignee) {
-        return res.status(400).json({ error: "Invalid assignee" });
+      const companyUsers = await storage.getCompanyUsers(user.activeCompanyId);
+      const isCompanyMember = companyUsers.some(cu => cu.userId === assignedToId);
+      if (!isCompanyMember) {
+        return res.status(400).json({ error: "Assignee must be a member of this company" });
       }
     }
     const allCustomers = await storage.getCustomers(user.activeCompanyId);
@@ -9069,6 +9070,16 @@ export async function registerRoutes(app: Express): Promise<Server> {
     const validStatuses = ["active", "completed", "archived"];
     if (status !== undefined && !validStatuses.includes(status)) {
       return res.status(400).json({ error: "Invalid status value" });
+    }
+    if (windowStart && windowEnd && windowStart > windowEnd) {
+      return res.status(400).json({ error: "Start date must be before or equal to end date" });
+    }
+    if (assignedToId) {
+      const companyUsers = await storage.getCompanyUsers(user.activeCompanyId);
+      const isCompanyMember = companyUsers.some(cu => cu.userId === assignedToId);
+      if (!isCompanyMember) {
+        return res.status(400).json({ error: "Assignee must be a member of this company" });
+      }
     }
     const updates: Partial<{ status: "active" | "completed" | "archived"; title: string; description: string | null; assignedToId: string | null; windowStart: string; windowEnd: string }> = {};
     if (status !== undefined) updates.status = status as "active" | "completed" | "archived";
