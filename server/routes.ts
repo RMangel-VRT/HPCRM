@@ -9127,6 +9127,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.get("/api/campaigns/:id/items/:itemId/email-preview", async (req, res) => {
     if (!req.isAuthenticated()) return res.status(401).send("Not authenticated");
     const user = req.user as UserWithContext;
+    const emailRoles = ["admin", "office", "chemical_manager"];
+    if (!emailRoles.includes(user.activeRole)) {
+      return res.status(403).send("Insufficient permissions");
+    }
     try {
       const { type } = req.query as { type?: string };
       const eventKey = type === "post" ? "campaign.chemical_post_notice" : "campaign.chemical_pre_notice";
