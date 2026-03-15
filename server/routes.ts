@@ -8969,7 +8969,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       return res.status(400).json({ error: "Start date must be before or equal to end date" });
     }
     if (assignedToId) {
-      const companyUsers = await storage.getCompanyUsers(user.activeCompanyId);
+      const companyUsers = await storage.getCompanyUsersByCompanyId(user.activeCompanyId);
       const isCompanyMember = companyUsers.some(cu => cu.userId === assignedToId);
       if (!isCompanyMember) {
         return res.status(400).json({ error: "Assignee must be a member of this company" });
@@ -9075,7 +9075,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       return res.status(400).json({ error: "Start date must be before or equal to end date" });
     }
     if (assignedToId) {
-      const companyUsers = await storage.getCompanyUsers(user.activeCompanyId);
+      const companyUsers = await storage.getCompanyUsersByCompanyId(user.activeCompanyId);
       const isCompanyMember = companyUsers.some(cu => cu.userId === assignedToId);
       if (!isCompanyMember) {
         return res.status(400).json({ error: "Assignee must be a member of this company" });
