@@ -1,5 +1,5 @@
 import { sql } from "drizzle-orm";
-import { pgTable, text, varchar, timestamp, unique, integer, jsonb, real, boolean } from "drizzle-orm/pg-core";
+import { pgTable, text, varchar, timestamp, unique, integer, jsonb, real, boolean, date } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
 
@@ -1585,8 +1585,8 @@ export const campaigns = pgTable("campaigns", {
   title: text("title").notNull(),
   description: text("description"),
   assignedToId: varchar("assigned_to_id").references(() => users.id, { onDelete: "set null" }),
-  windowStart: varchar("window_start").notNull(),
-  windowEnd: varchar("window_end").notNull(),
+  windowStart: date("window_start").notNull(),
+  windowEnd: date("window_end").notNull(),
   status: text("status").$type<"active" | "completed" | "archived">().notNull().default("active"),
   createdById: varchar("created_by_id").references(() => users.id, { onDelete: "set null" }),
   createdAt: timestamp("created_at").notNull().defaultNow(),
@@ -1608,6 +1608,7 @@ export const campaignItems = pgTable("campaign_items", {
   companyId: varchar("company_id").notNull().references(() => companies.id, { onDelete: "cascade" }),
   customerId: varchar("customer_id").notNull().references(() => customers.id, { onDelete: "cascade" }),
   customerName: text("customer_name").notNull(),
+  customerCity: text("customer_city").default(""),
   status: text("status").$type<"pending" | "completed" | "skipped">().notNull().default("pending"),
   notes: text("notes"),
   skipReason: text("skip_reason"),
@@ -1615,11 +1616,13 @@ export const campaignItems = pgTable("campaign_items", {
   completedById: varchar("completed_by_id").references(() => users.id, { onDelete: "set null" }),
   completedAt: timestamp("completed_at"),
   createdAt: timestamp("created_at").notNull().defaultNow(),
+  updatedAt: timestamp("updated_at").notNull().defaultNow(),
 });
 
 export const insertCampaignItemSchema = createInsertSchema(campaignItems).omit({
   id: true,
   createdAt: true,
+  updatedAt: true,
 });
 
 export type InsertCampaignItem = z.infer<typeof insertCampaignItemSchema>;

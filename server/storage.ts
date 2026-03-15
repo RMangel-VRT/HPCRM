@@ -328,7 +328,7 @@ export interface IStorage {
   deleteCampaign(id: string, companyId: string): Promise<void>;
   getCampaignItems(campaignId: string, companyId: string): Promise<CampaignItem[]>;
   createCampaignItem(item: InsertCampaignItem): Promise<CampaignItem>;
-  updateCampaignItem(id: string, companyId: string, updates: Partial<InsertCampaignItem>): Promise<CampaignItem | undefined>;
+  updateCampaignItem(id: string, companyId: string, updates: Partial<InsertCampaignItem & { updatedAt: Date }>): Promise<CampaignItem | undefined>;
 
   sessionStore: session.Store;
 }
@@ -2695,7 +2695,7 @@ export class PgStorage implements IStorage {
     return row;
   }
 
-  async updateCampaignItem(id: string, companyId: string, updates: Partial<InsertCampaignItem>): Promise<CampaignItem | undefined> {
+  async updateCampaignItem(id: string, companyId: string, updates: Partial<InsertCampaignItem & { updatedAt: Date }>): Promise<CampaignItem | undefined> {
     const [row] = await db.update(campaignItems).set(updates).where(and(eq(campaignItems.id, id), eq(campaignItems.companyId, companyId))).returning();
     return row;
   }

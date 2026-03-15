@@ -8980,6 +8980,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
           companyId: user.activeCompanyId,
           customerId: custId,
           customerName: cust.name,
+          customerCity: cust.city || "",
           status: "pending",
           notes: null,
           skipReason: null,
@@ -9007,9 +9008,19 @@ export async function registerRoutes(app: Express): Promise<Server> {
     const createdUser = campaign.createdById
       ? await storage.getUserById(campaign.createdById)
       : undefined;
+    const completedByIds = [...new Set(items.filter(i => i.completedById).map(i => i.completedById!))];
+    const completedByUsers = new Map<string, string>();
+    for (const uid of completedByIds) {
+      const u = await storage.getUserById(uid);
+      if (u) completedByUsers.set(uid, u.name);
+    }
+    const itemsWithNames = items.map(i => ({
+      ...i,
+      completedByName: i.completedById ? completedByUsers.get(i.completedById) || null : null,
+    }));
     res.json({
       ...campaign,
-      items,
+      items: itemsWithNames,
       totalItems: items.length,
       completedItems: items.filter((i: { status: string }) => i.status === "completed").length,
       skippedItems: items.filter((i: { status: string }) => i.status === "skipped").length,
@@ -9061,6 +9072,16 @@ export async function registerRoutes(app: Express): Promise<Server> {
     if (!allowedRoles.includes(user.activeRole)) {
       return res.status(403).send("Insufficient permissions");
     }
+    const campaign = await storage.getCampaignById(req.params.id, user.activeCompanyId);
+    if (!campaign) return res.status(404).json({ error: "Campaign not found" });
+    if ((user.activeRole === "field" || user.activeRole === "field_manager") && campaign.assignedToId !== user.id) {
+      return res.status(403).send("Not assigned to this campaign");
+    }
+    const existingItems = await storage.getCampaignItems(req.params.id, user.activeCompanyId);
+    const targetItem = existingItems.find(i => i.id === req.params.itemId);
+    if (!targetItem) {
+      return res.status(404).json({ error: "Item not found in this campaign" });
+    }
     const { status, notes, skipReason, photos } = req.body as {
       status?: string;
       notes?: string;
@@ -9070,7 +9091,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     if (status === "pending" && user.activeRole !== "admin" && user.activeRole !== "office") {
       return res.status(403).send("Only admin/office can reset items to pending");
     }
-    const updates: Partial<{ status: "pending" | "completed" | "skipped"; notes: string | null; skipReason: string | null; photos: string[]; completedById: string | null; completedAt: Date | null }> = {};
+    const updates: Partial<{ status: "pending" | "completed" | "skipped"; notes: string | null; skipReason: string | null; photos: string[]; completedById: string | null; completedAt: Date | null; updatedAt: Date }> = {};
     if (status !== undefined) updates.status = status as "pending" | "completed" | "skipped";
     if (notes !== undefined) updates.notes = notes;
     if (skipReason !== undefined) updates.skipReason = skipReason;
@@ -9083,6 +9104,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       updates.completedById = null;
       updates.completedAt = null;
     }
+    updates.updatedAt = new Date();
     const updated = await storage.updateCampaignItem(req.params.itemId, user.activeCompanyId, updates);
     if (!updated) return res.status(404).json({ error: "Not found" });
     const items = await storage.getCampaignItems(req.params.id, user.activeCompanyId);
@@ -9090,11 +9112,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
     const hasPending = items.some((i: { status: string }) => i.status === "pending");
     if (allDone && items.length > 0) {
       await storage.updateCampaign(req.params.id, user.activeCompanyId, { status: "completed" });
-    } else if (hasPending) {
-      const currentCampaign = await storage.getCampaignById(req.params.id, user.activeCompanyId);
-      if (currentCampaign && currentCampaign.status === "completed") {
-        await storage.updateCampaign(req.params.id, user.activeCompanyId, { status: "active" });
-      }
+    } else if (hasPending && campaign.status === "completed") {
+      await storage.updateCampaign(req.params.id, user.activeCompanyId, { status: "active" });
     }
     res.json(updated);
   });
