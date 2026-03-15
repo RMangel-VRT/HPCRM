@@ -22,13 +22,7 @@ import {
   DialogTitle,
   DialogFooter,
 } from "@/components/ui/dialog";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
+import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
   Popover,
   PopoverContent,
@@ -46,6 +40,7 @@ import {
   CheckCircle2,
   Clock,
   Archive,
+  AlertTriangle,
 } from "lucide-react";
 import type { CampaignWithProgress, Customer, CompanyUser, User } from "@shared/schema";
 
@@ -84,6 +79,31 @@ export default function CampaignsList() {
   }, [campaigns, statusFilter, search]);
 
   const canManage = user?.activeRole === "admin" || user?.activeRole === "office";
+
+  const formatWindowDate = (dateStr: string) => {
+    try {
+      const d = new Date(dateStr + "T00:00:00");
+      return format(d, "MMM d, yyyy");
+    } catch {
+      return dateStr;
+    }
+  };
+
+  const formatWindow = (start: string, end: string) => {
+    const startDate = formatWindowDate(start);
+    const endDate = formatWindowDate(end);
+    return `${startDate} – ${endDate}`;
+  };
+
+  const isOverdue = (campaign: CampaignWithProgress) => {
+    if (campaign.status !== "active") return false;
+    try {
+      const endDate = new Date(campaign.windowEnd + "T23:59:59");
+      return endDate < new Date();
+    } catch {
+      return false;
+    }
+  };
 
   const statusIcon = (status: string) => {
     if (status === "completed") return <CheckCircle2 className="w-4 h-4 text-green-600" />;
@@ -131,17 +151,14 @@ export default function CampaignsList() {
             data-testid="input-campaign-search"
           />
         </div>
-        <Select value={statusFilter} onValueChange={setStatusFilter}>
-          <SelectTrigger className="w-[160px]" data-testid="select-campaign-status-filter">
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="all">{t("common.all")}</SelectItem>
-            <SelectItem value="active">{t("campaigns.active")}</SelectItem>
-            <SelectItem value="completed">{t("campaigns.completed")}</SelectItem>
-            <SelectItem value="archived">{t("campaigns.archived")}</SelectItem>
-          </SelectContent>
-        </Select>
+        <Tabs value={statusFilter} onValueChange={setStatusFilter}>
+          <TabsList data-testid="tabs-campaign-status-filter">
+            <TabsTrigger value="all" data-testid="tab-campaigns-all">{t("common.all")}</TabsTrigger>
+            <TabsTrigger value="active" data-testid="tab-campaigns-active">{t("campaigns.active")}</TabsTrigger>
+            <TabsTrigger value="completed" data-testid="tab-campaigns-completed">{t("campaigns.completed")}</TabsTrigger>
+            <TabsTrigger value="archived" data-testid="tab-campaigns-archived">{t("campaigns.archived")}</TabsTrigger>
+          </TabsList>
+        </Tabs>
       </div>
 
       {filteredCampaigns.length === 0 ? (
@@ -178,7 +195,13 @@ export default function CampaignsList() {
                         <p className="text-sm text-muted-foreground line-clamp-2">{campaign.description}</p>
                       )}
                       <div className="flex items-center gap-4 text-xs text-muted-foreground flex-wrap">
-                        <span>{t("campaigns.window")}: {campaign.windowStart} — {campaign.windowEnd}</span>
+                        <span>{t("campaigns.window")}: {formatWindow(campaign.windowStart, campaign.windowEnd)}</span>
+                        {isOverdue(campaign) && (
+                          <Badge variant="destructive" className="text-xs">
+                            <AlertTriangle className="w-3 h-3 mr-1" />
+                            {t("campaigns.overdue")}
+                          </Badge>
+                        )}
                         {campaign.assignedToName && (
                           <span>{t("campaigns.assignedTo")}: {campaign.assignedToName}</span>
                         )}
@@ -257,7 +280,7 @@ function CreateCampaignDialog({ open, onOpenChange }: { open: boolean; onOpenCha
     }));
 
   const createMutation = useMutation({
-    mutationFn: async (data: any) => {
+    mutationFn: async (data: { title: string; description: string; assignedToId: string; windowStart: string; windowEnd: string; customerIds: string[] }) => {
       const res = await apiRequest("POST", "/api/campaigns", data);
       return res.json();
     },

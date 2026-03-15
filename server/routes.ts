@@ -8936,8 +8936,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.get("/api/campaigns", async (req, res) => {
     if (!req.isAuthenticated()) return res.status(401).send("Not authenticated");
     const user = req.user as UserWithContext;
-    const campaigns = await storage.getCampaigns(user.activeCompanyId);
-    res.json(campaigns);
+    let allCampaigns = await storage.getCampaigns(user.activeCompanyId);
+    if (user.activeRole === "field" || user.activeRole === "field_manager") {
+      allCampaigns = allCampaigns.filter(c => c.assignedToId === user.id);
+    }
+    res.json(allCampaigns);
   });
 
   app.post("/api/campaigns", async (req, res) => {
@@ -8946,7 +8949,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
     if (user.activeRole !== "admin" && user.activeRole !== "office") {
       return res.status(403).send("Only admin/office can create campaigns");
     }
-    const { title, description, assignedToId, windowStart, windowEnd, customerIds } = req.body;
+    const { title, description, assignedToId, windowStart, windowEnd, customerIds } = req.body as {
+      title?: string;
+      description?: string;
+      assignedToId?: string;
+      windowStart?: string;
+      windowEnd?: string;
+      customerIds?: string[];
+    };
     if (!title || !windowStart || !windowEnd || !customerIds || !Array.isArray(customerIds) || customerIds.length === 0) {
       return res.status(400).json({ error: "Missing required fields" });
     }
@@ -8987,6 +8997,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
     const user = req.user as UserWithContext;
     const campaign = await storage.getCampaignById(req.params.id, user.activeCompanyId);
     if (!campaign) return res.status(404).json({ error: "Not found" });
+    if ((user.activeRole === "field" || user.activeRole === "field_manager") && campaign.assignedToId !== user.id) {
+      return res.status(403).send("Not assigned to this campaign");
+    }
     const items = await storage.getCampaignItems(req.params.id, user.activeCompanyId);
     const assignedUser = campaign.assignedToId
       ? await storage.getUserById(campaign.assignedToId)
@@ -8998,8 +9011,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
       ...campaign,
       items,
       totalItems: items.length,
-      completedItems: items.filter(i => i.status === "completed").length,
-      skippedItems: items.filter(i => i.status === "skipped").length,
+      completedItems: items.filter((i: { status: string }) => i.status === "completed").length,
+      skippedItems: items.filter((i: { status: string }) => i.status === "skipped").length,
       assignedToName: assignedUser?.name,
       createdByName: createdUser?.name,
     });
@@ -9011,7 +9024,22 @@ export async function registerRoutes(app: Express): Promise<Server> {
     if (user.activeRole !== "admin" && user.activeRole !== "office") {
       return res.status(403).send("Only admin/office can update campaigns");
     }
-    const updated = await storage.updateCampaign(req.params.id, user.activeCompanyId, req.body);
+    const { status, title, description, assignedToId, windowStart, windowEnd } = req.body as {
+      status?: string;
+      title?: string;
+      description?: string;
+      assignedToId?: string;
+      windowStart?: string;
+      windowEnd?: string;
+    };
+    const updates: Partial<{ status: "active" | "completed" | "archived"; title: string; description: string | null; assignedToId: string | null; windowStart: string; windowEnd: string }> = {};
+    if (status !== undefined) updates.status = status as "active" | "completed" | "archived";
+    if (title !== undefined) updates.title = title;
+    if (description !== undefined) updates.description = description;
+    if (assignedToId !== undefined) updates.assignedToId = assignedToId;
+    if (windowStart !== undefined) updates.windowStart = windowStart;
+    if (windowEnd !== undefined) updates.windowEnd = windowEnd;
+    const updated = await storage.updateCampaign(req.params.id, user.activeCompanyId, updates);
     if (!updated) return res.status(404).json({ error: "Not found" });
     res.json(updated);
   });
@@ -9033,9 +9061,17 @@ export async function registerRoutes(app: Express): Promise<Server> {
     if (!allowedRoles.includes(user.activeRole)) {
       return res.status(403).send("Insufficient permissions");
     }
-    const { status, notes, skipReason, photos } = req.body;
-    const updates: any = {};
-    if (status !== undefined) updates.status = status;
+    const { status, notes, skipReason, photos } = req.body as {
+      status?: string;
+      notes?: string;
+      skipReason?: string;
+      photos?: string[];
+    };
+    if (status === "pending" && user.activeRole !== "admin" && user.activeRole !== "office") {
+      return res.status(403).send("Only admin/office can reset items to pending");
+    }
+    const updates: Partial<{ status: "pending" | "completed" | "skipped"; notes: string | null; skipReason: string | null; photos: string[]; completedById: string | null; completedAt: Date | null }> = {};
+    if (status !== undefined) updates.status = status as "pending" | "completed" | "skipped";
     if (notes !== undefined) updates.notes = notes;
     if (skipReason !== undefined) updates.skipReason = skipReason;
     if (photos !== undefined) updates.photos = photos;
@@ -9050,9 +9086,15 @@ export async function registerRoutes(app: Express): Promise<Server> {
     const updated = await storage.updateCampaignItem(req.params.itemId, user.activeCompanyId, updates);
     if (!updated) return res.status(404).json({ error: "Not found" });
     const items = await storage.getCampaignItems(req.params.id, user.activeCompanyId);
-    const allDone = items.every(i => i.status === "completed" || i.status === "skipped");
+    const allDone = items.every((i: { status: string }) => i.status === "completed" || i.status === "skipped");
+    const hasPending = items.some((i: { status: string }) => i.status === "pending");
     if (allDone && items.length > 0) {
       await storage.updateCampaign(req.params.id, user.activeCompanyId, { status: "completed" });
+    } else if (hasPending) {
+      const currentCampaign = await storage.getCampaignById(req.params.id, user.activeCompanyId);
+      if (currentCampaign && currentCampaign.status === "completed") {
+        await storage.updateCampaign(req.params.id, user.activeCompanyId, { status: "active" });
+      }
     }
     res.json(updated);
   });

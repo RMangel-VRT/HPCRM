@@ -1252,6 +1252,7 @@ const es = {
     addPhoto: "Foto",
     photoUploadFailed: "Error al subir foto",
     reopen: "Reabrir",
+    overdue: "Vencido",
     completedAt: "Completada",
     notesPlaceholder: "Agregar notas sobre esta propiedad...",
   },

@@ -1348,6 +1348,7 @@ const en = {
     addPhoto: "Photo",
     photoUploadFailed: "Failed to upload photo",
     reopen: "Reopen",
+    overdue: "Overdue",
     completedAt: "Completed",
     notesPlaceholder: "Add notes about this property...",
   },

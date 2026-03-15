@@ -1614,10 +1614,12 @@ export const campaignItems = pgTable("campaign_items", {
   photos: text("photos").array().default(sql`'{}'::text[]`),
   completedById: varchar("completed_by_id").references(() => users.id, { onDelete: "set null" }),
   completedAt: timestamp("completed_at"),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
 });
 
 export const insertCampaignItemSchema = createInsertSchema(campaignItems).omit({
   id: true,
+  createdAt: true,
 });
 
 export type InsertCampaignItem = z.infer<typeof insertCampaignItemSchema>;

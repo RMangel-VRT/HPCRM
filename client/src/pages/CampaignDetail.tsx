@@ -97,7 +97,7 @@ export default function CampaignDetail() {
   });
 
   const updateCampaignMutation = useMutation({
-    mutationFn: async (data: any) => {
+    mutationFn: async (data: { status?: string; title?: string; description?: string }) => {
       const res = await apiRequest("PATCH", `/api/campaigns/${id}`, data);
       return res.json();
     },
@@ -262,6 +262,7 @@ export default function CampaignDetail() {
             item={item}
             campaignId={id!}
             canComplete={canComplete}
+            canManage={canManage}
             isExpanded={activeItemId === item.id}
             onToggle={() => setActiveItemId(activeItemId === item.id ? null : item.id)}
             onUpdate={(data) => updateItemMutation.mutate({ itemId: item.id, ...data })}
@@ -305,6 +306,7 @@ function CampaignItemRow({
   item,
   campaignId,
   canComplete,
+  canManage,
   isExpanded,
   onToggle,
   onUpdate,
@@ -313,6 +315,7 @@ function CampaignItemRow({
   item: CampaignItem;
   campaignId: string;
   canComplete: boolean;
+  canManage: boolean;
   isExpanded: boolean;
   onToggle: () => void;
   onUpdate: (data: { status?: string; notes?: string; skipReason?: string; photos?: string[] }) => void;
@@ -485,7 +488,7 @@ function CampaignItemRow({
                     </label>
                   </>
                 )}
-                {(item.status === "completed" || item.status === "skipped") && (
+                {canManage && (item.status === "completed" || item.status === "skipped") && (
                   <Button
                     size="sm"
                     variant="outline"
