@@ -8933,9 +8933,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.get("/api/visual-scope-sheets/:id/export/combined", (req, res) => handleVsExport(req, res, "combined"));
 
   // ─── Campaign System ───────────────────────────────────────────
+  const campaignAllowedRoles = ["admin", "office", "field_manager", "field"];
+
   app.get("/api/campaigns", async (req, res) => {
     if (!req.isAuthenticated()) return res.status(401).send("Not authenticated");
     const user = req.user as UserWithContext;
+    if (!campaignAllowedRoles.includes(user.activeRole)) {
+      return res.status(403).send("Insufficient permissions");
+    }
     let allCampaigns = await storage.getCampaigns(user.activeCompanyId);
     if (user.activeRole === "field" || user.activeRole === "field_manager") {
       allCampaigns = allCampaigns.filter(c => c.assignedToId === user.id);
@@ -8999,6 +9004,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.get("/api/campaigns/:id", async (req, res) => {
     if (!req.isAuthenticated()) return res.status(401).send("Not authenticated");
     const user = req.user as UserWithContext;
+    if (!campaignAllowedRoles.includes(user.activeRole)) {
+      return res.status(403).send("Insufficient permissions");
+    }
     const campaign = await storage.getCampaignById(req.params.id, user.activeCompanyId);
     if (!campaign) return res.status(404).json({ error: "Not found" });
     if ((user.activeRole === "field" || user.activeRole === "field_manager") && campaign.assignedToId !== user.id) {
@@ -9046,6 +9054,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
       windowStart?: string;
       windowEnd?: string;
     };
+    const validStatuses = ["active", "completed", "archived"];
+    if (status !== undefined && !validStatuses.includes(status)) {
+      return res.status(400).json({ error: "Invalid status value" });
+    }
     const updates: Partial<{ status: "active" | "completed" | "archived"; title: string; description: string | null; assignedToId: string | null; windowStart: string; windowEnd: string }> = {};
     if (status !== undefined) updates.status = status as "active" | "completed" | "archived";
     if (title !== undefined) updates.title = title;
