@@ -103,11 +103,12 @@ export default function CampaignItemDetail() {
     try {
       const res = await apiRequest("POST", "/api/campaigns/photo-upload-url");
       const { uploadURL, objectPath } = await res.json();
-      await fetch(uploadURL, {
+      const uploadRes = await fetch(uploadURL, {
         method: "PUT",
         headers: { "Content-Type": file.type },
         body: file,
       });
+      if (!uploadRes.ok) throw new Error("Upload failed");
       const newPhotos = [...photos, objectPath];
       setPhotos(newPhotos);
       updateItemMutation.mutate({ photos: newPhotos });
