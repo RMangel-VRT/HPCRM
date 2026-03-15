@@ -8960,36 +8960,39 @@ export async function registerRoutes(app: Express): Promise<Server> {
     if (!title || !windowStart || !windowEnd || !customerIds || !Array.isArray(customerIds) || customerIds.length === 0) {
       return res.status(400).json({ error: "Missing required fields" });
     }
-    const campaign = await storage.createCampaign({
-      companyId: user.activeCompanyId,
-      title,
-      description: description || null,
-      assignedToId: assignedToId || null,
-      windowStart,
-      windowEnd,
-      status: "active",
-      createdById: user.id,
-    });
     const allCustomers = await storage.getCustomers(user.activeCompanyId);
     const customerMap = new Map(allCustomers.map(c => [c.id, c]));
-    for (const custId of customerIds) {
-      const cust = customerMap.get(custId);
-      if (cust) {
-        await storage.createCampaignItem({
-          campaignId: campaign.id,
+    const itemsData = customerIds
+      .filter(custId => customerMap.has(custId))
+      .map(custId => {
+        const cust = customerMap.get(custId)!;
+        return {
+          campaignId: "",
           companyId: user.activeCompanyId,
           customerId: custId,
           customerName: cust.name,
           customerCity: cust.city || "",
-          status: "pending",
+          status: "pending" as const,
           notes: null,
           skipReason: null,
-          photos: [],
+          photos: [] as string[],
           completedById: null,
           completedAt: null,
-        });
-      }
-    }
+        };
+      });
+    const campaign = await storage.createCampaignWithItems(
+      {
+        companyId: user.activeCompanyId,
+        title,
+        description: description || null,
+        assignedToId: assignedToId || null,
+        windowStart,
+        windowEnd,
+        status: "active",
+        createdById: user.id,
+      },
+      itemsData
+    );
     res.json(campaign);
   });
 

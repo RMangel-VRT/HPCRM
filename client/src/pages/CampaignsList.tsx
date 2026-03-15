@@ -287,7 +287,7 @@ function CreateCampaignDialog({ open, onOpenChange }: { open: boolean; onOpenCha
     }));
 
   const createMutation = useMutation({
-    mutationFn: async (data: { title: string; description: string; assignedToId: string; windowStart: string; windowEnd: string; customerIds: string[] }) => {
+    mutationFn: async (data: { title: string; description: string | null; assignedToId: string | null; windowStart: string; windowEnd: string; customerIds: string[] }) => {
       const res = await apiRequest("POST", "/api/campaigns", data);
       return res.json();
     },

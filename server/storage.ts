@@ -329,6 +329,7 @@ export interface IStorage {
   getCampaignItems(campaignId: string, companyId: string): Promise<CampaignItem[]>;
   createCampaignItem(item: InsertCampaignItem): Promise<CampaignItem>;
   updateCampaignItem(id: string, companyId: string, updates: Partial<InsertCampaignItem & { updatedAt: Date }>): Promise<CampaignItem | undefined>;
+  createCampaignWithItems(campaign: InsertCampaign, items: InsertCampaignItem[]): Promise<Campaign>;
 
   sessionStore: session.Store;
 }
@@ -2691,13 +2692,23 @@ export class PgStorage implements IStorage {
   }
 
   async createCampaignItem(item: InsertCampaignItem): Promise<CampaignItem> {
-    const [row] = await db.insert(campaignItems).values(item).returning();
+    const [row] = await db.insert(campaignItems).values(item as typeof campaignItems.$inferInsert).returning();
     return row;
   }
 
   async updateCampaignItem(id: string, companyId: string, updates: Partial<InsertCampaignItem & { updatedAt: Date }>): Promise<CampaignItem | undefined> {
-    const [row] = await db.update(campaignItems).set(updates).where(and(eq(campaignItems.id, id), eq(campaignItems.companyId, companyId))).returning();
+    const [row] = await db.update(campaignItems).set(updates as Partial<typeof campaignItems.$inferInsert>).where(and(eq(campaignItems.id, id), eq(campaignItems.companyId, companyId))).returning();
     return row;
+  }
+
+  async createCampaignWithItems(campaignData: InsertCampaign, itemsData: InsertCampaignItem[]): Promise<Campaign> {
+    return db.transaction(async (tx) => {
+      const [campaign] = await tx.insert(campaigns).values(campaignData as typeof campaigns.$inferInsert).returning();
+      for (const item of itemsData) {
+        await tx.insert(campaignItems).values({ ...item, campaignId: campaign.id } as typeof campaignItems.$inferInsert);
+      }
+      return campaign;
+    });
   }
 }
 
