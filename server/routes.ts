@@ -9136,9 +9136,15 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
     }
     const customerContacts = await storage.getContactsByCustomerId(customerId, companyId);
-    const pmContact = customerContacts.find(c => c.propertyManagerId && c.emails && c.emails.length > 0);
-    if (pmContact?.emails?.[0]) {
-      return { email: pmContact.emails[0], contactName: pmContact.name };
+    const pmContacts = customerContacts.filter(c =>
+      (c.propertyManagerId || (c.role && c.role.toLowerCase().includes("property manager"))) &&
+      c.emails && c.emails.length > 0
+    );
+    if (pmContacts.length > 0) {
+      const allPmEmails = pmContacts.flatMap(c => c.emails || []).filter(Boolean);
+      if (allPmEmails.length > 0) {
+        return { email: allPmEmails[0], contactName: pmContacts[0].name };
+      }
     }
     const primaryContact = customerContacts.find(c => c.isPrimary === "true") || customerContacts[0];
     const recipientEmail = primaryContact?.emails?.[0] || customerContacts.find(c => c.emails && c.emails.length > 0)?.emails?.[0];
