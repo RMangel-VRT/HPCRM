@@ -9124,6 +9124,23 @@ export async function registerRoutes(app: Express): Promise<Server> {
     });
   });
 
+  async function resolveChemRecipientEmail(customerId: string, companyId: string): Promise<{ email: string | null; contactName: string | null }> {
+    const customer = await storage.getCustomerById(customerId, companyId);
+    if (customer?.propertyManagerId) {
+      const pm = await storage.getPropertyManagerWithContacts(customer.propertyManagerId, companyId);
+      if (pm) {
+        const primaryPmEmail = pm.emails?.find(e => e.isPrimary === "true")?.email || pm.emails?.[0]?.email || pm.email;
+        if (primaryPmEmail) {
+          return { email: primaryPmEmail, contactName: pm.name };
+        }
+      }
+    }
+    const customerContacts = await storage.getContactsByCustomerId(customerId, companyId);
+    const primaryContact = customerContacts.find(c => c.isPrimary === "true") || customerContacts[0];
+    const recipientEmail = primaryContact?.emails?.[0] || customerContacts.find(c => c.emails && c.emails.length > 0)?.emails?.[0];
+    return { email: recipientEmail || null, contactName: primaryContact?.name || null };
+  }
+
   app.get("/api/campaigns/:id/items/:itemId/email-preview", async (req, res) => {
     if (!req.isAuthenticated()) return res.status(401).send("Not authenticated");
     const user = req.user as UserWithContext;
@@ -9140,9 +9157,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         .find((i: { id: string }) => i.id === req.params.itemId);
       if (!targetItem) return res.status(404).json({ error: "Item not found" });
       const company = await storage.getCompanyById(user.activeCompanyId);
-      const customerContacts = await storage.getContactsByCustomerId(targetItem.customerId, user.activeCompanyId);
-      const primaryContact = customerContacts.find(c => c.isPrimary === "true") || customerContacts[0];
-      const recipientEmail = primaryContact?.emails?.[0] || customerContacts.find(c => c.emails && c.emails.length > 0)?.emails?.[0];
+      const { email: recipientEmail, contactName } = await resolveChemRecipientEmail(targetItem.customerId, user.activeCompanyId);
       const rules = await storage.getEmailRulesByEvent(eventKey, user.activeCompanyId);
       let subject = "";
       let htmlBody = "";
@@ -9169,7 +9184,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
           }
         }
       }
-      res.json({ recipientEmail: recipientEmail || null, subject, htmlBody, templateName, contactName: primaryContact?.name || null });
+      res.json({ recipientEmail: recipientEmail || null, subject, htmlBody, templateName, contactName: contactName || null });
     } catch (error) {
       console.error("Error fetching email preview:", error);
       res.status(500).json({ error: "Internal server error" });
@@ -9272,11 +9287,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
           return res.status(400).json({ error: "Item is not in pre-communication step" });
         }
         const company = await storage.getCompanyById(user.activeCompanyId);
-        const customerContacts = await storage.getContactsByCustomerId(targetItem.customerId, user.activeCompanyId);
-        const primaryContact = customerContacts.find(c => c.isPrimary === "true") || customerContacts[0];
-        const recipientEmail = primaryContact?.emails?.[0] || customerContacts.find(c => c.emails && c.emails.length > 0)?.emails?.[0];
+        const { email: resolvedEmail } = await resolveChemRecipientEmail(targetItem.customerId, user.activeCompanyId);
+        const recipientEmail = resolvedEmail;
         if (!recipientEmail) {
-          return res.status(400).json({ error: "No contact email found for this customer. Add a contact with an email address first." });
+          return res.status(400).json({ error: "No recipient email available. Add a contact or property manager with an email address." });
         }
         try {
           const emailResults = await processEmailEvent('campaign.chemical_pre_notice', user.activeCompanyId, {
@@ -9321,11 +9335,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
           return res.status(400).json({ error: "Item is not in work-completed step" });
         }
         const company = await storage.getCompanyById(user.activeCompanyId);
-        const customerContacts = await storage.getContactsByCustomerId(targetItem.customerId, user.activeCompanyId);
-        const primaryContact = customerContacts.find(c => c.isPrimary === "true") || customerContacts[0];
-        const recipientEmail = primaryContact?.emails?.[0] || customerContacts.find(c => c.emails && c.emails.length > 0)?.emails?.[0];
+        const { email: resolvedEmail } = await resolveChemRecipientEmail(targetItem.customerId, user.activeCompanyId);
+        const recipientEmail = resolvedEmail;
         if (!recipientEmail) {
-          return res.status(400).json({ error: "No contact email found for this customer. Add a contact with an email address first." });
+          return res.status(400).json({ error: "No recipient email available. Add a contact or property manager with an email address." });
         }
         try {
           const emailResults = await processEmailEvent('campaign.chemical_post_notice', user.activeCompanyId, {
@@ -9398,6 +9411,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
     if (status === "pending" && user.activeRole !== "admin" && user.activeRole !== "office") {
       return res.status(403).send("Only admin/office can reset items to pending");
     }
+    if (status === "skipped" && user.activeRole !== "admin") {
+      return res.status(403).send("Only admin can skip campaign items");
+    }
     if (status === "skipped" && (!skipReason || !skipReason.trim())) {
       return res.status(400).json({ error: "Skip reason is required" });
     }
@@ -9447,14 +9463,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
       if (targetItem.workflowStep !== "pre_communication") {
         return res.status(400).json({ error: "Item is not in pre-communication step" });
       }
-      const { notes } = req.body || {};
+      const { notes, overrideEmail } = req.body || {};
       const chemUpdates: Partial<CampaignItem> = { updatedAt: new Date() };
       const company = await storage.getCompanyById(user.activeCompanyId);
-      const customerContacts = await storage.getContactsByCustomerId(targetItem.customerId, user.activeCompanyId);
-      const primaryContact = customerContacts.find(c => c.isPrimary === "true") || customerContacts[0];
-      const recipientEmail = primaryContact?.emails?.[0] || customerContacts.find(c => c.emails && c.emails.length > 0)?.emails?.[0];
+      const { email: resolvedEmail } = await resolveChemRecipientEmail(targetItem.customerId, user.activeCompanyId);
+      const recipientEmail = overrideEmail?.trim() || resolvedEmail;
       if (!recipientEmail) {
-        return res.status(400).json({ error: "No contact email found for this customer. Add a contact with an email address first." });
+        return res.status(400).json({ error: "No recipient email available. Provide an email address or add a contact/property manager." });
       }
       try {
         const emailResults = await processEmailEvent('campaign.chemical_pre_notice', user.activeCompanyId, {
@@ -9544,14 +9559,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
       if (targetItem.workflowStep !== "work_completed") {
         return res.status(400).json({ error: "Item is not in work-completed step" });
       }
-      const { notes } = req.body || {};
+      const { notes, overrideEmail } = req.body || {};
       const chemUpdates: Partial<CampaignItem> = { updatedAt: new Date() };
       const company = await storage.getCompanyById(user.activeCompanyId);
-      const customerContacts = await storage.getContactsByCustomerId(targetItem.customerId, user.activeCompanyId);
-      const primaryContact = customerContacts.find(c => c.isPrimary === "true") || customerContacts[0];
-      const recipientEmail = primaryContact?.emails?.[0] || customerContacts.find(c => c.emails && c.emails.length > 0)?.emails?.[0];
+      const { email: resolvedEmail } = await resolveChemRecipientEmail(targetItem.customerId, user.activeCompanyId);
+      const recipientEmail = overrideEmail?.trim() || resolvedEmail;
       if (!recipientEmail) {
-        return res.status(400).json({ error: "No contact email found for this customer. Add a contact with an email address first." });
+        return res.status(400).json({ error: "No recipient email available. Provide an email address or add a contact/property manager." });
       }
       try {
         const emailResults = await processEmailEvent('campaign.chemical_post_notice', user.activeCompanyId, {

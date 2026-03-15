@@ -334,9 +334,14 @@ export default function CampaignDetail() {
                     </div>
                     {isChemicalCampaign && item.workflowStep && (
                       <div className="flex items-center gap-1.5 mt-1" data-testid={`chem-step-indicator-${item.id}`}>
-                        {getChemStepIcon(item.workflowStep, item.status)}
-                        <span className={`text-xs font-medium ${item.status === "completed" ? "text-green-600" : "text-primary"}`}>
-                          {getChemStepLabel(item.workflowStep, item.status)}
+                        {item.status === "skipped"
+                          ? <SkipForward className="w-3 h-3 text-amber-500" />
+                          : getChemStepIcon(item.workflowStep, item.status)}
+                        <span className={`text-xs font-medium ${
+                          item.status === "skipped" ? "text-amber-500" :
+                          item.status === "completed" ? "text-green-600" : "text-primary"
+                        }`}>
+                          {item.status === "skipped" ? t("campaigns.skippedLabel") : getChemStepLabel(item.workflowStep, item.status)}
                         </span>
                       </div>
                     )}

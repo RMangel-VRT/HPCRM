@@ -85,6 +85,7 @@ export default function CampaignItemDetail() {
   const [showEmailConfirm, setShowEmailConfirm] = useState<"pre" | "post" | null>(null);
   const [emailPreview, setEmailPreview] = useState<{ recipientEmail: string | null; subject: string; htmlBody: string; templateName: string; contactName: string | null } | null>(null);
   const [loadingPreview, setLoadingPreview] = useState(false);
+  const [manualEmail, setManualEmail] = useState("");
 
   const { data: campaign, isLoading } = useQuery<CampaignDetailData>({
     queryKey: ["/api/campaigns", campaignId],
@@ -122,7 +123,7 @@ export default function CampaignItemDetail() {
   }, [item?.id, item?.notes, item?.skipReason, item?.photos]);
 
   const updateItemMutation = useMutation({
-    mutationFn: async (data: { status?: string; notes?: string; skipReason?: string; photos?: string[]; chemAction?: string }) => {
+    mutationFn: async (data: { status?: string; notes?: string; skipReason?: string; photos?: string[]; chemAction?: string; overrideEmail?: string }) => {
       if (data.chemAction && data.chemAction !== "reset") {
         const routeMap: Record<string, string> = {
           send_pre_communication: "send-pre-comm",
@@ -131,7 +132,9 @@ export default function CampaignItemDetail() {
         };
         const route = routeMap[data.chemAction];
         if (route) {
-          const res = await apiRequest("POST", `/api/campaigns/${campaignId}/items/${itemId}/${route}`, { notes: data.notes });
+          const body: Record<string, string | undefined> = { notes: data.notes };
+          if (data.overrideEmail) body.overrideEmail = data.overrideEmail;
+          const res = await apiRequest("POST", `/api/campaigns/${campaignId}/items/${itemId}/${route}`, body);
           return res.json();
         }
       }
@@ -438,34 +441,41 @@ export default function CampaignItemDetail() {
             </CardTitle>
           </CardHeader>
           <CardContent className="pt-0 space-y-4">
-            <div className="flex items-center gap-1">
-              {["pre_communication", "work_in_progress", "work_completed", "post_communication", "complete"].map((step, idx) => {
-                const stepLabels = [
-                  t("campaigns.chemStepPre"),
-                  t("campaigns.chemStepInProgress"),
-                  t("campaigns.chemStepWorkDone"),
-                  t("campaigns.chemStepPost"),
-                  t("campaigns.chemStepComplete"),
-                ];
-                const steps = ["pre_communication", "work_in_progress", "work_completed", "post_communication"];
-                const currentIdx = item.status === "completed" ? 4 : steps.indexOf(item.workflowStep || "pre_communication");
-                const isComplete = idx < currentIdx;
-                const isCurrent = idx === currentIdx;
-                return (
-                  <div key={step} className="flex items-center gap-1 flex-1">
-                    <div className={`flex items-center gap-1.5 px-2 py-1.5 rounded-md text-xs font-medium flex-1 text-center justify-center ${
-                      isComplete ? "bg-green-600/10 text-green-700 dark:text-green-400" :
-                      isCurrent ? "bg-primary/10 text-primary border border-primary/30" :
-                      "bg-muted text-muted-foreground"
-                    }`} data-testid={`chem-step-${step}`}>
-                      {isComplete ? <CheckCircle2 className="w-3 h-3 shrink-0" /> : isCurrent ? <Clock className="w-3 h-3 shrink-0" /> : null}
-                      <span className="truncate">{stepLabels[idx]}</span>
+            {item.status === "skipped" ? (
+              <div className="flex items-center gap-2 p-3 rounded-md bg-amber-500/10 text-amber-700 dark:text-amber-400" data-testid="chem-skipped-banner">
+                <SkipForward className="w-4 h-4 shrink-0" />
+                <span className="text-sm font-medium">{t("campaigns.chemSkippedState")}</span>
+              </div>
+            ) : (
+              <div className="flex items-center gap-1">
+                {["pre_communication", "work_in_progress", "work_completed", "post_communication", "complete"].map((step, idx) => {
+                  const stepLabels = [
+                    t("campaigns.chemStepPre"),
+                    t("campaigns.chemStepInProgress"),
+                    t("campaigns.chemStepWorkDone"),
+                    t("campaigns.chemStepPost"),
+                    t("campaigns.chemStepComplete"),
+                  ];
+                  const steps = ["pre_communication", "work_in_progress", "work_completed", "post_communication"];
+                  const currentIdx = item.status === "completed" ? 4 : steps.indexOf(item.workflowStep || "pre_communication");
+                  const isComplete = idx < currentIdx;
+                  const isCurrent = idx === currentIdx;
+                  return (
+                    <div key={step} className="flex items-center gap-1 flex-1">
+                      <div className={`flex items-center gap-1.5 px-2 py-1.5 rounded-md text-xs font-medium flex-1 text-center justify-center ${
+                        isComplete ? "bg-green-600/10 text-green-700 dark:text-green-400" :
+                        isCurrent ? "bg-primary/10 text-primary border border-primary/30" :
+                        "bg-muted text-muted-foreground"
+                      }`} data-testid={`chem-step-${step}`}>
+                        {isComplete ? <CheckCircle2 className="w-3 h-3 shrink-0" /> : isCurrent ? <Clock className="w-3 h-3 shrink-0" /> : null}
+                        <span className="truncate">{stepLabels[idx]}</span>
+                      </div>
+                      {idx < 4 && <div className="w-2 h-px bg-muted-foreground/30 shrink-0" />}
                     </div>
-                    {idx < 4 && <div className="w-2 h-px bg-muted-foreground/30 shrink-0" />}
-                  </div>
-                );
-              })}
-            </div>
+                  );
+                })}
+              </div>
+            )}
 
             <Separator />
 
@@ -493,76 +503,80 @@ export default function CampaignItemDetail() {
               )}
             </div>
 
-            <div className="flex items-center gap-2 flex-wrap">
-              {item.workflowStep === "pre_communication" && canSendChemEmails && (
-                <Button
-                  onClick={async () => {
-                    setLoadingPreview(true);
-                    try {
-                      const res = await fetch(`/api/campaigns/${campaignId}/items/${itemId}/email-preview?type=pre`, { credentials: "include" });
-                      if (res.ok) setEmailPreview(await res.json());
-                    } catch {}
-                    setLoadingPreview(false);
-                    setShowEmailConfirm("pre");
-                  }}
-                  disabled={updateItemMutation.isPending || loadingPreview}
-                  data-testid="button-chem-send-pre"
-                >
-                  {loadingPreview && <Loader2 className="w-4 h-4 mr-1 animate-spin" />}
-                  <Mail className="w-4 h-4 mr-1" />
-                  {t("campaigns.chemSendPreNotice")}
-                </Button>
-              )}
-              {item.workflowStep === "work_in_progress" && canComplete && (
-                <Button
-                  onClick={() => updateItemMutation.mutate({ chemAction: "complete_work", notes })}
-                  disabled={updateItemMutation.isPending}
-                  data-testid="button-chem-complete-work"
-                >
-                  {updateItemMutation.isPending && <Loader2 className="w-4 h-4 mr-1 animate-spin" />}
-                  <Wrench className="w-4 h-4 mr-1" />
-                  {t("campaigns.chemMarkWorkDone")}
-                </Button>
-              )}
-              {item.workflowStep === "work_completed" && canSendChemEmails && (
-                <Button
-                  onClick={async () => {
-                    setLoadingPreview(true);
-                    try {
-                      const res = await fetch(`/api/campaigns/${campaignId}/items/${itemId}/email-preview?type=post`, { credentials: "include" });
-                      if (res.ok) setEmailPreview(await res.json());
-                    } catch {}
-                    setLoadingPreview(false);
-                    setShowEmailConfirm("post");
-                  }}
-                  disabled={updateItemMutation.isPending || loadingPreview}
-                  data-testid="button-chem-send-post"
-                >
-                  {loadingPreview && <Loader2 className="w-4 h-4 mr-1 animate-spin" />}
-                  <Send className="w-4 h-4 mr-1" />
-                  {t("campaigns.chemSendPostNotice")}
-                </Button>
-              )}
-              {item.status === "completed" && isChemicalCampaign && (
-                <Badge variant="default" className="bg-green-600" data-testid="badge-chem-done">
-                  <CheckCircle2 className="w-3 h-3 mr-1" />
-                  {t("campaigns.chemStepComplete")}
-                </Badge>
-              )}
-              {canManage && item.workflowStep !== "pre_communication" && (
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={() => setShowChemReset(true)}
-                  data-testid="button-chem-reset"
-                >
-                  <RotateCcw className="w-3 h-3 mr-1" />
-                  {t("campaigns.chemResetWorkflow")}
-                </Button>
-              )}
-            </div>
+            {item.status !== "skipped" && (
+              <div className="flex items-center gap-2 flex-wrap">
+                {item.workflowStep === "pre_communication" && canSendChemEmails && (
+                  <Button
+                    onClick={async () => {
+                      setLoadingPreview(true);
+                      setManualEmail("");
+                      try {
+                        const res = await fetch(`/api/campaigns/${campaignId}/items/${itemId}/email-preview?type=pre`, { credentials: "include" });
+                        if (res.ok) setEmailPreview(await res.json());
+                      } catch {}
+                      setLoadingPreview(false);
+                      setShowEmailConfirm("pre");
+                    }}
+                    disabled={updateItemMutation.isPending || loadingPreview}
+                    data-testid="button-chem-send-pre"
+                  >
+                    {loadingPreview && <Loader2 className="w-4 h-4 mr-1 animate-spin" />}
+                    <Mail className="w-4 h-4 mr-1" />
+                    {t("campaigns.chemSendPreNotice")}
+                  </Button>
+                )}
+                {item.workflowStep === "work_in_progress" && canComplete && (
+                  <Button
+                    onClick={() => updateItemMutation.mutate({ chemAction: "complete_work", notes })}
+                    disabled={updateItemMutation.isPending}
+                    data-testid="button-chem-complete-work"
+                  >
+                    {updateItemMutation.isPending && <Loader2 className="w-4 h-4 mr-1 animate-spin" />}
+                    <Wrench className="w-4 h-4 mr-1" />
+                    {t("campaigns.chemMarkWorkDone")}
+                  </Button>
+                )}
+                {item.workflowStep === "work_completed" && canSendChemEmails && (
+                  <Button
+                    onClick={async () => {
+                      setLoadingPreview(true);
+                      setManualEmail("");
+                      try {
+                        const res = await fetch(`/api/campaigns/${campaignId}/items/${itemId}/email-preview?type=post`, { credentials: "include" });
+                        if (res.ok) setEmailPreview(await res.json());
+                      } catch {}
+                      setLoadingPreview(false);
+                      setShowEmailConfirm("post");
+                    }}
+                    disabled={updateItemMutation.isPending || loadingPreview}
+                    data-testid="button-chem-send-post"
+                  >
+                    {loadingPreview && <Loader2 className="w-4 h-4 mr-1 animate-spin" />}
+                    <Send className="w-4 h-4 mr-1" />
+                    {t("campaigns.chemSendPostNotice")}
+                  </Button>
+                )}
+                {item.status === "completed" && isChemicalCampaign && (
+                  <Badge variant="default" className="bg-green-600" data-testid="badge-chem-done">
+                    <CheckCircle2 className="w-3 h-3 mr-1" />
+                    {t("campaigns.chemStepComplete")}
+                  </Badge>
+                )}
+                {canManage && item.workflowStep !== "pre_communication" && item.status !== "completed" && (
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => setShowChemReset(true)}
+                    data-testid="button-chem-reset"
+                  >
+                    <RotateCcw className="w-3 h-3 mr-1" />
+                    {t("campaigns.chemResetWorkflow")}
+                  </Button>
+                )}
+              </div>
+            )}
 
-            {item.status !== "completed" && (
+            {item.status !== "completed" && item.status !== "skipped" && user?.activeRole === "admin" && (
               <div className="flex items-center gap-2 flex-wrap">
                 {!showSkip ? (
                   <Button
@@ -597,6 +611,18 @@ export default function CampaignItemDetail() {
                 )}
               </div>
             )}
+
+            {item.status === "skipped" && canManage && (
+              <Button
+                variant="outline"
+                onClick={() => updateItemMutation.mutate({ chemAction: "reset" })}
+                disabled={updateItemMutation.isPending}
+                data-testid="button-reopen-chem-item"
+              >
+                <RotateCcw className="w-4 h-4 mr-1" />
+                {t("campaigns.reopen")}
+              </Button>
+            )}
           </CardContent>
         </Card>
       )}
@@ -616,34 +642,38 @@ export default function CampaignItemDetail() {
                     <CheckCircle2 className="w-4 h-4 mr-1" />
                     {t("campaigns.markComplete")}
                   </Button>
-                  {!showSkip ? (
-                    <Button
-                      variant="outline"
-                      onClick={() => setShowSkip(true)}
-                      data-testid="button-show-skip"
-                    >
-                      <SkipForward className="w-4 h-4 mr-1" />
-                      {t("campaigns.skip")}
-                    </Button>
-                  ) : (
-                    <div className="flex items-center gap-2 flex-wrap flex-1 min-w-[200px]">
-                      <Input
-                        value={skipReason}
-                        onChange={(e) => setSkipReason(e.target.value)}
-                        placeholder={t("campaigns.skipReasonPlaceholder")}
-                        className="flex-1 min-w-[150px]"
-                        data-testid="input-skip-reason"
-                      />
-                      <Button
-                        variant="outline"
-                        onClick={() => updateItemMutation.mutate({ status: "skipped", notes, skipReason })}
-                        disabled={updateItemMutation.isPending || !skipReason.trim()}
-                        data-testid="button-confirm-skip"
-                      >
-                        <SkipForward className="w-4 h-4 mr-1" />
-                        {t("campaigns.confirmSkip")}
-                      </Button>
-                    </div>
+                  {user?.activeRole === "admin" && (
+                    <>
+                      {!showSkip ? (
+                        <Button
+                          variant="outline"
+                          onClick={() => setShowSkip(true)}
+                          data-testid="button-show-skip"
+                        >
+                          <SkipForward className="w-4 h-4 mr-1" />
+                          {t("campaigns.skip")}
+                        </Button>
+                      ) : (
+                        <div className="flex items-center gap-2 flex-wrap flex-1 min-w-[200px]">
+                          <Input
+                            value={skipReason}
+                            onChange={(e) => setSkipReason(e.target.value)}
+                            placeholder={t("campaigns.skipReasonPlaceholder")}
+                            className="flex-1 min-w-[150px]"
+                            data-testid="input-skip-reason"
+                          />
+                          <Button
+                            variant="outline"
+                            onClick={() => updateItemMutation.mutate({ status: "skipped", notes, skipReason })}
+                            disabled={updateItemMutation.isPending || !skipReason.trim()}
+                            data-testid="button-confirm-skip"
+                          >
+                            <SkipForward className="w-4 h-4 mr-1" />
+                            {t("campaigns.confirmSkip")}
+                          </Button>
+                        </div>
+                      )}
+                    </>
                   )}
                 </>
               )}
@@ -684,7 +714,7 @@ export default function CampaignItemDetail() {
         </AlertDialogContent>
       </AlertDialog>
 
-      <Dialog open={!!showEmailConfirm} onOpenChange={() => { setShowEmailConfirm(null); setEmailPreview(null); }}>
+      <Dialog open={!!showEmailConfirm} onOpenChange={() => { setShowEmailConfirm(null); setEmailPreview(null); setManualEmail(""); }}>
         <DialogContent className="max-w-lg" data-testid="dialog-chem-email-compose">
           <div className="space-y-4">
             <div className="flex items-center gap-2">
@@ -697,13 +727,25 @@ export default function CampaignItemDetail() {
             <div className="space-y-3">
               <div>
                 <Label className="text-xs text-muted-foreground">{t("campaigns.chemEmailRecipient")}</Label>
-                <div className="text-sm font-medium mt-0.5" data-testid="text-email-recipient">
-                  {emailPreview?.recipientEmail ? (
+                {emailPreview?.recipientEmail ? (
+                  <div className="text-sm font-medium mt-0.5" data-testid="text-email-recipient">
                     <span>{emailPreview.contactName ? `${emailPreview.contactName} <${emailPreview.recipientEmail}>` : emailPreview.recipientEmail}</span>
-                  ) : (
-                    <span className="text-muted-foreground">{t("campaigns.chemNoRecipient")}</span>
-                  )}
-                </div>
+                  </div>
+                ) : (
+                  <div className="mt-1 space-y-2">
+                    <div className="flex items-center gap-2 p-2 rounded-md bg-amber-500/10 text-amber-700 dark:text-amber-400 text-xs">
+                      <AlertCircle className="w-3.5 h-3.5 shrink-0" />
+                      <span>{t("campaigns.chemNoRecipientManual")}</span>
+                    </div>
+                    <Input
+                      type="email"
+                      value={manualEmail}
+                      onChange={(e) => setManualEmail(e.target.value)}
+                      placeholder={t("campaigns.chemManualEmailPlaceholder")}
+                      data-testid="input-manual-email"
+                    />
+                  </div>
+                )}
               </div>
               <div>
                 <Label className="text-xs text-muted-foreground">{t("campaigns.chemEmailTemplate")}</Label>
@@ -723,26 +765,22 @@ export default function CampaignItemDetail() {
                   dangerouslySetInnerHTML={{ __html: emailPreview?.htmlBody || "—" }}
                 />
               </div>
-              {!emailPreview?.recipientEmail && (
-                <div className="flex items-center gap-2 p-3 rounded-md bg-destructive/10 text-destructive text-sm">
-                  <AlertCircle className="w-4 h-4 shrink-0" />
-                  <span>{t("campaigns.chemNoRecipientWarning")}</span>
-                </div>
-              )}
             </div>
             <Separator />
             <div className="flex justify-end gap-2">
-              <Button variant="outline" onClick={() => { setShowEmailConfirm(null); setEmailPreview(null); }} data-testid="button-cancel-email">
+              <Button variant="outline" onClick={() => { setShowEmailConfirm(null); setEmailPreview(null); setManualEmail(""); }} data-testid="button-cancel-email">
                 {t("common.cancel")}
               </Button>
               <Button
                 onClick={() => {
                   const action = showEmailConfirm === "pre" ? "send_pre_communication" : "send_post_communication";
+                  const effectiveEmail = emailPreview?.recipientEmail || manualEmail.trim();
                   setShowEmailConfirm(null);
                   setEmailPreview(null);
-                  updateItemMutation.mutate({ chemAction: action, notes });
+                  updateItemMutation.mutate({ chemAction: action, notes, overrideEmail: !emailPreview?.recipientEmail ? effectiveEmail : undefined });
+                  setManualEmail("");
                 }}
-                disabled={updateItemMutation.isPending || !emailPreview?.recipientEmail}
+                disabled={updateItemMutation.isPending || (!emailPreview?.recipientEmail && !manualEmail.trim())}
                 data-testid="button-confirm-send-email"
               >
                 {updateItemMutation.isPending && <Loader2 className="w-4 h-4 mr-1 animate-spin" />}
