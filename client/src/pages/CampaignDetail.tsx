@@ -144,22 +144,24 @@ export default function CampaignDetail() {
 
   const isChemicalCampaign = campaign?.category === "chemical";
 
-  const getChemStepLabel = (step: string | null) => {
+  const getChemStepLabel = (step: string | null, itemStatus?: string) => {
+    if (itemStatus === "completed") return t("campaigns.chemStepComplete");
     switch (step) {
       case "pre_communication": return t("campaigns.chemStepPre");
-      case "work_completion": return t("campaigns.chemStepWork");
+      case "work_in_progress": return t("campaigns.chemStepInProgress");
+      case "work_completed": return t("campaigns.chemStepWorkDone");
       case "post_communication": return t("campaigns.chemStepPost");
-      case "done": return t("campaigns.chemStepDone");
       default: return "";
     }
   };
 
-  const getChemStepIcon = (step: string | null) => {
+  const getChemStepIcon = (step: string | null, itemStatus?: string) => {
+    if (itemStatus === "completed") return <CheckCircle2 className="w-3 h-3 text-green-600" />;
     switch (step) {
       case "pre_communication": return <Mail className="w-3 h-3" />;
-      case "work_completion": return <Wrench className="w-3 h-3" />;
+      case "work_in_progress": return <Wrench className="w-3 h-3" />;
+      case "work_completed": return <CheckCircle2 className="w-3 h-3" />;
       case "post_communication": return <Send className="w-3 h-3" />;
-      case "done": return <CheckCircle2 className="w-3 h-3 text-green-600" />;
       default: return null;
     }
   };
@@ -182,12 +184,10 @@ export default function CampaignDetail() {
             {campaign.status === "completed" && <Badge className="bg-green-600">{t("campaigns.completed")}</Badge>}
             {campaign.status === "archived" && <Badge variant="secondary">{t("campaigns.archived")}</Badge>}
             {campaign.status === "active" && <Badge>{t("campaigns.active")}</Badge>}
-            {campaign.category === "chemical" && (
-              <Badge variant="outline" data-testid="badge-campaign-category">
-                <FlaskConical className="w-3 h-3 mr-1" />
-                {t("campaigns.categoryChemical")}
-              </Badge>
-            )}
+            <Badge variant="outline" data-testid="badge-campaign-category">
+              {campaign.category === "chemical" && <FlaskConical className="w-3 h-3 mr-1" />}
+              {campaign.category === "chemical" ? t("campaigns.categoryChemical") : t("campaigns.categoryGeneral")}
+            </Badge>
             {isOverdue && (
               <Badge variant="destructive">
                 <AlertTriangle className="w-3 h-3 mr-1" />
@@ -334,9 +334,9 @@ export default function CampaignDetail() {
                     </div>
                     {isChemicalCampaign && item.chemWorkflowStep && (
                       <div className="flex items-center gap-1.5 mt-1" data-testid={`chem-step-indicator-${item.id}`}>
-                        {getChemStepIcon(item.chemWorkflowStep)}
-                        <span className={`text-xs font-medium ${item.chemWorkflowStep === "done" ? "text-green-600" : "text-primary"}`}>
-                          {getChemStepLabel(item.chemWorkflowStep)}
+                        {getChemStepIcon(item.chemWorkflowStep, item.status)}
+                        <span className={`text-xs font-medium ${item.status === "completed" ? "text-green-600" : "text-primary"}`}>
+                          {getChemStepLabel(item.chemWorkflowStep, item.status)}
                         </span>
                       </div>
                     )}

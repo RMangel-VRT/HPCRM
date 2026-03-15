@@ -1617,7 +1617,7 @@ export const campaignItems = pgTable("campaign_items", {
   photos: text("photos").array().default(sql`'{}'::text[]`),
   completedById: varchar("completed_by_id").references(() => users.id, { onDelete: "set null" }),
   completedAt: timestamp("completed_at"),
-  chemWorkflowStep: text("chem_workflow_step").$type<"pre_communication" | "work_completion" | "post_communication" | "done">(),
+  chemWorkflowStep: text("chem_workflow_step").$type<"pre_communication" | "work_in_progress" | "work_completed" | "post_communication">(),
   chemPreSentAt: timestamp("chem_pre_sent_at"),
   chemPreSentById: varchar("chem_pre_sent_by_id").references(() => users.id, { onDelete: "set null" }),
   chemWorkCompletedAt: timestamp("chem_work_completed_at"),

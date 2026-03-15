@@ -197,11 +197,9 @@ export default function CampaignsList() {
                           {campaign.title}
                         </h3>
                         {statusBadge(campaign.status)}
-                        {campaign.category === "chemical" && (
-                          <Badge variant="outline" className="text-xs" data-testid={`badge-campaign-chemical-${campaign.id}`}>
-                            {t("campaigns.categoryChemical")}
-                          </Badge>
-                        )}
+                        <Badge variant="outline" className="text-xs" data-testid={`badge-campaign-category-${campaign.id}`}>
+                          {campaign.category === "chemical" ? t("campaigns.categoryChemical") : t("campaigns.categoryGeneral")}
+                        </Badge>
                       </div>
                       {campaign.description && (
                         <p className="text-sm text-muted-foreground line-clamp-2">{campaign.description}</p>

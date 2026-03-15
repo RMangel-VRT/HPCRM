@@ -56,6 +56,7 @@ interface CampaignItemWithUser extends CampaignItem {
   chemPreSentByName?: string | null;
   chemWorkCompletedByName?: string | null;
   chemPostSentByName?: string | null;
+  customerType?: string;
 }
 
 interface CampaignDetailData extends Campaign {
@@ -120,6 +121,18 @@ export default function CampaignItemDetail() {
 
   const updateItemMutation = useMutation({
     mutationFn: async (data: { status?: string; notes?: string; skipReason?: string; photos?: string[]; chemAction?: string }) => {
+      if (data.chemAction && data.chemAction !== "reset") {
+        const routeMap: Record<string, string> = {
+          send_pre_communication: "send-pre-comm",
+          complete_work: "complete-work",
+          send_post_communication: "send-post-comm",
+        };
+        const route = routeMap[data.chemAction];
+        if (route) {
+          const res = await apiRequest("POST", `/api/campaigns/${campaignId}/items/${itemId}/${route}`, { notes: data.notes });
+          return res.json();
+        }
+      }
       const res = await apiRequest("PATCH", `/api/campaigns/${campaignId}/items/${itemId}`, data);
       return res.json();
     },
@@ -235,6 +248,11 @@ export default function CampaignItemDetail() {
               {item.customerName}
             </h1>
             {statusBadge}
+            {item.customerType === "hoa" && (
+              <Badge variant="outline" data-testid="badge-customer-type-hoa">
+                {t("campaigns.customerTypeHoa")}
+              </Badge>
+            )}
           </div>
           <p className="text-sm text-muted-foreground mt-1">
             {campaign.title}
@@ -419,15 +437,16 @@ export default function CampaignItemDetail() {
           </CardHeader>
           <CardContent className="pt-0 space-y-4">
             <div className="flex items-center gap-1">
-              {["pre_communication", "work_completion", "post_communication", "done"].map((step, idx) => {
+              {["pre_communication", "work_in_progress", "work_completed", "post_communication", "complete"].map((step, idx) => {
                 const stepLabels = [
                   t("campaigns.chemStepPre"),
-                  t("campaigns.chemStepWork"),
+                  t("campaigns.chemStepInProgress"),
+                  t("campaigns.chemStepWorkDone"),
                   t("campaigns.chemStepPost"),
-                  t("campaigns.chemStepDone"),
+                  t("campaigns.chemStepComplete"),
                 ];
-                const steps = ["pre_communication", "work_completion", "post_communication", "done"];
-                const currentIdx = steps.indexOf(item.chemWorkflowStep || "pre_communication");
+                const steps = ["pre_communication", "work_in_progress", "work_completed", "post_communication"];
+                const currentIdx = item.status === "completed" ? 4 : steps.indexOf(item.chemWorkflowStep || "pre_communication");
                 const isComplete = idx < currentIdx;
                 const isCurrent = idx === currentIdx;
                 return (
@@ -440,7 +459,7 @@ export default function CampaignItemDetail() {
                       {isComplete ? <CheckCircle2 className="w-3 h-3 shrink-0" /> : isCurrent ? <Clock className="w-3 h-3 shrink-0" /> : null}
                       <span className="truncate">{stepLabels[idx]}</span>
                     </div>
-                    {idx < 3 && <div className="w-2 h-px bg-muted-foreground/30 shrink-0" />}
+                    {idx < 4 && <div className="w-2 h-px bg-muted-foreground/30 shrink-0" />}
                   </div>
                 );
               })}
@@ -483,7 +502,7 @@ export default function CampaignItemDetail() {
                   {t("campaigns.chemSendPreNotice")}
                 </Button>
               )}
-              {item.chemWorkflowStep === "work_completion" && canComplete && (
+              {item.chemWorkflowStep === "work_in_progress" && canComplete && (
                 <Button
                   onClick={() => updateItemMutation.mutate({ chemAction: "complete_work", notes })}
                   disabled={updateItemMutation.isPending}
@@ -494,7 +513,7 @@ export default function CampaignItemDetail() {
                   {t("campaigns.chemMarkWorkDone")}
                 </Button>
               )}
-              {item.chemWorkflowStep === "post_communication" && canSendChemEmails && (
+              {item.chemWorkflowStep === "work_completed" && canSendChemEmails && (
                 <Button
                   onClick={() => setShowEmailConfirm("post")}
                   disabled={updateItemMutation.isPending}
@@ -504,10 +523,10 @@ export default function CampaignItemDetail() {
                   {t("campaigns.chemSendPostNotice")}
                 </Button>
               )}
-              {item.chemWorkflowStep === "done" && (
+              {item.status === "completed" && isChemicalCampaign && (
                 <Badge variant="default" className="bg-green-600" data-testid="badge-chem-done">
                   <CheckCircle2 className="w-3 h-3 mr-1" />
-                  {t("campaigns.chemStepDone")}
+                  {t("campaigns.chemStepComplete")}
                 </Badge>
               )}
               {canManage && item.chemWorkflowStep !== "pre_communication" && (
