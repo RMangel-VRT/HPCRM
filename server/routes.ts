@@ -8942,7 +8942,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       return res.status(403).send("Insufficient permissions");
     }
     let allCampaigns = await storage.getCampaigns(user.activeCompanyId);
-    if (user.activeRole === "field" || user.activeRole === "field_manager") {
+    if (user.activeRole === "field") {
       allCampaigns = allCampaigns.filter(c => c.assignedToId === user.id);
     }
     res.json(allCampaigns);
@@ -9022,7 +9022,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
     const campaign = await storage.getCampaignById(req.params.id, user.activeCompanyId);
     if (!campaign) return res.status(404).json({ error: "Not found" });
-    if ((user.activeRole === "field" || user.activeRole === "field_manager") && campaign.assignedToId !== user.id) {
+    if (user.activeRole === "field" && campaign.assignedToId !== user.id) {
       return res.status(403).send("Not assigned to this campaign");
     }
     const items = await storage.getCampaignItems(req.params.id, user.activeCompanyId);
@@ -9112,7 +9112,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
     const campaign = await storage.getCampaignById(req.params.id, user.activeCompanyId);
     if (!campaign) return res.status(404).json({ error: "Campaign not found" });
-    if ((user.activeRole === "field" || user.activeRole === "field_manager") && campaign.assignedToId !== user.id) {
+    if (user.activeRole === "field" && campaign.assignedToId !== user.id) {
       return res.status(403).send("Not assigned to this campaign");
     }
     const existingItems = await storage.getCampaignItems(req.params.id, user.activeCompanyId);
