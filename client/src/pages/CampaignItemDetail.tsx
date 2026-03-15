@@ -31,12 +31,30 @@ import {
   CalendarDays,
   StickyNote,
   ImageIcon,
+  Mail,
+  Wrench,
+  Send,
+  AlertCircle,
 } from "lucide-react";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
+import { Separator } from "@/components/ui/separator";
 import type { Campaign, CampaignItem } from "@shared/schema";
 import LayerMapViewer from "@/components/LayerMapViewer";
 
 interface CampaignItemWithUser extends CampaignItem {
   completedByName?: string | null;
+  chemPreSentByName?: string | null;
+  chemWorkCompletedByName?: string | null;
+  chemPostSentByName?: string | null;
 }
 
 interface CampaignDetailData extends Campaign {
@@ -70,7 +88,10 @@ export default function CampaignItemDetail() {
   const item = campaign?.items?.find(i => i.id === itemId);
 
   const canManage = user?.activeRole === "admin" || user?.activeRole === "office";
-  const canComplete = ["admin", "office", "field_manager", "field"].includes(user?.activeRole || "");
+  const canComplete = ["admin", "office", "field_manager", "field", "chemical_manager"].includes(user?.activeRole || "");
+  const canSendChemEmails = ["admin", "office", "chemical_manager"].includes(user?.activeRole || "");
+  const isChemicalCampaign = (campaign as any)?.category === "chemical";
+  const [showChemReset, setShowChemReset] = useState(false);
 
   useEffect(() => {
     if (item) {
@@ -82,14 +103,22 @@ export default function CampaignItemDetail() {
   }, [item?.id, item?.notes, item?.skipReason, item?.photos]);
 
   const updateItemMutation = useMutation({
-    mutationFn: async (data: { status?: string; notes?: string; skipReason?: string; photos?: string[] }) => {
+    mutationFn: async (data: { status?: string; notes?: string; skipReason?: string; photos?: string[]; chemAction?: string }) => {
       const res = await apiRequest("PATCH", `/api/campaigns/${campaignId}/items/${itemId}`, data);
       return res.json();
     },
-    onSuccess: () => {
+    onSuccess: (_data, variables) => {
       queryClient.invalidateQueries({ queryKey: ["/api/campaigns", campaignId] });
       queryClient.invalidateQueries({ queryKey: ["/api/campaigns"] });
-      toast({ title: t("campaigns.itemUpdated") });
+      if (variables.chemAction) {
+        if (variables.chemAction === "reset") {
+          toast({ title: t("campaigns.chemWorkflowReset") });
+        } else {
+          toast({ title: t("campaigns.chemStepAdvanced") });
+        }
+      } else {
+        toast({ title: t("campaigns.itemUpdated") });
+      }
     },
     onError: () => {
       toast({ title: t("campaigns.updateFailed"), variant: "destructive" });
@@ -364,7 +393,162 @@ export default function CampaignItemDetail() {
         </CardContent>
       </Card>
 
-      {canComplete && (
+      {isChemicalCampaign && item.chemWorkflowStep && (
+        <Card data-testid="card-chem-workflow">
+          <CardHeader className="pb-3">
+            <CardTitle className="text-sm flex items-center gap-2">
+              <AlertCircle className="w-4 h-4 text-primary" />
+              {t("campaigns.chemWorkflow")}
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="pt-0 space-y-4">
+            <div className="flex items-center gap-1">
+              {["pre_communication", "work_completion", "post_communication", "done"].map((step, idx) => {
+                const stepLabels = [
+                  t("campaigns.chemStepPre"),
+                  t("campaigns.chemStepWork"),
+                  t("campaigns.chemStepPost"),
+                  t("campaigns.chemStepDone"),
+                ];
+                const steps = ["pre_communication", "work_completion", "post_communication", "done"];
+                const currentIdx = steps.indexOf(item.chemWorkflowStep || "pre_communication");
+                const isComplete = idx < currentIdx;
+                const isCurrent = idx === currentIdx;
+                return (
+                  <div key={step} className="flex items-center gap-1 flex-1">
+                    <div className={`flex items-center gap-1.5 px-2 py-1.5 rounded-md text-xs font-medium flex-1 text-center justify-center ${
+                      isComplete ? "bg-green-600/10 text-green-700 dark:text-green-400" :
+                      isCurrent ? "bg-primary/10 text-primary border border-primary/30" :
+                      "bg-muted text-muted-foreground"
+                    }`} data-testid={`chem-step-${step}`}>
+                      {isComplete ? <CheckCircle2 className="w-3 h-3 shrink-0" /> : isCurrent ? <Clock className="w-3 h-3 shrink-0" /> : null}
+                      <span className="truncate">{stepLabels[idx]}</span>
+                    </div>
+                    {idx < 3 && <div className="w-2 h-px bg-muted-foreground/30 shrink-0" />}
+                  </div>
+                );
+              })}
+            </div>
+
+            <Separator />
+
+            <div className="space-y-2 text-sm">
+              {item.chemPreSentAt && (
+                <div className="flex items-center gap-2 text-muted-foreground" data-testid="text-chem-pre-sent">
+                  <Mail className="w-3.5 h-3.5 text-green-600" />
+                  <span>{t("campaigns.chemPreSentAt")}: {format(new Date(item.chemPreSentAt), "PPp")}</span>
+                  {item.chemPreSentByName && <span>({item.chemPreSentByName})</span>}
+                </div>
+              )}
+              {item.chemWorkCompletedAt && (
+                <div className="flex items-center gap-2 text-muted-foreground" data-testid="text-chem-work-done">
+                  <Wrench className="w-3.5 h-3.5 text-green-600" />
+                  <span>{t("campaigns.chemWorkCompletedAt")}: {format(new Date(item.chemWorkCompletedAt), "PPp")}</span>
+                  {item.chemWorkCompletedByName && <span>({item.chemWorkCompletedByName})</span>}
+                </div>
+              )}
+              {item.chemPostSentAt && (
+                <div className="flex items-center gap-2 text-muted-foreground" data-testid="text-chem-post-sent">
+                  <Send className="w-3.5 h-3.5 text-green-600" />
+                  <span>{t("campaigns.chemPostSentAt")}: {format(new Date(item.chemPostSentAt), "PPp")}</span>
+                  {item.chemPostSentByName && <span>({item.chemPostSentByName})</span>}
+                </div>
+              )}
+            </div>
+
+            <div className="flex items-center gap-2 flex-wrap">
+              {item.chemWorkflowStep === "pre_communication" && canSendChemEmails && (
+                <Button
+                  onClick={() => updateItemMutation.mutate({ chemAction: "send_pre_communication", notes })}
+                  disabled={updateItemMutation.isPending}
+                  data-testid="button-chem-send-pre"
+                >
+                  {updateItemMutation.isPending && <Loader2 className="w-4 h-4 mr-1 animate-spin" />}
+                  <Mail className="w-4 h-4 mr-1" />
+                  {t("campaigns.chemSendPreNotice")}
+                </Button>
+              )}
+              {item.chemWorkflowStep === "work_completion" && canComplete && (
+                <Button
+                  onClick={() => updateItemMutation.mutate({ chemAction: "complete_work", notes })}
+                  disabled={updateItemMutation.isPending}
+                  data-testid="button-chem-complete-work"
+                >
+                  {updateItemMutation.isPending && <Loader2 className="w-4 h-4 mr-1 animate-spin" />}
+                  <Wrench className="w-4 h-4 mr-1" />
+                  {t("campaigns.chemMarkWorkDone")}
+                </Button>
+              )}
+              {item.chemWorkflowStep === "post_communication" && canSendChemEmails && (
+                <Button
+                  onClick={() => updateItemMutation.mutate({ chemAction: "send_post_communication", notes })}
+                  disabled={updateItemMutation.isPending}
+                  data-testid="button-chem-send-post"
+                >
+                  {updateItemMutation.isPending && <Loader2 className="w-4 h-4 mr-1 animate-spin" />}
+                  <Send className="w-4 h-4 mr-1" />
+                  {t("campaigns.chemSendPostNotice")}
+                </Button>
+              )}
+              {item.chemWorkflowStep === "done" && (
+                <Badge variant="default" className="bg-green-600" data-testid="badge-chem-done">
+                  <CheckCircle2 className="w-3 h-3 mr-1" />
+                  {t("campaigns.chemStepDone")}
+                </Badge>
+              )}
+              {canManage && item.chemWorkflowStep !== "pre_communication" && (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setShowChemReset(true)}
+                  data-testid="button-chem-reset"
+                >
+                  <RotateCcw className="w-3 h-3 mr-1" />
+                  {t("campaigns.chemResetWorkflow")}
+                </Button>
+              )}
+            </div>
+
+            {item.chemWorkflowStep !== "done" && (
+              <div className="flex items-center gap-2 flex-wrap">
+                {!showSkip ? (
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => setShowSkip(true)}
+                    data-testid="button-show-skip"
+                  >
+                    <SkipForward className="w-4 h-4 mr-1" />
+                    {t("campaigns.skip")}
+                  </Button>
+                ) : (
+                  <div className="flex items-center gap-2 flex-wrap flex-1 min-w-[200px]">
+                    <Input
+                      value={skipReason}
+                      onChange={(e) => setSkipReason(e.target.value)}
+                      placeholder={t("campaigns.skipReasonPlaceholder")}
+                      className="flex-1 min-w-[150px]"
+                      data-testid="input-skip-reason"
+                    />
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => updateItemMutation.mutate({ status: "skipped", notes, skipReason })}
+                      disabled={updateItemMutation.isPending || !skipReason.trim()}
+                      data-testid="button-confirm-skip"
+                    >
+                      <SkipForward className="w-4 h-4 mr-1" />
+                      {t("campaigns.confirmSkip")}
+                    </Button>
+                  </div>
+                )}
+              </div>
+            )}
+          </CardContent>
+        </Card>
+      )}
+
+      {!isChemicalCampaign && canComplete && (
         <Card>
           <CardContent className="p-4">
             <div className="flex items-center gap-2 flex-wrap">
@@ -425,6 +609,27 @@ export default function CampaignItemDetail() {
           </CardContent>
         </Card>
       )}
+
+      <AlertDialog open={showChemReset} onOpenChange={setShowChemReset}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>{t("campaigns.chemResetConfirm")}</AlertDialogTitle>
+            <AlertDialogDescription>{t("campaigns.chemResetMsg")}</AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>{t("common.cancel")}</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={() => {
+                updateItemMutation.mutate({ chemAction: "reset" });
+                setShowChemReset(false);
+              }}
+              data-testid="button-chem-reset-confirm"
+            >
+              {t("campaigns.chemResetWorkflow")}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
 
       {showPropertyMaps && (
         <LayerMapViewer

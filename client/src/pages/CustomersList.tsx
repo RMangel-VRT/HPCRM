@@ -133,6 +133,7 @@ export default function CustomersList() {
       tags: [],
       acres: "",
       complexityScore: undefined,
+      customerType: "commercial",
       parentCustomerId: null,
       isParent: "false",
       active: "true",
@@ -669,6 +670,28 @@ export default function CustomersList() {
                           <SelectItem value="active">{t("statuses.active")}</SelectItem>
                           <SelectItem value="prospect">{t("statuses.prospect")}</SelectItem>
                           <SelectItem value="inactive">{t("statuses.inactive")}</SelectItem>
+                        </SelectContent>
+                      </Select>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+
+                <FormField
+                  control={form.control}
+                  name="customerType"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>{t("campaigns.customerTypeLabel")}</FormLabel>
+                      <Select onValueChange={field.onChange} value={field.value || "commercial"}>
+                        <FormControl>
+                          <SelectTrigger data-testid="select-customer-type">
+                            <SelectValue />
+                          </SelectTrigger>
+                        </FormControl>
+                        <SelectContent>
+                          <SelectItem value="commercial">{t("campaigns.customerTypeCommercial")}</SelectItem>
+                          <SelectItem value="hoa">{t("campaigns.customerTypeHoa")}</SelectItem>
                         </SelectContent>
                       </Select>
                       <FormMessage />

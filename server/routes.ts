@@ -8933,7 +8933,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.get("/api/visual-scope-sheets/:id/export/combined", (req, res) => handleVsExport(req, res, "combined"));
 
   // ─── Campaign System ───────────────────────────────────────────
-  const campaignAllowedRoles = ["admin", "office", "field_manager", "field"];
+  const campaignAllowedRoles = ["admin", "office", "field_manager", "field", "chemical_manager"];
 
   app.get("/api/campaigns", async (req, res) => {
     if (!req.isAuthenticated()) return res.status(401).send("Not authenticated");
@@ -8954,14 +8954,16 @@ export async function registerRoutes(app: Express): Promise<Server> {
     if (user.activeRole !== "admin" && user.activeRole !== "office") {
       return res.status(403).send("Only admin/office can create campaigns");
     }
-    const { title, description, assignedToId, windowStart, windowEnd, customerIds } = req.body as {
+    const { title, description, assignedToId, windowStart, windowEnd, customerIds, category } = req.body as {
       title?: string;
       description?: string;
       assignedToId?: string;
       windowStart?: string;
       windowEnd?: string;
       customerIds?: string[];
+      category?: string;
     };
+    const campaignCategory = (category === "chemical" ? "chemical" : "general") as "general" | "chemical";
     if (!title || !windowStart || !windowEnd || !customerIds || !Array.isArray(customerIds) || customerIds.length === 0) {
       return res.status(400).json({ error: "Missing required fields" });
     }
@@ -8993,6 +8995,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
           photos: [] as string[],
           completedById: null,
           completedAt: null,
+          chemWorkflowStep: campaignCategory === "chemical" ? "pre_communication" as const : null,
+          chemPreSentAt: null,
+          chemPreSentById: null,
+          chemWorkCompletedAt: null,
+          chemWorkCompletedById: null,
+          chemPostSentAt: null,
+          chemPostSentById: null,
         };
       });
     if (itemsData.length === 0) {
@@ -9006,6 +9015,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         assignedToId: assignedToId || null,
         windowStart,
         windowEnd,
+        category: campaignCategory,
         status: "active",
         createdById: user.id,
       },
@@ -9032,15 +9042,24 @@ export async function registerRoutes(app: Express): Promise<Server> {
     const createdUser = campaign.createdById
       ? await storage.getUserById(campaign.createdById)
       : undefined;
-    const completedByIds = [...new Set(items.filter(i => i.completedById).map(i => i.completedById!))];
-    const completedByUsers = new Map<string, string>();
-    for (const uid of completedByIds) {
+    const userIdSet = new Set<string>();
+    items.forEach(i => {
+      if (i.completedById) userIdSet.add(i.completedById);
+      if (i.chemPreSentById) userIdSet.add(i.chemPreSentById);
+      if (i.chemWorkCompletedById) userIdSet.add(i.chemWorkCompletedById);
+      if (i.chemPostSentById) userIdSet.add(i.chemPostSentById);
+    });
+    const userNameMap = new Map<string, string>();
+    for (const uid of userIdSet) {
       const u = await storage.getUserById(uid);
-      if (u) completedByUsers.set(uid, u.name);
+      if (u) userNameMap.set(uid, u.name);
     }
     const itemsWithNames = items.map(i => ({
       ...i,
-      completedByName: i.completedById ? completedByUsers.get(i.completedById) || null : null,
+      completedByName: i.completedById ? userNameMap.get(i.completedById) || null : null,
+      chemPreSentByName: i.chemPreSentById ? userNameMap.get(i.chemPreSentById) || null : null,
+      chemWorkCompletedByName: i.chemWorkCompletedById ? userNameMap.get(i.chemWorkCompletedById) || null : null,
+      chemPostSentByName: i.chemPostSentById ? userNameMap.get(i.chemPostSentById) || null : null,
     }));
     res.json({
       ...campaign,
@@ -9112,7 +9131,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.patch("/api/campaigns/:id/items/:itemId", async (req, res) => {
     if (!req.isAuthenticated()) return res.status(401).send("Not authenticated");
     const user = req.user as UserWithContext;
-    const allowedRoles = ["admin", "office", "field_manager", "field"];
+    const allowedRoles = ["admin", "office", "field_manager", "field", "chemical_manager"];
     if (!allowedRoles.includes(user.activeRole)) {
       return res.status(403).send("Insufficient permissions");
     }
@@ -9126,12 +9145,89 @@ export async function registerRoutes(app: Express): Promise<Server> {
     if (!targetItem) {
       return res.status(404).json({ error: "Item not found in this campaign" });
     }
-    const { status, notes, skipReason, photos } = req.body as {
+    const { status, notes, skipReason, photos, chemAction } = req.body as {
       status?: string;
       notes?: string;
       skipReason?: string;
       photos?: string[];
+      chemAction?: string;
     };
+
+    // Handle chemical workflow step advancement
+    if (chemAction && campaign.category === "chemical") {
+      const chemEmailRoles = ["admin", "office", "chemical_manager"];
+      const chemWorkRoles = ["admin", "office", "field_manager", "field", "chemical_manager"];
+
+      const chemUpdates: Record<string, any> = { updatedAt: new Date() };
+
+      if (chemAction === "send_pre_communication") {
+        if (!chemEmailRoles.includes(user.activeRole)) {
+          return res.status(403).send("Only admin, office, or chemical manager can send communications");
+        }
+        if (targetItem.chemWorkflowStep !== "pre_communication") {
+          return res.status(400).json({ error: "Item is not in pre-communication step" });
+        }
+        chemUpdates.chemWorkflowStep = "work_completion";
+        chemUpdates.chemPreSentAt = new Date();
+        chemUpdates.chemPreSentById = user.id;
+      } else if (chemAction === "complete_work") {
+        if (!chemWorkRoles.includes(user.activeRole)) {
+          return res.status(403).send("Insufficient permissions to complete work");
+        }
+        if (targetItem.chemWorkflowStep !== "work_completion") {
+          return res.status(400).json({ error: "Item is not in work completion step" });
+        }
+        chemUpdates.chemWorkflowStep = "post_communication";
+        chemUpdates.chemWorkCompletedAt = new Date();
+        chemUpdates.chemWorkCompletedById = user.id;
+      } else if (chemAction === "send_post_communication") {
+        if (!chemEmailRoles.includes(user.activeRole)) {
+          return res.status(403).send("Only admin, office, or chemical manager can send communications");
+        }
+        if (targetItem.chemWorkflowStep !== "post_communication") {
+          return res.status(400).json({ error: "Item is not in post-communication step" });
+        }
+        chemUpdates.chemWorkflowStep = "done";
+        chemUpdates.chemPostSentAt = new Date();
+        chemUpdates.chemPostSentById = user.id;
+        chemUpdates.status = "completed";
+        chemUpdates.completedById = user.id;
+        chemUpdates.completedAt = new Date();
+      } else if (chemAction === "reset") {
+        if (user.activeRole !== "admin" && user.activeRole !== "office") {
+          return res.status(403).send("Only admin/office can reset chemical workflow");
+        }
+        chemUpdates.chemWorkflowStep = "pre_communication";
+        chemUpdates.chemPreSentAt = null;
+        chemUpdates.chemPreSentById = null;
+        chemUpdates.chemWorkCompletedAt = null;
+        chemUpdates.chemWorkCompletedById = null;
+        chemUpdates.chemPostSentAt = null;
+        chemUpdates.chemPostSentById = null;
+        chemUpdates.status = "pending";
+        chemUpdates.completedById = null;
+        chemUpdates.completedAt = null;
+      } else {
+        return res.status(400).json({ error: "Invalid chemical action" });
+      }
+
+      if (notes !== undefined) chemUpdates.notes = notes;
+      if (photos !== undefined) chemUpdates.photos = photos;
+
+      const updated = await storage.updateCampaignItem(req.params.itemId, user.activeCompanyId, chemUpdates);
+      if (!updated) return res.status(404).json({ error: "Not found" });
+
+      const items = await storage.getCampaignItems(req.params.id, user.activeCompanyId);
+      const allDone = items.every((i: { status: string }) => i.status === "completed" || i.status === "skipped");
+      const hasPending = items.some((i: { status: string }) => i.status === "pending");
+      if (allDone && items.length > 0) {
+        await storage.updateCampaign(req.params.id, user.activeCompanyId, { status: "completed" });
+      } else if (hasPending && campaign.status === "completed") {
+        await storage.updateCampaign(req.params.id, user.activeCompanyId, { status: "active" });
+      }
+      return res.json(updated);
+    }
+
     const validItemStatuses = ["pending", "completed", "skipped"];
     if (status !== undefined && !validItemStatuses.includes(status)) {
       return res.status(400).json({ error: "Invalid status value" });

@@ -197,6 +197,11 @@ export default function CampaignsList() {
                           {campaign.title}
                         </h3>
                         {statusBadge(campaign.status)}
+                        {(campaign as any).category === "chemical" && (
+                          <Badge variant="outline" className="text-xs" data-testid={`badge-campaign-chemical-${campaign.id}`}>
+                            {t("campaigns.categoryChemical")}
+                          </Badge>
+                        )}
                       </div>
                       {campaign.description && (
                         <p className="text-sm text-muted-foreground line-clamp-2">{campaign.description}</p>
@@ -249,6 +254,7 @@ function CreateCampaignDialog({ open, onOpenChange }: { open: boolean; onOpenCha
   const [windowEnd, setWindowEnd] = useState<Date | undefined>(undefined);
   const [startOpen, setStartOpen] = useState(false);
   const [endOpen, setEndOpen] = useState(false);
+  const [category, setCategory] = useState<"general" | "chemical">("general");
   const [selectedCustomerIds, setSelectedCustomerIds] = useState<Set<string>>(new Set());
   const [customerSearch, setCustomerSearch] = useState("");
 
@@ -287,7 +293,7 @@ function CreateCampaignDialog({ open, onOpenChange }: { open: boolean; onOpenCha
     }));
 
   const createMutation = useMutation({
-    mutationFn: async (data: { title: string; description: string | null; assignedToId: string | null; windowStart: string; windowEnd: string; customerIds: string[] }) => {
+    mutationFn: async (data: { title: string; description: string | null; assignedToId: string | null; windowStart: string; windowEnd: string; customerIds: string[]; category: string }) => {
       const res = await apiRequest("POST", "/api/campaigns", data);
       return res.json();
     },
@@ -335,6 +341,7 @@ function CreateCampaignDialog({ open, onOpenChange }: { open: boolean; onOpenCha
       windowStart: windowStart ? format(windowStart, "yyyy-MM-dd") : "",
       windowEnd: windowEnd ? format(windowEnd, "yyyy-MM-dd") : "",
       customerIds: Array.from(selectedCustomerIds),
+      category,
     });
   };
 
@@ -439,6 +446,21 @@ function CreateCampaignDialog({ open, onOpenChange }: { open: boolean; onOpenCha
                 </SelectContent>
               </Select>
             </div>
+            <div className="space-y-2">
+              <Label>{t("campaigns.categoryLabel")}</Label>
+              <Select value={category} onValueChange={(v) => setCategory(v as "general" | "chemical")}>
+                <SelectTrigger data-testid="select-campaign-category">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="general" data-testid="select-campaign-category-general">{t("campaigns.categoryGeneral")}</SelectItem>
+                  <SelectItem value="chemical" data-testid="select-campaign-category-chemical">{t("campaigns.categoryChemical")}</SelectItem>
+                </SelectContent>
+              </Select>
+              {category === "chemical" && (
+                <p className="text-xs text-muted-foreground">{t("campaigns.categoryDescription")}</p>
+              )}
+            </div>
           </div>
         )}
 
@@ -522,6 +544,10 @@ function CreateCampaignDialog({ open, onOpenChange }: { open: boolean; onOpenCha
                   <span className="text-sm">
                     {windowStart ? format(windowStart, "MMM d, yyyy") : ""} — {windowEnd ? format(windowEnd, "MMM d, yyyy") : ""}
                   </span>
+                </div>
+                <div className="flex justify-between gap-2">
+                  <span className="text-sm text-muted-foreground">{t("campaigns.categoryLabel")}</span>
+                  <span className="text-sm font-medium">{category === "chemical" ? t("campaigns.categoryChemical") : t("campaigns.categoryGeneral")}</span>
                 </div>
                 <div className="flex justify-between gap-2">
                   <span className="text-sm text-muted-foreground">{t("campaigns.assignedTo")}</span>

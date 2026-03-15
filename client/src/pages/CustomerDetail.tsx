@@ -1168,6 +1168,7 @@ export default function CustomerDetail() {
       acres: customer?.acres || "",
       complexityScore: customer?.complexityScore || undefined,
       active: customer?.active || "true",
+      customerType: customer?.customerType || "commercial",
       snowEnabled: customer?.snowEnabled || false,
       includeInRoute: customer?.includeInRoute || false,
       propertyManagementCompanyId: customer?.propertyManagementCompanyId || null,
@@ -1191,6 +1192,7 @@ export default function CustomerDetail() {
         acres: customer.acres || "",
         complexityScore: customer.complexityScore || undefined,
         active: customer.active,
+        customerType: customer.customerType || "commercial",
         snowEnabled: customer.snowEnabled,
         includeInRoute: customer.includeInRoute,
         propertyManagementCompanyId: customer.propertyManagementCompanyId || null,
@@ -3099,6 +3101,27 @@ export default function CustomerDetail() {
                         <SelectItem value="3">{t("customerDetail.complexityAverage")}</SelectItem>
                         <SelectItem value="4">{t("customerDetail.complexityAboveAvg")}</SelectItem>
                         <SelectItem value="5">{t("customerDetail.complexityComplex")}</SelectItem>
+                      </SelectContent>
+                    </Select>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+              <FormField
+                control={customerForm.control}
+                name="customerType"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>{t("campaigns.customerTypeLabel")}</FormLabel>
+                    <Select onValueChange={field.onChange} value={field.value || "commercial"}>
+                      <FormControl>
+                        <SelectTrigger data-testid="select-customer-type-edit">
+                          <SelectValue />
+                        </SelectTrigger>
+                      </FormControl>
+                      <SelectContent>
+                        <SelectItem value="commercial">{t("campaigns.customerTypeCommercial")}</SelectItem>
+                        <SelectItem value="hoa">{t("campaigns.customerTypeHoa")}</SelectItem>
                       </SelectContent>
                     </Select>
                     <FormMessage />
