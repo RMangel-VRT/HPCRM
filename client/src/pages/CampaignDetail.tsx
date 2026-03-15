@@ -557,7 +557,7 @@ function CampaignItemSheet({
                       size="sm"
                       variant="outline"
                       onClick={() => onUpdate({ status: "skipped", notes, skipReason })}
-                      disabled={isPending}
+                      disabled={isPending || !skipReason.trim()}
                       data-testid={`button-confirm-skip-${item.id}`}
                     >
                       <SkipForward className="w-4 h-4 mr-1" />

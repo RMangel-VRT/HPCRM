@@ -9091,6 +9091,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
     if (status === "pending" && user.activeRole !== "admin" && user.activeRole !== "office") {
       return res.status(403).send("Only admin/office can reset items to pending");
     }
+    if (status === "skipped" && (!skipReason || !skipReason.trim())) {
+      return res.status(400).json({ error: "Skip reason is required" });
+    }
     const updates: Partial<{ status: "pending" | "completed" | "skipped"; notes: string | null; skipReason: string | null; photos: string[]; completedById: string | null; completedAt: Date | null; updatedAt: Date }> = {};
     if (status !== undefined) updates.status = status as "pending" | "completed" | "skipped";
     if (notes !== undefined) updates.notes = notes;
@@ -9120,6 +9123,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.post("/api/campaigns/photo-upload-url", async (req, res) => {
     if (!req.isAuthenticated()) return res.status(401).send("Not authenticated");
+    const campaignUser = req.user as UserWithContext;
+    const campaignRoles = ["admin", "office", "field_manager", "field"];
+    if (!campaignRoles.includes(campaignUser.activeRole)) {
+      return res.status(403).send("Insufficient permissions");
+    }
     try {
       const objectStorageService = new ObjectStorageService();
       const uploadURL = await objectStorageService.getObjectEntityUploadURL();
