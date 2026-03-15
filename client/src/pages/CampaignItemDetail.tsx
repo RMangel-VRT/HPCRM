@@ -441,12 +441,16 @@ export default function CampaignItemDetail() {
             </CardTitle>
           </CardHeader>
           <CardContent className="pt-0 space-y-4">
-            {item.status === "skipped" ? (
-              <div className="flex items-center gap-2 p-3 rounded-md bg-amber-500/10 text-amber-700 dark:text-amber-400" data-testid="chem-skipped-banner">
-                <SkipForward className="w-4 h-4 shrink-0" />
-                <span className="text-sm font-medium">{t("campaigns.chemSkippedState")}</span>
-              </div>
-            ) : (
+            <div className="space-y-2">
+              {item.status === "skipped" && (
+                <div className="flex items-center gap-2">
+                  <Badge variant="secondary" className="bg-amber-500/15 text-amber-700 dark:text-amber-400" data-testid="badge-chem-skipped">
+                    <SkipForward className="w-3 h-3 mr-1" />
+                    {t("campaigns.skippedLabel")}
+                  </Badge>
+                  <span className="text-xs text-muted-foreground">{t("campaigns.chemSkippedState")}</span>
+                </div>
+              )}
               <div className="flex items-center gap-1">
                 {["pre_communication", "work_in_progress", "work_completed", "post_communication", "complete"].map((step, idx) => {
                   const stepLabels = [
@@ -456,10 +460,11 @@ export default function CampaignItemDetail() {
                     t("campaigns.chemStepPost"),
                     t("campaigns.chemStepComplete"),
                   ];
+                  const isSkipped = item.status === "skipped";
                   const steps = ["pre_communication", "work_in_progress", "work_completed", "post_communication"];
-                  const currentIdx = item.status === "completed" ? 4 : steps.indexOf(item.workflowStep || "pre_communication");
-                  const isComplete = idx < currentIdx;
-                  const isCurrent = idx === currentIdx;
+                  const currentIdx = item.status === "completed" ? 4 : isSkipped ? -1 : steps.indexOf(item.workflowStep || "pre_communication");
+                  const isComplete = !isSkipped && idx < currentIdx;
+                  const isCurrent = !isSkipped && idx === currentIdx;
                   return (
                     <div key={step} className="flex items-center gap-1 flex-1">
                       <div className={`flex items-center gap-1.5 px-2 py-1.5 rounded-md text-xs font-medium flex-1 text-center justify-center ${
@@ -475,7 +480,7 @@ export default function CampaignItemDetail() {
                   );
                 })}
               </div>
-            )}
+            </div>
 
             <Separator />
 
@@ -780,7 +785,7 @@ export default function CampaignItemDetail() {
                   updateItemMutation.mutate({ chemAction: action, notes, overrideEmail: !emailPreview?.recipientEmail ? effectiveEmail : undefined });
                   setManualEmail("");
                 }}
-                disabled={updateItemMutation.isPending || (!emailPreview?.recipientEmail && !manualEmail.trim())}
+                disabled={updateItemMutation.isPending || (!emailPreview?.recipientEmail && (!manualEmail.trim() || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(manualEmail.trim())))}
                 data-testid="button-confirm-send-email"
               >
                 {updateItemMutation.isPending && <Loader2 className="w-4 h-4 mr-1 animate-spin" />}

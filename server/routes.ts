@@ -9136,6 +9136,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
     }
     const customerContacts = await storage.getContactsByCustomerId(customerId, companyId);
+    const pmContact = customerContacts.find(c => c.propertyManagerId && c.emails && c.emails.length > 0);
+    if (pmContact?.emails?.[0]) {
+      return { email: pmContact.emails[0], contactName: pmContact.name };
+    }
     const primaryContact = customerContacts.find(c => c.isPrimary === "true") || customerContacts[0];
     const recipientEmail = primaryContact?.emails?.[0] || customerContacts.find(c => c.emails && c.emails.length > 0)?.emails?.[0];
     return { email: recipientEmail || null, contactName: primaryContact?.name || null };
@@ -9264,12 +9268,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
     if (!targetItem) {
       return res.status(404).json({ error: "Item not found in this campaign" });
     }
-    const { status, notes, skipReason, photos, chemAction } = req.body as {
+    const { status, notes, skipReason, photos, chemAction, overrideEmail } = req.body as {
       status?: string;
       notes?: string;
       skipReason?: string;
       photos?: string[];
       chemAction?: string;
+      overrideEmail?: string;
     };
 
     // Handle chemical workflow step advancement
@@ -9288,7 +9293,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         }
         const company = await storage.getCompanyById(user.activeCompanyId);
         const { email: resolvedEmail } = await resolveChemRecipientEmail(targetItem.customerId, user.activeCompanyId);
-        const recipientEmail = resolvedEmail;
+        const recipientEmail = (overrideEmail && overrideEmail.trim()) ? overrideEmail.trim() : resolvedEmail;
         if (!recipientEmail) {
           return res.status(400).json({ error: "No recipient email available. Add a contact or property manager with an email address." });
         }
@@ -9336,7 +9341,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         }
         const company = await storage.getCompanyById(user.activeCompanyId);
         const { email: resolvedEmail } = await resolveChemRecipientEmail(targetItem.customerId, user.activeCompanyId);
-        const recipientEmail = resolvedEmail;
+        const recipientEmail = (overrideEmail && overrideEmail.trim()) ? overrideEmail.trim() : resolvedEmail;
         if (!recipientEmail) {
           return res.status(400).json({ error: "No recipient email available. Add a contact or property manager with an email address." });
         }
