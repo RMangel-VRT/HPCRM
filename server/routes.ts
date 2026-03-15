@@ -11,7 +11,7 @@ import { insertCustomerSchema, insertContactSchema, insertCompanySchema, insertC
 import type { Customer, CaptureParams } from "@shared/schema";
 import { ObjectStorageService, ObjectNotFoundError, objectStorageClient, signObjectURL } from "./objectStorage";
 import { ObjectPermission, ObjectAccessGroupType, setObjectAclPolicy } from "./objectAcl";
-import { processEmailEvent, resendEmail, getDefaultWorkCompletedTemplate } from './services/emailService';
+import { processEmailEvent, resendEmail, sendEmail, getDefaultWorkCompletedTemplate, getDefaultChemicalPreNoticeTemplate, getDefaultChemicalPostNoticeTemplate } from './services/emailService';
 import heicConvert from 'heic-convert';
 import { renderVisualScope, type ExportType } from "./visualScopeRenderer";
 
@@ -7377,23 +7377,57 @@ export async function registerRoutes(app: Express): Promise<Server> {
   async function seedEmailTemplatesAndRules(companyId: string) {
     try {
       const existing = await storage.getEmailTemplateByName('Work Completed Notification', companyId);
-      if (existing) return; // Already seeded
-      
-      const defaultTemplate = getDefaultWorkCompletedTemplate();
-      const template = await storage.createEmailTemplate({
-        ...defaultTemplate,
-        companyId,
-      });
-      
-      await storage.createEmailRule({
-        companyId,
-        eventKey: 'ticket.work_completed',
-        templateId: template.id,
-        conditionsJson: null,
-        isEnabled: true,
-      });
-      
-      console.log(`Seeded default email template and rule for company ${companyId}`);
+      if (!existing) {
+        const defaultTemplate = getDefaultWorkCompletedTemplate();
+        const template = await storage.createEmailTemplate({
+          ...defaultTemplate,
+          companyId,
+        });
+        
+        await storage.createEmailRule({
+          companyId,
+          eventKey: 'ticket.work_completed',
+          templateId: template.id,
+          conditionsJson: null,
+          isEnabled: true,
+        });
+        
+        console.log(`Seeded default email template and rule for company ${companyId}`);
+      }
+
+      const existingChemPre = await storage.getEmailTemplateByName('Chemical Treatment Notice', companyId);
+      if (!existingChemPre) {
+        const chemPreTemplate = getDefaultChemicalPreNoticeTemplate();
+        const preTemplate = await storage.createEmailTemplate({
+          ...chemPreTemplate,
+          companyId,
+        });
+        await storage.createEmailRule({
+          companyId,
+          eventKey: 'campaign.chemical_pre_notice',
+          templateId: preTemplate.id,
+          conditionsJson: null,
+          isEnabled: true,
+        });
+        console.log(`Seeded Chemical Treatment Notice template for company ${companyId}`);
+      }
+
+      const existingChemPost = await storage.getEmailTemplateByName('Chemical Treatment Completion', companyId);
+      if (!existingChemPost) {
+        const chemPostTemplate = getDefaultChemicalPostNoticeTemplate();
+        const postTemplate = await storage.createEmailTemplate({
+          ...chemPostTemplate,
+          companyId,
+        });
+        await storage.createEmailRule({
+          companyId,
+          eventKey: 'campaign.chemical_post_notice',
+          templateId: postTemplate.id,
+          conditionsJson: null,
+          isEnabled: true,
+        });
+        console.log(`Seeded Chemical Treatment Completion template for company ${companyId}`);
+      }
     } catch (err) {
       console.error("Failed to seed email templates:", err);
     }
@@ -9180,6 +9214,28 @@ export async function registerRoutes(app: Express): Promise<Server> {
         chemUpdates.chemWorkflowStep = "work_completion";
         chemUpdates.chemPreSentAt = new Date();
         chemUpdates.chemPreSentById = user.id;
+
+        const company = await storage.getCompanyById(user.activeCompanyId);
+        const customerContacts = await storage.getContactsByCustomerId(targetItem.customerId, user.activeCompanyId);
+        const primaryContact = customerContacts.find(c => c.isPrimary) || customerContacts[0];
+        if (primaryContact?.email) {
+          try {
+            await processEmailEvent('campaign.chemical_pre_notice', user.activeCompanyId, {
+              companyName: company?.name || '',
+              customerName: targetItem.customerName,
+              campaignTitle: campaign.title,
+              windowStart: campaign.windowStart,
+              windowEnd: campaign.windowEnd,
+              notes: notes || '',
+            }, {
+              customerId: targetItem.customerId,
+              toEmail: primaryContact.email,
+              sentById: user.id,
+            });
+          } catch (emailErr) {
+            console.error("Failed to send chemical pre-notice email:", emailErr);
+          }
+        }
       } else if (chemAction === "complete_work") {
         if (!chemWorkRoles.includes(user.activeRole)) {
           return res.status(403).send("Insufficient permissions to complete work");
@@ -9203,6 +9259,27 @@ export async function registerRoutes(app: Express): Promise<Server> {
         chemUpdates.status = "completed";
         chemUpdates.completedById = user.id;
         chemUpdates.completedAt = new Date();
+
+        const company = await storage.getCompanyById(user.activeCompanyId);
+        const customerContacts = await storage.getContactsByCustomerId(targetItem.customerId, user.activeCompanyId);
+        const primaryContact = customerContacts.find(c => c.isPrimary) || customerContacts[0];
+        if (primaryContact?.email) {
+          try {
+            await processEmailEvent('campaign.chemical_post_notice', user.activeCompanyId, {
+              companyName: company?.name || '',
+              customerName: targetItem.customerName,
+              campaignTitle: campaign.title,
+              completionDate: new Date().toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' }),
+              notes: notes || '',
+            }, {
+              customerId: targetItem.customerId,
+              toEmail: primaryContact.email,
+              sentById: user.id,
+            });
+          } catch (emailErr) {
+            console.error("Failed to send chemical post-notice email:", emailErr);
+          }
+        }
       } else if (chemAction === "reset") {
         if (user.activeRole !== "admin" && user.activeRole !== "office") {
           return res.status(403).send("Only admin/office can reset chemical workflow");

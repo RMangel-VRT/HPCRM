@@ -257,3 +257,129 @@ export function getDefaultWorkCompletedTemplate() {
     isActive: true,
   };
 }
+
+export function getDefaultChemicalPreNoticeTemplate() {
+  return {
+    name: 'Chemical Treatment Notice',
+    subject: 'Upcoming Chemical Treatment: {{customerName}}',
+    htmlBody: `<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <style>
+    body { font-family: Arial, sans-serif; margin: 0; padding: 0; background-color: #f4f4f4; }
+    .container { max-width: 600px; margin: 0 auto; background: #ffffff; }
+    .header { background-color: #1a5632; padding: 24px; text-align: center; }
+    .header h1 { color: #ffffff; margin: 0; font-size: 22px; }
+    .content { padding: 32px 24px; }
+    .content h2 { color: #1a5632; margin-top: 0; }
+    .detail-row { padding: 8px 0; border-bottom: 1px solid #e5e7eb; }
+    .detail-label { color: #6b7280; font-size: 13px; text-transform: uppercase; }
+    .detail-value { color: #111827; font-size: 15px; margin-top: 2px; }
+    .footer { padding: 16px 24px; background-color: #f9fafb; text-align: center; font-size: 12px; color: #9ca3af; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <div class="header">
+      <h1>{{companyName}}</h1>
+    </div>
+    <div class="content">
+      <h2>Upcoming Chemical Treatment</h2>
+      <p>This is to inform you that a chemical treatment application is scheduled for your property.</p>
+      <div class="detail-row">
+        <div class="detail-label">Property</div>
+        <div class="detail-value">{{customerName}}</div>
+      </div>
+      <div class="detail-row">
+        <div class="detail-label">Campaign</div>
+        <div class="detail-value">{{campaignTitle}}</div>
+      </div>
+      <div class="detail-row">
+        <div class="detail-label">Scheduled Window</div>
+        <div class="detail-value">{{windowStart}} - {{windowEnd}}</div>
+      </div>
+      {{#if notes}}
+      <div class="detail-row">
+        <div class="detail-label">Details</div>
+        <div class="detail-value">{{notes}}</div>
+      </div>
+      {{/if}}
+      <p style="margin-top: 24px; color: #6b7280; font-size: 13px;">
+        Please ensure that pets, children, and sensitive items are kept away from treated areas during and after application. If you have any questions, please contact us.
+      </p>
+    </div>
+    <div class="footer">
+      <p>{{companyName}} - Property Maintenance Services</p>
+    </div>
+  </div>
+</body>
+</html>`,
+    textBody: `Upcoming Chemical Treatment: {{customerName}}\n\nThis is to inform you that a chemical treatment application is scheduled for your property.\n\nProperty: {{customerName}}\nCampaign: {{campaignTitle}}\nScheduled Window: {{windowStart}} - {{windowEnd}}\n\nPlease ensure that pets, children, and sensitive items are kept away from treated areas during and after application.\n\nIf you have any questions, please contact us.\n\n{{companyName}} - Property Maintenance Services`,
+    category: 'transactional' as const,
+    isActive: true,
+  };
+}
+
+export function getDefaultChemicalPostNoticeTemplate() {
+  return {
+    name: 'Chemical Treatment Completion',
+    subject: 'Chemical Treatment Completed: {{customerName}}',
+    htmlBody: `<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <style>
+    body { font-family: Arial, sans-serif; margin: 0; padding: 0; background-color: #f4f4f4; }
+    .container { max-width: 600px; margin: 0 auto; background: #ffffff; }
+    .header { background-color: #1a5632; padding: 24px; text-align: center; }
+    .header h1 { color: #ffffff; margin: 0; font-size: 22px; }
+    .content { padding: 32px 24px; }
+    .content h2 { color: #1a5632; margin-top: 0; }
+    .detail-row { padding: 8px 0; border-bottom: 1px solid #e5e7eb; }
+    .detail-label { color: #6b7280; font-size: 13px; text-transform: uppercase; }
+    .detail-value { color: #111827; font-size: 15px; margin-top: 2px; }
+    .footer { padding: 16px 24px; background-color: #f9fafb; text-align: center; font-size: 12px; color: #9ca3af; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <div class="header">
+      <h1>{{companyName}}</h1>
+    </div>
+    <div class="content">
+      <h2>Chemical Treatment Completed</h2>
+      <p>A chemical treatment has been completed at your property.</p>
+      <div class="detail-row">
+        <div class="detail-label">Property</div>
+        <div class="detail-value">{{customerName}}</div>
+      </div>
+      <div class="detail-row">
+        <div class="detail-label">Campaign</div>
+        <div class="detail-value">{{campaignTitle}}</div>
+      </div>
+      <div class="detail-row">
+        <div class="detail-label">Completed On</div>
+        <div class="detail-value">{{completionDate}}</div>
+      </div>
+      {{#if notes}}
+      <div class="detail-row">
+        <div class="detail-label">Details</div>
+        <div class="detail-value">{{notes}}</div>
+      </div>
+      {{/if}}
+      <p style="margin-top: 24px; color: #6b7280; font-size: 13px;">
+        Please allow treated areas to dry before resuming normal use. If you have any questions about the treatment, please contact us.
+      </p>
+    </div>
+    <div class="footer">
+      <p>{{companyName}} - Property Maintenance Services</p>
+    </div>
+  </div>
+</body>
+</html>`,
+    textBody: `Chemical Treatment Completed: {{customerName}}\n\nA chemical treatment has been completed at your property.\n\nProperty: {{customerName}}\nCampaign: {{campaignTitle}}\nCompleted On: {{completionDate}}\n\nPlease allow treated areas to dry before resuming normal use. If you have any questions about the treatment, please contact us.\n\n{{companyName}} - Property Maintenance Services`,
+    category: 'transactional' as const,
+    isActive: true,
+  };
+}

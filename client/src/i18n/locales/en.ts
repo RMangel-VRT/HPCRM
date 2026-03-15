@@ -48,7 +48,6 @@ const en = {
     active: "Active",
     all: "All",
     none: "None",
-    unknown: "Unknown",
     error: "Error",
     success: "Success",
     warning: "Warning",
