@@ -1204,6 +1204,16 @@ export async function migrateUserLanguageColumn(): Promise<void> {
   }
 }
 
+export async function backfillCustomerType(): Promise<void> {
+  console.log("Running startup migration: Backfilling customer_type for existing customers...");
+  try {
+    const result = await db.execute(sql`UPDATE customers SET customer_type = 'commercial' WHERE customer_type IS NULL`);
+    console.log("Customer type backfill complete");
+  } catch (error) {
+    console.error("Error during customer type backfill:", error);
+  }
+}
+
 export async function registerRoutes(app: Express): Promise<Server> {
   setupAuth(app);
 
