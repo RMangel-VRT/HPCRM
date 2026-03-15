@@ -197,7 +197,7 @@ export default function CampaignsList() {
                           {campaign.title}
                         </h3>
                         {statusBadge(campaign.status)}
-                        {(campaign as any).category === "chemical" && (
+                        {campaign.category === "chemical" && (
                           <Badge variant="outline" className="text-xs" data-testid={`badge-campaign-chemical-${campaign.id}`}>
                             {t("campaigns.categoryChemical")}
                           </Badge>

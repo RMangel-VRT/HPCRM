@@ -444,6 +444,11 @@ export default function CustomersList() {
                         <Building2 className="w-4 h-4 text-primary" />
                       )}
                       <span>{customer.name}</span>
+                      {customer.customerType === "hoa" && (
+                        <Badge variant="outline" className="text-xs" data-testid={`badge-hoa-${customer.id}`}>
+                          HOA
+                        </Badge>
+                      )}
                       {isParent && childCount > 0 && (
                         <Badge variant="secondary" className="text-xs ml-1">
                           {childCount} {childCount === 1 ? "branch" : "branches"}

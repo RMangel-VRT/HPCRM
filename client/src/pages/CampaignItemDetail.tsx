@@ -90,7 +90,7 @@ export default function CampaignItemDetail() {
   const canManage = user?.activeRole === "admin" || user?.activeRole === "office";
   const canComplete = ["admin", "office", "field_manager", "field", "chemical_manager"].includes(user?.activeRole || "");
   const canSendChemEmails = ["admin", "office", "chemical_manager"].includes(user?.activeRole || "");
-  const isChemicalCampaign = (campaign as any)?.category === "chemical";
+  const isChemicalCampaign = campaign?.category === "chemical";
   const [showChemReset, setShowChemReset] = useState(false);
 
   useEffect(() => {
