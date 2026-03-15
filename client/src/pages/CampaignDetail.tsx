@@ -332,11 +332,11 @@ export default function CampaignDetail() {
                         <span>{format(new Date(item.completedAt), "PPp")}</span>
                       )}
                     </div>
-                    {isChemicalCampaign && item.chemWorkflowStep && (
+                    {isChemicalCampaign && item.workflowStep && (
                       <div className="flex items-center gap-1.5 mt-1" data-testid={`chem-step-indicator-${item.id}`}>
-                        {getChemStepIcon(item.chemWorkflowStep, item.status)}
+                        {getChemStepIcon(item.workflowStep, item.status)}
                         <span className={`text-xs font-medium ${item.status === "completed" ? "text-green-600" : "text-primary"}`}>
-                          {getChemStepLabel(item.chemWorkflowStep, item.status)}
+                          {getChemStepLabel(item.workflowStep, item.status)}
                         </span>
                       </div>
                     )}

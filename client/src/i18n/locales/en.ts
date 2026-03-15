@@ -1383,6 +1383,8 @@ const en = {
     chemNoRecipient: "No contact email found",
     chemNoRecipientWarning: "No contact with an email address was found for this customer. Please add a contact email before sending.",
     chemEmailTemplate: "Email Template",
+    chemEmailSubject: "Subject",
+    chemEmailBody: "Email Body",
     chemTemplatePreName: "Chemical Treatment Notice",
     chemTemplatePostName: "Chemical Treatment Completion",
     chemConfirmSend: "Send & Advance",

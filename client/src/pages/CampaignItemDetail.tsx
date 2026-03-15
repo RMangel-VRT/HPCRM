@@ -53,9 +53,9 @@ import { Label } from "@/components/ui/label";
 
 interface CampaignItemWithUser extends CampaignItem {
   completedByName?: string | null;
-  chemPreSentByName?: string | null;
-  chemWorkCompletedByName?: string | null;
-  chemPostSentByName?: string | null;
+  preCommSentByName?: string | null;
+  workCompletedByName?: string | null;
+  postCommSentByName?: string | null;
   customerType?: string;
 }
 
@@ -83,6 +83,8 @@ export default function CampaignItemDetail() {
   const [showPropertyMaps, setShowPropertyMaps] = useState(false);
   const [previewPhoto, setPreviewPhoto] = useState<string | null>(null);
   const [showEmailConfirm, setShowEmailConfirm] = useState<"pre" | "post" | null>(null);
+  const [emailPreview, setEmailPreview] = useState<{ recipientEmail: string | null; subject: string; htmlBody: string; templateName: string; contactName: string | null } | null>(null);
+  const [loadingPreview, setLoadingPreview] = useState(false);
 
   const { data: campaign, isLoading } = useQuery<CampaignDetailData>({
     queryKey: ["/api/campaigns", campaignId],
@@ -427,7 +429,7 @@ export default function CampaignItemDetail() {
         </CardContent>
       </Card>
 
-      {isChemicalCampaign && item.chemWorkflowStep && (
+      {isChemicalCampaign && item.workflowStep && (
         <Card data-testid="card-chem-workflow">
           <CardHeader className="pb-3">
             <CardTitle className="text-sm flex items-center gap-2">
@@ -446,7 +448,7 @@ export default function CampaignItemDetail() {
                   t("campaigns.chemStepComplete"),
                 ];
                 const steps = ["pre_communication", "work_in_progress", "work_completed", "post_communication"];
-                const currentIdx = item.status === "completed" ? 4 : steps.indexOf(item.chemWorkflowStep || "pre_communication");
+                const currentIdx = item.status === "completed" ? 4 : steps.indexOf(item.workflowStep || "pre_communication");
                 const isComplete = idx < currentIdx;
                 const isCurrent = idx === currentIdx;
                 return (
@@ -468,41 +470,50 @@ export default function CampaignItemDetail() {
             <Separator />
 
             <div className="space-y-2 text-sm">
-              {item.chemPreSentAt && (
+              {item.preCommSentAt && (
                 <div className="flex items-center gap-2 text-muted-foreground" data-testid="text-chem-pre-sent">
                   <Mail className="w-3.5 h-3.5 text-green-600" />
-                  <span>{t("campaigns.chemPreSentAt")}: {format(new Date(item.chemPreSentAt), "PPp")}</span>
-                  {item.chemPreSentByName && <span>({item.chemPreSentByName})</span>}
+                  <span>{t("campaigns.chemPreSentAt")}: {format(new Date(item.preCommSentAt), "PPp")}</span>
+                  {item.preCommSentByName && <span>({item.preCommSentByName})</span>}
                 </div>
               )}
-              {item.chemWorkCompletedAt && (
+              {item.workCompletedAt && (
                 <div className="flex items-center gap-2 text-muted-foreground" data-testid="text-chem-work-done">
                   <Wrench className="w-3.5 h-3.5 text-green-600" />
-                  <span>{t("campaigns.chemWorkCompletedAt")}: {format(new Date(item.chemWorkCompletedAt), "PPp")}</span>
-                  {item.chemWorkCompletedByName && <span>({item.chemWorkCompletedByName})</span>}
+                  <span>{t("campaigns.chemWorkCompletedAt")}: {format(new Date(item.workCompletedAt), "PPp")}</span>
+                  {item.workCompletedByName && <span>({item.workCompletedByName})</span>}
                 </div>
               )}
-              {item.chemPostSentAt && (
+              {item.postCommSentAt && (
                 <div className="flex items-center gap-2 text-muted-foreground" data-testid="text-chem-post-sent">
                   <Send className="w-3.5 h-3.5 text-green-600" />
-                  <span>{t("campaigns.chemPostSentAt")}: {format(new Date(item.chemPostSentAt), "PPp")}</span>
-                  {item.chemPostSentByName && <span>({item.chemPostSentByName})</span>}
+                  <span>{t("campaigns.chemPostSentAt")}: {format(new Date(item.postCommSentAt), "PPp")}</span>
+                  {item.postCommSentByName && <span>({item.postCommSentByName})</span>}
                 </div>
               )}
             </div>
 
             <div className="flex items-center gap-2 flex-wrap">
-              {item.chemWorkflowStep === "pre_communication" && canSendChemEmails && (
+              {item.workflowStep === "pre_communication" && canSendChemEmails && (
                 <Button
-                  onClick={() => setShowEmailConfirm("pre")}
-                  disabled={updateItemMutation.isPending}
+                  onClick={async () => {
+                    setLoadingPreview(true);
+                    try {
+                      const res = await fetch(`/api/campaigns/${campaignId}/items/${itemId}/email-preview?type=pre`, { credentials: "include" });
+                      if (res.ok) setEmailPreview(await res.json());
+                    } catch {}
+                    setLoadingPreview(false);
+                    setShowEmailConfirm("pre");
+                  }}
+                  disabled={updateItemMutation.isPending || loadingPreview}
                   data-testid="button-chem-send-pre"
                 >
+                  {loadingPreview && <Loader2 className="w-4 h-4 mr-1 animate-spin" />}
                   <Mail className="w-4 h-4 mr-1" />
                   {t("campaigns.chemSendPreNotice")}
                 </Button>
               )}
-              {item.chemWorkflowStep === "work_in_progress" && canComplete && (
+              {item.workflowStep === "work_in_progress" && canComplete && (
                 <Button
                   onClick={() => updateItemMutation.mutate({ chemAction: "complete_work", notes })}
                   disabled={updateItemMutation.isPending}
@@ -513,12 +524,21 @@ export default function CampaignItemDetail() {
                   {t("campaigns.chemMarkWorkDone")}
                 </Button>
               )}
-              {item.chemWorkflowStep === "work_completed" && canSendChemEmails && (
+              {item.workflowStep === "work_completed" && canSendChemEmails && (
                 <Button
-                  onClick={() => setShowEmailConfirm("post")}
-                  disabled={updateItemMutation.isPending}
+                  onClick={async () => {
+                    setLoadingPreview(true);
+                    try {
+                      const res = await fetch(`/api/campaigns/${campaignId}/items/${itemId}/email-preview?type=post`, { credentials: "include" });
+                      if (res.ok) setEmailPreview(await res.json());
+                    } catch {}
+                    setLoadingPreview(false);
+                    setShowEmailConfirm("post");
+                  }}
+                  disabled={updateItemMutation.isPending || loadingPreview}
                   data-testid="button-chem-send-post"
                 >
+                  {loadingPreview && <Loader2 className="w-4 h-4 mr-1 animate-spin" />}
                   <Send className="w-4 h-4 mr-1" />
                   {t("campaigns.chemSendPostNotice")}
                 </Button>
@@ -529,7 +549,7 @@ export default function CampaignItemDetail() {
                   {t("campaigns.chemStepComplete")}
                 </Badge>
               )}
-              {canManage && item.chemWorkflowStep !== "pre_communication" && (
+              {canManage && item.workflowStep !== "pre_communication" && (
                 <Button
                   variant="outline"
                   size="sm"
@@ -664,8 +684,8 @@ export default function CampaignItemDetail() {
         </AlertDialogContent>
       </AlertDialog>
 
-      <Dialog open={!!showEmailConfirm} onOpenChange={() => setShowEmailConfirm(null)}>
-        <DialogContent data-testid="dialog-chem-email-confirm">
+      <Dialog open={!!showEmailConfirm} onOpenChange={() => { setShowEmailConfirm(null); setEmailPreview(null); }}>
+        <DialogContent className="max-w-lg" data-testid="dialog-chem-email-compose">
           <div className="space-y-4">
             <div className="flex items-center gap-2">
               {showEmailConfirm === "pre" ? <Mail className="w-5 h-5 text-primary" /> : <Send className="w-5 h-5 text-primary" />}
@@ -678,24 +698,32 @@ export default function CampaignItemDetail() {
               <div>
                 <Label className="text-xs text-muted-foreground">{t("campaigns.chemEmailRecipient")}</Label>
                 <div className="text-sm font-medium mt-0.5" data-testid="text-email-recipient">
-                  {recipientEmail ? (
-                    <span>{primaryContact?.name ? `${primaryContact.name} <${recipientEmail}>` : recipientEmail}</span>
+                  {emailPreview?.recipientEmail ? (
+                    <span>{emailPreview.contactName ? `${emailPreview.contactName} <${emailPreview.recipientEmail}>` : emailPreview.recipientEmail}</span>
                   ) : (
                     <span className="text-muted-foreground">{t("campaigns.chemNoRecipient")}</span>
                   )}
                 </div>
               </div>
               <div>
-                <Label className="text-xs text-muted-foreground">{t("common.customer")}</Label>
-                <div className="text-sm font-medium mt-0.5">{item.customerName}</div>
+                <Label className="text-xs text-muted-foreground">{t("campaigns.chemEmailTemplate")}</Label>
+                <div className="text-sm font-medium mt-0.5">{emailPreview?.templateName || "—"}</div>
               </div>
               <div>
-                <Label className="text-xs text-muted-foreground">{t("campaigns.chemEmailTemplate")}</Label>
-                <div className="text-sm font-medium mt-0.5">
-                  {showEmailConfirm === "pre" ? t("campaigns.chemTemplatePreName") : t("campaigns.chemTemplatePostName")}
+                <Label className="text-xs text-muted-foreground">{t("campaigns.chemEmailSubject")}</Label>
+                <div className="text-sm font-medium mt-0.5 p-2 rounded-md border bg-muted/30" data-testid="text-email-subject">
+                  {emailPreview?.subject || "—"}
                 </div>
               </div>
-              {!recipientEmail && (
+              <div>
+                <Label className="text-xs text-muted-foreground">{t("campaigns.chemEmailBody")}</Label>
+                <div
+                  className="text-sm mt-0.5 p-3 rounded-md border bg-muted/30 max-h-48 overflow-y-auto"
+                  data-testid="text-email-body"
+                  dangerouslySetInnerHTML={{ __html: emailPreview?.htmlBody || "—" }}
+                />
+              </div>
+              {!emailPreview?.recipientEmail && (
                 <div className="flex items-center gap-2 p-3 rounded-md bg-destructive/10 text-destructive text-sm">
                   <AlertCircle className="w-4 h-4 shrink-0" />
                   <span>{t("campaigns.chemNoRecipientWarning")}</span>
@@ -704,16 +732,17 @@ export default function CampaignItemDetail() {
             </div>
             <Separator />
             <div className="flex justify-end gap-2">
-              <Button variant="outline" onClick={() => setShowEmailConfirm(null)} data-testid="button-cancel-email">
+              <Button variant="outline" onClick={() => { setShowEmailConfirm(null); setEmailPreview(null); }} data-testid="button-cancel-email">
                 {t("common.cancel")}
               </Button>
               <Button
                 onClick={() => {
                   const action = showEmailConfirm === "pre" ? "send_pre_communication" : "send_post_communication";
                   setShowEmailConfirm(null);
+                  setEmailPreview(null);
                   updateItemMutation.mutate({ chemAction: action, notes });
                 }}
-                disabled={updateItemMutation.isPending || !recipientEmail}
+                disabled={updateItemMutation.isPending || !emailPreview?.recipientEmail}
                 data-testid="button-confirm-send-email"
               >
                 {updateItemMutation.isPending && <Loader2 className="w-4 h-4 mr-1 animate-spin" />}

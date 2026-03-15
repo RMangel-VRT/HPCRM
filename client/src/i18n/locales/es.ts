@@ -1287,6 +1287,8 @@ const es = {
     chemNoRecipient: "No se encontro correo de contacto",
     chemNoRecipientWarning: "No se encontro un contacto con correo electronico para este cliente. Agregue un correo de contacto antes de enviar.",
     chemEmailTemplate: "Plantilla de Correo",
+    chemEmailSubject: "Asunto",
+    chemEmailBody: "Cuerpo del Correo",
     chemTemplatePreName: "Aviso de Tratamiento Quimico",
     chemTemplatePostName: "Completado de Tratamiento Quimico",
     chemConfirmSend: "Enviar y Avanzar",

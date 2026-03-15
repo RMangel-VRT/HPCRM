@@ -9039,13 +9039,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
           photos: [] as string[],
           completedById: null,
           completedAt: null,
-          chemWorkflowStep: campaignCategory === "chemical" ? "pre_communication" : null,
-          chemPreSentAt: null,
-          chemPreSentById: null,
-          chemWorkCompletedAt: null,
-          chemWorkCompletedById: null,
-          chemPostSentAt: null,
-          chemPostSentById: null,
+          workflowStep: campaignCategory === "chemical" ? "pre_communication" : null,
+          preCommSentAt: null,
+          preCommSentById: null,
+          workCompletedAt: null,
+          workCompletedById: null,
+          postCommSentAt: null,
+          postCommSentById: null,
         };
       });
     if (itemsData.length === 0) {
@@ -9089,9 +9089,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
     const userIdSet = new Set<string>();
     items.forEach(i => {
       if (i.completedById) userIdSet.add(i.completedById);
-      if (i.chemPreSentById) userIdSet.add(i.chemPreSentById);
-      if (i.chemWorkCompletedById) userIdSet.add(i.chemWorkCompletedById);
-      if (i.chemPostSentById) userIdSet.add(i.chemPostSentById);
+      if (i.preCommSentById) userIdSet.add(i.preCommSentById);
+      if (i.workCompletedById) userIdSet.add(i.workCompletedById);
+      if (i.postCommSentById) userIdSet.add(i.postCommSentById);
     });
     const userNameMap = new Map<string, string>();
     for (const uid of userIdSet) {
@@ -9108,9 +9108,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
     const itemsWithNames = items.map(i => ({
       ...i,
       completedByName: i.completedById ? userNameMap.get(i.completedById) || null : null,
-      chemPreSentByName: i.chemPreSentById ? userNameMap.get(i.chemPreSentById) || null : null,
-      chemWorkCompletedByName: i.chemWorkCompletedById ? userNameMap.get(i.chemWorkCompletedById) || null : null,
-      chemPostSentByName: i.chemPostSentById ? userNameMap.get(i.chemPostSentById) || null : null,
+      preCommSentByName: i.preCommSentById ? userNameMap.get(i.preCommSentById) || null : null,
+      workCompletedByName: i.workCompletedById ? userNameMap.get(i.workCompletedById) || null : null,
+      postCommSentByName: i.postCommSentById ? userNameMap.get(i.postCommSentById) || null : null,
       customerType: customerTypeMap.get(i.customerId) || "commercial",
     }));
     res.json({
@@ -9122,6 +9122,54 @@ export async function registerRoutes(app: Express): Promise<Server> {
       assignedToName: assignedUser?.name,
       createdByName: createdUser?.name,
     });
+  });
+
+  app.get("/api/campaigns/:id/items/:itemId/email-preview", async (req, res) => {
+    if (!req.isAuthenticated()) return res.status(401).send("Not authenticated");
+    const user = req.user as UserWithContext;
+    try {
+      const { type } = req.query as { type?: string };
+      const eventKey = type === "post" ? "campaign.chemical_post_notice" : "campaign.chemical_pre_notice";
+      const campaign = await storage.getCampaignById(req.params.id, user.activeCompanyId);
+      if (!campaign) return res.status(404).json({ error: "Campaign not found" });
+      const targetItem = (await storage.getCampaignItems(req.params.id, user.activeCompanyId))
+        .find((i: { id: string }) => i.id === req.params.itemId);
+      if (!targetItem) return res.status(404).json({ error: "Item not found" });
+      const company = await storage.getCompanyById(user.activeCompanyId);
+      const customerContacts = await storage.getContactsByCustomerId(targetItem.customerId, user.activeCompanyId);
+      const primaryContact = customerContacts.find(c => c.isPrimary === "true") || customerContacts[0];
+      const recipientEmail = primaryContact?.emails?.[0] || customerContacts.find(c => c.emails && c.emails.length > 0)?.emails?.[0];
+      const rules = await storage.getEmailRulesByEvent(eventKey, user.activeCompanyId);
+      let subject = "";
+      let htmlBody = "";
+      let templateName = "";
+      if (rules.length > 0) {
+        const template = await storage.getEmailTemplateById(rules[0].templateId, user.activeCompanyId);
+        if (template) {
+          templateName = template.name;
+          const variables: Record<string, string> = {
+            companyName: company?.name || '',
+            customerName: targetItem.customerName,
+            campaignTitle: campaign.title,
+            windowStart: campaign.windowStart,
+            windowEnd: campaign.windowEnd,
+            ...(type === "post" ? { completionDate: new Date().toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' }) } : {}),
+            notes: '',
+          };
+          subject = template.subject;
+          htmlBody = template.htmlBody;
+          for (const [key, val] of Object.entries(variables)) {
+            const regex = new RegExp(`\\{\\{${key}\\}\\}`, 'g');
+            subject = subject.replace(regex, val);
+            htmlBody = htmlBody.replace(regex, val);
+          }
+        }
+      }
+      res.json({ recipientEmail: recipientEmail || null, subject, htmlBody, templateName, contactName: primaryContact?.name || null });
+    } catch (error) {
+      console.error("Error fetching email preview:", error);
+      res.status(500).json({ error: "Internal server error" });
+    }
   });
 
   app.patch("/api/campaigns/:id", async (req, res) => {
@@ -9216,7 +9264,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         if (!chemEmailRoles.includes(user.activeRole)) {
           return res.status(403).send("Only admin, office, or chemical manager can send communications");
         }
-        if (targetItem.chemWorkflowStep !== "pre_communication") {
+        if (targetItem.workflowStep !== "pre_communication") {
           return res.status(400).json({ error: "Item is not in pre-communication step" });
         }
         const company = await storage.getCompanyById(user.activeCompanyId);
@@ -9243,10 +9291,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
           if (!sentLog) {
             return res.status(502).json({ error: "Email delivery failed. Please try again." });
           }
-          chemUpdates.chemWorkflowStep = "work_in_progress";
-          chemUpdates.chemPreSentAt = new Date();
-          chemUpdates.chemPreSentById = user.id;
-          chemUpdates.chemPreEmailLogId = sentLog.id;
+          chemUpdates.workflowStep = "work_in_progress";
+          chemUpdates.preCommSentAt = new Date();
+          chemUpdates.preCommSentById = user.id;
+          chemUpdates.preCommEmailLogId = sentLog.id;
         } catch (emailErr) {
           console.error("Failed to send chemical pre-notice email:", emailErr);
           return res.status(500).json({ error: "Failed to send pre-work notification email" });
@@ -9255,17 +9303,17 @@ export async function registerRoutes(app: Express): Promise<Server> {
         if (!chemWorkRoles.includes(user.activeRole)) {
           return res.status(403).send("Insufficient permissions to complete work");
         }
-        if (targetItem.chemWorkflowStep !== "work_in_progress") {
+        if (targetItem.workflowStep !== "work_in_progress") {
           return res.status(400).json({ error: "Item is not in work-in-progress step" });
         }
-        chemUpdates.chemWorkflowStep = "work_completed";
-        chemUpdates.chemWorkCompletedAt = new Date();
-        chemUpdates.chemWorkCompletedById = user.id;
+        chemUpdates.workflowStep = "work_completed";
+        chemUpdates.workCompletedAt = new Date();
+        chemUpdates.workCompletedById = user.id;
       } else if (chemAction === "send_post_communication") {
         if (!chemEmailRoles.includes(user.activeRole)) {
           return res.status(403).send("Only admin, office, or chemical manager can send communications");
         }
-        if (targetItem.chemWorkflowStep !== "work_completed") {
+        if (targetItem.workflowStep !== "work_completed") {
           return res.status(400).json({ error: "Item is not in work-completed step" });
         }
         const company = await storage.getCompanyById(user.activeCompanyId);
@@ -9291,13 +9339,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
           if (!sentLog) {
             return res.status(502).json({ error: "Email delivery failed. Please try again." });
           }
-          chemUpdates.chemWorkflowStep = "post_communication";
-          chemUpdates.chemPostSentAt = new Date();
-          chemUpdates.chemPostSentById = user.id;
+          chemUpdates.workflowStep = "post_communication";
+          chemUpdates.postCommSentAt = new Date();
+          chemUpdates.postCommSentById = user.id;
           chemUpdates.status = "completed";
           chemUpdates.completedById = user.id;
           chemUpdates.completedAt = new Date();
-          chemUpdates.chemPostEmailLogId = sentLog.id;
+          chemUpdates.postCommEmailLogId = sentLog.id;
         } catch (emailErr) {
           console.error("Failed to send chemical post-notice email:", emailErr);
           return res.status(500).json({ error: "Failed to send post-completion notification email" });
@@ -9306,15 +9354,15 @@ export async function registerRoutes(app: Express): Promise<Server> {
         if (user.activeRole !== "admin" && user.activeRole !== "office") {
           return res.status(403).send("Only admin/office can reset chemical workflow");
         }
-        chemUpdates.chemWorkflowStep = "pre_communication";
-        chemUpdates.chemPreSentAt = null;
-        chemUpdates.chemPreSentById = null;
-        chemUpdates.chemWorkCompletedAt = null;
-        chemUpdates.chemWorkCompletedById = null;
-        chemUpdates.chemPostSentAt = null;
-        chemUpdates.chemPostSentById = null;
-        chemUpdates.chemPreEmailLogId = null;
-        chemUpdates.chemPostEmailLogId = null;
+        chemUpdates.workflowStep = "pre_communication";
+        chemUpdates.preCommSentAt = null;
+        chemUpdates.preCommSentById = null;
+        chemUpdates.workCompletedAt = null;
+        chemUpdates.workCompletedById = null;
+        chemUpdates.postCommSentAt = null;
+        chemUpdates.postCommSentById = null;
+        chemUpdates.preCommEmailLogId = null;
+        chemUpdates.postCommEmailLogId = null;
         chemUpdates.status = "pending";
         chemUpdates.completedById = null;
         chemUpdates.completedAt = null;
@@ -9392,7 +9440,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const items = await storage.getCampaignItems(req.params.id, user.activeCompanyId);
       const targetItem = items.find((i: { id: string }) => i.id === req.params.itemId);
       if (!targetItem) return res.status(404).json({ error: "Item not found" });
-      if (targetItem.chemWorkflowStep !== "pre_communication") {
+      if (targetItem.workflowStep !== "pre_communication") {
         return res.status(400).json({ error: "Item is not in pre-communication step" });
       }
       const { notes } = req.body || {};
@@ -9421,14 +9469,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
         if (!sentLog) {
           return res.status(502).json({ error: "Email delivery failed. Please try again." });
         }
-        chemUpdates.chemPreEmailLogId = sentLog.id;
+        chemUpdates.preCommEmailLogId = sentLog.id;
       } catch (emailErr) {
         console.error("Failed to send chemical pre-notice email:", emailErr);
         return res.status(500).json({ error: "Failed to send pre-work notification email" });
       }
-      chemUpdates.chemWorkflowStep = "work_in_progress";
-      chemUpdates.chemPreSentAt = new Date();
-      chemUpdates.chemPreSentById = user.id;
+      chemUpdates.workflowStep = "work_in_progress";
+      chemUpdates.preCommSentAt = new Date();
+      chemUpdates.preCommSentById = user.id;
       if (notes !== undefined) chemUpdates.notes = notes;
       const updated = await storage.updateCampaignItem(req.params.itemId, user.activeCompanyId, chemUpdates);
       if (!updated) return res.status(404).json({ error: "Not found" });
@@ -9455,14 +9503,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const items = await storage.getCampaignItems(req.params.id, user.activeCompanyId);
       const targetItem = items.find((i: { id: string }) => i.id === req.params.itemId);
       if (!targetItem) return res.status(404).json({ error: "Item not found" });
-      if (targetItem.chemWorkflowStep !== "work_in_progress") {
+      if (targetItem.workflowStep !== "work_in_progress") {
         return res.status(400).json({ error: "Item is not in work-in-progress step" });
       }
       const { notes } = req.body || {};
       const chemUpdates: Partial<CampaignItem> = { updatedAt: new Date() };
-      chemUpdates.chemWorkflowStep = "work_completed";
-      chemUpdates.chemWorkCompletedAt = new Date();
-      chemUpdates.chemWorkCompletedById = user.id;
+      chemUpdates.workflowStep = "work_completed";
+      chemUpdates.workCompletedAt = new Date();
+      chemUpdates.workCompletedById = user.id;
       if (notes !== undefined) chemUpdates.notes = notes;
       const updated = await storage.updateCampaignItem(req.params.itemId, user.activeCompanyId, chemUpdates);
       if (!updated) return res.status(404).json({ error: "Not found" });
@@ -9489,7 +9537,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const items = await storage.getCampaignItems(req.params.id, user.activeCompanyId);
       const targetItem = items.find((i: { id: string }) => i.id === req.params.itemId);
       if (!targetItem) return res.status(404).json({ error: "Item not found" });
-      if (targetItem.chemWorkflowStep !== "work_completed") {
+      if (targetItem.workflowStep !== "work_completed") {
         return res.status(400).json({ error: "Item is not in work-completed step" });
       }
       const { notes } = req.body || {};
@@ -9517,14 +9565,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
         if (!sentLog) {
           return res.status(502).json({ error: "Email delivery failed. Please try again." });
         }
-        chemUpdates.chemPostEmailLogId = sentLog.id;
+        chemUpdates.postCommEmailLogId = sentLog.id;
       } catch (emailErr) {
         console.error("Failed to send chemical post-notice email:", emailErr);
         return res.status(500).json({ error: "Failed to send post-completion notification email" });
       }
-      chemUpdates.chemWorkflowStep = "post_communication";
-      chemUpdates.chemPostSentAt = new Date();
-      chemUpdates.chemPostSentById = user.id;
+      chemUpdates.workflowStep = "post_communication";
+      chemUpdates.postCommSentAt = new Date();
+      chemUpdates.postCommSentById = user.id;
       chemUpdates.status = "completed";
       chemUpdates.completedById = user.id;
       chemUpdates.completedAt = new Date();
