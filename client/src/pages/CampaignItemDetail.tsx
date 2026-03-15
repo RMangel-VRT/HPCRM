@@ -542,7 +542,7 @@ export default function CampaignItemDetail() {
               )}
             </div>
 
-            {item.chemWorkflowStep !== "done" && (
+            {item.status !== "completed" && (
               <div className="flex items-center gap-2 flex-wrap">
                 {!showSkip ? (
                   <Button
