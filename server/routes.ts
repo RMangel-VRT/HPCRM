@@ -9071,8 +9071,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
     if (status !== undefined && !validStatuses.includes(status)) {
       return res.status(400).json({ error: "Invalid status value" });
     }
-    if (windowStart && windowEnd && windowStart > windowEnd) {
-      return res.status(400).json({ error: "Start date must be before or equal to end date" });
+    {
+      const campaign = await storage.getCampaignById(req.params.id, user.activeCompanyId);
+      if (!campaign) return res.status(404).json({ error: "Not found" });
+      const effectiveStart = windowStart || campaign.windowStart;
+      const effectiveEnd = windowEnd || campaign.windowEnd;
+      if (effectiveStart && effectiveEnd && effectiveStart > effectiveEnd) {
+        return res.status(400).json({ error: "Start date must be before or equal to end date" });
+      }
     }
     if (assignedToId) {
       const companyUsers = await storage.getCompanyUsersByCompanyId(user.activeCompanyId);
