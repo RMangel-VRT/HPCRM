@@ -1,4 +1,4 @@
-import { useState, useMemo, useEffect } from "react";
+import { useState, useMemo } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { Link, useLocation, useParams } from "wouter";
 import { useTranslation } from "react-i18next";
@@ -6,11 +6,10 @@ import { useAuth } from "@/hooks/use-auth";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import { format } from "date-fns";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
-import { Textarea } from "@/components/ui/textarea";
 import { Progress } from "@/components/ui/progress";
 import {
   Dialog,
@@ -27,27 +26,19 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import {
-  Sheet,
-  SheetContent,
-  SheetHeader,
-  SheetTitle,
-} from "@/components/ui/sheet";
-import {
   Loader2,
   ArrowLeft,
   Search,
   CheckCircle2,
   Clock,
   SkipForward,
-  Camera,
-  X,
   Trash2,
   Archive,
   RotateCcw,
-  Upload,
   AlertTriangle,
   MapPin,
   User,
+  ChevronRight,
 } from "lucide-react";
 import type { Campaign, CampaignItem } from "@shared/schema";
 
@@ -72,7 +63,6 @@ export default function CampaignDetail() {
   const [, navigate] = useLocation();
   const [search, setSearch] = useState("");
   const [filterStatus, setFilterStatus] = useState<string>("all");
-  const [activeItemId, setActiveItemId] = useState<string | null>(null);
   const [deleteOpen, setDeleteOpen] = useState(false);
 
   const { data: campaign, isLoading } = useQuery<CampaignDetailData>({
@@ -80,7 +70,6 @@ export default function CampaignDetail() {
   });
 
   const canManage = user?.activeRole === "admin" || user?.activeRole === "office";
-  const canComplete = ["admin", "office", "field_manager", "field"].includes(user?.activeRole || "");
 
   const filteredItems = useMemo(() => {
     if (!campaign?.items) return [];
@@ -94,20 +83,6 @@ export default function CampaignDetail() {
     }
     return items;
   }, [campaign?.items, filterStatus, search]);
-
-  const updateItemMutation = useMutation({
-    mutationFn: async ({ itemId, ...data }: { itemId: string; status?: string; notes?: string; skipReason?: string; photos?: string[] }) => {
-      const res = await apiRequest("PATCH", `/api/campaigns/${id}/items/${itemId}`, data);
-      return res.json();
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/campaigns", id] });
-      queryClient.invalidateQueries({ queryKey: ["/api/campaigns"] });
-    },
-    onError: () => {
-      toast({ title: t("campaigns.updateFailed"), variant: "destructive" });
-    },
-  });
 
   const updateCampaignMutation = useMutation({
     mutationFn: async (data: { status?: string; title?: string; description?: string }) => {
@@ -300,7 +275,7 @@ export default function CampaignDetail() {
             <Card
               key={item.id}
               className="hover-elevate cursor-pointer"
-              onClick={() => setActiveItemId(item.id)}
+              onClick={() => navigate(`/dashboard/campaigns/${id}/items/${item.id}`)}
               data-testid={`card-campaign-item-${item.id}`}
             >
               <CardContent className="p-4">
@@ -335,6 +310,7 @@ export default function CampaignDetail() {
                       : item.status === "skipped" ? t("campaigns.skippedLabel")
                       : t("campaigns.pending")}
                   </Badge>
+                  <ChevronRight className="w-4 h-4 text-muted-foreground shrink-0" />
                 </div>
               </CardContent>
             </Card>
@@ -348,19 +324,6 @@ export default function CampaignDetail() {
           </Card>
         )}
       </div>
-
-      {activeItemId && (
-        <CampaignItemSheet
-          item={campaign.items.find(i => i.id === activeItemId)!}
-          campaignId={id!}
-          canComplete={canComplete}
-          canManage={canManage}
-          open={!!activeItemId}
-          onClose={() => setActiveItemId(null)}
-          onUpdate={(data) => updateItemMutation.mutate({ itemId: activeItemId, ...data })}
-          isPending={updateItemMutation.isPending}
-        />
-      )}
 
       <Dialog open={deleteOpen} onOpenChange={setDeleteOpen}>
         <DialogContent>
@@ -383,229 +346,5 @@ export default function CampaignDetail() {
         </DialogContent>
       </Dialog>
     </div>
-  );
-}
-
-function CampaignItemSheet({
-  item,
-  campaignId,
-  canComplete,
-  canManage,
-  open,
-  onClose,
-  onUpdate,
-  isPending,
-}: {
-  item: CampaignItemWithUser;
-  campaignId: string;
-  canComplete: boolean;
-  canManage: boolean;
-  open: boolean;
-  onClose: () => void;
-  onUpdate: (data: { status?: string; notes?: string; skipReason?: string; photos?: string[] }) => void;
-  isPending: boolean;
-}) {
-  const { t } = useTranslation();
-  const { toast } = useToast();
-  const [notes, setNotes] = useState(item.notes || "");
-  const [skipReason, setSkipReason] = useState(item.skipReason || "");
-  const [photos, setPhotos] = useState<string[]>(item.photos || []);
-  const [showSkip, setShowSkip] = useState(false);
-  const [uploading, setUploading] = useState(false);
-
-  useEffect(() => {
-    setNotes(item.notes || "");
-    setSkipReason(item.skipReason || "");
-    setPhotos(item.photos || []);
-    setShowSkip(false);
-  }, [item.id, item.notes, item.skipReason, item.photos]);
-
-  const handlePhotoUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-    setUploading(true);
-    try {
-      const res = await apiRequest("POST", "/api/campaigns/photo-upload-url");
-      const { uploadURL, objectPath } = await res.json();
-      await fetch(uploadURL, {
-        method: "PUT",
-        headers: { "Content-Type": file.type },
-        body: file,
-      });
-      const newPhotos = [...photos, objectPath];
-      setPhotos(newPhotos);
-      onUpdate({ photos: newPhotos });
-    } catch {
-      toast({ title: t("campaigns.photoUploadFailed"), variant: "destructive" });
-    } finally {
-      setUploading(false);
-    }
-  };
-
-  const removePhoto = (idx: number) => {
-    const newPhotos = photos.filter((_, i) => i !== idx);
-    setPhotos(newPhotos);
-    onUpdate({ photos: newPhotos });
-  };
-
-  return (
-    <Sheet open={open} onOpenChange={(v) => { if (!v) onClose(); }}>
-      <SheetContent className="overflow-y-auto" data-testid={`sheet-campaign-item-${item.id}`}>
-        <SheetHeader>
-          <SheetTitle data-testid={`text-sheet-item-name-${item.id}`}>{item.customerName}</SheetTitle>
-        </SheetHeader>
-        <div className="space-y-4 mt-4">
-          <div className="flex items-center gap-3 text-sm text-muted-foreground flex-wrap">
-            {item.customerCity && (
-              <span className="flex items-center gap-1">
-                <MapPin className="w-3.5 h-3.5" />
-                {item.customerCity}
-              </span>
-            )}
-            <Badge
-              variant={item.status === "completed" ? "default" : item.status === "skipped" ? "secondary" : "outline"}
-              className={item.status === "completed" ? "bg-green-600" : ""}
-            >
-              {item.status === "completed" ? t("campaigns.completed")
-                : item.status === "skipped" ? t("campaigns.skippedLabel")
-                : t("campaigns.pending")}
-            </Badge>
-          </div>
-
-          {item.completedAt && (
-            <div className="text-sm text-muted-foreground space-y-1">
-              <div>{t("campaigns.completedAt")}: {format(new Date(item.completedAt), "PPp")}</div>
-              {item.completedByName && (
-                <div className="flex items-center gap-1">
-                  <User className="w-3.5 h-3.5" />
-                  {item.completedByName}
-                </div>
-              )}
-            </div>
-          )}
-          {item.skipReason && item.status === "skipped" && (
-            <div className="text-sm text-muted-foreground">
-              {t("campaigns.skipReason")}: {item.skipReason}
-            </div>
-          )}
-
-          <div className="space-y-2">
-            <label className="text-sm font-medium">{t("common.notes")}</label>
-            <Textarea
-              value={notes}
-              onChange={(e) => setNotes(e.target.value)}
-              placeholder={t("campaigns.notesPlaceholder")}
-              rows={3}
-              data-testid={`textarea-item-notes-${item.id}`}
-            />
-          </div>
-
-          {photos.length > 0 && (
-            <div className="flex gap-2 flex-wrap">
-              {photos.map((photo, idx) => (
-                <div key={idx} className="relative w-20 h-20 rounded-md overflow-hidden border">
-                  <img src={photo.startsWith("/objects/") ? photo : `/objects/${photo.replace(/^\/[^/]+\/[^/]+\//, "")}`} alt="" className="w-full h-full object-cover" />
-                  <button
-                    className="absolute top-0 right-0 bg-black/60 text-white rounded-bl-md p-0.5"
-                    onClick={() => removePhoto(idx)}
-                    data-testid={`button-remove-photo-${idx}`}
-                  >
-                    <X className="w-3 h-3" />
-                  </button>
-                </div>
-              ))}
-            </div>
-          )}
-
-          {showSkip && (
-            <div className="space-y-2">
-              <label className="text-sm font-medium">{t("campaigns.skipReason")}</label>
-              <Input
-                value={skipReason}
-                onChange={(e) => setSkipReason(e.target.value)}
-                placeholder={t("campaigns.skipReasonPlaceholder")}
-                data-testid={`input-skip-reason-${item.id}`}
-              />
-            </div>
-          )}
-
-          {canComplete && (
-            <div className="flex items-center gap-2 flex-wrap pt-2 border-t">
-              {item.status === "pending" && (
-                <>
-                  <Button
-                    size="sm"
-                    onClick={() => onUpdate({ status: "completed", notes })}
-                    disabled={isPending}
-                    data-testid={`button-complete-item-${item.id}`}
-                  >
-                    <CheckCircle2 className="w-4 h-4 mr-1" />
-                    {t("campaigns.markComplete")}
-                  </Button>
-                  {!showSkip ? (
-                    <Button
-                      size="sm"
-                      variant="outline"
-                      onClick={() => setShowSkip(true)}
-                      data-testid={`button-show-skip-${item.id}`}
-                    >
-                      <SkipForward className="w-4 h-4 mr-1" />
-                      {t("campaigns.skip")}
-                    </Button>
-                  ) : (
-                    <Button
-                      size="sm"
-                      variant="outline"
-                      onClick={() => onUpdate({ status: "skipped", notes, skipReason })}
-                      disabled={isPending || !skipReason.trim()}
-                      data-testid={`button-confirm-skip-${item.id}`}
-                    >
-                      <SkipForward className="w-4 h-4 mr-1" />
-                      {t("campaigns.confirmSkip")}
-                    </Button>
-                  )}
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    onClick={() => onUpdate({ notes })}
-                    disabled={isPending}
-                    data-testid={`button-save-notes-${item.id}`}
-                  >
-                    {t("campaigns.saveNotes")}
-                  </Button>
-                  <label className="cursor-pointer">
-                    <Button size="sm" variant="outline" asChild disabled={uploading}>
-                      <span>
-                        {uploading ? <Loader2 className="w-4 h-4 mr-1 animate-spin" /> : <Camera className="w-4 h-4 mr-1" />}
-                        {t("campaigns.addPhoto")}
-                      </span>
-                    </Button>
-                    <input
-                      type="file"
-                      accept="image/*"
-                      className="hidden"
-                      onChange={handlePhotoUpload}
-                      data-testid={`input-photo-upload-${item.id}`}
-                    />
-                  </label>
-                </>
-              )}
-              {canManage && (item.status === "completed" || item.status === "skipped") && (
-                <Button
-                  size="sm"
-                  variant="outline"
-                  onClick={() => onUpdate({ status: "pending", notes: "", skipReason: "" })}
-                  disabled={isPending}
-                  data-testid={`button-reopen-item-${item.id}`}
-                >
-                  <RotateCcw className="w-4 h-4 mr-1" />
-                  {t("campaigns.reopen")}
-                </Button>
-              )}
-            </div>
-          )}
-        </div>
-      </SheetContent>
-    </Sheet>
   );
 }

@@ -1351,6 +1351,12 @@ const en = {
     overdue: "Overdue",
     completedAt: "Completed",
     notesPlaceholder: "Add notes about this property...",
+    photos: "Photos",
+    noPhotos: "No photos uploaded yet",
+    viewCustomer: "View Customer",
+    itemLocation: "Location",
+    itemCustomerLinks: "Customer & Property",
+    itemUpdated: "Item updated",
   },
 };
 

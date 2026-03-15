@@ -1255,6 +1255,12 @@ const es = {
     overdue: "Vencido",
     completedAt: "Completada",
     notesPlaceholder: "Agregar notas sobre esta propiedad...",
+    photos: "Fotos",
+    noPhotos: "No se han subido fotos",
+    viewCustomer: "Ver Cliente",
+    itemLocation: "Ubicacion",
+    itemCustomerLinks: "Cliente y Propiedad",
+    itemUpdated: "Elemento actualizado",
   },
 };
 

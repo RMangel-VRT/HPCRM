@@ -53,6 +53,7 @@ import VisualScopeDraft from "@/pages/VisualScopeDraft";
 import CustomerRouteMap from "@/pages/CustomerRouteMap";
 import CampaignsList from "@/pages/CampaignsList";
 import CampaignDetail from "@/pages/CampaignDetail";
+import CampaignItemDetail from "@/pages/CampaignItemDetail";
 import NotFound from "@/pages/not-found";
 
 interface ErrorBoundaryProps {
@@ -209,6 +210,7 @@ function Router() {
               <ProtectedRoute path="/dashboard/contracts" component={ContractsOverview} allowedRoles={["admin", "office"]} />
               <ProtectedRoute path="/dashboard/revenue" component={RevenueOverview} allowedRoles={["admin", "office"]} />
               <ProtectedRoute path="/dashboard/notifications" component={NotificationsPage} allowedRoles={["admin", "office", "field_manager", "chemical_manager", "field", "irrigation_manager", "shop_manager"]} />
+              <ProtectedRoute path="/dashboard/campaigns/:id/items/:itemId" component={CampaignItemDetail} allowedRoles={["admin", "office", "field_manager", "field"]} />
               <ProtectedRoute path="/dashboard/campaigns/:id" component={CampaignDetail} allowedRoles={["admin", "office", "field_manager", "field"]} />
               <ProtectedRoute path="/dashboard/campaigns" component={CampaignsList} allowedRoles={["admin", "office", "field_manager", "field"]} />
               <ProtectedRoute path="/dashboard/reports" component={ReportsPage} allowedRoles={["admin", "office"]} />
