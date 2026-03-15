@@ -1492,6 +1492,41 @@ export default function TicketDetail() {
             </Card>
           )}
 
+          {ticket.documents && ticket.documents.length > 0 && ticket.workType === "estimate_request" && (
+            <Card data-testid="card-documents">
+              <CardHeader className="pb-2">
+                <CardTitle className="text-sm flex items-center gap-2">
+                  <FileText className="w-4 h-4" />
+                  {t('ticketDetail.documents')} ({ticket.documents.length})
+                </CardTitle>
+              </CardHeader>
+              <CardContent className="pb-3">
+                <div className="space-y-2">
+                  {ticket.documents.map((doc, index) => {
+                    const docUrl = doc.startsWith("/objects/") 
+                      ? doc 
+                      : `/objects/${doc.replace(/^\/[^/]+\/[^/]+\//, "")}`;
+                    const fileName = ticket.documentNames?.[index] || `Document ${index + 1}`;
+                    return (
+                      <a
+                        key={index}
+                        href={docUrl}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="flex items-center gap-2 p-2 rounded-md border hover:ring-2 hover:ring-primary transition-all bg-muted/30"
+                        data-testid={`document-link-${index}`}
+                      >
+                        <FileText className="w-4 h-4 text-muted-foreground shrink-0" />
+                        <span className="text-sm truncate flex-1">{fileName}</span>
+                        <ExternalLink className="w-3 h-3 text-muted-foreground shrink-0" />
+                      </a>
+                    );
+                  })}
+                </div>
+              </CardContent>
+            </Card>
+          )}
+
           {comments.length > 0 && (
             <Card data-testid="card-recent-comments">
               <CardHeader className="pb-2 flex flex-row items-center justify-between">

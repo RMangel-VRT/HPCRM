@@ -4014,6 +4014,28 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  app.post("/api/tickets/document-upload-url", async (req, res) => {
+    if (!req.isAuthenticated()) {
+      return res.status(401).send("Not authenticated");
+    }
+
+    const user = req.user as UserWithContext;
+    
+    if (user.activeRole === "field") {
+      return res.status(403).send("Insufficient permissions");
+    }
+
+    try {
+      const objectStorageService = new ObjectStorageService();
+      const uploadURL = await objectStorageService.getObjectEntityUploadURL();
+      const normalizedPath = objectStorageService.normalizeObjectEntityPath(uploadURL);
+      res.json({ uploadURL, objectPath: normalizedPath });
+    } catch (error) {
+      console.error("Error getting document upload URL:", error);
+      res.status(500).send("Failed to get upload URL");
+    }
+  });
+
   app.post("/api/tickets", async (req, res) => {
     if (!req.isAuthenticated()) {
       return res.status(401).send("Not authenticated");
@@ -4035,6 +4057,17 @@ export async function registerRoutes(app: Express): Promise<Server> {
     const isValidAssignee = companyUsers.some(cu => cu.userId === req.body.assignedToId);
     if (!isValidAssignee) {
       return res.status(400).send("Invalid assignee - user must belong to this company");
+    }
+
+    // Documents are only allowed on estimate_request tickets
+    if (req.body.documents && req.body.documents.length > 0 && req.body.workType !== "estimate_request") {
+      return res.status(400).send("Documents can only be attached to Estimate Request tickets");
+    }
+    if (req.body.documentNames && req.body.documentNames.length > 0 && req.body.workType !== "estimate_request") {
+      return res.status(400).send("Document names can only be attached to Estimate Request tickets");
+    }
+    if (req.body.documents && req.body.documentNames && req.body.documents.length !== req.body.documentNames.length) {
+      return res.status(400).send("Documents and document names arrays must have the same length");
     }
 
     // Get the ticket type to find the initial status
@@ -4081,6 +4114,28 @@ export async function registerRoutes(app: Express): Promise<Server> {
           });
         } catch (error) {
           console.error(`Failed to set ACL for photo ${photoPath}:`, error);
+        }
+      }
+    }
+    
+    // Set ACL on uploaded documents to allow company members to read them
+    if (ticket.documents && ticket.documents.length > 0) {
+      const objectStorageService = new ObjectStorageService();
+      for (const docPath of ticket.documents) {
+        try {
+          await objectStorageService.trySetObjectEntityAclPolicy(docPath, {
+            owner: user.id,
+            visibility: "private",
+            aclRules: [{
+              group: {
+                type: ObjectAccessGroupType.COMPANY_MEMBER,
+                id: user.activeCompanyId,
+              },
+              permission: ObjectPermission.READ,
+            }],
+          });
+        } catch (error) {
+          console.error(`Failed to set ACL for document ${docPath}:`, error);
         }
       }
     }

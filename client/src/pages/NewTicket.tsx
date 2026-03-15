@@ -145,6 +145,9 @@ export default function NewTicket() {
   const [photos, setPhotos] = useState<{ path: string; previewUrl: string }[]>([]);
   const [isUploadingPhoto, setIsUploadingPhoto] = useState(false);
   
+  const [documents, setDocuments] = useState<{ path: string; fileName: string }[]>([]);
+  const [isUploadingDocument, setIsUploadingDocument] = useState(false);
+  
   // Shop to-do specific state
   const [selectedEquipmentId, setSelectedEquipmentId] = useState<string | null>(null);
 
@@ -357,6 +360,8 @@ export default function NewTicket() {
         locationLabel: locationLabel || null,
         locationDescription: locationDescription || null,
         photos: !isRFPRequest && photos.length > 0 ? photos.map(p => p.path) : null,
+        documents: selectedWorkType === "estimate_request" && documents.length > 0 ? documents.map(d => d.path) : null,
+        documentNames: selectedWorkType === "estimate_request" && documents.length > 0 ? documents.map(d => d.fileName) : null,
         // Invoice-specific fields
         workCompletedDate: isInvoice && workCompletedDate ? new Date(workCompletedDate + "T12:00:00") : null,
         invoiceCategory: isInvoice ? invoiceCategory : null,
@@ -605,6 +610,89 @@ export default function NewTicket() {
       return newPhotos;
     });
   };
+
+  const uploadDocumentFiles = useCallback(async (fileList: File[]) => {
+    if (fileList.length === 0) return;
+
+    setIsUploadingDocument(true);
+
+    try {
+      for (const file of fileList) {
+        if (file.type !== "application/pdf") {
+          toast({ title: t('newTicket.pdfOnly'), variant: "destructive" });
+          continue;
+        }
+
+        if (file.size > 20 * 1024 * 1024) {
+          toast({ title: t('newTicket.pdfOnly'), variant: "destructive" });
+          continue;
+        }
+
+        const uploadUrlResponse = await apiRequest("POST", "/api/tickets/document-upload-url");
+        const { uploadURL, objectPath } = await uploadUrlResponse.json();
+
+        const uploadResponse = await fetch(uploadURL, {
+          method: "PUT",
+          body: file,
+          headers: {
+            "Content-Type": file.type,
+          },
+        });
+
+        if (!uploadResponse.ok) {
+          throw new Error("Failed to upload document");
+        }
+
+        setDocuments((prev) => [...prev, { path: objectPath, fileName: file.name }]);
+        toast({ title: t('newTicket.documentAdded') });
+      }
+    } catch (error) {
+      console.error("Document upload error:", error);
+      toast({ title: t('newTicket.createFailed'), variant: "destructive" });
+    } finally {
+      setIsUploadingDocument(false);
+    }
+  }, [toast, t]);
+
+  const handleDocumentUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const files = event.target.files;
+    if (!files || files.length === 0) return;
+    await uploadDocumentFiles(Array.from(files));
+    event.target.value = "";
+  };
+
+  const handleRemoveDocument = (index: number) => {
+    setDocuments((prev) => {
+      const newDocs = [...prev];
+      newDocs.splice(index, 1);
+      return newDocs;
+    });
+  };
+
+  const [isDraggingOverDocs, setIsDraggingOverDocs] = useState(false);
+  const docDropzoneRef = useRef<HTMLDivElement>(null);
+
+  const handleDocDragOver = useCallback((e: React.DragEvent<HTMLDivElement>) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsDraggingOverDocs(true);
+  }, []);
+
+  const handleDocDragLeave = useCallback((e: React.DragEvent<HTMLDivElement>) => {
+    e.preventDefault();
+    e.stopPropagation();
+    if (docDropzoneRef.current && !docDropzoneRef.current.contains(e.relatedTarget as Node)) {
+      setIsDraggingOverDocs(false);
+    }
+  }, []);
+
+  const handleDocDrop = useCallback(async (e: React.DragEvent<HTMLDivElement>) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsDraggingOverDocs(false);
+    const files = Array.from(e.dataTransfer.files);
+    await uploadDocumentFiles(files);
+  }, [uploadDocumentFiles]);
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -1246,6 +1334,86 @@ export default function NewTicket() {
                       Choose Photo
                     </Button>
                   </div>
+                </div>
+              </div>
+            )}
+
+            {selectedWorkType === "estimate_request" && (
+              <div className="space-y-2">
+                <Label>{t('newTicket.documents')}</Label>
+                <div className="space-y-3">
+                  {documents.length > 0 && (
+                    <div className="space-y-2">
+                      {documents.map((doc, index) => (
+                        <div key={index} className="flex items-center gap-2 p-2 rounded-md border bg-muted/30">
+                          <FileText className="w-4 h-4 text-muted-foreground shrink-0" />
+                          <span className="text-sm truncate flex-1" data-testid={`text-document-name-${index}`}>{doc.fileName}</span>
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="icon"
+                            onClick={() => handleRemoveDocument(index)}
+                            data-testid={`button-remove-document-${index}`}
+                          >
+                            <X className="w-3 h-3" />
+                          </Button>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                  
+                  <div
+                    ref={docDropzoneRef}
+                    onDragOver={handleDocDragOver}
+                    onDragLeave={handleDocDragLeave}
+                    onDrop={handleDocDrop}
+                    onClick={() => document.getElementById("document-picker")?.click()}
+                    className={`flex flex-col items-center justify-center gap-2 rounded-md border-2 border-dashed p-6 cursor-pointer transition-colors ${
+                      isDraggingOverDocs
+                        ? "border-primary bg-primary/5"
+                        : "border-muted-foreground/25 hover:border-muted-foreground/50"
+                    } ${isUploadingDocument ? "pointer-events-none opacity-50" : ""}`}
+                    data-testid="dropzone-document"
+                  >
+                    {isUploadingDocument ? (
+                      <Loader2 className="w-8 h-8 text-muted-foreground animate-spin" />
+                    ) : (
+                      <Upload className="w-8 h-8 text-muted-foreground" />
+                    )}
+                    <p className="text-sm text-muted-foreground text-center">
+                      {t('newTicket.dragDropDocuments')}
+                    </p>
+                    <p className="text-xs text-muted-foreground/60">
+                      {t('newTicket.pdfOnly')}
+                    </p>
+                  </div>
+
+                  <input
+                    type="file"
+                    accept=".pdf,application/pdf"
+                    multiple
+                    id="document-picker"
+                    className="hidden"
+                    onChange={handleDocumentUpload}
+                    disabled={isUploadingDocument}
+                    data-testid="input-document-picker"
+                  />
+                  
+                  <Button
+                    type="button"
+                    variant="outline"
+                    className="w-full gap-2 h-11"
+                    onClick={() => document.getElementById("document-picker")?.click()}
+                    disabled={isUploadingDocument}
+                    data-testid="button-choose-document"
+                  >
+                    {isUploadingDocument ? (
+                      <Loader2 className="w-4 h-4 animate-spin" />
+                    ) : (
+                      <FileText className="w-4 h-4" />
+                    )}
+                    {t('newTicket.choosePdf')}
+                  </Button>
                 </div>
               </div>
             )}
