@@ -9389,6 +9389,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
     try {
       const campaign = await storage.getCampaignById(req.params.id, user.activeCompanyId);
       if (!campaign || campaign.category !== "chemical") return res.status(404).json({ error: "Chemical campaign not found" });
+      if (user.activeRole === "field" && campaign.assignedToId !== user.id) {
+        return res.status(403).send("Not assigned to this campaign");
+      }
       const items = await storage.getCampaignItems(req.params.id, user.activeCompanyId);
       const targetItem = items.find((i: { id: string }) => i.id === req.params.itemId);
       if (!targetItem) return res.status(404).json({ error: "Item not found" });
@@ -9445,6 +9448,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
     try {
       const campaign = await storage.getCampaignById(req.params.id, user.activeCompanyId);
       if (!campaign || campaign.category !== "chemical") return res.status(404).json({ error: "Chemical campaign not found" });
+      if (user.activeRole === "field" && campaign.assignedToId !== user.id) {
+        return res.status(403).send("Not assigned to this campaign");
+      }
       const items = await storage.getCampaignItems(req.params.id, user.activeCompanyId);
       const targetItem = items.find((i: { id: string }) => i.id === req.params.itemId);
       if (!targetItem) return res.status(404).json({ error: "Item not found" });
@@ -9476,6 +9482,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
     try {
       const campaign = await storage.getCampaignById(req.params.id, user.activeCompanyId);
       if (!campaign || campaign.category !== "chemical") return res.status(404).json({ error: "Chemical campaign not found" });
+      if (user.activeRole === "field" && campaign.assignedToId !== user.id) {
+        return res.status(403).send("Not assigned to this campaign");
+      }
       const items = await storage.getCampaignItems(req.params.id, user.activeCompanyId);
       const targetItem = items.find((i: { id: string }) => i.id === req.params.itemId);
       if (!targetItem) return res.status(404).json({ error: "Item not found" });
