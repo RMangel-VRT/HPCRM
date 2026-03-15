@@ -352,12 +352,14 @@ export default function CampaignItemDetail() {
               <Layers className="w-3 h-3 mr-1" />
               {t("campaigns.viewPropertyMaps")}
             </Button>
-            <Link href={`/dashboard/customers/${item.customerId}`}>
-              <Button variant="outline" size="sm" data-testid="button-view-customer">
-                {t("campaigns.viewCustomer")}
-                <ExternalLink className="w-3 h-3 ml-1" />
-              </Button>
-            </Link>
+            {user?.activeRole !== "field" && (
+              <Link href={`/dashboard/customers/${item.customerId}`}>
+                <Button variant="outline" size="sm" data-testid="button-view-customer">
+                  {t("campaigns.viewCustomer")}
+                  <ExternalLink className="w-3 h-3 ml-1" />
+                </Button>
+              </Link>
+            )}
           </div>
         </CardContent>
       </Card>

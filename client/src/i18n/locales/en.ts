@@ -268,6 +268,7 @@ const en = {
     noActiveTasks: "No active tasks assigned to you",
     viewAll: "View All",
     viewMoreTickets: "View {{count}} more tickets",
+    myCampaigns: "My Campaigns",
   },
   shopDashboard: {
     title: "Shop Manager Dashboard",

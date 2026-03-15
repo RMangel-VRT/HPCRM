@@ -11,9 +11,10 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Badge } from "@/components/ui/badge";
-import { Search, ChevronRight, ChevronLeft, ChevronDown, Clock, CalendarDays, Filter, Loader2, CheckCircle2, RefreshCw, Wrench } from "lucide-react";
+import { Search, ChevronRight, ChevronLeft, ChevronDown, Clock, CalendarDays, Filter, Loader2, CheckCircle2, RefreshCw, Wrench, ClipboardCheck } from "lucide-react";
 import { Link, useSearch } from "wouter";
-import type { Ticket, TicketType, TicketTypeStatus, Customer, EquipmentTicket, Equipment, CompanyUser, User as UserType } from "@shared/schema";
+import type { Ticket, TicketType, TicketTypeStatus, Customer, EquipmentTicket, Equipment, CompanyUser, User as UserType, CampaignWithProgress } from "@shared/schema";
+import { useTranslation } from "react-i18next";
 import { useAuth } from "@/hooks/use-auth";
 import TicketCard from "@/components/TicketCard";
 import type { TicketWithDetails } from "@/components/TicketCard";
@@ -62,6 +63,7 @@ const PRIORITY_COLORS: Record<string, string> = {
 
 export default function MyTickets() {
   const { user } = useAuth();
+  const { t } = useTranslation();
   
   const searchString = useSearch();
   const urlParams = useMemo(() => new URLSearchParams(searchString), [searchString]);
@@ -211,6 +213,23 @@ export default function MyTickets() {
     },
     refetchOnMount: "always",
   });
+
+  const campaignAllowedRoles = ["admin", "office", "field_manager", "field"];
+  const showCampaigns = campaignAllowedRoles.includes(user?.activeRole || "");
+
+  const { data: campaigns = [], isLoading: campaignsLoading } = useQuery<CampaignWithProgress[]>({
+    queryKey: ["/api/campaigns"],
+    enabled: showCampaigns,
+    refetchOnMount: "always",
+    staleTime: 0,
+  });
+
+  const activeCampaigns = useMemo(() => 
+    campaigns.filter(c => c.status === "active"),
+    [campaigns]
+  );
+
+  const [campaignSectionCollapsed, setCampaignSectionCollapsed] = useState(false);
 
   const equipmentMap = useMemo(() => {
     const map = new Map<string, Equipment>();
@@ -580,6 +599,77 @@ export default function MyTickets() {
               )}
 
               {equipTicketsLoading && (
+                <div className="flex items-center justify-center py-6">
+                  <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
+                </div>
+              )}
+            </div>
+          )}
+
+          {showCampaigns && activeCampaigns.length > 0 && (
+            <div className="space-y-3 md:space-y-2 mt-6" data-testid="section-campaigns">
+              <div className="flex items-center gap-2 px-1 mb-2">
+                <ClipboardCheck className="w-4 h-4 text-muted-foreground" />
+                <span className="text-sm font-semibold text-muted-foreground">{t("campaigns.title")}</span>
+              </div>
+
+              <button
+                className="flex items-center gap-2 text-sm font-medium text-muted-foreground px-1 hover:text-foreground transition-colors w-full text-left"
+                onClick={() => setCampaignSectionCollapsed(!campaignSectionCollapsed)}
+                data-testid="button-toggle-campaigns-section"
+              >
+                {campaignSectionCollapsed ? <ChevronRight className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
+                {t("campaigns.active")} ({activeCampaigns.length})
+              </button>
+              {!campaignSectionCollapsed && (
+                <div className="space-y-3 md:space-y-2">
+                  {activeCampaigns.map((campaign) => {
+                    const pendingCount = campaign.totalItems - campaign.completedItems - campaign.skippedItems;
+                    return (
+                      <Link key={campaign.id} href={`/dashboard/campaigns/${campaign.id}`} onClick={saveScrollPosition}>
+                        <Card
+                          className="hover-elevate active-elevate-2 cursor-pointer transition-colors"
+                          data-testid={`card-campaign-${campaign.id}`}
+                        >
+                          <CardContent className="p-4">
+                            <div className="flex items-start gap-3">
+                              <div
+                                className="w-1 self-stretch rounded-full bg-primary"
+                              />
+                              <div className="flex-1 min-w-0">
+                                <div className="flex items-center justify-between gap-2">
+                                  <h3 className="font-medium text-base leading-tight line-clamp-2 flex-1" data-testid={`text-campaign-title-${campaign.id}`}>
+                                    {campaign.title}
+                                  </h3>
+                                  <ChevronRight className="w-5 h-5 text-muted-foreground shrink-0" />
+                                </div>
+                                <div className="flex items-center gap-3 mt-2 text-xs text-muted-foreground">
+                                  <span className="flex items-center gap-1">
+                                    <CalendarDays className="w-3 h-3" />
+                                    {campaign.windowStart && campaign.windowEnd
+                                      ? `${new Date(campaign.windowStart).toLocaleDateString()} - ${new Date(campaign.windowEnd).toLocaleDateString()}`
+                                      : t("campaigns.window")}
+                                  </span>
+                                </div>
+                                <div className="flex items-center justify-between mt-2">
+                                  <Badge variant="outline" className="text-xs">
+                                    {pendingCount} {t("campaigns.pending")}
+                                  </Badge>
+                                  <span className="text-xs text-muted-foreground">
+                                    {campaign.completedItems}/{campaign.totalItems} {t("campaigns.done")}
+                                  </span>
+                                </div>
+                              </div>
+                            </div>
+                          </CardContent>
+                        </Card>
+                      </Link>
+                    );
+                  })}
+                </div>
+              )}
+
+              {campaignsLoading && (
                 <div className="flex items-center justify-center py-6">
                   <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
                 </div>

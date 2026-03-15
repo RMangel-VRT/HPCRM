@@ -268,6 +268,7 @@ const es = {
     noActiveTasks: "No tiene tareas activas asignadas",
     viewAll: "Ver Todo",
     viewMoreTickets: "Ver {{count}} tickets mas",
+    myCampaigns: "Mis Campanas",
   },
   shopDashboard: {
     title: "Panel de Gerente de Taller",

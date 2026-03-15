@@ -8,13 +8,16 @@ import {
   CheckCircle2, 
   ArrowRight,
   AlertCircle,
-  Calendar
+  Calendar,
+  ClipboardCheck,
+  CalendarDays
 } from "lucide-react";
 import { useQuery } from "@tanstack/react-query";
 import { useTranslation } from "react-i18next";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Link } from "wouter";
 import { format, isToday, isTomorrow, parseISO } from "date-fns";
+import type { CampaignWithProgress } from "@shared/schema";
 
 interface Ticket {
   id: string;
@@ -52,6 +55,14 @@ export default function FieldCrewDashboard() {
   const { data: myTickets = [], isLoading } = useQuery<Ticket[]>({
     queryKey: ["/api/tickets/my"],
   });
+
+  const { data: campaigns = [] } = useQuery<CampaignWithProgress[]>({
+    queryKey: ["/api/campaigns"],
+    refetchOnMount: "always",
+    staleTime: 0,
+  });
+
+  const activeCampaigns = campaigns.filter(c => c.status === "active");
 
   const activeTickets = myTickets.filter(tk => 
     tk.currentStatus?.name?.toLowerCase() !== "completed" && 
@@ -198,6 +209,56 @@ export default function FieldCrewDashboard() {
           )}
         </CardContent>
       </Card>
+
+      {activeCampaigns.length > 0 && (
+        <Card>
+          <CardHeader className="flex flex-row items-center justify-between gap-2 pb-3">
+            <CardTitle className="text-lg flex items-center gap-2">
+              <ClipboardCheck className="w-5 h-5" />
+              {t("fieldDashboard.myCampaigns")}
+            </CardTitle>
+            <Link href="/dashboard/campaigns">
+              <Button variant="ghost" size="sm" data-testid="button-view-all-campaigns">
+                {t("fieldDashboard.viewAll")}
+                <ArrowRight className="w-4 h-4 ml-1" />
+              </Button>
+            </Link>
+          </CardHeader>
+          <CardContent className="px-3">
+            <div className="space-y-3">
+              {activeCampaigns.slice(0, 3).map((campaign) => {
+                const pendingCount = campaign.totalItems - campaign.completedItems - campaign.skippedItems;
+                return (
+                  <Link key={campaign.id} href={`/dashboard/campaigns/${campaign.id}`}>
+                    <div
+                      className="p-3 border rounded-md hover-elevate active-elevate-2 cursor-pointer"
+                      data-testid={`card-campaign-${campaign.id}`}
+                    >
+                      <p className="font-medium text-sm truncate" data-testid={`text-campaign-title-${campaign.id}`}>
+                        {campaign.title}
+                      </p>
+                      <div className="flex items-center gap-1 text-xs text-muted-foreground mt-1">
+                        <CalendarDays className="w-3 h-3" />
+                        {campaign.windowStart && campaign.windowEnd
+                          ? `${new Date(campaign.windowStart).toLocaleDateString()} - ${new Date(campaign.windowEnd).toLocaleDateString()}`
+                          : t("campaigns.window")}
+                      </div>
+                      <div className="flex items-center justify-between mt-2">
+                        <Badge variant="outline" className="text-xs">
+                          {pendingCount} {t("campaigns.pending")}
+                        </Badge>
+                        <span className="text-xs text-muted-foreground">
+                          {campaign.completedItems}/{campaign.totalItems} {t("campaigns.done")}
+                        </span>
+                      </div>
+                    </div>
+                  </Link>
+                );
+              })}
+            </div>
+          </CardContent>
+        </Card>
+      )}
 
       <Card>
         <CardHeader className="pb-3">
