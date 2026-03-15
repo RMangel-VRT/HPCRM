@@ -8,7 +8,7 @@ import { storage } from "./storage";
 import { db } from "./db";
 import { eq, and, inArray, sql } from "drizzle-orm";
 import { insertCustomerSchema, insertContactSchema, insertCompanySchema, insertCompanyUserSchema, insertSettingsSchema, insertNoteSchema, insertContractSchema, insertContractDocumentSchema, insertContractBuilderDocumentSchema, insertContractBuilderSectionSchema, insertContractBuilderVariableSchema, insertTicketTypeSchema, insertTicketTypeStatusSchema, insertTicketTypeFieldSchema, insertTicketSchema, insertTicketFieldValueSchema, insertTicketStatusHistorySchema, insertTicketCommentSchema, insertTicketLinkSchema, insertCustomerMapLayerSchema, insertCustomerMapDocumentSchema, insertMaintenanceCrewSchema, insertMaintenanceVisitConfigSchema, insertWeeklyScheduleTemplateSchema, insertScheduleBlockSchema, insertEquipmentSchema, insertEquipmentFileSchema, insertEquipmentTicketSchema, insertEquipmentTicketStatusHistorySchema, insertSnowEventSchema, insertSnowEventPropertyImpactSchema, insertSnowEventAttachmentSchema, insertEmailTemplateSchema, insertEmailRuleSchema, SNOW_RANGES, tickets, ticketTypes, ticketTypeStatuses, customers as customersTable, contacts as contactsTable, contracts as contractsTable, equipment as equipmentTable, users as usersTable, contractMonthlyAmounts, contractDocuments, contractServices, contractStatusHistory, companyUsers as companyUsersTable } from "@shared/schema";
-import type { Customer, CaptureParams } from "@shared/schema";
+import type { Customer, CaptureParams, CampaignItem } from "@shared/schema";
 import { ObjectStorageService, ObjectNotFoundError, objectStorageClient, signObjectURL } from "./objectStorage";
 import { ObjectPermission, ObjectAccessGroupType, setObjectAclPolicy } from "./objectAcl";
 import { processEmailEvent, resendEmail, sendEmail, getDefaultWorkCompletedTemplate, getDefaultChemicalPreNoticeTemplate, getDefaultChemicalPostNoticeTemplate } from './services/emailService';
@@ -9210,7 +9210,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const chemEmailRoles = ["admin", "office", "chemical_manager"];
       const chemWorkRoles = ["admin", "office", "field_manager", "field", "chemical_manager"];
 
-      const chemUpdates: Record<string, any> = { updatedAt: new Date() };
+      const chemUpdates: Partial<CampaignItem> = { updatedAt: new Date() };
 
       if (chemAction === "send_pre_communication") {
         if (!chemEmailRoles.includes(user.activeRole)) {
@@ -9239,12 +9239,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
             toEmail: recipientEmail,
             sentById: user.id,
           });
+          const sentLog = emailResults.find(l => l.status === "sent");
+          if (!sentLog) {
+            return res.status(502).json({ error: "Email delivery failed. Please try again." });
+          }
           chemUpdates.chemWorkflowStep = "work_in_progress";
           chemUpdates.chemPreSentAt = new Date();
           chemUpdates.chemPreSentById = user.id;
-          if (emailResults.length > 0) {
-            chemUpdates.chemPreEmailLogId = emailResults[0].id;
-          }
+          chemUpdates.chemPreEmailLogId = sentLog.id;
         } catch (emailErr) {
           console.error("Failed to send chemical pre-notice email:", emailErr);
           return res.status(500).json({ error: "Failed to send pre-work notification email" });
@@ -9285,15 +9287,17 @@ export async function registerRoutes(app: Express): Promise<Server> {
             toEmail: recipientEmail,
             sentById: user.id,
           });
+          const sentLog = emailResults.find(l => l.status === "sent");
+          if (!sentLog) {
+            return res.status(502).json({ error: "Email delivery failed. Please try again." });
+          }
           chemUpdates.chemWorkflowStep = "post_communication";
           chemUpdates.chemPostSentAt = new Date();
           chemUpdates.chemPostSentById = user.id;
           chemUpdates.status = "completed";
           chemUpdates.completedById = user.id;
           chemUpdates.completedAt = new Date();
-          if (emailResults.length > 0) {
-            chemUpdates.chemPostEmailLogId = emailResults[0].id;
-          }
+          chemUpdates.chemPostEmailLogId = sentLog.id;
         } catch (emailErr) {
           console.error("Failed to send chemical post-notice email:", emailErr);
           return res.status(500).json({ error: "Failed to send post-completion notification email" });
@@ -9392,7 +9396,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(400).json({ error: "Item is not in pre-communication step" });
       }
       const { notes } = req.body || {};
-      const chemUpdates: Record<string, any> = { updatedAt: new Date() };
+      const chemUpdates: Partial<CampaignItem> = { updatedAt: new Date() };
       const company = await storage.getCompanyById(user.activeCompanyId);
       const customerContacts = await storage.getContactsByCustomerId(targetItem.customerId, user.activeCompanyId);
       const primaryContact = customerContacts.find(c => c.isPrimary === "true") || customerContacts[0];
@@ -9413,9 +9417,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
           toEmail: recipientEmail,
           sentById: user.id,
         });
-        if (emailResults.length > 0) {
-          chemUpdates.chemPreEmailLogId = emailResults[0].id;
+        const sentLog = emailResults.find(l => l.status === "sent");
+        if (!sentLog) {
+          return res.status(502).json({ error: "Email delivery failed. Please try again." });
         }
+        chemUpdates.chemPreEmailLogId = sentLog.id;
       } catch (emailErr) {
         console.error("Failed to send chemical pre-notice email:", emailErr);
         return res.status(500).json({ error: "Failed to send pre-work notification email" });
@@ -9453,7 +9459,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(400).json({ error: "Item is not in work-in-progress step" });
       }
       const { notes } = req.body || {};
-      const chemUpdates: Record<string, any> = { updatedAt: new Date() };
+      const chemUpdates: Partial<CampaignItem> = { updatedAt: new Date() };
       chemUpdates.chemWorkflowStep = "work_completed";
       chemUpdates.chemWorkCompletedAt = new Date();
       chemUpdates.chemWorkCompletedById = user.id;
@@ -9487,7 +9493,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(400).json({ error: "Item is not in work-completed step" });
       }
       const { notes } = req.body || {};
-      const chemUpdates: Record<string, any> = { updatedAt: new Date() };
+      const chemUpdates: Partial<CampaignItem> = { updatedAt: new Date() };
       const company = await storage.getCompanyById(user.activeCompanyId);
       const customerContacts = await storage.getContactsByCustomerId(targetItem.customerId, user.activeCompanyId);
       const primaryContact = customerContacts.find(c => c.isPrimary === "true") || customerContacts[0];
@@ -9507,9 +9513,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
           toEmail: recipientEmail,
           sentById: user.id,
         });
-        if (emailResults.length > 0) {
-          chemUpdates.chemPostEmailLogId = emailResults[0].id;
+        const sentLog = emailResults.find(l => l.status === "sent");
+        if (!sentLog) {
+          return res.status(502).json({ error: "Email delivery failed. Please try again." });
         }
+        chemUpdates.chemPostEmailLogId = sentLog.id;
       } catch (emailErr) {
         console.error("Failed to send chemical post-notice email:", emailErr);
         return res.status(500).json({ error: "Failed to send post-completion notification email" });
