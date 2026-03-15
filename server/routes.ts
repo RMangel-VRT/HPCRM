@@ -8965,6 +8965,15 @@ export async function registerRoutes(app: Express): Promise<Server> {
     if (!title || !windowStart || !windowEnd || !customerIds || !Array.isArray(customerIds) || customerIds.length === 0) {
       return res.status(400).json({ error: "Missing required fields" });
     }
+    if (windowStart > windowEnd) {
+      return res.status(400).json({ error: "Start date must be before or equal to end date" });
+    }
+    if (assignedToId) {
+      const assignee = await storage.getUserById(assignedToId);
+      if (!assignee) {
+        return res.status(400).json({ error: "Invalid assignee" });
+      }
+    }
     const allCustomers = await storage.getCustomers(user.activeCompanyId);
     const customerMap = new Map(allCustomers.map(c => [c.id, c]));
     const itemsData = customerIds
@@ -8985,6 +8994,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
           completedAt: null,
         };
       });
+    if (itemsData.length === 0) {
+      return res.status(400).json({ error: "No valid properties selected" });
+    }
     const campaign = await storage.createCampaignWithItems(
       {
         companyId: user.activeCompanyId,
@@ -9103,6 +9115,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
       skipReason?: string;
       photos?: string[];
     };
+    const validItemStatuses = ["pending", "completed", "skipped"];
+    if (status !== undefined && !validItemStatuses.includes(status)) {
+      return res.status(400).json({ error: "Invalid status value" });
+    }
     if (status === "pending" && user.activeRole !== "admin" && user.activeRole !== "office") {
       return res.status(403).send("Only admin/office can reset items to pending");
     }
