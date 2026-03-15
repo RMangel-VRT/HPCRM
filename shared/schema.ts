@@ -1624,6 +1624,8 @@ export const campaignItems = pgTable("campaign_items", {
   chemWorkCompletedById: varchar("chem_work_completed_by_id").references(() => users.id, { onDelete: "set null" }),
   chemPostSentAt: timestamp("chem_post_sent_at"),
   chemPostSentById: varchar("chem_post_sent_by_id").references(() => users.id, { onDelete: "set null" }),
+  chemPreEmailLogId: varchar("chem_pre_email_log_id"),
+  chemPostEmailLogId: varchar("chem_post_email_log_id"),
   createdAt: timestamp("created_at").notNull().defaultNow(),
   updatedAt: timestamp("updated_at").notNull().defaultNow(),
 });

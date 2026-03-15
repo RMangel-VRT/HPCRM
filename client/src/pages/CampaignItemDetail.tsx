@@ -47,8 +47,9 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { Separator } from "@/components/ui/separator";
-import type { Campaign, CampaignItem } from "@shared/schema";
+import type { Campaign, CampaignItem, Contact } from "@shared/schema";
 import LayerMapViewer from "@/components/LayerMapViewer";
+import { Label } from "@/components/ui/label";
 
 interface CampaignItemWithUser extends CampaignItem {
   completedByName?: string | null;
@@ -80,9 +81,22 @@ export default function CampaignItemDetail() {
   const [uploading, setUploading] = useState(false);
   const [showPropertyMaps, setShowPropertyMaps] = useState(false);
   const [previewPhoto, setPreviewPhoto] = useState<string | null>(null);
+  const [showEmailConfirm, setShowEmailConfirm] = useState<"pre" | "post" | null>(null);
 
   const { data: campaign, isLoading } = useQuery<CampaignDetailData>({
     queryKey: ["/api/campaigns", campaignId],
+  });
+
+  const { data: contacts } = useQuery<Contact[]>({
+    queryKey: ["/api/customers", campaign?.items?.find(i => i.id === itemId)?.customerId, "contacts"],
+    queryFn: async () => {
+      const custId = campaign?.items?.find(i => i.id === itemId)?.customerId;
+      if (!custId) return [];
+      const res = await fetch(`/api/customers/${custId}/contacts`, { credentials: "include" });
+      if (!res.ok) return [];
+      return res.json();
+    },
+    enabled: !!campaign?.items?.find(i => i.id === itemId)?.customerId && campaign?.category === "chemical",
   });
 
   const item = campaign?.items?.find(i => i.id === itemId);
@@ -92,6 +106,8 @@ export default function CampaignItemDetail() {
   const canSendChemEmails = ["admin", "office", "chemical_manager"].includes(user?.activeRole || "");
   const isChemicalCampaign = campaign?.category === "chemical";
   const [showChemReset, setShowChemReset] = useState(false);
+  const primaryContact = contacts?.find(c => c.isPrimary === "true") || contacts?.[0];
+  const recipientEmail = primaryContact?.email || null;
 
   useEffect(() => {
     if (item) {
@@ -459,11 +475,10 @@ export default function CampaignItemDetail() {
             <div className="flex items-center gap-2 flex-wrap">
               {item.chemWorkflowStep === "pre_communication" && canSendChemEmails && (
                 <Button
-                  onClick={() => updateItemMutation.mutate({ chemAction: "send_pre_communication", notes })}
+                  onClick={() => setShowEmailConfirm("pre")}
                   disabled={updateItemMutation.isPending}
                   data-testid="button-chem-send-pre"
                 >
-                  {updateItemMutation.isPending && <Loader2 className="w-4 h-4 mr-1 animate-spin" />}
                   <Mail className="w-4 h-4 mr-1" />
                   {t("campaigns.chemSendPreNotice")}
                 </Button>
@@ -481,11 +496,10 @@ export default function CampaignItemDetail() {
               )}
               {item.chemWorkflowStep === "post_communication" && canSendChemEmails && (
                 <Button
-                  onClick={() => updateItemMutation.mutate({ chemAction: "send_post_communication", notes })}
+                  onClick={() => setShowEmailConfirm("post")}
                   disabled={updateItemMutation.isPending}
                   data-testid="button-chem-send-post"
                 >
-                  {updateItemMutation.isPending && <Loader2 className="w-4 h-4 mr-1 animate-spin" />}
                   <Send className="w-4 h-4 mr-1" />
                   {t("campaigns.chemSendPostNotice")}
                 </Button>
@@ -630,6 +644,67 @@ export default function CampaignItemDetail() {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      <Dialog open={!!showEmailConfirm} onOpenChange={() => setShowEmailConfirm(null)}>
+        <DialogContent data-testid="dialog-chem-email-confirm">
+          <div className="space-y-4">
+            <div className="flex items-center gap-2">
+              {showEmailConfirm === "pre" ? <Mail className="w-5 h-5 text-primary" /> : <Send className="w-5 h-5 text-primary" />}
+              <h3 className="text-lg font-semibold">
+                {showEmailConfirm === "pre" ? t("campaigns.chemSendPreNotice") : t("campaigns.chemSendPostNotice")}
+              </h3>
+            </div>
+            <Separator />
+            <div className="space-y-3">
+              <div>
+                <Label className="text-xs text-muted-foreground">{t("campaigns.chemEmailRecipient")}</Label>
+                <div className="text-sm font-medium mt-0.5" data-testid="text-email-recipient">
+                  {recipientEmail ? (
+                    <span>{primaryContact?.name ? `${primaryContact.name} <${recipientEmail}>` : recipientEmail}</span>
+                  ) : (
+                    <span className="text-muted-foreground">{t("campaigns.chemNoRecipient")}</span>
+                  )}
+                </div>
+              </div>
+              <div>
+                <Label className="text-xs text-muted-foreground">{t("common.customer")}</Label>
+                <div className="text-sm font-medium mt-0.5">{item.customerName}</div>
+              </div>
+              <div>
+                <Label className="text-xs text-muted-foreground">{t("campaigns.chemEmailTemplate")}</Label>
+                <div className="text-sm font-medium mt-0.5">
+                  {showEmailConfirm === "pre" ? t("campaigns.chemTemplatePreName") : t("campaigns.chemTemplatePostName")}
+                </div>
+              </div>
+              {!recipientEmail && (
+                <div className="flex items-center gap-2 p-3 rounded-md bg-amber-50 dark:bg-amber-950/30 text-amber-800 dark:text-amber-200 text-sm">
+                  <AlertCircle className="w-4 h-4 shrink-0" />
+                  <span>{t("campaigns.chemNoRecipientWarning")}</span>
+                </div>
+              )}
+            </div>
+            <Separator />
+            <div className="flex justify-end gap-2">
+              <Button variant="outline" onClick={() => setShowEmailConfirm(null)} data-testid="button-cancel-email">
+                {t("common.cancel")}
+              </Button>
+              <Button
+                onClick={() => {
+                  const action = showEmailConfirm === "pre" ? "send_pre_communication" : "send_post_communication";
+                  setShowEmailConfirm(null);
+                  updateItemMutation.mutate({ chemAction: action, notes });
+                }}
+                disabled={updateItemMutation.isPending}
+                data-testid="button-confirm-send-email"
+              >
+                {updateItemMutation.isPending && <Loader2 className="w-4 h-4 mr-1 animate-spin" />}
+                {showEmailConfirm === "pre" ? <Mail className="w-4 h-4 mr-1" /> : <Send className="w-4 h-4 mr-1" />}
+                {recipientEmail ? t("campaigns.chemConfirmSend") : t("campaigns.chemAdvanceWithoutEmail")}
+              </Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
 
       {showPropertyMaps && (
         <LayerMapViewer
