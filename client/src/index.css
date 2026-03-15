@@ -138,17 +138,17 @@
   --elevate-1: rgba(255,255,255, .04);
   --elevate-2: rgba(255,255,255, .09);
 
-  --background: 80 5% 8%;
+  --background: 150 8% 9%;
 
-  --foreground: 80 10% 95%;
+  --foreground: 150 10% 95%;
 
-  --border: 80 5% 18%;
+  --border: 150 5% 18%;
 
-  --card: 80 5% 11%;
+  --card: 150 8% 12%;
 
-  --card-foreground: 80 10% 95%;
+  --card-foreground: 150 10% 95%;
 
-  --card-border: 80 5% 18%;
+  --card-border: 150 5% 18%;
 
   --sidebar: 150 8% 15%;
 
@@ -166,27 +166,27 @@
 
   --sidebar-ring: 130 35% 48%;
 
-  --popover: 80 5% 12%;
+  --popover: 150 8% 13%;
 
-  --popover-foreground: 80 10% 95%;
+  --popover-foreground: 150 10% 95%;
 
-  --popover-border: 80 5% 20%;
+  --popover-border: 150 5% 20%;
 
   --primary: 80 61% 45%;
 
   --primary-foreground: 80 5% 10%;
 
-  --secondary: 80 5% 18%;
+  --secondary: 150 5% 18%;
 
-  --secondary-foreground: 80 10% 95%;
+  --secondary-foreground: 150 10% 95%;
 
-  --muted: 80 5% 15%;
+  --muted: 150 5% 15%;
 
-  --muted-foreground: 80 8% 60%;
+  --muted-foreground: 150 8% 60%;
 
-  --accent: 80 8% 18%;
+  --accent: 150 8% 18%;
 
-  --accent-foreground: 80 10% 95%;
+  --accent-foreground: 150 10% 95%;
 
   --destructive: 0 84% 35%;
 
@@ -197,7 +197,7 @@
   --table-header-color: hsl(150, 10%, 14%);
   --table-border-color: hsl(150, 8%, 22%);
 
-  --input: 80 5% 30%;
+  --input: 150 5% 30%;
   --ring: 80 61% 45%;
   --chart-1: 80 65% 55%;
   --chart-2: 80 75% 65%;
@@ -270,7 +270,8 @@
   }
 
   .dark body::before {
-    opacity: 0.03;
+    opacity: 0.10;
+    filter: invert(1) sepia(0.3) hue-rotate(90deg) brightness(0.8);
   }
 
   body.no-mountain-bg::before {
