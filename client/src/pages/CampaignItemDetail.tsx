@@ -694,7 +694,7 @@ export default function CampaignItemDetail() {
                     {t("campaigns.chemFinishWithoutComms")}
                   </Button>
                 )}
-                {canManage && item.workflowStep !== "pre_communication" && item.status !== "completed" && (
+                {canReopen && item.workflowStep !== "pre_communication" && item.status !== "completed" && (
                   <Button
                     variant="outline"
                     size="sm"
@@ -840,7 +840,7 @@ export default function CampaignItemDetail() {
                 )}
               </div>
             )}
-            {canManage && (item.status === "completed" || item.status === "skipped") && (
+            {canReopen && (item.status === "completed" || item.status === "skipped") && (
               <div className="flex items-center gap-2 pt-2">
                 <Button
                   variant="outline"
@@ -911,7 +911,7 @@ export default function CampaignItemDetail() {
                   )}
                 </>
               )}
-              {canManage && (item.status === "completed" || item.status === "skipped") && (
+              {canReopen && (item.status === "completed" || item.status === "skipped") && (
                 <Button
                   variant="outline"
                   className="w-full sm:w-auto"
