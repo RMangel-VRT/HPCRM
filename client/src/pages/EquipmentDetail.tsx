@@ -281,6 +281,54 @@ export default function EquipmentDetail() {
   const [isUploading, setIsUploading] = useState(false);
   const [fileToDelete, setFileToDelete] = useState<EquipmentFile | null>(null);
 
+  const photoInputRef = useRef<HTMLInputElement>(null);
+  const [isPhotoUploading, setIsPhotoUploading] = useState(false);
+
+  const uploadPhotoMutation = useMutation({
+    mutationFn: async (file: File) => {
+      setIsPhotoUploading(true);
+      const urlRes = await apiRequest("POST", `/api/equipment/${id}/profile-photo-upload-url`);
+      const { uploadUrl, storagePath } = await urlRes.json();
+      await fetch(uploadUrl, {
+        method: "PUT",
+        body: file,
+        headers: { "Content-Type": file.type },
+      });
+      const saveRes = await apiRequest("POST", `/api/equipment/${id}/profile-photo`, { storagePath });
+      return saveRes.json();
+    },
+    onSuccess: () => {
+      setIsPhotoUploading(false);
+      queryClient.invalidateQueries({ queryKey: ["/api/equipment", id] });
+      queryClient.invalidateQueries({ queryKey: ["/api/equipment"] });
+      toast({ title: t("equipment.photoUploaded") });
+      if (photoInputRef.current) photoInputRef.current.value = "";
+    },
+    onError: (error: Error) => {
+      setIsPhotoUploading(false);
+      toast({ title: t("equipment.uploadFailed"), description: error.message, variant: "destructive" });
+    },
+  });
+
+  const removePhotoMutation = useMutation({
+    mutationFn: async () => {
+      return apiRequest("DELETE", `/api/equipment/${id}/profile-photo`);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/equipment", id] });
+      queryClient.invalidateQueries({ queryKey: ["/api/equipment"] });
+      toast({ title: t("equipment.photoRemoved") });
+    },
+    onError: (error: Error) => {
+      toast({ title: t("equipment.uploadFailed"), description: error.message, variant: "destructive" });
+    },
+  });
+
+  const handlePhotoChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) uploadPhotoMutation.mutate(file);
+  };
+
   const { data: files, isLoading: filesLoading } = useQuery<EquipmentFile[]>({
     queryKey: ["/api/equipment", id, "files"],
     enabled: !!id,
@@ -1044,6 +1092,74 @@ export default function EquipmentDetail() {
             </Form>
           ) : (
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+              {/* Profile Photo Card */}
+              <Card className="md:col-span-2">
+                <CardHeader>
+                  <div className="flex items-center justify-between gap-2 flex-wrap">
+                    <CardTitle>{t("equipment.profilePhoto")}</CardTitle>
+                    {canEdit && (
+                      <div className="flex items-center gap-2">
+                        <input
+                          ref={photoInputRef}
+                          type="file"
+                          accept="image/*"
+                          className="hidden"
+                          onChange={handlePhotoChange}
+                          data-testid="input-photo-file"
+                        />
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() => photoInputRef.current?.click()}
+                          disabled={isPhotoUploading || uploadPhotoMutation.isPending}
+                          data-testid="button-upload-photo"
+                        >
+                          {isPhotoUploading || uploadPhotoMutation.isPending ? (
+                            <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                          ) : (
+                            <Upload className="w-4 h-4 mr-2" />
+                          )}
+                          {(equipment as any).profilePhotoPath ? t("equipment.replacePhoto") : t("equipment.uploadPhoto")}
+                        </Button>
+                        {(equipment as any).profilePhotoPath && (
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => removePhotoMutation.mutate()}
+                            disabled={removePhotoMutation.isPending}
+                            data-testid="button-remove-photo"
+                          >
+                            <Trash2 className="w-4 h-4 mr-2 text-destructive" />
+                            {t("equipment.removePhoto")}
+                          </Button>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                </CardHeader>
+                <CardContent>
+                  {(equipment as any).profilePhotoPath ? (
+                    <div className="flex justify-center">
+                      <img
+                        src={(equipment as any).profilePhotoPath}
+                        alt={equipment.name}
+                        className="max-h-64 rounded-md object-contain"
+                        data-testid="img-profile-photo"
+                      />
+                    </div>
+                  ) : (
+                    <div
+                      className="flex flex-col items-center justify-center h-40 rounded-md border border-dashed text-muted-foreground cursor-pointer"
+                      onClick={canEdit ? () => photoInputRef.current?.click() : undefined}
+                      data-testid="placeholder-photo"
+                    >
+                      <ImageIcon className="w-10 h-10 mb-2 opacity-40" />
+                      <p className="text-sm">{canEdit ? t("equipment.clickToUploadPhoto") : t("equipment.noPhoto")}</p>
+                    </div>
+                  )}
+                </CardContent>
+              </Card>
+
               <Card>
                 <CardHeader>
                   <CardTitle>{t("equipment.basicInfo")}</CardTitle>

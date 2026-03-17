@@ -1,6 +1,6 @@
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { Link } from "wouter";
-import { Plus, Search, Truck, AlertCircle, CheckCircle, WrenchIcon, XCircle, Trash2, ClipboardPlus } from "lucide-react";
+import { Plus, Search, Truck, AlertCircle, CheckCircle, WrenchIcon, XCircle, Trash2, ClipboardPlus, Image as ImageIcon } from "lucide-react";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import { useForm } from "react-hook-form";
@@ -362,16 +362,31 @@ export default function EquipmentList() {
                 {filteredEquipment?.map((item) => (
                   <TableRow key={item.id} data-testid={`row-equipment-${item.id}`}>
                     <TableCell>
-                      <Link
-                        href={`/dashboard/equipment/${item.id}`}
-                        className="font-medium hover:underline"
-                        data-testid={`link-equipment-${item.id}`}
-                      >
-                        {item.name}
-                      </Link>
-                      {item.licensePlate && (
-                        <div className="text-sm text-muted-foreground">{item.licensePlate}</div>
-                      )}
+                      <div className="flex items-center gap-3">
+                        <div className="w-10 h-10 rounded-md overflow-hidden flex-shrink-0 bg-muted flex items-center justify-center" data-testid={`thumb-equipment-${item.id}`}>
+                          {(item as any).profilePhotoPath ? (
+                            <img
+                              src={(item as any).profilePhotoPath}
+                              alt={item.name}
+                              className="w-full h-full object-cover"
+                            />
+                          ) : (
+                            <Truck className="w-5 h-5 text-muted-foreground opacity-50" />
+                          )}
+                        </div>
+                        <div>
+                          <Link
+                            href={`/dashboard/equipment/${item.id}`}
+                            className="font-medium hover:underline"
+                            data-testid={`link-equipment-${item.id}`}
+                          >
+                            {item.name}
+                          </Link>
+                          {item.licensePlate && (
+                            <div className="text-sm text-muted-foreground">{item.licensePlate}</div>
+                          )}
+                        </div>
+                      </div>
                     </TableCell>
                     <TableCell>{getEquipmentTypeLabel(item.equipmentType)}</TableCell>
                     <TableCell>

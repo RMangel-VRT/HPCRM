@@ -1215,6 +1215,16 @@ export async function migrateUserPhoneColumn(): Promise<void> {
   }
 }
 
+export async function migrateEquipmentProfilePhotoColumn(): Promise<void> {
+  console.log("Running startup migration: Ensuring profile_photo_path column exists on equipment table...");
+  try {
+    await db.execute(sql`ALTER TABLE equipment ADD COLUMN IF NOT EXISTS profile_photo_path text`);
+    console.log("Equipment profile_photo_path column migration complete");
+  } catch (error) {
+    console.error("Error during equipment profile_photo_path migration:", error);
+  }
+}
+
 export async function backfillCustomerType(): Promise<void> {
   console.log("Running startup migration: Backfilling customer_type for existing customers...");
   try {
@@ -6834,6 +6844,92 @@ export async function registerRoutes(app: Express): Promise<Server> {
     
     await storage.deleteEquipmentFile(req.params.fileId, user.activeCompanyId);
     res.json({ success: true });
+  });
+
+  // Equipment Profile Photo - Generate upload URL
+  app.post("/api/equipment/:equipmentId/profile-photo-upload-url", async (req, res) => {
+    if (!req.isAuthenticated()) {
+      return res.status(401).send("Not authenticated");
+    }
+    const user = req.user as UserWithContext;
+
+    if (!canEditEquipment(user.activeRole)) {
+      return res.status(403).send("Insufficient permissions");
+    }
+
+    try {
+      const objectStorageService = new ObjectStorageService();
+      const uploadUrl = await objectStorageService.getObjectEntityUploadURL();
+      const storagePath = objectStorageService.normalizeObjectEntityPath(uploadUrl);
+      res.json({ uploadUrl, storagePath });
+    } catch (error) {
+      console.error("Error getting profile photo upload URL:", error);
+      res.status(500).send("Failed to get upload URL");
+    }
+  });
+
+  // Equipment Profile Photo - Save path after upload, set ACL, update record
+  app.post("/api/equipment/:equipmentId/profile-photo", async (req, res) => {
+    if (!req.isAuthenticated()) {
+      return res.status(401).send("Not authenticated");
+    }
+    const user = req.user as UserWithContext;
+
+    if (!canEditEquipment(user.activeRole)) {
+      return res.status(403).send("Insufficient permissions");
+    }
+
+    const { storagePath } = req.body;
+    if (!storagePath || typeof storagePath !== "string") {
+      return res.status(400).send("storagePath is required");
+    }
+
+    try {
+      const objectStorageService = new ObjectStorageService();
+      const objectFile = await objectStorageService.getObjectEntityFile(storagePath);
+      await setObjectAclPolicy(objectFile, {
+        owner: user.id,
+        visibility: "private",
+        aclRules: [{
+          group: {
+            type: ObjectAccessGroupType.COMPANY_MEMBER,
+            id: user.activeCompanyId,
+          },
+          permission: ObjectPermission.READ,
+        }],
+      });
+
+      const updated = await storage.updateEquipment(req.params.equipmentId, user.activeCompanyId, {
+        profilePhotoPath: storagePath,
+      } as any);
+      if (!updated) {
+        return res.status(404).send("Equipment not found");
+      }
+      res.json(updated);
+    } catch (error) {
+      console.error("Error saving profile photo:", error);
+      res.status(500).send("Failed to save profile photo");
+    }
+  });
+
+  // Equipment Profile Photo - Remove (clear path)
+  app.delete("/api/equipment/:equipmentId/profile-photo", async (req, res) => {
+    if (!req.isAuthenticated()) {
+      return res.status(401).send("Not authenticated");
+    }
+    const user = req.user as UserWithContext;
+
+    if (!canEditEquipment(user.activeRole)) {
+      return res.status(403).send("Insufficient permissions");
+    }
+
+    const updated = await storage.updateEquipment(req.params.equipmentId, user.activeCompanyId, {
+      profilePhotoPath: null,
+    } as any);
+    if (!updated) {
+      return res.status(404).send("Equipment not found");
+    }
+    res.json(updated);
   });
 
   // Equipment Tickets - Get all tickets (with optional filters)

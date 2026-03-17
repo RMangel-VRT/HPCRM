@@ -1152,6 +1152,8 @@ export const equipment = pgTable("equipment", {
   lastServiceDate: timestamp("last_service_date"),
   // Specialty equipment - custom key/value specifications
   customSpecs: jsonb("custom_specs").$type<Record<string, string>>(),
+  // Profile photo
+  profilePhotoPath: text("profile_photo_path"),
   createdAt: timestamp("created_at").notNull().defaultNow(),
   updatedAt: timestamp("updated_at").notNull().defaultNow(),
 });
