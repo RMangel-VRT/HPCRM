@@ -8998,7 +8998,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     if (user.activeRole !== "admin" && user.activeRole !== "office") {
       return res.status(403).send("Only admin/office can create campaigns");
     }
-    const { title, description, assignedToId, windowStart, windowEnd, customerIds, category } = req.body as {
+    const { title, description, assignedToId, windowStart, windowEnd, customerIds, category, subtype, checklistTasks } = req.body as {
       title?: string;
       description?: string;
       assignedToId?: string;
@@ -9006,8 +9006,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
       windowEnd?: string;
       customerIds?: string[];
       category?: string;
+      subtype?: string;
+      checklistTasks?: { label: string; order: number }[];
     };
-    const campaignCategory = (category === "chemical" ? "chemical" : "general") as "general" | "chemical";
+    const validCategories = ["general", "chemical", "irrigation"];
+    const campaignCategory = (validCategories.includes(category || "") ? category : "general") as "general" | "chemical" | "irrigation";
     if (!title || !windowStart || !windowEnd || !customerIds || !Array.isArray(customerIds) || customerIds.length === 0) {
       return res.status(400).json({ error: "Missing required fields" });
     }
@@ -9051,6 +9054,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
     if (itemsData.length === 0) {
       return res.status(400).json({ error: "No valid properties selected" });
     }
+    const validSubtypes = ["spring_turn_on", "winterization", "custom"];
+    const campaignSubtype = campaignCategory === "irrigation" && subtype && validSubtypes.includes(subtype) ? subtype as "spring_turn_on" | "winterization" | "custom" : null;
+    if (campaignCategory === "irrigation" && (!checklistTasks || checklistTasks.length === 0)) {
+      return res.status(400).json({ error: "Irrigation campaigns require at least one checklist task" });
+    }
     const campaign = await storage.createCampaignWithItems(
       {
         companyId: user.activeCompanyId,
@@ -9060,11 +9068,21 @@ export async function registerRoutes(app: Express): Promise<Server> {
         windowStart,
         windowEnd,
         category: campaignCategory,
+        subtype: campaignSubtype,
         status: "active",
         createdById: user.id,
       },
       itemsData
     );
+    if (campaignCategory === "irrigation" && checklistTasks && checklistTasks.length > 0) {
+      for (const task of checklistTasks) {
+        await storage.createCampaignChecklistTask({
+          campaignId: campaign.id,
+          label: task.label,
+          order: task.order,
+        });
+      }
+    }
     res.json(campaign);
   });
 
@@ -9132,6 +9150,15 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const s = await storage.getSeasonById(campaign.seasonId, user.activeCompanyId);
       seasonName = s?.name;
     }
+    let checklistTasks: any[] = [];
+    let itemTaskCompletions: Record<string, string[]> = {};
+    if (campaign.category === "irrigation") {
+      checklistTasks = await storage.getCampaignChecklistTasks(req.params.id);
+      for (const item of items) {
+        const completions = await storage.getCampaignItemTaskCompletions(item.id);
+        itemTaskCompletions[item.id] = completions.map(c => c.campaignChecklistTaskId);
+      }
+    }
     res.json({
       ...campaign,
       items: itemsWithNames,
@@ -9141,6 +9168,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
       assignedToName: assignedUser?.name,
       createdByName: createdUser?.name,
       seasonName,
+      checklistTasks,
+      itemTaskCompletions,
     });
   });
 
@@ -9275,6 +9304,82 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
     await storage.deleteCampaign(req.params.id, user.activeCompanyId);
     res.json({ success: true });
+  });
+
+  app.get("/api/campaigns/:id/checklist-tasks", async (req, res) => {
+    if (!req.isAuthenticated()) return res.status(401).send("Not authenticated");
+    const user = req.user as UserWithContext;
+    if (!campaignAllowedRoles.includes(user.activeRole)) {
+      return res.status(403).send("Insufficient permissions");
+    }
+    const campaign = await storage.getCampaignById(req.params.id, user.activeCompanyId);
+    if (!campaign) return res.status(404).json({ error: "Not found" });
+    const tasks = await storage.getCampaignChecklistTasks(req.params.id);
+    res.json(tasks);
+  });
+
+  app.post("/api/campaigns/:id/items/:itemId/checklist/:taskId/toggle", async (req, res) => {
+    if (!req.isAuthenticated()) return res.status(401).send("Not authenticated");
+    const user = req.user as UserWithContext;
+    const allowedRoles = ["admin", "office", "field_manager", "field", "chemical_manager"];
+    if (!allowedRoles.includes(user.activeRole)) {
+      return res.status(403).send("Insufficient permissions");
+    }
+    const campaign = await storage.getCampaignById(req.params.id, user.activeCompanyId);
+    if (!campaign) return res.status(404).json({ error: "Campaign not found" });
+    if (campaign.category !== "irrigation") return res.status(400).json({ error: "Not an irrigation campaign" });
+    if (user.activeRole === "field" && campaign.assignedToId !== user.id) {
+      return res.status(403).send("Not assigned to this campaign");
+    }
+    const items = await storage.getCampaignItems(req.params.id, user.activeCompanyId);
+    const targetItem = items.find(i => i.id === req.params.itemId);
+    if (!targetItem) return res.status(404).json({ error: "Item not found" });
+    if (targetItem.status === "skipped") return res.status(400).json({ error: "Cannot toggle tasks on a skipped item" });
+
+    const existingCompletions = await storage.getCampaignItemTaskCompletions(req.params.itemId);
+    const alreadyCompleted = existingCompletions.find(c => c.campaignChecklistTaskId === req.params.taskId);
+
+    if (alreadyCompleted) {
+      await storage.deleteCampaignItemTaskCompletion(req.params.itemId, req.params.taskId);
+      if (targetItem.status === "completed") {
+        await storage.updateCampaignItem(req.params.itemId, user.activeCompanyId, {
+          status: "pending",
+          completedById: null,
+          completedAt: null,
+          updatedAt: new Date(),
+        });
+        const allItems = await storage.getCampaignItems(req.params.id, user.activeCompanyId);
+        const hasPending = allItems.some(i => i.id === req.params.itemId ? true : i.status === "pending");
+        if (hasPending && campaign.status === "completed") {
+          await storage.updateCampaign(req.params.id, user.activeCompanyId, { status: "active" });
+        }
+      }
+    } else {
+      await storage.createCampaignItemTaskCompletion({
+        campaignItemId: req.params.itemId,
+        campaignChecklistTaskId: req.params.taskId,
+        completedById: user.id,
+      });
+      const updatedCompletions = await storage.getCampaignItemTaskCompletions(req.params.itemId);
+      const allTasks = await storage.getCampaignChecklistTasks(req.params.id);
+      if (updatedCompletions.length >= allTasks.length) {
+        await storage.updateCampaignItem(req.params.itemId, user.activeCompanyId, {
+          status: "completed",
+          completedById: user.id,
+          completedAt: new Date(),
+          updatedAt: new Date(),
+        });
+        const allItems = await storage.getCampaignItems(req.params.id, user.activeCompanyId);
+        const allDone = allItems.every(i => i.id === req.params.itemId ? true : (i.status === "completed" || i.status === "skipped"));
+        if (allDone && allItems.length > 0) {
+          await storage.updateCampaign(req.params.id, user.activeCompanyId, { status: "completed" });
+        }
+      }
+    }
+
+    const finalCompletions = await storage.getCampaignItemTaskCompletions(req.params.itemId);
+    const updatedItem = (await storage.getCampaignItems(req.params.id, user.activeCompanyId)).find(i => i.id === req.params.itemId);
+    res.json({ item: updatedItem, completions: finalCompletions });
   });
 
   app.patch("/api/campaigns/:id/items/:itemId", async (req, res) => {

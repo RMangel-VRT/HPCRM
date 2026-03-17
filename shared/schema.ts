@@ -1613,7 +1613,8 @@ export const campaigns = pgTable("campaigns", {
   assignedToId: varchar("assigned_to_id").references(() => users.id, { onDelete: "set null" }),
   windowStart: date("window_start").notNull(),
   windowEnd: date("window_end").notNull(),
-  category: text("category").$type<"general" | "chemical">().notNull().default("general"),
+  category: text("category").$type<"general" | "chemical" | "irrigation">().notNull().default("general"),
+  subtype: text("subtype").$type<"spring_turn_on" | "winterization" | "custom">(),
   status: text("status").$type<"active" | "completed" | "archived">().notNull().default("active"),
   seasonId: varchar("season_id").references(() => seasons.id, { onDelete: "set null" }),
   createdById: varchar("created_by_id").references(() => users.id, { onDelete: "set null" }),
@@ -1679,6 +1680,35 @@ export const insertCampaignItemSchema = createInsertSchema(campaignItems).omit({
 
 export type InsertCampaignItem = z.infer<typeof insertCampaignItemSchema>;
 export type CampaignItem = typeof campaignItems.$inferSelect;
+
+export const campaignChecklistTasks = pgTable("campaign_checklist_tasks", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  campaignId: varchar("campaign_id").notNull().references(() => campaigns.id, { onDelete: "cascade" }),
+  order: integer("order").notNull().default(0),
+  label: text("label").notNull(),
+});
+
+export const insertCampaignChecklistTaskSchema = createInsertSchema(campaignChecklistTasks).omit({
+  id: true,
+});
+
+export type InsertCampaignChecklistTask = z.infer<typeof insertCampaignChecklistTaskSchema>;
+export type CampaignChecklistTask = typeof campaignChecklistTasks.$inferSelect;
+
+export const campaignItemTaskCompletions = pgTable("campaign_item_task_completions", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  campaignItemId: varchar("campaign_item_id").notNull().references(() => campaignItems.id, { onDelete: "cascade" }),
+  campaignChecklistTaskId: varchar("campaign_checklist_task_id").notNull().references(() => campaignChecklistTasks.id, { onDelete: "cascade" }),
+  completedById: varchar("completed_by_id").references(() => users.id, { onDelete: "set null" }),
+  completedAt: timestamp("completed_at").notNull().defaultNow(),
+});
+
+export const insertCampaignItemTaskCompletionSchema = createInsertSchema(campaignItemTaskCompletions).omit({
+  id: true,
+});
+
+export type InsertCampaignItemTaskCompletion = z.infer<typeof insertCampaignItemTaskCompletionSchema>;
+export type CampaignItemTaskCompletion = typeof campaignItemTaskCompletions.$inferSelect;
 
 export type CampaignWithProgress = Campaign & {
   totalItems: number;

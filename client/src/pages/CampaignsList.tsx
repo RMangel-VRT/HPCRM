@@ -48,6 +48,9 @@ import {
   Clock,
   Archive,
   AlertTriangle,
+  Droplets,
+  GripVertical,
+  Trash2,
 } from "lucide-react";
 import type { CampaignWithProgress, Customer, CompanyUser, User } from "@shared/schema";
 
@@ -198,7 +201,8 @@ export default function CampaignsList() {
                         </h3>
                         {statusBadge(campaign.status)}
                         <Badge variant="outline" className="text-xs" data-testid={`badge-campaign-category-${campaign.id}`}>
-                          {campaign.category === "chemical" ? t("campaigns.categoryChemical") : t("campaigns.categoryGeneral")}
+                          {campaign.category === "irrigation" && <Droplets className="w-3 h-3 mr-1" />}
+                          {campaign.category === "chemical" ? t("campaigns.categoryChemical") : campaign.category === "irrigation" ? t("campaigns.categoryIrrigation") : t("campaigns.categoryGeneral")}
                         </Badge>
                       </div>
                       {campaign.description && (
@@ -255,7 +259,9 @@ function CreateCampaignDialog({ open, onOpenChange }: { open: boolean; onOpenCha
   const [windowEnd, setWindowEnd] = useState<Date | undefined>(undefined);
   const [startOpen, setStartOpen] = useState(false);
   const [endOpen, setEndOpen] = useState(false);
-  const [category, setCategory] = useState<"general" | "chemical">("general");
+  const [category, setCategory] = useState<"general" | "chemical" | "irrigation">("general");
+  const [irrigationSubtype, setIrrigationSubtype] = useState<"spring_turn_on" | "winterization" | "custom">("spring_turn_on");
+  const [checklistTasks, setChecklistTasks] = useState<{ label: string; order: number }[]>([]);
   const [selectedCustomerIds, setSelectedCustomerIds] = useState<Set<string>>(new Set());
   const [customerSearch, setCustomerSearch] = useState("");
 
@@ -294,7 +300,7 @@ function CreateCampaignDialog({ open, onOpenChange }: { open: boolean; onOpenCha
     }));
 
   const createMutation = useMutation({
-    mutationFn: async (data: { title: string; description: string | null; assignedToId: string | null; windowStart: string; windowEnd: string; customerIds: string[]; category: string }) => {
+    mutationFn: async (data: { title: string; description: string | null; assignedToId: string | null; windowStart: string; windowEnd: string; customerIds: string[]; category: string; subtype?: string; checklistTasks?: { label: string; order: number }[] }) => {
       const res = await apiRequest("POST", "/api/campaigns", data);
       return res.json();
     },
@@ -309,6 +315,38 @@ function CreateCampaignDialog({ open, onOpenChange }: { open: boolean; onOpenCha
     },
   });
 
+  const SPRING_TURN_ON_TASKS = [
+    "Locate and expose all valve boxes",
+    "Turn on main water supply slowly",
+    "Check backflow preventer and test",
+    "Walk each zone — check heads for damage",
+    "Adjust head spray patterns and arc",
+    "Check for leaks at all connections",
+    "Program controller schedule",
+    "Run full cycle and verify coverage",
+  ];
+  const WINTERIZATION_TASKS = [
+    "Shut off main water supply",
+    "Open drain valves",
+    "Blow out each zone with compressor",
+    "Verify all zones cleared of water",
+    "Insulate backflow preventer",
+    "Disconnect and drain hoses",
+    "Set controller to rain/off mode",
+    "Mark and cover valve boxes",
+  ];
+
+  const handleSubtypeChange = (value: "spring_turn_on" | "winterization" | "custom") => {
+    setIrrigationSubtype(value);
+    if (value === "spring_turn_on") {
+      setChecklistTasks(SPRING_TURN_ON_TASKS.map((label, i) => ({ label, order: i })));
+    } else if (value === "winterization") {
+      setChecklistTasks(WINTERIZATION_TASKS.map((label, i) => ({ label, order: i })));
+    } else {
+      setChecklistTasks([]);
+    }
+  };
+
   const handleNext = () => {
     if (step === "details") {
       if (!title.trim()) {
@@ -317,6 +355,10 @@ function CreateCampaignDialog({ open, onOpenChange }: { open: boolean; onOpenCha
       }
       if (!windowStart || !windowEnd) {
         toast({ title: t("campaigns.datesRequired"), variant: "destructive" });
+        return;
+      }
+      if (category === "irrigation" && checklistTasks.length === 0) {
+        toast({ title: t("campaigns.irrigationTasksRequired"), variant: "destructive" });
         return;
       }
       setStep("customers");
@@ -343,6 +385,7 @@ function CreateCampaignDialog({ open, onOpenChange }: { open: boolean; onOpenCha
       windowEnd: windowEnd ? format(windowEnd, "yyyy-MM-dd") : "",
       customerIds: Array.from(selectedCustomerIds),
       category,
+      ...(category === "irrigation" ? { subtype: irrigationSubtype, checklistTasks } : {}),
     });
   };
 
@@ -449,19 +492,90 @@ function CreateCampaignDialog({ open, onOpenChange }: { open: boolean; onOpenCha
             </div>
             <div className="space-y-2">
               <Label>{t("campaigns.categoryLabel")}</Label>
-              <Select value={category} onValueChange={(v) => setCategory(v as "general" | "chemical")}>
+              <Select value={category} onValueChange={(v) => {
+                const val = v as "general" | "chemical" | "irrigation";
+                setCategory(val);
+                if (val === "irrigation") {
+                  handleSubtypeChange("spring_turn_on");
+                }
+              }}>
                 <SelectTrigger data-testid="select-campaign-category">
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="general" data-testid="select-campaign-category-general">{t("campaigns.categoryGeneral")}</SelectItem>
                   <SelectItem value="chemical" data-testid="select-campaign-category-chemical">{t("campaigns.categoryChemical")}</SelectItem>
+                  <SelectItem value="irrigation" data-testid="select-campaign-category-irrigation">{t("campaigns.categoryIrrigation")}</SelectItem>
                 </SelectContent>
               </Select>
               {category === "chemical" && (
                 <p className="text-xs text-muted-foreground">{t("campaigns.categoryDescription")}</p>
               )}
+              {category === "irrigation" && (
+                <p className="text-xs text-muted-foreground">{t("campaigns.irrigationDescription")}</p>
+              )}
             </div>
+            {category === "irrigation" && (
+              <div className="space-y-4">
+                <div className="space-y-2">
+                  <Label>{t("campaigns.irrigationSubtype")}</Label>
+                  <Select value={irrigationSubtype} onValueChange={(v) => handleSubtypeChange(v as "spring_turn_on" | "winterization" | "custom")}>
+                    <SelectTrigger data-testid="select-irrigation-subtype">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="spring_turn_on" data-testid="select-subtype-spring">{t("campaigns.subtypeSpringTurnOn")}</SelectItem>
+                      <SelectItem value="winterization" data-testid="select-subtype-winter">{t("campaigns.subtypeWinterization")}</SelectItem>
+                      <SelectItem value="custom" data-testid="select-subtype-custom">{t("campaigns.subtypeCustom")}</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="space-y-2">
+                  <Label>{t("campaigns.checklistTasks")}</Label>
+                  <ScrollArea className="max-h-[200px] border rounded-md">
+                    <div className="p-2 space-y-1">
+                      {checklistTasks.map((task, idx) => (
+                        <div key={idx} className="flex items-center gap-2 p-1.5 rounded-md bg-muted/30" data-testid={`checklist-task-row-${idx}`}>
+                          <GripVertical className="w-3.5 h-3.5 text-muted-foreground shrink-0" />
+                          <span className="text-xs text-muted-foreground w-5 shrink-0">{idx + 1}.</span>
+                          <Input
+                            value={task.label}
+                            onChange={(e) => {
+                              const updated = [...checklistTasks];
+                              updated[idx] = { ...updated[idx], label: e.target.value };
+                              setChecklistTasks(updated);
+                            }}
+                            className="flex-1 text-sm"
+                            placeholder={t("campaigns.taskLabelPlaceholder")}
+                            data-testid={`input-checklist-task-${idx}`}
+                          />
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            onClick={() => {
+                              const updated = checklistTasks.filter((_, i) => i !== idx).map((t, i) => ({ ...t, order: i }));
+                              setChecklistTasks(updated);
+                            }}
+                            data-testid={`button-remove-task-${idx}`}
+                          >
+                            <Trash2 className="w-3.5 h-3.5 text-muted-foreground" />
+                          </Button>
+                        </div>
+                      ))}
+                    </div>
+                  </ScrollArea>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => setChecklistTasks([...checklistTasks, { label: "", order: checklistTasks.length }])}
+                    data-testid="button-add-checklist-task"
+                  >
+                    <Plus className="w-3 h-3 mr-1" />
+                    {t("campaigns.addTask")}
+                  </Button>
+                </div>
+              </div>
+            )}
           </div>
         )}
 
@@ -548,8 +662,22 @@ function CreateCampaignDialog({ open, onOpenChange }: { open: boolean; onOpenCha
                 </div>
                 <div className="flex justify-between gap-2">
                   <span className="text-sm text-muted-foreground">{t("campaigns.categoryLabel")}</span>
-                  <span className="text-sm font-medium">{category === "chemical" ? t("campaigns.categoryChemical") : t("campaigns.categoryGeneral")}</span>
+                  <span className="text-sm font-medium">{category === "chemical" ? t("campaigns.categoryChemical") : category === "irrigation" ? t("campaigns.categoryIrrigation") : t("campaigns.categoryGeneral")}</span>
                 </div>
+                {category === "irrigation" && (
+                  <div className="flex justify-between gap-2">
+                    <span className="text-sm text-muted-foreground">{t("campaigns.irrigationSubtype")}</span>
+                    <span className="text-sm font-medium">
+                      {irrigationSubtype === "spring_turn_on" ? t("campaigns.subtypeSpringTurnOn") : irrigationSubtype === "winterization" ? t("campaigns.subtypeWinterization") : t("campaigns.subtypeCustom")}
+                    </span>
+                  </div>
+                )}
+                {category === "irrigation" && checklistTasks.length > 0 && (
+                  <div className="flex justify-between gap-2">
+                    <span className="text-sm text-muted-foreground">{t("campaigns.checklistTasks")}</span>
+                    <span className="text-sm font-medium">{checklistTasks.length} tasks</span>
+                  </div>
+                )}
                 <div className="flex justify-between gap-2">
                   <span className="text-sm text-muted-foreground">{t("campaigns.assignedTo")}</span>
                   <span className="text-sm">{assigneeName}</span>

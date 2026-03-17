@@ -51,7 +51,7 @@ import {
   Droplets,
   Leaf,
 } from "lucide-react";
-import type { Campaign, CampaignItem, Season } from "@shared/schema";
+import type { Campaign, CampaignItem, Season, CampaignChecklistTask } from "@shared/schema";
 
 interface CampaignItemWithUser extends CampaignItem {
   completedByName?: string | null;
@@ -66,6 +66,8 @@ interface CampaignDetailData extends Campaign {
   assignedToName?: string;
   createdByName?: string;
   seasonName?: string;
+  checklistTasks?: CampaignChecklistTask[];
+  itemTaskCompletions?: Record<string, string[]>;
 }
 
 function escapeHtml(str: string): string {
@@ -265,6 +267,7 @@ export default function CampaignDetail() {
   };
 
   const isChemicalCampaign = campaign?.category === "chemical";
+  const isIrrigationCampaign = campaign?.category === "irrigation";
 
   const getChemStepLabel = (step: string | null, itemStatus?: string) => {
     if (itemStatus === "completed") return t("campaigns.chemStepComplete");
@@ -308,7 +311,8 @@ export default function CampaignDetail() {
             {campaign.status === "active" && <Badge>{t("campaigns.active")}</Badge>}
             <Badge variant="outline" data-testid="badge-campaign-category">
               {campaign.category === "chemical" && <FlaskConical className="w-3 h-3 mr-1" />}
-              {campaign.category === "chemical" ? t("campaigns.categoryChemical") : t("campaigns.categoryGeneral")}
+              {campaign.category === "irrigation" && <Droplets className="w-3 h-3 mr-1" />}
+              {campaign.category === "chemical" ? t("campaigns.categoryChemical") : campaign.category === "irrigation" ? t("campaigns.categoryIrrigation") : t("campaigns.categoryGeneral")}
             </Badge>
             {isOverdue && (
               <Badge variant="destructive">
@@ -551,6 +555,14 @@ export default function CampaignDetail() {
                           item.status === "completed" ? "text-green-600" : "text-primary"
                         }`}>
                           {item.status === "skipped" ? t("campaigns.skippedLabel") : getChemStepLabel(item.workflowStep, item.status)}
+                        </span>
+                      </div>
+                    )}
+                    {isIrrigationCampaign && campaign.checklistTasks && campaign.checklistTasks.length > 0 && (
+                      <div className="flex items-center gap-1.5 mt-1" data-testid={`irrigation-progress-${item.id}`}>
+                        <Droplets className="w-3 h-3 text-blue-500" />
+                        <span className="text-xs text-muted-foreground">
+                          {t("campaigns.checklistProgress")}: {campaign.itemTaskCompletions?.[item.id]?.length || 0}/{campaign.checklistTasks.length}
                         </span>
                       </div>
                     )}

@@ -47,7 +47,7 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { Separator } from "@/components/ui/separator";
-import type { Campaign, CampaignItem, Contact } from "@shared/schema";
+import type { Campaign, CampaignItem, CampaignChecklistTask, Contact } from "@shared/schema";
 import LayerMapViewer from "@/components/LayerMapViewer";
 import WeatherCapturePanel from "@/components/WeatherCapturePanel";
 import { Label } from "@/components/ui/label";
@@ -70,6 +70,8 @@ interface CampaignDetailData extends Campaign {
   skippedItems: number;
   assignedToName?: string;
   createdByName?: string;
+  checklistTasks?: CampaignChecklistTask[];
+  itemTaskCompletions?: Record<string, string[]>;
 }
 
 export default function CampaignItemDetail() {
@@ -113,6 +115,7 @@ export default function CampaignItemDetail() {
   const canComplete = ["admin", "office", "field_manager", "field", "chemical_manager"].includes(user?.activeRole || "");
   const canSendChemEmails = ["admin", "office", "chemical_manager"].includes(user?.activeRole || "");
   const isChemicalCampaign = campaign?.category === "chemical";
+  const isIrrigationCampaign = campaign?.category === "irrigation";
   const [showChemReset, setShowChemReset] = useState(false);
   const primaryContact = contacts?.find(c => c.isPrimary === "true") || contacts?.[0];
   const recipientEmail = primaryContact?.emails?.[0] || contacts?.find(c => c.emails && c.emails.length > 0)?.emails?.[0] || null;
@@ -191,6 +194,20 @@ export default function CampaignItemDetail() {
     setPhotos(newPhotos);
     updateItemMutation.mutate({ photos: newPhotos });
   };
+
+  const toggleChecklistTaskMutation = useMutation({
+    mutationFn: async (taskId: string) => {
+      const res = await apiRequest("POST", `/api/campaigns/${campaignId}/items/${itemId}/checklist/${taskId}/toggle`);
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/campaigns", campaignId] });
+      queryClient.invalidateQueries({ queryKey: ["/api/campaigns"] });
+    },
+    onError: () => {
+      toast({ title: t("campaigns.updateFailed"), variant: "destructive" });
+    },
+  });
 
   const getPhotoUrl = (photo: string) => {
     return photo.startsWith("/objects/") ? photo : `/objects/${photo.replace(/^\/[^/]+\/[^/]+\//, "")}`;
@@ -666,7 +683,102 @@ export default function CampaignItemDetail() {
         </Card>
       )}
 
-      {!isChemicalCampaign && canComplete && (
+      {isIrrigationCampaign && campaign.checklistTasks && campaign.checklistTasks.length > 0 && (
+        <Card data-testid="card-irrigation-checklist">
+          <CardHeader className="pb-3">
+            <CardTitle className="text-sm flex items-center gap-2">
+              <CheckCircle2 className="w-4 h-4" />
+              {t("campaigns.checklistTasks")}
+              <Badge variant="outline" className="ml-auto text-xs">
+                {campaign.itemTaskCompletions?.[item.id]?.length || 0}/{campaign.checklistTasks.length}
+              </Badge>
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="pt-0 space-y-2">
+            {campaign.checklistTasks.map(task => {
+              const isChecked = campaign.itemTaskCompletions?.[item.id]?.includes(task.id) || false;
+              return (
+                <div
+                  key={task.id}
+                  className={`flex items-center gap-3 p-2.5 rounded-md border ${isChecked ? "bg-green-600/5 border-green-600/20" : "bg-muted/20"}`}
+                  data-testid={`checklist-item-${task.id}`}
+                >
+                  <input
+                    type="checkbox"
+                    checked={isChecked}
+                    onChange={() => toggleChecklistTaskMutation.mutate(task.id)}
+                    disabled={toggleChecklistTaskMutation.isPending || item.status === "skipped"}
+                    className="w-4 h-4 rounded accent-green-600 cursor-pointer"
+                    data-testid={`checkbox-task-${task.id}`}
+                  />
+                  <span className={`text-sm flex-1 ${isChecked ? "line-through text-muted-foreground" : ""}`}>
+                    {task.label}
+                  </span>
+                </div>
+              );
+            })}
+            {item.status === "completed" && (
+              <div className="flex items-center gap-2 pt-2">
+                <Badge variant="default" className="bg-green-600">
+                  <CheckCircle2 className="w-3 h-3 mr-1" />
+                  {t("campaigns.completed")}
+                </Badge>
+              </div>
+            )}
+            {item.status !== "completed" && item.status !== "skipped" && user?.activeRole === "admin" && (
+              <div className="flex items-center gap-2 pt-2 flex-wrap">
+                {!showSkip ? (
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => setShowSkip(true)}
+                    data-testid="button-show-skip"
+                  >
+                    <SkipForward className="w-4 h-4 mr-1" />
+                    {t("campaigns.skip")}
+                  </Button>
+                ) : (
+                  <div className="flex items-center gap-2 flex-wrap flex-1 min-w-[200px]">
+                    <Input
+                      value={skipReason}
+                      onChange={(e) => setSkipReason(e.target.value)}
+                      placeholder={t("campaigns.skipReasonPlaceholder")}
+                      className="flex-1 min-w-[150px]"
+                      data-testid="input-skip-reason"
+                    />
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => updateItemMutation.mutate({ status: "skipped", notes, skipReason })}
+                      disabled={updateItemMutation.isPending || !skipReason.trim()}
+                      data-testid="button-confirm-skip"
+                    >
+                      <SkipForward className="w-4 h-4 mr-1" />
+                      {t("campaigns.confirmSkip")}
+                    </Button>
+                  </div>
+                )}
+              </div>
+            )}
+            {canManage && (item.status === "completed" || item.status === "skipped") && (
+              <div className="flex items-center gap-2 pt-2">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => updateItemMutation.mutate({ status: "pending", notes: "", skipReason: "" })}
+                  disabled={updateItemMutation.isPending}
+                  data-testid="button-reopen-item"
+                >
+                  <RotateCcw className="w-4 h-4 mr-1" />
+                  {t("campaigns.reopen")}
+                </Button>
+              </div>
+            )}
+          </CardContent>
+        </Card>
+      )}
+
+      {!isChemicalCampaign && !isIrrigationCampaign && canComplete && (
         <Card>
           <CardContent className="p-4">
             <div className="flex flex-col sm:flex-row sm:items-center gap-2">
