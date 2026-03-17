@@ -79,6 +79,7 @@ export default function CustomerRouteMap() {
 
   const canGeocode = user?.activeRole === "admin" || user?.activeRole === "office";
   const mappedCustomersRef = useRef<Customer[]>([]);
+  const styleInitializedRef = useRef(false);
 
   const { data: mapboxConfig } = useQuery<{ token: string | null }>({
     queryKey: ["/api/config/mapbox-token"],
@@ -191,6 +192,7 @@ export default function CustomerRouteMap() {
       map.remove();
       mapRef.current = null;
       setMapReady(false);
+      styleInitializedRef.current = false;
     };
   }, [mapboxConfig?.token]);
 
@@ -198,23 +200,27 @@ export default function CustomerRouteMap() {
     mappedCustomersRef.current = mappedCustomers;
   }, [mappedCustomers]);
 
-  // Toggle satellite/street style — re-add layer after style reloads
   useEffect(() => {
     if (!mapRef.current || !mapReady) return;
+    if (!styleInitializedRef.current) {
+      styleInitializedRef.current = true;
+      addLayerToMap(mapRef.current, buildGeoJSON(mappedCustomersRef.current));
+      return;
+    }
     const map = mapRef.current;
-
     map.setStyle(
       useSatellite
         ? "mapbox://styles/mapbox/satellite-streets-v12"
         : "mapbox://styles/mapbox/streets-v12"
     );
 
-    map.once("styledata", () => {
+    const onStyleLoad = () => {
       addLayerToMap(map, buildGeoJSON(mappedCustomersRef.current));
-    });
+    };
+    map.once("style.load", onStyleLoad);
+    return () => { map.off("style.load", onStyleLoad); };
   }, [useSatellite, mapReady]);
 
-  // Update/add GeoJSON data whenever customers or map readiness changes
   useEffect(() => {
     if (!mapRef.current || !mapReady) return;
     const map = mapRef.current;
@@ -223,7 +229,9 @@ export default function CustomerRouteMap() {
     if (map.isStyleLoaded()) {
       addLayerToMap(map, geojson);
     } else {
-      map.once("styledata", () => addLayerToMap(map, geojson));
+      const onStyleLoad = () => addLayerToMap(map, geojson);
+      map.once("style.load", onStyleLoad);
+      return () => { map.off("style.load", onStyleLoad); };
     }
 
     if (mappedCustomers.length > 0) {
