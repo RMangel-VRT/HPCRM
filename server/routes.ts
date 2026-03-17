@@ -9097,9 +9097,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
     if (assignedToId) {
       const companyUsers = await storage.getCompanyUsersByCompanyId(user.activeCompanyId);
-      const isCompanyMember = companyUsers.some(cu => cu.userId === assignedToId);
-      if (!isCompanyMember) {
+      const assigneeCompanyUser = companyUsers.find(cu => cu.userId === assignedToId);
+      if (!assigneeCompanyUser) {
         return res.status(400).json({ error: "Assignee must be a member of this company" });
+      }
+      if (campaignCategory === "chemical" && assigneeCompanyUser.role !== "chemical_manager") {
+        return res.status(400).json({ error: "Chemical campaigns must be assigned to a chemical manager" });
       }
     }
     const allCustomers = await storage.getCustomers(user.activeCompanyId);

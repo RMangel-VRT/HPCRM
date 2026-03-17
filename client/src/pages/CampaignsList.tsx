@@ -1,4 +1,4 @@
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { Link, useLocation } from "wouter";
 import { useTranslation } from "react-i18next";
@@ -299,6 +299,23 @@ function CreateCampaignDialog({ open, onOpenChange }: { open: boolean; onOpenCha
       role: item.companyUser.role,
     }));
 
+  const chemicalManagers = companyUsersData
+    .filter(item => item.companyUser.role === "chemical_manager")
+    .map(item => ({
+      id: item.companyUser.userId,
+      name: item.user.name,
+      role: item.companyUser.role,
+    }));
+
+  useEffect(() => {
+    if (category === "chemical" && assignedToId) {
+      const isChemicalManager = chemicalManagers.some(m => m.id === assignedToId);
+      if (!isChemicalManager) {
+        setAssignedToId("");
+      }
+    }
+  }, [category, assignedToId, chemicalManagers]);
+
   const createMutation = useMutation({
     mutationFn: async (data: { title: string; description: string | null; assignedToId: string | null; windowStart: string; windowEnd: string; customerIds: string[]; category: string; subtype?: string; checklistTasks?: { label: string; order: number }[] }) => {
       const res = await apiRequest("POST", "/api/campaigns", data);
@@ -399,7 +416,8 @@ function CreateCampaignDialog({ open, onOpenChange }: { open: boolean; onOpenCha
   };
 
   const selectedCustomers = selectableCustomers.filter(c => selectedCustomerIds.has(c.id));
-  const assigneeName = teamMembers.find(m => m.id === assignedToId)?.name || t("common.unassigned");
+  const assigneePool = category === "chemical" ? chemicalManagers : teamMembers;
+  const assigneeName = assigneePool.find(m => m.id === assignedToId)?.name || t("common.unassigned");
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -482,7 +500,7 @@ function CreateCampaignDialog({ open, onOpenChange }: { open: boolean; onOpenCha
                   <SelectValue placeholder={t("common.select")} />
                 </SelectTrigger>
                 <SelectContent>
-                  {teamMembers.map((m, idx) => (
+                  {(category === "chemical" ? chemicalManagers : teamMembers).map((m, idx) => (
                     <SelectItem key={m.id} value={m.id} data-testid={`select-campaign-assignee-${idx}`}>
                       {m.name}
                     </SelectItem>
