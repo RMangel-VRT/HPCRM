@@ -1228,6 +1228,17 @@ export async function registerRoutes(app: Express): Promise<Server> {
     res.json(customers);
   });
 
+  // Dedicated route-map endpoint — returns only customers with includeInRoute=true and active="true"
+  app.get("/api/customers/route", async (req, res) => {
+    if (!req.isAuthenticated()) return res.status(401).send("Not authenticated");
+    const user = req.user as UserWithContext;
+    const results = await db
+      .select()
+      .from(customersTable)
+      .where(and(eq(customersTable.companyId, user.activeCompanyId), eq(customersTable.includeInRoute, true), eq(customersTable.active, "true")));
+    res.json(results);
+  });
+
   app.get("/api/customers/:id", async (req, res) => {
     if (!req.isAuthenticated()) {
       return res.status(401).send("Not authenticated");

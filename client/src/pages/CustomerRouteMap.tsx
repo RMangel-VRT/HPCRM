@@ -85,11 +85,10 @@ export default function CustomerRouteMap() {
     queryKey: ["/api/config/mapbox-token"],
   });
 
-  const { data: customers = [], isLoading: loadingCustomers } = useQuery<Customer[]>({
-    queryKey: ["/api/customers"],
+  const { data: routeCustomers = [], isLoading: loadingCustomers } = useQuery<Customer[]>({
+    queryKey: ["/api/customers/route"],
   });
 
-  const routeCustomers = customers.filter((c) => c.includeInRoute);
   const mappedCustomers = routeCustomers.filter(
     (c) => c.locationLat != null && c.locationLng != null
   );
@@ -100,7 +99,7 @@ export default function CustomerRouteMap() {
   const geocodeMutation = useMutation({
     mutationFn: () => apiRequest("POST", "/api/customers/geocode-missing"),
     onSuccess: async (data: any) => {
-      await queryClient.invalidateQueries({ queryKey: ["/api/customers"] });
+      await queryClient.invalidateQueries({ queryKey: ["/api/customers/route"] });
       const geocoded = data?.geocoded ?? 0;
       const failed = data?.failed ?? 0;
       toast({
