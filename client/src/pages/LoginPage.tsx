@@ -9,7 +9,7 @@ import { useAuth } from "@/hooks/use-auth";
 import logoImage from "@assets/TRUCK_DECAL-06_1766432157419.png";
 
 export default function LoginPage() {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
   const { user, loginMutation } = useAuth();
   const [, setLocation] = useLocation();
   const [username, setUsername] = useState("");
@@ -40,8 +40,12 @@ export default function LoginPage() {
     );
   };
 
+  const toggleLanguage = (lang: "en" | "es") => {
+    i18n.changeLanguage(lang);
+  };
+
   return (
-    <div className="min-h-screen flex items-center justify-center bg-muted/30 relative overflow-hidden">
+    <div className="min-h-screen flex flex-col items-center justify-center bg-muted/30 relative overflow-hidden">
       <div 
         className="absolute inset-0 flex items-center justify-center pointer-events-none"
         style={{
@@ -99,6 +103,33 @@ export default function LoginPage() {
           </form>
         </CardContent>
       </Card>
+      <div className="relative z-10 mt-3 flex items-center gap-1 text-sm text-muted-foreground">
+        <button
+          type="button"
+          onClick={() => toggleLanguage("en")}
+          data-testid="button-lang-en"
+          className={`px-2 py-0.5 rounded transition-colors ${
+            i18n.language === "en"
+              ? "text-foreground font-semibold"
+              : "hover:text-foreground"
+          }`}
+        >
+          English
+        </button>
+        <span className="select-none">·</span>
+        <button
+          type="button"
+          onClick={() => toggleLanguage("es")}
+          data-testid="button-lang-es"
+          className={`px-2 py-0.5 rounded transition-colors ${
+            i18n.language === "es"
+              ? "text-foreground font-semibold"
+              : "hover:text-foreground"
+          }`}
+        >
+          Español
+        </button>
+      </div>
     </div>
   );
 }
