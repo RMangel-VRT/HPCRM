@@ -9559,8 +9559,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
         chemUpdates.finishedWithoutComms = "true";
         if (notes !== undefined) chemUpdates.notes = (notes || "") + "\n[Completed without communications by " + (user as any).name + "]";
       } else if (chemAction === "reset") {
-        if (user.activeRole !== "admin" && user.activeRole !== "office") {
-          return res.status(403).send("Only admin/office can reset chemical workflow");
+        const resetRoles = ["admin", "office", "chemical_manager"];
+        if (!resetRoles.includes(user.activeRole)) {
+          return res.status(403).send("Only admin, office, or chemical manager can reset chemical workflow");
         }
         chemUpdates.workflowStep = "pre_communication";
         chemUpdates.preCommSentAt = null;
@@ -9606,11 +9607,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
     if (status !== undefined && !validItemStatuses.includes(status)) {
       return res.status(400).json({ error: "Invalid status value" });
     }
-    if (status === "pending" && user.activeRole !== "admin" && user.activeRole !== "office") {
-      return res.status(403).send("Only admin/office can reset items to pending");
+    const skipResetRoles = ["admin", "office", "chemical_manager"];
+    if (status === "pending" && !skipResetRoles.includes(user.activeRole)) {
+      return res.status(403).send("Only admin, office, or chemical manager can reset items to pending");
     }
-    if (status === "skipped" && user.activeRole !== "admin") {
-      return res.status(403).send("Only admin can skip campaign items");
+    if (status === "skipped" && !skipResetRoles.includes(user.activeRole)) {
+      return res.status(403).send("Only admin, office, or chemical manager can skip campaign items");
     }
     if (status === "skipped" && (!skipReason || !skipReason.trim())) {
       return res.status(400).json({ error: "Skip reason is required" });
@@ -9810,7 +9812,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.post("/api/campaigns/photo-upload-url", async (req, res) => {
     if (!req.isAuthenticated()) return res.status(401).send("Not authenticated");
     const campaignUser = req.user as UserWithContext;
-    const campaignRoles = ["admin", "office", "field_manager", "field"];
+    const campaignRoles = ["admin", "office", "field_manager", "field", "chemical_manager"];
     if (!campaignRoles.includes(campaignUser.activeRole)) {
       return res.status(403).send("Insufficient permissions");
     }

@@ -129,6 +129,8 @@ export default function CampaignItemDetail() {
   const canComplete = ["admin", "office", "field_manager", "field", "chemical_manager"].includes(user?.activeRole || "");
   const canSendChemEmails = ["admin", "office", "chemical_manager"].includes(user?.activeRole || "");
   const canFinishWithoutComms = ["admin", "office", "chemical_manager"].includes(user?.activeRole || "");
+  const canSkip = ["admin", "office", "chemical_manager"].includes(user?.activeRole || "");
+  const canReopen = ["admin", "office", "chemical_manager"].includes(user?.activeRole || "");
   const isChemicalCampaign = campaign?.category === "chemical";
   const isIrrigationCampaign = campaign?.category === "irrigation";
   const [showChemReset, setShowChemReset] = useState(false);
@@ -707,7 +709,7 @@ export default function CampaignItemDetail() {
               </div>
             )}
 
-            {item.status !== "completed" && item.status !== "skipped" && user?.activeRole === "admin" && (
+            {item.status !== "completed" && item.status !== "skipped" && canSkip && (
               <div className="flex flex-col sm:flex-row sm:items-center gap-2">
                 {!showSkip ? (
                   <Button
@@ -745,7 +747,7 @@ export default function CampaignItemDetail() {
               </div>
             )}
 
-            {item.status === "skipped" && canManage && (
+            {item.status === "skipped" && canReopen && (
               <Button
                 variant="outline"
                 className="w-full sm:w-auto"
@@ -803,7 +805,7 @@ export default function CampaignItemDetail() {
                 </Badge>
               </div>
             )}
-            {item.status !== "completed" && item.status !== "skipped" && user?.activeRole === "admin" && (
+            {item.status !== "completed" && item.status !== "skipped" && canSkip && (
               <div className="flex items-center gap-2 pt-2 flex-wrap">
                 {!showSkip ? (
                   <Button
@@ -872,7 +874,7 @@ export default function CampaignItemDetail() {
                     <CheckCircle2 className="w-4 h-4 mr-1" />
                     {t("campaigns.markComplete")}
                   </Button>
-                  {user?.activeRole === "admin" && (
+                  {canSkip && (
                     <>
                       {!showSkip ? (
                         <Button
