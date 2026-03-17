@@ -1657,10 +1657,11 @@ export const campaignItems = pgTable("campaign_items", {
   postCommEmailLogId: varchar("chem_post_email_log_id").references(() => emailLogs.id, { onDelete: "set null" }),
   weatherTemp: real("weather_temp"),
   weatherWindSpeed: real("weather_wind_speed"),
-  weatherWindDirection: real("weather_wind_direction"),
+  weatherWindDirection: text("weather_wind_direction"),
   weatherHumidity: real("weather_humidity"),
   weatherConditions: text("weather_conditions"),
   weatherRecordedAt: timestamp("weather_recorded_at"),
+  finishedWithoutComms: text("finished_without_comms").$type<"true" | "false">().default("false"),
   createdAt: timestamp("created_at").notNull().defaultNow(),
   updatedAt: timestamp("updated_at").notNull().defaultNow(),
 });

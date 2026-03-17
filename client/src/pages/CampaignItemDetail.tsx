@@ -61,6 +61,13 @@ interface CampaignItemWithUser extends CampaignItem {
   customerLat?: number | null;
   customerLng?: number | null;
   customerAddress?: string;
+  finishedWithoutComms?: string | null;
+  weatherTemp?: number | null;
+  weatherWindSpeed?: number | null;
+  weatherWindDirection?: string | null;
+  weatherHumidity?: number | null;
+  weatherConditions?: string | null;
+  weatherRecordedAt?: string | null;
 }
 
 interface CampaignDetailData extends Campaign {
@@ -92,6 +99,13 @@ export default function CampaignItemDetail() {
   const [emailPreview, setEmailPreview] = useState<{ recipientEmail: string | null; subject: string; htmlBody: string; templateName: string; contactName: string | null } | null>(null);
   const [loadingPreview, setLoadingPreview] = useState(false);
   const [manualEmail, setManualEmail] = useState("");
+  const [showFinishWithoutComms, setShowFinishWithoutComms] = useState(false);
+  const [finishDate, setFinishDate] = useState("");
+  const [finishWeatherTemp, setFinishWeatherTemp] = useState("");
+  const [finishWeatherWindSpeed, setFinishWeatherWindSpeed] = useState("");
+  const [finishWeatherWindDirection, setFinishWeatherWindDirection] = useState("");
+  const [finishWeatherHumidity, setFinishWeatherHumidity] = useState("");
+  const [finishWeatherConditions, setFinishWeatherConditions] = useState("");
 
   const { data: campaign, isLoading } = useQuery<CampaignDetailData>({
     queryKey: ["/api/campaigns", campaignId],
@@ -114,6 +128,7 @@ export default function CampaignItemDetail() {
   const canManage = user?.activeRole === "admin" || user?.activeRole === "office";
   const canComplete = ["admin", "office", "field_manager", "field", "chemical_manager"].includes(user?.activeRole || "");
   const canSendChemEmails = ["admin", "office", "chemical_manager"].includes(user?.activeRole || "");
+  const canFinishWithoutComms = ["admin", "office", "chemical_manager"].includes(user?.activeRole || "");
   const isChemicalCampaign = campaign?.category === "chemical";
   const isIrrigationCampaign = campaign?.category === "irrigation";
   const [showChemReset, setShowChemReset] = useState(false);
@@ -130,8 +145,8 @@ export default function CampaignItemDetail() {
   }, [item?.id, item?.notes, item?.skipReason, item?.photos]);
 
   const updateItemMutation = useMutation({
-    mutationFn: async (data: { status?: string; notes?: string; skipReason?: string; photos?: string[]; chemAction?: string; overrideEmail?: string }) => {
-      if (data.chemAction && data.chemAction !== "reset") {
+    mutationFn: async (data: { status?: string; notes?: string; skipReason?: string; photos?: string[]; chemAction?: string; overrideEmail?: string; completionDate?: string; weatherTemp?: number; weatherWindSpeed?: number; weatherWindDirection?: string; weatherHumidity?: number; weatherConditions?: string }) => {
+      if (data.chemAction && data.chemAction !== "reset" && data.chemAction !== "finish_without_comms") {
         const routeMap: Record<string, string> = {
           send_pre_communication: "send-pre-comm",
           complete_work: "complete-work",
@@ -154,6 +169,8 @@ export default function CampaignItemDetail() {
       if (variables.chemAction) {
         if (variables.chemAction === "reset") {
           toast({ title: t("campaigns.chemWorkflowReset") });
+        } else if (variables.chemAction === "finish_without_comms") {
+          toast({ title: t("campaigns.chemFinishWithoutCommsSuccess") });
         } else {
           toast({ title: t("campaigns.chemStepAdvanced") });
         }
@@ -336,6 +353,43 @@ export default function CampaignItemDetail() {
                   {item.completedByName}
                 </span>
               )}
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
+      {item.weatherTemp != null && item.weatherConditions && (
+        <Card data-testid="card-weather-data">
+          <CardContent className="p-4">
+            <div className="text-xs text-muted-foreground mb-2 flex items-center gap-1.5">
+              <CalendarDays className="w-3.5 h-3.5" />
+              {t("campaigns.chemWeatherConditions")}
+            </div>
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-sm">
+              <div>
+                <span className="text-muted-foreground text-xs">{t("campaigns.chemWeatherTemp")}</span>
+                <div className="font-medium">{item.weatherTemp}°F</div>
+              </div>
+              <div>
+                <span className="text-muted-foreground text-xs">{t("campaigns.chemWeatherWindSpeed")}</span>
+                <div className="font-medium">{item.weatherWindSpeed} mph</div>
+              </div>
+              {item.weatherWindDirection && (
+                <div>
+                  <span className="text-muted-foreground text-xs">{t("campaigns.chemWeatherWindDirection")}</span>
+                  <div className="font-medium">{item.weatherWindDirection}</div>
+                </div>
+              )}
+              {item.weatherHumidity != null && (
+                <div>
+                  <span className="text-muted-foreground text-xs">{t("campaigns.chemWeatherHumidity")}</span>
+                  <div className="font-medium">{item.weatherHumidity}%</div>
+                </div>
+              )}
+              <div className="col-span-2">
+                <span className="text-muted-foreground text-xs">{t("campaigns.chemWeatherConditions")}</span>
+                <div className="font-medium">{item.weatherConditions}</div>
+              </div>
             </div>
           </CardContent>
         </Card>
@@ -613,6 +667,30 @@ export default function CampaignItemDetail() {
                     <CheckCircle2 className="w-3 h-3 mr-1" />
                     {t("campaigns.chemStepComplete")}
                   </Badge>
+                )}
+                {item.status === "completed" && item.finishedWithoutComms === "true" && (
+                  <Badge variant="secondary" data-testid="badge-chem-no-comms">
+                    {t("campaigns.chemCompletedWithoutComms")}
+                  </Badge>
+                )}
+                {canFinishWithoutComms && item.status !== "completed" && item.status !== "skipped" && (
+                  <Button
+                    variant="outline"
+                    onClick={() => {
+                      setFinishDate("");
+                      setFinishWeatherTemp("");
+                      setFinishWeatherWindSpeed("");
+                      setFinishWeatherWindDirection("");
+                      setFinishWeatherHumidity("");
+                      setFinishWeatherConditions("");
+                      setShowFinishWithoutComms(true);
+                    }}
+                    disabled={updateItemMutation.isPending}
+                    data-testid="button-chem-finish-no-comms"
+                  >
+                    <CheckCircle2 className="w-4 h-4 mr-1" />
+                    {t("campaigns.chemFinishWithoutComms")}
+                  </Button>
                 )}
                 {canManage && item.workflowStep !== "pre_communication" && item.status !== "completed" && (
                   <Button
@@ -942,6 +1020,120 @@ export default function CampaignItemDetail() {
                 {updateItemMutation.isPending && <Loader2 className="w-4 h-4 mr-1 animate-spin" />}
                 {showEmailConfirm === "pre" ? <Mail className="w-4 h-4 mr-1" /> : <Send className="w-4 h-4 mr-1" />}
                 {t("campaigns.chemConfirmSend")}
+              </Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={showFinishWithoutComms} onOpenChange={setShowFinishWithoutComms}>
+        <DialogContent className="max-w-md" data-testid="dialog-finish-without-comms">
+          <div className="space-y-4">
+            <div className="flex items-center gap-2">
+              <CheckCircle2 className="w-5 h-5 text-primary" />
+              <h3 className="text-lg font-semibold">{t("campaigns.chemFinishWithoutCommsTitle")}</h3>
+            </div>
+            <p className="text-sm text-muted-foreground">{t("campaigns.chemFinishWithoutCommsDesc")}</p>
+            <Separator />
+            <div className="space-y-3">
+              <div>
+                <Label className="text-xs text-muted-foreground">{t("campaigns.chemCompletionDate")} *</Label>
+                <Input
+                  type="date"
+                  value={finishDate}
+                  onChange={(e) => setFinishDate(e.target.value)}
+                  data-testid="input-finish-date"
+                  className="mt-1"
+                />
+              </div>
+              <Separator />
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <Label className="text-xs text-muted-foreground">{t("campaigns.chemWeatherTemp")} *</Label>
+                  <Input
+                    type="number"
+                    value={finishWeatherTemp}
+                    onChange={(e) => setFinishWeatherTemp(e.target.value)}
+                    placeholder="72"
+                    data-testid="input-weather-temp"
+                    className="mt-1"
+                  />
+                </div>
+                <div>
+                  <Label className="text-xs text-muted-foreground">{t("campaigns.chemWeatherWindSpeed")} *</Label>
+                  <Input
+                    type="number"
+                    value={finishWeatherWindSpeed}
+                    onChange={(e) => setFinishWeatherWindSpeed(e.target.value)}
+                    placeholder="5"
+                    data-testid="input-weather-wind-speed"
+                    className="mt-1"
+                  />
+                </div>
+                <div>
+                  <Label className="text-xs text-muted-foreground">{t("campaigns.chemWeatherWindDirection")}</Label>
+                  <Input
+                    value={finishWeatherWindDirection}
+                    onChange={(e) => setFinishWeatherWindDirection(e.target.value)}
+                    placeholder="NW"
+                    data-testid="input-weather-wind-dir"
+                    className="mt-1"
+                  />
+                </div>
+                <div>
+                  <Label className="text-xs text-muted-foreground">{t("campaigns.chemWeatherHumidity")}</Label>
+                  <Input
+                    type="number"
+                    value={finishWeatherHumidity}
+                    onChange={(e) => setFinishWeatherHumidity(e.target.value)}
+                    placeholder="45"
+                    data-testid="input-weather-humidity"
+                    className="mt-1"
+                  />
+                </div>
+              </div>
+              <div>
+                <Label className="text-xs text-muted-foreground">{t("campaigns.chemWeatherConditions")} *</Label>
+                <Input
+                  value={finishWeatherConditions}
+                  onChange={(e) => setFinishWeatherConditions(e.target.value)}
+                  placeholder={t("campaigns.chemWeatherConditionsPlaceholder")}
+                  data-testid="input-weather-conditions"
+                  className="mt-1"
+                />
+              </div>
+            </div>
+            <Separator />
+            <div className="flex justify-end gap-2">
+              <Button variant="outline" onClick={() => setShowFinishWithoutComms(false)} data-testid="button-cancel-finish-no-comms">
+                {t("common.cancel")}
+              </Button>
+              <Button
+                onClick={() => {
+                  updateItemMutation.mutate({
+                    chemAction: "finish_without_comms",
+                    notes,
+                    completionDate: finishDate,
+                    weatherTemp: parseFloat(finishWeatherTemp),
+                    weatherWindSpeed: parseFloat(finishWeatherWindSpeed),
+                    weatherWindDirection: finishWeatherWindDirection || undefined,
+                    weatherHumidity: finishWeatherHumidity ? parseFloat(finishWeatherHumidity) : undefined,
+                    weatherConditions: finishWeatherConditions,
+                  });
+                  setShowFinishWithoutComms(false);
+                }}
+                disabled={
+                  updateItemMutation.isPending ||
+                  !finishDate ||
+                  !finishWeatherTemp ||
+                  !finishWeatherWindSpeed ||
+                  !finishWeatherConditions.trim()
+                }
+                data-testid="button-confirm-finish-no-comms"
+              >
+                {updateItemMutation.isPending && <Loader2 className="w-4 h-4 mr-1 animate-spin" />}
+                <CheckCircle2 className="w-4 h-4 mr-1" />
+                {t("campaigns.chemConfirmFinish")}
               </Button>
             </div>
           </div>

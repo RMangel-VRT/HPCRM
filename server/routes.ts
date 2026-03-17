@@ -9503,6 +9503,46 @@ export async function registerRoutes(app: Express): Promise<Server> {
           console.error("Failed to send chemical post-notice email:", emailErr);
           return res.status(500).json({ error: "Failed to send post-completion notification email" });
         }
+      } else if (chemAction === "finish_without_comms") {
+        const finishRoles = ["admin", "office", "chemical_manager"];
+        if (!finishRoles.includes(user.activeRole)) {
+          return res.status(403).send("Only admin, office, or chemical manager can finish without communications");
+        }
+        if (targetItem.status === "completed" || targetItem.status === "skipped") {
+          return res.status(400).json({ error: "Item is already completed or skipped" });
+        }
+        const { completionDate, weatherTemp, weatherWindSpeed, weatherWindDirection, weatherHumidity, weatherConditions } = req.body as {
+          completionDate?: string;
+          weatherTemp?: number;
+          weatherWindSpeed?: number;
+          weatherWindDirection?: string;
+          weatherHumidity?: number;
+          weatherConditions?: string;
+        };
+        if (!completionDate) {
+          return res.status(400).json({ error: "Completion date is required" });
+        }
+        if (weatherTemp == null || weatherWindSpeed == null || !weatherConditions) {
+          return res.status(400).json({ error: "Weather data (temperature, wind speed, conditions) is required" });
+        }
+        const completionDateObj = new Date(completionDate + "T12:00:00");
+        if (isNaN(completionDateObj.getTime())) {
+          return res.status(400).json({ error: "Invalid completion date" });
+        }
+        chemUpdates.workflowStep = "post_communication";
+        chemUpdates.status = "completed";
+        chemUpdates.workCompletedAt = completionDateObj;
+        chemUpdates.workCompletedById = user.id;
+        chemUpdates.completedById = user.id;
+        chemUpdates.completedAt = completionDateObj;
+        chemUpdates.weatherTemp = weatherTemp;
+        chemUpdates.weatherWindSpeed = weatherWindSpeed;
+        chemUpdates.weatherWindDirection = weatherWindDirection || null;
+        chemUpdates.weatherHumidity = weatherHumidity ?? null;
+        chemUpdates.weatherConditions = weatherConditions;
+        chemUpdates.weatherRecordedAt = completionDateObj;
+        chemUpdates.finishedWithoutComms = "true";
+        if (notes !== undefined) chemUpdates.notes = (notes || "") + "\n[Completed without communications by " + (user as any).name + "]";
       } else if (chemAction === "reset") {
         if (user.activeRole !== "admin" && user.activeRole !== "office") {
           return res.status(403).send("Only admin/office can reset chemical workflow");
@@ -9519,6 +9559,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
         chemUpdates.status = "pending";
         chemUpdates.completedById = null;
         chemUpdates.completedAt = null;
+        chemUpdates.weatherTemp = null;
+        chemUpdates.weatherWindSpeed = null;
+        chemUpdates.weatherWindDirection = null;
+        chemUpdates.weatherHumidity = null;
+        chemUpdates.weatherConditions = null;
+        chemUpdates.weatherRecordedAt = null;
+        chemUpdates.finishedWithoutComms = "false";
       } else {
         return res.status(400).json({ error: "Invalid chemical action" });
       }
