@@ -1235,7 +1235,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
     const results = await db
       .select()
       .from(customersTable)
-      .where(and(eq(customersTable.companyId, user.activeCompanyId), eq(customersTable.includeInRoute, true), eq(customersTable.active, "true")));
+      .where(and(
+        eq(customersTable.companyId, user.activeCompanyId),
+        sql`include_in_route = true`,
+        sql`active = 'true'`
+      ));
     res.json(results);
   });
 
