@@ -524,7 +524,7 @@ export default function CampaignItemDetail() {
         </CardContent>
       </Card>
 
-      {isChemicalCampaign && item.workflowStep && (
+      {isChemicalCampaign && (
         <Card data-testid="card-chem-workflow">
           <CardHeader className="pb-3">
             <CardTitle className="text-sm flex items-center gap-2">
@@ -561,7 +561,7 @@ export default function CampaignItemDetail() {
                   ];
                   const isSkipped = item.status === "skipped";
                   const steps = ["pre_communication", "work_in_progress", "work_completed", "post_communication"];
-                  const currentIdx = item.status === "completed" ? 4 : isSkipped ? -1 : steps.indexOf(item.workflowStep || "pre_communication");
+                  const currentIdx = item.status === "completed" ? 4 : isSkipped ? -1 : steps.indexOf(item.workflowStep ?? "pre_communication");
                   const isComplete = !isSkipped && idx < currentIdx;
                   const isCurrent = !isSkipped && idx === currentIdx;
                   return (
@@ -610,7 +610,7 @@ export default function CampaignItemDetail() {
 
             {item.status !== "skipped" && (
               <div className="flex flex-col sm:flex-row sm:items-center gap-2 w-full sm:w-auto">
-                {item.workflowStep === "pre_communication" && canSendChemEmails && (
+                {(item.workflowStep ?? "pre_communication") === "pre_communication" && canSendChemEmails && (
                   <Button
                     className="w-full sm:w-auto"
                     onClick={async () => {
@@ -631,7 +631,7 @@ export default function CampaignItemDetail() {
                     {t("campaigns.chemSendPreNotice")}
                   </Button>
                 )}
-                {item.workflowStep === "work_in_progress" && canComplete && (
+                {(item.workflowStep ?? "pre_communication") === "work_in_progress" && canComplete && (
                   <Button
                     className="w-full sm:w-auto"
                     onClick={() => updateItemMutation.mutate({ chemAction: "complete_work", notes })}
@@ -643,7 +643,7 @@ export default function CampaignItemDetail() {
                     {t("campaigns.chemMarkWorkDone")}
                   </Button>
                 )}
-                {item.workflowStep === "work_completed" && canSendChemEmails && (
+                {(item.workflowStep ?? "pre_communication") === "work_completed" && canSendChemEmails && (
                   <Button
                     className="w-full sm:w-auto"
                     onClick={async () => {
@@ -694,7 +694,7 @@ export default function CampaignItemDetail() {
                     {t("campaigns.chemFinishWithoutComms")}
                   </Button>
                 )}
-                {canReopen && item.workflowStep !== "pre_communication" && item.status !== "completed" && (
+                {canReopen && (item.workflowStep ?? "pre_communication") !== "pre_communication" && item.status !== "completed" && (
                   <Button
                     variant="outline"
                     size="sm"

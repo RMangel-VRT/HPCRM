@@ -9150,6 +9150,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const coords = customerCoordsMap.get(i.customerId);
       return {
         ...i,
+        workflowStep: (campaign.category === "chemical" && !i.workflowStep) ? "pre_communication" : i.workflowStep,
         completedByName: i.completedById ? userNameMap.get(i.completedById) || null : null,
         preCommSentByName: i.preCommSentById ? userNameMap.get(i.preCommSentById) || null : null,
         workCompletedByName: i.workCompletedById ? userNameMap.get(i.workCompletedById) || null : null,
@@ -9434,7 +9435,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         if (!chemEmailRoles.includes(user.activeRole)) {
           return res.status(403).send("Only admin, office, or chemical manager can send communications");
         }
-        if (targetItem.workflowStep !== "pre_communication") {
+        if ((targetItem.workflowStep ?? "pre_communication") !== "pre_communication") {
           return res.status(400).json({ error: "Item is not in pre-communication step" });
         }
         const company = await storage.getCompanyById(user.activeCompanyId);
@@ -9660,7 +9661,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const items = await storage.getCampaignItems(req.params.id, user.activeCompanyId);
       const targetItem = items.find((i: { id: string }) => i.id === req.params.itemId);
       if (!targetItem) return res.status(404).json({ error: "Item not found" });
-      if (targetItem.workflowStep !== "pre_communication") {
+      if ((targetItem.workflowStep ?? "pre_communication") !== "pre_communication") {
         return res.status(400).json({ error: "Item is not in pre-communication step" });
       }
       const { notes, overrideEmail } = req.body || {};
