@@ -215,6 +215,9 @@ export default function CampaignsList() {
                         {campaign.assignedToName && (
                           <span>{t("campaigns.assignedTo")}: {campaign.assignedToName}</span>
                         )}
+                        {campaign.seasonName && (
+                          <span data-testid={`text-campaign-season-${campaign.id}`}>Season: {campaign.seasonName}</span>
+                        )}
                       </div>
                     </div>
                     <div className="w-40 space-y-1 shrink-0">

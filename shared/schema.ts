@@ -1580,6 +1580,31 @@ export interface CaptureParams {
   capturedAt: string;
 }
 
+export const seasons = pgTable("seasons", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  companyId: varchar("company_id").notNull().references(() => companies.id, { onDelete: "cascade" }),
+  name: text("name").notNull(),
+  description: text("description"),
+  startDate: date("start_date"),
+  endDate: date("end_date"),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  updatedAt: timestamp("updated_at").notNull().defaultNow(),
+});
+
+export const insertSeasonSchema = createInsertSchema(seasons).omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+}).extend({
+  name: z.string().min(1).max(200),
+  description: z.string().nullable().optional(),
+  startDate: z.string().nullable().optional(),
+  endDate: z.string().nullable().optional(),
+});
+
+export type InsertSeason = z.infer<typeof insertSeasonSchema>;
+export type Season = typeof seasons.$inferSelect;
+
 export const campaigns = pgTable("campaigns", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
   companyId: varchar("company_id").notNull().references(() => companies.id, { onDelete: "cascade" }),
@@ -1590,6 +1615,7 @@ export const campaigns = pgTable("campaigns", {
   windowEnd: date("window_end").notNull(),
   category: text("category").$type<"general" | "chemical">().notNull().default("general"),
   status: text("status").$type<"active" | "completed" | "archived">().notNull().default("active"),
+  seasonId: varchar("season_id").references(() => seasons.id, { onDelete: "set null" }),
   createdById: varchar("created_by_id").references(() => users.id, { onDelete: "set null" }),
   createdAt: timestamp("created_at").notNull().defaultNow(),
   updatedAt: timestamp("updated_at").notNull().defaultNow(),
@@ -1599,6 +1625,8 @@ export const insertCampaignSchema = createInsertSchema(campaigns).omit({
   id: true,
   createdAt: true,
   updatedAt: true,
+}).extend({
+  seasonId: z.string().nullable().optional(),
 });
 
 export type InsertCampaign = z.infer<typeof insertCampaignSchema>;
@@ -1626,6 +1654,12 @@ export const campaignItems = pgTable("campaign_items", {
   postCommSentById: varchar("chem_post_sent_by_id").references(() => users.id, { onDelete: "set null" }),
   preCommEmailLogId: varchar("chem_pre_email_log_id").references(() => emailLogs.id, { onDelete: "set null" }),
   postCommEmailLogId: varchar("chem_post_email_log_id").references(() => emailLogs.id, { onDelete: "set null" }),
+  weatherTemp: real("weather_temp"),
+  weatherWindSpeed: real("weather_wind_speed"),
+  weatherWindDirection: real("weather_wind_direction"),
+  weatherHumidity: real("weather_humidity"),
+  weatherConditions: text("weather_conditions"),
+  weatherRecordedAt: timestamp("weather_recorded_at"),
   createdAt: timestamp("created_at").notNull().defaultNow(),
   updatedAt: timestamp("updated_at").notNull().defaultNow(),
 });
@@ -1634,6 +1668,13 @@ export const insertCampaignItemSchema = createInsertSchema(campaignItems).omit({
   id: true,
   createdAt: true,
   updatedAt: true,
+}).extend({
+  weatherTemp: z.number().nullable().optional(),
+  weatherWindSpeed: z.number().nullable().optional(),
+  weatherWindDirection: z.number().nullable().optional(),
+  weatherHumidity: z.number().nullable().optional(),
+  weatherConditions: z.string().nullable().optional(),
+  weatherRecordedAt: z.coerce.date().nullable().optional(),
 });
 
 export type InsertCampaignItem = z.infer<typeof insertCampaignItemSchema>;
@@ -1645,6 +1686,7 @@ export type CampaignWithProgress = Campaign & {
   skippedItems: number;
   assignedToName?: string;
   createdByName?: string;
+  seasonName?: string;
 };
 
 export type MarkupPoint = [number, number];

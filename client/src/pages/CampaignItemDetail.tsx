@@ -49,6 +49,7 @@ import {
 import { Separator } from "@/components/ui/separator";
 import type { Campaign, CampaignItem, Contact } from "@shared/schema";
 import LayerMapViewer from "@/components/LayerMapViewer";
+import WeatherCapturePanel from "@/components/WeatherCapturePanel";
 import { Label } from "@/components/ui/label";
 
 interface CampaignItemWithUser extends CampaignItem {
@@ -57,6 +58,9 @@ interface CampaignItemWithUser extends CampaignItem {
   workCompletedByName?: string | null;
   postCommSentByName?: string | null;
   customerType?: string;
+  customerLat?: number | null;
+  customerLng?: number | null;
+  customerAddress?: string;
 }
 
 interface CampaignDetailData extends Campaign {
@@ -330,6 +334,16 @@ export default function CampaignItemDetail() {
             </div>
           </CardContent>
         </Card>
+      )}
+
+      {isChemicalCampaign && item && (
+        <WeatherCapturePanel
+          item={item}
+          campaignId={campaignId!}
+          customerLat={item.customerLat}
+          customerLng={item.customerLng}
+          customerAddress={item.customerAddress}
+        />
       )}
 
       <Card>

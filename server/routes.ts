@@ -8,7 +8,7 @@ import { storage } from "./storage";
 import { db } from "./db";
 import { eq, and, inArray, sql } from "drizzle-orm";
 import { insertCustomerSchema, insertContactSchema, insertCompanySchema, insertCompanyUserSchema, insertSettingsSchema, insertNoteSchema, insertContractSchema, insertContractDocumentSchema, insertContractBuilderDocumentSchema, insertContractBuilderSectionSchema, insertContractBuilderVariableSchema, insertTicketTypeSchema, insertTicketTypeStatusSchema, insertTicketTypeFieldSchema, insertTicketSchema, insertTicketFieldValueSchema, insertTicketStatusHistorySchema, insertTicketCommentSchema, insertTicketLinkSchema, insertCustomerMapLayerSchema, insertCustomerMapDocumentSchema, insertMaintenanceCrewSchema, insertMaintenanceVisitConfigSchema, insertWeeklyScheduleTemplateSchema, insertScheduleBlockSchema, insertEquipmentSchema, insertEquipmentFileSchema, insertEquipmentTicketSchema, insertEquipmentTicketStatusHistorySchema, insertSnowEventSchema, insertSnowEventPropertyImpactSchema, insertSnowEventAttachmentSchema, insertEmailTemplateSchema, insertEmailRuleSchema, SNOW_RANGES, tickets, ticketTypes, ticketTypeStatuses, customers as customersTable, contacts as contactsTable, contracts as contractsTable, equipment as equipmentTable, users as usersTable, contractMonthlyAmounts, contractDocuments, contractServices, contractStatusHistory, companyUsers as companyUsersTable } from "@shared/schema";
-import type { Customer, CaptureParams, CampaignItem } from "@shared/schema";
+import type { Customer, CaptureParams, CampaignItem, Season } from "@shared/schema";
 import { ObjectStorageService, ObjectNotFoundError, objectStorageClient, signObjectURL } from "./objectStorage";
 import { ObjectPermission, ObjectAccessGroupType, setObjectAclPolicy } from "./objectAcl";
 import { processEmailEvent, resendEmail, sendEmail, getDefaultWorkCompletedTemplate, getDefaultChemicalPreNoticeTemplate, getDefaultChemicalPostNoticeTemplate } from './services/emailService';
@@ -9101,18 +9101,37 @@ export async function registerRoutes(app: Express): Promise<Server> {
     const customerIdSet = new Set<string>();
     items.forEach(i => { if (i.customerId) customerIdSet.add(i.customerId); });
     const customerTypeMap = new Map<string, string>();
+    const customerCoordsMap = new Map<string, { lat: number | null; lng: number | null; address: string }>();
     for (const cid of customerIdSet) {
       const cust = await storage.getCustomerById(cid, user.activeCompanyId);
-      if (cust) customerTypeMap.set(cid, cust.customerType || "commercial");
+      if (cust) {
+        customerTypeMap.set(cid, cust.customerType || "commercial");
+        customerCoordsMap.set(cid, {
+          lat: cust.locationLat,
+          lng: cust.locationLng,
+          address: [cust.street, cust.city, cust.state, cust.zip].filter(Boolean).join(", "),
+        });
+      }
     }
-    const itemsWithNames = items.map(i => ({
-      ...i,
-      completedByName: i.completedById ? userNameMap.get(i.completedById) || null : null,
-      preCommSentByName: i.preCommSentById ? userNameMap.get(i.preCommSentById) || null : null,
-      workCompletedByName: i.workCompletedById ? userNameMap.get(i.workCompletedById) || null : null,
-      postCommSentByName: i.postCommSentById ? userNameMap.get(i.postCommSentById) || null : null,
-      customerType: customerTypeMap.get(i.customerId) || "commercial",
-    }));
+    const itemsWithNames = items.map(i => {
+      const coords = customerCoordsMap.get(i.customerId);
+      return {
+        ...i,
+        completedByName: i.completedById ? userNameMap.get(i.completedById) || null : null,
+        preCommSentByName: i.preCommSentById ? userNameMap.get(i.preCommSentById) || null : null,
+        workCompletedByName: i.workCompletedById ? userNameMap.get(i.workCompletedById) || null : null,
+        postCommSentByName: i.postCommSentById ? userNameMap.get(i.postCommSentById) || null : null,
+        customerType: customerTypeMap.get(i.customerId) || "commercial",
+        customerLat: coords?.lat ?? null,
+        customerLng: coords?.lng ?? null,
+        customerAddress: coords?.address ?? "",
+      };
+    });
+    let seasonName: string | undefined;
+    if (campaign.seasonId) {
+      const s = await storage.getSeasonById(campaign.seasonId, user.activeCompanyId);
+      seasonName = s?.name;
+    }
     res.json({
       ...campaign,
       items: itemsWithNames,
@@ -9121,6 +9140,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       skippedItems: items.filter((i: { status: string }) => i.status === "skipped").length,
       assignedToName: assignedUser?.name,
       createdByName: createdUser?.name,
+      seasonName,
     });
   });
 
@@ -9636,6 +9656,247 @@ export async function registerRoutes(app: Express): Promise<Server> {
       console.error("Error getting campaign photo upload URL:", error);
       res.status(500).send("Failed to get upload URL");
     }
+  });
+
+  // ==================== WEATHER API ====================
+
+  app.get("/api/weather", async (req, res) => {
+    if (!req.isAuthenticated()) return res.status(401).send("Not authenticated");
+    const { lat, lng, datetime } = req.query as { lat?: string; lng?: string; datetime?: string };
+    if (!lat || !lng) return res.status(400).json({ error: "lat and lng are required" });
+    const latitude = parseFloat(lat);
+    const longitude = parseFloat(lng);
+    if (isNaN(latitude) || isNaN(longitude)) return res.status(400).json({ error: "Invalid coordinates" });
+
+    try {
+      const now = new Date();
+      const targetDate = datetime ? new Date(datetime) : now;
+      if (isNaN(targetDate.getTime())) return res.status(400).json({ error: "Invalid datetime" });
+
+      const isPast = targetDate < now;
+      const isFuture = targetDate > new Date(now.getTime() + 16 * 24 * 60 * 60 * 1000);
+
+      if (isFuture) return res.status(400).json({ error: "Cannot fetch weather for dates more than 16 days in the future" });
+
+      let apiUrl: string;
+      if (isPast) {
+        const dateStr = targetDate.toISOString().slice(0, 10);
+        apiUrl = `https://archive-api.open-meteo.com/v1/archive?latitude=${latitude}&longitude=${longitude}&start_date=${dateStr}&end_date=${dateStr}&hourly=temperature_2m,relative_humidity_2m,wind_speed_10m,wind_direction_10m,weather_code&temperature_unit=fahrenheit&wind_speed_unit=mph&timezone=auto`;
+      } else {
+        const dateStr = targetDate.toISOString().slice(0, 10);
+        apiUrl = `https://api.open-meteo.com/v1/forecast?latitude=${latitude}&longitude=${longitude}&start_date=${dateStr}&end_date=${dateStr}&hourly=temperature_2m,relative_humidity_2m,wind_speed_10m,wind_direction_10m,weather_code&temperature_unit=fahrenheit&wind_speed_unit=mph&timezone=auto`;
+      }
+
+      const response = await fetch(apiUrl);
+      if (!response.ok) {
+        const errText = await response.text();
+        console.error("Open-Meteo API error:", errText);
+        return res.status(502).json({ error: "Weather service unavailable" });
+      }
+
+      const data = await response.json() as {
+        hourly?: {
+          time?: string[];
+          temperature_2m?: number[];
+          relative_humidity_2m?: number[];
+          wind_speed_10m?: number[];
+          wind_direction_10m?: number[];
+          weather_code?: number[];
+        };
+      };
+
+      if (!data.hourly?.time?.length) return res.status(404).json({ error: "No weather data available for this date" });
+
+      const targetMs = targetDate.getTime();
+      let idx = 0;
+      let closestDiff = Infinity;
+      for (let i = 0; i < data.hourly.time.length; i++) {
+        const entryTime = new Date(data.hourly.time[i]).getTime();
+        const diff = Math.abs(entryTime - targetMs);
+        if (diff < closestDiff) {
+          closestDiff = diff;
+          idx = i;
+        }
+      }
+
+      const weatherCodeToCondition = (code: number): string => {
+        if (code === 0) return "Clear sky";
+        if (code <= 3) return "Partly cloudy";
+        if (code <= 49) return "Foggy";
+        if (code <= 59) return "Drizzle";
+        if (code <= 69) return "Rain";
+        if (code <= 79) return "Snow";
+        if (code <= 82) return "Rain showers";
+        if (code <= 86) return "Snow showers";
+        if (code <= 99) return "Thunderstorm";
+        return "Unknown";
+      };
+
+      res.json({
+        temperature: data.hourly.temperature_2m?.[idx] ?? null,
+        windSpeed: data.hourly.wind_speed_10m?.[idx] ?? null,
+        windDirection: data.hourly.wind_direction_10m?.[idx] ?? null,
+        humidity: data.hourly.relative_humidity_2m?.[idx] ?? null,
+        conditions: weatherCodeToCondition(data.hourly.weather_code?.[idx] ?? -1),
+        recordedAt: targetDate.toISOString(),
+      });
+    } catch (error) {
+      console.error("Weather fetch error:", error);
+      res.status(500).json({ error: "Failed to fetch weather data" });
+    }
+  });
+
+  app.patch("/api/campaigns/:id/items/:itemId/weather", async (req, res) => {
+    if (!req.isAuthenticated()) return res.status(401).send("Not authenticated");
+    const user = req.user as UserWithContext;
+    if (!campaignAllowedRoles.includes(user.activeRole)) return res.status(403).send("Insufficient permissions");
+    const campaign = await storage.getCampaignById(req.params.id, user.activeCompanyId);
+    if (!campaign) return res.status(404).json({ error: "Campaign not found" });
+    if (campaign.category !== "chemical") return res.status(400).json({ error: "Weather capture is only available for chemical campaigns" });
+    if (user.activeRole === "field" && campaign.assignedToId !== user.id) {
+      return res.status(403).send("Not assigned to this campaign");
+    }
+    const items = await storage.getCampaignItems(req.params.id, user.activeCompanyId);
+    const item = items.find(i => i.id === req.params.itemId);
+    if (!item) return res.status(404).json({ error: "Campaign item not found in this campaign" });
+    const { temperature, windSpeed, windDirection, humidity, conditions, recordedAt } = req.body as {
+      temperature?: number; windSpeed?: number; windDirection?: number; humidity?: number; conditions?: string; recordedAt?: string;
+    };
+    if (temperature == null || conditions == null || recordedAt == null) {
+      return res.status(400).json({ error: "temperature, conditions, and recordedAt are required" });
+    }
+    const updated = await storage.updateCampaignItem(req.params.itemId, user.activeCompanyId, {
+      weatherTemp: temperature,
+      weatherWindSpeed: windSpeed ?? null,
+      weatherWindDirection: windDirection ?? null,
+      weatherHumidity: humidity ?? null,
+      weatherConditions: conditions,
+      weatherRecordedAt: new Date(recordedAt),
+      updatedAt: new Date(),
+    });
+    if (!updated) return res.status(404).json({ error: "Campaign item not found" });
+    res.json(updated);
+  });
+
+  // ==================== SEASONS API ====================
+
+  const seasonManagerRoles = ["admin", "office", "chemical_manager"];
+
+  app.get("/api/seasons", async (req, res) => {
+    if (!req.isAuthenticated()) return res.status(401).send("Not authenticated");
+    const user = req.user as UserWithContext;
+    if (!seasonManagerRoles.includes(user.activeRole)) return res.status(403).send("Insufficient permissions");
+    const allSeasons = await storage.getSeasons(user.activeCompanyId);
+    res.json(allSeasons);
+  });
+
+  app.post("/api/seasons", async (req, res) => {
+    if (!req.isAuthenticated()) return res.status(401).send("Not authenticated");
+    const user = req.user as UserWithContext;
+    if (!seasonManagerRoles.includes(user.activeRole)) return res.status(403).send("Insufficient permissions");
+    const { name, description, startDate, endDate } = req.body as {
+      name?: string; description?: string; startDate?: string; endDate?: string;
+    };
+    if (!name?.trim()) return res.status(400).json({ error: "Name is required" });
+    const season = await storage.createSeason({
+      companyId: user.activeCompanyId,
+      name: name.trim(),
+      description: description || null,
+      startDate: startDate || null,
+      endDate: endDate || null,
+    });
+    res.json(season);
+  });
+
+  app.patch("/api/seasons/:id", async (req, res) => {
+    if (!req.isAuthenticated()) return res.status(401).send("Not authenticated");
+    const user = req.user as UserWithContext;
+    if (!seasonManagerRoles.includes(user.activeRole)) return res.status(403).send("Insufficient permissions");
+    const existing = await storage.getSeasonById(req.params.id, user.activeCompanyId);
+    if (!existing) return res.status(404).json({ error: "Season not found" });
+    const { name, description, startDate, endDate } = req.body as {
+      name?: string; description?: string; startDate?: string | null; endDate?: string | null;
+    };
+    const updates: Record<string, unknown> = {};
+    if (name !== undefined) updates.name = name.trim();
+    if (description !== undefined) updates.description = description;
+    if (startDate !== undefined) updates.startDate = startDate;
+    if (endDate !== undefined) updates.endDate = endDate;
+    const updated = await storage.updateSeason(req.params.id, user.activeCompanyId, updates);
+    res.json(updated);
+  });
+
+  app.delete("/api/seasons/:id", async (req, res) => {
+    if (!req.isAuthenticated()) return res.status(401).send("Not authenticated");
+    const user = req.user as UserWithContext;
+    if (!seasonManagerRoles.includes(user.activeRole)) return res.status(403).send("Insufficient permissions");
+    const existing = await storage.getSeasonById(req.params.id, user.activeCompanyId);
+    if (!existing) return res.status(404).json({ error: "Season not found" });
+    await storage.deleteSeason(req.params.id, user.activeCompanyId);
+    res.json({ success: true });
+  });
+
+  app.patch("/api/campaigns/:id/season", async (req, res) => {
+    if (!req.isAuthenticated()) return res.status(401).send("Not authenticated");
+    const user = req.user as UserWithContext;
+    if (!seasonManagerRoles.includes(user.activeRole)) return res.status(403).send("Insufficient permissions");
+    const campaign = await storage.getCampaignById(req.params.id, user.activeCompanyId);
+    if (!campaign) return res.status(404).json({ error: "Campaign not found" });
+    const { seasonId } = req.body as { seasonId?: string | null };
+    if (seasonId) {
+      const season = await storage.getSeasonById(seasonId, user.activeCompanyId);
+      if (!season) return res.status(404).json({ error: "Season not found" });
+    }
+    const updated = await storage.updateCampaign(req.params.id, user.activeCompanyId, { seasonId: seasonId || null });
+    res.json(updated);
+  });
+
+  app.get("/api/seasons/:id/report", async (req, res) => {
+    if (!req.isAuthenticated()) return res.status(401).send("Not authenticated");
+    const user = req.user as UserWithContext;
+    if (!seasonManagerRoles.includes(user.activeRole)) return res.status(403).send("Insufficient permissions");
+    const season = await storage.getSeasonById(req.params.id, user.activeCompanyId);
+    if (!season) return res.status(404).json({ error: "Season not found" });
+    const allCampaigns = await storage.getCampaigns(user.activeCompanyId);
+    const seasonCampaigns = allCampaigns.filter(c => c.seasonId === season.id);
+    const reportItems: Array<{
+      campaignName: string; campaignId: string; customerName: string; customerCity: string;
+      customerAddress: string;
+      completedAt: string | null; notes: string | null; photoCount: number;
+      weatherTemp: number | null; weatherWindSpeed: number | null; weatherWindDirection: number | null;
+      weatherHumidity: number | null; weatherConditions: string | null; weatherRecordedAt: string | null;
+    }> = [];
+    for (const camp of seasonCampaigns) {
+      const items = await storage.getCampaignItems(camp.id, user.activeCompanyId);
+      for (const item of items) {
+        if (item.status === "completed") {
+          let customerAddress = "";
+          if (item.customerId) {
+            const cust = await storage.getCustomerById(item.customerId, user.activeCompanyId);
+            if (cust) {
+              customerAddress = [cust.street, cust.city, cust.state, cust.zip].filter(Boolean).join(", ");
+            }
+          }
+          reportItems.push({
+            campaignName: camp.title,
+            campaignId: camp.id,
+            customerName: item.customerName,
+            customerCity: item.customerCity || "",
+            customerAddress,
+            completedAt: item.completedAt?.toISOString() || null,
+            notes: item.notes,
+            photoCount: item.photos?.length || 0,
+            weatherTemp: item.weatherTemp,
+            weatherWindSpeed: item.weatherWindSpeed,
+            weatherWindDirection: item.weatherWindDirection,
+            weatherHumidity: item.weatherHumidity,
+            weatherConditions: item.weatherConditions,
+            weatherRecordedAt: item.weatherRecordedAt?.toISOString() || null,
+          });
+        }
+      }
+    }
+    res.json({ season, campaigns: seasonCampaigns, items: reportItems });
   });
 
   const httpServer = createServer(app);

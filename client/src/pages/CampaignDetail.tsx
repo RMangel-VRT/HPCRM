@@ -1,4 +1,4 @@
-import { useState, useMemo } from "react";
+import { useState, useMemo, useRef } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { useLocation, useParams } from "wouter";
 import { useTranslation } from "react-i18next";
@@ -43,11 +43,19 @@ import {
   Mail,
   Wrench,
   Send,
+  FileText,
+  Download,
+  Cloud,
+  Thermometer,
+  Wind,
+  Droplets,
+  Leaf,
 } from "lucide-react";
-import type { Campaign, CampaignItem } from "@shared/schema";
+import type { Campaign, CampaignItem, Season } from "@shared/schema";
 
 interface CampaignItemWithUser extends CampaignItem {
   completedByName?: string | null;
+  customerAddress?: string;
 }
 
 interface CampaignDetailData extends Campaign {
@@ -57,6 +65,35 @@ interface CampaignDetailData extends Campaign {
   skippedItems: number;
   assignedToName?: string;
   createdByName?: string;
+  seasonName?: string;
+}
+
+function escapeHtml(str: string): string {
+  return str.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/'/g, "&#39;");
+}
+
+function windDirectionLabel(deg: number | null | undefined): string {
+  if (deg == null) return "N/A";
+  const dirs = ["N", "NNE", "NE", "ENE", "E", "ESE", "SE", "SSE", "S", "SSW", "SW", "WSW", "W", "WNW", "NW", "NNW"];
+  return dirs[Math.round(deg / 22.5) % 16];
+}
+
+function generateCampaignReportCSV(items: CampaignItemWithUser[], campaignTitle: string): string {
+  const headers = ["Property", "Address", "Completed At", "Temperature (°F)", "Wind (mph)", "Wind Direction", "Humidity (%)", "Conditions", "Weather Recorded At", "Notes", "Photo Count"];
+  const rows = items.filter(i => i.status === "completed").map(i => [
+    i.customerName,
+    i.customerAddress || i.customerCity || "",
+    i.completedAt ? format(new Date(i.completedAt), "yyyy-MM-dd HH:mm") : "",
+    i.weatherTemp != null ? String(Math.round(i.weatherTemp)) : "",
+    i.weatherWindSpeed != null ? String(Math.round(i.weatherWindSpeed)) : "",
+    i.weatherWindDirection != null ? windDirectionLabel(i.weatherWindDirection) : "",
+    i.weatherHumidity != null ? String(Math.round(i.weatherHumidity)) : "",
+    i.weatherConditions || "",
+    i.weatherRecordedAt ? format(new Date(i.weatherRecordedAt), "yyyy-MM-dd HH:mm") : "",
+    (i.notes || "").replace(/"/g, '""'),
+    String(i.photos?.length || 0),
+  ]);
+  return [headers.join(","), ...rows.map(r => r.map(c => `"${c}"`).join(","))].join("\n");
 }
 
 export default function CampaignDetail() {
@@ -68,12 +105,97 @@ export default function CampaignDetail() {
   const [search, setSearch] = useState("");
   const [filterStatus, setFilterStatus] = useState<string>("all");
   const [deleteOpen, setDeleteOpen] = useState(false);
+  const [activeTab, setActiveTab] = useState<"items" | "report">("items");
+  const [seasonDialogOpen, setSeasonDialogOpen] = useState(false);
+  const [selectedSeasonId, setSelectedSeasonId] = useState<string>("");
 
   const { data: campaign, isLoading } = useQuery<CampaignDetailData>({
     queryKey: ["/api/campaigns", id],
   });
 
   const canManage = user?.activeRole === "admin" || user?.activeRole === "office";
+  const canManageSeasons = ["admin", "office", "chemical_manager"].includes(user?.activeRole || "");
+
+  const { data: allSeasons } = useQuery<Season[]>({
+    queryKey: ["/api/seasons"],
+    enabled: canManageSeasons,
+  });
+
+  const assignSeasonMutation = useMutation({
+    mutationFn: async (seasonId: string | null) => {
+      const res = await apiRequest("PATCH", `/api/campaigns/${id}/season`, { seasonId });
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/campaigns", id] });
+      queryClient.invalidateQueries({ queryKey: ["/api/campaigns"] });
+      toast({ title: "Season updated" });
+      setSeasonDialogOpen(false);
+    },
+  });
+
+  const handleExportCSV = () => {
+    if (!campaign) return;
+    const csv = generateCampaignReportCSV(campaign.items, campaign.title);
+    const blob = new Blob([csv], { type: "text/csv" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `${campaign.title.replace(/[^a-z0-9]/gi, "_")}_report.csv`;
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+
+  const handleExportPDF = () => {
+    if (!campaign) return;
+    const completedItems = campaign.items.filter(i => i.status === "completed");
+    const printWindow = window.open("", "_blank");
+    if (!printWindow) return;
+    printWindow.document.write(`
+      <html><head><title>${escapeHtml(campaign.title)} - Report</title>
+      <style>
+        body { font-family: Arial, sans-serif; font-size: 12px; margin: 20px; }
+        h1 { font-size: 18px; margin-bottom: 4px; }
+        h2 { font-size: 14px; color: #666; margin-bottom: 16px; }
+        table { width: 100%; border-collapse: collapse; margin-top: 12px; }
+        th, td { border: 1px solid #ddd; padding: 6px 8px; text-align: left; font-size: 11px; }
+        th { background: #f5f5f5; font-weight: bold; }
+        .summary { margin-bottom: 16px; color: #555; }
+        @media print { body { margin: 0; } }
+      </style></head><body>
+      <h1>${escapeHtml(campaign.title)}</h1>
+      <h2>Campaign Report - ${campaign.category === "chemical" ? "Chemical Application" : "General"}</h2>
+      <div class="summary">
+        Window: ${escapeHtml(campaign.windowStart || "")} to ${escapeHtml(campaign.windowEnd || "")} | 
+        Completed: ${campaign.completedItems} of ${campaign.totalItems} |
+        Generated: ${new Date().toLocaleDateString()}
+      </div>
+      <table>
+        <thead><tr>
+          <th>Property</th><th>Address</th><th>Completed</th>
+          <th>Temp (°F)</th><th>Wind (mph)</th><th>Dir</th><th>Humidity</th><th>Conditions</th>
+          <th>Notes</th><th>Photos</th>
+        </tr></thead>
+        <tbody>
+          ${completedItems.map(i => `<tr>
+            <td>${escapeHtml(i.customerName)}</td>
+            <td>${escapeHtml(i.customerAddress || i.customerCity || "")}</td>
+            <td>${i.completedAt ? format(new Date(i.completedAt), "MM/dd/yy HH:mm") : ""}</td>
+            <td>${i.weatherTemp != null ? Math.round(i.weatherTemp) : ""}</td>
+            <td>${i.weatherWindSpeed != null ? Math.round(i.weatherWindSpeed) : ""}</td>
+            <td>${windDirectionLabel(i.weatherWindDirection)}</td>
+            <td>${i.weatherHumidity != null ? Math.round(i.weatherHumidity) + "%" : ""}</td>
+            <td>${escapeHtml(i.weatherConditions || "")}</td>
+            <td>${escapeHtml((i.notes || "").substring(0, 100))}</td>
+            <td>${i.photos?.length || 0}</td>
+          </tr>`).join("")}
+        </tbody>
+      </table>
+      </body></html>
+    `);
+    printWindow.document.close();
+    setTimeout(() => printWindow.print(), 500);
+  };
 
   const filteredItems = useMemo(() => {
     if (!campaign?.items) return [];
@@ -272,6 +394,93 @@ export default function CampaignDetail() {
         </div>
       )}
 
+      {canManageSeasons && (
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={() => {
+            setSelectedSeasonId(campaign.seasonId || "");
+            setSeasonDialogOpen(true);
+          }}
+          data-testid="button-assign-season"
+        >
+          <Leaf className="w-4 h-4 mr-2" />
+          {campaign.seasonName ? `Season: ${campaign.seasonName}` : "Assign Season"}
+        </Button>
+      )}
+
+      {isChemicalCampaign && (
+        <div className="flex items-center gap-1">
+          <Button
+            variant={activeTab === "items" ? "default" : "outline"}
+            size="sm"
+            onClick={() => setActiveTab("items")}
+            data-testid="button-tab-items"
+          >
+            Items
+          </Button>
+          <Button
+            variant={activeTab === "report" ? "default" : "outline"}
+            size="sm"
+            onClick={() => setActiveTab("report")}
+            data-testid="button-tab-report"
+          >
+            <FileText className="w-3 h-3 mr-1" />
+            Report
+          </Button>
+        </div>
+      )}
+
+      {activeTab === "report" && isChemicalCampaign ? (
+        <div className="space-y-4">
+          <div className="flex items-center gap-2 flex-wrap">
+            <Button variant="outline" size="sm" onClick={handleExportCSV} data-testid="button-export-csv">
+              <Download className="w-3 h-3 mr-1" />
+              Export CSV
+            </Button>
+            <Button variant="outline" size="sm" onClick={handleExportPDF} data-testid="button-export-pdf">
+              <FileText className="w-3 h-3 mr-1" />
+              Export PDF
+            </Button>
+          </div>
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm border-collapse">
+              <thead>
+                <tr className="border-b">
+                  <th className="text-left p-2 font-medium">Property</th>
+                  <th className="text-left p-2 font-medium">Address</th>
+                  <th className="text-left p-2 font-medium">Completed</th>
+                  <th className="text-left p-2 font-medium">Temp</th>
+                  <th className="text-left p-2 font-medium">Wind</th>
+                  <th className="text-left p-2 font-medium">Humidity</th>
+                  <th className="text-left p-2 font-medium">Conditions</th>
+                  <th className="text-left p-2 font-medium">Notes</th>
+                  <th className="text-left p-2 font-medium">Photos</th>
+                </tr>
+              </thead>
+              <tbody>
+                {campaign.items.filter(i => i.status === "completed").map(item => (
+                  <tr key={item.id} className="border-b hover-elevate cursor-pointer" onClick={() => navigate(`/dashboard/campaigns/${id}/items/${item.id}`)} data-testid={`report-row-${item.id}`}>
+                    <td className="p-2 font-medium">{item.customerName}</td>
+                    <td className="p-2 text-muted-foreground">{item.customerAddress || item.customerCity}</td>
+                    <td className="p-2">{item.completedAt ? format(new Date(item.completedAt), "MM/dd/yy HH:mm") : ""}</td>
+                    <td className="p-2">{item.weatherTemp != null ? `${Math.round(item.weatherTemp)}°F` : <span className="text-muted-foreground">--</span>}</td>
+                    <td className="p-2">{item.weatherWindSpeed != null ? `${Math.round(item.weatherWindSpeed)} mph ${windDirectionLabel(item.weatherWindDirection)}` : <span className="text-muted-foreground">--</span>}</td>
+                    <td className="p-2">{item.weatherHumidity != null ? `${Math.round(item.weatherHumidity)}%` : <span className="text-muted-foreground">--</span>}</td>
+                    <td className="p-2">{item.weatherConditions || <span className="text-muted-foreground">--</span>}</td>
+                    <td className="p-2 max-w-[200px] truncate">{item.notes || ""}</td>
+                    <td className="p-2">{item.photos?.length || 0}</td>
+                  </tr>
+                ))}
+                {campaign.items.filter(i => i.status === "completed").length === 0 && (
+                  <tr><td colSpan={9} className="p-8 text-center text-muted-foreground">No completed items yet</td></tr>
+                )}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      ) : (
+      <>
       <div className="flex items-center gap-3 flex-wrap">
         <div className="relative flex-1 min-w-[200px]">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
@@ -369,6 +578,41 @@ export default function CampaignDetail() {
           </Card>
         )}
       </div>
+
+      </>
+      )}
+
+      <Dialog open={seasonDialogOpen} onOpenChange={setSeasonDialogOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Assign Season</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-3">
+            <Select value={selectedSeasonId} onValueChange={setSelectedSeasonId}>
+              <SelectTrigger data-testid="select-season">
+                <SelectValue placeholder="Select a season..." />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="none">No Season</SelectItem>
+                {allSeasons?.map(s => (
+                  <SelectItem key={s.id} value={s.id}>{s.name}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setSeasonDialogOpen(false)}>Cancel</Button>
+            <Button
+              onClick={() => assignSeasonMutation.mutate(selectedSeasonId === "none" ? null : selectedSeasonId || null)}
+              disabled={assignSeasonMutation.isPending}
+              data-testid="button-confirm-assign-season"
+            >
+              {assignSeasonMutation.isPending && <Loader2 className="w-4 h-4 mr-1 animate-spin" />}
+              Save
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       <Dialog open={deleteOpen} onOpenChange={setDeleteOpen}>
         <DialogContent>

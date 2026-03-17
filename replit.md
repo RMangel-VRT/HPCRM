@@ -72,6 +72,12 @@ A satellite map-based tool for Admin and Office roles to create property scope i
 #### Campaign System
 A batch property checklist system for organizing work across multiple properties within a completion window. Admin/Office users create campaigns, select properties, and assign tasks. Field workers can mark items complete, add notes, and upload photos. Only admin users can skip items (with a required reason). Campaigns auto-complete and support archive/reactivate, search/filter, and progress tracking. Supports two categories: General and Chemical. Chemical campaigns include a 3-step communication workflow (Pre-Work Communication, Work Completion, Post-Completion Communication) with automated email notifications via SendGrid. Email recipients are resolved in priority order: property manager email first, then customer primary contact, with a manual email entry fallback in the compose modal when no email is found. Chemical campaign items show step indicators in the campaign detail list (including a "Skipped" visual state) and a full workflow stepper on the item detail page. Skipped chemical items display a dedicated banner replacing the stepper, with a reopen option for admin/office users. Role-based permissions control who can send communications (admin, office, chemical_manager) vs. complete work (all field roles).
 
+#### Chemical Campaign Weather Capture & Reporting
+Chemical campaign items support weather condition recording at application time. The WeatherCapturePanel (client/src/components/WeatherCapturePanel.tsx) provides two capture modes: "Capture Now" (uses customer property coordinates with Open-Meteo API for current conditions) and "Past Date & Time" (retroactive capture via date/time picker using Open-Meteo historical data). Weather data stored per item includes temperature (°F), wind speed (mph), wind direction, humidity (%), and conditions description. Campaign detail pages for chemical campaigns have an Items/Report tab switcher; the Report tab shows a table of all completed items with weather data, plus CSV and PDF export buttons. Geocoding fallback via Nominatim resolves coordinates when customer lat/lng is not stored.
+
+#### Seasons Management System
+Seasons (client/src/pages/SeasonsPage.tsx, SeasonDetail.tsx) allow grouping campaigns into named time periods (e.g., "Spring 2026") for aggregated reporting. Accessible to admin, office, and chemical_manager roles via sidebar navigation. Features include CRUD operations for seasons (name, description, start/end dates), campaign-to-season assignment via the campaign detail page, and per-season aggregated reports with weather data from all linked chemical campaigns. Season reports support CSV and PDF export grouped by campaign. Database: `seasons` table with companyId, `campaigns.seasonId` FK.
+
 ## External Dependencies
 
 -   **UI Component Libraries:** Radix UI, Shadcn/ui, Lucide React, CMDK
@@ -82,3 +88,4 @@ A batch property checklist system for organizing work across multiple properties
 -   **PDF Generation:** PDFKit, pdf-lib
 -   **Design System:** Google Fonts (Inter, JetBrains Mono)
 -   **Mapping:** Mapbox
+-   **Weather:** Open-Meteo API (no API key required), Nominatim geocoding

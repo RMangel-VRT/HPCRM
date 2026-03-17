@@ -32,6 +32,7 @@ import {
   FileBarChart,
   MapPin,
   ClipboardCheck,
+  Leaf,
 } from "lucide-react";
 import {
   Dialog,
@@ -158,8 +159,12 @@ export default function AppSidebar({
       items.push({ title: t("nav.equipment"), url: "/dashboard/equipment", icon: Truck });
     }
 
-    if (userRole === "admin" || userRole === "office" || userRole === "field_manager" || userRole === "field") {
+    if (userRole === "admin" || userRole === "office" || userRole === "field_manager" || userRole === "field" || userRole === "chemical_manager") {
       items.push({ title: t("nav.campaigns"), url: "/dashboard/campaigns", icon: ClipboardCheck });
+    }
+
+    if (userRole === "admin" || userRole === "office" || userRole === "chemical_manager") {
+      items.push({ title: "Seasons", url: "/dashboard/seasons", icon: Leaf });
     }
 
     if (userRole === "admin" || userRole === "office") {
