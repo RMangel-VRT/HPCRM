@@ -481,7 +481,7 @@ export default function TicketDetail() {
     // Use sorted index to find next status in order
     const defaultNext = sortedStatuses[sortedCurrentIndex + 1];
     
-    // Check if this is RFP Request at Decision Received - need to branch based on outcome
+    // Check if this is at Decision Received - need to branch based on outcome
     if (currentStatus?.name === "Decision Received" && ticketType.name === "RFP Request") {
       // Find the decision_outcome field value
       const decisionField = currentStatus.fields?.find(f => f.fieldKey === "decision_outcome");
@@ -497,6 +497,15 @@ export default function TicketDetail() {
       // No decision made yet - return Awarded as the default next for the button
       // (The actual target will be determined in handleConfirmStatusChange based on dialog input)
       return statuses.find(s => s.name === "Awarded") || defaultNext;
+    }
+
+    if (currentStatus?.name === "Decision Received" && ticketType.name === "Project") {
+      const decisionField = currentStatus.fields?.find(f => f.fieldKey === "decision_outcome");
+      const decisionValue = decisionField ? fieldValues.find(fv => fv.fieldId === decisionField.id)?.value : null;
+
+      if (decisionValue === "Denied") {
+        return statuses.find(s => s.name === "Closed - Lost") || defaultNext;
+      }
     }
     
     return defaultNext;

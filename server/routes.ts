@@ -4993,37 +4993,69 @@ export async function registerRoutes(app: Express): Promise<Server> {
     try {
       // Get the field to check if it's decision_outcome
       const field = await storage.getTicketTypeFieldById(req.params.fieldId);
-      if (field && field.fieldKey === "decision_outcome" && req.body.value === "Approved") {
+      if (field && field.fieldKey === "decision_outcome") {
         // Check if this is a Project ticket
         const ticketType = await storage.getTicketTypeById(ticket.ticketTypeId, user.activeCompanyId);
-        if (ticketType?.name === "Project") {
-          // Get the current status to verify we're in Decision Received
-          const statuses = await storage.getTicketTypeStatuses(ticket.ticketTypeId);
-          const currentStatus = statuses.find(s => s.id === ticket.currentStatusId);
-          const readyToScheduleStatus = statuses.find(s => s.name === "Ready to Schedule");
-          
-          // Only transition if currently in Decision Received and Ready to Schedule exists
-          if (currentStatus?.name === "Decision Received" && readyToScheduleStatus) {
-            // Create status history
-            await storage.createTicketStatusHistory({
-              ticketId: ticket.id,
-              fromStatusId: ticket.currentStatusId,
-              toStatusId: readyToScheduleStatus.id,
-              changedById: user.id,
-              notes: "Auto-transitioned: Estimate approved, ready to schedule with crew",
-            });
-            
-            // Update the ticket status
-            await storage.updateTicket(ticket.id, user.activeCompanyId, {
-              currentStatusId: readyToScheduleStatus.id,
-            });
-            
-            console.log(`Auto-transitioned Project ${ticket.id} to "Ready to Schedule" after approval`);
+        const statuses = await storage.getTicketTypeStatuses(ticket.ticketTypeId);
+        const currentStatus = statuses.find(s => s.id === ticket.currentStatusId);
+
+        if (ticketType?.name === "Project" && currentStatus?.name === "Decision Received") {
+          if (req.body.value === "Approved") {
+            const readyToScheduleStatus = statuses.find(s => s.name === "Ready to Schedule");
+            if (readyToScheduleStatus) {
+              await storage.createTicketStatusHistory({
+                ticketId: ticket.id,
+                fromStatusId: ticket.currentStatusId,
+                toStatusId: readyToScheduleStatus.id,
+                changedById: user.id,
+                notes: "Auto-transitioned: Estimate approved, ready to schedule with crew",
+              });
+              await storage.updateTicket(ticket.id, user.activeCompanyId, {
+                currentStatusId: readyToScheduleStatus.id,
+              });
+              console.log(`Auto-transitioned Project ${ticket.id} to "Ready to Schedule" after approval`);
+            }
+          } else if (req.body.value === "Denied") {
+            const closedLostStatus = statuses.find(s => s.name === "Closed - Lost");
+            if (closedLostStatus) {
+              await storage.createTicketStatusHistory({
+                ticketId: ticket.id,
+                fromStatusId: ticket.currentStatusId,
+                toStatusId: closedLostStatus.id,
+                changedById: user.id,
+                notes: "Auto-transitioned: Estimate denied, ticket closed as lost",
+              });
+              await storage.updateTicket(ticket.id, user.activeCompanyId, {
+                currentStatusId: closedLostStatus.id,
+                completedAt: new Date(),
+              });
+              console.log(`Auto-transitioned Project ${ticket.id} to "Closed - Lost" after denial`);
+            }
+          }
+        }
+
+        if (ticketType?.name === "RFP Request" && currentStatus?.name === "Decision Received") {
+          if (req.body.value === "Lost") {
+            const closedLostStatus = statuses.find(s => s.name === "Closed - Lost");
+            if (closedLostStatus) {
+              await storage.createTicketStatusHistory({
+                ticketId: ticket.id,
+                fromStatusId: ticket.currentStatusId,
+                toStatusId: closedLostStatus.id,
+                changedById: user.id,
+                notes: "Auto-transitioned: RFP lost, ticket closed as lost",
+              });
+              await storage.updateTicket(ticket.id, user.activeCompanyId, {
+                currentStatusId: closedLostStatus.id,
+                completedAt: new Date(),
+              });
+              console.log(`Auto-transitioned RFP Request ${ticket.id} to "Closed - Lost" after lost decision`);
+            }
           }
         }
       }
     } catch (err) {
-      console.error("Failed to auto-transition on approval:", err);
+      console.error("Failed to auto-transition on decision:", err);
       // Don't fail the field value update - auto-transition is secondary
     }
     
