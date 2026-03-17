@@ -49,6 +49,7 @@ import ScheduleSummary from "@/components/ScheduleSummary";
 import LayerMapViewer from "@/components/LayerMapViewer";
 import CustomerSchedulingSection from "@/components/CustomerSchedulingSection";
 import TicketListView from "@/components/TicketListView";
+import CustomerLocationEditor from "@/components/CustomerLocationEditor";
 
 interface ContractCardProps {
   contract: Contract;
@@ -2419,6 +2420,7 @@ export default function CustomerDetail() {
 
         {(user?.activeRole === "admin" || user?.activeRole === "office") && (
           <TabsContent value="settings" className="space-y-4">
+            {customer && <CustomerLocationEditor customer={customer} />}
             <CustomerSchedulingSection customerId={params?.id!} />
           </TabsContent>
         )}
