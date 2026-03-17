@@ -1,6 +1,6 @@
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { Link } from "wouter";
-import { Plus, Search, Truck, AlertCircle, CheckCircle, WrenchIcon, XCircle, Trash2, ClipboardPlus, Image as ImageIcon } from "lucide-react";
+import { Plus, Search, Truck, AlertCircle, CheckCircle, WrenchIcon, XCircle, Trash2, ClipboardPlus, Scissors, Package, Hammer, Bike, Settings2, Car } from "lucide-react";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import { useForm } from "react-hook-form";
@@ -80,6 +80,19 @@ function getStatusBadge(status: string, t: (key: string) => string) {
     default:
       return <Badge variant="outline">{status}</Badge>;
   }
+}
+
+function getEquipmentTypeIcon(equipmentType: string): React.ComponentType<{ className?: string }> {
+  const icons: Record<string, React.ComponentType<{ className?: string }>> = {
+    truck: Truck,
+    mower: Scissors,
+    trailer: Package,
+    skid_steer: Hammer,
+    atv_utv: Bike,
+    specialty: Settings2,
+    other_vehicle: Car,
+  };
+  return icons[equipmentType] ?? Truck;
 }
 
 export default function EquipmentList() {
@@ -364,14 +377,14 @@ export default function EquipmentList() {
                     <TableCell>
                       <div className="flex items-center gap-3">
                         <div className="w-10 h-10 rounded-md overflow-hidden flex-shrink-0 bg-muted flex items-center justify-center" data-testid={`thumb-equipment-${item.id}`}>
-                          {(item as any).profilePhotoPath ? (
+                          {item.profilePhotoPath ? (
                             <img
-                              src={(item as any).profilePhotoPath}
+                              src={item.profilePhotoPath}
                               alt={item.name}
                               className="w-full h-full object-cover"
                             />
                           ) : (
-                            <Truck className="w-5 h-5 text-muted-foreground opacity-50" />
+                            (() => { const Icon = getEquipmentTypeIcon(item.equipmentType); return <Icon className="w-5 h-5 text-muted-foreground opacity-50" />; })()
                           )}
                         </div>
                         <div>

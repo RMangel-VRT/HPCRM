@@ -4,7 +4,7 @@ import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
 import { format } from "date-fns";
-import { ArrowLeft, Save, Edit2, X, CheckCircle, WrenchIcon, XCircle, Loader2, Upload, FileText, Trash2, Download, Image as ImageIcon, Plus, Clock, AlertTriangle, CircleDot } from "lucide-react";
+import { ArrowLeft, Save, Edit2, X, CheckCircle, WrenchIcon, XCircle, Loader2, Upload, FileText, Trash2, Download, Plus, Clock, AlertTriangle, CircleDot, Truck, Scissors, Package, Hammer, Bike, Settings2, Car } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -100,6 +100,19 @@ function formatDate(date: string | Date | null | undefined) {
 function formatDateForInput(date: string | Date | null | undefined) {
   if (!date) return "";
   return format(new Date(date), "yyyy-MM-dd");
+}
+
+function getEquipmentTypeIcon(equipmentType: string): React.ComponentType<{ className?: string }> {
+  const icons: Record<string, React.ComponentType<{ className?: string }>> = {
+    truck: Truck,
+    mower: Scissors,
+    trailer: Package,
+    skid_steer: Hammer,
+    atv_utv: Bike,
+    specialty: Settings2,
+    other_vehicle: Car,
+  };
+  return icons[equipmentType] ?? Truck;
 }
 
 export default function EquipmentDetail() {
@@ -294,7 +307,7 @@ export default function EquipmentDetail() {
         body: file,
         headers: { "Content-Type": file.type },
       });
-      const saveRes = await apiRequest("POST", `/api/equipment/${id}/profile-photo`, { storagePath });
+      const saveRes = await apiRequest("PATCH", `/api/equipment/${id}`, { profilePhotoPath: storagePath });
       return saveRes.json();
     },
     onSuccess: () => {
@@ -312,7 +325,7 @@ export default function EquipmentDetail() {
 
   const removePhotoMutation = useMutation({
     mutationFn: async () => {
-      return apiRequest("DELETE", `/api/equipment/${id}/profile-photo`);
+      return apiRequest("PATCH", `/api/equipment/${id}`, { profilePhotoPath: null });
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/equipment", id] });
@@ -1119,9 +1132,9 @@ export default function EquipmentDetail() {
                           ) : (
                             <Upload className="w-4 h-4 mr-2" />
                           )}
-                          {(equipment as any).profilePhotoPath ? t("equipment.replacePhoto") : t("equipment.uploadPhoto")}
+                          {equipment.profilePhotoPath ? t("equipment.replacePhoto") : t("equipment.uploadPhoto")}
                         </Button>
-                        {(equipment as any).profilePhotoPath && (
+                        {equipment.profilePhotoPath && (
                           <Button
                             variant="ghost"
                             size="sm"
@@ -1138,10 +1151,10 @@ export default function EquipmentDetail() {
                   </div>
                 </CardHeader>
                 <CardContent>
-                  {(equipment as any).profilePhotoPath ? (
+                  {equipment.profilePhotoPath ? (
                     <div className="flex justify-center">
                       <img
-                        src={(equipment as any).profilePhotoPath}
+                        src={equipment.profilePhotoPath}
                         alt={equipment.name}
                         className="max-h-64 rounded-md object-contain"
                         data-testid="img-profile-photo"
@@ -1153,7 +1166,7 @@ export default function EquipmentDetail() {
                       onClick={canEdit ? () => photoInputRef.current?.click() : undefined}
                       data-testid="placeholder-photo"
                     >
-                      <ImageIcon className="w-10 h-10 mb-2 opacity-40" />
+                      {(() => { const Icon = getEquipmentTypeIcon(equipment.equipmentType); return <Icon className="w-10 h-10 mb-2 opacity-40" />; })()}
                       <p className="text-sm">{canEdit ? t("equipment.clickToUploadPhoto") : t("equipment.noPhoto")}</p>
                     </div>
                   )}
