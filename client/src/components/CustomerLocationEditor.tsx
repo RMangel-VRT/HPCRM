@@ -224,7 +224,7 @@ export default function CustomerLocationEditor({ customer }: Props) {
                     disabled={saveMutation.isPending}
                     data-testid="button-cancel-location"
                   >
-                    {t("common.cancel")}
+                    {t("customerDetail.cancelEdit")}
                   </Button>
                   <Button
                     size="sm"

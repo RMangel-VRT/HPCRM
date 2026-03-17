@@ -353,6 +353,7 @@ const es = {
     locationSaved: "Ubicacion guardada",
     locationSavedDesc: "Coordenadas del cliente actualizadas.",
     currentCoords: "Coordenadas",
+    cancelEdit: "Cancelar",
   },
   contracts: {
     title: "Contratos",
