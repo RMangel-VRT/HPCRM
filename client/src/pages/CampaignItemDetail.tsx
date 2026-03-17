@@ -236,28 +236,33 @@ export default function CampaignItemDetail() {
   );
 
   return (
-    <div className="space-y-6 max-w-4xl mx-auto">
-      <div className="flex items-center gap-3">
+    <div className="space-y-6 max-w-4xl mx-auto px-4 sm:px-6">
+      <div className="flex items-start gap-3">
         <Button
           variant="ghost"
           size="icon"
+          className="shrink-0 mt-0.5"
           onClick={() => navigate(`/dashboard/campaigns/${campaignId}`)}
           data-testid="button-back-campaign"
         >
           <ArrowLeft className="w-4 h-4" />
         </Button>
         <div className="flex-1 min-w-0">
-          <div className="flex items-center gap-3 flex-wrap">
-            {statusIcon}
-            <h1 className="text-2xl font-bold truncate" data-testid="text-item-detail-name">
-              {item.customerName}
-            </h1>
-            {statusBadge}
-            {item.customerType === "hoa" && (
-              <Badge variant="outline" data-testid="badge-customer-type-hoa">
-                {t("campaigns.customerTypeHoa")}
-              </Badge>
-            )}
+          <div className="flex flex-col sm:flex-row sm:items-center gap-1 sm:gap-3">
+            <div className="flex items-center gap-2 min-w-0">
+              {statusIcon}
+              <h1 className="text-xl sm:text-2xl font-bold truncate" data-testid="text-item-detail-name">
+                {item.customerName}
+              </h1>
+            </div>
+            <div className="flex items-center gap-2 flex-wrap">
+              {statusBadge}
+              {item.customerType === "hoa" && (
+                <Badge variant="outline" data-testid="badge-customer-type-hoa">
+                  {t("campaigns.customerTypeHoa")}
+                </Badge>
+              )}
+            </div>
           </div>
           <p className="text-sm text-muted-foreground mt-1">
             {campaign.title}
@@ -451,7 +456,7 @@ export default function CampaignItemDetail() {
                   <span className="text-xs text-muted-foreground">{t("campaigns.chemSkippedState")}</span>
                 </div>
               )}
-              <div className="flex items-center gap-1">
+              <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-1">
                 {["pre_communication", "work_in_progress", "work_completed", "post_communication", "complete"].map((step, idx) => {
                   const stepLabels = [
                     t("campaigns.chemStepPre"),
@@ -460,22 +465,30 @@ export default function CampaignItemDetail() {
                     t("campaigns.chemStepPost"),
                     t("campaigns.chemStepComplete"),
                   ];
+                  const stepLabelsShort = [
+                    t("campaigns.chemStepPreShort"),
+                    t("campaigns.chemStepInProgressShort"),
+                    t("campaigns.chemStepWorkDoneShort"),
+                    t("campaigns.chemStepPostShort"),
+                    t("campaigns.chemStepCompleteShort"),
+                  ];
                   const isSkipped = item.status === "skipped";
                   const steps = ["pre_communication", "work_in_progress", "work_completed", "post_communication"];
                   const currentIdx = item.status === "completed" ? 4 : isSkipped ? -1 : steps.indexOf(item.workflowStep || "pre_communication");
                   const isComplete = !isSkipped && idx < currentIdx;
                   const isCurrent = !isSkipped && idx === currentIdx;
                   return (
-                    <div key={step} className="flex items-center gap-1 flex-1">
-                      <div className={`flex items-center gap-1.5 px-2 py-1.5 rounded-md text-xs font-medium flex-1 text-center justify-center ${
+                    <div key={step} className="flex sm:flex-1 items-center gap-1">
+                      <div className={`flex items-center gap-1.5 px-2 py-1.5 rounded-md text-xs font-medium flex-1 justify-center ${
                         isComplete ? "bg-green-600/10 text-green-700 dark:text-green-400" :
                         isCurrent ? "bg-primary/10 text-primary border border-primary/30" :
                         "bg-muted text-muted-foreground"
                       }`} data-testid={`chem-step-${step}`}>
                         {isComplete ? <CheckCircle2 className="w-3 h-3 shrink-0" /> : isCurrent ? <Clock className="w-3 h-3 shrink-0" /> : null}
-                        <span className="truncate">{stepLabels[idx]}</span>
+                        <span className="hidden sm:inline truncate">{stepLabels[idx]}</span>
+                        <span className="sm:hidden">{stepLabelsShort[idx]}</span>
                       </div>
-                      {idx < 4 && <div className="w-2 h-px bg-muted-foreground/30 shrink-0" />}
+                      {idx < 4 && <div className="hidden sm:block w-2 h-px bg-muted-foreground/30 shrink-0" />}
                     </div>
                   );
                 })}
@@ -509,9 +522,10 @@ export default function CampaignItemDetail() {
             </div>
 
             {item.status !== "skipped" && (
-              <div className="flex items-center gap-2 flex-wrap">
+              <div className="flex flex-col sm:flex-row sm:items-center gap-2 w-full sm:w-auto">
                 {item.workflowStep === "pre_communication" && canSendChemEmails && (
                   <Button
+                    className="w-full sm:w-auto"
                     onClick={async () => {
                       setLoadingPreview(true);
                       setManualEmail("");
@@ -532,6 +546,7 @@ export default function CampaignItemDetail() {
                 )}
                 {item.workflowStep === "work_in_progress" && canComplete && (
                   <Button
+                    className="w-full sm:w-auto"
                     onClick={() => updateItemMutation.mutate({ chemAction: "complete_work", notes })}
                     disabled={updateItemMutation.isPending}
                     data-testid="button-chem-complete-work"
@@ -543,6 +558,7 @@ export default function CampaignItemDetail() {
                 )}
                 {item.workflowStep === "work_completed" && canSendChemEmails && (
                   <Button
+                    className="w-full sm:w-auto"
                     onClick={async () => {
                       setLoadingPreview(true);
                       setManualEmail("");
@@ -571,6 +587,7 @@ export default function CampaignItemDetail() {
                   <Button
                     variant="outline"
                     size="sm"
+                    className="w-full sm:w-auto"
                     onClick={() => setShowChemReset(true)}
                     data-testid="button-chem-reset"
                   >
@@ -582,11 +599,12 @@ export default function CampaignItemDetail() {
             )}
 
             {item.status !== "completed" && item.status !== "skipped" && user?.activeRole === "admin" && (
-              <div className="flex items-center gap-2 flex-wrap">
+              <div className="flex flex-col sm:flex-row sm:items-center gap-2">
                 {!showSkip ? (
                   <Button
                     variant="outline"
                     size="sm"
+                    className="w-full sm:w-auto"
                     onClick={() => setShowSkip(true)}
                     data-testid="button-show-skip"
                   >
@@ -594,17 +612,18 @@ export default function CampaignItemDetail() {
                     {t("campaigns.skip")}
                   </Button>
                 ) : (
-                  <div className="flex items-center gap-2 flex-wrap flex-1 min-w-[200px]">
+                  <div className="flex flex-col sm:flex-row sm:items-center gap-2 w-full">
                     <Input
                       value={skipReason}
                       onChange={(e) => setSkipReason(e.target.value)}
                       placeholder={t("campaigns.skipReasonPlaceholder")}
-                      className="flex-1 min-w-[150px]"
+                      className="flex-1"
                       data-testid="input-skip-reason"
                     />
                     <Button
                       variant="outline"
                       size="sm"
+                      className="w-full sm:w-auto"
                       onClick={() => updateItemMutation.mutate({ status: "skipped", notes, skipReason })}
                       disabled={updateItemMutation.isPending || !skipReason.trim()}
                       data-testid="button-confirm-skip"
@@ -620,6 +639,7 @@ export default function CampaignItemDetail() {
             {item.status === "skipped" && canManage && (
               <Button
                 variant="outline"
+                className="w-full sm:w-auto"
                 onClick={() => updateItemMutation.mutate({ chemAction: "reset" })}
                 disabled={updateItemMutation.isPending}
                 data-testid="button-reopen-chem-item"
@@ -635,10 +655,11 @@ export default function CampaignItemDetail() {
       {!isChemicalCampaign && canComplete && (
         <Card>
           <CardContent className="p-4">
-            <div className="flex items-center gap-2 flex-wrap">
+            <div className="flex flex-col sm:flex-row sm:items-center gap-2">
               {item.status === "pending" && (
                 <>
                   <Button
+                    className="w-full sm:w-auto"
                     onClick={() => updateItemMutation.mutate({ status: "completed", notes })}
                     disabled={updateItemMutation.isPending}
                     data-testid="button-complete-item"
@@ -652,6 +673,7 @@ export default function CampaignItemDetail() {
                       {!showSkip ? (
                         <Button
                           variant="outline"
+                          className="w-full sm:w-auto"
                           onClick={() => setShowSkip(true)}
                           data-testid="button-show-skip"
                         >
@@ -659,16 +681,17 @@ export default function CampaignItemDetail() {
                           {t("campaigns.skip")}
                         </Button>
                       ) : (
-                        <div className="flex items-center gap-2 flex-wrap flex-1 min-w-[200px]">
+                        <div className="flex flex-col sm:flex-row sm:items-center gap-2 w-full">
                           <Input
                             value={skipReason}
                             onChange={(e) => setSkipReason(e.target.value)}
                             placeholder={t("campaigns.skipReasonPlaceholder")}
-                            className="flex-1 min-w-[150px]"
+                            className="flex-1"
                             data-testid="input-skip-reason"
                           />
                           <Button
                             variant="outline"
+                            className="w-full sm:w-auto"
                             onClick={() => updateItemMutation.mutate({ status: "skipped", notes, skipReason })}
                             disabled={updateItemMutation.isPending || !skipReason.trim()}
                             data-testid="button-confirm-skip"
@@ -685,6 +708,7 @@ export default function CampaignItemDetail() {
               {canManage && (item.status === "completed" || item.status === "skipped") && (
                 <Button
                   variant="outline"
+                  className="w-full sm:w-auto"
                   onClick={() => updateItemMutation.mutate({ status: "pending", notes: "", skipReason: "" })}
                   disabled={updateItemMutation.isPending}
                   data-testid="button-reopen-item"
@@ -772,11 +796,12 @@ export default function CampaignItemDetail() {
               </div>
             </div>
             <Separator />
-            <div className="flex justify-end gap-2">
-              <Button variant="outline" onClick={() => { setShowEmailConfirm(null); setEmailPreview(null); setManualEmail(""); }} data-testid="button-cancel-email">
+            <div className="flex flex-col-reverse sm:flex-row sm:justify-end gap-2">
+              <Button variant="outline" className="w-full sm:w-auto" onClick={() => { setShowEmailConfirm(null); setEmailPreview(null); setManualEmail(""); }} data-testid="button-cancel-email">
                 {t("common.cancel")}
               </Button>
               <Button
+                className="w-full sm:w-auto"
                 onClick={() => {
                   const action = showEmailConfirm === "pre" ? "send_pre_communication" : "send_post_communication";
                   const effectiveEmail = emailPreview?.recipientEmail || manualEmail.trim();
