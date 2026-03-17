@@ -12,7 +12,7 @@ export default function LoginPage() {
   const { t } = useTranslation();
   const { user, loginMutation } = useAuth();
   const [, setLocation] = useLocation();
-  const [email, setEmail] = useState("");
+  const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
 
   useEffect(() => {
@@ -31,7 +31,7 @@ export default function LoginPage() {
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     loginMutation.mutate(
-      { email, password },
+      { username, password },
       {
         onSuccess: () => {
           setLocation("/dashboard");
@@ -65,15 +65,15 @@ export default function LoginPage() {
         <CardContent>
           <form onSubmit={handleSubmit} className="space-y-4">
             <div className="space-y-2">
-              <Label htmlFor="email">{t("login.emailLabel")}</Label>
+              <Label htmlFor="username">{t("login.usernameLabel")}</Label>
               <Input
-                id="email"
-                type="email"
-                placeholder={t("login.emailPlaceholder")}
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
+                id="username"
+                type="text"
+                placeholder={t("login.usernamePlaceholder")}
+                value={username}
+                onChange={(e) => setUsername(e.target.value)}
                 disabled={loginMutation.isPending}
-                data-testid="input-email"
+                data-testid="input-username"
               />
             </div>
             <div className="space-y-2">

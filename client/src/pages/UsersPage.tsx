@@ -28,16 +28,18 @@ type CompanyUserWithDetails = {
   };
   user: {
     id: string;
-    email: string;
+    email: string | null;
+    phone?: string | null;
     name: string;
   } | null;
   isSuperAdmin: boolean;
 };
 
 const createUserSchema = z.object({
-  email: z.string().email("Invalid email address"),
-  name: z.string().min(1, "Name is required"),
-  password: z.string().min(8, "Password must be at least 8 characters"),
+  phone: z.string().min(10),
+  email: z.string().email().optional().or(z.literal("")),
+  name: z.string().min(1),
+  password: z.string().min(8),
   role: z.enum(["admin", "office", "field_manager", "chemical_manager", "field", "irrigation_manager", "shop_manager", "mapping"]),
   language: z.enum(["en", "es"]).default("en"),
 });
@@ -68,6 +70,7 @@ export default function UsersPage() {
     resolver: zodResolver(createUserSchema),
     defaultValues: {
       role: "field",
+      phone: "",
       email: "",
       name: "",
       password: "",
@@ -155,7 +158,7 @@ export default function UsersPage() {
   };
 
   const handleDelete = (user: CompanyUserWithDetails) => {
-    if (confirm(t("users.removeConfirm", { name: user.user?.name || user.user?.email }))) {
+    if (confirm(t("users.removeConfirm", { name: user.user?.name || user.user?.phone || user.user?.email }))) {
       deleteUserMutation.mutate(user.companyUser.id);
     }
   };
@@ -198,10 +201,23 @@ export default function UsersPage() {
                 <form onSubmit={createUserForm.handleSubmit((data) => createUserMutation.mutate(data))} className="space-y-4">
                   <FormField
                     control={createUserForm.control}
+                    name="phone"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>{t("users.phoneLabel")}</FormLabel>
+                        <FormControl>
+                          <Input {...field} data-testid="input-phone" type="tel" placeholder={t("users.phonePlaceholder")} />
+                        </FormControl>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+                  <FormField
+                    control={createUserForm.control}
                     name="email"
                     render={({ field }) => (
                       <FormItem>
-                        <FormLabel>{t("users.emailLabel")}</FormLabel>
+                        <FormLabel>{t("users.emailOptional")}</FormLabel>
                         <FormControl>
                           <Input {...field} data-testid="input-email" type="email" placeholder={t("users.emailPlaceholder")} />
                         </FormControl>
@@ -300,7 +316,7 @@ export default function UsersPage() {
           <Card key={userItem.companyUser.id} data-testid={`card-user-${userItem.companyUser.id}`}>
             <CardHeader>
               <CardTitle className="text-lg">{userItem.user?.name || t("users.unknownUser")}</CardTitle>
-              <CardDescription>{userItem.user?.email}</CardDescription>
+              <CardDescription>{userItem.user?.phone || userItem.user?.email}</CardDescription>
             </CardHeader>
             <CardContent>
               <div className="space-y-3">

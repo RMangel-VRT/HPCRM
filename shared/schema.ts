@@ -28,7 +28,8 @@ export type Company = typeof companies.$inferSelect;
 
 export const users = pgTable("users", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
-  email: text("email").notNull().unique(),
+  email: text("email").unique(),
+  phone: text("phone").unique(),
   passwordHash: text("password_hash").notNull(),
   name: text("name").notNull(),
   isSuperAdmin: text("is_super_admin").notNull().default("false").$type<"true" | "false">(),
@@ -44,6 +45,8 @@ export const insertUserSchema = createInsertSchema(users).omit({
   isSuperAdmin: z.enum(["true", "false"]).default("false"),
   defaultCompanyId: z.string().optional(),
   language: z.enum(["en", "es"]).default("en"),
+  email: z.string().email().optional().nullable(),
+  phone: z.string().optional().nullable(),
 });
 
 export type InsertUser = z.infer<typeof insertUserSchema>;

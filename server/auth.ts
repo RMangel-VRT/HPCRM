@@ -66,11 +66,17 @@ export function setupAuth(app: Express) {
 
   passport.use(
     new LocalStrategy(
-      { usernameField: "email", passwordField: "password" },
-      async (email, password, done) => {
+      { usernameField: "username", passwordField: "password" },
+      async (username, password, done) => {
         try {
-          // Case-insensitive email lookup
-          const user = await storage.getUserByEmail(email.toLowerCase());
+          let user;
+          if (username.includes("@")) {
+            // Treat as email
+            user = await storage.getUserByEmail(username.toLowerCase());
+          } else {
+            // Treat as phone number
+            user = await storage.getUserByPhone(username);
+          }
           if (!user || !(await comparePasswords(password, user.passwordHash))) {
             return done(null, false);
           }
@@ -215,7 +221,7 @@ export function setupAuth(app: Express) {
     passport.authenticate("local", (err: Error, user: UserWithContext, info: any) => {
       if (err) return next(err);
       if (!user) {
-        return res.status(401).json({ message: "Invalid email or password" });
+        return res.status(401).json({ message: "Invalid phone/email or password" });
       }
       req.login(user, (err) => {
         if (err) return next(err);
@@ -380,6 +386,7 @@ export function setupAuth(app: Express) {
         name: adminName,
         isSuperAdmin: "false",
         defaultCompanyId: company.id,
+        language: "en",
       });
 
       // Add user to company as admin
@@ -388,6 +395,7 @@ export function setupAuth(app: Express) {
         companyId: company.id,
         role: "admin",
         status: "active",
+        tags: [],
       });
 
       // Create default settings for the company

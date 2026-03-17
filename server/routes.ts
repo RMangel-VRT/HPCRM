@@ -1204,6 +1204,17 @@ export async function migrateUserLanguageColumn(): Promise<void> {
   }
 }
 
+export async function migrateUserPhoneColumn(): Promise<void> {
+  console.log("Running startup migration: Ensuring phone column exists and email is nullable on users table...");
+  try {
+    await db.execute(sql`ALTER TABLE users ADD COLUMN IF NOT EXISTS phone text UNIQUE`);
+    await db.execute(sql`ALTER TABLE users ALTER COLUMN email DROP NOT NULL`);
+    console.log("User phone column migration complete");
+  } catch (error) {
+    console.error("Error during user phone column migration:", error);
+  }
+}
+
 export async function backfillCustomerType(): Promise<void> {
   console.log("Running startup migration: Backfilling customer_type for existing customers...");
   try {
@@ -2418,19 +2429,37 @@ export async function registerRoutes(app: Express): Promise<Server> {
       return res.status(403).send("Forbidden");
     }
 
-    const { email, name, password, role, language } = req.body;
+    const { phone, email, name, password, role, language } = req.body;
 
-    if (!email || !name || !password || !role) {
-      return res.status(400).json({ message: "Email, name, password, and role are required" });
+    if (!name || !password || !role) {
+      return res.status(400).json({ message: "Name, password, and role are required" });
+    }
+
+    if (!phone && !email) {
+      return res.status(400).json({ message: "Either phone or email is required" });
     }
 
     if (password.length < 8) {
       return res.status(400).json({ message: "Password must be at least 8 characters" });
     }
 
-    const existingUser = await storage.getUserByEmail(email);
-    if (existingUser) {
-      return res.status(400).json({ message: "User with this email already exists" });
+    if (email) {
+      const existingByEmail = await storage.getUserByEmail(email);
+      if (existingByEmail) {
+        return res.status(400).json({ message: "User with this email already exists" });
+      }
+    }
+
+    let normalizedPhone: string | null = null;
+    if (phone) {
+      normalizedPhone = phone.replace(/\D/g, "");
+      if (normalizedPhone.length < 10) {
+        return res.status(400).json({ message: "Phone number must be at least 10 digits" });
+      }
+      const existingByPhone = await storage.getUserByPhone(normalizedPhone);
+      if (existingByPhone) {
+        return res.status(400).json({ message: "User with this phone number already exists" });
+      }
     }
 
     try {
@@ -2438,7 +2467,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const passwordHash = await hashPassword(password);
 
       const newUser = await storage.createUser({
-        email,
+        email: email || null,
+        phone: normalizedPhone,
         name,
         passwordHash,
         isSuperAdmin: "false",
@@ -2451,6 +2481,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         companyId: currentUser.activeCompanyId,
         role: role as "admin" | "office" | "field_manager" | "chemical_manager" | "field" | "irrigation_manager" | "shop_manager" | "mapping",
         status: "active",
+        tags: [],
       });
 
       const { passwordHash: _, ...userWithoutPassword } = newUser;

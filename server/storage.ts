@@ -11,6 +11,7 @@ const PostgresSessionStore = connectPg(session);
 export interface IStorage {
   getUserById(id: string): Promise<User | undefined>;
   getUserByEmail(email: string): Promise<User | undefined>;
+  getUserByPhone(phone: string): Promise<User | undefined>;
   createUser(user: InsertUser): Promise<User>;
   updateUserPassword(userId: string, passwordHash: string): Promise<void>;
   updateUserLanguage(userId: string, language: "en" | "es"): Promise<void>;
@@ -419,6 +420,12 @@ export class PgStorage implements IStorage {
     return result[0];
   }
 
+  async getUserByPhone(phone: string): Promise<User | undefined> {
+    const normalized = phone.replace(/\D/g, "");
+    const result = await db.select().from(users).where(eq(users.phone, normalized)).limit(1);
+    return result[0];
+  }
+
   async hasAnyUsers(): Promise<boolean> {
     const result = await db.select({ id: users.id }).from(users).limit(1);
     return result.length > 0;
@@ -475,7 +482,11 @@ export class PgStorage implements IStorage {
   }
 
   async createUser(insertUser: InsertUser): Promise<User> {
-    const result = await db.insert(users).values([insertUser]).returning();
+    const normalized = {
+      ...insertUser,
+      phone: insertUser.phone ? insertUser.phone.replace(/\D/g, "") : insertUser.phone,
+    };
+    const result = await db.insert(users).values([normalized]).returning();
     return result[0];
   }
 
