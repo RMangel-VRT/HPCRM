@@ -1,8 +1,7 @@
-import { useState } from "react";
+import { useState, useMemo } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { useLocation, useSearch } from "wouter";
 import { useTranslation } from "react-i18next";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
@@ -10,7 +9,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from "@/components/ui/command";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
-import { ClipboardList, Plus, ChevronDown, Check, CalendarDays, Hash, ArrowLeft, Link2, FileText, Loader2 } from "lucide-react";
+import { ClipboardList, Plus, ChevronDown, Check, ArrowLeft, Link2, FileText, Loader2, Search, ArrowUp, ArrowDown, ArrowUpDown } from "lucide-react";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import type { ProposalWithDetails } from "@shared/schema";
@@ -35,6 +34,9 @@ export default function ProposalMaker() {
   const [title, setTitle] = useState("Proposal");
   const [submitting, setSubmitting] = useState(false);
   const [linkSearch, setLinkSearch] = useState("");
+  const [searchQuery, setSearchQuery] = useState("");
+  const [sortColumn, setSortColumn] = useState<"title" | "customer" | "status" | "date">("date");
+  const [sortDir, setSortDir] = useState<"asc" | "desc">("desc");
 
   const { data: proposals = [], isLoading } = useQuery<ProposalWithDetails[]>({
     queryKey: ["/api/proposals"],
@@ -129,6 +131,48 @@ export default function ProposalMaker() {
     (p.customerName ?? "").toLowerCase().includes(linkSearch.toLowerCase())
   );
 
+  const handleSort = (col: typeof sortColumn) => {
+    if (sortColumn === col) {
+      setSortDir(d => d === "asc" ? "desc" : "asc");
+    } else {
+      setSortColumn(col);
+      setSortDir("asc");
+    }
+  };
+
+  const statusOrder = { draft: 0, published: 1, finalized: 2 };
+
+  const filteredSortedProposals = useMemo(() => {
+    const q = searchQuery.trim().toLowerCase();
+    const filtered = q
+      ? proposals.filter(p =>
+          p.title.toLowerCase().includes(q) ||
+          (p.customerName ?? "").toLowerCase().includes(q)
+        )
+      : proposals;
+
+    return [...filtered].sort((a, b) => {
+      let cmp = 0;
+      if (sortColumn === "title") {
+        cmp = a.title.localeCompare(b.title);
+      } else if (sortColumn === "customer") {
+        cmp = (a.customerName ?? "").localeCompare(b.customerName ?? "");
+      } else if (sortColumn === "status") {
+        cmp = (statusOrder[a.status as keyof typeof statusOrder] ?? 0) - (statusOrder[b.status as keyof typeof statusOrder] ?? 0);
+      } else {
+        cmp = (a.proposalDate ?? "").localeCompare(b.proposalDate ?? "");
+      }
+      return sortDir === "asc" ? cmp : -cmp;
+    });
+  }, [proposals, searchQuery, sortColumn, sortDir]);
+
+  const SortIcon = ({ col }: { col: typeof sortColumn }) => {
+    if (sortColumn !== col) return <ArrowUpDown className="w-3.5 h-3.5 opacity-40" />;
+    return sortDir === "asc"
+      ? <ArrowUp className="w-3.5 h-3.5" />
+      : <ArrowDown className="w-3.5 h-3.5" />;
+  };
+
   const getStatusBadge = (status: string | null | undefined) => {
     if (status === "finalized") {
       return <Badge variant="outline" className="text-green-600 dark:text-green-400 border-green-500/50">{t("statuses.finalized")}</Badge>;
@@ -191,15 +235,17 @@ export default function ProposalMaker() {
       </div>
 
       {isLoading ? (
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          {[1, 2, 3].map(i => (
-            <Card key={i} className="animate-pulse">
-              <CardHeader>
-                <div className="h-4 bg-muted rounded w-1/2 mb-2" />
-                <div className="h-3 bg-muted rounded w-1/3" />
-              </CardHeader>
-            </Card>
-          ))}
+        <div className="border rounded-md overflow-hidden">
+          <div className="divide-y">
+            {[1, 2, 3].map(i => (
+              <div key={i} className="flex items-center gap-4 px-4 py-3 animate-pulse">
+                <div className="h-4 bg-muted rounded w-1/3" />
+                <div className="h-4 bg-muted rounded w-1/5" />
+                <div className="h-5 bg-muted rounded w-16 ml-auto" />
+                <div className="h-4 bg-muted rounded w-20" />
+              </div>
+            ))}
+          </div>
         </div>
       ) : proposals.length === 0 ? (
         <div className="flex flex-col items-center justify-center py-20 text-center">
@@ -214,55 +260,128 @@ export default function ProposalMaker() {
           </Button>
         </div>
       ) : (
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          {proposals.map((p) => (
-            <Card
-              key={p.id}
-              className="hover-elevate cursor-pointer"
-              onClick={() => navigate(`/dashboard/tools/proposals/${p.id}`)}
-              data-testid={`card-proposal-${p.id}`}
-            >
-              <CardHeader className="pb-2">
-                <div className="flex items-start justify-between gap-2 flex-wrap">
-                  <CardTitle className="text-base font-medium" data-testid={`text-proposal-title-${p.id}`}>
-                    {p.title}
-                  </CardTitle>
-                  <div className="flex items-center gap-1.5 flex-wrap">
-                    <span data-testid={`badge-status-${p.id}`}>{getStatusBadge(p.status)}</span>
-                    {p.versions && p.versions.length > 0 && (
-                      <Badge variant="outline" data-testid={`badge-latest-version-${p.id}`}>
-                        v{p.versions[p.versions.length - 1].versionNumber}
-                      </Badge>
-                    )}
-                  </div>
-                </div>
-                <p className="text-sm text-muted-foreground" data-testid={`text-proposal-customer-${p.id}`}>
-                  {p.customerName}
-                </p>
-                {p.ticketId && (
-                  <Badge variant="outline" className="text-xs gap-1 mt-1 w-fit" data-testid={`badge-linked-ticket-${p.id}`}>
-                    <Link2 className="w-3 h-3" />
-                    {t("proposals.linkedToTicket")}
-                  </Badge>
+        <>
+          <div className="relative mb-3">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground pointer-events-none" />
+            <Input
+              placeholder={t("proposals.searchProposals")}
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              className="pl-9"
+              data-testid="input-proposal-search"
+            />
+          </div>
+
+          <div className="border rounded-md overflow-hidden">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="bg-muted/50 border-b">
+                  <th className="px-4 py-2.5 text-left font-medium text-muted-foreground">
+                    <button
+                      type="button"
+                      className="flex items-center gap-1.5 hover:text-foreground transition-colors"
+                      onClick={() => handleSort("title")}
+                      data-testid="sort-title"
+                    >
+                      {t("common.title")}
+                      <SortIcon col="title" />
+                    </button>
+                  </th>
+                  <th className="px-4 py-2.5 text-left font-medium text-muted-foreground">
+                    <button
+                      type="button"
+                      className="flex items-center gap-1.5 hover:text-foreground transition-colors"
+                      onClick={() => handleSort("customer")}
+                      data-testid="sort-customer"
+                    >
+                      {t("common.customer")}
+                      <SortIcon col="customer" />
+                    </button>
+                  </th>
+                  <th className="px-4 py-2.5 text-left font-medium text-muted-foreground">
+                    <button
+                      type="button"
+                      className="flex items-center gap-1.5 hover:text-foreground transition-colors"
+                      onClick={() => handleSort("status")}
+                      data-testid="sort-status"
+                    >
+                      {t("common.status")}
+                      <SortIcon col="status" />
+                    </button>
+                  </th>
+                  <th className="px-4 py-2.5 text-left font-medium text-muted-foreground hidden sm:table-cell">
+                    {t("proposals.version")}
+                  </th>
+                  <th className="px-4 py-2.5 text-left font-medium text-muted-foreground hidden md:table-cell">
+                    {t("proposals.estimateNum")}
+                  </th>
+                  <th className="px-4 py-2.5 text-left font-medium text-muted-foreground">
+                    <button
+                      type="button"
+                      className="flex items-center gap-1.5 hover:text-foreground transition-colors"
+                      onClick={() => handleSort("date")}
+                      data-testid="sort-date"
+                    >
+                      {t("common.date")}
+                      <SortIcon col="date" />
+                    </button>
+                  </th>
+                </tr>
+              </thead>
+              <tbody className="divide-y">
+                {filteredSortedProposals.length === 0 ? (
+                  <tr>
+                    <td colSpan={6} className="px-4 py-12 text-center text-muted-foreground text-sm">
+                      {t("proposals.noProposalsMatch")}
+                    </td>
+                  </tr>
+                ) : (
+                  filteredSortedProposals.map((p) => (
+                    <tr
+                      key={p.id}
+                      className="hover-elevate cursor-pointer transition-colors"
+                      onClick={() => navigate(`/dashboard/tools/proposals/${p.id}`)}
+                      data-testid={`row-proposal-${p.id}`}
+                    >
+                      <td className="px-4 py-3">
+                        <div className="flex flex-col gap-1 min-w-0">
+                          <span className="font-medium truncate" data-testid={`text-proposal-title-${p.id}`}>
+                            {p.title}
+                          </span>
+                          {p.ticketId && (
+                            <Badge variant="outline" className="text-xs gap-1 w-fit" data-testid={`badge-linked-ticket-${p.id}`}>
+                              <Link2 className="w-3 h-3" />
+                              {t("proposals.linkedToTicket")}
+                            </Badge>
+                          )}
+                        </div>
+                      </td>
+                      <td className="px-4 py-3 text-muted-foreground" data-testid={`text-proposal-customer-${p.id}`}>
+                        {p.customerName}
+                      </td>
+                      <td className="px-4 py-3" data-testid={`badge-status-${p.id}`}>
+                        {getStatusBadge(p.status)}
+                      </td>
+                      <td className="px-4 py-3 hidden sm:table-cell">
+                        {p.versions && p.versions.length > 0 && (
+                          <Badge variant="outline" data-testid={`badge-latest-version-${p.id}`}>
+                            v{p.versions[p.versions.length - 1].versionNumber}
+                          </Badge>
+                        )}
+                      </td>
+                      <td className="px-4 py-3 text-muted-foreground text-xs hidden md:table-cell" data-testid={`text-estimate-num-${p.id}`}>
+                        {p.estimateNumber ?? "—"}
+                      </td>
+                      <td className="px-4 py-3 text-muted-foreground text-xs whitespace-nowrap">
+                        {formatDate(p.proposalDate)}
+                      </td>
+                    </tr>
+                  ))
                 )}
-              </CardHeader>
-              <CardContent>
-                <div className="flex items-center gap-4 text-xs text-muted-foreground flex-wrap">
-                  <span className="flex items-center gap-1">
-                    <CalendarDays className="w-3 h-3" />
-                    {formatDate(p.proposalDate)}
-                  </span>
-                  {p.estimateNumber && (
-                    <span className="flex items-center gap-1" data-testid={`text-estimate-num-${p.id}`}>
-                      <Hash className="w-3 h-3" />
-                      {p.estimateNumber}
-                    </span>
-                  )}
-                </div>
-              </CardContent>
-            </Card>
-          ))}
-        </div>
+              </tbody>
+            </table>
+          </div>
+        </>
       )}
 
       <Dialog open={createDialogOpen} onOpenChange={(open) => { setCreateDialogOpen(open); if (!open) resetCreateDialog(); }}>

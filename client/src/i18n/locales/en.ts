@@ -1041,6 +1041,8 @@ const en = {
     imageUploadFailed: "Image upload failed",
     nextVersion: "Next finalize will create",
     relink: "Relink",
+    version: "Version",
+    estimateNum: "Estimate #",
   },
   proposalVersion: {
     versionDetails: "Version Details",

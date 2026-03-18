@@ -945,6 +945,8 @@ const es = {
     imageUploadFailed: "Error al subir imagen",
     nextVersion: "La siguiente finalizacion creara",
     relink: "Revincular",
+    version: "Version",
+    estimateNum: "Estimado #",
   },
   proposalVersion: {
     versionDetails: "Detalles de Version",
