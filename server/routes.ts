@@ -8606,6 +8606,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
       return res.status(err?.statusCode ?? 500).send(err?.message ?? "PDF generation failed");
     }
 
+    const safeTitle = (proposal.title || 'Proposal')
+      .replace(/[/\\:*?"<>|]/g, '-')
+      .trim()
+      .substring(0, 80) || 'Proposal';
     const safeCustomer = (proposal.customerName || 'Client')
       .replace(/[/\\:*?"<>|]/g, '-')
       .trim()
@@ -8613,7 +8617,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     const dateStr = proposal.proposalDate
       ? proposal.proposalDate.substring(0, 10)
       : new Date().toISOString().substring(0, 10);
-    const filename = `Proposal-${safeCustomer}-${dateStr}.pdf`;
+    const filename = `${safeTitle} - ${safeCustomer} - ${dateStr}.pdf`;
 
     const isInline = req.query.inline === '1';
     res.setHeader('Content-Type', 'application/pdf');
@@ -8786,10 +8790,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
       return res.status(500).send("Failed to retrieve the finalized PDF. It may have been removed.");
     }
 
+    const safeTitle = ((proposal?.title) || 'Proposal')
+      .replace(/[/\\:*?"<>|]/g, '-').trim().substring(0, 80) || 'Proposal';
     const safeCustomer = ((proposal?.customerName) || 'Client')
       .replace(/[/\\:*?"<>|]/g, '-').trim().substring(0, 60) || 'Client';
     const dateStr = version.proposalDate ? version.proposalDate.substring(0, 10) : new Date().toISOString().substring(0, 10);
-    const filename = `Proposal-${safeCustomer}-v${version.versionNumber}-${dateStr}.pdf`;
+    const filename = `${safeTitle} - ${safeCustomer} - v${version.versionNumber} - ${dateStr}.pdf`;
 
     const isInline = req.query.inline === '1';
     res.setHeader('Content-Type', 'application/pdf');
