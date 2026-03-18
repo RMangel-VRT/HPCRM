@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { useQuery } from "@tanstack/react-query";
 import type { CustomerMapLayer } from "@shared/schema";
 import { MapContainer, TileLayer, GeoJSON, useMap, ZoomControl } from "react-leaflet";
@@ -9,7 +9,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Label } from "@/components/ui/label";
 import { Skeleton } from "@/components/ui/skeleton";
-import { Layers, X, ChevronLeft, ChevronRight, Map as MapIcon, Satellite } from "lucide-react";
+import { Layers, X, ChevronLeft, ChevronRight, Map as MapIcon, Satellite, LocateFixed } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 
 delete (L.Icon.Default.prototype as any)._getIconUrl;
@@ -68,6 +68,80 @@ function FitBounds({ bounds, fitTrigger }: { bounds: L.LatLngBounds | null; fitT
   return null;
 }
 
+function LocateMeControl({ active }: { active: boolean }) {
+  const map = useMap();
+  const watchIdRef = useRef<number | null>(null);
+  const markerRef = useRef<L.CircleMarker | null>(null);
+  const circleRef = useRef<L.Circle | null>(null);
+  const hasPannedRef = useRef(false);
+
+  useEffect(() => {
+    if (!active) {
+      if (watchIdRef.current !== null) {
+        navigator.geolocation.clearWatch(watchIdRef.current);
+        watchIdRef.current = null;
+      }
+      if (markerRef.current) { markerRef.current.remove(); markerRef.current = null; }
+      if (circleRef.current) { circleRef.current.remove(); circleRef.current = null; }
+      hasPannedRef.current = false;
+      return;
+    }
+
+    if (!navigator.geolocation) return;
+    hasPannedRef.current = false;
+
+    watchIdRef.current = navigator.geolocation.watchPosition(
+      (pos) => {
+        const { latitude, longitude, accuracy } = pos.coords;
+        const latlng: L.LatLngExpression = [latitude, longitude];
+
+        if (!markerRef.current) {
+          markerRef.current = L.circleMarker(latlng, {
+            radius: 8,
+            color: "#fff",
+            weight: 2.5,
+            fillColor: "#3b82f6",
+            fillOpacity: 1,
+          }).addTo(map);
+        } else {
+          markerRef.current.setLatLng(latlng);
+        }
+
+        if (!circleRef.current) {
+          circleRef.current = L.circle(latlng, {
+            radius: accuracy,
+            color: "#3b82f6",
+            fillColor: "#3b82f6",
+            fillOpacity: 0.12,
+            weight: 1,
+          }).addTo(map);
+        } else {
+          circleRef.current.setLatLng(latlng);
+          circleRef.current.setRadius(accuracy);
+        }
+
+        if (!hasPannedRef.current) {
+          map.setView(latlng, Math.max(map.getZoom(), 16));
+          hasPannedRef.current = true;
+        }
+      },
+      (err) => console.warn("Geolocation error:", err),
+      { enableHighAccuracy: true, maximumAge: 10000, timeout: 15000 }
+    );
+
+    return () => {
+      if (watchIdRef.current !== null) {
+        navigator.geolocation.clearWatch(watchIdRef.current);
+        watchIdRef.current = null;
+      }
+      if (markerRef.current) { markerRef.current.remove(); markerRef.current = null; }
+      if (circleRef.current) { circleRef.current.remove(); circleRef.current = null; }
+    };
+  }, [map, active]);
+
+  return null;
+}
+
 export default function LayerMapViewer({
   customerId,
   initialCenter = [39.8283, -98.5795],
@@ -82,6 +156,7 @@ export default function LayerMapViewer({
   const [bounds, setBounds] = useState<L.LatLngBounds | null>(null);
   const [useSatellite, setUseSatellite] = useState(true);
   const [fitTrigger, setFitTrigger] = useState(0);
+  const [showMyLocation, setShowMyLocation] = useState(false);
 
   useEffect(() => {
     if (isVisible) setFitTrigger(t => t + 1);
@@ -229,6 +304,20 @@ export default function LayerMapViewer({
             data-testid="button-toggle-satellite"
           >
             {useSatellite ? <MapIcon className="w-4 h-4" /> : <Satellite className="w-4 h-4" />}
+          </Button>
+          <Button
+            variant="secondary"
+            size="icon"
+            className={`h-9 w-9 backdrop-blur-sm shadow-md border-0 transition-colors ${
+              showMyLocation
+                ? "bg-blue-500 text-white hover:bg-blue-600"
+                : "bg-white/90 text-black hover:bg-white dark:bg-black/80 dark:text-white dark:hover:bg-black"
+            }`}
+            onClick={() => setShowMyLocation(!showMyLocation)}
+            title={showMyLocation ? "Hide my location" : "Show my location"}
+            data-testid="button-toggle-my-location"
+          >
+            <LocateFixed className="w-4 h-4" />
           </Button>
         </div>
         
@@ -400,6 +489,7 @@ export default function LayerMapViewer({
           />
         )}
         <FitBounds bounds={bounds} fitTrigger={fitTrigger} />
+        <LocateMeControl active={showMyLocation} />
 
         {Array.from(layerData.values()).map((data) => {
           if (!data.geoJson || !enabledLayers.has(data.layer.id)) return null;
