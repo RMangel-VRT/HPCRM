@@ -9117,7 +9117,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       return res.status(403).send("Insufficient permissions");
     }
     let allCampaigns = await storage.getCampaigns(user.activeCompanyId);
-    if (user.activeRole === "field") {
+    if (user.activeRole !== "admin") {
       allCampaigns = allCampaigns.filter(c => c.assignedToId === user.id);
     }
     res.json(allCampaigns);

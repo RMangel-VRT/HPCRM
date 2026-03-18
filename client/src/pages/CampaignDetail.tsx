@@ -747,7 +747,8 @@ function EditCampaignDialog({
       item.companyUser.role === "admin" ||
       item.companyUser.role === "office" ||
       item.companyUser.role === "field_manager" ||
-      item.companyUser.role === "field"
+      item.companyUser.role === "field" ||
+      item.companyUser.role === "chemical_manager"
     )
     .map(item => ({
       id: item.companyUser.userId,

@@ -286,12 +286,13 @@ function CreateCampaignDialog({ open, onOpenChange }: { open: boolean; onOpenCha
     );
   }, [selectableCustomers, customerSearch]);
 
-  const teamMembers = companyUsersData
+  const allAssignableMembers = companyUsersData
     .filter(item =>
       item.companyUser.role === "admin" ||
       item.companyUser.role === "office" ||
       item.companyUser.role === "field_manager" ||
-      item.companyUser.role === "field"
+      item.companyUser.role === "field" ||
+      item.companyUser.role === "chemical_manager"
     )
     .map(item => ({
       id: item.companyUser.userId,
@@ -299,13 +300,7 @@ function CreateCampaignDialog({ open, onOpenChange }: { open: boolean; onOpenCha
       role: item.companyUser.role,
     }));
 
-  const chemicalManagers = companyUsersData
-    .filter(item => item.companyUser.role === "chemical_manager")
-    .map(item => ({
-      id: item.companyUser.userId,
-      name: item.user.name,
-      role: item.companyUser.role,
-    }));
+  const chemicalManagers = allAssignableMembers.filter(m => m.role === "chemical_manager");
 
   useEffect(() => {
     if (category === "chemical" && assignedToId) {
@@ -416,8 +411,8 @@ function CreateCampaignDialog({ open, onOpenChange }: { open: boolean; onOpenCha
   };
 
   const selectedCustomers = selectableCustomers.filter(c => selectedCustomerIds.has(c.id));
-  const assigneePool = category === "chemical" ? chemicalManagers : teamMembers;
-  const assigneeName = assigneePool.find(m => m.id === assignedToId)?.name || t("common.unassigned");
+  const assigneePool = category === "chemical" ? chemicalManagers : allAssignableMembers;
+  const assigneeName = allAssignableMembers.find(m => m.id === assignedToId)?.name || t("common.unassigned");
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -500,7 +495,7 @@ function CreateCampaignDialog({ open, onOpenChange }: { open: boolean; onOpenCha
                   <SelectValue placeholder={t("common.select")} />
                 </SelectTrigger>
                 <SelectContent>
-                  {(category === "chemical" ? chemicalManagers : teamMembers).map((m, idx) => (
+                  {assigneePool.map((m, idx) => (
                     <SelectItem key={m.id} value={m.id} data-testid={`select-campaign-assignee-${idx}`}>
                       {m.name}
                     </SelectItem>
