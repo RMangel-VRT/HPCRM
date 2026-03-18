@@ -1,4 +1,4 @@
-import { useState, useMemo, useRef } from "react";
+import { useState, useMemo, useRef, useEffect } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { useLocation, useParams } from "wouter";
 import { useTranslation } from "react-i18next";
@@ -9,8 +9,12 @@ import { format } from "date-fns";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
 import { Progress } from "@/components/ui/progress";
+import { ScrollArea } from "@/components/ui/scroll-area";
+import { Checkbox } from "@/components/ui/checkbox";
 import {
   Dialog,
   DialogContent,
@@ -25,6 +29,12 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover";
+import { Calendar } from "@/components/ui/calendar";
 import {
   Loader2,
   ArrowLeft,
@@ -50,8 +60,12 @@ import {
   Wind,
   Droplets,
   Leaf,
+  Pencil,
+  CalendarIcon,
+  X,
+  Plus,
 } from "lucide-react";
-import type { Campaign, CampaignItem, Season, CampaignChecklistTask } from "@shared/schema";
+import type { Campaign, CampaignItem, Season, CampaignChecklistTask, Customer, CompanyUser, User as UserType } from "@shared/schema";
 
 interface CampaignItemWithUser extends CampaignItem {
   completedByName?: string | null;
@@ -110,12 +124,14 @@ export default function CampaignDetail() {
   const [activeTab, setActiveTab] = useState<"items" | "report">("items");
   const [seasonDialogOpen, setSeasonDialogOpen] = useState(false);
   const [selectedSeasonId, setSelectedSeasonId] = useState<string>("");
+  const [editOpen, setEditOpen] = useState(false);
 
   const { data: campaign, isLoading } = useQuery<CampaignDetailData>({
     queryKey: ["/api/campaigns", id],
   });
 
   const canManage = user?.activeRole === "admin" || user?.activeRole === "office";
+  const isAdmin = user?.activeRole === "admin";
   const canManageSeasons = ["admin", "office", "chemical_manager"].includes(user?.activeRole || "");
 
   const { data: allSeasons } = useQuery<Season[]>({
@@ -363,6 +379,17 @@ export default function CampaignDetail() {
 
       {canManage && (
         <div className="flex items-center gap-2 flex-wrap">
+          {isAdmin && (
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setEditOpen(true)}
+              data-testid="button-edit-campaign"
+            >
+              <Pencil className="w-4 h-4 mr-2" />
+              Edit Campaign
+            </Button>
+          )}
           {campaign.status === "active" && (
             <Button
               variant="outline"
@@ -646,6 +673,376 @@ export default function CampaignDetail() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      {isAdmin && campaign && (
+        <EditCampaignDialog
+          open={editOpen}
+          onOpenChange={setEditOpen}
+          campaign={campaign}
+          campaignId={id!}
+        />
+      )}
     </div>
+  );
+}
+
+interface CompanyUserWithDetails {
+  companyUser: CompanyUser;
+  user: UserType;
+  isSuperAdmin: boolean;
+}
+
+function EditCampaignDialog({
+  open,
+  onOpenChange,
+  campaign,
+  campaignId,
+}: {
+  open: boolean;
+  onOpenChange: (v: boolean) => void;
+  campaign: CampaignDetailData;
+  campaignId: string;
+}) {
+  const { toast } = useToast();
+  const [title, setTitle] = useState(campaign.title);
+  const [description, setDescription] = useState(campaign.description || "");
+  const [assignedToId, setAssignedToId] = useState(campaign.assignedToId || "none");
+  const [windowStart, setWindowStart] = useState<Date | undefined>(
+    campaign.windowStart ? new Date(campaign.windowStart + "T00:00:00") : undefined
+  );
+  const [windowEnd, setWindowEnd] = useState<Date | undefined>(
+    campaign.windowEnd ? new Date(campaign.windowEnd + "T00:00:00") : undefined
+  );
+  const [startOpen, setStartOpen] = useState(false);
+  const [endOpen, setEndOpen] = useState(false);
+  const [propertySearch, setPropertySearch] = useState("");
+  const [selectedNewCustomerIds, setSelectedNewCustomerIds] = useState<Set<string>>(new Set());
+  const [itemsToRemove, setItemsToRemove] = useState<Set<string>>(new Set());
+
+  useEffect(() => {
+    if (open) {
+      setTitle(campaign.title);
+      setDescription(campaign.description || "");
+      setAssignedToId(campaign.assignedToId || "none");
+      setWindowStart(campaign.windowStart ? new Date(campaign.windowStart + "T00:00:00") : undefined);
+      setWindowEnd(campaign.windowEnd ? new Date(campaign.windowEnd + "T00:00:00") : undefined);
+      setPropertySearch("");
+      setSelectedNewCustomerIds(new Set());
+      setItemsToRemove(new Set());
+    }
+  }, [open, campaign]);
+
+  const { data: customers = [] } = useQuery<Customer[]>({
+    queryKey: ["/api/customers"],
+    enabled: open,
+  });
+
+  const { data: companyUsersData = [] } = useQuery<CompanyUserWithDetails[]>({
+    queryKey: ["/api/companies/users"],
+    enabled: open,
+  });
+
+  const teamMembers = companyUsersData
+    .filter(item =>
+      item.companyUser.role === "admin" ||
+      item.companyUser.role === "office" ||
+      item.companyUser.role === "field_manager" ||
+      item.companyUser.role === "field"
+    )
+    .map(item => ({
+      id: item.companyUser.userId,
+      name: item.user.name,
+    }));
+
+  const existingCustomerIds = useMemo(
+    () => new Set(campaign.items.map(i => i.customerId)),
+    [campaign.items]
+  );
+
+  const availableCustomers = useMemo(() => {
+    return customers.filter(c =>
+      c.active === "true" &&
+      c.name !== "Internal Tasks" &&
+      !existingCustomerIds.has(c.id)
+    );
+  }, [customers, existingCustomerIds]);
+
+  const filteredAvailableCustomers = useMemo(() => {
+    if (!propertySearch.trim()) return availableCustomers;
+    const s = propertySearch.toLowerCase();
+    return availableCustomers.filter(c =>
+      c.name.toLowerCase().includes(s) || c.city.toLowerCase().includes(s)
+    );
+  }, [availableCustomers, propertySearch]);
+
+  const updateMutation = useMutation({
+    mutationFn: async (data: { title: string; description: string | null; assignedToId: string | null; windowStart: string; windowEnd: string }) => {
+      const res = await apiRequest("PATCH", `/api/campaigns/${campaignId}`, data);
+      return res.json();
+    },
+  });
+
+  const addItemsMutation = useMutation({
+    mutationFn: async (customerIds: string[]) => {
+      const res = await apiRequest("POST", `/api/campaigns/${campaignId}/items`, { customerIds });
+      return res.json();
+    },
+  });
+
+  const removeItemMutation = useMutation({
+    mutationFn: async (itemId: string) => {
+      const res = await apiRequest("DELETE", `/api/campaigns/${campaignId}/items/${itemId}`);
+      return res.json();
+    },
+  });
+
+  const handleSave = async () => {
+    if (!title.trim()) {
+      toast({ title: "Title is required", variant: "destructive" });
+      return;
+    }
+    if (!windowStart || !windowEnd) {
+      toast({ title: "Start and end dates are required", variant: "destructive" });
+      return;
+    }
+    const startStr = format(windowStart, "yyyy-MM-dd");
+    const endStr = format(windowEnd, "yyyy-MM-dd");
+    if (startStr > endStr) {
+      toast({ title: "Start date must be before or equal to end date", variant: "destructive" });
+      return;
+    }
+
+    try {
+      await updateMutation.mutateAsync({
+        title: title.trim(),
+        description: description.trim() || null,
+        assignedToId: assignedToId === "none" ? null : assignedToId || null,
+        windowStart: startStr,
+        windowEnd: endStr,
+      });
+
+      if (itemsToRemove.size > 0) {
+        for (const itemId of itemsToRemove) {
+          await removeItemMutation.mutateAsync(itemId);
+        }
+      }
+
+      if (selectedNewCustomerIds.size > 0) {
+        await addItemsMutation.mutateAsync(Array.from(selectedNewCustomerIds));
+      }
+
+      queryClient.invalidateQueries({ queryKey: ["/api/campaigns", campaignId] });
+      queryClient.invalidateQueries({ queryKey: ["/api/campaigns"] });
+      toast({ title: "Campaign updated successfully" });
+      onOpenChange(false);
+    } catch {
+      toast({ title: "Failed to save changes", variant: "destructive" });
+    }
+  };
+
+  const isPending = updateMutation.isPending || addItemsMutation.isPending || removeItemMutation.isPending;
+
+  const toggleRemoveItem = (itemId: string) => {
+    setItemsToRemove(prev => {
+      const next = new Set(prev);
+      if (next.has(itemId)) next.delete(itemId);
+      else next.add(itemId);
+      return next;
+    });
+  };
+
+  const toggleNewCustomer = (id: string) => {
+    setSelectedNewCustomerIds(prev => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  };
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="sm:max-w-2xl max-h-[90vh] overflow-y-auto">
+        <DialogHeader>
+          <DialogTitle className="flex items-center gap-2">
+            <Pencil className="w-5 h-5 text-primary" />
+            Edit Campaign
+          </DialogTitle>
+        </DialogHeader>
+
+        <div className="space-y-5 py-2">
+          <div className="space-y-2">
+            <Label>Title</Label>
+            <Input
+              value={title}
+              onChange={(e) => setTitle(e.target.value)}
+              data-testid="input-edit-campaign-title"
+            />
+          </div>
+
+          <div className="space-y-2">
+            <Label>Description (optional)</Label>
+            <Textarea
+              value={description}
+              onChange={(e) => setDescription(e.target.value)}
+              rows={3}
+              data-testid="input-edit-campaign-description"
+            />
+          </div>
+
+          <div className="grid grid-cols-2 gap-4">
+            <div className="space-y-2">
+              <Label>Window Start</Label>
+              <Popover open={startOpen} onOpenChange={setStartOpen}>
+                <PopoverTrigger asChild>
+                  <Button variant="outline" className="w-full justify-start text-left font-normal" data-testid="button-edit-start-date">
+                    <CalendarIcon className="mr-2 h-4 w-4" />
+                    {windowStart ? format(windowStart, "PPP") : "Select"}
+                  </Button>
+                </PopoverTrigger>
+                <PopoverContent className="w-auto p-0" align="start">
+                  <Calendar
+                    mode="single"
+                    selected={windowStart}
+                    onSelect={(d) => { setWindowStart(d); setStartOpen(false); }}
+                    initialFocus
+                  />
+                </PopoverContent>
+              </Popover>
+            </div>
+            <div className="space-y-2">
+              <Label>Window End</Label>
+              <Popover open={endOpen} onOpenChange={setEndOpen}>
+                <PopoverTrigger asChild>
+                  <Button variant="outline" className="w-full justify-start text-left font-normal" data-testid="button-edit-end-date">
+                    <CalendarIcon className="mr-2 h-4 w-4" />
+                    {windowEnd ? format(windowEnd, "PPP") : "Select"}
+                  </Button>
+                </PopoverTrigger>
+                <PopoverContent className="w-auto p-0" align="start">
+                  <Calendar
+                    mode="single"
+                    selected={windowEnd}
+                    onSelect={(d) => { setWindowEnd(d); setEndOpen(false); }}
+                    initialFocus
+                  />
+                </PopoverContent>
+              </Popover>
+            </div>
+          </div>
+
+          <div className="space-y-2">
+            <Label>Assigned To (optional)</Label>
+            <Select value={assignedToId} onValueChange={setAssignedToId}>
+              <SelectTrigger data-testid="select-edit-assignee">
+                <SelectValue placeholder="Select..." />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="none">Unassigned</SelectItem>
+                {teamMembers.map(m => (
+                  <SelectItem key={m.id} value={m.id}>{m.name}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+
+          <div className="space-y-3">
+            <Label>Current Properties</Label>
+            <ScrollArea className="h-48 border rounded-md">
+              <div className="p-2 space-y-1">
+                {campaign.items.map(item => (
+                  <div key={item.id} className="flex items-center justify-between gap-2 px-2 py-1.5 rounded-md hover-elevate" data-testid={`edit-item-row-${item.id}`}>
+                    <div className="flex items-center gap-2 min-w-0">
+                      {item.status === "pending" ? (
+                        <Clock className="w-3.5 h-3.5 text-muted-foreground shrink-0" />
+                      ) : item.status === "completed" ? (
+                        <CheckCircle2 className="w-3.5 h-3.5 text-green-600 shrink-0" />
+                      ) : (
+                        <SkipForward className="w-3.5 h-3.5 text-amber-500 shrink-0" />
+                      )}
+                      <span className={`text-sm truncate ${itemsToRemove.has(item.id) ? "line-through text-muted-foreground" : ""}`}>{item.customerName}</span>
+                      {item.customerCity && (
+                        <span className="text-xs text-muted-foreground shrink-0">{item.customerCity}</span>
+                      )}
+                    </div>
+                    <div className="flex items-center gap-2 shrink-0">
+                      <Badge variant="outline" className="text-xs">
+                        {item.status}
+                      </Badge>
+                      {item.status === "pending" && (
+                        <Button
+                          size="icon"
+                          variant="ghost"
+                          onClick={() => toggleRemoveItem(item.id)}
+                          data-testid={`button-remove-item-${item.id}`}
+                          className={itemsToRemove.has(item.id) ? "text-primary" : "text-destructive"}
+                        >
+                          {itemsToRemove.has(item.id) ? <Plus className="w-3.5 h-3.5" /> : <X className="w-3.5 h-3.5" />}
+                        </Button>
+                      )}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </ScrollArea>
+            {itemsToRemove.size > 0 && (
+              <p className="text-xs text-destructive">{itemsToRemove.size} pending {itemsToRemove.size === 1 ? "property" : "properties"} will be removed on save.</p>
+            )}
+          </div>
+
+          <div className="space-y-3">
+            <Label>Add Properties</Label>
+            <div className="relative">
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+              <Input
+                value={propertySearch}
+                onChange={(e) => setPropertySearch(e.target.value)}
+                placeholder="Search properties..."
+                className="pl-9"
+                data-testid="input-edit-property-search"
+              />
+            </div>
+            <ScrollArea className="h-48 border rounded-md">
+              <div className="p-2 space-y-1">
+                {filteredAvailableCustomers.length === 0 ? (
+                  <p className="text-sm text-muted-foreground text-center py-4">
+                    {availableCustomers.length === 0 ? "All properties already in campaign" : "No matching properties"}
+                  </p>
+                ) : (
+                  filteredAvailableCustomers.map(c => (
+                    <div
+                      key={c.id}
+                      className="flex items-center gap-2 px-2 py-1.5 rounded-md hover-elevate cursor-pointer"
+                      onClick={() => toggleNewCustomer(c.id)}
+                      data-testid={`edit-add-customer-${c.id}`}
+                    >
+                      <Checkbox
+                        checked={selectedNewCustomerIds.has(c.id)}
+                        onCheckedChange={() => toggleNewCustomer(c.id)}
+                        onClick={(e) => e.stopPropagation()}
+                        data-testid={`checkbox-add-customer-${c.id}`}
+                      />
+                      <span className="text-sm">{c.name}</span>
+                      {c.city && <span className="text-xs text-muted-foreground">{c.city}</span>}
+                    </div>
+                  ))
+                )}
+              </div>
+            </ScrollArea>
+            {selectedNewCustomerIds.size > 0 && (
+              <p className="text-xs text-muted-foreground">{selectedNewCustomerIds.size} {selectedNewCustomerIds.size === 1 ? "property" : "properties"} will be added on save.</p>
+            )}
+          </div>
+        </div>
+
+        <DialogFooter>
+          <Button variant="outline" onClick={() => onOpenChange(false)} disabled={isPending}>Cancel</Button>
+          <Button onClick={handleSave} disabled={isPending} data-testid="button-save-edit-campaign">
+            {isPending && <Loader2 className="w-4 h-4 mr-2 animate-spin" />}
+            Save Changes
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
 }

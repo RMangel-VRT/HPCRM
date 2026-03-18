@@ -330,6 +330,7 @@ export interface IStorage {
   getCampaignItems(campaignId: string, companyId: string): Promise<CampaignItem[]>;
   createCampaignItem(item: InsertCampaignItem): Promise<CampaignItem>;
   updateCampaignItem(id: string, companyId: string, updates: Partial<InsertCampaignItem & { updatedAt: Date }>): Promise<CampaignItem | undefined>;
+  deleteCampaignItem(id: string, companyId: string): Promise<void>;
   createCampaignWithItems(campaign: InsertCampaign, items: InsertCampaignItem[]): Promise<Campaign>;
   getCampaignChecklistTasks(campaignId: string): Promise<CampaignChecklistTask[]>;
   createCampaignChecklistTask(task: InsertCampaignChecklistTask): Promise<CampaignChecklistTask>;
@@ -2723,6 +2724,10 @@ export class PgStorage implements IStorage {
   async updateCampaignItem(id: string, companyId: string, updates: Partial<InsertCampaignItem & { updatedAt: Date }>): Promise<CampaignItem | undefined> {
     const [row] = await db.update(campaignItems).set(updates as Partial<typeof campaignItems.$inferInsert>).where(and(eq(campaignItems.id, id), eq(campaignItems.companyId, companyId))).returning();
     return row;
+  }
+
+  async deleteCampaignItem(id: string, companyId: string): Promise<void> {
+    await db.delete(campaignItems).where(and(eq(campaignItems.id, id), eq(campaignItems.companyId, companyId)));
   }
 
   async createCampaignWithItems(campaignData: InsertCampaign, itemsData: InsertCampaignItem[]): Promise<Campaign> {

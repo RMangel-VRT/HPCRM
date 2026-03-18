@@ -9431,6 +9431,70 @@ export async function registerRoutes(app: Express): Promise<Server> {
     res.json(updated);
   });
 
+  app.post("/api/campaigns/:id/items", async (req, res) => {
+    if (!req.isAuthenticated()) return res.status(401).send("Not authenticated");
+    const user = req.user as UserWithContext;
+    if (user.activeRole !== "admin") {
+      return res.status(403).send("Only admin can add campaign items");
+    }
+    const campaign = await storage.getCampaignById(req.params.id, user.activeCompanyId);
+    if (!campaign) return res.status(404).json({ error: "Campaign not found" });
+    const { customerIds } = req.body as { customerIds?: string[] };
+    if (!customerIds || !Array.isArray(customerIds) || customerIds.length === 0) {
+      return res.status(400).json({ error: "customerIds required" });
+    }
+    const existingItems = await storage.getCampaignItems(req.params.id, user.activeCompanyId);
+    const existingCustomerIds = new Set(existingItems.map(i => i.customerId));
+    const allCustomers = await storage.getCustomers(user.activeCompanyId);
+    const customerMap = new Map(allCustomers.map(c => [c.id, c]));
+    const newItems: CampaignItem[] = [];
+    for (const custId of customerIds) {
+      if (existingCustomerIds.has(custId)) continue;
+      const cust = customerMap.get(custId);
+      if (!cust) continue;
+      const item = await storage.createCampaignItem({
+        campaignId: req.params.id,
+        companyId: user.activeCompanyId,
+        customerId: custId,
+        customerName: cust.name,
+        customerCity: cust.city || "",
+        status: "pending",
+        notes: null,
+        skipReason: null,
+        photos: [],
+        completedById: null,
+        completedAt: null,
+        workflowStep: campaign.category === "chemical" ? "pre_communication" : null,
+        preCommSentAt: null,
+        preCommSentById: null,
+        workCompletedAt: null,
+        workCompletedById: null,
+        postCommSentAt: null,
+        postCommSentById: null,
+      });
+      newItems.push(item);
+    }
+    res.json({ added: newItems.length, items: newItems });
+  });
+
+  app.delete("/api/campaigns/:id/items/:itemId", async (req, res) => {
+    if (!req.isAuthenticated()) return res.status(401).send("Not authenticated");
+    const user = req.user as UserWithContext;
+    if (user.activeRole !== "admin") {
+      return res.status(403).send("Only admin can remove campaign items");
+    }
+    const campaign = await storage.getCampaignById(req.params.id, user.activeCompanyId);
+    if (!campaign) return res.status(404).json({ error: "Campaign not found" });
+    const items = await storage.getCampaignItems(req.params.id, user.activeCompanyId);
+    const item = items.find(i => i.id === req.params.itemId);
+    if (!item) return res.status(404).json({ error: "Item not found" });
+    if (item.status !== "pending") {
+      return res.status(400).json({ error: "Only pending items can be removed" });
+    }
+    await storage.deleteCampaignItem(req.params.itemId, user.activeCompanyId);
+    res.json({ success: true });
+  });
+
   app.delete("/api/campaigns/:id", async (req, res) => {
     if (!req.isAuthenticated()) return res.status(401).send("Not authenticated");
     const user = req.user as UserWithContext;
