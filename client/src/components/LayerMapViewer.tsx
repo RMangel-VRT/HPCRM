@@ -70,27 +70,19 @@ function FitBounds({ bounds, fitTrigger }: { bounds: L.LatLngBounds | null; fitT
 
 function LocateMeControl({ active }: { active: boolean }) {
   const map = useMap();
-  const watchIdRef = useRef<number | null>(null);
   const markerRef = useRef<L.CircleMarker | null>(null);
   const circleRef = useRef<L.Circle | null>(null);
-  const hasPannedRef = useRef(false);
 
   useEffect(() => {
     if (!active) {
-      if (watchIdRef.current !== null) {
-        navigator.geolocation.clearWatch(watchIdRef.current);
-        watchIdRef.current = null;
-      }
       if (markerRef.current) { markerRef.current.remove(); markerRef.current = null; }
       if (circleRef.current) { circleRef.current.remove(); circleRef.current = null; }
-      hasPannedRef.current = false;
       return;
     }
 
     if (!navigator.geolocation) return;
-    hasPannedRef.current = false;
 
-    watchIdRef.current = navigator.geolocation.watchPosition(
+    navigator.geolocation.getCurrentPosition(
       (pos) => {
         const { latitude, longitude, accuracy } = pos.coords;
         const latlng: L.LatLngExpression = [latitude, longitude];
@@ -120,20 +112,13 @@ function LocateMeControl({ active }: { active: boolean }) {
           circleRef.current.setRadius(accuracy);
         }
 
-        if (!hasPannedRef.current) {
-          map.setView(latlng, Math.max(map.getZoom(), 16));
-          hasPannedRef.current = true;
-        }
+        map.setView(latlng, Math.max(map.getZoom(), 16));
       },
       (err) => console.warn("Geolocation error:", err),
       { enableHighAccuracy: true, maximumAge: 10000, timeout: 15000 }
     );
 
     return () => {
-      if (watchIdRef.current !== null) {
-        navigator.geolocation.clearWatch(watchIdRef.current);
-        watchIdRef.current = null;
-      }
       if (markerRef.current) { markerRef.current.remove(); markerRef.current = null; }
       if (circleRef.current) { circleRef.current.remove(); circleRef.current = null; }
     };
