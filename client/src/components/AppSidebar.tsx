@@ -52,7 +52,7 @@ import { useTranslation } from "react-i18next";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 
 interface AppSidebarProps {
-  userRole?: "admin" | "office" | "field_manager" | "chemical_manager" | "field" | "irrigation_manager" | "shop_manager" | "mapping";
+  userRole?: "admin" | "office" | "field_manager" | "chemical_manager" | "field" | "irrigation_manager" | "shop_manager" | "mapping" | "landscape_supervisor";
   isSuperAdmin?: boolean;
   userName?: string;
   onLogout?: () => void;
@@ -90,6 +90,11 @@ export default function AppSidebar({
     if (isSuperAdmin) return [];
     const items: NavItem[] = [];
 
+    if (userRole === "landscape_supervisor") {
+      items.push({ title: "My Work", url: "/dashboard/tickets/my", icon: UserCheck });
+      return items;
+    }
+
     if (userRole === "shop_manager") {
       items.push({ title: t("nav.dashboard"), url: "/dashboard", icon: LayoutDashboard });
       items.push({ title: t("nav.myTickets"), url: "/dashboard/tickets/my", icon: UserCheck });
@@ -114,6 +119,12 @@ export default function AppSidebar({
   const getCrmItems = (): NavItem[] => {
     if (isSuperAdmin) return [];
     const items: NavItem[] = [];
+
+    if (userRole === "landscape_supervisor") {
+      items.push({ title: t("nav.propertyMaps"), url: "/dashboard/maps", icon: Map });
+      items.push({ title: t("nav.routeMap"), url: "/dashboard/customers/map", icon: MapPin });
+      return items;
+    }
 
     if (userRole === "shop_manager") return [];
 

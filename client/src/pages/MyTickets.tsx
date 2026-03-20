@@ -10,6 +10,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { Badge } from "@/components/ui/badge";
 import { Search, ChevronRight, ChevronLeft, ChevronDown, Clock, CalendarDays, Filter, Loader2, CheckCircle2, RefreshCw, Wrench, ClipboardCheck } from "lucide-react";
 import { Link, useSearch } from "wouter";
@@ -84,6 +85,9 @@ export default function MyTickets() {
   const [completedSectionCollapsed, setCompletedSectionCollapsed] = useState(false);
   const [equipOpenSectionCollapsed, setEquipOpenSectionCollapsed] = useState(false);
   const [equipCompletedSectionCollapsed, setEquipCompletedSectionCollapsed] = useState(false);
+  const [activeTab, setActiveTab] = useState<"tickets" | "campaigns">("tickets");
+
+  const showTabs = user?.activeRole === "landscape_supervisor";
 
   useEffect(() => {
     if (prevSearchString.current === searchString) return;
@@ -214,7 +218,7 @@ export default function MyTickets() {
     refetchOnMount: "always",
   });
 
-  const campaignAllowedRoles = ["admin", "office", "field_manager", "field"];
+  const campaignAllowedRoles = ["admin", "office", "field_manager", "field", "landscape_supervisor"];
   const showCampaigns = campaignAllowedRoles.includes(user?.activeRole || "");
 
   const { data: campaigns = [], isLoading: campaignsLoading } = useQuery<CampaignWithProgress[]>({
@@ -294,7 +298,7 @@ export default function MyTickets() {
   const openEquipTickets = equipmentTickets.filter(t => t.status !== "completed" && t.status !== "closed");
   const completedEquipTickets = equipmentTickets.filter(t => t.status === "completed" || t.status === "closed");
 
-  const totalOpenCount = openTickets.length + openEquipTickets.length;
+  const totalOpenCount = showTabs ? openTickets.length : openTickets.length + openEquipTickets.length;
   
   useEffect(() => {
     setCompletedPage(1);
@@ -336,10 +340,10 @@ export default function MyTickets() {
       <div className="flex items-center justify-between gap-3">
         <div>
           <h1 className="text-2xl md:text-3xl font-semibold tracking-tight" data-testid="text-page-title">
-            My Tickets
+            {showTabs ? "My Work" : "My Tickets"}
           </h1>
           <p className="text-sm text-muted-foreground mt-0.5 hidden md:block">
-            Tickets assigned to you
+            {showTabs ? "Your assigned tickets and campaigns" : "Tickets assigned to you"}
           </p>
         </div>
         <div className="flex items-center gap-2 text-sm text-muted-foreground" data-testid="text-total-open-count">
@@ -348,6 +352,246 @@ export default function MyTickets() {
         </div>
       </div>
 
+      {showTabs && (
+        <Tabs value={activeTab} onValueChange={(v) => setActiveTab(v as "tickets" | "campaigns")} data-testid="tabs-my-work">
+          <TabsList>
+            <TabsTrigger value="tickets" data-testid="tab-my-tickets">My Tickets</TabsTrigger>
+            <TabsTrigger value="campaigns" data-testid="tab-my-campaigns">My Campaigns</TabsTrigger>
+          </TabsList>
+
+          <TabsContent value="tickets" className="mt-4 space-y-4">
+            <div className="flex gap-2 items-center">
+              <div className="relative flex-1">
+                <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+                <Input
+                  placeholder="Search tickets or customers..."
+                  value={search}
+                  onChange={(e) => setSearch(e.target.value)}
+                  className="pl-9 h-11"
+                  data-testid="input-search-my-tickets"
+                />
+              </div>
+              <Button
+                variant="outline"
+                size="icon"
+                className="h-11 w-11 shrink-0"
+                onClick={() => refetch()}
+                disabled={isFetching}
+                data-testid="button-refresh-my-tickets"
+              >
+                <RefreshCw className={`w-4 h-4 ${isFetching ? "animate-spin" : ""}`} />
+              </Button>
+              <Button
+                variant="outline"
+                className="h-11 shrink-0 gap-2"
+                onClick={() => setShowFilters(!showFilters)}
+                data-testid="button-toggle-filters-my"
+              >
+                <Filter className="w-4 h-4" />
+                {activeFilterCount > 0 && (
+                  <Badge variant="secondary" className="bg-primary text-primary-foreground">
+                    {activeFilterCount}
+                  </Badge>
+                )}
+              </Button>
+            </div>
+            {showFilters && (
+              <div className="flex gap-2 flex-wrap animate-in slide-in-from-top-2 duration-200">
+                <Select value={priorityFilter} onValueChange={setPriorityFilter}>
+                  <SelectTrigger className="w-[130px] h-10" data-testid="select-priority-filter-my">
+                    <SelectValue placeholder="Priority" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">All Priorities</SelectItem>
+                    <SelectItem value="urgent">Urgent</SelectItem>
+                    <SelectItem value="high">High</SelectItem>
+                    <SelectItem value="normal">Normal</SelectItem>
+                    <SelectItem value="low">Low</SelectItem>
+                  </SelectContent>
+                </Select>
+                <Select value={typeFilter} onValueChange={setTypeFilter}>
+                  <SelectTrigger className="w-[140px] h-10" data-testid="select-type-filter-my">
+                    <SelectValue placeholder="Ticket Type" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">All Types</SelectItem>
+                    {ticketTypes.map(tt => (
+                      <SelectItem key={tt.id} value={tt.id}>{tt.name}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                <Select value={workTypeFilter} onValueChange={setWorkTypeFilter}>
+                  <SelectTrigger className="w-[150px] h-10" data-testid="select-worktype-filter-my">
+                    <SelectValue placeholder="Work Type" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">All Work Types</SelectItem>
+                    <SelectItem value="contract">Contract Work</SelectItem>
+                    <SelectItem value="extra_work">Extra Billable</SelectItem>
+                    <SelectItem value="project">Project</SelectItem>
+                    <SelectItem value="admin">Admin</SelectItem>
+                    <SelectItem value="estimate_request">Estimate Request</SelectItem>
+                    <SelectItem value="shop_todo">Shop To-Do</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+            )}
+            <div className="space-y-4">
+              {openTickets.length > 0 && (
+                <div className="space-y-3 md:space-y-2">
+                  <button
+                    className="flex items-center gap-2 text-sm font-medium text-muted-foreground px-1 hover:text-foreground transition-colors w-full text-left"
+                    onClick={() => setOpenSectionCollapsed(!openSectionCollapsed)}
+                    data-testid="button-toggle-open-section-my"
+                  >
+                    {openSectionCollapsed ? <ChevronRight className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
+                    Open ({openTickets.length})
+                  </button>
+                  {!openSectionCollapsed && (
+                    <div className="space-y-3 md:space-y-2">
+                      {openTickets.map((ticket) => (
+                        <TicketCard
+                          key={ticket.id}
+                          ticket={ticket}
+                          formatDueDate={formatDueDate}
+                          schedulingStatusId={schedulingStatusId}
+                          onNavigate={saveScrollPosition}
+                          usersMap={usersMap}
+                          workflowStatuses={allStatuses.filter((s: TicketTypeStatus) => s.ticketTypeId === ticket.ticketTypeId).sort((a: TicketTypeStatus, b: TicketTypeStatus) => (a.displayOrder || 0) - (b.displayOrder || 0))}
+                        />
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
+              {completedTickets.length > 0 && (() => {
+                const totalPages = Math.ceil(completedTickets.length / completedPerPage);
+                const startIdx = (completedPage - 1) * completedPerPage;
+                const paginatedCompleted = completedTickets.slice(startIdx, startIdx + completedPerPage);
+                return (
+                  <div className="space-y-3 md:space-y-2 mt-4">
+                    <button
+                      className="flex items-center gap-2 text-sm font-medium text-muted-foreground px-1 hover:text-foreground transition-colors w-full text-left"
+                      onClick={() => setCompletedSectionCollapsed(!completedSectionCollapsed)}
+                      data-testid="button-toggle-completed-section-my"
+                    >
+                      {completedSectionCollapsed ? <ChevronRight className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
+                      Completed ({completedTickets.length})
+                    </button>
+                    {!completedSectionCollapsed && (
+                      <>
+                        <div className="space-y-3 md:space-y-2 opacity-75">
+                          {paginatedCompleted.map((ticket) => (
+                            <TicketCard
+                              key={ticket.id}
+                              ticket={ticket}
+                              formatDueDate={formatDueDate}
+                              schedulingStatusId={schedulingStatusId}
+                              onNavigate={saveScrollPosition}
+                              usersMap={usersMap}
+                              workflowStatuses={allStatuses.filter((s: TicketTypeStatus) => s.ticketTypeId === ticket.ticketTypeId).sort((a: TicketTypeStatus, b: TicketTypeStatus) => (a.displayOrder || 0) - (b.displayOrder || 0))}
+                            />
+                          ))}
+                        </div>
+                        {totalPages > 1 && (
+                          <div className="flex items-center justify-center gap-4 pt-3">
+                            <Button variant="outline" size="sm" onClick={() => setCompletedPage(p => Math.max(1, p - 1))} disabled={completedPage === 1} data-testid="button-my-completed-prev">
+                              <ChevronLeft className="w-4 h-4 mr-1" />Previous
+                            </Button>
+                            <span className="text-sm text-muted-foreground">Page {completedPage} of {totalPages}</span>
+                            <Button variant="outline" size="sm" onClick={() => setCompletedPage(p => Math.min(totalPages, p + 1))} disabled={completedPage === totalPages} data-testid="button-my-completed-next">
+                              Next<ChevronRight className="w-4 h-4 ml-1" />
+                            </Button>
+                          </div>
+                        )}
+                      </>
+                    )}
+                  </div>
+                );
+              })()}
+              {openTickets.length === 0 && completedTickets.length === 0 && (
+                <Card>
+                  <CardContent className="flex flex-col items-center justify-center py-12 text-center">
+                    <div className="w-16 h-16 rounded-full bg-muted flex items-center justify-center mb-4">
+                      <Clock className="w-8 h-8 text-muted-foreground" />
+                    </div>
+                    <h3 className="text-lg font-medium mb-1">No tickets assigned to you</h3>
+                    <p className="text-sm text-muted-foreground max-w-sm">
+                      You don't have any tickets assigned to you yet.
+                    </p>
+                  </CardContent>
+                </Card>
+              )}
+            </div>
+          </TabsContent>
+
+          <TabsContent value="campaigns" className="mt-4">
+            {campaignsLoading ? (
+              <div className="flex items-center justify-center py-12">
+                <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
+              </div>
+            ) : activeCampaigns.length === 0 ? (
+              <Card>
+                <CardContent className="flex flex-col items-center justify-center py-12 text-center">
+                  <div className="w-16 h-16 rounded-full bg-muted flex items-center justify-center mb-4">
+                    <ClipboardCheck className="w-8 h-8 text-muted-foreground" />
+                  </div>
+                  <h3 className="text-lg font-medium mb-1">No active campaigns</h3>
+                  <p className="text-sm text-muted-foreground max-w-sm">
+                    You don't have any active campaigns assigned to you.
+                  </p>
+                </CardContent>
+              </Card>
+            ) : (
+              <div className="space-y-3 md:space-y-2">
+                {activeCampaigns.map((campaign) => {
+                  const pendingCount = campaign.totalItems - campaign.completedItems - campaign.skippedItems;
+                  return (
+                    <Link key={campaign.id} href={`/dashboard/campaigns/${campaign.id}`} onClick={saveScrollPosition}>
+                      <Card
+                        className="hover-elevate active-elevate-2 cursor-pointer transition-colors"
+                        data-testid={`card-campaign-${campaign.id}`}
+                      >
+                        <CardContent className="p-4">
+                          <div className="flex items-start gap-3">
+                            <div className="w-1 self-stretch rounded-full bg-primary" />
+                            <div className="flex-1 min-w-0">
+                              <div className="flex items-center justify-between gap-2">
+                                <h3 className="font-medium text-base leading-tight line-clamp-2 flex-1" data-testid={`text-campaign-title-${campaign.id}`}>
+                                  {campaign.title}
+                                </h3>
+                                <ChevronRight className="w-5 h-5 text-muted-foreground shrink-0" />
+                              </div>
+                              <div className="flex items-center gap-3 mt-2 text-xs text-muted-foreground">
+                                <span className="flex items-center gap-1">
+                                  <CalendarDays className="w-3 h-3" />
+                                  {campaign.windowStart && campaign.windowEnd
+                                    ? `${new Date(campaign.windowStart).toLocaleDateString()} - ${new Date(campaign.windowEnd).toLocaleDateString()}`
+                                    : t("campaigns.window")}
+                                </span>
+                              </div>
+                              <div className="flex items-center justify-between mt-2">
+                                <Badge variant="outline" className="text-xs">
+                                  {pendingCount} {t("campaigns.pending")}
+                                </Badge>
+                                <span className="text-xs text-muted-foreground">
+                                  {campaign.completedItems}/{campaign.totalItems} {t("campaigns.done")}
+                                </span>
+                              </div>
+                            </div>
+                          </div>
+                        </CardContent>
+                      </Card>
+                    </Link>
+                  );
+                })}
+              </div>
+            )}
+          </TabsContent>
+        </Tabs>
+      )}
+
+      {!showTabs && <>
       <div className="flex gap-2 items-center">
         <div className="relative flex-1">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
@@ -676,6 +920,7 @@ export default function MyTickets() {
             </Card>
           )}
         </div>
+      </>}
     </div>
   );
 }

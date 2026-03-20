@@ -10,7 +10,7 @@ import { User as SelectUser } from "@shared/schema";
 
 export interface UserWithContext extends SelectUser {
   activeCompanyId: string;
-  activeRole: "admin" | "office" | "field_manager" | "chemical_manager" | "field" | "irrigation_manager" | "shop_manager" | "mapping";
+  activeRole: "admin" | "office" | "field_manager" | "chemical_manager" | "field" | "irrigation_manager" | "shop_manager" | "mapping" | "landscape_supervisor";
   isSuperAdminBool: boolean;
 }
 
@@ -83,7 +83,7 @@ export function setupAuth(app: Express) {
 
           const isSuperAdminBool = user.isSuperAdmin === "true";
           let activeCompanyId: string;
-          let activeRole: "admin" | "office" | "field_manager" | "chemical_manager" | "field" | "irrigation_manager" | "shop_manager" | "mapping";
+          let activeRole: "admin" | "office" | "field_manager" | "chemical_manager" | "field" | "irrigation_manager" | "shop_manager" | "mapping" | "landscape_supervisor";
 
           if (isSuperAdminBool) {
             if (!user.defaultCompanyId) {
@@ -101,7 +101,7 @@ export function setupAuth(app: Express) {
             
             const activeMembership = activeMemberships[0];
             activeCompanyId = activeMembership.companyId;
-            activeRole = activeMembership.role as "admin" | "office" | "field_manager" | "chemical_manager" | "field" | "irrigation_manager" | "shop_manager" | "mapping";
+            activeRole = activeMembership.role as "admin" | "office" | "field_manager" | "chemical_manager" | "field" | "irrigation_manager" | "shop_manager" | "mapping" | "landscape_supervisor";
           }
 
           const userWithContext: UserWithContext = {
@@ -130,7 +130,7 @@ export function setupAuth(app: Express) {
       const isSuperAdminBool = user.isSuperAdmin === "true";
       
       let activeCompanyId: string;
-      let activeRole: "admin" | "office" | "field_manager" | "chemical_manager" | "field" | "irrigation_manager" | "shop_manager" | "mapping";
+      let activeRole: "admin" | "office" | "field_manager" | "chemical_manager" | "field" | "irrigation_manager" | "shop_manager" | "mapping" | "landscape_supervisor";
 
       if (isSuperAdminBool) {
         if (!user.defaultCompanyId) {
@@ -149,7 +149,7 @@ export function setupAuth(app: Express) {
         
         const activeMembership = activeMemberships[0];
         activeCompanyId = activeMembership.companyId;
-        activeRole = activeMembership.role as "admin" | "office" | "field_manager" | "chemical_manager" | "field" | "irrigation_manager" | "shop_manager" | "mapping";
+        activeRole = activeMembership.role as "admin" | "office" | "field_manager" | "chemical_manager" | "field" | "irrigation_manager" | "shop_manager" | "mapping" | "landscape_supervisor";
       }
 
       const userWithContext: UserWithContext = {
@@ -179,7 +179,7 @@ export function setupAuth(app: Express) {
 
       const isSuperAdminBool = user.isSuperAdmin === "true";
       let activeCompanyId: string;
-      let activeRole: "admin" | "office" | "field_manager" | "chemical_manager" | "field" | "irrigation_manager" | "shop_manager" | "mapping";
+      let activeRole: "admin" | "office" | "field_manager" | "chemical_manager" | "field" | "irrigation_manager" | "shop_manager" | "mapping" | "landscape_supervisor";
 
       if (isSuperAdminBool) {
         if (!user.defaultCompanyId) {
@@ -197,7 +197,7 @@ export function setupAuth(app: Express) {
         
         const activeMembership = activeMemberships[0];
         activeCompanyId = activeMembership.companyId;
-        activeRole = activeMembership.role as "admin" | "office" | "field_manager" | "chemical_manager" | "field" | "irrigation_manager" | "shop_manager" | "mapping";
+        activeRole = activeMembership.role as "admin" | "office" | "field_manager" | "chemical_manager" | "field" | "irrigation_manager" | "shop_manager" | "mapping" | "landscape_supervisor";
       }
 
       const userWithContext: UserWithContext = {
@@ -310,11 +310,11 @@ export function setupAuth(app: Express) {
       return res.status(404).json({ message: "User not found" });
     }
 
-    let activeRole: "admin" | "office" | "field_manager" | "chemical_manager" | "field" | "irrigation_manager" | "shop_manager" | "mapping" = "admin";
+    let activeRole: "admin" | "office" | "field_manager" | "chemical_manager" | "field" | "irrigation_manager" | "shop_manager" | "mapping" | "landscape_supervisor" = "admin";
     if (!isSuperAdmin) {
       const membership = await storage.getCompanyUser(user.id, companyId);
       if (membership && membership.status === "active") {
-        activeRole = membership.role as "admin" | "office" | "field_manager" | "chemical_manager" | "field" | "irrigation_manager" | "shop_manager" | "mapping";
+        activeRole = membership.role as "admin" | "office" | "field_manager" | "chemical_manager" | "field" | "irrigation_manager" | "shop_manager" | "mapping" | "landscape_supervisor";
       }
     }
 

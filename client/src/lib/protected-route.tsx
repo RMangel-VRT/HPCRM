@@ -5,7 +5,7 @@ import { Redirect, Route, RouteProps } from "wouter";
 interface ProtectedRouteProps extends RouteProps {
   path: string;
   component: () => React.JSX.Element;
-  allowedRoles?: Array<"admin" | "office" | "field_manager" | "chemical_manager" | "field" | "irrigation_manager" | "shop_manager" | "mapping">;
+  allowedRoles?: Array<"admin" | "office" | "field_manager" | "chemical_manager" | "field" | "irrigation_manager" | "shop_manager" | "mapping" | "landscape_supervisor">;
   superAdminOnly?: boolean;
 }
 

@@ -126,7 +126,7 @@ export default function CampaignItemDetail() {
   const item = campaign?.items?.find(i => i.id === itemId);
 
   const canManage = user?.activeRole === "admin" || user?.activeRole === "office";
-  const canComplete = ["admin", "office", "field_manager", "field", "chemical_manager"].includes(user?.activeRole || "");
+  const canComplete = ["admin", "office", "field_manager", "field", "chemical_manager", "landscape_supervisor"].includes(user?.activeRole || "");
   const canSendChemEmails = ["admin", "office", "chemical_manager"].includes(user?.activeRole || "");
   const canFinishWithoutComms = ["admin", "office", "chemical_manager"].includes(user?.activeRole || "");
   const canSkip = ["admin", "office", "chemical_manager"].includes(user?.activeRole || "");

@@ -40,14 +40,14 @@ const createUserSchema = z.object({
   email: z.string().email().optional().or(z.literal("")),
   name: z.string().min(1),
   password: z.string().min(8),
-  role: z.enum(["admin", "office", "field_manager", "chemical_manager", "field", "irrigation_manager", "shop_manager", "mapping"]),
+  role: z.enum(["admin", "office", "field_manager", "chemical_manager", "field", "irrigation_manager", "shop_manager", "mapping", "landscape_supervisor"]),
   language: z.enum(["en", "es"]).default("en"),
 });
 
 type CreateUserForm = z.infer<typeof createUserSchema>;
 
 const editUserSchema = z.object({
-  role: z.enum(["admin", "office", "field_manager", "chemical_manager", "field", "irrigation_manager", "shop_manager", "mapping"]),
+  role: z.enum(["admin", "office", "field_manager", "chemical_manager", "field", "irrigation_manager", "shop_manager", "mapping", "landscape_supervisor"]),
   status: z.enum(["active", "invited", "suspended"]),
   password: z.string().min(8, "Password must be at least 8 characters").optional().or(z.literal("")),
 });
@@ -151,7 +151,7 @@ export default function UsersPage() {
   const handleEdit = (user: CompanyUserWithDetails) => {
     setSelectedUser(user);
     editUserForm.reset({
-      role: user.companyUser.role as "admin" | "office" | "field_manager" | "chemical_manager" | "field" | "irrigation_manager" | "shop_manager" | "mapping",
+      role: user.companyUser.role as "admin" | "office" | "field_manager" | "chemical_manager" | "field" | "irrigation_manager" | "shop_manager" | "mapping" | "landscape_supervisor",
       status: user.companyUser.status as "active" | "invited" | "suspended",
     });
     setEditDialogOpen(true);
@@ -272,6 +272,7 @@ export default function UsersPage() {
                             <SelectItem value="irrigation_manager">{t("roles.irrigation_manager")}</SelectItem>
                             <SelectItem value="shop_manager">{t("roles.shop_manager")}</SelectItem>
                             <SelectItem value="mapping">{t("roles.mapping")}</SelectItem>
+                            <SelectItem value="landscape_supervisor">Landscape Supervisor</SelectItem>
                           </SelectContent>
                         </Select>
                         <FormMessage />
@@ -323,7 +324,7 @@ export default function UsersPage() {
                 <div className="flex justify-between items-center">
                   <span className="text-sm text-muted-foreground">{t("users.role")}:</span>
                   <RoleBadge 
-                    role={userItem.companyUser.role as "admin" | "office" | "field_manager" | "chemical_manager" | "field" | "irrigation_manager" | "shop_manager" | "mapping"} 
+                    role={userItem.companyUser.role as "admin" | "office" | "field_manager" | "chemical_manager" | "field" | "irrigation_manager" | "shop_manager" | "mapping" | "landscape_supervisor"} 
                     isSuperAdmin={userItem.isSuperAdmin}
                   />
                 </div>
@@ -408,6 +409,7 @@ export default function UsersPage() {
                             <SelectItem value="irrigation_manager">{t("roles.irrigation_manager")}</SelectItem>
                             <SelectItem value="shop_manager">{t("roles.shop_manager")}</SelectItem>
                             <SelectItem value="mapping">{t("roles.mapping")}</SelectItem>
+                            <SelectItem value="landscape_supervisor">Landscape Supervisor</SelectItem>
                           </SelectContent>
                         </Select>
                         <FormMessage />
