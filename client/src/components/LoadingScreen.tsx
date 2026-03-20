@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import mountainsBg from "@assets/Mountains_1773354108536.png";
-import logoWhite from "@assets/hp-logo-white-nobg.png";
+import logoWhite from "@assets/LOGO_-_SPREAD-07_1773353516654.png";
 
 interface LoadingScreenProps {
   visible: boolean;
