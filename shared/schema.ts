@@ -1462,6 +1462,7 @@ export const proposals = pgTable("proposals", {
   title: varchar("title").notNull().default("Proposal"),
   proposalDate: varchar("proposal_date").notNull(),
   estimateNumber: varchar("estimate_number"),
+  proposalNumber: varchar("proposal_number").notNull().unique(),
   scopeOfWork: text("scope_of_work").notNull().default(""),
   status: varchar("status").notNull().default("draft"),
   visualScopeSheetId: varchar("visual_scope_sheet_id").references(() => visualScopeSheets.id, { onDelete: "set null" }),
@@ -1473,6 +1474,8 @@ export const proposals = pgTable("proposals", {
 export const insertProposalSchema = createInsertSchema(proposals).omit({
   id: true,
   createdAt: true,
+}).extend({
+  proposalNumber: z.string().optional(),
 });
 
 export type InsertProposal = z.infer<typeof insertProposalSchema>;

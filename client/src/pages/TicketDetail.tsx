@@ -1164,7 +1164,12 @@ export default function TicketDetail() {
                         <div className="flex items-start justify-between gap-2 flex-wrap">
                           <div className="flex items-center gap-2 min-w-0">
                             <FileText className="w-4 h-4 shrink-0 text-muted-foreground" />
-                            <span className="text-sm font-medium truncate">{proposal.title}</span>
+                            <div className="min-w-0">
+                              {proposal.proposalNumber && (
+                                <p className="text-xs font-mono text-muted-foreground" data-testid={`text-proposal-number-${proposal.id}`}>{proposal.proposalNumber}</p>
+                              )}
+                              <span className="text-sm font-medium truncate">{proposal.title}</span>
+                            </div>
                           </div>
                           {statusBadge}
                         </div>

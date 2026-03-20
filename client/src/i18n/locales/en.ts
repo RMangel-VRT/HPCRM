@@ -1043,6 +1043,7 @@ const en = {
     relink: "Relink",
     version: "Version",
     estimateNum: "Estimate #",
+    proposalNum: "Proposal #",
   },
   proposalVersion: {
     versionDetails: "Version Details",

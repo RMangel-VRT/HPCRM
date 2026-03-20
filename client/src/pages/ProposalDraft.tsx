@@ -406,6 +406,11 @@ export default function ProposalDraft() {
           <h1 className="text-xl font-semibold tracking-tight" data-testid="text-proposal-title">
             {proposal.title}
           </h1>
+          {proposal.proposalNumber && (
+            <span className="text-sm font-mono text-muted-foreground" data-testid="text-proposal-number">
+              {proposal.proposalNumber}
+            </span>
+          )}
           {getStatusBadge(proposal.status)}
           <div className="flex-1" />
           {estimatePdf ? (

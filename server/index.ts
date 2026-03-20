@@ -1,5 +1,5 @@
 import express, { type Request, Response, NextFunction } from "express";
-import { registerRoutes, migrateProjectSchedulingStatus, migrateFirstBankHierarchy, migrateExtraBillableTicketType, removeProjectInvoicingFields, fixExtraBillableDoneOrder, fixEstimateRequestBillingBehavior, fixProjectDisplayOrders, migrateEstimateSentToProposalWorkflow, migrateProjectNoEstimateTicketType, migrateUserLanguageColumn, migrateUserPhoneColumn, backfillCustomerType, migrateEquipmentProfilePhotoColumn } from "./routes";
+import { registerRoutes, migrateProjectSchedulingStatus, migrateFirstBankHierarchy, migrateExtraBillableTicketType, removeProjectInvoicingFields, fixExtraBillableDoneOrder, fixEstimateRequestBillingBehavior, fixProjectDisplayOrders, migrateEstimateSentToProposalWorkflow, migrateProjectNoEstimateTicketType, migrateUserLanguageColumn, migrateUserPhoneColumn, backfillCustomerType, migrateEquipmentProfilePhotoColumn, migrateProposalNumbers } from "./routes";
 import { setupVite, serveStatic, log } from "./vite";
 import { runDueDateNotifications } from "./due-date-notifications";
 
@@ -64,6 +64,7 @@ app.use((req, res, next) => {
   await migrateUserPhoneColumn(); // Ensure phone column exists and email is nullable on users table
   await backfillCustomerType(); // Backfill customer_type for existing customers
   await migrateEquipmentProfilePhotoColumn(); // Ensure profile_photo_path column exists on equipment table
+  await migrateProposalNumbers(); // Add proposal_number column and backfill existing proposals
 
   app.use((err: any, _req: Request, res: Response, _next: NextFunction) => {
     const status = err.status || err.statusCode || 500;

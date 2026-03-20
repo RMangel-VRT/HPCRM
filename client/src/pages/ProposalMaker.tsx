@@ -128,7 +128,8 @@ export default function ProposalMaker() {
   const filteredLinkable = proposals.filter(p =>
     !linkSearch ||
     p.title.toLowerCase().includes(linkSearch.toLowerCase()) ||
-    (p.customerName ?? "").toLowerCase().includes(linkSearch.toLowerCase())
+    (p.customerName ?? "").toLowerCase().includes(linkSearch.toLowerCase()) ||
+    (p.proposalNumber ?? "").toLowerCase().includes(linkSearch.toLowerCase())
   );
 
   const handleSort = (col: typeof sortColumn) => {
@@ -147,7 +148,8 @@ export default function ProposalMaker() {
     const filtered = q
       ? proposals.filter(p =>
           p.title.toLowerCase().includes(q) ||
-          (p.customerName ?? "").toLowerCase().includes(q)
+          (p.customerName ?? "").toLowerCase().includes(q) ||
+          (p.proposalNumber ?? "").toLowerCase().includes(q)
         )
       : proposals;
 
@@ -276,6 +278,9 @@ export default function ProposalMaker() {
             <table className="w-full text-sm">
               <thead>
                 <tr className="bg-muted/50 border-b">
+                  <th className="px-4 py-2.5 text-left font-medium text-muted-foreground whitespace-nowrap hidden sm:table-cell">
+                    {t("proposals.proposalNum")}
+                  </th>
                   <th className="px-4 py-2.5 text-left font-medium text-muted-foreground">
                     <button
                       type="button"
@@ -331,7 +336,7 @@ export default function ProposalMaker() {
               <tbody className="divide-y">
                 {filteredSortedProposals.length === 0 ? (
                   <tr>
-                    <td colSpan={6} className="px-4 py-12 text-center text-muted-foreground text-sm">
+                    <td colSpan={7} className="px-4 py-12 text-center text-muted-foreground text-sm">
                       {t("proposals.noProposalsMatch")}
                     </td>
                   </tr>
@@ -343,6 +348,9 @@ export default function ProposalMaker() {
                       onClick={() => navigate(`/dashboard/tools/proposals/${p.id}`)}
                       data-testid={`row-proposal-${p.id}`}
                     >
+                      <td className="px-4 py-3 text-muted-foreground text-xs font-mono whitespace-nowrap hidden sm:table-cell" data-testid={`text-proposal-number-${p.id}`}>
+                        {p.proposalNumber ?? "—"}
+                      </td>
                       <td className="px-4 py-3">
                         <div className="flex flex-col gap-1 min-w-0">
                           <span className="font-medium truncate" data-testid={`text-proposal-title-${p.id}`}>
@@ -499,7 +507,12 @@ export default function ProposalMaker() {
                       data-testid={`button-link-proposal-${p.id}`}
                     >
                       <div className="min-w-0 flex-1">
-                        <p className="text-sm font-medium truncate">{p.title}</p>
+                        <div className="flex items-center gap-2">
+                          {p.proposalNumber && (
+                            <span className="text-xs font-mono text-muted-foreground shrink-0">{p.proposalNumber}</span>
+                          )}
+                          <p className="text-sm font-medium truncate">{p.title}</p>
+                        </div>
                         <p className="text-xs text-muted-foreground">{p.customerName} · {formatDate(p.proposalDate)}</p>
                       </div>
                       <div className="shrink-0 flex items-center gap-2">

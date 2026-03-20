@@ -90,6 +90,11 @@ export default function ProposalVersion() {
           <h1 className="text-xl font-semibold tracking-tight" data-testid="text-version-title">
             {version.title}
           </h1>
+          {proposal.proposalNumber && (
+            <span className="text-sm font-mono text-muted-foreground" data-testid="text-proposal-number">
+              {proposal.proposalNumber}
+            </span>
+          )}
           <Badge variant="secondary" className="flex items-center gap-1" data-testid="badge-version-status">
             <CheckCircle2 className="w-3 h-3" />
             {t("proposalVersion.finalizedVersion", { version: version.versionNumber })}

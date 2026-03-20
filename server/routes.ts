@@ -1235,6 +1235,70 @@ export async function backfillCustomerType(): Promise<void> {
   }
 }
 
+export async function migrateProposalNumbers(): Promise<void> {
+  console.log("Running startup migration: Adding proposal_number column, backfilling, and creating sequence...");
+  try {
+    // 1. Add the column as nullable first so we can backfill
+    await db.execute(sql`ALTER TABLE proposals ADD COLUMN IF NOT EXISTS proposal_number varchar`);
+
+    // 2. Backfill any rows that don't have a proposal number yet, ordered by created_at
+    const unassigned = await db.execute(sql`
+      SELECT id FROM proposals
+      WHERE proposal_number IS NULL
+      ORDER BY created_at ASC
+    `);
+    if (unassigned.rows.length > 0) {
+      // Find the current numeric max via regex extraction (safe numeric sort)
+      const maxRow = await db.execute(sql`
+        SELECT COALESCE(MAX(CAST(SUBSTRING(proposal_number FROM 3) AS integer)), 0) AS max_seq
+        FROM proposals
+        WHERE proposal_number IS NOT NULL AND proposal_number ~ '^P-[0-9]+$'
+      `);
+      let nextSeq = (maxRow.rows[0]?.max_seq as number ?? 0) + 1;
+      for (const row of unassigned.rows) {
+        const num = `P-${String(nextSeq).padStart(4, "0")}`;
+        await db.execute(sql`UPDATE proposals SET proposal_number = ${num} WHERE id = ${row.id as string}`);
+        nextSeq++;
+      }
+    }
+
+    // 3. Create a sequence (or sync it) so new inserts can use NEXTVAL atomically
+    await db.execute(sql`
+      CREATE SEQUENCE IF NOT EXISTS proposal_number_seq
+      START WITH 1 INCREMENT BY 1 NO MINVALUE NO MAXVALUE CACHE 1
+    `);
+    // Advance the sequence to be at least as high as the current max assignment
+    const maxRow2 = await db.execute(sql`
+      SELECT COALESCE(MAX(CAST(SUBSTRING(proposal_number FROM 3) AS integer)), 0) AS max_seq
+      FROM proposals
+      WHERE proposal_number IS NOT NULL AND proposal_number ~ '^P-[0-9]+$'
+    `);
+    const currentMax = maxRow2.rows[0]?.max_seq as number ?? 0;
+    if (currentMax > 0) {
+      await db.execute(sql`SELECT SETVAL('proposal_number_seq', ${currentMax})`);
+    }
+
+    // 4. Make the column NOT NULL after backfill
+    await db.execute(sql`ALTER TABLE proposals ALTER COLUMN proposal_number SET NOT NULL`);
+
+    // 5. Ensure the uniqueness constraint exists
+    await db.execute(sql`
+      DO $$ BEGIN
+        IF NOT EXISTS (
+          SELECT 1 FROM pg_constraint
+          WHERE conname = 'proposals_proposal_number_unique'
+        ) THEN
+          ALTER TABLE proposals ADD CONSTRAINT proposals_proposal_number_unique UNIQUE (proposal_number);
+        END IF;
+      END $$
+    `);
+
+    console.log("Proposal number migration complete");
+  } catch (error) {
+    console.error("Error during proposal number migration:", error);
+  }
+}
+
 export async function registerRoutes(app: Express): Promise<Server> {
   setupAuth(app);
 
@@ -7823,6 +7887,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
     if (!customer) return res.status(400).json({ error: "Customer not found or does not belong to your company" });
 
     const today = new Date().toISOString().split("T")[0];
+    // Use the DB sequence for atomic, concurrency-safe number assignment
+    const seqRow = await db.execute(sql`SELECT NEXTVAL('proposal_number_seq') AS seq`);
+    const nextSeq = seqRow.rows[0]?.seq as number ?? 1;
+    const proposalNumber = `P-${String(nextSeq).padStart(4, "0")}`;
     const proposal = await storage.createProposal({
       companyId: user.activeCompanyId,
       customerId,
@@ -7833,6 +7901,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       estimateNumber: estimateNumber || null,
       scopeOfWork: scopeOfWork || "",
       status: "draft",
+      proposalNumber,
     });
     res.status(201).json(proposal);
   });

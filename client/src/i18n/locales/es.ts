@@ -947,6 +947,7 @@ const es = {
     relink: "Revincular",
     version: "Version",
     estimateNum: "Estimado #",
+    proposalNum: "Propuesta #",
   },
   proposalVersion: {
     versionDetails: "Detalles de Version",
