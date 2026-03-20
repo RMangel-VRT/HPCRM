@@ -32,32 +32,14 @@ export function LoadingScreen({ visible }: LoadingScreenProps) {
         backgroundColor: "hsl(var(--sidebar))",
       }}
     >
-      <div className="relative z-10 flex flex-col items-center gap-8 pb-32">
+      <div className="relative z-10 flex items-center justify-center">
+        <div className="loading-spinner-ring" aria-hidden="true" />
         <img
           src={logoWhite}
           alt="High Plains Property Maintenance"
-          className="w-64 max-w-xs"
+          className="w-48 object-contain"
           data-testid="img-loading-logo"
         />
-
-        <div className="flex flex-col items-center gap-3">
-          <div
-            className="h-1 w-48 rounded-full overflow-hidden"
-            style={{ backgroundColor: "rgba(255,255,255,0.2)" }}
-            data-testid="loading-bar-track"
-          >
-            <div
-              className="h-full rounded-full animate-loading-bar"
-              style={{ backgroundColor: "rgba(255,255,255,0.8)" }}
-            />
-          </div>
-          <span
-            className="text-sm tracking-widest uppercase"
-            style={{ color: "rgba(255,255,255,0.6)" }}
-          >
-            Loading
-          </span>
-        </div>
       </div>
 
       <img
@@ -70,6 +52,7 @@ export function LoadingScreen({ visible }: LoadingScreenProps) {
           objectPosition: "bottom center",
           height: "35%",
           display: "block",
+          opacity: 0.4,
         }}
       />
     </div>
