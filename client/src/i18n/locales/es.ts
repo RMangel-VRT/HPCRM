@@ -793,6 +793,7 @@ const es = {
     filteredBy: "filtrado por",
     printReport: "Imprimir",
     downloadCsv: "Descargar CSV",
+    downloadPdf: "Descargar PDF",
     types: {
       customerPropertyList: "Lista de Clientes / Propiedades",
       customerPropertyDesc: "Todas las propiedades con direcciones y detalles",

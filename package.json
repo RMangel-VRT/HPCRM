@@ -66,6 +66,8 @@
     "heic-convert": "^2.1.0",
     "i18next": "^25.8.18",
     "input-otp": "^1.4.2",
+    "jspdf": "^4.2.1",
+    "jspdf-autotable": "^5.0.7",
     "leaflet": "^1.9.4",
     "leaflet-omnivore": "^0.3.4",
     "lucide-react": "^0.453.0",

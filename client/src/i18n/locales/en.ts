@@ -889,6 +889,7 @@ const en = {
     filteredBy: "filtered by",
     printReport: "Print",
     downloadCsv: "Download CSV",
+    downloadPdf: "Download PDF",
     types: {
       customerPropertyList: "Customer / Property List",
       customerPropertyDesc: "All properties with addresses and details",

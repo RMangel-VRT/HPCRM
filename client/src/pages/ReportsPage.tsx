@@ -33,7 +33,10 @@ import {
   ArrowUp,
   ArrowDown,
   FileBarChart,
+  FileDown,
 } from "lucide-react";
+import jsPDF from "jspdf";
+import autoTable from "jspdf-autotable";
 
 interface ReportColumn {
   key: string;
@@ -72,6 +75,25 @@ function downloadCSV(data: ReportData, filename: string) {
   link.download = `${filename}.csv`;
   link.click();
   URL.revokeObjectURL(url);
+}
+
+function downloadPDF(data: ReportData, filename: string, subtitle: string) {
+  const doc = new jsPDF({ orientation: "landscape" });
+  doc.setFontSize(16);
+  doc.text(data.title, 14, 16);
+  doc.setFontSize(9);
+  doc.setTextColor(120);
+  doc.text(subtitle, 14, 23);
+  doc.setTextColor(0);
+  autoTable(doc, {
+    startY: 28,
+    head: [data.columns.map(c => c.label)],
+    body: data.rows.map(row => data.columns.map(c => row[c.key] || "")),
+    styles: { fontSize: 8, cellPadding: 2 },
+    headStyles: { fillColor: [41, 128, 185], textColor: 255, fontStyle: "bold" },
+    alternateRowStyles: { fillColor: [245, 245, 245] },
+  });
+  doc.save(`${filename}.pdf`);
 }
 
 export default function ReportsPage() {
@@ -123,6 +145,13 @@ export default function ReportsPage() {
     const filtered = { ...reportData, rows: filteredAndSortedRows };
     const type = REPORT_TYPE_KEYS.find(rt => rt.id === selectedType);
     downloadCSV(filtered, (type ? t(type.labelKey) : t("reports.report")).replace(/\s+/g, "_").toLowerCase());
+  };
+
+  const handleDownloadPDF = () => {
+    if (!reportData) return;
+    const filtered = { ...reportData, rows: filteredAndSortedRows };
+    const subtitle = `${t("reports.generated")} ${new Date().toLocaleString()} · ${filteredAndSortedRows.length} ${t("reports.records")}`;
+    downloadPDF(filtered, `${selectedType}-report`, subtitle);
   };
 
   const handlePrint = () => {
@@ -211,6 +240,16 @@ export default function ReportsPage() {
             >
               <Download className="w-4 h-4" />
               <span className="hidden sm:inline">{t("reports.downloadCsv")}</span>
+            </Button>
+            <Button
+              variant="outline"
+              onClick={handleDownloadPDF}
+              disabled={!hasData}
+              data-testid="button-download-pdf"
+              className="gap-2"
+            >
+              <FileDown className="w-4 h-4" />
+              <span className="hidden sm:inline">{t("reports.downloadPdf")}</span>
             </Button>
           </div>
         </CardHeader>
