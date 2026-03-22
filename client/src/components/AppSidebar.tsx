@@ -133,8 +133,12 @@ export default function AppSidebar({
       return items;
     }
 
-    if (userRole === "admin" || userRole === "office" || userRole === "field_manager" || userRole === "chemical_manager") {
+    if (userRole === "admin" || userRole === "office" || userRole === "field_manager") {
       items.push({ title: t("nav.customers"), url: "/dashboard/customers", icon: Building2 });
+    }
+
+    if (userRole === "chemical_manager") {
+      items.push({ title: t("nav.customers"), url: "/dashboard/field-customers", icon: Building2 });
     }
 
     if (userRole === "admin" || userRole === "field_manager" || userRole === "chemical_manager") {
@@ -174,7 +178,7 @@ export default function AppSidebar({
       items.push({ title: t("nav.campaigns"), url: "/dashboard/campaigns", icon: ClipboardCheck });
     }
 
-    if (userRole === "admin" || userRole === "office" || userRole === "chemical_manager") {
+    if (userRole === "admin" || userRole === "office") {
       items.push({ title: "Seasons", url: "/dashboard/seasons", icon: Leaf });
     }
 

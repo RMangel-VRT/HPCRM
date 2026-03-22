@@ -236,12 +236,12 @@ function Router() {
         <ProtectedRoute
           path="/dashboard/snow/:id"
           component={SnowEventDetail}
-          allowedRoles={["admin", "office", "field_manager", "chemical_manager"]}
+          allowedRoles={["admin", "office", "field_manager"]}
         />
         <ProtectedRoute
           path="/dashboard/snow"
           component={SnowEventsList}
-          allowedRoles={["admin", "office", "field_manager", "chemical_manager"]}
+          allowedRoles={["admin", "office", "field_manager"]}
         />
         <ProtectedRoute path="/dashboard/contracts" component={ContractsOverview} allowedRoles={["admin", "office"]} />
         <ProtectedRoute path="/dashboard/revenue" component={RevenueOverview} allowedRoles={["admin", "office"]} />
@@ -264,12 +264,12 @@ function Router() {
         <ProtectedRoute
           path="/dashboard/seasons/:id"
           component={SeasonDetail}
-          allowedRoles={["admin", "office", "chemical_manager"]}
+          allowedRoles={["admin", "office"]}
         />
         <ProtectedRoute
           path="/dashboard/seasons"
           component={SeasonsPage}
-          allowedRoles={["admin", "office", "chemical_manager"]}
+          allowedRoles={["admin", "office"]}
         />
         <ProtectedRoute path="/dashboard/reports" component={ReportsPage} allowedRoles={["admin", "office"]} />
         <ProtectedRoute path="/dashboard/users" component={UsersPage} allowedRoles={["admin"]} />
