@@ -49,6 +49,7 @@ import {
   MapPin,
   User,
   ChevronRight,
+  ChevronDown,
   FlaskConical,
   Mail,
   Wrench,
@@ -125,6 +126,8 @@ export default function CampaignDetail() {
   const [seasonDialogOpen, setSeasonDialogOpen] = useState(false);
   const [selectedSeasonId, setSelectedSeasonId] = useState<string>("");
   const [editOpen, setEditOpen] = useState(false);
+  const [openSectionCollapsed, setOpenSectionCollapsed] = useState(false);
+  const [completedSectionCollapsed, setCompletedSectionCollapsed] = useState(false);
 
   const { data: campaign, isLoading } = useQuery<CampaignDetailData>({
     queryKey: ["/api/campaigns", id],
@@ -536,8 +539,11 @@ export default function CampaignDetail() {
         </Select>
       </div>
 
-      <div className="space-y-2">
-        {filteredItems.map(item => {
+      {(() => {
+        const openItems = filteredItems.filter(i => i.status === "pending");
+        const completedItems = filteredItems.filter(i => i.status === "completed" || i.status === "skipped");
+
+        const renderItemCard = (item: CampaignItemWithUser) => {
           const statusIconEl = item.status === "completed"
             ? <CheckCircle2 className="w-4 h-4 text-green-600 shrink-0" />
             : item.status === "skipped"
@@ -608,15 +614,58 @@ export default function CampaignDetail() {
               </CardContent>
             </Card>
           );
-        })}
-        {filteredItems.length === 0 && (
-          <Card>
-            <CardContent className="py-8 text-center text-muted-foreground">
-              {t("common.noResults")}
-            </CardContent>
-          </Card>
-        )}
-      </div>
+        };
+
+        if (filteredItems.length === 0) {
+          return (
+            <Card>
+              <CardContent className="py-8 text-center text-muted-foreground">
+                {t("common.noResults")}
+              </CardContent>
+            </Card>
+          );
+        }
+
+        return (
+          <div className="space-y-4">
+            {openItems.length > 0 && (
+              <div className="space-y-2">
+                <button
+                  className="flex items-center gap-2 text-sm font-medium text-muted-foreground px-1 hover:text-foreground transition-colors w-full text-left"
+                  onClick={() => setOpenSectionCollapsed(!openSectionCollapsed)}
+                  data-testid="button-toggle-open-section"
+                >
+                  {openSectionCollapsed ? <ChevronRight className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
+                  Open ({openItems.length})
+                </button>
+                {!openSectionCollapsed && (
+                  <div className="space-y-2">
+                    {openItems.map(renderItemCard)}
+                  </div>
+                )}
+              </div>
+            )}
+
+            {completedItems.length > 0 && (
+              <div className="space-y-2 mt-6">
+                <button
+                  className="flex items-center gap-2 text-sm font-medium text-muted-foreground px-1 hover:text-foreground transition-colors w-full text-left"
+                  onClick={() => setCompletedSectionCollapsed(!completedSectionCollapsed)}
+                  data-testid="button-toggle-completed-section"
+                >
+                  {completedSectionCollapsed ? <ChevronRight className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
+                  {t("campaigns.completed")} ({completedItems.length})
+                </button>
+                {!completedSectionCollapsed && (
+                  <div className="space-y-2 opacity-75">
+                    {completedItems.map(renderItemCard)}
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+        );
+      })()}
 
       </>
       )}
