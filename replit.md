@@ -78,6 +78,9 @@ Chemical campaign items support weather condition recording at application time.
 #### Seasons Management System
 Seasons (client/src/pages/SeasonsPage.tsx, SeasonDetail.tsx) allow grouping campaigns into named time periods (e.g., "Spring 2026") for aggregated reporting. Accessible to admin, office, and chemical_manager roles via sidebar navigation. Features include CRUD operations for seasons (name, description, start/end dates), campaign-to-season assignment via the campaign detail page, and per-season aggregated reports with weather data from all linked chemical campaigns. Season reports support CSV and PDF export grouped by campaign. Database: `seasons` table with companyId, `campaigns.seasonId` FK.
 
+#### Field Role Layout (FieldLayout)
+Field roles (field_manager, chemical_manager, field, irrigation_manager, shop_manager, landscape_supervisor) use a completely different, mobile-first layout (client/src/components/FieldLayout.tsx) instead of the standard sidebar layout. This layout features: a thin sticky top bar with the company logo (tap to go home) or a Home button when navigating deeper, a notifications bell, a theme toggle, and an account avatar button. Tapping the account avatar slides in an account panel (Sheet) from the right containing: user name/role badge, language toggle, theme toggle, help/support dialog, and logout button. Below the top bar is a role-appropriate navigation button grid showing only relevant sections (My Tickets, Property Maps, Campaigns, Route Map, Equipment, Schedule). The FieldLayout has its own internal Switch/Route setup containing all routes available to field roles. Admin and Office roles continue to use the standard SidebarProvider/AppSidebar layout.
+
 ## External Dependencies
 
 -   **UI Component Libraries:** Radix UI, Shadcn/ui, Lucide React, CMDK

@@ -15,6 +15,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import "@/i18n";
 import AppSidebar from "@/components/AppSidebar";
+import FieldLayout from "@/components/FieldLayout";
 import { LoadingScreen } from "@/components/LoadingScreen";
 import AppBreadcrumb from "@/components/AppBreadcrumb";
 import NotificationsDropdown from "@/components/NotificationsDropdown";
@@ -138,8 +139,25 @@ function Router() {
     }
   }, [isAppLoading, showLoadingScreen]);
 
+  const FIELD_ROLES = ["field_manager", "chemical_manager", "field", "irrigation_manager", "shop_manager", "landscape_supervisor"] as const;
+  type FieldRole = typeof FIELD_ROLES[number];
+
+  function isFieldRole(role: string): role is FieldRole {
+    return FIELD_ROLES.includes(role as FieldRole);
+  }
+
   function renderAuthenticatedApp() {
     if (!user) return null;
+
+    if (!user.isSuperAdminBool && isFieldRole(user.activeRole)) {
+      return (
+        <FieldLayout
+          user={user}
+          onLogout={() => logoutMutation.mutate()}
+        />
+      );
+    }
+
     const sidebarStyle = { "--sidebar-width": "16rem" };
     return (
       <BreadcrumbsProvider>
@@ -162,41 +180,41 @@ function Router() {
               <main className="flex-1 overflow-y-auto p-6 md:p-8">
                 <Switch>
                   <ProtectedRoute path="/admin" component={SuperAdminHome} superAdminOnly />
-                  <ProtectedRoute path="/dashboard" component={Dashboard} allowedRoles={["admin", "office", "field_manager", "chemical_manager", "shop_manager"]} />
-                  <ProtectedRoute path="/dashboard/customers/map" component={CustomerRouteMap} allowedRoles={["admin", "field_manager", "chemical_manager", "landscape_supervisor"]} />
-                  <ProtectedRoute path="/dashboard/customers/:id" component={CustomerDetail} allowedRoles={["admin", "office", "field_manager", "chemical_manager"]} />
-                  <ProtectedRoute path="/dashboard/customers" component={CustomersList} allowedRoles={["admin", "office", "field_manager", "chemical_manager"]} />
+                  <ProtectedRoute path="/dashboard" component={Dashboard} allowedRoles={["admin", "office"]} />
+                  <ProtectedRoute path="/dashboard/customers/map" component={CustomerRouteMap} allowedRoles={["admin"]} />
+                  <ProtectedRoute path="/dashboard/customers/:id" component={CustomerDetail} allowedRoles={["admin", "office"]} />
+                  <ProtectedRoute path="/dashboard/customers" component={CustomersList} allowedRoles={["admin", "office"]} />
                   <ProtectedRoute path="/dashboard/tickets/new" component={NewTicket} allowedRoles={["admin"]} />
-                  <ProtectedRoute path="/dashboard/tickets/my" component={MyTickets} allowedRoles={["admin", "office", "field_manager", "chemical_manager", "field", "irrigation_manager", "shop_manager", "landscape_supervisor"]} />
-                  <ProtectedRoute path="/dashboard/tickets/:id" component={TicketDetail} allowedRoles={["admin", "office", "field_manager", "chemical_manager", "field", "irrigation_manager", "shop_manager", "landscape_supervisor"]} />
+                  <ProtectedRoute path="/dashboard/tickets/my" component={MyTickets} allowedRoles={["admin", "office"]} />
+                  <ProtectedRoute path="/dashboard/tickets/:id" component={TicketDetail} allowedRoles={["admin", "office"]} />
                   <ProtectedRoute path="/dashboard/tickets" component={TicketsList} allowedRoles={["admin"]} />
-                  <ProtectedRoute path="/dashboard/maps" component={PropertyMapsPage} allowedRoles={["admin", "office", "field_manager", "chemical_manager", "field", "irrigation_manager", "mapping", "landscape_supervisor"]} />
+                  <ProtectedRoute path="/dashboard/maps" component={PropertyMapsPage} allowedRoles={["admin", "office", "mapping"]} />
                   <Route path="/dashboard/scheduler">
                     <Redirect to="/dashboard/schedule" />
                   </Route>
-                  <ProtectedRoute path="/dashboard/schedule" component={SchedulePage} allowedRoles={["admin", "office", "irrigation_manager"]} />
-                  <ProtectedRoute path="/dashboard/equipment/new" component={NewEquipment} allowedRoles={["admin", "office", "shop_manager"]} />
-                  <ProtectedRoute path="/dashboard/equipment/:id" component={EquipmentDetail} allowedRoles={["admin", "office", "shop_manager"]} />
-                  <ProtectedRoute path="/dashboard/equipment" component={EquipmentList} allowedRoles={["admin", "office", "shop_manager"]} />
-                  <ProtectedRoute path="/dashboard/equipment-tickets/:id" component={EquipmentTicketDetail} allowedRoles={["admin", "office", "shop_manager"]} />
+                  <ProtectedRoute path="/dashboard/schedule" component={SchedulePage} allowedRoles={["admin", "office"]} />
+                  <ProtectedRoute path="/dashboard/equipment/new" component={NewEquipment} allowedRoles={["admin", "office"]} />
+                  <ProtectedRoute path="/dashboard/equipment/:id" component={EquipmentDetail} allowedRoles={["admin", "office"]} />
+                  <ProtectedRoute path="/dashboard/equipment" component={EquipmentList} allowedRoles={["admin", "office"]} />
+                  <ProtectedRoute path="/dashboard/equipment-tickets/:id" component={EquipmentTicketDetail} allowedRoles={["admin", "office"]} />
                   <ProtectedRoute path="/dashboard/tools/contract-builder" component={ContractBuilderPage} allowedRoles={["admin", "office"]} />
                   <ProtectedRoute path="/dashboard/tools/proposals/:id/versions/:versionId" component={ProposalVersion} allowedRoles={["admin", "office"]} />
                   <ProtectedRoute path="/dashboard/tools/proposals/:id" component={ProposalDraft} allowedRoles={["admin", "office"]} />
                   <ProtectedRoute path="/dashboard/tools/proposals" component={ProposalMaker} allowedRoles={["admin", "office"]} />
                   <ProtectedRoute path="/dashboard/tools/visual-scope/:id" component={VisualScopeDraft} allowedRoles={["admin", "office"]} />
                   <ProtectedRoute path="/dashboard/tools/visual-scope" component={VisualScopeList} allowedRoles={["admin", "office"]} />
-                  <ProtectedRoute path="/dashboard/tools" component={ToolsPage} allowedRoles={["admin", "office", "field_manager", "chemical_manager"]} />
+                  <ProtectedRoute path="/dashboard/tools" component={ToolsPage} allowedRoles={["admin", "office"]} />
                   <ProtectedRoute path="/dashboard/snow/new" component={NewSnowEvent} allowedRoles={["admin", "office"]} />
-                  <ProtectedRoute path="/dashboard/snow/:id" component={SnowEventDetail} allowedRoles={["admin", "office", "field_manager", "chemical_manager"]} />
-                  <ProtectedRoute path="/dashboard/snow" component={SnowEventsList} allowedRoles={["admin", "office", "field_manager", "chemical_manager"]} />
+                  <ProtectedRoute path="/dashboard/snow/:id" component={SnowEventDetail} allowedRoles={["admin", "office"]} />
+                  <ProtectedRoute path="/dashboard/snow" component={SnowEventsList} allowedRoles={["admin", "office"]} />
                   <ProtectedRoute path="/dashboard/contracts" component={ContractsOverview} allowedRoles={["admin", "office"]} />
                   <ProtectedRoute path="/dashboard/revenue" component={RevenueOverview} allowedRoles={["admin", "office"]} />
-                  <ProtectedRoute path="/dashboard/notifications" component={NotificationsPage} allowedRoles={["admin", "office", "field_manager", "chemical_manager", "field", "irrigation_manager", "shop_manager", "landscape_supervisor"]} />
-                  <ProtectedRoute path="/dashboard/campaigns/:id/items/:itemId" component={CampaignItemDetail} allowedRoles={["admin", "office", "field_manager", "field", "chemical_manager", "landscape_supervisor"]} />
-                  <ProtectedRoute path="/dashboard/campaigns/:id" component={CampaignDetail} allowedRoles={["admin", "office", "field_manager", "field", "chemical_manager", "landscape_supervisor"]} />
-                  <ProtectedRoute path="/dashboard/campaigns" component={CampaignsList} allowedRoles={["admin", "office", "field_manager", "field", "chemical_manager", "landscape_supervisor"]} />
-                  <ProtectedRoute path="/dashboard/seasons/:id" component={SeasonDetail} allowedRoles={["admin", "office", "chemical_manager"]} />
-                  <ProtectedRoute path="/dashboard/seasons" component={SeasonsPage} allowedRoles={["admin", "office", "chemical_manager"]} />
+                  <ProtectedRoute path="/dashboard/notifications" component={NotificationsPage} allowedRoles={["admin", "office"]} />
+                  <ProtectedRoute path="/dashboard/campaigns/:id/items/:itemId" component={CampaignItemDetail} allowedRoles={["admin", "office"]} />
+                  <ProtectedRoute path="/dashboard/campaigns/:id" component={CampaignDetail} allowedRoles={["admin", "office"]} />
+                  <ProtectedRoute path="/dashboard/campaigns" component={CampaignsList} allowedRoles={["admin", "office"]} />
+                  <ProtectedRoute path="/dashboard/seasons/:id" component={SeasonDetail} allowedRoles={["admin", "office"]} />
+                  <ProtectedRoute path="/dashboard/seasons" component={SeasonsPage} allowedRoles={["admin", "office"]} />
                   <ProtectedRoute path="/dashboard/reports" component={ReportsPage} allowedRoles={["admin", "office"]} />
                   <ProtectedRoute path="/dashboard/users" component={UsersPage} allowedRoles={["admin"]} />
                   <ProtectedRoute path="/dashboard/settings" component={SettingsPage} allowedRoles={["admin", "office"]} />
@@ -206,8 +224,6 @@ function Router() {
                       <Redirect to="/admin" />
                     ) : user.activeRole === "mapping" ? (
                       <Redirect to="/dashboard/maps" />
-                    ) : user.activeRole === "field" || user.activeRole === "irrigation_manager" || user.activeRole === "landscape_supervisor" ? (
-                      <Redirect to="/dashboard/tickets/my" />
                     ) : (
                       <Redirect to="/dashboard" />
                     )}
@@ -217,8 +233,6 @@ function Router() {
                       <Redirect to="/admin" />
                     ) : user.activeRole === "mapping" ? (
                       <Redirect to="/dashboard/maps" />
-                    ) : user.activeRole === "field" || user.activeRole === "irrigation_manager" || user.activeRole === "landscape_supervisor" ? (
-                      <Redirect to="/dashboard/tickets/my" />
                     ) : (
                       <Redirect to="/dashboard" />
                     )}
