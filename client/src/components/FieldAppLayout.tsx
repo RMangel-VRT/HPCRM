@@ -29,7 +29,20 @@ export default function FieldAppLayout({ user, onLogout, children }: FieldAppLay
   return (
     <div className="flex flex-col h-screen w-full bg-background">
       <header className="flex items-center justify-between px-3 py-2 border-b bg-background z-50 sticky top-0">
-        <div />
+        <div>
+          {!isOnDashboard && (
+            <Link href="/dashboard">
+              <Button
+                size="icon"
+                variant="ghost"
+                data-testid="button-home"
+                aria-label="Home"
+              >
+                <Home className="w-5 h-5" />
+              </Button>
+            </Link>
+          )}
+        </div>
         <div className="flex items-center gap-1">
           <Button
             size="icon"
@@ -54,19 +67,6 @@ export default function FieldAppLayout({ user, onLogout, children }: FieldAppLay
           </div>
         </div>
       </main>
-
-      {!isOnDashboard && (
-        <Link href="/dashboard">
-          <Button
-            size="icon"
-            className="fixed bottom-6 left-6 z-50 w-12 h-12 rounded-full shadow-lg"
-            data-testid="button-home-fab"
-            aria-label="Home"
-          >
-            <Home className="w-5 h-5" />
-          </Button>
-        </Link>
-      )}
 
       <AccountSidePanel
         open={accountOpen}
