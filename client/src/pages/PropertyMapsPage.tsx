@@ -1,6 +1,7 @@
-import { useState, useRef } from "react";
+import { useState, useRef, useEffect } from "react";
 import { useTranslation } from "react-i18next";
 import { useQuery, useMutation } from "@tanstack/react-query";
+import { useSearch } from "wouter";
 import type { Customer, CustomerMapLayer } from "@shared/schema";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -600,10 +601,24 @@ function CustomerMapManager({ customerId, customerName, onClose }: { customerId:
 export default function PropertyMapsPage() {
   const [searchTerm, setSearchTerm] = useState("");
   const [selectedCustomer, setSelectedCustomer] = useState<CustomerWithLayers | null>(null);
+  const searchString = useSearch();
+  const autoSelectDone = useRef(false);
 
   const { data: customers = [], isLoading } = useQuery<CustomerWithLayers[]>({
     queryKey: ["/api/customers"],
   });
+
+  useEffect(() => {
+    if (autoSelectDone.current || isLoading || customers.length === 0) return;
+    const params = new URLSearchParams(searchString);
+    const customerId = params.get("customerId");
+    if (!customerId) return;
+    const match = customers.find((c) => c.id === customerId);
+    if (match) {
+      setSelectedCustomer(match);
+      autoSelectDone.current = true;
+    }
+  }, [customers, isLoading, searchString]);
 
   const getFullAddress = (c: CustomerWithLayers) => 
     `${c.street}, ${c.city}, ${c.state} ${c.zip}`;

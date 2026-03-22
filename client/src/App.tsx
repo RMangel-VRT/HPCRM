@@ -53,6 +53,7 @@ import NotificationsPage from "@/pages/NotificationsPage";
 import VisualScopeList from "@/pages/VisualScopeList";
 import VisualScopeDraft from "@/pages/VisualScopeDraft";
 import CustomerRouteMap from "@/pages/CustomerRouteMap";
+import FieldCustomerList from "@/pages/FieldCustomerList";
 import CampaignsList from "@/pages/CampaignsList";
 import CampaignDetail from "@/pages/CampaignDetail";
 import CampaignItemDetail from "@/pages/CampaignItemDetail";
@@ -166,6 +167,11 @@ function Router() {
           path="/dashboard"
           component={Dashboard}
           allowedRoles={["admin", "office", "field_manager", "chemical_manager", "irrigation_manager", "shop_manager", "landscape_supervisor"]}
+        />
+        <ProtectedRoute
+          path="/dashboard/field-customers"
+          component={FieldCustomerList}
+          allowedRoles={["admin", "office", "field_manager", "chemical_manager", "irrigation_manager", "landscape_supervisor"]}
         />
         <ProtectedRoute
           path="/dashboard/customers/map"
