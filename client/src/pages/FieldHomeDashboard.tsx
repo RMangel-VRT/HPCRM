@@ -26,6 +26,7 @@ interface Ticket {
   workType: string;
   priority: string;
   createdAt: string;
+  completedAt?: string | null;
   customer?: {
     name: string;
     street?: string;
@@ -34,6 +35,11 @@ interface Ticket {
     name: string;
     color: string;
   } | null;
+}
+
+interface EquipmentTicket {
+  id: string;
+  status: string;
 }
 
 type FieldRole =
@@ -100,15 +106,37 @@ export default function FieldHomeDashboard() {
   const { user } = useAuth();
   const role = user?.activeRole as FieldRole;
 
-  const { data: myTickets = [], isLoading } = useQuery<Ticket[]>({
-    queryKey: ["/api/tickets/my"],
+  const showTabs = role === "landscape_supervisor";
+
+  const { data: myTickets = [], isLoading: ticketsLoading } = useQuery<Ticket[]>({
+    queryKey: ["/api/tickets/my", { userId: user?.id }],
+    queryFn: async () => {
+      const res = await fetch("/api/tickets/my", { credentials: "include" });
+      if (!res.ok) throw new Error("Failed to fetch tickets");
+      return res.json();
+    },
+    refetchOnMount: "always",
+    staleTime: 0,
   });
 
-  const activeTickets = myTickets.filter(
-    (tk) =>
-      tk.currentStatus?.name?.toLowerCase() !== "completed" &&
-      tk.currentStatus?.name?.toLowerCase() !== "closed"
-  );
+  const { data: equipmentTickets = [], isLoading: equipLoading } = useQuery<EquipmentTicket[]>({
+    queryKey: ["/api/equipment-tickets", { assignedToId: user?.id }],
+    queryFn: async () => {
+      const res = await fetch(`/api/equipment-tickets?assignedToId=${user?.id}`, { credentials: "include" });
+      if (!res.ok) return [];
+      return res.json();
+    },
+    enabled: !!user?.id,
+    refetchOnMount: "always",
+    staleTime: 0,
+  });
+
+  const isLoading = ticketsLoading || equipLoading;
+
+  const activeTickets = myTickets.filter((tk) => !tk.completedAt);
+  const openEquipTickets = equipmentTickets.filter((tk) => tk.status !== "completed" && tk.status !== "closed");
+
+  const totalOpenCount = showTabs ? activeTickets.length : activeTickets.length + openEquipTickets.length;
 
   const urgentTickets = activeTickets.filter((tk) => tk.priority === "urgent");
 
@@ -152,7 +180,7 @@ export default function FieldHomeDashboard() {
             >
               <CardContent className="flex items-stretch divide-x py-0">
                 <div className="flex flex-col items-center justify-center gap-1 flex-1 py-6" data-testid="stat-total-tickets">
-                  <span className="text-3xl font-bold">{activeTickets.length}</span>
+                  <span className="text-3xl font-bold">{totalOpenCount}</span>
                   <span className="text-xs text-muted-foreground text-center">{t("fieldDashboard.totalTickets", "Total tickets")}</span>
                 </div>
                 <div className="flex flex-col items-center justify-center gap-1 flex-1 py-6" data-testid="stat-urgent-tickets">
