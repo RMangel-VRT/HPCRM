@@ -51,20 +51,20 @@ export default function FieldAppLayout({ user, onLogout, children }: FieldAppLay
         <div className="p-4 max-w-2xl mx-auto">
           {children}
         </div>
-
-        {!isOnDashboard && (
-          <Link href="/dashboard">
-            <Button
-              size="icon"
-              className="fixed bottom-6 left-6 z-50 w-12 h-12 rounded-full shadow-lg"
-              data-testid="button-home-fab"
-              aria-label="Home"
-            >
-              <Home className="w-5 h-5" />
-            </Button>
-          </Link>
-        )}
       </main>
+
+      {!isOnDashboard && (
+        <Link href="/dashboard">
+          <Button
+            size="icon"
+            className="fixed bottom-6 left-6 z-50 w-12 h-12 rounded-full shadow-lg"
+            data-testid="button-home-fab"
+            aria-label="Home"
+          >
+            <Home className="w-5 h-5" />
+          </Button>
+        </Link>
+      )}
 
       <AccountSidePanel
         open={accountOpen}
