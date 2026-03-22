@@ -69,12 +69,14 @@ function getNavButtons(role: FieldRole, t: (key: string) => string): NavButton[]
       return [
         { title: t("fieldLayout.myTickets"), url: "/dashboard/tickets/my", icon: UserCheck },
         { title: t("fieldLayout.customers"), url: "/dashboard/field-customers", icon: Building2 },
+        { title: t("fieldLayout.routeMap"), url: "/dashboard/customers/map", icon: MapPin },
         { title: t("fieldLayout.propertyMaps"), url: "/dashboard/maps", icon: Map },
         { title: t("fieldLayout.campaigns"), url: "/dashboard/campaigns", icon: ClipboardCheck },
       ];
     case "irrigation_manager":
       return [
         { title: t("fieldLayout.myTickets"), url: "/dashboard/tickets/my", icon: UserCheck },
+        { title: t("fieldLayout.routeMap"), url: "/dashboard/customers/map", icon: MapPin },
         { title: t("fieldLayout.propertyMaps"), url: "/dashboard/maps", icon: Map },
         { title: t("fieldLayout.schedule"), url: "/dashboard/schedule", icon: CalendarDays },
         { title: t("fieldLayout.campaigns"), url: "/dashboard/campaigns", icon: ClipboardCheck },
@@ -82,6 +84,7 @@ function getNavButtons(role: FieldRole, t: (key: string) => string): NavButton[]
     case "shop_manager":
       return [
         { title: t("fieldLayout.myTickets"), url: "/dashboard/tickets/my", icon: UserCheck },
+        { title: t("fieldLayout.routeMap"), url: "/dashboard/customers/map", icon: MapPin },
         { title: t("fieldLayout.equipment"), url: "/dashboard/equipment", icon: Wrench },
       ];
     case "landscape_supervisor":
