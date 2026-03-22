@@ -265,7 +265,7 @@ function CustomerMapManager({ customerId, customerName, onClose }: { customerId:
   // For non-mapping users, show full-screen map view only (no tabs, no edit)
   if (!isMappingUser) {
     return (
-      <div className="fixed inset-0 z-50 bg-background">
+      <div className="absolute inset-0 bg-background">
         <LayerMapViewer
           customerId={customerId}
           fullScreen={true}
@@ -277,7 +277,7 @@ function CustomerMapManager({ customerId, customerName, onClose }: { customerId:
 
   // For mapping users only, show the tabbed interface with view and edit capabilities
   return (
-    <div className="fixed inset-0 z-50 bg-background flex flex-col">
+    <div className="absolute inset-0 bg-background flex flex-col">
       <div className="flex items-center justify-between p-4 border-b gap-2">
         <div className="flex items-center gap-2">
           <Button 

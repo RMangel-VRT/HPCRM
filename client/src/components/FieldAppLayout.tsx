@@ -47,9 +47,11 @@ export default function FieldAppLayout({ user, onLogout, children }: FieldAppLay
         </div>
       </header>
 
-      <main className="flex-1 overflow-y-auto relative">
-        <div className="p-4 max-w-2xl mx-auto">
-          {children}
+      <main className="flex-1 overflow-hidden relative">
+        <div className="h-full overflow-y-auto">
+          <div className="p-4 max-w-2xl mx-auto">
+            {children}
+          </div>
         </div>
       </main>
 

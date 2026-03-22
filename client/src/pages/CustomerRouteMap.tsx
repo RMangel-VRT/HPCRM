@@ -245,7 +245,7 @@ export default function CustomerRouteMap() {
   const token = mapboxConfig?.token;
 
   return (
-    <div className="fixed inset-0 z-40 bg-background flex flex-col">
+    <div className="absolute inset-0 bg-background flex flex-col">
       {/* Top bar */}
       <div className="flex items-center gap-2 px-3 py-2 border-b bg-background z-10 flex-wrap">
         <Button
