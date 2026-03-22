@@ -10,8 +10,7 @@ import SchedulePreview from "@/components/SchedulePreview";
 import PendingInvoices from "@/components/PendingInvoices";
 import { useAuth } from "@/hooks/use-auth";
 import SuperAdminDashboard from "./SuperAdminDashboard";
-import FieldCrewDashboard from "./FieldCrewDashboard";
-import ShopManagerDashboard from "./ShopManagerDashboard";
+import FieldHomeDashboard from "./FieldHomeDashboard";
 
 interface DashboardStats {
   customersCount: number;
@@ -55,12 +54,9 @@ export default function Dashboard() {
     return <SuperAdminDashboard />;
   }
   
-  if (user?.activeRole === "field_manager" || user?.activeRole === "chemical_manager" || user?.activeRole === "field" || user?.activeRole === "irrigation_manager") {
-    return <FieldCrewDashboard />;
-  }
-  
-  if (user?.activeRole === "shop_manager") {
-    return <ShopManagerDashboard />;
+  const FIELD_APP_ROLES = ["field_manager", "chemical_manager", "irrigation_manager", "shop_manager", "landscape_supervisor"];
+  if (user?.activeRole && FIELD_APP_ROLES.includes(user.activeRole)) {
+    return <FieldHomeDashboard />;
   }
   
   return <AdminOfficeDashboard />;

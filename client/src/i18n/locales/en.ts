@@ -269,6 +269,10 @@ const en = {
     routeMap: "Route Map",
     equipment: "Equipment",
     schedule: "Schedule",
+    customers: "Customers",
+    snow: "Snow",
+    seasons: "Seasons",
+    navigation: "Navigation",
   },
   fieldDashboard: {
     myWork: "My Work",
