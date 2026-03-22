@@ -1,5 +1,4 @@
 import { Card, CardContent } from "@/components/ui/card";
-import { Badge } from "@/components/ui/badge";
 import {
   ClipboardList,
   MapPin,
@@ -11,14 +10,14 @@ import {
   Leaf,
   Wrench,
   UserCheck,
-  Clock,
-  CheckCircle2,
+  AlertCircle,
+  ArrowRight,
 } from "lucide-react";
 import { useQuery } from "@tanstack/react-query";
 import { useTranslation } from "react-i18next";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Link } from "wouter";
-import { format, parseISO } from "date-fns";
+import { format } from "date-fns";
 import { useAuth } from "@/hooks/use-auth";
 
 interface Ticket {
@@ -49,13 +48,6 @@ interface NavButton {
   url: string;
   icon: typeof ClipboardList;
 }
-
-const priorityVariants: Record<string, "default" | "secondary" | "destructive" | "outline"> = {
-  low: "secondary",
-  medium: "outline",
-  high: "default",
-  urgent: "destructive",
-};
 
 function getNavButtons(role: FieldRole, t: (key: string) => string): NavButton[] {
   switch (role) {
@@ -118,6 +110,8 @@ export default function FieldHomeDashboard() {
       tk.currentStatus?.name?.toLowerCase() !== "closed"
   );
 
+  const urgentTickets = activeTickets.filter((tk) => tk.priority === "urgent");
+
   const navButtons = role ? getNavButtons(role, t) : [];
 
   return (
@@ -132,83 +126,47 @@ export default function FieldHomeDashboard() {
       </div>
 
       <div>
-        <h2 className="text-base font-medium mb-3 flex items-center gap-2">
-          <ClipboardList className="w-4 h-4 text-muted-foreground" />
-          {t("fieldDashboard.myTickets")}
-        </h2>
+        <div className="flex items-center justify-between mb-3">
+          <h2 className="text-base font-medium flex items-center gap-2">
+            <ClipboardList className="w-4 h-4 text-muted-foreground" />
+            {t("fieldDashboard.myTickets")}
+          </h2>
+          <Link href="/dashboard/tickets/my">
+            <span
+              className="flex items-center gap-1 text-sm text-muted-foreground hover-elevate rounded-md px-2 py-1 cursor-pointer"
+              data-testid="link-view-all-tickets"
+            >
+              {t("fieldDashboard.viewAll", "View all")}
+              <ArrowRight className="w-3 h-3" />
+            </span>
+          </Link>
+        </div>
 
         {isLoading ? (
-          <div className="space-y-3">
-            {[1, 2, 3].map((i) => (
-              <Skeleton key={i} className="h-20 w-full rounded-lg" />
-            ))}
-          </div>
-        ) : activeTickets.length === 0 ? (
-          <Card>
-            <CardContent className="flex flex-col items-center justify-center py-10 gap-3 text-center">
-              <CheckCircle2 className="w-10 h-10 text-green-500" />
-              <p className="font-medium">{t("fieldDashboard.allCaughtUp")}</p>
-              <p className="text-sm text-muted-foreground">{t("fieldDashboard.noActiveTasks")}</p>
-            </CardContent>
-          </Card>
+          <Skeleton className="h-24 w-full rounded-lg" />
         ) : (
-          <div className="space-y-3">
-            {activeTickets.slice(0, 5).map((ticket) => (
-              <Link key={ticket.id} href={`/dashboard/tickets/${ticket.id}`}>
-                <Card
-                  className="hover-elevate active-elevate-2 cursor-pointer"
-                  data-testid={`card-ticket-${ticket.id}`}
-                >
-                  <CardContent className="p-4">
-                    <div className="flex items-start justify-between gap-2 mb-2">
-                      <div className="flex-1 min-w-0">
-                        <p className="font-medium text-sm truncate">{ticket.title}</p>
-                        {ticket.customer && (
-                          <p className="text-xs text-muted-foreground truncate">
-                            {ticket.customer.name}
-                            {ticket.customer.street && ` — ${ticket.customer.street}`}
-                          </p>
-                        )}
-                      </div>
-                      <Badge
-                        variant={priorityVariants[ticket.priority] || "secondary"}
-                        className="shrink-0"
-                      >
-                        {t(`priorities.${ticket.priority}`, ticket.priority)}
-                      </Badge>
-                    </div>
-                    <div className="flex items-center justify-between">
-                      {ticket.currentStatus && (
-                        <Badge
-                          variant="outline"
-                          className="text-xs"
-                          style={{
-                            borderColor: ticket.currentStatus.color,
-                            color: ticket.currentStatus.color,
-                          }}
-                        >
-                          {ticket.currentStatus.name}
-                        </Badge>
-                      )}
-                      <div className="flex items-center gap-1 text-xs text-muted-foreground ml-auto">
-                        <Clock className="w-3 h-3" />
-                        {format(parseISO(ticket.createdAt), "MMM d")}
-                      </div>
-                    </div>
-                  </CardContent>
-                </Card>
-              </Link>
-            ))}
-            {activeTickets.length > 5 && (
-              <Link href="/dashboard/tickets/my">
-                <Card className="hover-elevate active-elevate-2 cursor-pointer">
-                  <CardContent className="py-3 text-center text-sm text-muted-foreground">
-                    {t("fieldDashboard.viewMoreTickets", { count: activeTickets.length - 5 })}
-                  </CardContent>
-                </Card>
-              </Link>
-            )}
-          </div>
+          <Link href="/dashboard/tickets/my">
+            <Card
+              className="hover-elevate active-elevate-2 cursor-pointer"
+              data-testid="card-my-tickets-summary"
+            >
+              <CardContent className="flex items-stretch divide-x py-0">
+                <div className="flex flex-col items-center justify-center gap-1 flex-1 py-6" data-testid="stat-total-tickets">
+                  <span className="text-3xl font-bold">{activeTickets.length}</span>
+                  <span className="text-xs text-muted-foreground text-center">{t("fieldDashboard.totalTickets", "Total tickets")}</span>
+                </div>
+                <div className="flex flex-col items-center justify-center gap-1 flex-1 py-6" data-testid="stat-urgent-tickets">
+                  <div className="flex items-center gap-1.5">
+                    {urgentTickets.length > 0 && (
+                      <AlertCircle className="w-4 h-4 text-destructive" />
+                    )}
+                    <span className="text-3xl font-bold">{urgentTickets.length}</span>
+                  </div>
+                  <span className="text-xs text-muted-foreground text-center">{t("fieldDashboard.urgentTickets", "Urgent")}</span>
+                </div>
+              </CardContent>
+            </Card>
+          </Link>
         )}
       </div>
 
