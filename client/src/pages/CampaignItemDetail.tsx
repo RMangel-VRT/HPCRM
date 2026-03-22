@@ -101,11 +101,6 @@ export default function CampaignItemDetail() {
   const [manualEmail, setManualEmail] = useState("");
   const [showFinishWithoutComms, setShowFinishWithoutComms] = useState(false);
   const [finishDate, setFinishDate] = useState("");
-  const [finishWeatherTemp, setFinishWeatherTemp] = useState("");
-  const [finishWeatherWindSpeed, setFinishWeatherWindSpeed] = useState("");
-  const [finishWeatherWindDirection, setFinishWeatherWindDirection] = useState("");
-  const [finishWeatherHumidity, setFinishWeatherHumidity] = useState("");
-  const [finishWeatherConditions, setFinishWeatherConditions] = useState("");
 
   const { data: campaign, isLoading } = useQuery<CampaignDetailData>({
     queryKey: ["/api/campaigns", campaignId],
@@ -680,11 +675,6 @@ export default function CampaignItemDetail() {
                     variant="outline"
                     onClick={() => {
                       setFinishDate("");
-                      setFinishWeatherTemp("");
-                      setFinishWeatherWindSpeed("");
-                      setFinishWeatherWindDirection("");
-                      setFinishWeatherHumidity("");
-                      setFinishWeatherConditions("");
                       setShowFinishWithoutComms(true);
                     }}
                     disabled={updateItemMutation.isPending}
@@ -1029,7 +1019,7 @@ export default function CampaignItemDetail() {
       </Dialog>
 
       <Dialog open={showFinishWithoutComms} onOpenChange={setShowFinishWithoutComms}>
-        <DialogContent className="max-w-md" data-testid="dialog-finish-without-comms">
+        <DialogContent className="max-w-lg" data-testid="dialog-finish-without-comms">
           <div className="space-y-4">
             <div className="flex items-center gap-2">
               <CheckCircle2 className="w-5 h-5 text-primary" />
@@ -1049,61 +1039,18 @@ export default function CampaignItemDetail() {
                 />
               </div>
               <Separator />
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <Label className="text-xs text-muted-foreground">{t("campaigns.chemWeatherTemp")} *</Label>
-                  <Input
-                    type="number"
-                    value={finishWeatherTemp}
-                    onChange={(e) => setFinishWeatherTemp(e.target.value)}
-                    placeholder="72"
-                    data-testid="input-weather-temp"
-                    className="mt-1"
-                  />
-                </div>
-                <div>
-                  <Label className="text-xs text-muted-foreground">{t("campaigns.chemWeatherWindSpeed")} *</Label>
-                  <Input
-                    type="number"
-                    value={finishWeatherWindSpeed}
-                    onChange={(e) => setFinishWeatherWindSpeed(e.target.value)}
-                    placeholder="5"
-                    data-testid="input-weather-wind-speed"
-                    className="mt-1"
-                  />
-                </div>
-                <div>
-                  <Label className="text-xs text-muted-foreground">{t("campaigns.chemWeatherWindDirection")}</Label>
-                  <Input
-                    value={finishWeatherWindDirection}
-                    onChange={(e) => setFinishWeatherWindDirection(e.target.value)}
-                    placeholder="NW"
-                    data-testid="input-weather-wind-dir"
-                    className="mt-1"
-                  />
-                </div>
-                <div>
-                  <Label className="text-xs text-muted-foreground">{t("campaigns.chemWeatherHumidity")}</Label>
-                  <Input
-                    type="number"
-                    value={finishWeatherHumidity}
-                    onChange={(e) => setFinishWeatherHumidity(e.target.value)}
-                    placeholder="45"
-                    data-testid="input-weather-humidity"
-                    className="mt-1"
-                  />
-                </div>
-              </div>
-              <div>
-                <Label className="text-xs text-muted-foreground">{t("campaigns.chemWeatherConditions")} *</Label>
-                <Input
-                  value={finishWeatherConditions}
-                  onChange={(e) => setFinishWeatherConditions(e.target.value)}
-                  placeholder={t("campaigns.chemWeatherConditionsPlaceholder")}
-                  data-testid="input-weather-conditions"
-                  className="mt-1"
-                />
-              </div>
+              <WeatherCapturePanel
+                item={item}
+                campaignId={campaignId!}
+                customerLat={item.customerLat}
+                customerLng={item.customerLng}
+                customerAddress={item.customerAddress}
+              />
+              {!(item.weatherTemp != null && item.weatherWindSpeed != null && item.weatherConditions) && (
+                <p className="text-xs text-muted-foreground" data-testid="text-weather-required-hint">
+                  Save weather data above to enable Confirm Finish.
+                </p>
+              )}
             </div>
             <Separator />
             <div className="flex justify-end gap-2">
@@ -1116,20 +1063,18 @@ export default function CampaignItemDetail() {
                     chemAction: "finish_without_comms",
                     notes,
                     completionDate: finishDate,
-                    weatherTemp: parseFloat(finishWeatherTemp),
-                    weatherWindSpeed: parseFloat(finishWeatherWindSpeed),
-                    weatherWindDirection: finishWeatherWindDirection || undefined,
-                    weatherHumidity: finishWeatherHumidity ? parseFloat(finishWeatherHumidity) : undefined,
-                    weatherConditions: finishWeatherConditions,
+                    weatherTemp: item.weatherTemp ?? undefined,
+                    weatherWindSpeed: item.weatherWindSpeed ?? undefined,
+                    weatherWindDirection: item.weatherWindDirection ?? undefined,
+                    weatherHumidity: item.weatherHumidity ?? undefined,
+                    weatherConditions: item.weatherConditions ?? undefined,
                   });
                   setShowFinishWithoutComms(false);
                 }}
                 disabled={
                   updateItemMutation.isPending ||
                   !finishDate ||
-                  !finishWeatherTemp ||
-                  !finishWeatherWindSpeed ||
-                  !finishWeatherConditions.trim()
+                  !(item.weatherTemp != null && item.weatherWindSpeed != null && item.weatherConditions)
                 }
                 data-testid="button-confirm-finish-no-comms"
               >
