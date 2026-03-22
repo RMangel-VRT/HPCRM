@@ -152,6 +152,7 @@ export default function WeatherCapturePanel({ item, campaignId, customerLat, cus
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/campaigns", campaignId] });
+      queryClient.invalidateQueries({ queryKey: ["/api/campaigns"] });
       toast({ title: "Weather saved" });
       setPreview(null);
       setEditing(false);
