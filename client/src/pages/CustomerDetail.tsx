@@ -2174,7 +2174,7 @@ export default function CustomerDetail() {
                   </TabsTrigger>
                 </>
               )}
-              {customer.snowEnabled && (
+              {customer.snowEnabled && (user?.activeRole === "admin" || user?.activeRole === "office" || user?.activeRole === "field_manager") && (
                 <TabsTrigger value="snow" data-testid="subtab-snow">
                   <Snowflake className="w-4 h-4 mr-1" />
                   {t("customerDetail.tabs.snow")}
@@ -2205,7 +2205,7 @@ export default function CustomerDetail() {
               </TabsContent>
             )}
 
-            {customer.snowEnabled && (
+            {customer.snowEnabled && (user?.activeRole === "admin" || user?.activeRole === "office" || user?.activeRole === "field_manager") && (
               <TabsContent value="snow" className="space-y-4">
                 <CustomerSnowHistory customerId={params?.id!} customerName={customer.name} />
               </TabsContent>

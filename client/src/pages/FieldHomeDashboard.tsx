@@ -7,7 +7,6 @@ import {
   ClipboardCheck,
   CalendarDays,
   Snowflake,
-  Leaf,
   Wrench,
   UserCheck,
   AlertCircle,
@@ -72,8 +71,6 @@ function getNavButtons(role: FieldRole, t: (key: string) => string): NavButton[]
         { title: t("fieldLayout.customers"), url: "/dashboard/field-customers", icon: Building2 },
         { title: t("fieldLayout.propertyMaps"), url: "/dashboard/maps", icon: Map },
         { title: t("fieldLayout.campaigns"), url: "/dashboard/campaigns", icon: ClipboardCheck },
-        { title: t("fieldLayout.seasons"), url: "/dashboard/seasons", icon: Leaf },
-        { title: t("fieldLayout.snow"), url: "/dashboard/snow", icon: Snowflake },
       ];
     case "irrigation_manager":
       return [
