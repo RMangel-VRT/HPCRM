@@ -153,7 +153,7 @@ function Router() {
     if (!user) return "/login";
     if (user.isSuperAdminBool) return "/admin";
     if (user.activeRole === "mapping") return "/dashboard/maps";
-    if (user.activeRole === "field") return "/dashboard/tickets/my";
+    if (user.activeRole === "field") return "/dashboard";
     return "/dashboard";
   }
 
@@ -166,7 +166,7 @@ function Router() {
         <ProtectedRoute
           path="/dashboard"
           component={Dashboard}
-          allowedRoles={["admin", "office", "field_manager", "chemical_manager", "irrigation_manager", "shop_manager", "landscape_supervisor"]}
+          allowedRoles={["admin", "office", "field", "field_manager", "chemical_manager", "irrigation_manager", "shop_manager", "landscape_supervisor"]}
         />
         <ProtectedRoute
           path="/dashboard/field-customers"
@@ -275,6 +275,9 @@ function Router() {
         <ProtectedRoute path="/dashboard/users" component={UsersPage} allowedRoles={["admin"]} />
         <ProtectedRoute path="/dashboard/settings" component={SettingsPage} allowedRoles={["admin", "office"]} />
         <Route path="/access-denied" component={AccessDenied} />
+        <Route path="/">
+          <Redirect to={getDefaultRedirect()} />
+        </Route>
         <Route>
           <Redirect to={getDefaultRedirect()} />
         </Route>

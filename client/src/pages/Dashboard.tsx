@@ -54,7 +54,7 @@ export default function Dashboard() {
     return <SuperAdminDashboard />;
   }
   
-  const FIELD_APP_ROLES = ["field_manager", "chemical_manager", "irrigation_manager", "shop_manager", "landscape_supervisor"];
+  const FIELD_APP_ROLES = ["field", "field_manager", "chemical_manager", "irrigation_manager", "shop_manager", "landscape_supervisor"];
   if (user?.activeRole && FIELD_APP_ROLES.includes(user.activeRole)) {
     return <FieldHomeDashboard />;
   }
