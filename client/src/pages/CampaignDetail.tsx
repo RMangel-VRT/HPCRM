@@ -130,7 +130,7 @@ export default function CampaignDetail() {
   const [editOpen, setEditOpen] = useState(false);
   const [openSectionCollapsed, setOpenSectionCollapsed] = useState(false);
   const [completedSectionCollapsed, setCompletedSectionCollapsed] = useState(false);
-  const [sortBy, setSortBy] = useState<string>("default");
+  const [sortBy, setSortBy] = useState<string>("name_asc");
   const [viewMode, setViewMode] = useState<"list" | "kanban">("list");
 
   const { data: campaign, isLoading } = useQuery<CampaignDetailData>({
@@ -222,6 +222,28 @@ export default function CampaignDetail() {
     setTimeout(() => printWindow.print(), 500);
   };
 
+  const sortItems = (items: CampaignItemWithUser[]) => {
+    if (sortBy === "default") return items;
+    return [...items].sort((a, b) => {
+      switch (sortBy) {
+        case "name_asc":
+          return a.customerName.localeCompare(b.customerName);
+        case "name_desc":
+          return b.customerName.localeCompare(a.customerName);
+        case "city_asc":
+          return (a.customerCity || "").localeCompare(b.customerCity || "");
+        case "city_desc":
+          return (b.customerCity || "").localeCompare(a.customerCity || "");
+        case "completed_newest":
+          return (b.completedAt ? new Date(b.completedAt).getTime() : 0) - (a.completedAt ? new Date(a.completedAt).getTime() : 0);
+        case "completed_oldest":
+          return (a.completedAt ? new Date(a.completedAt).getTime() : 0) - (b.completedAt ? new Date(b.completedAt).getTime() : 0);
+        default:
+          return 0;
+      }
+    });
+  };
+
   const filteredItems = useMemo(() => {
     if (!campaign?.items) return [];
     let items = campaign.items;
@@ -232,28 +254,18 @@ export default function CampaignDetail() {
       const s = search.toLowerCase();
       items = items.filter(i => i.customerName.toLowerCase().includes(s));
     }
-    if (sortBy !== "default") {
-      items = [...items].sort((a, b) => {
-        switch (sortBy) {
-          case "name_asc":
-            return a.customerName.localeCompare(b.customerName);
-          case "name_desc":
-            return b.customerName.localeCompare(a.customerName);
-          case "city_asc":
-            return (a.customerCity || "").localeCompare(b.customerCity || "");
-          case "city_desc":
-            return (b.customerCity || "").localeCompare(a.customerCity || "");
-          case "completed_newest":
-            return (b.completedAt ? new Date(b.completedAt).getTime() : 0) - (a.completedAt ? new Date(a.completedAt).getTime() : 0);
-          case "completed_oldest":
-            return (a.completedAt ? new Date(a.completedAt).getTime() : 0) - (b.completedAt ? new Date(b.completedAt).getTime() : 0);
-          default:
-            return 0;
-        }
-      });
-    }
-    return items;
+    return sortItems(items);
   }, [campaign?.items, filterStatus, search, sortBy]);
+
+  const kanbanItems = useMemo(() => {
+    if (!campaign?.items) return [];
+    let items = campaign.items;
+    if (search.trim()) {
+      const s = search.toLowerCase();
+      items = items.filter(i => i.customerName.toLowerCase().includes(s));
+    }
+    return sortItems(items);
+  }, [campaign?.items, search, sortBy]);
 
   const updateCampaignMutation = useMutation({
     mutationFn: async (data: { status?: string; title?: string; description?: string }) => {
@@ -601,7 +613,7 @@ export default function CampaignDetail() {
 
       {viewMode === "kanban" ? (
         <KanbanView
-          items={campaign.items}
+          items={kanbanItems}
           search={search}
           isChemicalCampaign={isChemicalCampaign}
           isIrrigationCampaign={isIrrigationCampaign}
