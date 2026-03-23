@@ -9418,7 +9418,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
       return res.status(403).send("Insufficient permissions");
     }
     try {
-      const { type } = req.query as { type?: string };
+      const { type, windowStart: customWindowStart, windowEnd: customWindowEnd } = req.query as { type?: string; windowStart?: string; windowEnd?: string };
+      if (type !== "post" && customWindowStart && customWindowEnd && customWindowStart > customWindowEnd) {
+        return res.status(400).json({ error: "Window start date must be before or equal to window end date" });
+      }
       const eventKey = type === "post" ? "campaign.chemical_post_notice" : "campaign.chemical_pre_notice";
       const campaign = await storage.getCampaignById(req.params.id, user.activeCompanyId);
       if (!campaign) return res.status(404).json({ error: "Campaign not found" });
@@ -9439,8 +9442,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
             companyName: company?.name || '',
             customerName: targetItem.customerName,
             campaignTitle: campaign.title,
-            windowStart: campaign.windowStart,
-            windowEnd: campaign.windowEnd,
+            windowStart: (type !== "post" && customWindowStart) ? customWindowStart : campaign.windowStart,
+            windowEnd: (type !== "post" && customWindowEnd) ? customWindowEnd : campaign.windowEnd,
             ...(type === "post" ? { completionDate: new Date().toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' }) } : {}),
             notes: '',
           };
@@ -9922,7 +9925,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
       if ((targetItem.workflowStep ?? "pre_communication") !== "pre_communication") {
         return res.status(400).json({ error: "Item is not in pre-communication step" });
       }
-      const { notes, overrideEmail } = req.body || {};
+      const { notes, overrideEmail, customWindowStart, customWindowEnd } = req.body || {};
+      if (customWindowStart && customWindowEnd && customWindowStart.trim() > customWindowEnd.trim()) {
+        return res.status(400).json({ error: "Window start date must be before or equal to window end date" });
+      }
       const chemUpdates: Partial<CampaignItem> = { updatedAt: new Date() };
       const company = await storage.getCompanyById(user.activeCompanyId);
       const { email: resolvedEmail } = await resolveChemRecipientEmail(targetItem.customerId, user.activeCompanyId);
@@ -9935,8 +9941,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
           companyName: company?.name || '',
           customerName: targetItem.customerName,
           campaignTitle: campaign.title,
-          windowStart: campaign.windowStart,
-          windowEnd: campaign.windowEnd,
+          windowStart: customWindowStart?.trim() || campaign.windowStart,
+          windowEnd: customWindowEnd?.trim() || campaign.windowEnd,
           notes: notes || '',
         }, {
           customerId: targetItem.customerId,

@@ -99,6 +99,8 @@ export default function CampaignItemDetail() {
   const [emailPreview, setEmailPreview] = useState<{ recipientEmail: string | null; subject: string; htmlBody: string; templateName: string; contactName: string | null } | null>(null);
   const [loadingPreview, setLoadingPreview] = useState(false);
   const [manualEmail, setManualEmail] = useState("");
+  const [preNoticeWindowStart, setPreNoticeWindowStart] = useState("");
+  const [preNoticeWindowEnd, setPreNoticeWindowEnd] = useState("");
   const [showFinishWithoutComms, setShowFinishWithoutComms] = useState(false);
   const [finishDate, setFinishDate] = useState("");
 
@@ -142,7 +144,7 @@ export default function CampaignItemDetail() {
   }, [item?.id, item?.notes, item?.skipReason, item?.photos]);
 
   const updateItemMutation = useMutation({
-    mutationFn: async (data: { status?: string; notes?: string; skipReason?: string; photos?: string[]; chemAction?: string; overrideEmail?: string; completionDate?: string; weatherTemp?: number; weatherWindSpeed?: number; weatherWindDirection?: string; weatherHumidity?: number; weatherConditions?: string }) => {
+    mutationFn: async (data: { status?: string; notes?: string; skipReason?: string; photos?: string[]; chemAction?: string; overrideEmail?: string; completionDate?: string; weatherTemp?: number; weatherWindSpeed?: number; weatherWindDirection?: string; weatherHumidity?: number; weatherConditions?: string; customWindowStart?: string; customWindowEnd?: string }) => {
       if (data.chemAction && data.chemAction !== "reset" && data.chemAction !== "finish_without_comms") {
         const routeMap: Record<string, string> = {
           send_pre_communication: "send-pre-comm",
@@ -153,6 +155,8 @@ export default function CampaignItemDetail() {
         if (route) {
           const body: Record<string, string | undefined> = { notes: data.notes };
           if (data.overrideEmail) body.overrideEmail = data.overrideEmail;
+          if (data.customWindowStart) body.customWindowStart = data.customWindowStart;
+          if (data.customWindowEnd) body.customWindowEnd = data.customWindowEnd;
           const res = await apiRequest("POST", `/api/campaigns/${campaignId}/items/${itemId}/${route}`, body);
           return res.json();
         }
@@ -609,10 +613,17 @@ export default function CampaignItemDetail() {
                   <Button
                     className="w-full sm:w-auto"
                     onClick={async () => {
+                      const initStart = campaign.windowStart || "";
+                      const initEnd = campaign.windowEnd || "";
+                      setPreNoticeWindowStart(initStart);
+                      setPreNoticeWindowEnd(initEnd);
                       setLoadingPreview(true);
                       setManualEmail("");
                       try {
-                        const res = await fetch(`/api/campaigns/${campaignId}/items/${itemId}/email-preview?type=pre`, { credentials: "include" });
+                        const params = new URLSearchParams({ type: "pre" });
+                        if (initStart) params.set("windowStart", initStart);
+                        if (initEnd) params.set("windowEnd", initEnd);
+                        const res = await fetch(`/api/campaigns/${campaignId}/items/${itemId}/email-preview?${params}`, { credentials: "include" });
                         if (res.ok) setEmailPreview(await res.json());
                       } catch {}
                       setLoadingPreview(false);
@@ -939,7 +950,7 @@ export default function CampaignItemDetail() {
         </AlertDialogContent>
       </AlertDialog>
 
-      <Dialog open={!!showEmailConfirm} onOpenChange={() => { setShowEmailConfirm(null); setEmailPreview(null); setManualEmail(""); }}>
+      <Dialog open={!!showEmailConfirm} onOpenChange={() => { setShowEmailConfirm(null); setEmailPreview(null); setManualEmail(""); setPreNoticeWindowStart(""); setPreNoticeWindowEnd(""); }}>
         <DialogContent className="max-w-lg" data-testid="dialog-chem-email-compose">
           <div className="space-y-4">
             <div className="flex items-center gap-2">
@@ -972,6 +983,53 @@ export default function CampaignItemDetail() {
                   </div>
                 )}
               </div>
+              {showEmailConfirm === "pre" && (
+                <div className="space-y-2">
+                  <Label className="text-xs text-muted-foreground">{t("campaigns.chemPreNoticeWindow")}</Label>
+                  <div className="grid grid-cols-2 gap-2">
+                    <div>
+                      <Label className="text-xs text-muted-foreground">{t("campaigns.chemWindowStart")}</Label>
+                      <Input
+                        type="date"
+                        value={preNoticeWindowStart}
+                        onChange={async (e) => {
+                          const newStart = e.target.value;
+                          setPreNoticeWindowStart(newStart);
+                          try {
+                            const params = new URLSearchParams({ type: "pre" });
+                            if (newStart) params.set("windowStart", newStart);
+                            if (preNoticeWindowEnd) params.set("windowEnd", preNoticeWindowEnd);
+                            const res = await fetch(`/api/campaigns/${campaignId}/items/${itemId}/email-preview?${params}`, { credentials: "include" });
+                            if (res.ok) setEmailPreview(await res.json());
+                          } catch {}
+                        }}
+                        className="mt-0.5"
+                        data-testid="input-pre-notice-window-start"
+                      />
+                    </div>
+                    <div>
+                      <Label className="text-xs text-muted-foreground">{t("campaigns.chemWindowEnd")}</Label>
+                      <Input
+                        type="date"
+                        value={preNoticeWindowEnd}
+                        onChange={async (e) => {
+                          const newEnd = e.target.value;
+                          setPreNoticeWindowEnd(newEnd);
+                          try {
+                            const params = new URLSearchParams({ type: "pre" });
+                            if (preNoticeWindowStart) params.set("windowStart", preNoticeWindowStart);
+                            if (newEnd) params.set("windowEnd", newEnd);
+                            const res = await fetch(`/api/campaigns/${campaignId}/items/${itemId}/email-preview?${params}`, { credentials: "include" });
+                            if (res.ok) setEmailPreview(await res.json());
+                          } catch {}
+                        }}
+                        className="mt-0.5"
+                        data-testid="input-pre-notice-window-end"
+                      />
+                    </div>
+                  </div>
+                </div>
+              )}
               <div>
                 <Label className="text-xs text-muted-foreground">{t("campaigns.chemEmailTemplate")}</Label>
                 <div className="text-sm font-medium mt-0.5">{emailPreview?.templateName || "—"}</div>
@@ -993,7 +1051,7 @@ export default function CampaignItemDetail() {
             </div>
             <Separator />
             <div className="flex flex-col-reverse sm:flex-row sm:justify-end gap-2">
-              <Button variant="outline" className="w-full sm:w-auto" onClick={() => { setShowEmailConfirm(null); setEmailPreview(null); setManualEmail(""); }} data-testid="button-cancel-email">
+              <Button variant="outline" className="w-full sm:w-auto" onClick={() => { setShowEmailConfirm(null); setEmailPreview(null); setManualEmail(""); setPreNoticeWindowStart(""); setPreNoticeWindowEnd(""); }} data-testid="button-cancel-email">
                 {t("common.cancel")}
               </Button>
               <Button
@@ -1001,10 +1059,14 @@ export default function CampaignItemDetail() {
                 onClick={() => {
                   const action = showEmailConfirm === "pre" ? "send_pre_communication" : "send_post_communication";
                   const effectiveEmail = emailPreview?.recipientEmail || manualEmail.trim();
+                  const customWindowStart = showEmailConfirm === "pre" ? preNoticeWindowStart : undefined;
+                  const customWindowEnd = showEmailConfirm === "pre" ? preNoticeWindowEnd : undefined;
                   setShowEmailConfirm(null);
                   setEmailPreview(null);
-                  updateItemMutation.mutate({ chemAction: action, notes, overrideEmail: !emailPreview?.recipientEmail ? effectiveEmail : undefined });
+                  updateItemMutation.mutate({ chemAction: action, notes, overrideEmail: !emailPreview?.recipientEmail ? effectiveEmail : undefined, customWindowStart, customWindowEnd });
                   setManualEmail("");
+                  setPreNoticeWindowStart("");
+                  setPreNoticeWindowEnd("");
                 }}
                 disabled={updateItemMutation.isPending || (!emailPreview?.recipientEmail && (!manualEmail.trim() || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(manualEmail.trim())))}
                 data-testid="button-confirm-send-email"
