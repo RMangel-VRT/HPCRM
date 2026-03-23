@@ -63,7 +63,6 @@ function getNavButtons(role: FieldRole, t: (key: string) => string): NavButton[]
         { title: t("fieldLayout.routeMap"), url: "/dashboard/customers/map", icon: MapPin },
         { title: t("fieldLayout.propertyMaps"), url: "/dashboard/maps", icon: Map },
         { title: t("fieldLayout.campaigns"), url: "/dashboard/campaigns", icon: ClipboardCheck },
-        { title: t("fieldLayout.snow"), url: "/dashboard/snow", icon: Snowflake },
       ];
     case "chemical_manager":
       return [
