@@ -6,7 +6,6 @@ import {
   Building2,
   ClipboardCheck,
   CalendarDays,
-  Snowflake,
   Wrench,
   UserCheck,
   AlertCircle,
@@ -41,12 +40,19 @@ interface EquipmentTicket {
   status: string;
 }
 
+interface Campaign {
+  id: string;
+  status: "active" | "completed" | "archived";
+}
+
 type FieldRole =
   | "field_manager"
   | "chemical_manager"
   | "irrigation_manager"
   | "shop_manager"
   | "landscape_supervisor";
+
+const CAMPAIGN_PANEL_ROLES: FieldRole[] = ["field_manager", "chemical_manager", "landscape_supervisor"];
 
 interface NavButton {
   title: string;
@@ -62,7 +68,6 @@ function getNavButtons(role: FieldRole, t: (key: string) => string): NavButton[]
         { title: t("fieldLayout.customers"), url: "/dashboard/field-customers", icon: Building2 },
         { title: t("fieldLayout.routeMap"), url: "/dashboard/customers/map", icon: MapPin },
         { title: t("fieldLayout.propertyMaps"), url: "/dashboard/maps", icon: Map },
-        { title: t("fieldLayout.campaigns"), url: "/dashboard/campaigns", icon: ClipboardCheck },
       ];
     case "chemical_manager":
       return [
@@ -70,7 +75,6 @@ function getNavButtons(role: FieldRole, t: (key: string) => string): NavButton[]
         { title: t("fieldLayout.customers"), url: "/dashboard/field-customers", icon: Building2 },
         { title: t("fieldLayout.routeMap"), url: "/dashboard/customers/map", icon: MapPin },
         { title: t("fieldLayout.propertyMaps"), url: "/dashboard/maps", icon: Map },
-        { title: t("fieldLayout.campaigns"), url: "/dashboard/campaigns", icon: ClipboardCheck },
       ];
     case "irrigation_manager":
       return [
@@ -93,7 +97,6 @@ function getNavButtons(role: FieldRole, t: (key: string) => string): NavButton[]
         { title: t("fieldLayout.customers"), url: "/dashboard/field-customers", icon: Building2 },
         { title: t("fieldLayout.propertyMaps"), url: "/dashboard/maps", icon: Map },
         { title: t("fieldLayout.routeMap"), url: "/dashboard/customers/map", icon: MapPin },
-        { title: t("fieldLayout.campaigns"), url: "/dashboard/campaigns", icon: ClipboardCheck },
       ];
     default:
       return [
@@ -108,6 +111,7 @@ export default function FieldHomeDashboard() {
   const role = user?.activeRole as FieldRole;
 
   const showTabs = role === "landscape_supervisor";
+  const showCampaignPanel = CAMPAIGN_PANEL_ROLES.includes(role);
 
   const { data: myTickets = [], isLoading: ticketsLoading } = useQuery<Ticket[]>({
     queryKey: ["/api/tickets/my", { userId: user?.id }],
@@ -132,6 +136,18 @@ export default function FieldHomeDashboard() {
     staleTime: 0,
   });
 
+  const { data: campaigns = [], isLoading: campaignsLoading } = useQuery<Campaign[]>({
+    queryKey: ["/api/campaigns"],
+    queryFn: async () => {
+      const res = await fetch("/api/campaigns", { credentials: "include" });
+      if (!res.ok) return [];
+      return res.json();
+    },
+    enabled: showCampaignPanel,
+    refetchOnMount: "always",
+    staleTime: 0,
+  });
+
   const isLoading = ticketsLoading || equipLoading;
 
   const activeTickets = myTickets.filter((tk) => !tk.completedAt);
@@ -140,6 +156,7 @@ export default function FieldHomeDashboard() {
   const totalOpenCount = showTabs ? activeTickets.length : activeTickets.length + openEquipTickets.length;
 
   const urgentTickets = activeTickets.filter((tk) => tk.priority === "urgent");
+  const activeCampaignCount = campaigns.filter((c) => c.status === "active").length;
 
   const navButtons = role ? getNavButtons(role, t) : [];
 
@@ -198,6 +215,46 @@ export default function FieldHomeDashboard() {
           </Link>
         )}
       </div>
+
+      {showCampaignPanel && (
+        <div>
+          <div className="flex items-center justify-between mb-3">
+            <h2 className="text-base font-medium flex items-center gap-2">
+              <ClipboardCheck className="w-4 h-4 text-muted-foreground" />
+              {t("fieldDashboard.myCampaigns", "My Campaigns")}
+            </h2>
+            <Link href="/dashboard/campaigns">
+              <span
+                className="flex items-center gap-1 text-sm text-muted-foreground hover-elevate rounded-md px-2 py-1 cursor-pointer"
+                data-testid="link-view-all-campaigns"
+              >
+                {t("fieldDashboard.view", "View")}
+                <ArrowRight className="w-3 h-3" />
+              </span>
+            </Link>
+          </div>
+
+          {campaignsLoading ? (
+            <Skeleton className="h-24 w-full rounded-lg" />
+          ) : (
+            <Link href="/dashboard/campaigns">
+              <Card
+                className="hover-elevate active-elevate-2 cursor-pointer"
+                data-testid="card-my-campaigns-summary"
+              >
+                <CardContent className="flex items-center justify-center py-6">
+                  <div className="flex flex-col items-center gap-1" data-testid="stat-active-campaigns">
+                    <span className="text-3xl font-bold">{activeCampaignCount}</span>
+                    <span className="text-xs text-muted-foreground text-center">
+                      {t("fieldDashboard.activeCampaigns", "Active campaigns")}
+                    </span>
+                  </div>
+                </CardContent>
+              </Card>
+            </Link>
+          )}
+        </div>
+      )}
 
       <div>
         <h2 className="text-base font-medium mb-3">
