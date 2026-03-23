@@ -54,12 +54,12 @@ export default function FieldCrewDashboard() {
   const getWorkTypeLabel = (key: string) => t(`workTypes.${key}`, key);
   const { data: myTickets = [], isLoading } = useQuery<Ticket[]>({
     queryKey: ["/api/tickets/my"],
+    staleTime: 60000,
   });
 
   const { data: campaigns = [] } = useQuery<CampaignWithProgress[]>({
     queryKey: ["/api/campaigns"],
-    refetchOnMount: "always",
-    staleTime: 0,
+    staleTime: 60000,
   });
 
   const activeCampaigns = campaigns.filter(c => c.status === "active");

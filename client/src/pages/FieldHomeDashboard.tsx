@@ -120,8 +120,7 @@ export default function FieldHomeDashboard() {
       if (!res.ok) throw new Error("Failed to fetch tickets");
       return res.json();
     },
-    refetchOnMount: "always",
-    staleTime: 0,
+    staleTime: 60000,
   });
 
   const { data: equipmentTickets = [], isLoading: equipLoading } = useQuery<EquipmentTicket[]>({
@@ -132,8 +131,7 @@ export default function FieldHomeDashboard() {
       return res.json();
     },
     enabled: !!user?.id,
-    refetchOnMount: "always",
-    staleTime: 0,
+    staleTime: 60000,
   });
 
   const { data: campaigns = [], isLoading: campaignsLoading } = useQuery<Campaign[]>({
@@ -144,8 +142,7 @@ export default function FieldHomeDashboard() {
       return res.json();
     },
     enabled: showCampaignPanel,
-    refetchOnMount: "always",
-    staleTime: 0,
+    staleTime: 60000,
   });
 
   const isLoading = ticketsLoading || equipLoading;

@@ -4040,21 +4040,29 @@ export async function registerRoutes(app: Express): Promise<Server> {
     const user = req.user as UserWithContext;
     const tickets = await storage.getTickets(user.activeCompanyId, { assignedToId: user.id });
     
+    // Batch fetch: unique ticketTypeIds and unique customerIds
+    const uniqueTypeIds = [...new Set(tickets.map(t => t.ticketTypeId))];
+    const uniqueCustomerIds = [...new Set(tickets.map(t => t.customerId).filter((id): id is string => !!id))];
+
+    const [statusesByType, customersById] = await Promise.all([
+      Promise.all(uniqueTypeIds.map(async (typeId) => {
+        const statuses = await storage.getTicketTypeStatuses(typeId);
+        return { typeId, statuses };
+      })).then(results => new Map(results.map(r => [r.typeId, r.statuses]))),
+      storage.getCustomersByIds(uniqueCustomerIds, user.activeCompanyId),
+    ]);
+
     // Enrich tickets with currentStatus and customer info
-    const enrichedTickets = await Promise.all(
-      tickets.map(async (ticket) => {
-        const statuses = await storage.getTicketTypeStatuses(ticket.ticketTypeId);
-        const currentStatus = statuses.find(s => s.id === ticket.currentStatusId);
-        const customer = ticket.customerId 
-          ? await storage.getCustomerById(ticket.customerId, user.activeCompanyId)
-          : null;
-        return {
-          ...ticket,
-          currentStatus: currentStatus ? { id: currentStatus.id, name: currentStatus.name, color: currentStatus.color, isFinal: currentStatus.isFinal } : null,
-          customer: customer ? { name: customer.name } : null,
-        };
-      })
-    );
+    const enrichedTickets = tickets.map((ticket) => {
+      const statuses = statusesByType.get(ticket.ticketTypeId) ?? [];
+      const currentStatus = statuses.find(s => s.id === ticket.currentStatusId);
+      const customer = ticket.customerId ? customersById.get(ticket.customerId) : null;
+      return {
+        ...ticket,
+        currentStatus: currentStatus ? { id: currentStatus.id, name: currentStatus.name, color: currentStatus.color, isFinal: currentStatus.isFinal } : null,
+        customer: customer ? { name: customer.name } : null,
+      };
+    });
     
     res.json(enrichedTickets);
   });
@@ -9191,10 +9199,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
     if (!campaignAllowedRoles.includes(user.activeRole)) {
       return res.status(403).send("Insufficient permissions");
     }
-    let allCampaigns = await storage.getCampaigns(user.activeCompanyId);
-    if (user.activeRole !== "admin") {
-      allCampaigns = allCampaigns.filter(c => c.assignedToId === user.id);
-    }
+    const assignedToId = user.activeRole !== "admin" ? user.id : undefined;
+    const allCampaigns = await storage.getCampaigns(user.activeCompanyId, assignedToId);
     res.json(allCampaigns);
   });
 

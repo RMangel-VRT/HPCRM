@@ -34,6 +34,7 @@ export interface IStorage {
   
   getCustomers(companyId: string): Promise<Customer[]>;
   getCustomerById(id: string, companyId: string): Promise<Customer | undefined>;
+  getCustomersByIds(ids: string[], companyId: string): Promise<Map<string, Customer>>;
   getChildCustomers(parentId: string, companyId: string): Promise<Customer[]>;
   getParentCustomers(companyId: string): Promise<Customer[]>;
   createCustomer(customer: InsertCustomer): Promise<Customer>;
@@ -322,7 +323,7 @@ export interface IStorage {
   updateVisualScopeSheet(id: string, companyId: string, data: Partial<InsertVisualScopeSheet>): Promise<VisualScopeSheet>;
   deleteVisualScopeSheet(id: string, companyId: string): Promise<void>;
 
-  getCampaigns(companyId: string): Promise<CampaignWithProgress[]>;
+  getCampaigns(companyId: string, assignedToId?: string): Promise<CampaignWithProgress[]>;
   getCampaignById(id: string, companyId: string): Promise<Campaign | undefined>;
   createCampaign(campaign: InsertCampaign): Promise<Campaign>;
   updateCampaign(id: string, companyId: string, updates: Partial<InsertCampaign>): Promise<Campaign | undefined>;
@@ -577,6 +578,13 @@ export class PgStorage implements IStorage {
       .where(and(eq(customers.id, id), eq(customers.companyId, companyId)))
       .limit(1);
     return result[0];
+  }
+
+  async getCustomersByIds(ids: string[], companyId: string): Promise<Map<string, Customer>> {
+    if (ids.length === 0) return new Map();
+    const rows = await db.select().from(customers)
+      .where(and(inArray(customers.id, ids), eq(customers.companyId, companyId)));
+    return new Map(rows.map(c => [c.id, c]));
   }
 
   async getChildCustomers(parentId: string, companyId: string): Promise<Customer[]> {
@@ -2672,8 +2680,11 @@ export class PgStorage implements IStorage {
     await db.delete(visualScopeSheets).where(and(eq(visualScopeSheets.id, id), eq(visualScopeSheets.companyId, companyId)));
   }
 
-  async getCampaigns(companyId: string): Promise<CampaignWithProgress[]> {
-    const rows = await db.select().from(campaigns).where(eq(campaigns.companyId, companyId)).orderBy(desc(campaigns.createdAt));
+  async getCampaigns(companyId: string, assignedToId?: string): Promise<CampaignWithProgress[]> {
+    const whereClause = assignedToId
+      ? and(eq(campaigns.companyId, companyId), eq(campaigns.assignedToId, assignedToId))
+      : eq(campaigns.companyId, companyId);
+    const rows = await db.select().from(campaigns).where(whereClause).orderBy(desc(campaigns.createdAt));
     const result: CampaignWithProgress[] = [];
     for (const c of rows) {
       const items = await db.select().from(campaignItems).where(eq(campaignItems.campaignId, c.id));
