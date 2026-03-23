@@ -1472,6 +1472,13 @@ const en = {
     customerTypeLabel: "Customer Type",
     customerTypeCommercial: "Commercial",
     customerTypeHoa: "HOA",
+    sortDefault: "Sort: Default",
+    sortNameAZ: "Name A–Z",
+    sortNameZA: "Name Z–A",
+    sortCityAZ: "City A–Z",
+    sortCityZA: "City Z–A",
+    sortCompletedNewest: "Completed: Newest",
+    sortCompletedOldest: "Completed: Oldest",
   },
 };
 

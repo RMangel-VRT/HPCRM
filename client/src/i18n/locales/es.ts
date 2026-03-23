@@ -1376,6 +1376,13 @@ const es = {
     customerTypeLabel: "Tipo de Cliente",
     customerTypeCommercial: "Comercial",
     customerTypeHoa: "HOA",
+    sortDefault: "Orden: Predeterminado",
+    sortNameAZ: "Nombre A–Z",
+    sortNameZA: "Nombre Z–A",
+    sortCityAZ: "Ciudad A–Z",
+    sortCityZA: "Ciudad Z–A",
+    sortCompletedNewest: "Completado: Mas reciente",
+    sortCompletedOldest: "Completado: Mas antiguo",
   },
 };
 

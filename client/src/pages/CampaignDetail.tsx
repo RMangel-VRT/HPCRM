@@ -128,6 +128,7 @@ export default function CampaignDetail() {
   const [editOpen, setEditOpen] = useState(false);
   const [openSectionCollapsed, setOpenSectionCollapsed] = useState(false);
   const [completedSectionCollapsed, setCompletedSectionCollapsed] = useState(false);
+  const [sortBy, setSortBy] = useState<string>("default");
 
   const { data: campaign, isLoading } = useQuery<CampaignDetailData>({
     queryKey: ["/api/campaigns", id],
@@ -228,8 +229,28 @@ export default function CampaignDetail() {
       const s = search.toLowerCase();
       items = items.filter(i => i.customerName.toLowerCase().includes(s));
     }
+    if (sortBy !== "default") {
+      items = [...items].sort((a, b) => {
+        switch (sortBy) {
+          case "name_asc":
+            return a.customerName.localeCompare(b.customerName);
+          case "name_desc":
+            return b.customerName.localeCompare(a.customerName);
+          case "city_asc":
+            return (a.customerCity || "").localeCompare(b.customerCity || "");
+          case "city_desc":
+            return (b.customerCity || "").localeCompare(a.customerCity || "");
+          case "completed_newest":
+            return (b.completedAt ? new Date(b.completedAt).getTime() : 0) - (a.completedAt ? new Date(a.completedAt).getTime() : 0);
+          case "completed_oldest":
+            return (a.completedAt ? new Date(a.completedAt).getTime() : 0) - (b.completedAt ? new Date(b.completedAt).getTime() : 0);
+          default:
+            return 0;
+        }
+      });
+    }
     return items;
-  }, [campaign?.items, filterStatus, search]);
+  }, [campaign?.items, filterStatus, search, sortBy]);
 
   const updateCampaignMutation = useMutation({
     mutationFn: async (data: { status?: string; title?: string; description?: string }) => {
@@ -535,6 +556,20 @@ export default function CampaignDetail() {
             <SelectItem value="pending">{t("campaigns.pending")}</SelectItem>
             <SelectItem value="completed">{t("campaigns.completed")}</SelectItem>
             <SelectItem value="skipped">{t("campaigns.skippedLabel")}</SelectItem>
+          </SelectContent>
+        </Select>
+        <Select value={sortBy} onValueChange={setSortBy}>
+          <SelectTrigger className="w-[180px]" data-testid="select-item-sort">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="default">{t("campaigns.sortDefault")}</SelectItem>
+            <SelectItem value="name_asc">{t("campaigns.sortNameAZ")}</SelectItem>
+            <SelectItem value="name_desc">{t("campaigns.sortNameZA")}</SelectItem>
+            <SelectItem value="city_asc">{t("campaigns.sortCityAZ")}</SelectItem>
+            <SelectItem value="city_desc">{t("campaigns.sortCityZA")}</SelectItem>
+            <SelectItem value="completed_newest">{t("campaigns.sortCompletedNewest")}</SelectItem>
+            <SelectItem value="completed_oldest">{t("campaigns.sortCompletedOldest")}</SelectItem>
           </SelectContent>
         </Select>
       </div>
