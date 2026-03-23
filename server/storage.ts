@@ -33,6 +33,7 @@ export interface IStorage {
   deleteCompanyUser(id: string): Promise<void>;
   
   getCustomers(companyId: string): Promise<Customer[]>;
+  getCustomersPaginated(companyId: string, opts: { page: number; limit: number; search?: string }): Promise<{ customers: Customer[]; total: number }>;
   getCustomerById(id: string, companyId: string): Promise<Customer | undefined>;
   getCustomersByIds(ids: string[], companyId: string): Promise<Map<string, Customer>>;
   getChildCustomers(parentId: string, companyId: string): Promise<Customer[]>;
@@ -114,6 +115,7 @@ export interface IStorage {
   deleteTicketType(id: string, companyId: string): Promise<void>;
   
   getTicketTypeStatuses(ticketTypeId: string): Promise<TicketTypeStatus[]>;
+  getAllTicketTypeStatuses(companyId: string): Promise<TicketTypeStatus[]>;
   createTicketTypeStatus(status: InsertTicketTypeStatus): Promise<TicketTypeStatus>;
   updateTicketTypeStatus(id: string, updates: Partial<InsertTicketTypeStatus>): Promise<TicketTypeStatus | undefined>;
   deleteTicketTypeStatus(id: string): Promise<void>;
@@ -573,6 +575,20 @@ export class PgStorage implements IStorage {
     return await db.select().from(customers).where(eq(customers.companyId, companyId));
   }
 
+  async getCustomersPaginated(companyId: string, opts: { page: number; limit: number; search?: string }): Promise<{ customers: Customer[]; total: number }> {
+    const { page, limit, search } = opts;
+    const offset = (page - 1) * limit;
+    const baseCondition = eq(customers.companyId, companyId);
+    const whereClause = search
+      ? and(baseCondition, sql`lower(${customers.name}) like ${'%' + search.toLowerCase() + '%'}`)
+      : baseCondition;
+    const [rows, countRows] = await Promise.all([
+      db.select().from(customers).where(whereClause).orderBy(customers.name).limit(limit).offset(offset),
+      db.select({ count: sql<number>`count(*)::int` }).from(customers).where(whereClause),
+    ]);
+    return { customers: rows, total: countRows[0]?.count ?? 0 };
+  }
+
   async getCustomerById(id: string, companyId: string): Promise<Customer | undefined> {
     const result = await db.select().from(customers)
       .where(and(eq(customers.id, id), eq(customers.companyId, companyId)))
@@ -960,20 +976,37 @@ export class PgStorage implements IStorage {
   }
 
   async getRevenueOverview(companyId: string, month: number, year: number): Promise<RevenueOverviewData> {
-    const allCustomers = await this.getCustomers(companyId);
-    
+    // Bulk fetch all customers, contracts, and monthly amounts in 3 queries instead of N+1
+    const [allCustomers, allContracts, allAmounts] = await Promise.all([
+      this.getCustomers(companyId),
+      db.select().from(contracts).where(eq(contracts.companyId, companyId)),
+      db.select().from(contractMonthlyAmounts).where(eq(contractMonthlyAmounts.companyId, companyId)),
+    ]);
+
+    // Index amounts by contractId for fast lookup
+    const amountsByContract = new Map<string, typeof allAmounts>();
+    for (const amt of allAmounts) {
+      if (!amountsByContract.has(amt.contractId)) amountsByContract.set(amt.contractId, []);
+      amountsByContract.get(amt.contractId)!.push(amt);
+    }
+
+    // Index contracts by customerId
+    const contractsByCustomer = new Map<string, typeof allContracts>();
+    for (const contract of allContracts) {
+      if (!contractsByCustomer.has(contract.customerId)) contractsByCustomer.set(contract.customerId, []);
+      contractsByCustomer.get(contract.customerId)!.push(contract);
+    }
+
     let selectedMonthTotal = 0;
     let yearToDateTotal = 0;
     let fullYearTotal = 0;
-    
-    // Track maintenance and chemical revenue separately
     const maintenanceRevenue = { month: 0, ytd: 0, annual: 0 };
     const chemicalRevenue = { month: 0, ytd: 0, annual: 0 };
-    
-    const customers: { 
-      customerId: string; 
-      customerName: string; 
-      monthlyRevenue: number; 
+
+    const customers: {
+      customerId: string;
+      customerName: string;
+      monthlyRevenue: number;
       annualProjection: number;
       maintenanceMonth: number;
       maintenanceYtd: number;
@@ -982,78 +1015,87 @@ export class PgStorage implements IStorage {
       chemicalYtd: number;
       chemicalAnnual: number;
     }[] = [];
-    
+
     for (const customer of allCustomers) {
-      const revenueData = await this.getCustomerRevenue(customer.id, companyId, year);
-      
-      const monthData = revenueData.monthlyBreakdown.find(m => m.month === month);
-      const monthlyRevenue = monthData?.total || 0;
+      const customerContracts = contractsByCustomer.get(customer.id) || [];
+
+      // Per-month totals for this customer
+      const monthlyTotals: Record<number, number> = {};
+      const monthlyByServiceType: Record<number, Record<string, number>> = {};
+      for (let m = 1; m <= 12; m++) {
+        monthlyTotals[m] = 0;
+        monthlyByServiceType[m] = {};
+      }
+
+      let annualProjection = 0;
+
+      for (const contract of customerContracts) {
+        if (contract.status === 'paused' || contract.status === 'ended') continue;
+
+        const amounts = amountsByContract.get(contract.id) || [];
+        const monthlyMobilization = (contract.hasMobilizationFee && contract.mobilizationFeeAmount)
+          ? contract.mobilizationFeeAmount / 100
+          : 0;
+
+        const contractStartYear = contract.startDate.getUTCFullYear();
+        const contractStartMonth = contract.startDate.getUTCMonth() + 1;
+        const contractEndYear = contract.endDate ? contract.endDate.getUTCFullYear() : null;
+        const contractEndMonth = contract.endDate ? contract.endDate.getUTCMonth() + 1 : null;
+        const startMonthYear = contractStartYear * 100 + contractStartMonth;
+        const endMonthYear = contractEndYear && contractEndMonth ? contractEndYear * 100 + contractEndMonth : null;
+
+        let contractAnnualTotal = 0;
+        for (const amountRecord of amounts) {
+          const monthYear = year * 100 + amountRecord.month;
+          const isInRange = monthYear >= startMonthYear && (!endMonthYear || monthYear <= endMonthYear);
+          if (isInRange) {
+            const amountInDollars = (amountRecord.amount / 100) + monthlyMobilization;
+            contractAnnualTotal += amountInDollars;
+            monthlyTotals[amountRecord.month] += amountInDollars;
+            if (!monthlyByServiceType[amountRecord.month][contract.serviceType]) {
+              monthlyByServiceType[amountRecord.month][contract.serviceType] = 0;
+            }
+            monthlyByServiceType[amountRecord.month][contract.serviceType] += amountInDollars;
+          }
+        }
+        annualProjection += contractAnnualTotal;
+      }
+
+      const monthlyRevenue = monthlyTotals[month] || 0;
       selectedMonthTotal += monthlyRevenue;
-      
-      // Track per-customer service type revenue
+
       let customerMaintenanceMonth = 0;
       let customerMaintenanceYtd = 0;
       let customerMaintenanceAnnual = 0;
       let customerChemicalMonth = 0;
       let customerChemicalYtd = 0;
       let customerChemicalAnnual = 0;
-      
-      // Extract maintenance and chemical for selected month
-      if (monthData) {
-        for (const st of monthData.byServiceType) {
-          if (st.serviceType === 'Maintenance') {
-            maintenanceRevenue.month += st.amount;
-            customerMaintenanceMonth += st.amount;
-          } else if (st.serviceType === 'Chemical') {
-            chemicalRevenue.month += st.amount;
-            customerChemicalMonth += st.amount;
-          }
-        }
-      }
-      
-      // Calculate YTD (months 1 through selected month)
-      for (let m = 1; m <= month; m++) {
-        const mb = revenueData.monthlyBreakdown.find(mb => mb.month === m);
-        const monthRevenue = mb?.total || 0;
-        yearToDateTotal += monthRevenue;
-        
-        if (mb) {
-          for (const st of mb.byServiceType) {
-            if (st.serviceType === 'Maintenance') {
-              maintenanceRevenue.ytd += st.amount;
-              customerMaintenanceYtd += st.amount;
-            } else if (st.serviceType === 'Chemical') {
-              chemicalRevenue.ytd += st.amount;
-              customerChemicalYtd += st.amount;
-            }
-          }
-        }
-      }
-      
-      // Calculate full year total (all 12 months)
+
       for (let m = 1; m <= 12; m++) {
-        const mb = revenueData.monthlyBreakdown.find(mb => mb.month === m);
-        const monthRevenue = mb?.total || 0;
-        fullYearTotal += monthRevenue;
-        
-        if (mb) {
-          for (const st of mb.byServiceType) {
-            if (st.serviceType === 'Maintenance') {
-              maintenanceRevenue.annual += st.amount;
-              customerMaintenanceAnnual += st.amount;
-            } else if (st.serviceType === 'Chemical') {
-              chemicalRevenue.annual += st.amount;
-              customerChemicalAnnual += st.amount;
-            }
+        const monthTotal = monthlyTotals[m] || 0;
+        fullYearTotal += monthTotal;
+        if (m <= month) yearToDateTotal += monthTotal;
+
+        for (const [serviceType, amount] of Object.entries(monthlyByServiceType[m])) {
+          if (serviceType === 'Maintenance') {
+            if (m === month) { maintenanceRevenue.month += amount; customerMaintenanceMonth += amount; }
+            if (m <= month) { maintenanceRevenue.ytd += amount; customerMaintenanceYtd += amount; }
+            maintenanceRevenue.annual += amount;
+            customerMaintenanceAnnual += amount;
+          } else if (serviceType === 'Chemical') {
+            if (m === month) { chemicalRevenue.month += amount; customerChemicalMonth += amount; }
+            if (m <= month) { chemicalRevenue.ytd += amount; customerChemicalYtd += amount; }
+            chemicalRevenue.annual += amount;
+            customerChemicalAnnual += amount;
           }
         }
       }
-      
+
       customers.push({
         customerId: customer.id,
         customerName: customer.name,
         monthlyRevenue,
-        annualProjection: revenueData.annualProjection,
+        annualProjection,
         maintenanceMonth: customerMaintenanceMonth,
         maintenanceYtd: customerMaintenanceYtd,
         maintenanceAnnual: customerMaintenanceAnnual,
@@ -1062,7 +1104,7 @@ export class PgStorage implements IStorage {
         chemicalAnnual: customerChemicalAnnual,
       });
     }
-    
+
     return {
       selectedMonthTotal,
       yearToDateTotal,
@@ -1395,6 +1437,15 @@ export class PgStorage implements IStorage {
   async getTicketTypeStatuses(ticketTypeId: string): Promise<TicketTypeStatus[]> {
     return await db.select().from(ticketTypeStatuses)
       .where(eq(ticketTypeStatuses.ticketTypeId, ticketTypeId))
+      .orderBy(ticketTypeStatuses.displayOrder);
+  }
+
+  async getAllTicketTypeStatuses(companyId: string): Promise<TicketTypeStatus[]> {
+    const types = await db.select({ id: ticketTypes.id }).from(ticketTypes).where(eq(ticketTypes.companyId, companyId));
+    if (types.length === 0) return [];
+    const typeIds = types.map(t => t.id);
+    return await db.select().from(ticketTypeStatuses)
+      .where(inArray(ticketTypeStatuses.ticketTypeId, typeIds))
       .orderBy(ticketTypeStatuses.displayOrder);
   }
 
@@ -2017,21 +2068,29 @@ export class PgStorage implements IStorage {
 
   async getEquipmentWithTicketCounts(companyId: string): Promise<EquipmentWithTicketCount[]> {
     const equipmentList = await this.getEquipment(companyId);
-    const result: EquipmentWithTicketCount[] = [];
-    
-    for (const eq of equipmentList) {
-      const openTickets = await db.select({ count: sql<number>`count(*)` })
-        .from(equipmentTickets)
-        .where(and(
-          sql`${equipmentTickets.equipmentId} = ${eq.id}`,
-          sql`${equipmentTickets.status} NOT IN ('completed', 'closed')`
-        ));
-      result.push({
-        ...eq,
-        openTicketCount: Number(openTickets[0]?.count || 0)
-      });
+    if (equipmentList.length === 0) return [];
+
+    const ticketCounts = await db
+      .select({
+        equipmentId: equipmentTickets.equipmentId,
+        count: sql<number>`count(*)::int`,
+      })
+      .from(equipmentTickets)
+      .where(and(
+        eq(equipmentTickets.companyId, companyId),
+        sql`${equipmentTickets.status} NOT IN ('completed', 'closed')`
+      ))
+      .groupBy(equipmentTickets.equipmentId);
+
+    const countMap = new Map<string, number>();
+    for (const row of ticketCounts) {
+      countMap.set(row.equipmentId, row.count);
     }
-    return result;
+
+    return equipmentList.map(eq => ({
+      ...eq,
+      openTicketCount: countMap.get(eq.id) ?? 0,
+    }));
   }
 
   async createEquipment(insertEquipment: InsertEquipment): Promise<Equipment> {

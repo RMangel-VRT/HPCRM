@@ -7,7 +7,7 @@ import { setupAuth, type UserWithContext } from "./auth";
 import { storage } from "./storage";
 import { db } from "./db";
 import { eq, and, inArray, sql } from "drizzle-orm";
-import { insertCustomerSchema, insertContactSchema, insertCompanySchema, insertCompanyUserSchema, insertSettingsSchema, insertNoteSchema, insertContractSchema, insertContractDocumentSchema, insertContractBuilderDocumentSchema, insertContractBuilderSectionSchema, insertContractBuilderVariableSchema, insertTicketTypeSchema, insertTicketTypeStatusSchema, insertTicketTypeFieldSchema, insertTicketSchema, insertTicketFieldValueSchema, insertTicketStatusHistorySchema, insertTicketCommentSchema, insertTicketLinkSchema, insertCustomerMapLayerSchema, insertCustomerMapDocumentSchema, insertMaintenanceCrewSchema, insertMaintenanceVisitConfigSchema, insertWeeklyScheduleTemplateSchema, insertScheduleBlockSchema, insertEquipmentSchema, insertEquipmentFileSchema, insertEquipmentTicketSchema, insertEquipmentTicketStatusHistorySchema, insertSnowEventSchema, insertSnowEventPropertyImpactSchema, insertSnowEventAttachmentSchema, insertEmailTemplateSchema, insertEmailRuleSchema, SNOW_RANGES, tickets, ticketTypes, ticketTypeStatuses, customers as customersTable, contacts as contactsTable, contracts as contractsTable, equipment as equipmentTable, users as usersTable, contractMonthlyAmounts, contractDocuments, contractServices, contractStatusHistory, companyUsers as companyUsersTable } from "@shared/schema";
+import { insertCustomerSchema, insertContactSchema, insertCompanySchema, insertCompanyUserSchema, insertSettingsSchema, insertNoteSchema, insertContractSchema, insertContractDocumentSchema, insertContractBuilderDocumentSchema, insertContractBuilderSectionSchema, insertContractBuilderVariableSchema, insertTicketTypeSchema, insertTicketTypeStatusSchema, insertTicketTypeFieldSchema, insertTicketSchema, insertTicketFieldValueSchema, insertTicketStatusHistorySchema, insertTicketCommentSchema, insertTicketLinkSchema, insertCustomerMapLayerSchema, insertCustomerMapDocumentSchema, insertMaintenanceCrewSchema, insertMaintenanceVisitConfigSchema, insertWeeklyScheduleTemplateSchema, insertScheduleBlockSchema, insertEquipmentSchema, insertEquipmentFileSchema, insertEquipmentTicketSchema, insertEquipmentTicketStatusHistorySchema, insertSnowEventSchema, insertSnowEventPropertyImpactSchema, insertSnowEventAttachmentSchema, insertEmailTemplateSchema, insertEmailRuleSchema, SNOW_RANGES, tickets, ticketLinks, ticketTypes, ticketTypeStatuses, customers as customersTable, contacts as contactsTable, contracts as contractsTable, equipment as equipmentTable, users as usersTable, contractMonthlyAmounts, contractDocuments, contractServices, contractStatusHistory, companyUsers as companyUsersTable } from "@shared/schema";
 import type { Customer, CaptureParams, CampaignItem, Season } from "@shared/schema";
 import { ObjectStorageService, ObjectNotFoundError, objectStorageClient, signObjectURL } from "./objectStorage";
 import { ObjectPermission, ObjectAccessGroupType, setObjectAclPolicy } from "./objectAcl";
@@ -1309,6 +1309,17 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
 
     const user = req.user as UserWithContext;
+
+    // Optional server-side pagination: ?page=1&limit=50&search=foo
+    // Without page/limit params, returns the full list (backward compat)
+    if (req.query.page || req.query.limit) {
+      const page = Math.max(1, parseInt(req.query.page as string) || 1);
+      const limit = Math.min(200, Math.max(1, parseInt(req.query.limit as string) || 50));
+      const search = (req.query.search as string) || undefined;
+      const result = await storage.getCustomersPaginated(user.activeCompanyId, { page, limit, search });
+      return res.json(result);
+    }
+
     const customers = await storage.getCustomers(user.activeCompanyId);
     res.json(customers);
   });
@@ -2602,19 +2613,24 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
     const user = req.user as UserWithContext;
     const companyUsers = await storage.getCompanyUsersByCompanyId(user.activeCompanyId);
-    const teamMembers = await Promise.all(
-      companyUsers
-        .filter(cu => cu.status === "active")
-        .map(async (cu) => {
-          const userDetails = await storage.getUserById(cu.userId);
-          return {
-            id: cu.userId,
-            name: userDetails?.name || "Unknown",
-            email: userDetails?.email || "",
-            role: cu.role,
-          };
-        })
-    );
+    const activeUsers = companyUsers.filter(cu => cu.status === "active");
+
+    // Bulk fetch all users in one query instead of N+1
+    const userIds = activeUsers.map(cu => cu.userId);
+    const allUsers = userIds.length > 0
+      ? await db.select().from(usersTable).where(inArray(usersTable.id, userIds))
+      : [];
+    const userMap = new Map(allUsers.map(u => [u.id, u]));
+
+    const teamMembers = activeUsers.map((cu) => {
+      const userDetails = userMap.get(cu.userId);
+      return {
+        id: cu.userId,
+        name: userDetails?.name || "Unknown",
+        email: userDetails?.email || "",
+        role: cu.role,
+      };
+    });
     
     res.json(teamMembers);
   });
@@ -3832,6 +3848,16 @@ export async function registerRoutes(app: Express): Promise<Server> {
     res.json(status);
   });
 
+  // Bulk fetch all ticket type statuses for this company (avoids N+1 waterfall on frontend)
+  app.get("/api/ticket-type-statuses", async (req, res) => {
+    if (!req.isAuthenticated()) {
+      return res.status(401).send("Not authenticated");
+    }
+    const user = req.user as UserWithContext;
+    const allStatuses = await storage.getAllTicketTypeStatuses(user.activeCompanyId);
+    res.json(allStatuses);
+  });
+
   app.patch("/api/ticket-type-statuses/:id", async (req, res) => {
     if (!req.isAuthenticated()) {
       return res.status(401).send("Not authenticated");
@@ -4038,32 +4064,25 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
 
     const user = req.user as UserWithContext;
-    const tickets = await storage.getTickets(user.activeCompanyId, { assignedToId: user.id });
-    
-    // Batch fetch: unique ticketTypeIds and unique customerIds
-    const uniqueTypeIds = [...new Set(tickets.map(t => t.ticketTypeId))];
-    const uniqueCustomerIds = [...new Set(tickets.map(t => t.customerId).filter((id): id is string => !!id))];
-
-    const [statusesByType, customersById] = await Promise.all([
-      Promise.all(uniqueTypeIds.map(async (typeId) => {
-        const statuses = await storage.getTicketTypeStatuses(typeId);
-        return { typeId, statuses };
-      })).then(results => new Map(results.map(r => [r.typeId, r.statuses]))),
-      storage.getCustomersByIds(uniqueCustomerIds, user.activeCompanyId),
+    const [tickets, allStatuses, allCustomers] = await Promise.all([
+      storage.getTickets(user.activeCompanyId, { assignedToId: user.id }),
+      storage.getAllTicketTypeStatuses(user.activeCompanyId),
+      storage.getCustomers(user.activeCompanyId),
     ]);
 
-    // Enrich tickets with currentStatus and customer info
+    const statusMap = new Map(allStatuses.map(s => [s.id, s]));
+    const customerMap = new Map(allCustomers.map(c => [c.id, c]));
+
     const enrichedTickets = tickets.map((ticket) => {
-      const statuses = statusesByType.get(ticket.ticketTypeId) ?? [];
-      const currentStatus = statuses.find(s => s.id === ticket.currentStatusId);
-      const customer = ticket.customerId ? customersById.get(ticket.customerId) : null;
+      const currentStatus = ticket.currentStatusId ? statusMap.get(ticket.currentStatusId) : undefined;
+      const customer = ticket.customerId ? customerMap.get(ticket.customerId) : undefined;
       return {
         ...ticket,
         currentStatus: currentStatus ? { id: currentStatus.id, name: currentStatus.name, color: currentStatus.color, isFinal: currentStatus.isFinal } : null,
         customer: customer ? { name: customer.name } : null,
       };
     });
-    
+
     res.json(enrichedTickets);
   });
 
@@ -5382,30 +5401,52 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
     }
 
-    // Enrich with customer info and linked source ticket
-    const enrichedInvoices = await Promise.all(
-      ticketsNeedingInvoice.map(async (ticket) => {
-        const customer = ticket.customerId 
-          ? await storage.getCustomerById(ticket.customerId, user.activeCompanyId)
-          : null;
-        const links = await storage.getTicketLinks(ticket.id);
-        const ticketType = ticketTypes.find(tt => tt.id === ticket.ticketTypeId);
-        
-        // Find the source (billable) ticket if this is an Invoice ticket
-        let sourceTicket = null;
-        const sourceLink = links.find(l => l.linkType === "invoice_for" && l.targetTicketId === ticket.id);
-        if (sourceLink) {
-          sourceTicket = await storage.getTicketById(sourceLink.sourceTicketId, user.activeCompanyId);
-        }
-        
-        return {
-          ...ticket,
-          customer,
-          sourceTicket,
-          ticketTypeName: ticketType?.name || "Unknown",
-        };
-      })
-    );
+    // Bulk enrich with customer info and linked source ticket
+    const invoiceTicketIds = ticketsNeedingInvoice.map(t => t.id);
+    const customerIds = ticketsNeedingInvoice.map(t => t.customerId).filter(Boolean) as string[];
+
+    const [allLinks, allCustomers] = await Promise.all([
+      invoiceTicketIds.length > 0
+        ? db.select().from(ticketLinks).where(inArray(ticketLinks.targetTicketId, invoiceTicketIds))
+        : Promise.resolve([]),
+      customerIds.length > 0
+        ? db.select().from(customersTable).where(inArray(customersTable.id, customerIds))
+        : Promise.resolve([]),
+    ]);
+
+    const customerMap = new Map(allCustomers.map(c => [c.id, c]));
+    const linksByTarget = new Map<string, typeof allLinks>();
+    for (const link of allLinks) {
+      if (!linksByTarget.has(link.targetTicketId)) linksByTarget.set(link.targetTicketId, []);
+      linksByTarget.get(link.targetTicketId)!.push(link);
+    }
+
+    // Collect source ticket IDs for bulk fetch
+    const sourceTicketIds: string[] = [];
+    for (const ticket of ticketsNeedingInvoice) {
+      const links = linksByTarget.get(ticket.id) || [];
+      const sourceLink = links.find(l => l.linkType === "invoice_for" && l.targetTicketId === ticket.id);
+      if (sourceLink) sourceTicketIds.push(sourceLink.sourceTicketId);
+    }
+
+    const sourceTickets = sourceTicketIds.length > 0
+      ? await db.select().from(tickets).where(and(inArray(tickets.id, sourceTicketIds), eq(tickets.companyId, user.activeCompanyId)))
+      : [];
+    const sourceTicketMap = new Map(sourceTickets.map(t => [t.id, t]));
+
+    const enrichedInvoices = ticketsNeedingInvoice.map((ticket) => {
+      const customer = ticket.customerId ? customerMap.get(ticket.customerId) || null : null;
+      const links = linksByTarget.get(ticket.id) || [];
+      const sourceLink = links.find(l => l.linkType === "invoice_for" && l.targetTicketId === ticket.id);
+      const sourceTicket = sourceLink ? sourceTicketMap.get(sourceLink.sourceTicketId) || null : null;
+      const ticketType = ticketTypes.find(tt => tt.id === ticket.ticketTypeId);
+      return {
+        ...ticket,
+        customer,
+        sourceTicket,
+        ticketTypeName: ticketType?.name || "Unknown",
+      };
+    });
 
     res.json(enrichedInvoices);
   });

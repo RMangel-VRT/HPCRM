@@ -143,28 +143,14 @@ export default function MyTickets() {
 
   const { data: ticketTypes = [], isLoading: ticketTypesLoading } = useQuery<TicketType[]>({
     queryKey: ["/api/ticket-types"],
-    refetchOnMount: "always",
   });
 
   const { data: customers = [], isLoading: customersLoading } = useQuery<Customer[]>({
     queryKey: ["/api/customers"],
-    refetchOnMount: "always",
   });
 
-  const { data: allStatuses = [] } = useQuery({
-    queryKey: ["/api/ticket-type-statuses-all-my"],
-    queryFn: async () => {
-      const allStatusArrays = await Promise.all(
-        ticketTypes.map(async (tt) => {
-          const res = await fetch(`/api/ticket-types/${tt.id}/statuses`, { credentials: "include" });
-          if (!res.ok) return [];
-          return res.json();
-        })
-      );
-      return allStatusArrays.flat();
-    },
-    enabled: ticketTypes.length > 0,
-    refetchOnMount: "always",
+  const { data: allStatuses = [] } = useQuery<TicketTypeStatus[]>({
+    queryKey: ["/api/ticket-type-statuses"],
   });
 
   const { data: schedulingStatusData } = useQuery<{
@@ -215,7 +201,6 @@ export default function MyTickets() {
       if (!res.ok) return [];
       return res.json();
     },
-    refetchOnMount: "always",
   });
 
   const campaignAllowedRoles = ["admin", "office", "field_manager", "field", "landscape_supervisor"];
@@ -224,8 +209,6 @@ export default function MyTickets() {
   const { data: campaigns = [], isLoading: campaignsLoading } = useQuery<CampaignWithProgress[]>({
     queryKey: ["/api/campaigns"],
     enabled: showCampaigns,
-    refetchOnMount: "always",
-    staleTime: 0,
   });
 
   const activeCampaigns = useMemo(() => 

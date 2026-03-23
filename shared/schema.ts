@@ -1,5 +1,5 @@
 import { sql } from "drizzle-orm";
-import { pgTable, text, varchar, timestamp, unique, integer, jsonb, real, boolean, date } from "drizzle-orm/pg-core";
+import { pgTable, text, varchar, timestamp, unique, integer, jsonb, real, boolean, date, index } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
 
@@ -64,6 +64,8 @@ export const companyUsers = pgTable("company_users", {
   createdAt: timestamp("created_at").notNull().defaultNow(),
 }, (table) => ({
   userCompanyUnique: unique().on(table.userId, table.companyId),
+  companyUsersUserIdIdx: index("company_users_user_id_idx").on(table.userId),
+  companyUsersCompanyIdIdx: index("company_users_company_id_idx").on(table.companyId),
 }));
 
 export const insertCompanyUserSchema = createInsertSchema(companyUsers).omit({
@@ -104,7 +106,9 @@ export const customers = pgTable("customers", {
   locationLng: real("location_lng"),
   createdAt: timestamp("created_at").notNull().defaultNow(),
   updatedAt: timestamp("updated_at").notNull().defaultNow(),
-});
+}, (table) => ({
+  customersCompanyIdIdx: index("customers_company_id_idx").on(table.companyId),
+}));
 
 export const insertCustomerSchema = createInsertSchema(customers).omit({
   id: true,
@@ -185,7 +189,10 @@ export const contracts = pgTable("contracts", {
   mobilizationFeeAmount: integer("mobilization_fee_amount").notNull().default(0),
   createdAt: timestamp("created_at").notNull().defaultNow(),
   updatedAt: timestamp("updated_at").notNull().defaultNow(),
-});
+}, (table) => ({
+  contractsCompanyIdIdx: index("contracts_company_id_idx").on(table.companyId),
+  contractsCustomerIdIdx: index("contracts_customer_id_idx").on(table.customerId),
+}));
 
 export const insertContractSchema = createInsertSchema(contracts).omit({
   id: true,
@@ -616,7 +623,11 @@ export const tickets = pgTable("tickets", {
   createdById: varchar("created_by_id").notNull().references(() => users.id, { onDelete: "cascade" }),
   createdAt: timestamp("created_at").notNull().defaultNow(),
   updatedAt: timestamp("updated_at").notNull().defaultNow(),
-});
+}, (table) => ({
+  ticketsCompanyIdIdx: index("tickets_company_id_idx").on(table.companyId),
+  ticketsCustomerIdIdx: index("tickets_customer_id_idx").on(table.customerId),
+  ticketsAssignedToIdIdx: index("tickets_assigned_to_id_idx").on(table.assignedToId),
+}));
 
 export const insertTicketSchema = createInsertSchema(tickets).omit({
   id: true,
@@ -1156,7 +1167,9 @@ export const equipment = pgTable("equipment", {
   profilePhotoPath: text("profile_photo_path"),
   createdAt: timestamp("created_at").notNull().defaultNow(),
   updatedAt: timestamp("updated_at").notNull().defaultNow(),
-});
+}, (table) => ({
+  equipmentCompanyIdIdx: index("equipment_company_id_idx").on(table.companyId),
+}));
 
 export const insertEquipmentSchema = createInsertSchema(equipment).omit({
   id: true,
@@ -1628,7 +1641,9 @@ export const campaigns = pgTable("campaigns", {
   createdById: varchar("created_by_id").references(() => users.id, { onDelete: "set null" }),
   createdAt: timestamp("created_at").notNull().defaultNow(),
   updatedAt: timestamp("updated_at").notNull().defaultNow(),
-});
+}, (table) => ({
+  campaignsCompanyIdIdx: index("campaigns_company_id_idx").on(table.companyId),
+}));
 
 export const insertCampaignSchema = createInsertSchema(campaigns).omit({
   id: true,
