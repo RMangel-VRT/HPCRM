@@ -65,6 +65,8 @@ import {
   CalendarIcon,
   X,
   Plus,
+  List,
+  Columns,
 } from "lucide-react";
 import type { Campaign, CampaignItem, Season, CampaignChecklistTask, Customer, CompanyUser, User as UserType } from "@shared/schema";
 
@@ -129,6 +131,7 @@ export default function CampaignDetail() {
   const [openSectionCollapsed, setOpenSectionCollapsed] = useState(false);
   const [completedSectionCollapsed, setCompletedSectionCollapsed] = useState(false);
   const [sortBy, setSortBy] = useState<string>("default");
+  const [viewMode, setViewMode] = useState<"list" | "kanban">("list");
 
   const { data: campaign, isLoading } = useQuery<CampaignDetailData>({
     queryKey: ["/api/campaigns", id],
@@ -535,7 +538,7 @@ export default function CampaignDetail() {
           </div>
         </div>
       ) : (
-      <>
+      <div className="space-y-4">
       <div className="flex items-center gap-3 flex-wrap">
         <div className="relative flex-1 min-w-[200px]">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
@@ -547,162 +550,86 @@ export default function CampaignDetail() {
             data-testid="input-campaign-item-search"
           />
         </div>
-        <Select value={filterStatus} onValueChange={setFilterStatus}>
-          <SelectTrigger className="w-[160px]" data-testid="select-item-status-filter">
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="all">{t("common.all")}</SelectItem>
-            <SelectItem value="pending">{t("campaigns.pending")}</SelectItem>
-            <SelectItem value="completed">{t("campaigns.completed")}</SelectItem>
-            <SelectItem value="skipped">{t("campaigns.skippedLabel")}</SelectItem>
-          </SelectContent>
-        </Select>
-        <Select value={sortBy} onValueChange={setSortBy}>
-          <SelectTrigger className="w-[180px]" data-testid="select-item-sort">
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="default">{t("campaigns.sortDefault")}</SelectItem>
-            <SelectItem value="name_asc">{t("campaigns.sortNameAZ")}</SelectItem>
-            <SelectItem value="name_desc">{t("campaigns.sortNameZA")}</SelectItem>
-            <SelectItem value="city_asc">{t("campaigns.sortCityAZ")}</SelectItem>
-            <SelectItem value="city_desc">{t("campaigns.sortCityZA")}</SelectItem>
-            <SelectItem value="completed_newest">{t("campaigns.sortCompletedNewest")}</SelectItem>
-            <SelectItem value="completed_oldest">{t("campaigns.sortCompletedOldest")}</SelectItem>
-          </SelectContent>
-        </Select>
+        {viewMode === "list" && (
+          <Select value={filterStatus} onValueChange={setFilterStatus}>
+            <SelectTrigger className="w-[160px]" data-testid="select-item-status-filter">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">{t("common.all")}</SelectItem>
+              <SelectItem value="pending">{t("campaigns.pending")}</SelectItem>
+              <SelectItem value="completed">{t("campaigns.completed")}</SelectItem>
+              <SelectItem value="skipped">{t("campaigns.skippedLabel")}</SelectItem>
+            </SelectContent>
+          </Select>
+        )}
+        {viewMode === "list" && (
+          <Select value={sortBy} onValueChange={setSortBy}>
+            <SelectTrigger className="w-[180px]" data-testid="select-item-sort">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="default">{t("campaigns.sortDefault")}</SelectItem>
+              <SelectItem value="name_asc">{t("campaigns.sortNameAZ")}</SelectItem>
+              <SelectItem value="name_desc">{t("campaigns.sortNameZA")}</SelectItem>
+              <SelectItem value="city_asc">{t("campaigns.sortCityAZ")}</SelectItem>
+              <SelectItem value="city_desc">{t("campaigns.sortCityZA")}</SelectItem>
+              <SelectItem value="completed_newest">{t("campaigns.sortCompletedNewest")}</SelectItem>
+              <SelectItem value="completed_oldest">{t("campaigns.sortCompletedOldest")}</SelectItem>
+            </SelectContent>
+          </Select>
+        )}
+        <div className="flex items-center gap-1" data-testid="view-toggle-group">
+          <Button
+            variant={viewMode === "list" ? "default" : "outline"}
+            size="icon"
+            onClick={() => setViewMode("list")}
+            data-testid="button-view-list"
+          >
+            <List className="w-4 h-4" />
+          </Button>
+          <Button
+            variant={viewMode === "kanban" ? "default" : "outline"}
+            size="icon"
+            onClick={() => setViewMode("kanban")}
+            data-testid="button-view-kanban"
+          >
+            <Columns className="w-4 h-4" />
+          </Button>
+        </div>
       </div>
 
-      {(() => {
-        const openItems = filteredItems.filter(i => i.status === "pending");
-        const completedItems = filteredItems.filter(i => i.status === "completed" || i.status === "skipped");
-
-        const renderItemCard = (item: CampaignItemWithUser) => {
-          const statusIconEl = item.status === "completed"
-            ? <CheckCircle2 className="w-4 h-4 text-green-600 shrink-0" />
-            : item.status === "skipped"
-              ? <SkipForward className="w-4 h-4 text-amber-500 shrink-0" />
-              : <Clock className="w-4 h-4 text-muted-foreground shrink-0" />;
-          return (
-            <Card
-              key={item.id}
-              className="hover-elevate cursor-pointer"
-              onClick={() => navigate(`/dashboard/campaigns/${id}/items/${item.id}`)}
-              data-testid={`card-campaign-item-${item.id}`}
-            >
-              <CardContent className="p-4">
-                <div className="flex items-center gap-3">
-                  {statusIconEl}
-                  <div className="flex-1 min-w-0">
-                    <div className="font-medium truncate" data-testid={`text-item-name-${item.id}`}>{item.customerName}</div>
-                    <div className="flex items-center gap-3 text-xs text-muted-foreground flex-wrap">
-                      {item.customerCity && (
-                        <span className="flex items-center gap-1">
-                          <MapPin className="w-3 h-3" />
-                          {item.customerCity}
-                        </span>
-                      )}
-                      {item.completedByName && (
-                        <span className="flex items-center gap-1">
-                          <User className="w-3 h-3" />
-                          {item.completedByName}
-                        </span>
-                      )}
-                      {item.completedAt && (
-                        <span>{format(new Date(item.completedAt), "PPp")}</span>
-                      )}
-                    </div>
-                    {isChemicalCampaign && item.workflowStep && (
-                      <div className="flex items-center gap-1.5 mt-1" data-testid={`chem-step-indicator-${item.id}`}>
-                        {item.status === "skipped"
-                          ? <SkipForward className="w-3 h-3 text-amber-500" />
-                          : getChemStepIcon(item.workflowStep, item.status)}
-                        <span className={`text-xs font-medium ${
-                          item.status === "skipped" ? "text-amber-500" :
-                          item.status === "completed" ? "text-green-600" : "text-primary"
-                        }`}>
-                          {item.status === "skipped" ? t("campaigns.skippedLabel") : getChemStepLabel(item.workflowStep, item.status)}
-                        </span>
-                      </div>
-                    )}
-                    {isIrrigationCampaign && campaign.checklistTasks && campaign.checklistTasks.length > 0 && (
-                      <div className="flex items-center gap-1.5 mt-1" data-testid={`irrigation-progress-${item.id}`}>
-                        <Droplets className="w-3 h-3 text-blue-500" />
-                        <span className="text-xs text-muted-foreground">
-                          {t("campaigns.checklistProgress")}: {campaign.itemTaskCompletions?.[item.id]?.length || 0}/{campaign.checklistTasks.length}
-                        </span>
-                      </div>
-                    )}
-                  </div>
-                  <Badge
-                    variant={item.status === "completed" ? "default" : item.status === "skipped" ? "secondary" : "outline"}
-                    className={item.status === "completed" ? "bg-green-600" : ""}
-                    data-testid={`badge-item-status-${item.id}`}
-                  >
-                    {item.status === "completed" ? t("campaigns.completed")
-                      : item.status === "skipped" ? t("campaigns.skippedLabel")
-                      : t("campaigns.pending")}
-                  </Badge>
-                  <ChevronRight className="w-4 h-4 text-muted-foreground shrink-0" />
-                </div>
-              </CardContent>
-            </Card>
-          );
-        };
-
-        if (filteredItems.length === 0) {
-          return (
-            <Card>
-              <CardContent className="py-8 text-center text-muted-foreground">
-                {t("common.noResults")}
-              </CardContent>
-            </Card>
-          );
-        }
-
-        return (
-          <div className="space-y-4">
-            {openItems.length > 0 && (
-              <div className="space-y-2">
-                <button
-                  className="flex items-center gap-2 text-sm font-medium text-muted-foreground px-1 hover:text-foreground transition-colors w-full text-left"
-                  onClick={() => setOpenSectionCollapsed(!openSectionCollapsed)}
-                  data-testid="button-toggle-open-section"
-                >
-                  {openSectionCollapsed ? <ChevronRight className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
-                  Open ({openItems.length})
-                </button>
-                {!openSectionCollapsed && (
-                  <div className="space-y-2">
-                    {openItems.map(renderItemCard)}
-                  </div>
-                )}
-              </div>
-            )}
-
-            {completedItems.length > 0 && (
-              <div className="space-y-2 mt-6">
-                <button
-                  className="flex items-center gap-2 text-sm font-medium text-muted-foreground px-1 hover:text-foreground transition-colors w-full text-left"
-                  onClick={() => setCompletedSectionCollapsed(!completedSectionCollapsed)}
-                  data-testid="button-toggle-completed-section"
-                >
-                  {completedSectionCollapsed ? <ChevronRight className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
-                  {t("campaigns.completed")} ({completedItems.length})
-                </button>
-                {!completedSectionCollapsed && (
-                  <div className="space-y-2 opacity-75">
-                    {completedItems.map(renderItemCard)}
-                  </div>
-                )}
-              </div>
-            )}
-          </div>
-        );
-      })()}
-
-      </>
+      {viewMode === "kanban" ? (
+        <KanbanView
+          items={campaign.items}
+          search={search}
+          isChemicalCampaign={isChemicalCampaign}
+          isIrrigationCampaign={isIrrigationCampaign}
+          campaign={campaign}
+          campaignId={id!}
+          navigate={navigate}
+          getChemStepIcon={getChemStepIcon}
+          getChemStepLabel={getChemStepLabel}
+          t={t}
+        />
+      ) : (
+        <ListView
+          filteredItems={filteredItems}
+          isChemicalCampaign={isChemicalCampaign}
+          isIrrigationCampaign={isIrrigationCampaign}
+          campaign={campaign}
+          campaignId={id!}
+          navigate={navigate}
+          getChemStepIcon={getChemStepIcon}
+          getChemStepLabel={getChemStepLabel}
+          t={t}
+          openSectionCollapsed={openSectionCollapsed}
+          setOpenSectionCollapsed={setOpenSectionCollapsed}
+          completedSectionCollapsed={completedSectionCollapsed}
+          setCompletedSectionCollapsed={setCompletedSectionCollapsed}
+        />
+      )}
+      </div>
       )}
 
       <Dialog open={seasonDialogOpen} onOpenChange={setSeasonDialogOpen}>
@@ -766,6 +693,225 @@ export default function CampaignDetail() {
           campaignId={id!}
         />
       )}
+    </div>
+  );
+}
+
+interface ItemCardProps {
+  item: CampaignItemWithUser;
+  isChemicalCampaign: boolean;
+  isIrrigationCampaign: boolean;
+  campaign: CampaignDetailData;
+  campaignId: string;
+  navigate: (path: string) => void;
+  getChemStepIcon: (step: string | null, itemStatus?: string) => (React.JSX.Element | null);
+  getChemStepLabel: (step: string | null, itemStatus?: string) => string;
+  t: (key: string) => string;
+}
+
+function ItemCard({ item, isChemicalCampaign, isIrrigationCampaign, campaign, campaignId, navigate, getChemStepIcon, getChemStepLabel, t }: ItemCardProps) {
+  const statusIconEl = item.status === "completed"
+    ? <CheckCircle2 className="w-4 h-4 text-green-600 shrink-0" />
+    : item.status === "skipped"
+      ? <SkipForward className="w-4 h-4 text-amber-500 shrink-0" />
+      : <Clock className="w-4 h-4 text-muted-foreground shrink-0" />;
+  return (
+    <Card
+      className="hover-elevate cursor-pointer"
+      onClick={() => navigate(`/dashboard/campaigns/${campaignId}/items/${item.id}`)}
+      data-testid={`card-campaign-item-${item.id}`}
+    >
+      <CardContent className="p-4">
+        <div className="flex items-center gap-3">
+          {statusIconEl}
+          <div className="flex-1 min-w-0">
+            <div className="font-medium truncate" data-testid={`text-item-name-${item.id}`}>{item.customerName}</div>
+            <div className="flex items-center gap-3 text-xs text-muted-foreground flex-wrap">
+              {item.customerCity && (
+                <span className="flex items-center gap-1">
+                  <MapPin className="w-3 h-3" />
+                  {item.customerCity}
+                </span>
+              )}
+              {item.completedByName && (
+                <span className="flex items-center gap-1">
+                  <User className="w-3 h-3" />
+                  {item.completedByName}
+                </span>
+              )}
+              {item.completedAt && (
+                <span>{format(new Date(item.completedAt), "PPp")}</span>
+              )}
+            </div>
+            {isChemicalCampaign && item.workflowStep && (
+              <div className="flex items-center gap-1.5 mt-1" data-testid={`chem-step-indicator-${item.id}`}>
+                {item.status === "skipped"
+                  ? <SkipForward className="w-3 h-3 text-amber-500" />
+                  : getChemStepIcon(item.workflowStep, item.status)}
+                <span className={`text-xs font-medium ${
+                  item.status === "skipped" ? "text-amber-500" :
+                  item.status === "completed" ? "text-green-600" : "text-primary"
+                }`}>
+                  {item.status === "skipped" ? t("campaigns.skippedLabel") : getChemStepLabel(item.workflowStep, item.status)}
+                </span>
+              </div>
+            )}
+            {isIrrigationCampaign && campaign.checklistTasks && campaign.checklistTasks.length > 0 && (
+              <div className="flex items-center gap-1.5 mt-1" data-testid={`irrigation-progress-${item.id}`}>
+                <Droplets className="w-3 h-3 text-blue-500" />
+                <span className="text-xs text-muted-foreground">
+                  {t("campaigns.checklistProgress")}: {campaign.itemTaskCompletions?.[item.id]?.length || 0}/{campaign.checklistTasks.length}
+                </span>
+              </div>
+            )}
+          </div>
+          <Badge
+            variant={item.status === "completed" ? "default" : item.status === "skipped" ? "secondary" : "outline"}
+            className={item.status === "completed" ? "bg-green-600" : ""}
+            data-testid={`badge-item-status-${item.id}`}
+          >
+            {item.status === "completed" ? t("campaigns.completed")
+              : item.status === "skipped" ? t("campaigns.skippedLabel")
+              : t("campaigns.pending")}
+          </Badge>
+          <ChevronRight className="w-4 h-4 text-muted-foreground shrink-0" />
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+
+interface ListViewProps extends Omit<ItemCardProps, "item"> {
+  filteredItems: CampaignItemWithUser[];
+  openSectionCollapsed: boolean;
+  setOpenSectionCollapsed: (v: boolean) => void;
+  completedSectionCollapsed: boolean;
+  setCompletedSectionCollapsed: (v: boolean) => void;
+}
+
+function ListView({ filteredItems, isChemicalCampaign, isIrrigationCampaign, campaign, campaignId, navigate, getChemStepIcon, getChemStepLabel, t, openSectionCollapsed, setOpenSectionCollapsed, completedSectionCollapsed, setCompletedSectionCollapsed }: ListViewProps) {
+  const openItems = filteredItems.filter(i => i.status === "pending");
+  const completedItems = filteredItems.filter(i => i.status === "completed" || i.status === "skipped");
+
+  const cardProps = { isChemicalCampaign, isIrrigationCampaign, campaign, campaignId, navigate, getChemStepIcon, getChemStepLabel, t };
+
+  if (filteredItems.length === 0) {
+    return (
+      <Card>
+        <CardContent className="py-8 text-center text-muted-foreground">
+          {t("common.noResults")}
+        </CardContent>
+      </Card>
+    );
+  }
+
+  return (
+    <div className="space-y-4">
+      {openItems.length > 0 && (
+        <div className="space-y-2">
+          <button
+            className="flex items-center gap-2 text-sm font-medium text-muted-foreground px-1 hover:text-foreground transition-colors w-full text-left"
+            onClick={() => setOpenSectionCollapsed(!openSectionCollapsed)}
+            data-testid="button-toggle-open-section"
+          >
+            {openSectionCollapsed ? <ChevronRight className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
+            Open ({openItems.length})
+          </button>
+          {!openSectionCollapsed && (
+            <div className="space-y-2">
+              {openItems.map(item => <ItemCard key={item.id} item={item} {...cardProps} />)}
+            </div>
+          )}
+        </div>
+      )}
+      {completedItems.length > 0 && (
+        <div className="space-y-2 mt-6">
+          <button
+            className="flex items-center gap-2 text-sm font-medium text-muted-foreground px-1 hover:text-foreground transition-colors w-full text-left"
+            onClick={() => setCompletedSectionCollapsed(!completedSectionCollapsed)}
+            data-testid="button-toggle-completed-section"
+          >
+            {completedSectionCollapsed ? <ChevronRight className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
+            {t("campaigns.completed")} ({completedItems.length})
+          </button>
+          {!completedSectionCollapsed && (
+            <div className="space-y-2 opacity-75">
+              {completedItems.map(item => <ItemCard key={item.id} item={item} {...cardProps} />)}
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+interface KanbanViewProps extends Omit<ItemCardProps, "item"> {
+  items: CampaignItemWithUser[];
+  search: string;
+}
+
+function KanbanView({ items, search, isChemicalCampaign, isIrrigationCampaign, campaign, campaignId, navigate, getChemStepIcon, getChemStepLabel, t }: KanbanViewProps) {
+  const cardProps = { isChemicalCampaign, isIrrigationCampaign, campaign, campaignId, navigate, getChemStepIcon, getChemStepLabel, t };
+
+  const searchLower = search.trim().toLowerCase();
+  const filteredItems = searchLower
+    ? items.filter(i => i.customerName.toLowerCase().includes(searchLower))
+    : items;
+
+  type KanbanColumn = { key: string; label: string };
+
+  const columns: KanbanColumn[] = isChemicalCampaign
+    ? [
+        { key: "pre_communication", label: t("campaigns.chemStepPre") },
+        { key: "work_in_progress", label: t("campaigns.chemStepInProgress") },
+        { key: "work_completed", label: t("campaigns.chemStepWorkDone") },
+        { key: "post_communication", label: t("campaigns.chemStepPost") },
+        { key: "completed", label: t("campaigns.completed") },
+        { key: "skipped", label: t("campaigns.skippedLabel") },
+      ]
+    : [
+        { key: "pending", label: t("campaigns.pending") },
+        { key: "completed", label: t("campaigns.completed") },
+        { key: "skipped", label: t("campaigns.skippedLabel") },
+      ];
+
+  const getColumnItems = (columnKey: string): CampaignItemWithUser[] => {
+    if (isChemicalCampaign) {
+      if (columnKey === "completed") return filteredItems.filter(i => i.status === "completed");
+      if (columnKey === "skipped") return filteredItems.filter(i => i.status === "skipped");
+      return filteredItems.filter(i => i.status === "pending" && i.workflowStep === columnKey);
+    } else {
+      if (columnKey === "pending") return filteredItems.filter(i => i.status === "pending");
+      if (columnKey === "completed") return filteredItems.filter(i => i.status === "completed");
+      if (columnKey === "skipped") return filteredItems.filter(i => i.status === "skipped");
+      return [];
+    }
+  };
+
+  return (
+    <div className="overflow-x-auto pb-4" data-testid="kanban-board">
+      <div className="flex gap-4 min-w-max">
+        {columns.map(col => {
+          const colItems = getColumnItems(col.key);
+          return (
+            <div key={col.key} className="flex flex-col w-72 shrink-0" data-testid={`kanban-column-${col.key}`}>
+              <div className="flex items-center gap-2 mb-3 px-1">
+                <span className="text-sm font-semibold truncate">{col.label}</span>
+                <Badge variant="secondary" className="shrink-0" data-testid={`kanban-count-${col.key}`}>{colItems.length}</Badge>
+              </div>
+              <div className="space-y-2 flex-1">
+                {colItems.length === 0 ? (
+                  <div className="rounded-md border border-dashed p-4 text-center text-xs text-muted-foreground" data-testid={`kanban-empty-${col.key}`}>
+                    No items
+                  </div>
+                ) : (
+                  colItems.map(item => <ItemCard key={item.id} item={item} {...cardProps} />)
+                )}
+              </div>
+            </div>
+          );
+        })}
+      </div>
     </div>
   );
 }
