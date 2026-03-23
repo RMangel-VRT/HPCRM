@@ -22,12 +22,11 @@ export function BreadcrumbsProvider({ children }: { children: ReactNode }) {
   );
 }
 
+const NOOP_CONTEXT: BreadcrumbsContextType = { items: [], setItems: () => {} };
+
 export function useBreadcrumbs() {
   const context = useContext(BreadcrumbsContext);
-  if (!context) {
-    throw new Error("useBreadcrumbs must be used within a BreadcrumbsProvider");
-  }
-  return context;
+  return context ?? NOOP_CONTEXT;
 }
 
 export function useSetBreadcrumbs(items: BreadcrumbItem[], deps: any[] = []) {

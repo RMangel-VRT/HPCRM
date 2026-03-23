@@ -176,7 +176,7 @@ function Router() {
         <ProtectedRoute
           path="/dashboard/customers/map"
           component={CustomerRouteMap}
-          allowedRoles={["admin", "field_manager", "landscape_supervisor"]}
+          allowedRoles={["admin", "field_manager", "landscape_supervisor", "chemical_manager", "irrigation_manager", "shop_manager"]}
         />
         <ProtectedRoute
           path="/dashboard/customers/:id"
