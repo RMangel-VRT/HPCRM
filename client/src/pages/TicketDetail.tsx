@@ -175,6 +175,8 @@ export default function TicketDetail() {
   
   const canEdit = currentUser?.activeRole === "admin" || currentUser?.isSuperAdminBool;
   const isAdminOrOffice = currentUser?.activeRole === "admin" || currentUser?.activeRole === "office" || currentUser?.isSuperAdminBool;
+  const rolesWithoutCustomerAccess = ["field", "irrigation_manager", "shop_manager", "landscape_supervisor"];
+  const canViewCustomer = !rolesWithoutCustomerAccess.includes(currentUser?.activeRole || "");
 
   const { data: details, isLoading } = useQuery<TicketDetails>({
     queryKey: ["/api/tickets", ticketId, "details"],
@@ -192,8 +194,12 @@ export default function TicketDetail() {
     enabled: !!details?.customer?.id && details?.ticketType?.name === "Invoice",
   });
 
+  const fieldRoles = ["field", "field_manager", "chemical_manager", "irrigation_manager", "shop_manager", "landscape_supervisor"];
+  const isFieldRole = fieldRoles.includes(currentUser?.activeRole || "");
+  const ticketsBreadcrumbHref = isFieldRole ? "/dashboard/tickets/my" : "/dashboard/tickets";
+
   useSetBreadcrumbs([
-    { label: t('ticketDetail.breadcrumb'), href: "/dashboard/tickets" },
+    { label: t('ticketDetail.breadcrumb'), href: ticketsBreadcrumbHref },
     { label: details?.ticket?.title || t('common.loading') },
   ], [details?.ticket?.title]);
 
@@ -1029,23 +1035,31 @@ export default function TicketDetail() {
                       <Layers className="w-3 h-3 mr-1" />
                       {t('customerDetail.tabs.maps')}
                     </Button>
-                    <Link href={`/dashboard/customers/${customer.id}`}>
-                      <Button variant="outline" size="sm" data-testid="button-view-customer">
-                        {t('common.view')}
-                        <ExternalLink className="w-3 h-3 ml-1" />
-                      </Button>
-                    </Link>
+                    {canViewCustomer && (
+                      <Link href={`/dashboard/customers/${customer.id}`}>
+                        <Button variant="outline" size="sm" data-testid="button-view-customer">
+                          {t('common.view')}
+                          <ExternalLink className="w-3 h-3 ml-1" />
+                        </Button>
+                      </Link>
+                    )}
                   </div>
                 </div>
 
                 {contract && (
                   <div className="pt-2 border-t">
                     <p className="text-xs text-muted-foreground mb-1">{t('common.contract')}</p>
-                    <Link href={`/dashboard/customers/${customer.id}`}>
-                      <Badge variant="secondary" className="hover-elevate cursor-pointer">
+                    {canViewCustomer ? (
+                      <Link href={`/dashboard/customers/${customer.id}`}>
+                        <Badge variant="secondary" className="hover-elevate cursor-pointer">
+                          {contract.serviceType?.replace(/_/g, " ") || "Contract"}
+                        </Badge>
+                      </Link>
+                    ) : (
+                      <Badge variant="secondary">
                         {contract.serviceType?.replace(/_/g, " ") || "Contract"}
                       </Badge>
-                    </Link>
+                    )}
                   </div>
                 )}
               </CardContent>
