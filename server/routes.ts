@@ -9383,6 +9383,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
     });
   });
 
+  function resolveChemCompletionDate(item: { weatherRecordedAt?: Date | null; workCompletedAt?: Date | null; completedAt?: Date | null }): string {
+    const date = item.weatherRecordedAt || item.workCompletedAt || item.completedAt || new Date();
+    return date.toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' });
+  }
+
   async function resolveChemRecipientEmail(customerId: string, companyId: string): Promise<{ email: string | null; contactName: string | null }> {
     const customer = await storage.getCustomerById(customerId, companyId);
     if (customer?.propertyManagerId) {
@@ -9444,7 +9449,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
             campaignTitle: campaign.title,
             windowStart: (type !== "post" && customWindowStart) ? customWindowStart : campaign.windowStart,
             windowEnd: (type !== "post" && customWindowEnd) ? customWindowEnd : campaign.windowEnd,
-            ...(type === "post" ? { completionDate: new Date().toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' }) } : {}),
+            ...(type === "post" ? { completionDate: resolveChemCompletionDate(targetItem) } : {}),
             notes: '',
           };
           subject = template.subject;
@@ -9758,7 +9763,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
             companyName: company?.name || '',
             customerName: targetItem.customerName,
             campaignTitle: campaign.title,
-            completionDate: new Date().toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' }),
+            completionDate: resolveChemCompletionDate(targetItem),
             notes: notes || '',
           }, {
             customerId: targetItem.customerId,
@@ -10037,7 +10042,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
           companyName: company?.name || '',
           customerName: targetItem.customerName,
           campaignTitle: campaign.title,
-          completionDate: new Date().toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' }),
+          completionDate: resolveChemCompletionDate(targetItem),
           notes: notes || '',
         }, {
           customerId: targetItem.customerId,
