@@ -76,6 +76,7 @@ function getNavButtons(role: FieldRole, t: (key: string) => string): NavButton[]
     case "irrigation_manager":
       return [
         { title: t("fieldLayout.myTickets"), url: "/dashboard/tickets/my", icon: UserCheck },
+        { title: t("fieldLayout.customers"), url: "/dashboard/field-customers", icon: Building2 },
         { title: t("fieldLayout.routeMap"), url: "/dashboard/customers/map", icon: MapPin },
         { title: t("fieldLayout.propertyMaps"), url: "/dashboard/maps", icon: Map },
         { title: t("fieldLayout.schedule"), url: "/dashboard/schedule", icon: CalendarDays },
@@ -90,6 +91,7 @@ function getNavButtons(role: FieldRole, t: (key: string) => string): NavButton[]
     case "landscape_supervisor":
       return [
         { title: t("fieldLayout.myTickets"), url: "/dashboard/tickets/my", icon: UserCheck },
+        { title: t("fieldLayout.customers"), url: "/dashboard/field-customers", icon: Building2 },
         { title: t("fieldLayout.propertyMaps"), url: "/dashboard/maps", icon: Map },
         { title: t("fieldLayout.routeMap"), url: "/dashboard/customers/map", icon: MapPin },
         { title: t("fieldLayout.campaigns"), url: "/dashboard/campaigns", icon: ClipboardCheck },
