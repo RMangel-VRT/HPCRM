@@ -66,7 +66,10 @@ export default function TicketsList() {
   
   const [search, setSearch] = useState(urlParams.get("q") || "");
   const [priorityFilter, setPriorityFilter] = useState(urlParams.get("priority") || "all");
-  const [typeFilter, setTypeFilter] = useState(urlParams.get("type") || "all");
+  const [typeFilters, setTypeFilters] = useState<string[]>(() => {
+    const raw = urlParams.get("type");
+    return raw ? raw.split(",").filter(Boolean) : [];
+  });
   const [workTypeFilter, setWorkTypeFilter] = useState(urlParams.get("workType") || "all");
   const [statusFilter, setStatusFilter] = useState(urlParams.get("status") || "all");
   const [assignedToFilter, setAssignedToFilter] = useState(urlParams.get("assignedTo") || "all");
@@ -87,7 +90,8 @@ export default function TicketsList() {
     isUpdatingFromUrl.current = true;
     setSearch(urlParams.get("q") || "");
     setPriorityFilter(urlParams.get("priority") || "all");
-    setTypeFilter(urlParams.get("type") || "all");
+    const rawType = urlParams.get("type");
+    setTypeFilters(rawType ? rawType.split(",").filter(Boolean) : []);
     setWorkTypeFilter(urlParams.get("workType") || "all");
     setStatusFilter(urlParams.get("status") || "all");
     setAssignedToFilter(urlParams.get("assignedTo") || "all");
@@ -119,7 +123,7 @@ export default function TicketsList() {
     const params = new URLSearchParams();
     if (search) params.set("q", search);
     if (priorityFilter !== "all") params.set("priority", priorityFilter);
-    if (typeFilter !== "all") params.set("type", typeFilter);
+    if (typeFilters.length > 0) params.set("type", typeFilters.join(","));
     if (workTypeFilter !== "all") params.set("workType", workTypeFilter);
     if (statusFilter !== "all") params.set("status", statusFilter);
     if (assignedToFilter !== "all") params.set("assignedTo", assignedToFilter);
@@ -136,7 +140,7 @@ export default function TicketsList() {
     
     // Use replace to avoid adding to browser history on every keystroke
     window.history.replaceState(null, "", newUrl);
-  }, [search, priorityFilter, typeFilter, workTypeFilter, statusFilter, assignedToFilter, showNeedsScheduling, searchString, hasPendingView]);
+  }, [search, priorityFilter, typeFilters, workTypeFilter, statusFilter, assignedToFilter, showNeedsScheduling, searchString, hasPendingView]);
 
   // Save scroll position before navigating away
   const saveScrollPosition = useCallback(() => {
@@ -254,7 +258,7 @@ export default function TicketsList() {
         (s) => s.ticketTypeId === invoiceType.id && s.name === "Pending Invoice"
       );
       isUpdatingFromUrl.current = true;
-      setTypeFilter(invoiceType.id);
+      setTypeFilters([invoiceType.id]);
       setStatusFilter(pendingStatus?.id || "all");
       setShowFilters(true);
       pendingInvoicesResolved.current = true;
@@ -280,20 +284,20 @@ export default function TicketsList() {
     let count = 0;
     if (search) count++;
     if (priorityFilter !== "all") count++;
-    if (typeFilter !== "all") count++;
+    if (typeFilters.length > 0) count++;
     if (workTypeFilter !== "all") count++;
     if (statusFilter !== "all") count++;
     if (assignedToFilter !== "all") count++;
     if (showNeedsScheduling) count++;
     return count;
-  }, [search, priorityFilter, typeFilter, workTypeFilter, statusFilter, assignedToFilter, showNeedsScheduling]);
+  }, [search, priorityFilter, typeFilters, workTypeFilter, statusFilter, assignedToFilter, showNeedsScheduling]);
 
   const filteredTickets = enrichedTickets.filter((ticket) => {
     const matchesSearch =
       ticket.title.toLowerCase().includes(search.toLowerCase()) ||
       ticket.customer?.name?.toLowerCase().includes(search.toLowerCase()) || false;
     const matchesPriority = priorityFilter === "all" || ticket.priority === priorityFilter;
-    const matchesType = typeFilter === "all" || ticket.ticketTypeId === typeFilter;
+    const matchesType = typeFilters.length === 0 || typeFilters.includes(ticket.ticketTypeId);
     const matchesWorkType = workTypeFilter === "all" || ticket.workType === workTypeFilter;
     const matchesStatus = statusFilter === "all" || ticket.currentStatusId === statusFilter;
     const matchesAssignedTo = assignedToFilter === "all" || ticket.assignedToId === assignedToFilter;
@@ -305,9 +309,9 @@ export default function TicketsList() {
     return matchesSearch && matchesPriority && matchesType && matchesWorkType && matchesStatus && matchesAssignedTo && matchesNeedsScheduling;
   });
   
-  // Get statuses for currently selected ticket type
-  const selectedTypeStatuses = typeFilter !== "all" 
-    ? allStatuses.filter((s: TicketTypeStatus) => s.ticketTypeId === typeFilter)
+  // Get statuses for currently selected ticket type (only when exactly one type is selected)
+  const selectedTypeStatuses = typeFilters.length === 1
+    ? allStatuses.filter((s: TicketTypeStatus) => s.ticketTypeId === typeFilters[0])
     : [];
 
   const openTickets = filteredTickets.filter(t => !t.completedAt);
@@ -316,7 +320,14 @@ export default function TicketsList() {
   // Reset completed page when filters change
   useEffect(() => {
     setCompletedPage(1);
-  }, [search, priorityFilter, typeFilter, workTypeFilter, statusFilter, assignedToFilter, showNeedsScheduling]);
+  }, [search, priorityFilter, typeFilters, workTypeFilter, statusFilter, assignedToFilter, showNeedsScheduling]);
+
+  // Reset statusFilter when type selection changes to 0 or 2+
+  useEffect(() => {
+    if (typeFilters.length !== 1) {
+      setStatusFilter("all");
+    }
+  }, [typeFilters]);
   
   // Count of tickets needing scheduling (for badge display) - ID-based matching
   const needsSchedulingCount = schedulingStatusId 
@@ -528,6 +539,34 @@ export default function TicketsList() {
         )}
       </div>
 
+      {/* Ticket type pill filters */}
+      {ticketTypes.length > 0 && (
+        <div className="flex gap-2 overflow-x-auto pb-1 scrollbar-none" data-testid="pill-filter-row">
+          {ticketTypes.map((tt) => {
+            const isActive = typeFilters.includes(tt.id);
+            return (
+              <Button
+                key={tt.id}
+                variant={isActive ? "default" : "outline"}
+                size="sm"
+                className="shrink-0"
+                style={isActive && tt.color ? { backgroundColor: tt.color, borderColor: tt.color } : undefined}
+                onClick={() => {
+                  setTypeFilters(prev =>
+                    prev.includes(tt.id)
+                      ? prev.filter(id => id !== tt.id)
+                      : [...prev, tt.id]
+                  );
+                }}
+                data-testid={`pill-type-${tt.id}`}
+              >
+                {tt.name}
+              </Button>
+            );
+          })}
+        </div>
+      )}
+
       {showFilters && (
         <div className="flex gap-2 flex-wrap animate-in slide-in-from-top-2 duration-200">
           <Select value={priorityFilter} onValueChange={setPriorityFilter}>
@@ -540,18 +579,6 @@ export default function TicketsList() {
               <SelectItem value="high">High</SelectItem>
               <SelectItem value="normal">Normal</SelectItem>
               <SelectItem value="low">Low</SelectItem>
-            </SelectContent>
-          </Select>
-
-          <Select value={typeFilter} onValueChange={(val) => { setTypeFilter(val); setStatusFilter("all"); }}>
-            <SelectTrigger className="w-[140px] h-10" data-testid="select-type-filter">
-              <SelectValue placeholder="Ticket Type" />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="all">All Types</SelectItem>
-              {ticketTypes.map(tt => (
-                <SelectItem key={tt.id} value={tt.id}>{tt.name}</SelectItem>
-              ))}
             </SelectContent>
           </Select>
 
@@ -570,8 +597,8 @@ export default function TicketsList() {
             </SelectContent>
           </Select>
           
-          {/* Status filter - only show when a ticket type is selected */}
-          {typeFilter !== "all" && selectedTypeStatuses.length > 0 && (
+          {/* Status filter - only show when exactly one ticket type pill is selected */}
+          {typeFilters.length === 1 && selectedTypeStatuses.length > 0 && (
             <Select value={statusFilter} onValueChange={setStatusFilter}>
               <SelectTrigger className="w-[160px] h-10" data-testid="select-status-filter">
                 <SelectValue placeholder="Status" />
