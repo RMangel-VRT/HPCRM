@@ -110,11 +110,13 @@ export interface IStorage {
   // Ticketing System
   getTicketTypes(companyId: string): Promise<TicketType[]>;
   getTicketTypeById(id: string, companyId: string): Promise<TicketType | undefined>;
+  getTicketTypesByIds(ids: string[], companyId: string): Promise<TicketType[]>;
   createTicketType(ticketType: InsertTicketType): Promise<TicketType>;
   updateTicketType(id: string, companyId: string, updates: Partial<InsertTicketType>): Promise<TicketType | undefined>;
   deleteTicketType(id: string, companyId: string): Promise<void>;
   
   getTicketTypeStatuses(ticketTypeId: string): Promise<TicketTypeStatus[]>;
+  getTicketTypeStatusesByTypeIds(typeIds: string[]): Promise<TicketTypeStatus[]>;
   getAllTicketTypeStatuses(companyId: string): Promise<TicketTypeStatus[]>;
   createTicketTypeStatus(status: InsertTicketTypeStatus): Promise<TicketTypeStatus>;
   updateTicketTypeStatus(id: string, updates: Partial<InsertTicketTypeStatus>): Promise<TicketTypeStatus | undefined>;
@@ -122,6 +124,7 @@ export interface IStorage {
   
   getTicketTypeFields(ticketTypeId: string): Promise<TicketTypeField[]>;
   getTicketTypeFieldsByStatus(statusId: string): Promise<TicketTypeField[]>;
+  getTicketTypeFieldsByStatuses(statusIds: string[]): Promise<TicketTypeField[]>;
   getTicketTypeFieldById(fieldId: string): Promise<TicketTypeField | undefined>;
   createTicketTypeField(field: InsertTicketTypeField): Promise<TicketTypeField>;
   updateTicketTypeField(id: string, updates: Partial<InsertTicketTypeField>): Promise<TicketTypeField | undefined>;
@@ -129,6 +132,7 @@ export interface IStorage {
   
   getTickets(companyId: string, filters?: { customerId?: string; contractId?: string; assignedToId?: string; status?: string; category?: TicketTypeCategory }): Promise<Ticket[]>;
   getTicketById(id: string, companyId: string): Promise<Ticket | undefined>;
+  getTicketsByIds(ids: string[], companyId: string): Promise<Ticket[]>;
   getTicketsByCustomerId(customerId: string, companyId: string): Promise<Ticket[]>;
   getTicketsByContractId(contractId: string, companyId: string): Promise<Ticket[]>;
   getTicketsByEquipmentId(equipmentId: string, companyId: string): Promise<Ticket[]>;
@@ -1416,6 +1420,12 @@ export class PgStorage implements IStorage {
     return result[0];
   }
 
+  async getTicketTypesByIds(ids: string[], companyId: string): Promise<TicketType[]> {
+    if (ids.length === 0) return [];
+    return await db.select().from(ticketTypes)
+      .where(and(inArray(ticketTypes.id, ids), eq(ticketTypes.companyId, companyId)));
+  }
+
   async createTicketType(insertTicketType: InsertTicketType): Promise<TicketType> {
     const result = await db.insert(ticketTypes).values([insertTicketType]).returning();
     return result[0];
@@ -1437,6 +1447,13 @@ export class PgStorage implements IStorage {
   async getTicketTypeStatuses(ticketTypeId: string): Promise<TicketTypeStatus[]> {
     return await db.select().from(ticketTypeStatuses)
       .where(eq(ticketTypeStatuses.ticketTypeId, ticketTypeId))
+      .orderBy(ticketTypeStatuses.displayOrder);
+  }
+
+  async getTicketTypeStatusesByTypeIds(typeIds: string[]): Promise<TicketTypeStatus[]> {
+    if (typeIds.length === 0) return [];
+    return await db.select().from(ticketTypeStatuses)
+      .where(inArray(ticketTypeStatuses.ticketTypeId, typeIds))
       .orderBy(ticketTypeStatuses.displayOrder);
   }
 
@@ -1475,6 +1492,13 @@ export class PgStorage implements IStorage {
   async getTicketTypeFieldsByStatus(statusId: string): Promise<TicketTypeField[]> {
     return await db.select().from(ticketTypeFields)
       .where(eq(ticketTypeFields.statusId, statusId))
+      .orderBy(ticketTypeFields.displayOrder);
+  }
+
+  async getTicketTypeFieldsByStatuses(statusIds: string[]): Promise<TicketTypeField[]> {
+    if (statusIds.length === 0) return [];
+    return await db.select().from(ticketTypeFields)
+      .where(inArray(ticketTypeFields.statusId, statusIds))
       .orderBy(ticketTypeFields.displayOrder);
   }
 
@@ -1525,6 +1549,12 @@ export class PgStorage implements IStorage {
       .where(and(eq(tickets.id, id), eq(tickets.companyId, companyId)))
       .limit(1);
     return result[0];
+  }
+
+  async getTicketsByIds(ids: string[], companyId: string): Promise<Ticket[]> {
+    if (ids.length === 0) return [];
+    return await db.select().from(tickets)
+      .where(and(inArray(tickets.id, ids), eq(tickets.companyId, companyId)));
   }
 
   async getTicketsByCustomerId(customerId: string, companyId: string): Promise<Ticket[]> {

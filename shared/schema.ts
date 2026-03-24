@@ -534,7 +534,9 @@ export const ticketTypeStatuses = pgTable("ticket_type_statuses", {
   color: text("color").default("#6b7280"),
   isFinal: text("is_final").notNull().default("false").$type<"true" | "false">(),
   createdAt: timestamp("created_at").notNull().defaultNow(),
-});
+}, (table) => ({
+  ticketTypeStatusesTypeIdIdx: index("ticket_type_statuses_ticket_type_id_idx").on(table.ticketTypeId),
+}));
 
 export const insertTicketTypeStatusSchema = createInsertSchema(ticketTypeStatuses).omit({
   id: true,
@@ -559,7 +561,9 @@ export const ticketTypeFields = pgTable("ticket_type_fields", {
   options: text("options").array().default(sql`ARRAY[]::text[]`),
   displayOrder: integer("display_order").notNull(),
   createdAt: timestamp("created_at").notNull().defaultNow(),
-});
+}, (table) => ({
+  ticketTypeFieldsStatusIdIdx: index("ticket_type_fields_status_id_idx").on(table.statusId),
+}));
 
 export const insertTicketTypeFieldSchema = createInsertSchema(ticketTypeFields).omit({
   id: true,
@@ -671,6 +675,7 @@ export const ticketFieldValues = pgTable("ticket_field_values", {
   capturedById: varchar("captured_by_id").notNull().references(() => users.id, { onDelete: "cascade" }),
 }, (table) => ({
   ticketFieldUnique: unique().on(table.ticketId, table.fieldId),
+  ticketFieldValuesTicketIdIdx: index("ticket_field_values_ticket_id_idx").on(table.ticketId),
 }));
 
 export const insertTicketFieldValueSchema = createInsertSchema(ticketFieldValues).omit({
@@ -690,7 +695,9 @@ export const ticketStatusHistory = pgTable("ticket_status_history", {
   changedById: varchar("changed_by_id").notNull().references(() => users.id, { onDelete: "cascade" }),
   notes: text("notes"),
   createdAt: timestamp("created_at").notNull().defaultNow(),
-});
+}, (table) => ({
+  ticketStatusHistoryTicketIdIdx: index("ticket_status_history_ticket_id_idx").on(table.ticketId),
+}));
 
 export const insertTicketStatusHistorySchema = createInsertSchema(ticketStatusHistory).omit({
   id: true,
@@ -708,7 +715,9 @@ export const ticketComments = pgTable("ticket_comments", {
   parentCommentId: varchar("parent_comment_id"),
   body: text("body").notNull(),
   createdAt: timestamp("created_at").notNull().defaultNow(),
-});
+}, (table) => ({
+  ticketCommentsTicketIdIdx: index("ticket_comments_ticket_id_idx").on(table.ticketId),
+}));
 
 export const insertTicketCommentSchema = createInsertSchema(ticketComments).omit({
   id: true,
@@ -767,6 +776,8 @@ export const ticketLinks = pgTable("ticket_links", {
   createdAt: timestamp("created_at").notNull().defaultNow(),
 }, (table) => ({
   uniqueLink: unique().on(table.sourceTicketId, table.targetTicketId, table.linkType),
+  ticketLinksSourceIdIdx: index("ticket_links_source_ticket_id_idx").on(table.sourceTicketId),
+  ticketLinksTargetIdIdx: index("ticket_links_target_ticket_id_idx").on(table.targetTicketId),
 }));
 
 export const insertTicketLinkSchema = createInsertSchema(ticketLinks).omit({
@@ -1002,7 +1013,9 @@ export const ticketNotifications = pgTable("ticket_notifications", {
   message: text("message").notNull(),
   isRead: boolean("is_read").notNull().default(false),
   createdAt: timestamp("created_at").notNull().defaultNow(),
-});
+}, (table) => ({
+  ticketNotificationsRecipientCompanyIdx: index("ticket_notifications_recipient_company_idx").on(table.recipientId, table.companyId),
+}));
 
 export const insertTicketNotificationSchema = createInsertSchema(ticketNotifications).omit({
   id: true,

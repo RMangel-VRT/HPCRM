@@ -4064,14 +4064,16 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
 
     const user = req.user as UserWithContext;
-    const [tickets, allStatuses, allCustomers] = await Promise.all([
+    const [tickets, allStatuses] = await Promise.all([
       storage.getTickets(user.activeCompanyId, { assignedToId: user.id }),
       storage.getAllTicketTypeStatuses(user.activeCompanyId),
-      storage.getCustomers(user.activeCompanyId),
     ]);
 
     const statusMap = new Map(allStatuses.map(s => [s.id, s]));
-    const customerMap = new Map(allCustomers.map(c => [c.id, c]));
+
+    // Only fetch customers referenced by this user's tickets
+    const distinctCustomerIds = Array.from(new Set(tickets.map(t => t.customerId).filter(Boolean) as string[]));
+    const customerMap = await storage.getCustomersByIds(distinctCustomerIds, user.activeCompanyId);
 
     const enrichedTickets = tickets.map((ticket) => {
       const currentStatus = ticket.currentStatusId ? statusMap.get(ticket.currentStatusId) : undefined;
@@ -5624,58 +5626,65 @@ export async function registerRoutes(app: Express): Promise<Server> {
       ticket.customerId ? storage.getCustomerById(ticket.customerId, user.activeCompanyId) : null,
     ]);
 
-    // Get fields for each status
-    const statusesWithFields = await Promise.all(
-      statuses.map(async (status) => ({
-        ...status,
-        fields: await storage.getTicketTypeFieldsByStatus(status.id),
-      }))
+    // Fetch all fields for all statuses in a single batch query
+    const statusIds = statuses.map(s => s.id);
+    const [allStatusFields, assignedUser, delegatedByUser, contract, contractServices, links] = await Promise.all([
+      storage.getTicketTypeFieldsByStatuses(statusIds),
+      ticket.assignedToId ? storage.getUserById(ticket.assignedToId) : Promise.resolve(null),
+      ticket.delegatedById ? storage.getUserById(ticket.delegatedById) : Promise.resolve(null),
+      ticket.contractId ? storage.getContractById(ticket.contractId, user.activeCompanyId) : Promise.resolve(null),
+      ticket.contractId ? storage.getContractServices(ticket.contractId, user.activeCompanyId) : Promise.resolve([]),
+      storage.getTicketLinks(ticket.id),
+    ]);
+
+    // Group fields by statusId for O(1) lookup
+    const fieldsByStatusId = new Map<string, typeof allStatusFields>();
+    for (const field of allStatusFields) {
+      const list = fieldsByStatusId.get(field.statusId ?? "") ?? [];
+      list.push(field);
+      fieldsByStatusId.set(field.statusId ?? "", list);
+    }
+    const statusesWithFields = statuses.map(status => ({
+      ...status,
+      fields: fieldsByStatusId.get(status.id) ?? [],
+    }));
+
+    // Batch-fetch all linked tickets in a single query
+    const linkedIds = links.map(link =>
+      link.sourceTicketId === ticket.id ? link.targetTicketId : link.sourceTicketId
     );
+    const linkedTicketsRows = await storage.getTicketsByIds(linkedIds, user.activeCompanyId);
+    const linkedTicketMap = new Map(linkedTicketsRows.map(t => [t.id, t]));
 
-    // Get assigned user info if assigned
-    let assignedUser = null;
-    if (ticket.assignedToId) {
-      assignedUser = await storage.getUserById(ticket.assignedToId);
+    // Batch-fetch all ticket types and statuses for linked tickets
+    const linkedTypeIds = Array.from(new Set(linkedTicketsRows.map(t => t.ticketTypeId)));
+    const [linkedTypesRows, linkedStatusesRows] = await Promise.all([
+      storage.getTicketTypesByIds(linkedTypeIds, user.activeCompanyId),
+      storage.getTicketTypeStatusesByTypeIds(linkedTypeIds),
+    ]);
+    const linkedTypeMap = new Map(linkedTypesRows.map(t => [t.id, t]));
+    const linkedStatusesByTypeId = new Map<string, typeof linkedStatusesRows>();
+    for (const s of linkedStatusesRows) {
+      const list = linkedStatusesByTypeId.get(s.ticketTypeId) ?? [];
+      list.push(s);
+      linkedStatusesByTypeId.set(s.ticketTypeId, list);
     }
 
-    // Get delegator user info if delegated
-    let delegatedByUser = null;
-    if (ticket.delegatedById) {
-      delegatedByUser = await storage.getUserById(ticket.delegatedById);
-    }
-
-    // Get contract info and services if linked
-    let contract = null;
-    let contractServices: any[] = [];
-    if (ticket.contractId) {
-      contract = await storage.getContractById(ticket.contractId, user.activeCompanyId);
-      contractServices = await storage.getContractServices(ticket.contractId, user.activeCompanyId);
-    }
-
-    // Get linked tickets
-    const links = await storage.getTicketLinks(ticket.id);
-    const linkedTickets = await Promise.all(
-      links.map(async (link) => {
-        const linkedId = link.sourceTicketId === ticket.id 
-          ? link.targetTicketId 
-          : link.sourceTicketId;
-        const linkedTicket = await storage.getTicketById(linkedId, user.activeCompanyId);
-        const linkedType = linkedTicket 
-          ? await storage.getTicketTypeById(linkedTicket.ticketTypeId, user.activeCompanyId)
-          : null;
-        const linkedStatus = linkedTicket 
-          ? await storage.getTicketTypeStatuses(linkedTicket.ticketTypeId)
-              .then(statuses => statuses.find(s => s.id === linkedTicket.currentStatusId))
-          : null;
-        return {
-          link,
-          ticket: linkedTicket,
-          ticketType: linkedType,
-          currentStatus: linkedStatus,
-          relationship: link.sourceTicketId === ticket.id ? "target" : "source",
-        };
-      })
-    );
+    const linkedTickets = links.map((link) => {
+      const linkedId = link.sourceTicketId === ticket.id ? link.targetTicketId : link.sourceTicketId;
+      const linkedTicket = linkedTicketMap.get(linkedId) ?? null;
+      const linkedType = linkedTicket ? linkedTypeMap.get(linkedTicket.ticketTypeId) ?? null : null;
+      const linkedStatus = linkedTicket
+        ? (linkedStatusesByTypeId.get(linkedTicket.ticketTypeId) ?? []).find(s => s.id === linkedTicket.currentStatusId) ?? null
+        : null;
+      return {
+        link,
+        ticket: linkedTicket,
+        ticketType: linkedType,
+        currentStatus: linkedStatus,
+        relationship: link.sourceTicketId === ticket.id ? "target" : "source",
+      };
+    });
 
     res.json({
       ticket,
