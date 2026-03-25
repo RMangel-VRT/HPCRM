@@ -28,7 +28,7 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
-import { Plus, Search, ChevronRight, ChevronLeft, ChevronDown, ChevronUp, Clock, User as UserIcon, MapPin, CalendarDays, Filter, Loader2, Trash2, X, Layers, Check } from "lucide-react";
+import { Plus, Search, ChevronRight, ChevronLeft, ChevronDown, ChevronUp, Clock, User as UserIcon, MapPin, CalendarDays, Filter, Loader2, Trash2, X, Layers, Check, List, Columns } from "lucide-react";
 import { Link, useSearch } from "wouter";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import type { Ticket, TicketType, TicketTypeStatus, Customer, WorkType, User as UserType, CompanyUser } from "@shared/schema";
@@ -76,6 +76,12 @@ export default function TicketsList() {
   const [showFilters, setShowFilters] = useState(false);
   const [showNeedsScheduling, setShowNeedsScheduling] = useState(urlParams.get("needsScheduling") === "true");
   
+  // View mode: list | kanban-type | kanban-user
+  type ViewMode = "list" | "kanban-type" | "kanban-user";
+  const rawView = urlParams.get("view");
+  const initialViewMode: ViewMode = (rawView === "kanban-type" || rawView === "kanban-user") ? rawView : "list";
+  const [viewMode, setViewMode] = useState<ViewMode>(initialViewMode);
+  
   // Collapsible section states
   const [openSectionCollapsed, setOpenSectionCollapsed] = useState(false);
   const [completedSectionCollapsed, setCompletedSectionCollapsed] = useState(false);
@@ -96,6 +102,8 @@ export default function TicketsList() {
     setStatusFilter(urlParams.get("status") || "all");
     setAssignedToFilter(urlParams.get("assignedTo") || "all");
     setShowNeedsScheduling(urlParams.get("needsScheduling") === "true");
+    const rv = urlParams.get("view");
+    setViewMode((rv === "kanban-type" || rv === "kanban-user") ? rv : "list");
   }, [searchString, urlParams]);
   const [completedPage, setCompletedPage] = useState(1);
   const completedPerPage = 10;
@@ -128,6 +136,7 @@ export default function TicketsList() {
     if (statusFilter !== "all") params.set("status", statusFilter);
     if (assignedToFilter !== "all") params.set("assignedTo", assignedToFilter);
     if (showNeedsScheduling) params.set("needsScheduling", "true");
+    if (viewMode !== "list") params.set("view", viewMode);
     
     const queryString = params.toString();
     const currentQuery = searchString.startsWith("?") ? searchString.slice(1) : searchString;
@@ -140,7 +149,7 @@ export default function TicketsList() {
     
     // Use replace to avoid adding to browser history on every keystroke
     window.history.replaceState(null, "", newUrl);
-  }, [search, priorityFilter, typeFilters, workTypeFilter, statusFilter, assignedToFilter, showNeedsScheduling, searchString, hasPendingView]);
+  }, [search, priorityFilter, typeFilters, workTypeFilter, statusFilter, assignedToFilter, showNeedsScheduling, viewMode, searchString, hasPendingView]);
 
   // Save scroll position before navigating away
   const saveScrollPosition = useCallback(() => {
@@ -494,6 +503,40 @@ export default function TicketsList() {
         </div>
       </div>
 
+      {/* View mode toggle */}
+      <div className="flex items-center gap-1 border rounded-md p-0.5 bg-muted/30 w-fit" data-testid="view-mode-toggle">
+        <Button
+          variant={viewMode === "list" ? "secondary" : "ghost"}
+          size="sm"
+          className="gap-1.5"
+          onClick={() => setViewMode("list")}
+          data-testid="button-view-list"
+        >
+          <List className="w-3.5 h-3.5" />
+          <span className="hidden sm:inline">List</span>
+        </Button>
+        <Button
+          variant={viewMode === "kanban-type" ? "secondary" : "ghost"}
+          size="sm"
+          className="gap-1.5"
+          onClick={() => setViewMode("kanban-type")}
+          data-testid="button-view-kanban-type"
+        >
+          <Columns className="w-3.5 h-3.5" />
+          <span className="hidden sm:inline">By Type</span>
+        </Button>
+        <Button
+          variant={viewMode === "kanban-user" ? "secondary" : "ghost"}
+          size="sm"
+          className="gap-1.5"
+          onClick={() => setViewMode("kanban-user")}
+          data-testid="button-view-kanban-user"
+        >
+          <UserIcon className="w-3.5 h-3.5" />
+          <span className="hidden sm:inline">By User</span>
+        </Button>
+      </div>
+
       <div className="flex gap-2 items-center">
         <div className="relative flex-1">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
@@ -627,7 +670,28 @@ export default function TicketsList() {
         </div>
       )}
 
-      {filteredTickets.length === 0 ? (
+      {viewMode === "kanban-type" && (
+        <KanbanByType
+          openTickets={openTickets}
+          ticketTypes={ticketTypes}
+          allStatuses={allStatuses}
+          usersMap={usersMap}
+          schedulingStatusId={schedulingStatusId}
+          onNavigate={saveScrollPosition}
+        />
+      )}
+
+      {viewMode === "kanban-user" && (
+        <KanbanByUser
+          openTickets={openTickets}
+          usersMap={usersMap}
+          allStatuses={allStatuses}
+          schedulingStatusId={schedulingStatusId}
+          onNavigate={saveScrollPosition}
+        />
+      )}
+
+      {viewMode === "list" && filteredTickets.length === 0 ? (
         <Card className="mt-8">
           <CardContent className="flex flex-col items-center justify-center py-12 text-center">
             <div className="w-16 h-16 rounded-full bg-muted flex items-center justify-center mb-4">
@@ -651,7 +715,7 @@ export default function TicketsList() {
             )}
           </CardContent>
         </Card>
-      ) : (
+      ) : viewMode === "list" ? (
         <div className="space-y-4">
           {/* Selection mode header */}
           {selectionMode && (
@@ -797,7 +861,7 @@ export default function TicketsList() {
             );
           })()}
         </div>
-      )}
+      ) : null}
 
       {/* Batch Ticket Dialogs */}
       <BatchTicketDialog 
@@ -846,6 +910,236 @@ export default function TicketsList() {
     </div>
   );
 }
+
+// ─── Kanban Components ────────────────────────────────────────────────────────
+
+interface KanbanCardProps {
+  ticket: TicketWithDetails;
+  usersMap: Map<string, UserType>;
+  allStatuses: TicketTypeStatus[];
+  schedulingStatusId?: string | null;
+  onNavigate?: () => void;
+}
+
+function KanbanCard({ ticket, usersMap, allStatuses, schedulingStatusId, onNavigate }: KanbanCardProps) {
+  const barColor = ticket.ticketType?.color || "#6b7280";
+  const needsScheduling = schedulingStatusId && ticket.currentStatusId === schedulingStatusId;
+  const currentStatus = allStatuses.find(s => s.id === ticket.currentStatusId);
+
+  return (
+    <Link href={`/dashboard/tickets/${ticket.id}`} onClick={() => onNavigate?.()}>
+      <Card
+        className={`hover-elevate active-elevate-2 cursor-pointer mb-2 ${needsScheduling ? "ring-2 ring-pink-500 dark:ring-pink-400" : ""}`}
+        data-testid={`kanban-card-ticket-${ticket.id}`}
+      >
+        <CardContent className="p-3">
+          <div className="flex items-start gap-2">
+            <div className="w-1 self-stretch rounded-full shrink-0" style={{ backgroundColor: barColor }} />
+            <div className="flex-1 min-w-0">
+              {/* Type badge + ticket ID */}
+              <div className="flex items-center justify-between gap-1 mb-1">
+                {ticket.ticketType && (
+                  <span className="text-xs font-semibold" style={{ color: barColor }} data-testid={`kanban-tickettype-${ticket.id}`}>
+                    {ticket.ticketType.name}
+                  </span>
+                )}
+                <span className="font-mono text-xs text-muted-foreground shrink-0" data-testid={`kanban-ticket-id-${ticket.id}`}>
+                  #{ticket.id.slice(0, 8)}
+                </span>
+              </div>
+              {/* Title */}
+              <p className="text-sm font-medium leading-snug line-clamp-2 mb-1" data-testid={`kanban-title-${ticket.id}`}>
+                {ticket.title}
+              </p>
+              {/* Customer name */}
+              {ticket.customer && (
+                <div className="flex items-center gap-1 text-xs text-muted-foreground mb-1.5">
+                  <MapPin className="w-3 h-3 shrink-0" />
+                  <span className="truncate" data-testid={`kanban-customer-${ticket.id}`}>{ticket.customer.name}</span>
+                </div>
+              )}
+              {/* Status + assignee row */}
+              <div className="flex items-center justify-between gap-2">
+                {currentStatus && (
+                  <Badge
+                    variant="outline"
+                    className="text-xs truncate max-w-[120px]"
+                    style={{ borderColor: currentStatus.color || undefined }}
+                    data-testid={`kanban-status-${ticket.id}`}
+                  >
+                    {currentStatus.name}
+                  </Badge>
+                )}
+                {ticket.assignedToId && (
+                  <span className="text-xs text-muted-foreground truncate max-w-[80px]" data-testid={`kanban-assignee-${ticket.id}`}>
+                    {usersMap.get(ticket.assignedToId)?.name || usersMap.get(ticket.assignedToId)?.email?.split("@")[0] || ""}
+                  </span>
+                )}
+              </div>
+            </div>
+          </div>
+        </CardContent>
+      </Card>
+    </Link>
+  );
+}
+
+interface KanbanColumnProps {
+  title: string;
+  color?: string;
+  tickets: TicketWithDetails[];
+  usersMap: Map<string, UserType>;
+  allStatuses: TicketTypeStatus[];
+  schedulingStatusId?: string | null;
+  onNavigate?: () => void;
+  testId?: string;
+}
+
+function KanbanColumn({ title, color, tickets, usersMap, allStatuses, schedulingStatusId, onNavigate, testId }: KanbanColumnProps) {
+  return (
+    <div
+      className="flex flex-col shrink-0 w-72 bg-muted/30 rounded-md border"
+      style={{ height: "calc(100vh - 280px)", minHeight: "300px" }}
+      data-testid={testId}
+    >
+      {/* Column header */}
+      <div className="flex items-center justify-between gap-2 px-3 py-2.5 border-b shrink-0">
+        <div className="flex items-center gap-2 min-w-0">
+          {color && <div className="w-2.5 h-2.5 rounded-full shrink-0" style={{ backgroundColor: color }} />}
+          <span className="text-sm font-semibold truncate">{title}</span>
+        </div>
+        <Badge variant="secondary" className="text-xs shrink-0">{tickets.length}</Badge>
+      </div>
+      {/* Scrollable card stack */}
+      <div className="flex-1 overflow-y-auto p-2">
+        {tickets.length === 0 ? (
+          <div className="flex items-center justify-center h-16 text-xs text-muted-foreground">
+            No open tickets
+          </div>
+        ) : (
+          tickets.map(ticket => (
+            <KanbanCard
+              key={ticket.id}
+              ticket={ticket}
+              usersMap={usersMap}
+              allStatuses={allStatuses}
+              schedulingStatusId={schedulingStatusId}
+              onNavigate={onNavigate}
+            />
+          ))
+        )}
+      </div>
+    </div>
+  );
+}
+
+interface KanbanByTypeProps {
+  openTickets: TicketWithDetails[];
+  ticketTypes: TicketType[];
+  allStatuses: TicketTypeStatus[];
+  usersMap: Map<string, UserType>;
+  schedulingStatusId?: string | null;
+  onNavigate?: () => void;
+}
+
+function KanbanByType({ openTickets, ticketTypes, allStatuses, usersMap, schedulingStatusId, onNavigate }: KanbanByTypeProps) {
+  const columns = ticketTypes.map(tt => ({
+    id: tt.id,
+    title: tt.name,
+    color: tt.color || undefined,
+    tickets: openTickets.filter(t => t.ticketTypeId === tt.id),
+  }));
+
+  if (columns.length === 0) {
+    return (
+      <div className="flex items-center justify-center py-16 text-muted-foreground text-sm">
+        No ticket types configured.
+      </div>
+    );
+  }
+
+  return (
+    <div className="flex gap-3 overflow-x-auto pb-4" data-testid="kanban-by-type">
+      {columns.map(col => (
+        <KanbanColumn
+          key={col.id}
+          title={col.title}
+          color={col.color}
+          tickets={col.tickets}
+          usersMap={usersMap}
+          allStatuses={allStatuses}
+          schedulingStatusId={schedulingStatusId}
+          onNavigate={onNavigate}
+          testId={`kanban-col-type-${col.id}`}
+        />
+      ))}
+    </div>
+  );
+}
+
+interface KanbanByUserProps {
+  openTickets: TicketWithDetails[];
+  usersMap: Map<string, UserType>;
+  allStatuses: TicketTypeStatus[];
+  schedulingStatusId?: string | null;
+  onNavigate?: () => void;
+}
+
+function KanbanByUser({ openTickets, usersMap, allStatuses, schedulingStatusId, onNavigate }: KanbanByUserProps) {
+  const unassignedTickets = openTickets.filter(t => !t.assignedToId);
+  
+  const assignedUserIds = useMemo(() => {
+    const ids = new Set<string>();
+    openTickets.forEach(t => { if (t.assignedToId) ids.add(t.assignedToId); });
+    return Array.from(ids);
+  }, [openTickets]);
+
+  const userColumns = assignedUserIds.map(userId => {
+    const user = usersMap.get(userId);
+    return {
+      userId,
+      title: user?.name || user?.email?.split("@")[0] || "Unknown",
+      tickets: openTickets.filter(t => t.assignedToId === userId),
+    };
+  }).sort((a, b) => a.title.localeCompare(b.title));
+
+  if (openTickets.length === 0) {
+    return (
+      <div className="flex items-center justify-center py-16 text-muted-foreground text-sm">
+        No open tickets.
+      </div>
+    );
+  }
+
+  return (
+    <div className="flex gap-3 overflow-x-auto pb-4" data-testid="kanban-by-user">
+      {/* Unassigned column always first */}
+      <KanbanColumn
+        title="Unassigned"
+        tickets={unassignedTickets}
+        usersMap={usersMap}
+        allStatuses={allStatuses}
+        schedulingStatusId={schedulingStatusId}
+        onNavigate={onNavigate}
+        testId="kanban-col-unassigned"
+      />
+      {userColumns.map(col => (
+        <KanbanColumn
+          key={col.userId}
+          title={col.title}
+          tickets={col.tickets}
+          usersMap={usersMap}
+          allStatuses={allStatuses}
+          schedulingStatusId={schedulingStatusId}
+          onNavigate={onNavigate}
+          testId={`kanban-col-user-${col.userId}`}
+        />
+      ))}
+    </div>
+  );
+}
+
+// ─── List TicketCard ───────────────────────────────────────────────────────────
 
 interface TicketCardProps {
   ticket: TicketWithDetails;
