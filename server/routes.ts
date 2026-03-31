@@ -1477,6 +1477,37 @@ export async function migrateCommunicationTemplatesSchema(): Promise<void> {
     await db.execute(sql`ALTER TABLE communication_templates ADD COLUMN IF NOT EXISTS description text`);
     await db.execute(sql`ALTER TABLE communication_templates ADD COLUMN IF NOT EXISTS is_active boolean NOT NULL DEFAULT true`);
     await db.execute(sql`ALTER TABLE communication_templates ADD COLUMN IF NOT EXISTS default_communication_type text`);
+    await db.execute(sql`ALTER TABLE communication_templates ADD COLUMN IF NOT EXISTS created_by_id varchar REFERENCES users(id) ON DELETE SET NULL`);
+
+    // For existing communications installations: add threading columns
+    await db.execute(sql`ALTER TABLE communications ADD COLUMN IF NOT EXISTS template_id varchar REFERENCES communication_templates(id) ON DELETE SET NULL`);
+    await db.execute(sql`ALTER TABLE communications ADD COLUMN IF NOT EXISTS thread_id varchar REFERENCES communication_threads(id) ON DELETE SET NULL`);
+    await db.execute(sql`ALTER TABLE communications ADD COLUMN IF NOT EXISTS in_reply_to varchar`);
+    await db.execute(sql`ALTER TABLE communications ADD COLUMN IF NOT EXISTS parent_communication_id varchar`);
+    await db.execute(sql`ALTER TABLE communications ADD COLUMN IF NOT EXISTS direction text NOT NULL DEFAULT 'outbound'`).catch(() => {});
+    await db.execute(sql`ALTER TABLE communications ADD COLUMN IF NOT EXISTS internal_notes text`);
+    await db.execute(sql`ALTER TABLE communications ADD COLUMN IF NOT EXISTS scheduled_for timestamp`);
+    await db.execute(sql`ALTER TABLE communications ADD COLUMN IF NOT EXISTS follow_up_due_at timestamp`);
+    await db.execute(sql`ALTER TABLE communications ADD COLUMN IF NOT EXISTS follow_up_status text NOT NULL DEFAULT 'none'`).catch(() => {});
+
+    // Rename communication_links columns if old names exist
+    await db.execute(sql`
+      DO $$ BEGIN
+        ALTER TABLE communication_links RENAME COLUMN linked_entity_type TO linked_type;
+      EXCEPTION WHEN undefined_column THEN null; END $$
+    `);
+    await db.execute(sql`
+      DO $$ BEGIN
+        ALTER TABLE communication_links RENAME COLUMN linked_entity_id TO linked_id;
+      EXCEPTION WHEN undefined_column THEN null; END $$
+    `);
+
+    // Rename communication_threads subject column if old name exists
+    await db.execute(sql`
+      DO $$ BEGIN
+        ALTER TABLE communication_threads RENAME COLUMN subject TO subject_root;
+      EXCEPTION WHEN undefined_column THEN null; END $$
+    `);
 
     console.log("Communications tables and schema migration complete");
   } catch (error) {
