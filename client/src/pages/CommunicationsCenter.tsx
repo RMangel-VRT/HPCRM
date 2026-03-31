@@ -3,7 +3,7 @@ import { useQuery, useMutation } from "@tanstack/react-query";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
-import { useLocation } from "wouter";
+import { useSearch } from "wouter";
 import { format, formatDistanceToNow } from "date-fns";
 import { queryClient, apiRequest } from "@/lib/queryClient";
 import { useAuth } from "@/hooks/use-auth";
@@ -2003,13 +2003,28 @@ function TemplateManager() {
 export default function CommunicationsCenter() {
   const { toast } = useToast();
   const permissions = useCommPermissions();
-  const [sectionFilter, setSectionFilter] = useState<SectionFilter>("all");
+  const searchString = useSearch();
+
+  // Initialize sectionFilter from the ?view= URL query param
+  const initialView = useMemo(() => {
+    const params = new URLSearchParams(searchString);
+    return resolveViewParam(params.get("view") ?? undefined);
+  }, []);
+
+  const [sectionFilter, setSectionFilter] = useState<SectionFilter>(initialView);
   const [typeFilter, setTypeFilter] = useState<string>("all");
   const [statusFilter, setStatusFilter] = useState<string>("all");
   const [customerFilter, setCustomerFilter] = useState<string>("all");
   const [search, setSearch] = useState("");
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [validationErrors, setValidationErrors] = useState<string[]>([]);
+
+  // Keep sectionFilter in sync when the URL query param changes (e.g., clicking dashboard widgets)
+  useEffect(() => {
+    const params = new URLSearchParams(searchString);
+    const view = resolveViewParam(params.get("view") ?? undefined);
+    setSectionFilter(view);
+  }, [searchString]);
 
   useSetBreadcrumbs([{ label: "Communications" }], []);
 
