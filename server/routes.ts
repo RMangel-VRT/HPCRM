@@ -1586,6 +1586,27 @@ export async function migrateCommunicationTemplatesSchema(): Promise<void> {
     await db.execute(sql`ALTER TABLE communications ADD COLUMN IF NOT EXISTS direction text NOT NULL DEFAULT 'outbound'`);
     await db.execute(sql`ALTER TABLE communications ADD COLUMN IF NOT EXISTS internal_notes text`);
     await db.execute(sql`ALTER TABLE communication_templates ADD COLUMN IF NOT EXISTS created_by_id varchar`);
+    await db.execute(sql`ALTER TABLE communication_templates ADD COLUMN IF NOT EXISTS is_archived boolean NOT NULL DEFAULT false`).catch(() => {});
+
+    // Create communication_audit_log table if it doesn't exist (Slice 10)
+    await db.execute(sql`
+      CREATE TABLE IF NOT EXISTS "communication_audit_log" (
+        "id" varchar PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
+        "company_id" varchar NOT NULL,
+        "communication_id" varchar,
+        "template_id" varchar,
+        "action_type" text NOT NULL,
+        "action_by_user_id" varchar,
+        "action_details" jsonb,
+        "created_at" timestamp DEFAULT now() NOT NULL
+      )
+    `);
+    await db.execute(sql`
+      DO $$ BEGIN
+        ALTER TABLE communication_audit_log ADD CONSTRAINT communication_audit_log_company_id_fk
+          FOREIGN KEY (company_id) REFERENCES companies(id) ON DELETE cascade;
+      EXCEPTION WHEN duplicate_object THEN null; END $$
+    `);
 
     // Add parent_communication_id FK constraint if missing (idempotent)
     await db.execute(sql`
@@ -11176,7 +11197,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.get("/api/communications/templates", async (req, res) => {
     if (!req.isAuthenticated()) return res.status(401).send("Not authenticated");
     const user = req.user as UserWithContext;
-    if (!commRoles.includes(user.activeRole)) return res.status(403).send("Insufficient permissions");
+    if (!COMM_VIEW_ROLES_SET.includes(user.activeRole)) return res.status(403).send("Insufficient permissions");
     const templates = await storage.getCommunicationTemplates(user.activeCompanyId);
     res.json(templates);
   });
@@ -11184,7 +11205,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.post("/api/communications/templates", async (req, res) => {
     if (!req.isAuthenticated()) return res.status(401).send("Not authenticated");
     const user = req.user as UserWithContext;
-    if (!commRoles.includes(user.activeRole)) return res.status(403).send("Insufficient permissions");
+    if (!COMM_VIEW_ROLES_SET.includes(user.activeRole)) return res.status(403).send("Insufficient permissions");
     const { insertCommunicationTemplateSchema } = await import("@shared/schema");
     const parsed = insertCommunicationTemplateSchema.safeParse({ ...req.body, companyId: user.activeCompanyId, createdById: user.id });
     if (!parsed.success) return res.status(400).json({ error: parsed.error });
@@ -11195,7 +11216,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.get("/api/communications/stats", async (req, res) => {
     if (!req.isAuthenticated()) return res.status(401).send("Not authenticated");
     const user = req.user as UserWithContext;
-    if (!commRoles.includes(user.activeRole)) return res.status(403).send("Insufficient permissions");
+    if (!COMM_VIEW_ROLES_SET.includes(user.activeRole)) return res.status(403).send("Insufficient permissions");
     const stats = await storage.getCommunicationStats(user.activeCompanyId);
     res.json(stats);
   });
@@ -11212,7 +11233,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // POST /api/communications — create / send / schedule a communication
   app.post("/api/communications", requireCommPermission("send"), async (req, res) => {
     const user = req.user as UserWithContext;
-    const result = insertCommunicationSchema.safeParse(req.body);
+    const result = insertCommunicationSchema.safeParse({
+      ...req.body,
+      companyId: user.activeCompanyId,
+      sentById: user.id,
+    });
     if (!result.success) {
       return res.status(400).json({ error: result.error.message });
     }
@@ -11299,7 +11324,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.get("/api/communication-templates", async (req, res) => {
     if (!req.isAuthenticated()) return res.status(401).send("Unauthorized");
     const user = req.user as UserWithContext;
-    if (!commRoles.includes(user.activeRole)) return res.status(403).send("Insufficient permissions");
+    if (!COMM_VIEW_ROLES_SET.includes(user.activeRole)) return res.status(403).send("Insufficient permissions");
     const templates = await storage.getCommunicationTemplates(user.activeCompanyId);
     res.json(templates);
   });
@@ -11308,7 +11333,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.post("/api/communication-templates", async (req, res) => {
     if (!req.isAuthenticated()) return res.status(401).send("Unauthorized");
     const user = req.user as UserWithContext;
-    if (!commRoles.includes(user.activeRole)) return res.status(403).send("Insufficient permissions");
+    if (!COMM_VIEW_ROLES_SET.includes(user.activeRole)) return res.status(403).send("Insufficient permissions");
     const { insertCommunicationTemplateSchema } = await import("@shared/schema");
     const parsed = insertCommunicationTemplateSchema.safeParse({ ...req.body, companyId: user.activeCompanyId, createdById: user.id });
     if (!parsed.success) return res.status(400).json({ error: parsed.error.flatten() });
@@ -11320,7 +11345,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.get("/api/communication-threads", async (req, res) => {
     if (!req.isAuthenticated()) return res.status(401).send("Unauthorized");
     const user = req.user as UserWithContext;
-    if (!commRoles.includes(user.activeRole)) return res.status(403).send("Insufficient permissions");
+    if (!COMM_VIEW_ROLES_SET.includes(user.activeRole)) return res.status(403).send("Insufficient permissions");
     const { customerId } = req.query;
     const threads = await storage.getCommunicationThreads(user.activeCompanyId, {
       customerId: customerId as string | undefined,
@@ -11332,7 +11357,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.post("/api/communication-threads", async (req, res) => {
     if (!req.isAuthenticated()) return res.status(401).send("Unauthorized");
     const user = req.user as UserWithContext;
-    if (!commRoles.includes(user.activeRole)) return res.status(403).send("Insufficient permissions");
+    if (!COMM_VIEW_ROLES_SET.includes(user.activeRole)) return res.status(403).send("Insufficient permissions");
     const { insertCommunicationThreadSchema } = await import("@shared/schema");
     const parsed = insertCommunicationThreadSchema.safeParse({ ...req.body, companyId: user.activeCompanyId });
     if (!parsed.success) return res.status(400).json({ error: parsed.error.flatten() });
@@ -11344,7 +11369,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.get("/api/communication-threads/:id/messages", async (req, res) => {
     if (!req.isAuthenticated()) return res.status(401).send("Unauthorized");
     const user = req.user as UserWithContext;
-    if (!commRoles.includes(user.activeRole)) return res.status(403).send("Insufficient permissions");
+    if (!COMM_VIEW_ROLES_SET.includes(user.activeRole)) return res.status(403).send("Insufficient permissions");
     const messages = await storage.getThreadMessages(req.params.id, user.activeCompanyId);
     res.json(messages);
   });
@@ -11352,7 +11377,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.get("/api/communication-templates", async (req, res) => {
     if (!req.isAuthenticated()) return res.status(401).send("Not authenticated");
     const user = req.user as UserWithContext;
-    if (!commRoles.includes(user.activeRole)) return res.status(403).send("Insufficient permissions");
+    if (!COMM_VIEW_ROLES_SET.includes(user.activeRole)) return res.status(403).send("Insufficient permissions");
     const includeInactive = req.query.includeInactive === "true";
     const items = await storage.getCommunicationTemplates(user.activeCompanyId, includeInactive);
     res.json(items);
@@ -11361,7 +11386,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.get("/api/communication-templates/:id", async (req, res) => {
     if (!req.isAuthenticated()) return res.status(401).send("Not authenticated");
     const user = req.user as UserWithContext;
-    if (!commRoles.includes(user.activeRole)) return res.status(403).send("Insufficient permissions");
+    if (!COMM_VIEW_ROLES_SET.includes(user.activeRole)) return res.status(403).send("Insufficient permissions");
     const item = await storage.getCommunicationTemplateById(req.params.id, user.activeCompanyId);
     if (!item) return res.status(404).json({ error: "Not found" });
     res.json(item);
@@ -11370,7 +11395,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.post("/api/communication-templates", async (req, res) => {
     if (!req.isAuthenticated()) return res.status(401).send("Not authenticated");
     const user = req.user as UserWithContext;
-    if (!commRoles.includes(user.activeRole)) return res.status(403).send("Insufficient permissions");
+    if (!COMM_VIEW_ROLES_SET.includes(user.activeRole)) return res.status(403).send("Insufficient permissions");
     const parsed = insertCommunicationTemplateSchema.safeParse({ ...req.body, companyId: user.activeCompanyId });
     if (!parsed.success) return res.status(400).json({ error: parsed.error.flatten() });
     const item = await storage.createCommunicationTemplate(parsed.data);
@@ -11380,7 +11405,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.patch("/api/communication-templates/:id", async (req, res) => {
     if (!req.isAuthenticated()) return res.status(401).send("Not authenticated");
     const user = req.user as UserWithContext;
-    if (!commRoles.includes(user.activeRole)) return res.status(403).send("Insufficient permissions");
+    if (!COMM_VIEW_ROLES_SET.includes(user.activeRole)) return res.status(403).send("Insufficient permissions");
     const parsed = insertCommunicationTemplateSchema.partial().safeParse(req.body);
     if (!parsed.success) return res.status(400).json({ error: parsed.error.flatten() });
     const item = await storage.updateCommunicationTemplate(req.params.id, user.activeCompanyId, parsed.data);
@@ -11481,7 +11506,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.get("/api/automation-rules", async (req, res) => {
     if (!req.isAuthenticated()) return res.status(401).send("Not authenticated");
     const user = req.user as UserWithContext;
-    if (!commRoles.includes(user.activeRole)) return res.status(403).send("Insufficient permissions");
+    if (!COMM_VIEW_ROLES_SET.includes(user.activeRole)) return res.status(403).send("Insufficient permissions");
     const rules = await storage.getCommunicationAutomationRules(user.activeCompanyId);
     res.json(rules);
   });
@@ -11489,7 +11514,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.post("/api/automation-rules", async (req, res) => {
     if (!req.isAuthenticated()) return res.status(401).send("Not authenticated");
     const user = req.user as UserWithContext;
-    if (!commRoles.includes(user.activeRole)) return res.status(403).send("Insufficient permissions");
+    if (!COMM_VIEW_ROLES_SET.includes(user.activeRole)) return res.status(403).send("Insufficient permissions");
     const parsed = insertCommunicationAutomationRuleSchema.safeParse({
       ...req.body,
       companyId: user.activeCompanyId,
@@ -11503,7 +11528,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.patch("/api/automation-rules/:id", async (req, res) => {
     if (!req.isAuthenticated()) return res.status(401).send("Not authenticated");
     const user = req.user as UserWithContext;
-    if (!commRoles.includes(user.activeRole)) return res.status(403).send("Insufficient permissions");
+    if (!COMM_VIEW_ROLES_SET.includes(user.activeRole)) return res.status(403).send("Insufficient permissions");
     const rule = await storage.updateCommunicationAutomationRule(req.params.id, user.activeCompanyId, req.body);
     if (!rule) return res.status(404).json({ error: "Not found" });
     res.json(rule);
@@ -11512,7 +11537,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.delete("/api/automation-rules/:id", async (req, res) => {
     if (!req.isAuthenticated()) return res.status(401).send("Not authenticated");
     const user = req.user as UserWithContext;
-    if (!commRoles.includes(user.activeRole)) return res.status(403).send("Insufficient permissions");
+    if (!COMM_VIEW_ROLES_SET.includes(user.activeRole)) return res.status(403).send("Insufficient permissions");
     await storage.deleteCommunicationAutomationRule(req.params.id, user.activeCompanyId);
     res.status(204).send();
   });
@@ -11520,7 +11545,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.post("/api/automation-rules/:id/run", async (req, res) => {
     if (!req.isAuthenticated()) return res.status(401).send("Not authenticated");
     const user = req.user as UserWithContext;
-    if (!commRoles.includes(user.activeRole)) return res.status(403).send("Insufficient permissions");
+    if (!COMM_VIEW_ROLES_SET.includes(user.activeRole)) return res.status(403).send("Insufficient permissions");
     try {
       const result = await runAutomationRule(req.params.id, user.activeCompanyId);
       res.json(result);

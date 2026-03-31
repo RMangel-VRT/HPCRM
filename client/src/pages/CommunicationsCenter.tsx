@@ -13,6 +13,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Skeleton } from "@/components/ui/skeleton";
 import { Textarea } from "@/components/ui/textarea";
 import { Switch } from "@/components/ui/switch";
 import { Label } from "@/components/ui/label";
@@ -167,15 +168,6 @@ function ActionTypeBadge({ actionType }: { actionType: string }) {
       {ACTION_TYPE_LABELS[actionType] ?? actionType}
     </span>
   );
-}
-
-function formatDate(date: string | Date | null | undefined) {
-  if (!date) return "—";
-  return new Date(date).toLocaleDateString("en-US", {
-    month: "short",
-    day: "numeric",
-    year: "numeric",
-  });
 }
 
 const TRIGGER_TYPE_LABELS: Record<string, string> = {
@@ -869,19 +861,6 @@ function AutomationsView({ templates }: { templates: CommunicationTemplate[] }) 
   );
 }
 
-
-// ──────────────────────────────────────────────
-// Nav View type & helpers
-// ──────────────────────────────────────────────
-
-type NavView = "dashboard" | "all" | "drafts" | "sent" | "scheduled" | "followups";
-
-const STATUS_LABELS: Record<string, string> = {
-  draft: "Draft",
-  sent: "Sent",
-  scheduled: "Scheduled",
-  failed: "Failed",
-};
 
 function FollowUpBadge({ status, isOverdue }: { status: string; isOverdue?: boolean }) {
   if (!status || status === "none") return null;
@@ -2051,6 +2030,8 @@ export default function CommunicationsCenter() {
 
 
   const [viewMode, setViewMode] = useState<"communications" | "automations">("communications");
+  const [customerIdFilter, setCustomerIdFilter] = useState<string>("");
+  const [sentByIdFilter, setSentByIdFilter] = useState<string>("");
   const { data: templates = [] } = useQuery<CommunicationTemplate[]>({ queryKey: ["/api/communication-templates"] });
 
   const filteredCommunications = useMemo(() => {
@@ -2101,7 +2082,7 @@ export default function CommunicationsCenter() {
 
   const handleNavigateToList = (params: Record<string, string>) => {
     const view = (params.view as NavView) ?? "all";
-    setActiveView(view);
+    setSectionFilter(view as SectionFilter);
     setViewMode("communications");
     if (params.type) setTypeFilter(params.type);
     if (params.sentById) setSentByIdFilter(params.sentById);
@@ -2110,7 +2091,7 @@ export default function CommunicationsCenter() {
   };
 
   const handleNavSelect = (view: NavView) => {
-    setActiveView(view);
+    setSectionFilter(view as SectionFilter);
     setShowTemplates(false);
     setViewMode("communications");
     setSelectedId(null);
@@ -2120,7 +2101,7 @@ export default function CommunicationsCenter() {
     setSentByIdFilter("");
   };
 
-  const isDashboard = activeView === "dashboard";
+  const isDashboard = false;
   const [composeOpen, setComposeOpen] = useState(false);
   const [replyTo, setReplyTo] = useState<CommunicationWithDetails | undefined>();
   const [showTemplates, setShowTemplates] = useState(false);
@@ -2188,7 +2169,7 @@ export default function CommunicationsCenter() {
                     }
                   }}
                   className={`w-full flex items-center gap-2 px-3 py-2 rounded-md text-sm transition-colors hover-elevate ${
-                    (sectionFilter === section.id && !showTemplates) || (activeView === section.id && !showTemplates)
+                    (sectionFilter === section.id && !showTemplates)
                       ? "bg-primary text-primary-foreground font-medium shadow-sm"
                       : "text-muted-foreground hover:bg-muted"
                   }`}
@@ -2198,7 +2179,7 @@ export default function CommunicationsCenter() {
                   {section.count !== undefined && (
                     <span
                       className={`ml-auto text-xs px-1.5 py-0.5 rounded-full ${
-                        (sectionFilter === section.id && !showTemplates) || (activeView === section.id && !showTemplates)
+                        (sectionFilter === section.id && !showTemplates)
                           ? "bg-primary-foreground/20 text-primary-foreground"
                           : "bg-muted text-muted-foreground"
                       }`}
@@ -2287,7 +2268,7 @@ export default function CommunicationsCenter() {
           <div className="flex-1 flex flex-col min-w-0 overflow-hidden border-r">
             <div className="p-4 border-b space-y-3 shrink-0">
               <div className="flex items-center justify-between gap-3">
-                <h2 className="text-sm font-semibold capitalize" data-testid="text-view-title">{activeView} Communications</h2>
+                <h2 className="text-sm font-semibold capitalize" data-testid="text-view-title">{sectionFilter} Communications</h2>
                 <div className="flex items-center gap-2">
                   <div className="relative">
                     <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
@@ -2327,7 +2308,7 @@ export default function CommunicationsCenter() {
             </div>
             <div className="flex-1 overflow-y-auto">
               <CommunicationsList
-                view={activeView}
+                view={sectionFilter}
                 search={search}
                 typeFilter={typeFilter}
                 customerIdFilter={customerIdFilter}
@@ -2343,137 +2324,6 @@ export default function CommunicationsCenter() {
           </div>
         </>
       )}
-    </div>
-  );
-}
-
-      {/* Right Panel */}
-      <div className="w-96 shrink-0 flex flex-col overflow-hidden">
-        {sectionFilter === "audit_log" ? (
-          <div className="flex flex-col items-center justify-center h-full text-center px-6">
-            <ClipboardList className="w-12 h-12 text-muted-foreground/30 mb-3" />
-            <p className="text-sm font-medium text-muted-foreground">Audit Log</p>
-            <p className="text-xs text-muted-foreground mt-1">
-              Select an entry from the log to see details
-            </p>
-          </div>
-        ) : selectedComm ? (
-          <div className="flex flex-col h-full overflow-y-auto">
-            <div className="p-4 border-b shrink-0">
-              <div className="flex items-start gap-2 mb-2">
-                <TypeBadge type={selectedComm.type} />
-                <StatusBadge status={selectedComm.status} />
-              </div>
-              <h2 className="text-base font-semibold leading-snug" data-testid="text-detail-subject">
-                {selectedComm.subject}
-              </h2>
-            </div>
-
-            <div className="p-4 border-b shrink-0 space-y-2">
-              <h3 className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-3">Metadata</h3>
-              <div className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-2 text-sm">
-                <div className="flex items-center gap-1.5 text-muted-foreground">
-                  <Building2 className="w-3.5 h-3.5" />
-                  <span>Customer</span>
-                </div>
-                <span data-testid="text-detail-customer">{selectedComm.customerName ?? "—"}</span>
-
-                <div className="flex items-center gap-1.5 text-muted-foreground">
-                  <User className="w-3.5 h-3.5" />
-                  <span>Contact</span>
-                </div>
-                <span data-testid="text-detail-contact">{selectedComm.contactName ?? "—"}</span>
-
-                <div className="flex items-center gap-1.5 text-muted-foreground">
-                  <Tag className="w-3.5 h-3.5" />
-                  <span>Type</span>
-                </div>
-                <span>{TYPE_LABELS[selectedComm.type] ?? selectedComm.type}</span>
-
-                <div className="flex items-center gap-1.5 text-muted-foreground">
-                  <Tag className="w-3.5 h-3.5" />
-                  <span>Status</span>
-                </div>
-                <span>{STATUS_LABELS[selectedComm.status] ?? selectedComm.status}</span>
-
-                <div className="flex items-center gap-1.5 text-muted-foreground">
-                  <UserCheck className="w-3.5 h-3.5" />
-                  <span>Sent by</span>
-                </div>
-                <span data-testid="text-detail-sent-by">{selectedComm.sentByName ?? "—"}</span>
-
-                <div className="flex items-center gap-1.5 text-muted-foreground">
-                  <CalendarDays className="w-3.5 h-3.5" />
-                  <span>Sent at</span>
-                </div>
-                <span data-testid="text-detail-sent-at">{formatDate(selectedComm.sentAt)}</span>
-
-                {selectedComm.scheduledAt && (
-                  <>
-                    <div className="flex items-center gap-1.5 text-muted-foreground">
-                      <Clock className="w-3.5 h-3.5" />
-                      <span>Scheduled</span>
-                    </div>
-                    <span>{formatDate(selectedComm.scheduledAt)}</span>
-                  </>
-                )}
-              </div>
-            </div>
-
-            {/* Validation error display area */}
-            {validationErrors.length > 0 && (
-              <div className="px-4 pt-3">
-                <ValidationErrors errors={validationErrors} onDismiss={() => setValidationErrors([])} />
-              </div>
-            )}
-
-            <div className="p-4 flex-1 overflow-y-auto">
-              <h3 className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-3">Message Body</h3>
-              <p
-                className="text-sm whitespace-pre-wrap text-foreground leading-relaxed"
-                data-testid="text-detail-body"
-              >
-                {selectedComm.body}
-              </p>
-            </div>
-
-            {/* Actions */}
-            {permissions.canSend && selectedComm.status === "scheduled" && (
-              <div className="p-4 border-t shrink-0">
-                <h3 className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-2">Actions</h3>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  disabled={cancelScheduleMutation.isPending}
-                  onClick={() => cancelScheduleMutation.mutate(selectedComm.id)}
-                  data-testid="button-cancel-schedule"
-                >
-                  {cancelScheduleMutation.isPending && <Loader2 className="w-3 h-3 mr-1.5 animate-spin" />}
-                  Cancel Scheduled Send
-                </Button>
-              </div>
-            )}
-
-            <div className="p-4 border-t shrink-0">
-              <div className="flex items-center gap-1.5 text-muted-foreground mb-2">
-                <LinkIcon className="w-3.5 h-3.5" />
-                <h3 className="text-xs font-semibold uppercase tracking-wide">Linked Records</h3>
-              </div>
-              <p className="text-xs text-muted-foreground italic">
-                No linked records. Record linking coming in a future update.
-              </p>
-            </div>
-          </div>
-        ) : (
-          <div className="flex flex-col items-center justify-center h-full text-center px-6">
-            <Mail className="w-12 h-12 text-muted-foreground/30 mb-3" />
-            <p className="text-sm font-medium text-muted-foreground">No communication selected</p>
-            <p className="text-xs text-muted-foreground mt-1">
-              Select a message from the list to view details
-            </p>
-          </div>
-        )}
-      </div>
     </div>
   );
 }

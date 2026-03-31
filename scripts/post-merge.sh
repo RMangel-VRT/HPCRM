@@ -29,6 +29,21 @@ async function main() {
     await run(client, \`ALTER TABLE communication_templates ADD COLUMN IF NOT EXISTS is_active boolean NOT NULL DEFAULT true\`);
     await run(client, \`ALTER TABLE communication_templates ADD COLUMN IF NOT EXISTS default_communication_type text\`);
     await run(client, \`ALTER TABLE communication_templates ADD COLUMN IF NOT EXISTS created_by_id varchar REFERENCES users(id) ON DELETE SET NULL\`);
+    await run(client, \`ALTER TABLE communication_templates ADD COLUMN IF NOT EXISTS is_archived boolean NOT NULL DEFAULT false\`);
+
+    // Create communication_audit_log table if missing (Slice 10)
+    await run(client, \`
+      CREATE TABLE IF NOT EXISTS communication_audit_log (
+        id varchar PRIMARY KEY DEFAULT gen_random_uuid(),
+        company_id varchar NOT NULL REFERENCES companies(id) ON DELETE CASCADE,
+        communication_id varchar REFERENCES communications(id) ON DELETE SET NULL,
+        template_id varchar REFERENCES communication_templates(id) ON DELETE SET NULL,
+        action_type text NOT NULL,
+        action_by_user_id varchar REFERENCES users(id) ON DELETE SET NULL,
+        action_details jsonb,
+        created_at timestamp NOT NULL DEFAULT now()
+      )
+    \`);
 
     // Add missing communications columns (threading + delivery)
     await run(client, \`ALTER TABLE communications ADD COLUMN IF NOT EXISTS template_id varchar REFERENCES communication_templates(id) ON DELETE SET NULL\`);

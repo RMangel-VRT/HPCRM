@@ -5,7 +5,7 @@ The High Plains Property Maintenance CRM centralizes and streamlines operations 
 
 ## User Preferences
 Preferred communication style: Simple, everyday language.
-Test login credentials: randy@highplainsprop.com / Soccer03
+Test login credentials: randy@highplainsprop.com / Soccer03 (field role); mike@highplainsprop.com / Soccer03 (admin role)
 
 ## System Architecture
 
