@@ -8,12 +8,118 @@ import { storage } from "./storage";
 import { db } from "./db";
 import { eq, and, inArray, sql } from "drizzle-orm";
 import { insertCustomerSchema, insertContactSchema, insertCompanySchema, insertCompanyUserSchema, insertSettingsSchema, insertNoteSchema, insertContractSchema, insertContractDocumentSchema, insertContractBuilderDocumentSchema, insertContractBuilderSectionSchema, insertContractBuilderVariableSchema, insertTicketTypeSchema, insertTicketTypeStatusSchema, insertTicketTypeFieldSchema, insertTicketSchema, insertTicketFieldValueSchema, insertTicketStatusHistorySchema, insertTicketCommentSchema, insertTicketLinkSchema, insertCustomerMapLayerSchema, insertCustomerMapDocumentSchema, insertMaintenanceCrewSchema, insertMaintenanceVisitConfigSchema, insertWeeklyScheduleTemplateSchema, insertScheduleBlockSchema, insertEquipmentSchema, insertEquipmentFileSchema, insertEquipmentTicketSchema, insertEquipmentTicketStatusHistorySchema, insertSnowEventSchema, insertSnowEventPropertyImpactSchema, insertSnowEventAttachmentSchema, insertEmailTemplateSchema, insertEmailRuleSchema, SNOW_RANGES, tickets, ticketLinks, ticketTypes, ticketTypeStatuses, customers as customersTable, contacts as contactsTable, contracts as contractsTable, equipment as equipmentTable, users as usersTable, contractMonthlyAmounts, contractDocuments, contractServices, contractStatusHistory, companyUsers as companyUsersTable } from "@shared/schema";
-import type { Customer, CaptureParams, CampaignItem, Season } from "@shared/schema";
+import type { Customer, CaptureParams, CampaignItem, Season, InsertCommunication } from "@shared/schema";
 import { ObjectStorageService, ObjectNotFoundError, objectStorageClient, signObjectURL } from "./objectStorage";
 import { ObjectPermission, ObjectAccessGroupType, setObjectAclPolicy } from "./objectAcl";
 import { processEmailEvent, resendEmail, sendEmail, getDefaultWorkCompletedTemplate, getDefaultChemicalPreNoticeTemplate, getDefaultChemicalPostNoticeTemplate } from './services/emailService';
 import heicConvert from 'heic-convert';
 import { renderVisualScope, type ExportType } from "./visualScopeRenderer";
+
+// Seed sample communications for a company (used during server bootstrap and via API)
+async function seedCommunications(companyId: string, sentById: string, sentByName: string): Promise<number> {
+  const companyCustomers = await storage.getCustomers(companyId);
+  const seedData: InsertCommunication[] = [
+    {
+      companyId,
+      customerId: companyCustomers[0]?.id ?? null,
+      sentById,
+      type: "email",
+      status: "sent",
+      subject: "Spring Service Schedule Confirmation",
+      body: "Dear valued customer,\n\nWe are pleased to confirm your spring maintenance schedule starting April 1st. Our crew will arrive between 8am-10am on your designated service day.\n\nPlease let us know if you have any questions.\n\nBest regards,\nHigh Plains Property Maintenance",
+      customerName: companyCustomers[0]?.name ?? null,
+      sentByName,
+      sentAt: new Date("2026-03-15T10:00:00Z"),
+    },
+    {
+      companyId,
+      customerId: companyCustomers[1]?.id ?? null,
+      sentById,
+      type: "sms",
+      status: "sent",
+      subject: "Crew arriving today",
+      body: "Hi! Your maintenance crew will arrive in about 30 minutes. Please ensure gate access is available.",
+      customerName: companyCustomers[1]?.name ?? null,
+      sentByName,
+      sentAt: new Date("2026-03-18T08:30:00Z"),
+    },
+    {
+      companyId,
+      customerId: companyCustomers[2]?.id ?? null,
+      sentById,
+      type: "note",
+      status: "sent",
+      subject: "Customer Meeting Notes",
+      body: "Met with property manager to discuss irrigation concerns on the east lawn. They want to upgrade sprinkler heads in sections 3-5 before summer. Will follow up with proposal next week.",
+      customerName: companyCustomers[2]?.name ?? null,
+      sentByName,
+      sentAt: new Date("2026-03-20T14:00:00Z"),
+    },
+    {
+      companyId,
+      customerId: companyCustomers[0]?.id ?? null,
+      sentById,
+      type: "email",
+      status: "draft",
+      subject: "Summer Services Proposal Follow-Up",
+      body: "Hi,\n\nI wanted to follow up on our conversation about adding summer fertilization to your service package. I've attached our updated pricing for your review.\n\nLooking forward to your feedback!\n\nBest,\nHigh Plains Property Maintenance",
+      customerName: companyCustomers[0]?.name ?? null,
+      sentByName,
+      sentAt: null,
+    },
+    {
+      companyId,
+      customerId: companyCustomers[3]?.id ?? null,
+      sentById,
+      type: "letter",
+      status: "sent",
+      subject: "Annual Contract Renewal Notice",
+      body: "Dear Property Owner,\n\nYour current maintenance contract is scheduled to expire on June 30, 2026. We would like to invite you to renew for another year at your current service level.\n\nEnclosed please find the renewal agreement for your signature. Please return by May 15, 2026 to ensure uninterrupted service.\n\nSincerely,\nHigh Plains Property Maintenance",
+      customerName: companyCustomers[3]?.name ?? null,
+      sentByName,
+      sentAt: new Date("2026-03-10T09:00:00Z"),
+    },
+    {
+      companyId,
+      customerId: companyCustomers[1]?.id ?? null,
+      sentById,
+      type: "email",
+      status: "scheduled",
+      subject: "Monthly Service Report - March 2026",
+      body: "Please find attached your monthly service report for March 2026. This includes a summary of all maintenance activities performed, chemical applications, and upcoming scheduled work.\n\nHave a great day!",
+      customerName: companyCustomers[1]?.name ?? null,
+      sentByName,
+      sentAt: null,
+      scheduledAt: new Date("2026-04-01T08:00:00Z"),
+    },
+    {
+      companyId,
+      customerId: companyCustomers[4]?.id ?? null,
+      sentById,
+      type: "sms",
+      status: "sent",
+      subject: "Service cancellation notice",
+      body: "Hi! Due to incoming weather, today's scheduled service has been postponed to Thursday. We apologize for any inconvenience.",
+      customerName: companyCustomers[4]?.name ?? null,
+      sentByName,
+      sentAt: new Date("2026-03-22T07:00:00Z"),
+    },
+    {
+      companyId,
+      customerId: companyCustomers[2]?.id ?? null,
+      sentById,
+      type: "note",
+      status: "draft",
+      subject: "Follow-up on irrigation proposal",
+      body: "Need to call back property manager about the irrigation upgrade proposal sent last week. They had questions about the warranty on the new heads.",
+      customerName: companyCustomers[2]?.name ?? null,
+      sentByName,
+      sentAt: null,
+    },
+  ];
+  const created = await Promise.all(seedData.map((data) => storage.createCommunication(data)));
+  return created.length;
+}
 
 // Helper to ensure Invoice ticket type exists for a company with required statuses
 async function ensureInvoiceTicketType(companyId: string): Promise<{ 
@@ -1296,6 +1402,28 @@ export async function migrateProposalNumbers(): Promise<void> {
     console.log("Proposal number migration complete");
   } catch (error) {
     console.error("Error during proposal number migration:", error);
+  }
+}
+
+// Startup bootstrap: seed sample communications for any company that has none
+export async function seedCommunicationsBootstrap(): Promise<void> {
+  console.log("Running startup bootstrap: Checking communications seed data...");
+  try {
+    const companies = await storage.getCompanies();
+    for (const company of companies) {
+      const existing = await storage.getCommunications(company.id);
+      if (existing.length > 0) continue;
+      const companyUsers = await storage.getCompanyUsersByCompanyId(company.id);
+      if (companyUsers.length === 0) continue;
+      const firstUser = companyUsers[0];
+      const userRecord = await storage.getUserById(firstUser.userId);
+      if (!userRecord) continue;
+      await seedCommunications(company.id, userRecord.id, userRecord.name);
+      console.log(`Seeded communications for company ${company.id}`);
+    }
+    console.log("Communications seed bootstrap complete");
+  } catch (error) {
+    console.error("Error during communications seed bootstrap:", error);
   }
 }
 
@@ -10392,6 +10520,50 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
     }
     res.json({ season, campaigns: seasonCampaigns, items: reportItems });
+  });
+
+  // Communications Center Routes
+  const commRoles = ["admin", "office"];
+
+  app.get("/api/communications", async (req, res) => {
+    if (!req.isAuthenticated()) return res.status(401).send("Not authenticated");
+    const user = req.user as UserWithContext;
+    if (!commRoles.includes(user.activeRole)) return res.status(403).send("Insufficient permissions");
+    const { type, status, customerId } = req.query as Record<string, string>;
+    const items = await storage.getCommunications(user.activeCompanyId, {
+      type: type || undefined,
+      status: status || undefined,
+      customerId: customerId || undefined,
+    });
+    res.json(items);
+  });
+
+  app.get("/api/communications/:id", async (req, res) => {
+    if (!req.isAuthenticated()) return res.status(401).send("Not authenticated");
+    const user = req.user as UserWithContext;
+    if (!commRoles.includes(user.activeRole)) return res.status(403).send("Insufficient permissions");
+    const item = await storage.getCommunicationById(req.params.id, user.activeCompanyId);
+    if (!item) return res.status(404).json({ error: "Not found" });
+    res.json(item);
+  });
+
+  app.get("/api/communication-templates", async (req, res) => {
+    if (!req.isAuthenticated()) return res.status(401).send("Not authenticated");
+    const user = req.user as UserWithContext;
+    if (!commRoles.includes(user.activeRole)) return res.status(403).send("Insufficient permissions");
+    const items = await storage.getCommunicationTemplates(user.activeCompanyId);
+    res.json(items);
+  });
+
+  // Seed communications if none exist for this company
+  app.post("/api/communications/seed", async (req, res) => {
+    if (!req.isAuthenticated()) return res.status(401).send("Not authenticated");
+    const user = req.user as UserWithContext;
+    if (!commRoles.includes(user.activeRole)) return res.status(403).send("Insufficient permissions");
+    const existing = await storage.getCommunications(user.activeCompanyId);
+    if (existing.length > 0) return res.json({ seeded: false, count: existing.length });
+    const count = await seedCommunications(user.activeCompanyId, user.id, user.name);
+    res.json({ seeded: true, count });
   });
 
   const httpServer = createServer(app);
