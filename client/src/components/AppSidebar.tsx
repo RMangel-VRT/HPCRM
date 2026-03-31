@@ -33,7 +33,7 @@ import {
   MapPin,
   ClipboardCheck,
   Leaf,
-  Inbox,
+  MessagesSquare,
 } from "lucide-react";
 import {
   Dialog,
@@ -171,10 +171,6 @@ export default function AppSidebar({
     if (isSuperAdmin) return [];
     const items: NavItem[] = [];
 
-    if (userRole === "admin" || userRole === "office") {
-      items.push({ title: "Communications", url: "/dashboard/communications", icon: Inbox });
-    }
-
     if (userRole === "admin" || userRole === "office" || userRole === "shop_manager") {
       items.push({ title: t("nav.equipment"), url: "/dashboard/equipment", icon: Truck });
     }
@@ -189,6 +185,10 @@ export default function AppSidebar({
 
     if (userRole === "admin" || userRole === "office") {
       items.push({ title: t("nav.tools"), url: "/dashboard/tools", icon: Wrench });
+    }
+
+    if (userRole === "admin" || userRole === "office") {
+      items.push({ title: "Communications", url: "/dashboard/communications", icon: MessagesSquare });
     }
 
     if (userRole === "admin" || userRole === "office") {

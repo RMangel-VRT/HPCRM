@@ -1,38 +1,43 @@
-import { useState, useMemo } from "react";
-import { useQuery } from "@tanstack/react-query";
-import { useSetBreadcrumbs } from "@/hooks/use-breadcrumbs";
-import { useToast } from "@/hooks/use-toast";
-import { Input } from "@/components/ui/input";
-import { Button } from "@/components/ui/button";
+import { useState, useEffect } from "react";
+import { useQuery, useMutation } from "@tanstack/react-query";
+import { useLocation } from "wouter";
+import { queryClient, apiRequest } from "@/lib/queryClient";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Skeleton } from "@/components/ui/skeleton";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
-import {
-  Mail,
   MessageSquare,
-  FileText,
-  Scroll,
-  Search,
-  Inbox,
   Send,
-  Clock,
-  UserCheck,
-  LayoutTemplate,
-  Loader2,
-  User,
+  FileText,
+  Calendar,
+  AlertCircle,
+  LayoutDashboard,
+  ChevronRight,
+  Search,
+  Mail,
+  Phone,
+  StickyNote,
+  FileEdit,
+  Users,
   Building2,
-  CalendarDays,
-  Tag,
-  Link as LinkIcon,
+  Star,
+  TrendingUp,
+  Clock,
+  CheckCircle,
 } from "lucide-react";
-import type { Communication, Customer } from "@shared/schema";
+import type { CommunicationWithDetails, CommunicationAnalytics } from "@shared/schema";
 
-type SectionFilter = "all" | "draft" | "sent" | "scheduled" | "follow_ups";
+type NavView = "dashboard" | "all" | "drafts" | "sent" | "scheduled" | "followups";
+
+const TYPE_ICONS: Record<string, React.ElementType> = {
+  email: Mail,
+  sms: Phone,
+  note: StickyNote,
+  letter: FileEdit,
+};
 
 const TYPE_LABELS: Record<string, string> = {
   email: "Email",
@@ -41,413 +46,709 @@ const TYPE_LABELS: Record<string, string> = {
   letter: "Letter",
 };
 
-const STATUS_LABELS: Record<string, string> = {
-  draft: "Draft",
-  sent: "Sent",
-  scheduled: "Scheduled",
-  failed: "Failed",
+const STATUS_COLORS: Record<string, string> = {
+  draft: "bg-muted text-muted-foreground",
+  sent: "bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-400",
+  scheduled: "bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-400",
+  failed: "bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-400",
 };
 
-const TYPE_ICONS: Record<string, typeof Mail> = {
-  email: Mail,
-  sms: MessageSquare,
-  note: FileText,
-  letter: Scroll,
-};
+function formatDate(d: string | Date | null | undefined): string {
+  if (!d) return "—";
+  return new Date(d).toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" });
+}
 
-function TypeBadge({ type }: { type: string }) {
-  const Icon = TYPE_ICONS[type] ?? Mail;
-  const colorMap: Record<string, string> = {
-    email: "bg-blue-100 text-blue-800 dark:bg-blue-900/40 dark:text-blue-300",
-    sms: "bg-green-100 text-green-800 dark:bg-green-900/40 dark:text-green-300",
-    note: "bg-yellow-100 text-yellow-800 dark:bg-yellow-900/40 dark:text-yellow-300",
-    letter: "bg-purple-100 text-purple-800 dark:bg-purple-900/40 dark:text-purple-300",
+function formatDateTime(d: string | Date | null | undefined): string {
+  if (!d) return "—";
+  return new Date(d).toLocaleString(undefined, { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" });
+}
+
+// ──────────────────────────────────────────────
+// Analytics Dashboard
+// ──────────────────────────────────────────────
+
+type DatePreset = "this_week" | "this_month" | "last_30" | "custom";
+
+interface AnalyticsDashboardProps {
+  onNavigateToList: (params: Record<string, string>) => void;
+}
+
+function AnalyticsDashboard({ onNavigateToList }: AnalyticsDashboardProps) {
+  const [preset, setPreset] = useState<DatePreset>("this_month");
+  const [customStart, setCustomStart] = useState("");
+  const [customEnd, setCustomEnd] = useState("");
+
+  const queryParams = new URLSearchParams();
+  if (preset !== "custom") {
+    queryParams.set("preset", preset);
+  } else {
+    if (customStart) queryParams.set("startDate", customStart);
+    if (customEnd) queryParams.set("endDate", customEnd);
+  }
+
+  const { data: analytics, isLoading } = useQuery<CommunicationAnalytics>({
+    queryKey: ["/api/communications/analytics", preset, customStart, customEnd],
+    queryFn: async () => {
+      const res = await fetch(`/api/communications/analytics?${queryParams.toString()}`);
+      if (!res.ok) throw new Error("Failed to fetch analytics");
+      return res.json();
+    },
+  });
+
+  const presetLabel = (p: DatePreset) => {
+    if (p === "this_week") return "This Week";
+    if (p === "this_month") return "This Month";
+    if (p === "last_30") return "Last 30 Days";
+    return "Custom";
   };
-  return (
-    <span
-      className={`inline-flex items-center gap-1 px-2 py-0.5 rounded text-xs font-medium ${colorMap[type] ?? ""}`}
-      data-testid={`badge-type-${type}`}
-    >
-      <Icon className="w-3 h-3" />
-      {TYPE_LABELS[type] ?? type}
-    </span>
-  );
-}
 
-function StatusBadge({ status }: { status: string }) {
-  const colorMap: Record<string, string> = {
-    draft: "bg-muted text-muted-foreground",
-    sent: "bg-green-100 text-green-800 dark:bg-green-900/40 dark:text-green-300",
-    scheduled: "bg-blue-100 text-blue-800 dark:bg-blue-900/40 dark:text-blue-300",
-    failed: "bg-red-100 text-red-800 dark:bg-red-900/40 dark:text-red-300",
-  };
-  return (
-    <span
-      className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium ${colorMap[status] ?? ""}`}
-      data-testid={`badge-status-${status}`}
-    >
-      {STATUS_LABELS[status] ?? status}
-    </span>
-  );
-}
+  const periodLabel = preset === "custom"
+    ? (customStart && customEnd ? `${formatDate(customStart)} – ${formatDate(customEnd)}` : "Select dates")
+    : presetLabel(preset);
 
-function formatDate(date: string | Date | null | undefined) {
-  if (!date) return "—";
-  return new Date(date).toLocaleDateString("en-US", {
-    month: "short",
-    day: "numeric",
-    year: "numeric",
-  });
-}
-
-export default function CommunicationsCenter() {
-  const { toast } = useToast();
-  const [sectionFilter, setSectionFilter] = useState<SectionFilter>("all");
-  const [typeFilter, setTypeFilter] = useState<string>("all");
-  const [statusFilter, setStatusFilter] = useState<string>("all");
-  const [customerFilter, setCustomerFilter] = useState<string>("all");
-  const [search, setSearch] = useState("");
-  const [selectedId, setSelectedId] = useState<string | null>(null);
-
-  useSetBreadcrumbs([{ label: "Communications" }], []);
-
-  const { data: communications = [], isLoading } = useQuery<Communication[]>({
-    queryKey: ["/api/communications"],
-  });
-
-  const { data: customers = [] } = useQuery<Customer[]>({
-    queryKey: ["/api/customers"],
-  });
-
-  const filteredCommunications = useMemo(() => {
-    let items = communications;
-
-    if (sectionFilter === "follow_ups") {
-      items = items.filter((c) => c.status === "draft" && c.type === "note");
-    } else if (sectionFilter !== "all") {
-      items = items.filter((c) => c.status === sectionFilter);
-    }
-
-    if (typeFilter !== "all") {
-      items = items.filter((c) => c.type === typeFilter);
-    }
-
-    if (statusFilter !== "all") {
-      items = items.filter((c) => c.status === statusFilter);
-    }
-
-    if (customerFilter !== "all") {
-      items = items.filter((c) => c.customerId === customerFilter);
-    }
-
-    if (search.trim()) {
-      const q = search.toLowerCase();
-      items = items.filter(
-        (c) =>
-          c.subject.toLowerCase().includes(q) ||
-          (c.customerName ?? "").toLowerCase().includes(q) ||
-          c.body.toLowerCase().includes(q)
-      );
-    }
-
-    return items;
-  }, [communications, sectionFilter, typeFilter, statusFilter, customerFilter, search]);
-
-  const selectedComm = filteredCommunications.find((c) => c.id === selectedId) ??
-    communications.find((c) => c.id === selectedId);
-
-  const navSections: { id: SectionFilter; label: string; icon: typeof Inbox; count?: number }[] = [
-    { id: "all", label: "All Communications", icon: Inbox, count: communications.length },
-    { id: "draft", label: "Drafts", icon: FileText, count: communications.filter((c) => c.status === "draft").length },
-    { id: "sent", label: "Sent", icon: Send, count: communications.filter((c) => c.status === "sent").length },
-    { id: "scheduled", label: "Scheduled", icon: Clock, count: communications.filter((c) => c.status === "scheduled").length },
-    { id: "follow_ups", label: "Follow-Ups", icon: UserCheck, count: communications.filter((c) => c.status === "draft" && c.type === "note").length },
+  const statCards = [
+    {
+      label: "Sent This Week",
+      value: analytics?.totalSentThisWeek ?? 0,
+      icon: Send,
+      description: "Messages sent in the last 7 days",
+      onClick: () => onNavigateToList({ view: "sent", preset: "this_week" }),
+      testId: "stat-sent-this-week",
+    },
+    {
+      label: "Sent This Month",
+      value: analytics?.totalSentThisMonth ?? 0,
+      icon: TrendingUp,
+      description: "Messages sent this calendar month",
+      onClick: () => onNavigateToList({ view: "sent", preset: "this_month" }),
+      testId: "stat-sent-this-month",
+    },
+    {
+      label: "Drafts Pending",
+      value: analytics?.draftsCount ?? 0,
+      icon: FileText,
+      description: "Unsent draft messages",
+      onClick: () => onNavigateToList({ view: "drafts" }),
+      testId: "stat-drafts",
+    },
+    {
+      label: "Overdue Follow-Ups",
+      value: analytics?.overdueFollowUpsCount ?? 0,
+      icon: AlertCircle,
+      description: "Follow-ups past their due date",
+      onClick: () => onNavigateToList({ view: "followups" }),
+      testId: "stat-overdue-followups",
+      variant: "warning",
+    },
   ];
 
   return (
-    <div className="flex h-full -m-6 md:-m-8 overflow-hidden">
-      {/* Left Panel */}
-      <aside className="w-56 shrink-0 border-r bg-muted/30 flex flex-col overflow-y-auto">
+    <div className="flex flex-col gap-6 h-full overflow-y-auto p-6">
+      {/* Header row */}
+      <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+        <div>
+          <h2 className="text-xl font-semibold">Communications Overview</h2>
+          <p className="text-sm text-muted-foreground">Activity for: {periodLabel}</p>
+        </div>
+        <div className="flex flex-wrap items-center gap-2">
+          {(["this_week", "this_month", "last_30", "custom"] as DatePreset[]).map(p => (
+            <Button
+              key={p}
+              variant={preset === p ? "default" : "outline"}
+              size="sm"
+              onClick={() => setPreset(p)}
+              data-testid={`button-preset-${p}`}
+            >
+              {presetLabel(p)}
+            </Button>
+          ))}
+        </div>
+      </div>
+
+      {preset === "custom" && (
+        <div className="flex flex-wrap items-center gap-3">
+          <div className="flex items-center gap-2">
+            <label className="text-sm font-medium">From</label>
+            <Input type="date" value={customStart} onChange={e => setCustomStart(e.target.value)} className="w-40" data-testid="input-custom-start" />
+          </div>
+          <div className="flex items-center gap-2">
+            <label className="text-sm font-medium">To</label>
+            <Input type="date" value={customEnd} onChange={e => setCustomEnd(e.target.value)} className="w-40" data-testid="input-custom-end" />
+          </div>
+        </div>
+      )}
+
+      {/* Stat Cards */}
+      <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
+        {statCards.map(card => (
+          <Card
+            key={card.testId}
+            className="cursor-pointer hover-elevate"
+            onClick={card.onClick}
+            data-testid={card.testId}
+          >
+            <CardContent className="pt-4 pb-4">
+              <div className="flex items-start justify-between gap-2">
+                <div>
+                  <p className="text-xs text-muted-foreground font-medium uppercase tracking-wide">{card.label}</p>
+                  {isLoading ? (
+                    <Skeleton className="h-8 w-12 mt-1" />
+                  ) : (
+                    <p className={`text-3xl font-bold mt-1 ${card.variant === "warning" && (analytics?.overdueFollowUpsCount ?? 0) > 0 ? "text-orange-600 dark:text-orange-400" : ""}`}>
+                      {card.value}
+                    </p>
+                  )}
+                  <p className="text-xs text-muted-foreground mt-1">{card.description}</p>
+                </div>
+                <div className="rounded-md bg-primary/10 p-2 shrink-0">
+                  <card.icon className="w-4 h-4 text-primary" />
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+        ))}
+      </div>
+
+      {/* Bottom rows */}
+      <div className="grid grid-cols-1 gap-6 md:grid-cols-2 xl:grid-cols-4">
+        {/* Sent by Type */}
+        <Card>
+          <CardHeader className="pb-2">
+            <CardTitle className="text-sm font-medium flex items-center gap-2">
+              <MessageSquare className="w-4 h-4" />
+              Sent by Type
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            {isLoading ? (
+              <div className="space-y-2">{[1,2,3].map(i => <Skeleton key={i} className="h-8 w-full" />)}</div>
+            ) : !analytics?.sentByType?.length ? (
+              <p className="text-sm text-muted-foreground">No data for this period</p>
+            ) : (
+              <ul className="space-y-1">
+                {analytics.sentByType.map(row => {
+                  const Icon = TYPE_ICONS[row.type] ?? MessageSquare;
+                  return (
+                    <li
+                      key={row.type}
+                      className="flex items-center justify-between gap-2 rounded-md px-2 py-1.5 cursor-pointer hover-elevate"
+                      onClick={() => onNavigateToList({ view: "sent", type: row.type })}
+                      data-testid={`type-row-${row.type}`}
+                    >
+                      <div className="flex items-center gap-2 text-sm">
+                        <Icon className="w-3.5 h-3.5 text-muted-foreground" />
+                        <span>{TYPE_LABELS[row.type] ?? row.type}</span>
+                      </div>
+                      <Badge variant="secondary" className="text-xs">{row.count}</Badge>
+                    </li>
+                  );
+                })}
+              </ul>
+            )}
+          </CardContent>
+        </Card>
+
+        {/* Sent by Staff */}
+        <Card>
+          <CardHeader className="pb-2">
+            <CardTitle className="text-sm font-medium flex items-center gap-2">
+              <Users className="w-4 h-4" />
+              Sent by Staff Member
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            {isLoading ? (
+              <div className="space-y-2">{[1,2,3].map(i => <Skeleton key={i} className="h-8 w-full" />)}</div>
+            ) : !analytics?.sentByStaff?.length ? (
+              <p className="text-sm text-muted-foreground">No data for this period</p>
+            ) : (
+              <ul className="space-y-1">
+                {analytics.sentByStaff.map(row => (
+                  <li
+                    key={row.userId}
+                    className="flex items-center justify-between gap-2 rounded-md px-2 py-1.5 cursor-pointer hover-elevate"
+                    onClick={() => onNavigateToList({ view: "sent", sentById: row.userId })}
+                    data-testid={`staff-row-${row.userId}`}
+                  >
+                    <span className="text-sm truncate">{row.userName}</span>
+                    <Badge variant="secondary" className="text-xs">{row.count}</Badge>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </CardContent>
+        </Card>
+
+        {/* Top Customers */}
+        <Card>
+          <CardHeader className="pb-2">
+            <CardTitle className="text-sm font-medium flex items-center gap-2">
+              <Building2 className="w-4 h-4" />
+              Top Customers
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            {isLoading ? (
+              <div className="space-y-2">{[1,2,3].map(i => <Skeleton key={i} className="h-8 w-full" />)}</div>
+            ) : !analytics?.topCustomers?.length ? (
+              <p className="text-sm text-muted-foreground">No data for this period</p>
+            ) : (
+              <ul className="space-y-1">
+                {analytics.topCustomers.map(row => (
+                  <li
+                    key={row.customerId}
+                    className="flex items-center justify-between gap-2 rounded-md px-2 py-1.5 cursor-pointer hover-elevate"
+                    onClick={() => onNavigateToList({ customerId: row.customerId })}
+                    data-testid={`customer-row-${row.customerId}`}
+                  >
+                    <span className="text-sm truncate">{row.customerName}</span>
+                    <Badge variant="secondary" className="text-xs">{row.count}</Badge>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </CardContent>
+        </Card>
+
+        {/* Top Templates */}
+        <Card>
+          <CardHeader className="pb-2">
+            <CardTitle className="text-sm font-medium flex items-center gap-2">
+              <Star className="w-4 h-4" />
+              Top Templates Used
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            {isLoading ? (
+              <div className="space-y-2">{[1,2,3].map(i => <Skeleton key={i} className="h-8 w-full" />)}</div>
+            ) : !analytics?.topTemplates?.length ? (
+              <p className="text-sm text-muted-foreground">No templates used in this period</p>
+            ) : (
+              <ul className="space-y-1">
+                {analytics.topTemplates.map(row => (
+                  <li
+                    key={row.templateId}
+                    className="flex items-center justify-between gap-2 rounded-md px-2 py-1.5 cursor-pointer hover-elevate"
+                    onClick={() => onNavigateToList({ templateId: row.templateId })}
+                    data-testid={`template-row-${row.templateId}`}
+                  >
+                    <span className="text-sm truncate">{row.templateName}</span>
+                    <Badge variant="secondary" className="text-xs">{row.count}</Badge>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </CardContent>
+        </Card>
+      </div>
+    </div>
+  );
+}
+
+// ──────────────────────────────────────────────
+// Communication Detail Panel
+// ──────────────────────────────────────────────
+
+function DetailPanel({ id }: { id: string | null }) {
+  const { data, isLoading } = useQuery<CommunicationWithDetails & { links?: unknown[] }>({
+    queryKey: ["/api/communications", id],
+    queryFn: async () => {
+      const res = await fetch(`/api/communications/${id}`);
+      if (!res.ok) throw new Error("Failed to fetch");
+      return res.json();
+    },
+    enabled: !!id,
+  });
+
+  if (!id) {
+    return (
+      <div className="flex flex-col items-center justify-center h-full text-center p-8">
+        <MessageSquare className="w-10 h-10 text-muted-foreground mb-3" />
+        <p className="text-muted-foreground text-sm">Select a communication to preview it</p>
+      </div>
+    );
+  }
+
+  if (isLoading) {
+    return (
+      <div className="p-6 space-y-4">
+        <Skeleton className="h-6 w-3/4" />
+        <Skeleton className="h-4 w-1/2" />
+        <Skeleton className="h-32 w-full" />
+      </div>
+    );
+  }
+
+  if (!data) return null;
+
+  const Icon = TYPE_ICONS[data.type] ?? MessageSquare;
+  const displayDate = data.sentAt ?? data.createdAt;
+
+  return (
+    <div className="flex flex-col h-full overflow-y-auto">
+      <div className="p-5 border-b">
+        <div className="flex items-start gap-3">
+          <div className="rounded-md bg-primary/10 p-2 shrink-0">
+            <Icon className="w-4 h-4 text-primary" />
+          </div>
+          <div className="min-w-0 flex-1">
+            <h3 className="font-semibold text-base leading-tight">{data.subject || "(No subject)"}</h3>
+            <div className="flex flex-wrap items-center gap-2 mt-1.5">
+              <Badge className={STATUS_COLORS[data.status] + " text-xs border-0"} variant="outline">
+                {data.status.charAt(0).toUpperCase() + data.status.slice(1)}
+              </Badge>
+              <Badge variant="outline" className="text-xs">
+                <Icon className="w-3 h-3 mr-1" />
+                {TYPE_LABELS[data.type]}
+              </Badge>
+              {data.isOverdue && (
+                <Badge className="bg-orange-100 text-orange-800 dark:bg-orange-900/30 dark:text-orange-400 text-xs border-0" variant="outline">
+                  Overdue Follow-Up
+                </Badge>
+              )}
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div className="p-5 space-y-4 flex-1">
+        {/* Metadata */}
+        <div className="grid grid-cols-2 gap-x-4 gap-y-2 text-sm">
+          <div>
+            <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Customer</p>
+            <p className="mt-0.5">{data.customerName ?? "—"}</p>
+          </div>
+          <div>
+            <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Contact</p>
+            <p className="mt-0.5">{data.contactName ?? "—"}</p>
+          </div>
+          <div>
+            <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Sent By</p>
+            <p className="mt-0.5">{data.sentByName ?? "—"}</p>
+          </div>
+          <div>
+            <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">
+              {data.status === "draft" ? "Created" : "Sent"}
+            </p>
+            <p className="mt-0.5">{formatDateTime(displayDate)}</p>
+          </div>
+          {data.templateName && (
+            <div className="col-span-2">
+              <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Template</p>
+              <p className="mt-0.5">{data.templateName}</p>
+            </div>
+          )}
+          {data.scheduledFor && (
+            <div className="col-span-2">
+              <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Scheduled For</p>
+              <p className="mt-0.5">{formatDateTime(data.scheduledFor)}</p>
+            </div>
+          )}
+          {data.followUpDueAt && (
+            <div className="col-span-2">
+              <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Follow-Up Due</p>
+              <p className={`mt-0.5 ${data.isOverdue ? "text-orange-600 dark:text-orange-400 font-medium" : ""}`}>
+                {formatDateTime(data.followUpDueAt)}
+                {data.isOverdue && " (Overdue)"}
+              </p>
+            </div>
+          )}
+        </div>
+
+        <div className="border-t pt-4">
+          <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide mb-2">Message</p>
+          <p className="text-sm whitespace-pre-wrap leading-relaxed">{data.body}</p>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ──────────────────────────────────────────────
+// Communications List
+// ──────────────────────────────────────────────
+
+interface CommListProps {
+  view: string;
+  search: string;
+  typeFilter: string;
+  customerIdFilter: string;
+  sentByIdFilter: string;
+  selectedId: string | null;
+  onSelect: (id: string) => void;
+  initialFilters?: Record<string, string>;
+}
+
+function CommunicationsList({
+  view,
+  search,
+  typeFilter,
+  customerIdFilter,
+  sentByIdFilter,
+  selectedId,
+  onSelect,
+  initialFilters,
+}: CommListProps) {
+  const params = new URLSearchParams();
+  if (view && view !== "all") params.set("view", view);
+  if (typeFilter) params.set("type", typeFilter);
+  if (customerIdFilter) params.set("customerId", customerIdFilter);
+  if (sentByIdFilter) params.set("sentById", sentByIdFilter);
+  if (search) params.set("search", search);
+  if (initialFilters?.startDate) params.set("startDate", initialFilters.startDate);
+  if (initialFilters?.endDate) params.set("endDate", initialFilters.endDate);
+
+  const { data: comms = [], isLoading } = useQuery<CommunicationWithDetails[]>({
+    queryKey: ["/api/communications", view, search, typeFilter, customerIdFilter, sentByIdFilter, initialFilters?.startDate, initialFilters?.endDate],
+    queryFn: async () => {
+      const res = await fetch(`/api/communications?${params.toString()}`);
+      if (!res.ok) throw new Error("Failed to fetch");
+      return res.json();
+    },
+  });
+
+  if (isLoading) {
+    return (
+      <div className="flex flex-col gap-2 p-3">
+        {[1,2,3,4,5].map(i => <Skeleton key={i} className="h-16 w-full rounded-md" />)}
+      </div>
+    );
+  }
+
+  if (!comms.length) {
+    return (
+      <div className="flex flex-col items-center justify-center h-40 text-center px-4">
+        <p className="text-sm text-muted-foreground">No communications found</p>
+      </div>
+    );
+  }
+
+  return (
+    <ul className="divide-y">
+      {comms.map(c => {
+        const Icon = TYPE_ICONS[c.type] ?? MessageSquare;
+        const displayDate = c.sentAt ?? c.createdAt;
+        return (
+          <li
+            key={c.id}
+            className={`flex items-start gap-3 p-3 cursor-pointer hover-elevate ${selectedId === c.id ? "bg-accent/40" : ""}`}
+            onClick={() => onSelect(c.id)}
+            data-testid={`comm-row-${c.id}`}
+          >
+            <div className="rounded-md bg-muted p-1.5 shrink-0 mt-0.5">
+              <Icon className="w-3.5 h-3.5 text-muted-foreground" />
+            </div>
+            <div className="min-w-0 flex-1">
+              <div className="flex items-start justify-between gap-2">
+                <p className="text-sm font-medium truncate">{c.subject || "(No subject)"}</p>
+                <span className="text-xs text-muted-foreground whitespace-nowrap shrink-0">{formatDate(displayDate)}</span>
+              </div>
+              <p className="text-xs text-muted-foreground truncate mt-0.5">{c.customerName ?? "No customer"}</p>
+              <div className="flex flex-wrap items-center gap-1.5 mt-1.5">
+                <Badge className={STATUS_COLORS[c.status] + " text-xs border-0 py-0"} variant="outline">
+                  {c.status}
+                </Badge>
+                <Badge variant="outline" className="text-xs py-0">
+                  {TYPE_LABELS[c.type]}
+                </Badge>
+                {c.isOverdue && (
+                  <Badge className="bg-orange-100 text-orange-800 dark:bg-orange-900/30 dark:text-orange-400 text-xs border-0 py-0" variant="outline">
+                    Overdue
+                  </Badge>
+                )}
+              </div>
+            </div>
+          </li>
+        );
+      })}
+    </ul>
+  );
+}
+
+// ──────────────────────────────────────────────
+// Main CommunicationsCenter Page
+// ──────────────────────────────────────────────
+
+export default function CommunicationsCenter() {
+  const [location, navigate] = useLocation();
+  const searchParams = new URLSearchParams(location.split("?")[1] ?? "");
+
+  const initialView = (searchParams.get("view") as NavView) ?? "dashboard";
+  const initialCustomerId = searchParams.get("customerId") ?? "";
+  const initialSentById = searchParams.get("sentById") ?? "";
+  const initialType = searchParams.get("type") ?? "";
+
+  const [activeView, setActiveView] = useState<NavView>(initialView);
+  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [search, setSearch] = useState("");
+  const [typeFilter, setTypeFilter] = useState(initialType);
+  const [customerIdFilter, setCustomerIdFilter] = useState(initialCustomerId);
+  const [sentByIdFilter, setSentByIdFilter] = useState(initialSentById);
+  const [initialFilters] = useState<Record<string, string>>({
+    startDate: searchParams.get("startDate") ?? "",
+    endDate: searchParams.get("endDate") ?? "",
+  });
+
+  const { data: countData } = useQuery<CommunicationWithDetails[]>({
+    queryKey: ["/api/communications", "all"],
+    queryFn: async () => {
+      const res = await fetch("/api/communications");
+      if (!res.ok) throw new Error("Failed");
+      return res.json();
+    },
+  });
+
+  const draftsCount = countData?.filter(c => c.status === "draft").length ?? 0;
+  const scheduledCount = countData?.filter(c => c.status === "scheduled").length ?? 0;
+  const followupsCount = countData?.filter(c => c.followUpStatus === "open" || c.followUpStatus === "snoozed").length ?? 0;
+  const overdueCount = countData?.filter(c => c.isOverdue).length ?? 0;
+
+  const navItems: { view: NavView; label: string; icon: React.ElementType; count?: number; overdue?: boolean }[] = [
+    { view: "dashboard", label: "Dashboard", icon: LayoutDashboard },
+    { view: "all", label: "All Communications", icon: MessageSquare },
+    { view: "drafts", label: "Drafts", icon: FileText, count: draftsCount },
+    { view: "sent", label: "Sent", icon: Send },
+    { view: "scheduled", label: "Scheduled", icon: Calendar, count: scheduledCount },
+    { view: "followups", label: "Follow-Ups", icon: AlertCircle, count: followupsCount, overdue: overdueCount > 0 },
+  ];
+
+  const handleNavigateToList = (params: Record<string, string>) => {
+    const view = (params.view as NavView) ?? "all";
+    setActiveView(view);
+    if (params.type) setTypeFilter(params.type);
+    if (params.sentById) setSentByIdFilter(params.sentById);
+    if (params.customerId) setCustomerIdFilter(params.customerId);
+    setSelectedId(null);
+  };
+
+  const handleNavSelect = (view: NavView) => {
+    setActiveView(view);
+    setSelectedId(null);
+    setSearch("");
+    setTypeFilter("");
+    setCustomerIdFilter("");
+    setSentByIdFilter("");
+  };
+
+  const isDashboard = activeView === "dashboard";
+
+  return (
+    <div className="flex h-full overflow-hidden -m-6 md:-m-8">
+      {/* Left Nav Panel */}
+      <div className="w-52 shrink-0 border-r bg-muted/30 flex flex-col overflow-y-auto">
         <div className="p-4 border-b">
-          <h2 className="text-sm font-semibold text-muted-foreground uppercase tracking-wide">Folders</h2>
+          <h1 className="text-sm font-semibold text-foreground">Communications</h1>
+          <p className="text-xs text-muted-foreground mt-0.5">Command Center</p>
         </div>
         <nav className="flex-1 p-2 space-y-0.5">
-          {navSections.map((section) => {
-            const Icon = section.icon;
-            const isActive = sectionFilter === section.id;
+          {navItems.map(item => {
+            const Icon = item.icon;
+            const isActive = activeView === item.view;
             return (
               <button
-                key={section.id}
-                onClick={() => {
-                  setSectionFilter(section.id);
-                  setSelectedId(null);
-                }}
-                data-testid={`nav-section-${section.id}`}
+                key={item.view}
+                onClick={() => handleNavSelect(item.view)}
+                data-testid={`nav-${item.view}`}
                 className={`w-full flex items-center justify-between gap-2 px-3 py-2 rounded-md text-sm transition-colors text-left ${
                   isActive
-                    ? "bg-primary/10 text-primary font-medium"
-                    : "text-foreground hover-elevate"
+                    ? "bg-primary text-primary-foreground"
+                    : "text-foreground/70 hover-elevate"
                 }`}
               >
-                <span className="flex items-center gap-2">
+                <div className="flex items-center gap-2 min-w-0">
                   <Icon className="w-4 h-4 shrink-0" />
-                  <span>{section.label}</span>
-                </span>
-                {section.count !== undefined && section.count > 0 && (
-                  <span className="text-xs text-muted-foreground">{section.count}</span>
+                  <span className="truncate">{item.label}</span>
+                </div>
+                {item.count != null && item.count > 0 && (
+                  <Badge
+                    className={`text-xs shrink-0 border-0 ${
+                      item.overdue
+                        ? "bg-orange-100 text-orange-800 dark:bg-orange-900/30 dark:text-orange-400"
+                        : isActive
+                        ? "bg-primary-foreground/20 text-primary-foreground"
+                        : "bg-muted text-muted-foreground"
+                    }`}
+                    variant="outline"
+                  >
+                    {item.count}
+                  </Badge>
                 )}
               </button>
             );
           })}
         </nav>
 
-        <div className="p-4 border-t">
-          <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-2">Templates</p>
+        <div className="p-2 border-t">
+          <p className="text-xs text-muted-foreground px-3 py-1 font-medium uppercase tracking-wide">Templates</p>
           <button
-            className="w-full flex items-center gap-2 px-3 py-2 rounded-md text-sm text-muted-foreground hover-elevate text-left"
+            className="w-full flex items-center gap-2 px-3 py-2 rounded-md text-sm text-foreground/70 hover-elevate text-left"
             data-testid="nav-templates"
-            onClick={() =>
-              toast({ title: "Templates", description: "Template management is coming in a future update." })
-            }
+            onClick={() => {}}
           >
-            <LayoutTemplate className="w-4 h-4 shrink-0" />
-            <span>Manage Templates</span>
+            <FileEdit className="w-4 h-4 shrink-0" />
+            <span>Template Manager</span>
           </button>
         </div>
-      </aside>
+      </div>
 
-      {/* Center Panel */}
-      <div className="flex flex-col flex-1 min-w-0 overflow-hidden border-r">
-        {/* Header */}
-        <div className="border-b p-4 space-y-3 shrink-0">
-          <div className="flex items-center justify-between gap-3 flex-wrap">
-            <h1 className="text-lg font-semibold" data-testid="text-page-title">
-              Communication Command Center
-            </h1>
-            <div className="flex items-center gap-2">
-              <Button
-                variant="outline"
-                disabled
-                data-testid="button-new-message"
-                onClick={() => toast({ title: "Coming Soon", description: "Message composition is coming in a future update." })}
-              >
-                <Mail className="w-4 h-4 mr-1" />
-                New Message
-              </Button>
-              <Button
-                variant="outline"
-                disabled
-                data-testid="button-templates"
-                onClick={() => toast({ title: "Coming Soon", description: "Template management is coming in a future update." })}
-              >
-                <LayoutTemplate className="w-4 h-4 mr-1" />
-                Templates
-              </Button>
+      {/* Center + Right Panels */}
+      {isDashboard ? (
+        <div className="flex-1 overflow-hidden">
+          <AnalyticsDashboard onNavigateToList={handleNavigateToList} />
+        </div>
+      ) : (
+        <>
+          {/* Center Panel */}
+          <div className="w-80 shrink-0 border-r flex flex-col overflow-hidden">
+            {/* Center Header */}
+            <div className="p-3 border-b space-y-2">
+              <div className="relative">
+                <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-muted-foreground" />
+                <Input
+                  className="pl-8 h-8 text-sm"
+                  placeholder="Search messages..."
+                  value={search}
+                  onChange={e => setSearch(e.target.value)}
+                  data-testid="input-search"
+                />
+              </div>
+              <div className="flex items-center gap-2">
+                <Select value={typeFilter || "all"} onValueChange={v => setTypeFilter(v === "all" ? "" : v)}>
+                  <SelectTrigger className="h-8 text-xs" data-testid="select-type-filter">
+                    <SelectValue placeholder="Type" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">All Types</SelectItem>
+                    <SelectItem value="email">Email</SelectItem>
+                    <SelectItem value="sms">SMS</SelectItem>
+                    <SelectItem value="note">Note</SelectItem>
+                    <SelectItem value="letter">Letter</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
             </div>
-          </div>
 
-          <div className="flex items-center gap-2 flex-wrap">
-            <div className="relative flex-1 min-w-48">
-              <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
-              <Input
-                placeholder="Search by subject or customer..."
-                value={search}
-                onChange={(e) => setSearch(e.target.value)}
-                className="pl-9"
-                data-testid="input-search"
+            {/* List */}
+            <div className="flex-1 overflow-y-auto">
+              <CommunicationsList
+                view={activeView}
+                search={search}
+                typeFilter={typeFilter}
+                customerIdFilter={customerIdFilter}
+                sentByIdFilter={sentByIdFilter}
+                selectedId={selectedId}
+                onSelect={setSelectedId}
+                initialFilters={initialFilters}
               />
             </div>
-            <Select value={customerFilter} onValueChange={setCustomerFilter}>
-              <SelectTrigger className="w-40" data-testid="select-customer-filter">
-                <SelectValue placeholder="Customer" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">All Customers</SelectItem>
-                {customers.map((c) => (
-                  <SelectItem key={c.id} value={c.id} data-testid={`option-customer-${c.id}`}>
-                    {c.name}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-            <Select value={typeFilter} onValueChange={setTypeFilter}>
-              <SelectTrigger className="w-32" data-testid="select-type-filter">
-                <SelectValue placeholder="Type" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">All Types</SelectItem>
-                <SelectItem value="email">Email</SelectItem>
-                <SelectItem value="sms">SMS</SelectItem>
-                <SelectItem value="note">Note</SelectItem>
-                <SelectItem value="letter">Letter</SelectItem>
-              </SelectContent>
-            </Select>
-            <Select value={statusFilter} onValueChange={setStatusFilter}>
-              <SelectTrigger className="w-32" data-testid="select-status-filter">
-                <SelectValue placeholder="Status" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">All Statuses</SelectItem>
-                <SelectItem value="draft">Draft</SelectItem>
-                <SelectItem value="sent">Sent</SelectItem>
-                <SelectItem value="scheduled">Scheduled</SelectItem>
-                <SelectItem value="failed">Failed</SelectItem>
-              </SelectContent>
-            </Select>
-            <Select disabled>
-              <SelectTrigger className="w-36 opacity-60" data-testid="select-date-filter">
-                <SelectValue placeholder="Date Range" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">All Dates</SelectItem>
-              </SelectContent>
-            </Select>
           </div>
-        </div>
 
-        {/* List */}
-        <div className="flex-1 overflow-y-auto">
-          {isLoading ? (
-            <div className="flex items-center justify-center py-16">
-              <Loader2 className="w-7 h-7 animate-spin text-muted-foreground" />
-            </div>
-          ) : filteredCommunications.length === 0 ? (
-            <div className="flex flex-col items-center justify-center py-16 text-center px-4">
-              <Inbox className="w-12 h-12 text-muted-foreground/30 mb-3" />
-              <p className="text-sm text-muted-foreground">No communications found</p>
-            </div>
-          ) : (
-            <div className="divide-y">
-              {filteredCommunications.map((comm) => (
-                <button
-                  key={comm.id}
-                  onClick={() => setSelectedId(comm.id === selectedId ? null : comm.id)}
-                  data-testid={`row-communication-${comm.id}`}
-                  className={`w-full text-left px-4 py-3 transition-colors hover-elevate ${
-                    selectedId === comm.id ? "bg-primary/5 border-l-2 border-l-primary" : ""
-                  }`}
-                >
-                  <div className="flex items-start justify-between gap-2 min-w-0">
-                    <div className="min-w-0 flex-1">
-                      <p className="text-sm font-medium truncate" data-testid={`text-subject-${comm.id}`}>
-                        {comm.subject}
-                      </p>
-                      <p className="text-xs text-muted-foreground truncate mt-0.5">
-                        {comm.customerName ?? "—"}
-                      </p>
-                    </div>
-                    <div className="flex flex-col items-end gap-1 shrink-0">
-                      <p className="text-xs text-muted-foreground">
-                        {formatDate(comm.sentAt ?? comm.scheduledAt ?? comm.createdAt)}
-                      </p>
-                    </div>
-                  </div>
-                  <div className="flex items-center gap-1.5 mt-1.5">
-                    <TypeBadge type={comm.type} />
-                    <StatusBadge status={comm.status} />
-                  </div>
-                </button>
-              ))}
-            </div>
-          )}
-        </div>
-      </div>
-
-      {/* Right Panel */}
-      <div className="w-96 shrink-0 flex flex-col overflow-hidden">
-        {selectedComm ? (
-          <div className="flex flex-col h-full overflow-y-auto">
-            <div className="p-4 border-b shrink-0">
-              <div className="flex items-start gap-2 mb-2">
-                <TypeBadge type={selectedComm.type} />
-                <StatusBadge status={selectedComm.status} />
-              </div>
-              <h2 className="text-base font-semibold leading-snug" data-testid="text-detail-subject">
-                {selectedComm.subject}
-              </h2>
-            </div>
-
-            <div className="p-4 border-b shrink-0 space-y-2">
-              <h3 className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-3">Metadata</h3>
-              <div className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-2 text-sm">
-                <div className="flex items-center gap-1.5 text-muted-foreground">
-                  <Building2 className="w-3.5 h-3.5" />
-                  <span>Customer</span>
-                </div>
-                <span data-testid="text-detail-customer">{selectedComm.customerName ?? "—"}</span>
-
-                <div className="flex items-center gap-1.5 text-muted-foreground">
-                  <User className="w-3.5 h-3.5" />
-                  <span>Contact</span>
-                </div>
-                <span data-testid="text-detail-contact">{selectedComm.contactName ?? "—"}</span>
-
-                <div className="flex items-center gap-1.5 text-muted-foreground">
-                  <Tag className="w-3.5 h-3.5" />
-                  <span>Type</span>
-                </div>
-                <span>{TYPE_LABELS[selectedComm.type] ?? selectedComm.type}</span>
-
-                <div className="flex items-center gap-1.5 text-muted-foreground">
-                  <Tag className="w-3.5 h-3.5" />
-                  <span>Status</span>
-                </div>
-                <span>{STATUS_LABELS[selectedComm.status] ?? selectedComm.status}</span>
-
-                <div className="flex items-center gap-1.5 text-muted-foreground">
-                  <UserCheck className="w-3.5 h-3.5" />
-                  <span>Sent by</span>
-                </div>
-                <span data-testid="text-detail-sent-by">{selectedComm.sentByName ?? "—"}</span>
-
-                <div className="flex items-center gap-1.5 text-muted-foreground">
-                  <CalendarDays className="w-3.5 h-3.5" />
-                  <span>Sent at</span>
-                </div>
-                <span data-testid="text-detail-sent-at">{formatDate(selectedComm.sentAt)}</span>
-
-                {selectedComm.scheduledAt && (
-                  <>
-                    <div className="flex items-center gap-1.5 text-muted-foreground">
-                      <Clock className="w-3.5 h-3.5" />
-                      <span>Scheduled</span>
-                    </div>
-                    <span>{formatDate(selectedComm.scheduledAt)}</span>
-                  </>
-                )}
-              </div>
-            </div>
-
-            <div className="p-4 flex-1 overflow-y-auto">
-              <h3 className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-3">Message Body</h3>
-              <p
-                className="text-sm whitespace-pre-wrap text-foreground leading-relaxed"
-                data-testid="text-detail-body"
-              >
-                {selectedComm.body}
-              </p>
-            </div>
-
-            <div className="p-4 border-t shrink-0">
-              <div className="flex items-center gap-1.5 text-muted-foreground mb-2">
-                <LinkIcon className="w-3.5 h-3.5" />
-                <h3 className="text-xs font-semibold uppercase tracking-wide">Linked Records</h3>
-              </div>
-              <p className="text-xs text-muted-foreground italic">
-                No linked records. Record linking coming in a future update.
-              </p>
-            </div>
+          {/* Right Detail Panel */}
+          <div className="flex-1 overflow-hidden">
+            <DetailPanel id={selectedId} />
           </div>
-        ) : (
-          <div className="flex flex-col items-center justify-center h-full text-center px-6">
-            <Mail className="w-12 h-12 text-muted-foreground/30 mb-3" />
-            <p className="text-sm font-medium text-muted-foreground">Select a communication</p>
-            <p className="text-xs text-muted-foreground mt-1">
-              Click a row to preview details
-            </p>
-          </div>
-        )}
-      </div>
+        </>
+      )}
     </div>
   );
 }

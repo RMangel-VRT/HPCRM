@@ -1,4 +1,4 @@
-import { type User, type InsertUser, type Customer, type InsertCustomer, type Contact, type InsertContact, type Company, type InsertCompany, type CompanyUser, type InsertCompanyUser, type Settings, type InsertSettings, type Note, type InsertNote, type Contract, type InsertContract, type ContractStatusHistory, type InsertContractStatusHistory, type ContractDocument, type InsertContractDocument, type ContractMonthlyAmount, type InsertContractMonthlyAmount, type CustomerRateSheet, type InsertCustomerRateSheet, type ContractService, type InsertContractService, type ContractTemplate, type InsertContractTemplate, type ContractBuilderDocument, type InsertContractBuilderDocument, type ContractBuilderSection, type InsertContractBuilderSection, type ContractBuilderVariable, type InsertContractBuilderVariable, type TicketType, type InsertTicketType, type TicketTypeStatus, type InsertTicketTypeStatus, type TicketTypeField, type InsertTicketTypeField, type Ticket, type InsertTicket, type TicketFieldValue, type InsertTicketFieldValue, type TicketStatusHistory, type InsertTicketStatusHistory, type TicketComment, type InsertTicketComment, type TicketCommentMention, type InsertTicketCommentMention, type TicketSource, type InsertTicketSource, type TicketLink, type InsertTicketLink, type TicketTypeCategory, type CustomerMapLayer, type InsertCustomerMapLayer, type CustomerMapDocument, type InsertCustomerMapDocument, type MaintenanceCrew, type InsertMaintenanceCrew, type MaintenanceVisitConfig, type InsertMaintenanceVisitConfig, type WeeklyScheduleTemplate, type InsertWeeklyScheduleTemplate, type ScheduleBlock, type InsertScheduleBlock, type TicketNotification, type InsertTicketNotification, type NotificationType, type PropertyManagementCompany, type InsertPropertyManagementCompany, type PropertyManager, type InsertPropertyManager, type PropertyManagerEmail, type InsertPropertyManagerEmail, type PropertyManagerPhone, type InsertPropertyManagerPhone, type PropertyManagerWithContacts, type Equipment, type InsertEquipment, type EquipmentFile, type InsertEquipmentFile, type EquipmentTicket, type InsertEquipmentTicket, type EquipmentTicketStatusHistory, type InsertEquipmentTicketStatusHistory, type EquipmentWithTicketCount, type SnowEvent, type InsertSnowEvent, type SnowEventAttachment, type InsertSnowEventAttachment, type SnowEventPropertyImpact, type InsertSnowEventPropertyImpact, type SnowEventWithDetails, type SnowEventPropertyImpactWithCustomer, type EmailTemplate, type InsertEmailTemplate, type EmailRule, type InsertEmailRule, type EmailLog, type InsertEmailLog, type EmailLogWithDetails, type Proposal, type InsertProposal, type ProposalFile, type InsertProposalFile, type ProposalWithDetails, type ProposalVersion, type InsertProposalVersion, type ProposalVersionWithUser, type VisualScopeSheet, type InsertVisualScopeSheet, type VisualScopeSheetWithCustomer, type Campaign, type InsertCampaign, type CampaignItem, type InsertCampaignItem, type CampaignWithProgress, type Season, type InsertSeason, type CampaignChecklistTask, type InsertCampaignChecklistTask, type CampaignItemTaskCompletion, type InsertCampaignItemTaskCompletion, type Communication, type InsertCommunication, type CommunicationTemplate, type InsertCommunicationTemplate, type CommunicationLink, type InsertCommunicationLink } from "@shared/schema";
+import { type User, type InsertUser, type Customer, type InsertCustomer, type Contact, type InsertContact, type Company, type InsertCompany, type CompanyUser, type InsertCompanyUser, type Settings, type InsertSettings, type Note, type InsertNote, type Contract, type InsertContract, type ContractStatusHistory, type InsertContractStatusHistory, type ContractDocument, type InsertContractDocument, type ContractMonthlyAmount, type InsertContractMonthlyAmount, type CustomerRateSheet, type InsertCustomerRateSheet, type ContractService, type InsertContractService, type ContractTemplate, type InsertContractTemplate, type ContractBuilderDocument, type InsertContractBuilderDocument, type ContractBuilderSection, type InsertContractBuilderSection, type ContractBuilderVariable, type InsertContractBuilderVariable, type TicketType, type InsertTicketType, type TicketTypeStatus, type InsertTicketTypeStatus, type TicketTypeField, type InsertTicketTypeField, type Ticket, type InsertTicket, type TicketFieldValue, type InsertTicketFieldValue, type TicketStatusHistory, type InsertTicketStatusHistory, type TicketComment, type InsertTicketComment, type TicketCommentMention, type InsertTicketCommentMention, type TicketSource, type InsertTicketSource, type TicketLink, type InsertTicketLink, type TicketTypeCategory, type CustomerMapLayer, type InsertCustomerMapLayer, type CustomerMapDocument, type InsertCustomerMapDocument, type MaintenanceCrew, type InsertMaintenanceCrew, type MaintenanceVisitConfig, type InsertMaintenanceVisitConfig, type WeeklyScheduleTemplate, type InsertWeeklyScheduleTemplate, type ScheduleBlock, type InsertScheduleBlock, type TicketNotification, type InsertTicketNotification, type NotificationType, type PropertyManagementCompany, type InsertPropertyManagementCompany, type PropertyManager, type InsertPropertyManager, type PropertyManagerEmail, type InsertPropertyManagerEmail, type PropertyManagerPhone, type InsertPropertyManagerPhone, type PropertyManagerWithContacts, type Equipment, type InsertEquipment, type EquipmentFile, type InsertEquipmentFile, type EquipmentTicket, type InsertEquipmentTicket, type EquipmentTicketStatusHistory, type InsertEquipmentTicketStatusHistory, type EquipmentWithTicketCount, type SnowEvent, type InsertSnowEvent, type SnowEventAttachment, type InsertSnowEventAttachment, type SnowEventPropertyImpact, type InsertSnowEventPropertyImpact, type SnowEventWithDetails, type SnowEventPropertyImpactWithCustomer, type EmailTemplate, type InsertEmailTemplate, type EmailRule, type InsertEmailRule, type EmailLog, type InsertEmailLog, type EmailLogWithDetails, type Proposal, type InsertProposal, type ProposalFile, type InsertProposalFile, type ProposalWithDetails, type ProposalVersion, type InsertProposalVersion, type ProposalVersionWithUser, type VisualScopeSheet, type InsertVisualScopeSheet, type VisualScopeSheetWithCustomer, type Campaign, type InsertCampaign, type CampaignItem, type InsertCampaignItem, type CampaignWithProgress, type Season, type InsertSeason, type CampaignChecklistTask, type InsertCampaignChecklistTask, type CampaignItemTaskCompletion, type InsertCampaignItemTaskCompletion, type Communication, type InsertCommunication, type CommunicationTemplate, type InsertCommunicationTemplate, type CommunicationLink, type InsertCommunicationLink, type CommunicationWithDetails, type CommunicationAnalytics } from "@shared/schema";
 import { db } from "./db";
 import { users, customers, contacts, companies, companyUsers, settings, notes, contracts, contractStatusHistory, contractDocuments, contractMonthlyAmounts, customerRateSheets, contractServices, contractTemplates, contractBuilderDocuments, contractBuilderSections, contractBuilderVariables, ticketTypes, ticketTypeStatuses, ticketTypeFields, tickets, ticketFieldValues, ticketStatusHistory, ticketComments, ticketCommentMentions, ticketSources, ticketLinks, customerMapLayers, customerMapDocuments, maintenanceCrews, maintenanceVisitConfigs, weeklyScheduleTemplates, scheduleBlocks, ticketNotifications, propertyManagementCompanies, propertyManagers, propertyManagerEmails, propertyManagerPhones, equipment, equipmentFiles, equipmentTickets, equipmentTicketStatusHistory, snowEvents, snowEventAttachments, snowEventPropertyImpacts, emailTemplates, emailRules, emailLogs, proposals, proposalFiles, proposalVersions, visualScopeSheets, campaigns, campaignItems, campaignChecklistTasks, campaignItemTaskCompletions, seasons, communications, communicationTemplates, communicationLinks } from "@shared/schema";
 import { eq, and, sql, desc, inArray, max } from "drizzle-orm";
@@ -352,12 +352,17 @@ export interface IStorage {
   deleteSeason(id: string, companyId: string): Promise<void>;
 
   // Communications
-  getCommunications(companyId: string, filters?: { type?: string; status?: string; customerId?: string }): Promise<Communication[]>;
-  getCommunicationById(id: string, companyId: string): Promise<Communication | undefined>;
-  createCommunication(comm: InsertCommunication): Promise<Communication>;
+  getCommunications(companyId: string, filters?: { view?: string; customerId?: string; type?: string; sentById?: string; search?: string; startDate?: Date; endDate?: Date }): Promise<CommunicationWithDetails[]>;
+  getCommunicationById(id: string, companyId: string): Promise<CommunicationWithDetails | undefined>;
+  createCommunication(communication: InsertCommunication): Promise<Communication>;
+  updateCommunication(id: string, companyId: string, updates: Partial<InsertCommunication>): Promise<Communication | undefined>;
+  deleteCommunication(id: string, companyId: string): Promise<void>;
   getCommunicationTemplates(companyId: string): Promise<CommunicationTemplate[]>;
   createCommunicationTemplate(template: InsertCommunicationTemplate): Promise<CommunicationTemplate>;
+  getCommunicationLinks(communicationId: string, companyId: string): Promise<CommunicationLink[]>;
   createCommunicationLink(link: InsertCommunicationLink): Promise<CommunicationLink>;
+  getCommunicationAnalytics(companyId: string, startDate: Date, endDate: Date): Promise<CommunicationAnalytics>;
+  seedCommunications(companyId: string, userId: string, customerIds: string[]): Promise<void>;
 
   sessionStore: session.Store;
 }
@@ -2898,22 +2903,143 @@ export class PgStorage implements IStorage {
     );
   }
 
-  async getCommunications(companyId: string, filters?: { type?: string; status?: string; customerId?: string }): Promise<Communication[]> {
-    const conditions = [eq(communications.companyId, companyId)];
-    if (filters?.type) conditions.push(sql`${communications.type} = ${filters.type}`);
-    if (filters?.status) conditions.push(sql`${communications.status} = ${filters.status}`);
-    if (filters?.customerId) conditions.push(eq(communications.customerId, filters.customerId));
-    return db.select().from(communications).where(and(...conditions)).orderBy(desc(communications.createdAt));
+  // ─── Communications ───────────────────────────────────────────────────────
+
+  async getCommunications(companyId: string, filters?: { view?: string; customerId?: string; type?: string; sentById?: string; search?: string; startDate?: Date; endDate?: Date }): Promise<CommunicationWithDetails[]> {
+    const { gte, lte, like, or, ilike } = await import("drizzle-orm");
+    const c = communications;
+    const u = users;
+    const cu = customers;
+    const co = contacts;
+    const ct = communicationTemplates;
+
+    const now = new Date();
+
+    const rows = await db
+      .select({
+        id: c.id,
+        companyId: c.companyId,
+        customerId: c.customerId,
+        contactId: c.contactId,
+        sentById: c.sentById,
+        templateId: c.templateId,
+        type: c.type,
+        status: c.status,
+        subject: c.subject,
+        body: c.body,
+        scheduledFor: c.scheduledFor,
+        sentAt: c.sentAt,
+        followUpDueAt: c.followUpDueAt,
+        followUpStatus: c.followUpStatus,
+        parentCommunicationId: c.parentCommunicationId,
+        createdAt: c.createdAt,
+        updatedAt: c.updatedAt,
+        customerName: cu.name,
+        contactName: co.name,
+        sentByName: u.name,
+        templateName: ct.name,
+      })
+      .from(c)
+      .leftJoin(u, eq(c.sentById, u.id))
+      .leftJoin(cu, eq(c.customerId, cu.id))
+      .leftJoin(co, eq(c.contactId, co.id))
+      .leftJoin(ct, eq(c.templateId, ct.id))
+      .where(eq(c.companyId, companyId))
+      .orderBy(desc(c.createdAt));
+
+    let result = rows.map(r => ({
+      ...r,
+      isOverdue: r.followUpStatus === "open" && r.followUpDueAt != null && r.followUpDueAt < now,
+    })) as CommunicationWithDetails[];
+
+    if (filters?.view === "drafts") {
+      result = result.filter(r => r.status === "draft");
+    } else if (filters?.view === "sent") {
+      result = result.filter(r => r.status === "sent");
+    } else if (filters?.view === "scheduled") {
+      result = result.filter(r => r.status === "scheduled");
+    } else if (filters?.view === "followups") {
+      result = result.filter(r => r.followUpStatus === "open" || r.followUpStatus === "snoozed");
+    }
+
+    if (filters?.customerId) result = result.filter(r => r.customerId === filters.customerId);
+    if (filters?.type) result = result.filter(r => r.type === filters.type);
+    if (filters?.sentById) result = result.filter(r => r.sentById === filters.sentById);
+    if (filters?.search) {
+      const s = filters.search.toLowerCase();
+      result = result.filter(r =>
+        (r.subject?.toLowerCase().includes(s)) ||
+        (r.body?.toLowerCase().includes(s)) ||
+        (r.customerName?.toLowerCase().includes(s))
+      );
+    }
+    if (filters?.startDate) result = result.filter(r => (r.sentAt ?? r.createdAt) >= filters.startDate!);
+    if (filters?.endDate) result = result.filter(r => (r.sentAt ?? r.createdAt) <= filters.endDate!);
+
+    return result;
   }
 
-  async getCommunicationById(id: string, companyId: string): Promise<Communication | undefined> {
-    const [row] = await db.select().from(communications).where(and(eq(communications.id, id), eq(communications.companyId, companyId)));
+  async getCommunicationById(id: string, companyId: string): Promise<CommunicationWithDetails | undefined> {
+    const c = communications;
+    const u = users;
+    const cu = customers;
+    const co = contacts;
+    const ct = communicationTemplates;
+    const now = new Date();
+
+    const [row] = await db
+      .select({
+        id: c.id,
+        companyId: c.companyId,
+        customerId: c.customerId,
+        contactId: c.contactId,
+        sentById: c.sentById,
+        templateId: c.templateId,
+        type: c.type,
+        status: c.status,
+        subject: c.subject,
+        body: c.body,
+        scheduledFor: c.scheduledFor,
+        sentAt: c.sentAt,
+        followUpDueAt: c.followUpDueAt,
+        followUpStatus: c.followUpStatus,
+        parentCommunicationId: c.parentCommunicationId,
+        createdAt: c.createdAt,
+        updatedAt: c.updatedAt,
+        customerName: cu.name,
+        contactName: co.name,
+        sentByName: u.name,
+        templateName: ct.name,
+      })
+      .from(c)
+      .leftJoin(u, eq(c.sentById, u.id))
+      .leftJoin(cu, eq(c.customerId, cu.id))
+      .leftJoin(co, eq(c.contactId, co.id))
+      .leftJoin(ct, eq(c.templateId, ct.id))
+      .where(and(eq(c.id, id), eq(c.companyId, companyId)));
+
+    if (!row) return undefined;
+    return {
+      ...row,
+      isOverdue: row.followUpStatus === "open" && row.followUpDueAt != null && row.followUpDueAt < now,
+    };
+  }
+
+  async createCommunication(communication: InsertCommunication): Promise<Communication> {
+    const [row] = await db.insert(communications).values(communication as typeof communications.$inferInsert).returning();
     return row;
   }
 
-  async createCommunication(comm: InsertCommunication): Promise<Communication> {
-    const [row] = await db.insert(communications).values(comm as typeof communications.$inferInsert).returning();
+  async updateCommunication(id: string, companyId: string, updates: Partial<InsertCommunication>): Promise<Communication | undefined> {
+    const [row] = await db.update(communications)
+      .set({ ...updates, updatedAt: new Date() } as Partial<typeof communications.$inferInsert>)
+      .where(and(eq(communications.id, id), eq(communications.companyId, companyId)))
+      .returning();
     return row;
+  }
+
+  async deleteCommunication(id: string, companyId: string): Promise<void> {
+    await db.delete(communications).where(and(eq(communications.id, id), eq(communications.companyId, companyId)));
   }
 
   async getCommunicationTemplates(companyId: string): Promise<CommunicationTemplate[]> {
@@ -2925,9 +3051,205 @@ export class PgStorage implements IStorage {
     return row;
   }
 
+  async getCommunicationLinks(communicationId: string, companyId: string): Promise<CommunicationLink[]> {
+    return db.select().from(communicationLinks).where(and(eq(communicationLinks.communicationId, communicationId), eq(communicationLinks.companyId, companyId)));
+  }
+
   async createCommunicationLink(link: InsertCommunicationLink): Promise<CommunicationLink> {
     const [row] = await db.insert(communicationLinks).values(link as typeof communicationLinks.$inferInsert).returning();
     return row;
+  }
+
+  async getCommunicationAnalytics(companyId: string, startDate: Date, endDate: Date): Promise<CommunicationAnalytics> {
+    const { count, gte, lte, lt } = await import("drizzle-orm");
+    const now = new Date();
+
+    const weekAgo = new Date();
+    weekAgo.setDate(weekAgo.getDate() - 7);
+    const monthAgo = new Date();
+    monthAgo.setDate(monthAgo.getDate() - 30);
+    const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
+
+    const allSent = await db
+      .select({ count: sql<number>`count(*)::int` })
+      .from(communications)
+      .where(
+        and(
+          eq(communications.companyId, companyId),
+          eq(communications.status, "sent"),
+          gte(communications.sentAt, startDate),
+          lte(communications.sentAt, endDate)
+        )
+      );
+
+    const sentThisWeek = await db
+      .select({ count: sql<number>`count(*)::int` })
+      .from(communications)
+      .where(
+        and(
+          eq(communications.companyId, companyId),
+          eq(communications.status, "sent"),
+          gte(communications.sentAt, weekAgo)
+        )
+      );
+
+    const sentThisMonth = await db
+      .select({ count: sql<number>`count(*)::int` })
+      .from(communications)
+      .where(
+        and(
+          eq(communications.companyId, companyId),
+          eq(communications.status, "sent"),
+          gte(communications.sentAt, startOfMonth)
+        )
+      );
+
+    const drafts = await db
+      .select({ count: sql<number>`count(*)::int` })
+      .from(communications)
+      .where(
+        and(
+          eq(communications.companyId, companyId),
+          eq(communications.status, "draft")
+        )
+      );
+
+    const overdueFollowUps = await db
+      .select({ count: sql<number>`count(*)::int` })
+      .from(communications)
+      .where(
+        and(
+          eq(communications.companyId, companyId),
+          eq(communications.followUpStatus, "open"),
+          lt(communications.followUpDueAt, now)
+        )
+      );
+
+    const byType = await db
+      .select({
+        type: communications.type,
+        count: sql<number>`count(*)::int`,
+      })
+      .from(communications)
+      .where(
+        and(
+          eq(communications.companyId, companyId),
+          eq(communications.status, "sent"),
+          gte(communications.sentAt, startDate),
+          lte(communications.sentAt, endDate)
+        )
+      )
+      .groupBy(communications.type)
+      .orderBy(desc(sql`count(*)`));
+
+    const byStaff = await db
+      .select({
+        userId: communications.sentById,
+        userName: users.name,
+        count: sql<number>`count(*)::int`,
+      })
+      .from(communications)
+      .leftJoin(users, eq(communications.sentById, users.id))
+      .where(
+        and(
+          eq(communications.companyId, companyId),
+          eq(communications.status, "sent"),
+          gte(communications.sentAt, startDate),
+          lte(communications.sentAt, endDate)
+        )
+      )
+      .groupBy(communications.sentById, users.name)
+      .orderBy(desc(sql`count(*)`));
+
+    const byCustomer = await db
+      .select({
+        customerId: communications.customerId,
+        customerName: customers.name,
+        count: sql<number>`count(*)::int`,
+      })
+      .from(communications)
+      .leftJoin(customers, eq(communications.customerId, customers.id))
+      .where(
+        and(
+          eq(communications.companyId, companyId),
+          eq(communications.status, "sent"),
+          gte(communications.sentAt, startDate),
+          lte(communications.sentAt, endDate)
+        )
+      )
+      .groupBy(communications.customerId, customers.name)
+      .orderBy(desc(sql`count(*)`))
+      .limit(10);
+
+    const byTemplate = await db
+      .select({
+        templateId: communications.templateId,
+        templateName: communicationTemplates.name,
+        count: sql<number>`count(*)::int`,
+      })
+      .from(communications)
+      .leftJoin(communicationTemplates, eq(communications.templateId, communicationTemplates.id))
+      .where(
+        and(
+          eq(communications.companyId, companyId),
+          eq(communications.status, "sent"),
+          gte(communications.sentAt, startDate),
+          lte(communications.sentAt, endDate)
+        )
+      )
+      .groupBy(communications.templateId, communicationTemplates.name)
+      .orderBy(desc(sql`count(*)`))
+      .limit(10);
+
+    return {
+      totalSentPeriod: allSent[0]?.count ?? 0,
+      totalSentThisWeek: sentThisWeek[0]?.count ?? 0,
+      totalSentThisMonth: sentThisMonth[0]?.count ?? 0,
+      draftsCount: drafts[0]?.count ?? 0,
+      overdueFollowUpsCount: overdueFollowUps[0]?.count ?? 0,
+      sentByType: byType.map(r => ({ type: r.type, count: r.count })),
+      sentByStaff: byStaff.filter(r => r.userId != null).map(r => ({ userId: r.userId!, userName: r.userName ?? "Unknown", count: r.count })),
+      topCustomers: byCustomer.filter(r => r.customerId != null).map(r => ({ customerId: r.customerId!, customerName: r.customerName ?? "Unknown", count: r.count })),
+      topTemplates: byTemplate.filter(r => r.templateId != null).map(r => ({ templateId: r.templateId!, templateName: r.templateName ?? "Unknown", count: r.count })),
+    };
+  }
+
+  async seedCommunications(companyId: string, userId: string, customerIds: string[]): Promise<void> {
+    const existingCount = await db.select({ count: sql<number>`count(*)::int` }).from(communications).where(eq(communications.companyId, companyId));
+    if ((existingCount[0]?.count ?? 0) > 0) return;
+
+    const templateData = [
+      { companyId, name: "Welcome Email", type: "email" as const, subject: "Welcome to High Plains Property Maintenance", body: "Dear valued customer,\n\nWelcome to High Plains! We are thrilled to have you as a client...", createdById: userId },
+      { companyId, name: "Service Reminder SMS", type: "sms" as const, subject: null, body: "Hi! Your scheduled service is coming up this week. We'll be there bright and early!", createdById: userId },
+      { companyId, name: "Seasonal Check-In", type: "email" as const, subject: "Seasonal Service Update", body: "As we head into the new season, we wanted to reach out about your property...", createdById: userId },
+    ];
+
+    const insertedTemplates: CommunicationTemplate[] = [];
+    for (const t of templateData) {
+      const tmpl = await this.createCommunicationTemplate(t);
+      insertedTemplates.push(tmpl);
+    }
+
+    const now = new Date();
+    const daysAgo = (d: number) => { const dt = new Date(now); dt.setDate(dt.getDate() - d); return dt; };
+
+    const seedData = customerIds.slice(0, 6).map((custId, i) => ({
+      companyId,
+      customerId: custId,
+      sentById: userId,
+      templateId: i < insertedTemplates.length ? insertedTemplates[i % insertedTemplates.length].id : null,
+      type: (["email", "email", "sms", "note", "email", "letter"] as const)[i],
+      status: (["sent", "sent", "sent", "sent", "draft", "sent"] as const)[i],
+      subject: ["Service Update", "Spring Services Ready", null, null, "Follow-up needed", "Service Agreement"][i],
+      body: ["Your property maintenance has been scheduled for next week.", "Spring services are ready to begin — please confirm.", "Reminder: service visit tomorrow at 8am.", "Called customer — no answer. Will follow up.", "Need to follow up on proposal.", "Please find attached your service agreement for the upcoming season."][i],
+      sentAt: [daysAgo(3), daysAgo(7), daysAgo(1), daysAgo(10), null, daysAgo(14)][i],
+      followUpStatus: (["none", "open", "none", "none", "none", "done"] as const)[i],
+      followUpDueAt: [null, daysAgo(-2), null, null, null, daysAgo(5)][i],
+    }));
+
+    for (const comm of seedData) {
+      await this.createCommunication(comm as InsertCommunication);
+    }
   }
 }
 

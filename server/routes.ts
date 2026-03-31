@@ -10522,48 +10522,128 @@ export async function registerRoutes(app: Express): Promise<Server> {
     res.json({ season, campaigns: seasonCampaigns, items: reportItems });
   });
 
-  // Communications Center Routes
+  // ─── Communications API ──────────────────────────────────────────────────
+
+  function resolveDatePreset(preset: string | undefined, startDate: string | undefined, endDate: string | undefined): { start: Date; end: Date } {
+    const now = new Date();
+    if (preset === "this_week") {
+      const s = new Date(now); s.setDate(s.getDate() - 7); s.setHours(0, 0, 0, 0);
+      const e = new Date(now); e.setHours(23, 59, 59, 999);
+      return { start: s, end: e };
+    }
+    if (preset === "this_month") {
+      const s = new Date(now.getFullYear(), now.getMonth(), 1);
+      const e = new Date(now); e.setHours(23, 59, 59, 999);
+      return { start: s, end: e };
+    }
+    if (preset === "last_30") {
+      const s = new Date(now); s.setDate(s.getDate() - 30); s.setHours(0, 0, 0, 0);
+      const e = new Date(now); e.setHours(23, 59, 59, 999);
+      return { start: s, end: e };
+    }
+    const s = startDate ? new Date(startDate) : new Date(now.getFullYear(), now.getMonth(), 1);
+    const e = endDate ? new Date(endDate) : new Date(now);
+    e.setHours(23, 59, 59, 999);
+    return { start: s, end: e };
+  }
+
   const commRoles = ["admin", "office"];
+
+  app.get("/api/communications/analytics", async (req, res) => {
+    if (!req.isAuthenticated()) return res.status(401).send("Not authenticated");
+    const user = req.user as UserWithContext;
+    if (!commRoles.includes(user.activeRole)) return res.status(403).send("Insufficient permissions");
+    const { preset, startDate, endDate } = req.query as { preset?: string; startDate?: string; endDate?: string };
+    const { start, end } = resolveDatePreset(preset, startDate, endDate);
+    const analytics = await storage.getCommunicationAnalytics(user.activeCompanyId, start, end);
+    res.json(analytics);
+  });
 
   app.get("/api/communications", async (req, res) => {
     if (!req.isAuthenticated()) return res.status(401).send("Not authenticated");
     const user = req.user as UserWithContext;
     if (!commRoles.includes(user.activeRole)) return res.status(403).send("Insufficient permissions");
-    const { type, status, customerId } = req.query as Record<string, string>;
-    const items = await storage.getCommunications(user.activeCompanyId, {
-      type: type || undefined,
-      status: status || undefined,
-      customerId: customerId || undefined,
-    });
-    res.json(items);
+    const { view, customerId, type, sentById, search, startDate, endDate } = req.query as Record<string, string>;
+    const filters: { view?: string; customerId?: string; type?: string; sentById?: string; search?: string; startDate?: Date; endDate?: Date } = {};
+    if (view) filters.view = view;
+    if (customerId) filters.customerId = customerId;
+    if (type) filters.type = type;
+    if (sentById) filters.sentById = sentById;
+    if (search) filters.search = search;
+    if (startDate) filters.startDate = new Date(startDate);
+    if (endDate) filters.endDate = new Date(endDate);
+    const comms = await storage.getCommunications(user.activeCompanyId, filters);
+    // Seed if empty
+    if (comms.length === 0) {
+      const custList = await storage.getCustomers(user.activeCompanyId);
+      if (custList.length > 0) {
+        await storage.seedCommunications(user.activeCompanyId, user.id, custList.map(c => c.id));
+        const seeded = await storage.getCommunications(user.activeCompanyId, filters);
+        return res.json(seeded);
+      }
+    }
+    res.json(comms);
+  });
+
+  app.get("/api/communications/templates", async (req, res) => {
+    if (!req.isAuthenticated()) return res.status(401).send("Not authenticated");
+    const user = req.user as UserWithContext;
+    if (!commRoles.includes(user.activeRole)) return res.status(403).send("Insufficient permissions");
+    const templates = await storage.getCommunicationTemplates(user.activeCompanyId);
+    res.json(templates);
+  });
+
+  app.post("/api/communications/templates", async (req, res) => {
+    if (!req.isAuthenticated()) return res.status(401).send("Not authenticated");
+    const user = req.user as UserWithContext;
+    if (!commRoles.includes(user.activeRole)) return res.status(403).send("Insufficient permissions");
+    const { insertCommunicationTemplateSchema } = await import("@shared/schema");
+    const parsed = insertCommunicationTemplateSchema.safeParse({ ...req.body, companyId: user.activeCompanyId, createdById: user.id });
+    if (!parsed.success) return res.status(400).json({ error: parsed.error });
+    const template = await storage.createCommunicationTemplate(parsed.data);
+    res.status(201).json(template);
   });
 
   app.get("/api/communications/:id", async (req, res) => {
     if (!req.isAuthenticated()) return res.status(401).send("Not authenticated");
     const user = req.user as UserWithContext;
     if (!commRoles.includes(user.activeRole)) return res.status(403).send("Insufficient permissions");
-    const item = await storage.getCommunicationById(req.params.id, user.activeCompanyId);
-    if (!item) return res.status(404).json({ error: "Not found" });
-    res.json(item);
+    const comm = await storage.getCommunicationById(req.params.id, user.activeCompanyId);
+    if (!comm) return res.status(404).json({ error: "Not found" });
+    const links = await storage.getCommunicationLinks(req.params.id, user.activeCompanyId);
+    res.json({ ...comm, links });
   });
 
-  app.get("/api/communication-templates", async (req, res) => {
+  app.post("/api/communications", async (req, res) => {
     if (!req.isAuthenticated()) return res.status(401).send("Not authenticated");
     const user = req.user as UserWithContext;
     if (!commRoles.includes(user.activeRole)) return res.status(403).send("Insufficient permissions");
-    const items = await storage.getCommunicationTemplates(user.activeCompanyId);
-    res.json(items);
+    const { insertCommunicationSchema } = await import("@shared/schema");
+    const parsed = insertCommunicationSchema.safeParse({ ...req.body, companyId: user.activeCompanyId, sentById: user.id });
+    if (!parsed.success) return res.status(400).json({ error: parsed.error });
+    const comm = await storage.createCommunication(parsed.data);
+    res.status(201).json(comm);
   });
 
-  // Seed communications if none exist for this company
-  app.post("/api/communications/seed", async (req, res) => {
+  app.patch("/api/communications/:id", async (req, res) => {
     if (!req.isAuthenticated()) return res.status(401).send("Not authenticated");
     const user = req.user as UserWithContext;
     if (!commRoles.includes(user.activeRole)) return res.status(403).send("Insufficient permissions");
-    const existing = await storage.getCommunications(user.activeCompanyId);
-    if (existing.length > 0) return res.json({ seeded: false, count: existing.length });
-    const count = await seedCommunications(user.activeCompanyId, user.id, user.name);
-    res.json({ seeded: true, count });
+    const updates = req.body;
+    if (updates.scheduledFor) updates.scheduledFor = new Date(updates.scheduledFor);
+    if (updates.followUpDueAt) updates.followUpDueAt = new Date(updates.followUpDueAt);
+    if (updates.sentAt) updates.sentAt = new Date(updates.sentAt);
+    const comm = await storage.updateCommunication(req.params.id, user.activeCompanyId, updates);
+    if (!comm) return res.status(404).json({ error: "Not found" });
+    res.json(comm);
+  });
+
+  app.delete("/api/communications/:id", async (req, res) => {
+    if (!req.isAuthenticated()) return res.status(401).send("Not authenticated");
+    const user = req.user as UserWithContext;
+    if (!commRoles.includes(user.activeRole)) return res.status(403).send("Insufficient permissions");
+    await storage.deleteCommunication(req.params.id, user.activeCompanyId);
+    res.status(204).send();
   });
 
   const httpServer = createServer(app);
