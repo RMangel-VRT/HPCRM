@@ -1800,6 +1800,7 @@ export const communicationTemplates = pgTable("communication_templates", {
   body: text("body").notNull(),
   description: text("description"),
   isActive: boolean("is_active").notNull().default(true),
+  isArchived: boolean("is_archived").notNull().default(false),
   defaultCommunicationType: text("default_communication_type").$type<"email" | "sms" | "note" | "letter">(),
   createdById: varchar("created_by_id").references(() => users.id, { onDelete: "set null" }),
   createdAt: timestamp("created_at").notNull().defaultNow(),
@@ -1823,6 +1824,7 @@ export const insertCommunicationTemplateSchema = createInsertSchema(communicatio
   ]).default("general_outreach"),
   type: z.enum(["email", "sms", "note", "letter"]),
   isActive: z.boolean().default(true),
+  isArchived: z.boolean().default(false),
   description: z.string().nullable().optional(),
   defaultCommunicationType: z.enum(["email", "sms", "note", "letter"]).nullable().optional(),
   createdById: z.string().nullable().optional(),
@@ -1831,6 +1833,31 @@ export const insertCommunicationTemplateSchema = createInsertSchema(communicatio
 export type InsertCommunicationTemplate = z.infer<typeof insertCommunicationTemplateSchema>;
 export type CommunicationTemplate = typeof communicationTemplates.$inferSelect;
 
+// Communication Audit Log
+export const communicationAuditLog = pgTable("communication_audit_log", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  companyId: varchar("company_id").notNull().references(() => companies.id, { onDelete: "cascade" }),
+  communicationId: varchar("communication_id").references(() => communications.id, { onDelete: "set null" }),
+  templateId: varchar("template_id").references(() => communicationTemplates.id, { onDelete: "set null" }),
+  actionType: text("action_type").notNull().$type<"template_created" | "template_edited" | "template_archived" | "communication_sent" | "scheduled_send_cancelled" | "automation_edited" | "automation_toggled">(),
+  actionByUserId: varchar("action_by_user_id").references(() => users.id, { onDelete: "set null" }),
+  actionDetails: jsonb("action_details"),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+});
+
+export const insertCommunicationAuditLogSchema = createInsertSchema(communicationAuditLog).omit({
+  id: true,
+  createdAt: true,
+}).extend({
+  actionType: z.enum(["template_created", "template_edited", "template_archived", "communication_sent", "scheduled_send_cancelled", "automation_edited", "automation_toggled"]),
+});
+
+export type InsertCommunicationAuditLog = z.infer<typeof insertCommunicationAuditLogSchema>;
+export type CommunicationAuditLog = typeof communicationAuditLog.$inferSelect;
+
+export type CommunicationAuditLogWithUser = CommunicationAuditLog & {
+  actionByUserName?: string | null;
+};
 export type MarkupPoint = [number, number];
 export type SymbolType = "tree" | "plant" | "boulder";
 export type MarkupObjectType = "polygon" | "polyline" | "symbol" | "text";

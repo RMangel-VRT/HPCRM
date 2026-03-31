@@ -8,10 +8,11 @@ import { format, formatDistanceToNow } from "date-fns";
 import { queryClient, apiRequest } from "@/lib/queryClient";
 import { useAuth } from "@/hooks/use-auth";
 import { useToast } from "@/hooks/use-toast";
+import { useSetBreadcrumbs } from "@/hooks/use-breadcrumbs";
+import { useAuth } from "@/hooks/use-auth";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Skeleton } from "@/components/ui/skeleton";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Textarea } from "@/components/ui/textarea";
 import { Switch } from "@/components/ui/switch";
@@ -20,7 +21,7 @@ import { Separator } from "@/components/ui/separator";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Alert, AlertDescription } from "@/components/ui/alert";
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import {
   Popover,
   PopoverContent,
@@ -32,51 +33,55 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip";
 import {
-  MessageSquare,
-  Send,
-  FileText,
-  Calendar,
-  AlertCircle,
-  LayoutDashboard,
-  ChevronRight,
-  Search,
   Mail,
+  MessageSquare,
+  FileText,
+  Search,
+  Building2,
+  CalendarDays,
+  Tag,
+  Link as LinkIcon,
+  ClipboardList,
+  Lock,
+  AlertTriangle,
+  ShieldAlert,
+  Send,
   Phone,
   StickyNote,
   FileEdit,
   Users,
-  Building2,
-  Star,
-  TrendingUp,
+  Loader2,
+  Scroll,
+  LayoutTemplate,
+  User,
   Clock,
   CheckCircle,
   Eye,
-  Loader2,
   Plus,
   ArrowDownLeft,
   ArrowUpRight,
   MessagesSquare,
   Reply,
-  User,
   UserCheck,
   Archive,
-  LayoutTemplate,
   XCircle,
-  CalendarDays,
-  Tag,
+  Calendar,
+  AlertCircle,
+  LayoutDashboard,
+  ChevronRight,
   AlarmClock,
   CheckCircle2,
   Inbox,
   ChevronDown,
   Info,
-  Link as LinkIcon,
+  Star,
 } from "lucide-react";
-import type { Communication, CommunicationWithDetails, CommunicationAnalytics, CommunicationTemplate } from "@shared/schema";
+import type { Communication, Customer, CommunicationWithDetails, CommunicationAnalytics, CommunicationTemplate, CommunicationAuditLogWithUser } from "@shared/schema";
 import { COMMUNICATION_TEMPLATE_CATEGORIES, COMMUNICATION_TEMPLATE_CATEGORY_LABELS } from "@shared/schema";
 import ComposeDrawer from "@/components/ComposeDrawer";
 
 type NavView = "dashboard" | "all" | "drafts" | "sent" | "scheduled" | "followups";
-type SectionFilter = "all" | "draft" | "sent" | "scheduled" | "follow_ups" | "templates";
+type SectionFilter = "all" | "draft" | "sent" | "scheduled" | "follow_ups" | "templates" | "audit_log";
 type Section = NavView;
 
 const TYPE_ICONS: Record<string, React.ElementType> = {
@@ -93,6 +98,13 @@ const TYPE_LABELS: Record<string, string> = {
   sms: "SMS",
   note: "Note",
   letter: "Letter",
+};
+
+const STATUS_LABELS: Record<string, string> = {
+  draft: "Draft",
+  sent: "Sent",
+  scheduled: "Scheduled",
+  failed: "Failed",
 };
 
 const STATUS_COLORS: Record<string, string> = {
@@ -112,6 +124,15 @@ function TypeBadge({ type }: { type: string }) {
   );
 }
 
+function StatusBadge({ status }: { status: string }) {
+  const colorClass = STATUS_COLORS[status] ?? "bg-muted text-muted-foreground";
+  return (
+    <Badge variant="outline" className={`font-normal capitalize ${colorClass}`}>
+      {STATUS_LABELS[status] ?? status}
+    </Badge>
+  );
+}
+
 const DELIVERY_STATUS_COLORS: Record<string, string> = {
   pending: "bg-yellow-100 text-yellow-800 dark:bg-yellow-900/30 dark:text-yellow-400",
   sent: "bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-400",
@@ -123,288 +144,159 @@ function formatDate(d: string | Date | null | undefined): string {
   return new Date(d).toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" });
 }
 
-function formatDateTime(d: string | Date | null | undefined): string {
-  if (!d) return "—";
-  return new Date(d).toLocaleString(undefined, { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" });
+const ACTION_TYPE_LABELS: Record<string, string> = {
+  template_created: "Template Created",
+  template_edited: "Template Edited",
+  template_archived: "Template Archived",
+  communication_sent: "Communication Sent",
+  scheduled_send_cancelled: "Scheduled Send Cancelled",
+  automation_edited: "Automation Edited",
+  automation_toggled: "Automation Toggled",
+};
+
+const ACTION_TYPE_VARIANTS: Record<string, string> = {
+  template_created: "bg-green-100 text-green-800 dark:bg-green-900/40 dark:text-green-300",
+  template_edited: "bg-blue-100 text-blue-800 dark:bg-blue-900/40 dark:text-blue-300",
+  template_archived: "bg-orange-100 text-orange-800 dark:bg-orange-900/40 dark:text-orange-300",
+  communication_sent: "bg-green-100 text-green-800 dark:bg-green-900/40 dark:text-green-300",
+  scheduled_send_cancelled: "bg-yellow-100 text-yellow-800 dark:bg-yellow-900/40 dark:text-yellow-300",
+  automation_edited: "bg-purple-100 text-purple-800 dark:bg-purple-900/40 dark:text-purple-300",
+  automation_toggled: "bg-indigo-100 text-indigo-800 dark:bg-indigo-900/40 dark:text-indigo-300",
+};
+
+function ActionTypeBadge({ actionType }: { actionType: string }) {
+  const colorClass = ACTION_TYPE_VARIANTS[actionType] ?? "bg-muted text-muted-foreground";
+  return (
+    <span className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium ${colorClass}`}>
+      {ACTION_TYPE_LABELS[actionType] ?? actionType}
+    </span>
+  );
 }
 
-// ──────────────────────────────────────────────
-// Analytics Dashboard
-// ──────────────────────────────────────────────
-
-type DatePreset = "this_week" | "this_month" | "last_30" | "custom";
-
-interface AnalyticsDashboardProps {
-  onNavigateToList: (params: Record<string, string>) => void;
+function formatDate(date: string | Date | null | undefined) {
+  if (!date) return "—";
+  return new Date(date).toLocaleDateString("en-US", {
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+  });
 }
 
-function AnalyticsDashboard({ onNavigateToList }: AnalyticsDashboardProps) {
-  const [preset, setPreset] = useState<DatePreset>("this_month");
-  const [customStart, setCustomStart] = useState("");
-  const [customEnd, setCustomEnd] = useState("");
+function formatDateTime(date: string | Date | null | undefined) {
+  if (!date) return "—";
+  return new Date(date).toLocaleString("en-US", {
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+  });
+}
 
-  const queryParams = new URLSearchParams();
-  if (preset !== "custom") {
-    queryParams.set("preset", preset);
-  } else {
-    if (customStart) queryParams.set("startDate", customStart);
-    if (customEnd) queryParams.set("endDate", customEnd);
-  }
+function buildDetailSummary(log: CommunicationAuditLogWithUser): string {
+  const details = log.actionDetails as Record<string, unknown> | null;
+  if (!details) return "—";
+  const parts: string[] = [];
+  if (details.templateName) parts.push(`Template: ${details.templateName}`);
+  if (details.subject) parts.push(`Subject: ${details.subject}`);
+  if (details.customerName) parts.push(`Customer: ${details.customerName}`);
+  if (details.recipientCount) parts.push(`Recipients: ${details.recipientCount}`);
+  if (details.archived !== undefined) parts.push(details.archived ? "Archived" : "Unarchived");
+  return parts.join(" · ") || "—";
+}
 
-  const { data: analytics, isLoading } = useQuery<CommunicationAnalytics>({
-    queryKey: ["/api/communications/analytics", preset, customStart, customEnd],
-    queryFn: async () => {
-      const res = await fetch(`/api/communications/analytics?${queryParams.toString()}`);
-      if (!res.ok) throw new Error("Failed to fetch analytics");
-      return res.json();
-    },
+// Permission helper — determines what the current user can do
+function useCommPermissions() {
+  const { user } = useAuth();
+  const role = user?.activeRole;
+  return {
+    canView: role === "admin" || role === "office",
+    canManageTemplates: role === "admin" || role === "office",
+    canSend: role === "admin" || role === "office",
+    canManageAutomations: role === "admin",
+    isAdmin: role === "admin",
+  };
+}
+
+// Access-denied locked state
+function LockedState({ message }: { message: string }) {
+  return (
+    <div className="flex flex-col items-center justify-center h-full text-center px-6 py-16 gap-3">
+      <ShieldAlert className="w-12 h-12 text-muted-foreground/40" />
+      <p className="text-sm font-medium text-muted-foreground">{message}</p>
+      <p className="text-xs text-muted-foreground max-w-xs">
+        Your current role does not have access to this section. Contact your administrator if you believe this is an error.
+      </p>
+    </div>
+  );
+}
+
+// Pre-send validation error display
+function ValidationErrors({ errors, onDismiss }: { errors: string[]; onDismiss: () => void }) {
+  return (
+    <Alert variant="destructive" className="mt-3" data-testid="alert-validation-errors">
+      <AlertTriangle className="h-4 w-4" />
+      <AlertTitle>Cannot send — please fix the following:</AlertTitle>
+      <AlertDescription>
+        <ul className="list-disc pl-4 mt-1 space-y-1">
+          {errors.map((e, i) => (
+            <li key={i} className="text-sm" data-testid={`text-validation-error-${i}`}>{e}</li>
+          ))}
+        </ul>
+        <Button variant="outline" size="sm" className="mt-3" onClick={onDismiss} data-testid="button-dismiss-errors">
+          Dismiss
+        </Button>
+      </AlertDescription>
+    </Alert>
+  );
+}
+
+// Audit Log Panel
+function AuditLogPanel() {
+  const { data: logs = [], isLoading } = useQuery<CommunicationAuditLogWithUser[]>({
+    queryKey: ["/api/communications/audit-log"],
   });
 
-  const presetLabel = (p: DatePreset) => {
-    if (p === "this_week") return "This Week";
-    if (p === "this_month") return "This Month";
-    if (p === "last_30") return "Last 30 Days";
-    return "Custom";
-  };
-
-  const periodLabel = preset === "custom"
-    ? (customStart && customEnd ? `${formatDate(customStart)} – ${formatDate(customEnd)}` : "Select dates")
-    : presetLabel(preset);
-
-  const statCards = [
-    {
-      label: "Sent This Week",
-      value: analytics?.totalSentThisWeek ?? 0,
-      icon: Send,
-      description: "Messages sent in the last 7 days",
-      onClick: () => onNavigateToList({ view: "sent", preset: "this_week" }),
-      testId: "stat-sent-this-week",
-    },
-    {
-      label: "Sent This Month",
-      value: analytics?.totalSentThisMonth ?? 0,
-      icon: TrendingUp,
-      description: "Messages sent this calendar month",
-      onClick: () => onNavigateToList({ view: "sent", preset: "this_month" }),
-      testId: "stat-sent-this-month",
-    },
-    {
-      label: "Drafts Pending",
-      value: analytics?.draftsCount ?? 0,
-      icon: FileText,
-      description: "Unsent draft messages",
-      onClick: () => onNavigateToList({ view: "drafts" }),
-      testId: "stat-drafts",
-    },
-    {
-      label: "Overdue Follow-Ups",
-      value: analytics?.overdueFollowUpsCount ?? 0,
-      icon: AlertCircle,
-      description: "Follow-ups past their due date",
-      onClick: () => onNavigateToList({ view: "followups" }),
-      testId: "stat-overdue-followups",
-      variant: "warning",
-    },
-  ];
-
   return (
-    <div className="flex flex-col gap-6 h-full overflow-y-auto p-6">
-      {/* Header row */}
-      <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-        <div>
-          <h2 className="text-xl font-semibold">Communications Overview</h2>
-          <p className="text-sm text-muted-foreground">Activity for: {periodLabel}</p>
-        </div>
-        <div className="flex flex-wrap items-center gap-2">
-          {(["this_week", "this_month", "last_30", "custom"] as DatePreset[]).map(p => (
-            <Button
-              key={p}
-              variant={preset === p ? "default" : "outline"}
-              size="sm"
-              onClick={() => setPreset(p)}
-              data-testid={`button-preset-${p}`}
-            >
-              {presetLabel(p)}
-            </Button>
-          ))}
-        </div>
+    <div className="flex flex-col h-full overflow-hidden">
+      <div className="p-4 border-b shrink-0">
+        <h2 className="text-base font-semibold" data-testid="text-audit-log-title">Audit Log</h2>
+        <p className="text-xs text-muted-foreground mt-0.5">Last 200 actions in this company</p>
       </div>
-
-      {preset === "custom" && (
-        <div className="flex flex-wrap items-center gap-3">
-          <div className="flex items-center gap-2">
-            <label className="text-sm font-medium">From</label>
-            <Input type="date" value={customStart} onChange={e => setCustomStart(e.target.value)} className="w-40" data-testid="input-custom-start" />
+      <div className="flex-1 overflow-y-auto">
+        {isLoading ? (
+          <div className="flex items-center justify-center py-16">
+            <Loader2 className="w-6 h-6 animate-spin text-muted-foreground" />
           </div>
-          <div className="flex items-center gap-2">
-            <label className="text-sm font-medium">To</label>
-            <Input type="date" value={customEnd} onChange={e => setCustomEnd(e.target.value)} className="w-40" data-testid="input-custom-end" />
+        ) : logs.length === 0 ? (
+          <div className="flex flex-col items-center justify-center py-16 text-center px-4">
+            <ClipboardList className="w-10 h-10 text-muted-foreground/30 mb-3" />
+            <p className="text-sm text-muted-foreground">No audit log entries yet</p>
           </div>
-        </div>
-      )}
-
-      {/* Stat Cards */}
-      <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
-        {statCards.map(card => (
-          <Card
-            key={card.testId}
-            className="cursor-pointer hover-elevate"
-            onClick={card.onClick}
-            data-testid={card.testId}
-          >
-            <CardContent className="pt-4 pb-4">
-              <div className="flex items-start justify-between gap-2">
-                <div>
-                  <p className="text-xs text-muted-foreground font-medium uppercase tracking-wide">{card.label}</p>
-                  {isLoading ? (
-                    <Skeleton className="h-8 w-12 mt-1" />
-                  ) : (
-                    <p className={`text-3xl font-bold mt-1 ${card.variant === "warning" && (analytics?.overdueFollowUpsCount ?? 0) > 0 ? "text-orange-600 dark:text-orange-400" : ""}`}>
-                      {card.value}
-                    </p>
-                  )}
-                  <p className="text-xs text-muted-foreground mt-1">{card.description}</p>
+        ) : (
+          <div className="divide-y">
+            {logs.map((log) => (
+              <div
+                key={log.id}
+                className="px-4 py-3"
+                data-testid={`row-audit-log-${log.id}`}
+              >
+                <div className="flex items-start justify-between gap-2 mb-1">
+                  <ActionTypeBadge actionType={log.actionType} />
+                  <span className="text-xs text-muted-foreground shrink-0" data-testid={`text-audit-time-${log.id}`}>
+                    {formatDateTime(log.createdAt)}
+                  </span>
                 </div>
-                <div className="rounded-md bg-primary/10 p-2 shrink-0">
-                  <card.icon className="w-4 h-4 text-primary" />
-                </div>
+                <p className="text-xs text-muted-foreground mt-1" data-testid={`text-audit-user-${log.id}`}>
+                  By: {log.actionByUserName ?? "Unknown"}
+                </p>
+                <p className="text-xs text-foreground/70 mt-0.5 truncate" data-testid={`text-audit-detail-${log.id}`}>
+                  {buildDetailSummary(log)}
+                </p>
               </div>
-            </CardContent>
-          </Card>
-        ))}
-      </div>
-
-      {/* Bottom rows */}
-      <div className="grid grid-cols-1 gap-6 md:grid-cols-2 xl:grid-cols-4">
-        {/* Sent by Type */}
-        <Card>
-          <CardHeader className="pb-2">
-            <CardTitle className="text-sm font-medium flex items-center gap-2">
-              <MessageSquare className="w-4 h-4" />
-              Sent by Type
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            {isLoading ? (
-              <div className="space-y-2">{[1,2,3].map(i => <Skeleton key={i} className="h-8 w-full" />)}</div>
-            ) : !analytics?.sentByType?.length ? (
-              <p className="text-sm text-muted-foreground">No data for this period</p>
-            ) : (
-              <ul className="space-y-1">
-                {analytics.sentByType.map(row => {
-                  const Icon = TYPE_ICONS[row.type] ?? MessageSquare;
-                  return (
-                    <li
-                      key={row.type}
-                      className="flex items-center justify-between gap-2 rounded-md px-2 py-1.5 cursor-pointer hover-elevate"
-                      onClick={() => onNavigateToList({ view: "sent", type: row.type })}
-                      data-testid={`type-row-${row.type}`}
-                    >
-                      <div className="flex items-center gap-2 min-w-0">
-                        <Icon className="w-3.5 h-3.5 text-muted-foreground shrink-0" />
-                        <span className="text-sm truncate">{TYPE_LABELS[row.type] ?? row.type}</span>
-                      </div>
-                      <Badge variant="secondary" className="text-xs">{row.count}</Badge>
-                    </li>
-                  );
-                })}
-              </ul>
-            )}
-          </CardContent>
-        </Card>
-
-        {/* Sent by Staff */}
-        <Card>
-          <CardHeader className="pb-2">
-            <CardTitle className="text-sm font-medium flex items-center gap-2">
-              <Users className="w-4 h-4" />
-              Sent by Staff Member
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            {isLoading ? (
-              <div className="space-y-2">{[1,2,3].map(i => <Skeleton key={i} className="h-8 w-full" />)}</div>
-            ) : !analytics?.sentByStaff?.length ? (
-              <p className="text-sm text-muted-foreground">No data for this period</p>
-            ) : (
-              <ul className="space-y-1">
-                {analytics.sentByStaff.map(row => (
-                  <li
-                    key={row.userId}
-                    className="flex items-center justify-between gap-2 rounded-md px-2 py-1.5 cursor-pointer hover-elevate"
-                    onClick={() => onNavigateToList({ view: "sent", sentById: row.userId })}
-                    data-testid={`staff-row-${row.userId}`}
-                  >
-                    <span className="text-sm truncate">{row.userName}</span>
-                    <Badge variant="secondary" className="text-xs">{row.count}</Badge>
-                  </li>
-                ))}
-              </ul>
-            )}
-          </CardContent>
-        </Card>
-
-        {/* Top Customers */}
-        <Card>
-          <CardHeader className="pb-2">
-            <CardTitle className="text-sm font-medium flex items-center gap-2">
-              <Building2 className="w-4 h-4" />
-              Top Customers
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            {isLoading ? (
-              <div className="space-y-2">{[1,2,3].map(i => <Skeleton key={i} className="h-8 w-full" />)}</div>
-            ) : !analytics?.topCustomers?.length ? (
-              <p className="text-sm text-muted-foreground">No data for this period</p>
-            ) : (
-              <ul className="space-y-1">
-                {analytics.topCustomers.map(row => (
-                  <li
-                    key={row.customerId}
-                    className="flex items-center justify-between gap-2 rounded-md px-2 py-1.5 cursor-pointer hover-elevate"
-                    onClick={() => onNavigateToList({ customerId: row.customerId })}
-                    data-testid={`customer-row-${row.customerId}`}
-                  >
-                    <span className="text-sm truncate">{row.customerName}</span>
-                    <Badge variant="secondary" className="text-xs">{row.count}</Badge>
-                  </li>
-                ))}
-              </ul>
-            )}
-          </CardContent>
-        </Card>
-
-        {/* Top Templates */}
-        <Card>
-          <CardHeader className="pb-2">
-            <CardTitle className="text-sm font-medium flex items-center gap-2">
-              <Star className="w-4 h-4" />
-              Top Templates Used
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            {isLoading ? (
-              <div className="space-y-2">{[1,2,3].map(i => <Skeleton key={i} className="h-8 w-full" />)}</div>
-            ) : !analytics?.topTemplates?.length ? (
-              <p className="text-sm text-muted-foreground">No templates used in this period</p>
-            ) : (
-              <ul className="space-y-1">
-                {analytics.topTemplates.map(row => (
-                  <li
-                    key={row.templateId}
-                    className="flex items-center justify-between gap-2 rounded-md px-2 py-1.5 cursor-pointer hover-elevate"
-                    onClick={() => onNavigateToList({ templateId: row.templateId })}
-                    data-testid={`template-row-${row.templateId}`}
-                  >
-                    <span className="text-sm truncate">{row.templateName}</span>
-                    <Badge variant="secondary" className="text-xs">{row.count}</Badge>
-                  </li>
-                ))}
-              </ul>
-            )}
-          </CardContent>
-        </Card>
+            ))}
+          </div>
+        )}
       </div>
     </div>
   );
@@ -1548,46 +1440,92 @@ function TemplateManager() {
 }
 
 export default function CommunicationsCenter() {
-  const [location, navigate] = useLocation();
-  const searchParams = new URLSearchParams(location.split("?")[1] ?? "");
-
-  const initialView = (searchParams.get("view") as NavView) ?? "dashboard";
-  const initialCustomerId = searchParams.get("customerId") ?? "";
-  const initialSentById = searchParams.get("sentById") ?? "";
-  const initialType = searchParams.get("type") ?? "";
-
-  const [activeView, setActiveView] = useState<NavView>(initialView);
-  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const { toast } = useToast();
+  const permissions = useCommPermissions();
+  const [sectionFilter, setSectionFilter] = useState<SectionFilter>("all");
+  const [typeFilter, setTypeFilter] = useState<string>("all");
+  const [statusFilter, setStatusFilter] = useState<string>("all");
+  const [customerFilter, setCustomerFilter] = useState<string>("all");
   const [search, setSearch] = useState("");
-  const [typeFilter, setTypeFilter] = useState(initialType);
-  const [customerIdFilter, setCustomerIdFilter] = useState(initialCustomerId);
-  const [sentByIdFilter, setSentByIdFilter] = useState(initialSentById);
-  const [initialFilters] = useState<Record<string, string>>({
-    startDate: searchParams.get("startDate") ?? "",
-    endDate: searchParams.get("endDate") ?? "",
+  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [validationErrors, setValidationErrors] = useState<string[]>([]);
+
+  useSetBreadcrumbs([{ label: "Communications" }], []);
+
+  const { data: communications = [], isLoading } = useQuery<Communication[]>({
+    queryKey: ["/api/communications"],
+    enabled: permissions.canView,
   });
 
-  const { data: countData } = useQuery<CommunicationWithDetails[]>({
-    queryKey: ["/api/communications", "all"],
-    queryFn: async () => {
-      const res = await fetch("/api/communications");
-      if (!res.ok) throw new Error("Failed");
+  const { data: customers = [] } = useQuery<Customer[]>({
+    queryKey: ["/api/customers"],
+    enabled: permissions.canView,
+  });
+
+  // Cancel-schedule mutation
+  const cancelScheduleMutation = useMutation({
+    mutationFn: async (id: string) => {
+      const res = await apiRequest("PATCH", `/api/communications/${id}/cancel-schedule`, {});
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        throw new Error(body.error ?? "Failed to cancel scheduled send");
+      }
       return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/communications"] });
+      toast({ title: "Scheduled send cancelled", description: "The communication has been moved back to Drafts." });
+    },
+    onError: (err: Error) => {
+      toast({ title: "Error", description: err.message, variant: "destructive" });
     },
   });
 
-  const draftsCount = countData?.filter(c => c.status === "draft").length ?? 0;
-  const scheduledCount = countData?.filter(c => c.status === "scheduled").length ?? 0;
-  const followupsCount = countData?.filter(c => c.followUpStatus === "open" || c.followUpStatus === "snoozed").length ?? 0;
-  const overdueCount = countData?.filter(c => c.isOverdue).length ?? 0;
 
-  const navItems: { view: NavView; label: string; icon: React.ElementType; count?: number; overdue?: boolean }[] = [
-    { view: "dashboard", label: "Dashboard", icon: LayoutDashboard },
-    { view: "all", label: "All Communications", icon: MessageSquare },
-    { view: "drafts", label: "Drafts", icon: FileText, count: draftsCount },
-    { view: "sent", label: "Sent", icon: Send },
-    { view: "scheduled", label: "Scheduled", icon: Calendar, count: scheduledCount },
-    { view: "followups", label: "Follow-Ups", icon: AlertCircle, count: followupsCount, overdue: overdueCount > 0 },
+  const filteredCommunications = useMemo(() => {
+    let items = communications;
+
+    if (sectionFilter === "follow_ups") {
+      items = items.filter((c) => c.status === "draft" && c.type === "note");
+    } else if (sectionFilter !== "all" && sectionFilter !== "audit_log") {
+      items = items.filter((c) => c.status === sectionFilter);
+    }
+
+    if (typeFilter !== "all") {
+      items = items.filter((c) => c.type === typeFilter);
+    }
+
+    if (statusFilter !== "all") {
+      items = items.filter((c) => c.status === statusFilter);
+    }
+
+    if (customerFilter !== "all") {
+      items = items.filter((c) => c.customerId === customerFilter);
+    }
+
+    if (search.trim()) {
+      const q = search.toLowerCase();
+      items = items.filter(
+        (c) =>
+          c.subject.toLowerCase().includes(q) ||
+          (c.customerName ?? "").toLowerCase().includes(q) ||
+          c.body.toLowerCase().includes(q)
+      );
+    }
+
+    return items;
+  }, [communications, sectionFilter, typeFilter, statusFilter, customerFilter, search]);
+
+  const selectedComm = filteredCommunications.find((c) => c.id === selectedId) ??
+    communications.find((c) => c.id === selectedId);
+
+  const navSections: { id: SectionFilter; label: string; icon: typeof Inbox; count?: number; requiresAdmin?: boolean }[] = [
+    { id: "all", label: "All Communications", icon: Inbox, count: communications.length },
+    { id: "draft", label: "Drafts", icon: FileText, count: communications.filter((c) => c.status === "draft").length },
+    { id: "sent", label: "Sent", icon: Send, count: communications.filter((c) => c.status === "sent").length },
+    { id: "scheduled", label: "Scheduled", icon: Clock, count: communications.filter((c) => c.status === "scheduled").length },
+    { id: "follow_ups", label: "Follow-Ups", icon: UserCheck, count: communications.filter((c) => c.status === "draft" && c.type === "note").length },
+    { id: "audit_log", label: "Audit Log", icon: ClipboardList, requiresAdmin: true },
   ];
 
   const handleNavigateToList = (params: Record<string, string>) => {
@@ -1616,6 +1554,14 @@ export default function CommunicationsCenter() {
 
   const isTemplatesView = showTemplates;
 
+  if (!permissions.canView) {
+    return (
+      <div className="flex h-full -m-6 md:-m-8 overflow-hidden items-center justify-center">
+        <LockedState message="You do not have access to the Communication Center." />
+      </div>
+    );
+  }
+
   return (
     <div className="flex h-full overflow-hidden -m-6 md:-m-8">
       {/* Left Nav Panel */}
@@ -1635,69 +1581,78 @@ export default function CommunicationsCenter() {
             Compose
           </Button>
         </div>
-        <nav className="flex-1 p-2 space-y-0.5">
-          {navItems.map(item => {
-            const Icon = item.icon;
-            const isActive = activeView === item.view;
-            return (
-              <button
-                key={item.view}
-                onClick={() => handleNavSelect(item.view)}
-                data-testid={`nav-${item.view}`}
-                className={`w-full flex items-center justify-between gap-2 px-3 py-2 rounded-md text-sm transition-colors text-left ${
-                  isActive
-                    ? "bg-primary text-primary-foreground"
-                    : "text-foreground/70 hover-elevate"
-                }`}
-              >
-                <div className="flex items-center gap-2 min-w-0">
-                  <Icon className="w-4 h-4 shrink-0" />
-                  <span className="truncate">{item.label}</span>
-                </div>
-                {item.count != null && item.count > 0 && (
-                  <Badge
-                    className={`text-xs shrink-0 border-0 ${
-                      item.overdue
-                        ? "bg-orange-100 text-orange-800 dark:bg-orange-900/30 dark:text-orange-400"
-                        : isActive
-                        ? "bg-primary-foreground/20 text-primary-foreground"
-                        : "bg-muted text-muted-foreground"
-                    }`}
-                    variant="outline"
+        <div className="flex-1 overflow-y-auto p-2">
+          <div className="space-y-1">
+            {navSections.map((section) => {
+              const Icon = section.icon;
+              const isLocked = section.requiresAdmin && !permissions.isAdmin;
+
+              if (isLocked) {
+                return (
+                  <div
+                    key={section.id}
+                    className="flex items-center gap-2 px-3 py-2 rounded-md text-sm text-muted-foreground/50 cursor-not-allowed"
+                    data-testid={`nav-${section.id}-locked`}
+                    title="Only administrators can access the audit log"
                   >
-                    {item.count}
-                  </Badge>
-                )}
-              </button>
-            );
-          })}
-        </nav>
+                    <Icon className="w-4 h-4 shrink-0" />
+                    <span>{section.label}</span>
+                    <Lock className="w-3 h-3 ml-auto" />
+                  </div>
+                );
+              }
 
-        <div className="p-2 border-t">
-          <Button
-            className="w-full"
-            onClick={() => setComposeOpen(true)}
-            data-testid="button-new-message"
-          >
-            <Plus className="w-4 h-4 mr-2" />
-            New Message
-          </Button>
-        </div>
+              return (
+                <button
+                  key={section.id}
+                  data-testid={`nav-${section.id}`}
+                  onClick={() => {
+                    if (section.id === "audit_log") {
+                      setSectionFilter("audit_log");
+                      setShowTemplates(false);
+                    } else {
+                      handleNavSelect(section.id as NavView);
+                    }
+                  }}
+                  className={`w-full flex items-center gap-2 px-3 py-2 rounded-md text-sm transition-colors hover-elevate ${
+                    (sectionFilter === section.id && !showTemplates) || (activeView === section.id && !showTemplates)
+                      ? "bg-primary text-primary-foreground font-medium shadow-sm"
+                      : "text-muted-foreground hover:bg-muted"
+                  }`}
+                >
+                  <Icon className="w-4 h-4 shrink-0" />
+                  <span className="truncate">{section.label}</span>
+                  {section.count !== undefined && (
+                    <span
+                      className={`ml-auto text-xs px-1.5 py-0.5 rounded-full ${
+                        (sectionFilter === section.id && !showTemplates) || (activeView === section.id && !showTemplates)
+                          ? "bg-primary-foreground/20 text-primary-foreground"
+                          : "bg-muted text-muted-foreground"
+                      }`}
+                    >
+                      {section.count}
+                    </span>
+                  )}
+                </button>
+              );
+            })}
+          </div>
 
-        <div className="p-2 border-t">
-          <p className="text-xs text-muted-foreground px-3 py-1 font-medium uppercase tracking-wide">Templates</p>
-          <button
-            className={`w-full flex items-center gap-2 px-3 py-2 rounded-md text-sm text-left transition-colors ${
-              showTemplates
-                ? "bg-primary text-primary-foreground"
-                : "text-foreground/70 hover-elevate"
-            }`}
-            data-testid="nav-templates"
-            onClick={() => { setShowTemplates(true); setSelectedId(null); }}
-          >
-            <FileEdit className="w-4 h-4 shrink-0" />
-            <span>Template Manager</span>
-          </button>
+          <div className="p-2 border-t mt-4">
+            <p className="text-xs text-muted-foreground px-3 py-1 font-medium uppercase tracking-wide">Templates</p>
+            <button
+              className={`w-full flex items-center gap-2 px-3 py-2 rounded-md text-sm text-left transition-colors ${
+                showTemplates
+                  ? "bg-primary text-primary-foreground"
+                  : "text-foreground/70 hover-elevate"
+              }`}
+              data-testid="nav-templates"
+              onClick={() => { setShowTemplates(true); setSelectedId(null); }}
+            >
+              <FileEdit className="w-4 h-4 shrink-0" />
+              <span>Template Manager</span>
+            </button>
+          </div>
         </div>
       </div>
 
@@ -1726,29 +1681,37 @@ export default function CommunicationsCenter() {
             <TemplateManager />
           </div>
         </div>
+      ) : sectionFilter === "audit_log" && permissions.isAdmin ? (
+        <div className="flex-1 min-w-0 overflow-hidden border-r">
+          <AuditLogPanel />
+        </div>
       ) : isDashboard ? (
         <div className="flex-1 overflow-hidden">
           <AnalyticsDashboard onNavigateToList={handleNavigateToList} />
         </div>
       ) : (
         <>
-          {/* Center Panel */}
-          <div className="w-80 shrink-0 border-r flex flex-col overflow-hidden">
-            {/* Center Header */}
-            <div className="p-3 border-b space-y-2">
-              <div className="relative">
-                <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-muted-foreground" />
-                <Input
-                  className="pl-8 h-8 text-sm"
-                  placeholder="Search messages..."
-                  value={search}
-                  onChange={e => setSearch(e.target.value)}
-                  data-testid="input-search"
-                />
+          {/* Main List Area */}
+          <div className="flex-1 flex flex-col min-w-0 overflow-hidden border-r">
+            <div className="p-4 border-b space-y-3 shrink-0">
+              <div className="flex items-center justify-between gap-3">
+                <h2 className="text-sm font-semibold capitalize" data-testid="text-view-title">{activeView} Communications</h2>
+                <div className="flex items-center gap-2">
+                  <div className="relative">
+                    <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+                    <Input
+                      placeholder="Search..."
+                      className="pl-9 h-8 w-64"
+                      value={search}
+                      onChange={(e) => setSearch(e.target.value)}
+                      data-testid="input-search"
+                    />
+                  </div>
+                </div>
               </div>
-              <div className="flex items-center gap-2">
-                <Select value={typeFilter || "all"} onValueChange={v => setTypeFilter(v === "all" ? "" : v)}>
-                  <SelectTrigger className="h-8 text-xs" data-testid="select-type-filter">
+              <div className="flex items-center gap-2 overflow-x-auto pb-1 no-scrollbar">
+                <Select value={typeFilter} onValueChange={setTypeFilter}>
+                  <SelectTrigger className="h-8 w-[130px]" data-testid="select-type-filter">
                     <SelectValue placeholder="Type" />
                   </SelectTrigger>
                   <SelectContent>
@@ -1759,10 +1722,17 @@ export default function CommunicationsCenter() {
                     <SelectItem value="letter">Letter</SelectItem>
                   </SelectContent>
                 </Select>
+                <Select value={customerIdFilter} onValueChange={setCustomerIdFilter}>
+                  <SelectTrigger className="h-8 w-[150px]" data-testid="select-customer-filter">
+                    <SelectValue placeholder="Customer" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">All Customers</SelectItem>
+                    {customers.map(c => <SelectItem key={c.id} value={c.id}>{c.name}</SelectItem>)}
+                  </SelectContent>
+                </Select>
               </div>
             </div>
-
-            {/* List */}
             <div className="flex-1 overflow-y-auto">
               <CommunicationsList
                 view={activeView}
@@ -1772,17 +1742,146 @@ export default function CommunicationsCenter() {
                 sentByIdFilter={sentByIdFilter}
                 selectedId={selectedId}
                 onSelect={setSelectedId}
-                initialFilters={initialFilters}
               />
             </div>
           </div>
-
-          {/* Right Detail Panel */}
-          <div className="flex-1 overflow-hidden">
+          {/* Detail Panel Area */}
+          <div className="w-[450px] shrink-0 overflow-hidden">
             <DetailPanel id={selectedId} />
           </div>
         </>
       )}
+    </div>
+  );
+}
+
+      {/* Right Panel */}
+      <div className="w-96 shrink-0 flex flex-col overflow-hidden">
+        {sectionFilter === "audit_log" ? (
+          <div className="flex flex-col items-center justify-center h-full text-center px-6">
+            <ClipboardList className="w-12 h-12 text-muted-foreground/30 mb-3" />
+            <p className="text-sm font-medium text-muted-foreground">Audit Log</p>
+            <p className="text-xs text-muted-foreground mt-1">
+              Select an entry from the log to see details
+            </p>
+          </div>
+        ) : selectedComm ? (
+          <div className="flex flex-col h-full overflow-y-auto">
+            <div className="p-4 border-b shrink-0">
+              <div className="flex items-start gap-2 mb-2">
+                <TypeBadge type={selectedComm.type} />
+                <StatusBadge status={selectedComm.status} />
+              </div>
+              <h2 className="text-base font-semibold leading-snug" data-testid="text-detail-subject">
+                {selectedComm.subject}
+              </h2>
+            </div>
+
+            <div className="p-4 border-b shrink-0 space-y-2">
+              <h3 className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-3">Metadata</h3>
+              <div className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-2 text-sm">
+                <div className="flex items-center gap-1.5 text-muted-foreground">
+                  <Building2 className="w-3.5 h-3.5" />
+                  <span>Customer</span>
+                </div>
+                <span data-testid="text-detail-customer">{selectedComm.customerName ?? "—"}</span>
+
+                <div className="flex items-center gap-1.5 text-muted-foreground">
+                  <User className="w-3.5 h-3.5" />
+                  <span>Contact</span>
+                </div>
+                <span data-testid="text-detail-contact">{selectedComm.contactName ?? "—"}</span>
+
+                <div className="flex items-center gap-1.5 text-muted-foreground">
+                  <Tag className="w-3.5 h-3.5" />
+                  <span>Type</span>
+                </div>
+                <span>{TYPE_LABELS[selectedComm.type] ?? selectedComm.type}</span>
+
+                <div className="flex items-center gap-1.5 text-muted-foreground">
+                  <Tag className="w-3.5 h-3.5" />
+                  <span>Status</span>
+                </div>
+                <span>{STATUS_LABELS[selectedComm.status] ?? selectedComm.status}</span>
+
+                <div className="flex items-center gap-1.5 text-muted-foreground">
+                  <UserCheck className="w-3.5 h-3.5" />
+                  <span>Sent by</span>
+                </div>
+                <span data-testid="text-detail-sent-by">{selectedComm.sentByName ?? "—"}</span>
+
+                <div className="flex items-center gap-1.5 text-muted-foreground">
+                  <CalendarDays className="w-3.5 h-3.5" />
+                  <span>Sent at</span>
+                </div>
+                <span data-testid="text-detail-sent-at">{formatDate(selectedComm.sentAt)}</span>
+
+                {selectedComm.scheduledAt && (
+                  <>
+                    <div className="flex items-center gap-1.5 text-muted-foreground">
+                      <Clock className="w-3.5 h-3.5" />
+                      <span>Scheduled</span>
+                    </div>
+                    <span>{formatDate(selectedComm.scheduledAt)}</span>
+                  </>
+                )}
+              </div>
+            </div>
+
+            {/* Validation error display area */}
+            {validationErrors.length > 0 && (
+              <div className="px-4 pt-3">
+                <ValidationErrors errors={validationErrors} onDismiss={() => setValidationErrors([])} />
+              </div>
+            )}
+
+            <div className="p-4 flex-1 overflow-y-auto">
+              <h3 className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-3">Message Body</h3>
+              <p
+                className="text-sm whitespace-pre-wrap text-foreground leading-relaxed"
+                data-testid="text-detail-body"
+              >
+                {selectedComm.body}
+              </p>
+            </div>
+
+            {/* Actions */}
+            {permissions.canSend && selectedComm.status === "scheduled" && (
+              <div className="p-4 border-t shrink-0">
+                <h3 className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-2">Actions</h3>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  disabled={cancelScheduleMutation.isPending}
+                  onClick={() => cancelScheduleMutation.mutate(selectedComm.id)}
+                  data-testid="button-cancel-schedule"
+                >
+                  {cancelScheduleMutation.isPending && <Loader2 className="w-3 h-3 mr-1.5 animate-spin" />}
+                  Cancel Scheduled Send
+                </Button>
+              </div>
+            )}
+
+            <div className="p-4 border-t shrink-0">
+              <div className="flex items-center gap-1.5 text-muted-foreground mb-2">
+                <LinkIcon className="w-3.5 h-3.5" />
+                <h3 className="text-xs font-semibold uppercase tracking-wide">Linked Records</h3>
+              </div>
+              <p className="text-xs text-muted-foreground italic">
+                No linked records. Record linking coming in a future update.
+              </p>
+            </div>
+          </div>
+        ) : (
+          <div className="flex flex-col items-center justify-center h-full text-center px-6">
+            <Mail className="w-12 h-12 text-muted-foreground/30 mb-3" />
+            <p className="text-sm font-medium text-muted-foreground">No communication selected</p>
+            <p className="text-xs text-muted-foreground mt-1">
+              Select a message from the list to view details
+            </p>
+          </div>
+        )}
+      </div>
     </div>
   );
 }

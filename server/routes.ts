@@ -9,7 +9,7 @@ import { storage } from "./storage";
 import { db } from "./db";
 import { eq, and, inArray, sql } from "drizzle-orm";
 import { insertCustomerSchema, insertContactSchema, insertCompanySchema, insertCompanyUserSchema, insertSettingsSchema, insertNoteSchema, insertContractSchema, insertContractDocumentSchema, insertContractBuilderDocumentSchema, insertContractBuilderSectionSchema, insertContractBuilderVariableSchema, insertTicketTypeSchema, insertTicketTypeStatusSchema, insertTicketTypeFieldSchema, insertTicketSchema, insertTicketFieldValueSchema, insertTicketStatusHistorySchema, insertTicketCommentSchema, insertTicketLinkSchema, insertCustomerMapLayerSchema, insertCustomerMapDocumentSchema, insertMaintenanceCrewSchema, insertMaintenanceVisitConfigSchema, insertWeeklyScheduleTemplateSchema, insertScheduleBlockSchema, insertEquipmentSchema, insertEquipmentFileSchema, insertEquipmentTicketSchema, insertEquipmentTicketStatusHistorySchema, insertSnowEventSchema, insertSnowEventPropertyImpactSchema, insertSnowEventAttachmentSchema, insertEmailTemplateSchema, insertEmailRuleSchema, SNOW_RANGES, tickets, ticketLinks, ticketTypes, ticketTypeStatuses, customers as customersTable, contacts as contactsTable, contracts as contractsTable, equipment as equipmentTable, users as usersTable, contractMonthlyAmounts, contractDocuments, contractServices, contractStatusHistory, companyUsers as companyUsersTable, insertCommunicationSchema } from "@shared/schema";
-import type { Customer, CaptureParams, CampaignItem, Season, InsertCommunication } from "@shared/schema";
+import type { Customer, CaptureParams, CampaignItem, Season, InsertCommunication, InsertCommunicationTemplate, InsertCommunicationAuditLog } from "@shared/schema";
 import { insertCommunicationTemplateSchema } from "@shared/schema";
 import { ObjectStorageService, ObjectNotFoundError, objectStorageClient, signObjectURL } from "./objectStorage";
 import { ObjectPermission, ObjectAccessGroupType, setObjectAclPolicy } from "./objectAcl";
@@ -1743,6 +1743,54 @@ export async function seedCommunicationTemplatesBootstrap(): Promise<void> {
 
 export async function registerRoutes(app: Express): Promise<Server> {
   setupAuth(app);
+
+  // ── Communication Center permission constants & helpers ──────────────────────
+  // These must be defined early because they are used on routes registered
+  // throughout the file (including email-rules routes at line ~7620).
+  const COMM_VIEW_ROLES_SET = ["admin", "office"];
+  const COMM_MANAGE_TEMPLATES_ROLES_SET = ["admin", "office"];
+  const COMM_SEND_ROLES_SET = ["admin", "office"];
+  const COMM_AUTOMATIONS_ROLES_SET = ["admin"];
+
+  function requireCommPermission(level: "view" | "manage_templates" | "send" | "manage_automations") {
+    const allowed = level === "manage_automations" ? COMM_AUTOMATIONS_ROLES_SET
+      : level === "view" ? COMM_VIEW_ROLES_SET
+      : level === "manage_templates" ? COMM_MANAGE_TEMPLATES_ROLES_SET
+      : COMM_SEND_ROLES_SET;
+    return (req: any, res: any, next: any) => {
+      if (!req.isAuthenticated()) return res.status(401).json({ error: "Not authenticated" });
+      const user = req.user as UserWithContext;
+      if (!allowed.includes(user.activeRole)) {
+        return res.status(403).json({
+          error: "Access denied",
+          message: `You do not have permission to perform this action. Required permission: ${level}.`,
+          requiredPermission: level,
+        });
+      }
+      next();
+    };
+  }
+
+  async function writeCommAuditLog(
+    companyId: string,
+    userId: string,
+    actionType: InsertCommunicationAuditLog["actionType"],
+    details: { communicationId?: string; templateId?: string; actionDetails?: Record<string, unknown> }
+  ) {
+    try {
+      await storage.createCommunicationAuditLog({
+        companyId,
+        communicationId: details.communicationId ?? null,
+        templateId: details.templateId ?? null,
+        actionType,
+        actionByUserId: userId,
+        actionDetails: details.actionDetails ?? null,
+      });
+    } catch (err) {
+      console.error("Failed to write comm audit log:", err);
+    }
+  }
+  // ── End Communication Center helpers ─────────────────────────────────────────
 
   // Customers routes
   app.get("/api/customers", async (req, res) => {
@@ -7930,29 +7978,32 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
   
   // Get email rules for company
-  app.get("/api/email-rules", async (req, res) => {
-    if (!req.isAuthenticated()) return res.status(401).send("Not authenticated");
+  app.get("/api/email-rules", requireCommPermission("manage_automations"), async (req, res) => {
     const user = req.user as UserWithContext;
-    if (user.activeRole !== "admin" && user.activeRole !== "office") {
-      return res.status(403).send("Admin or office role required");
-    }
     const rules = await storage.getEmailRules(user.activeCompanyId);
     res.json(rules);
   });
   
   // Update email rule (enable/disable)
-  app.patch("/api/email-rules/:id", async (req, res) => {
-    if (!req.isAuthenticated()) return res.status(401).send("Not authenticated");
+  app.patch("/api/email-rules/:id", requireCommPermission("manage_automations"), async (req, res) => {
     const user = req.user as UserWithContext;
-    if (user.activeRole !== "admin") {
-      return res.status(403).send("Admin role required");
-    }
     const result = insertEmailRuleSchema.partial().omit({ companyId: true }).safeParse(req.body);
     if (!result.success) {
       return res.status(400).send(result.error.message);
     }
     const rule = await storage.updateEmailRule(req.params.id, user.activeCompanyId, result.data);
     if (!rule) return res.status(404).send("Rule not found");
+
+    const isToggle = result.data.isEnabled !== undefined && Object.keys(result.data).length === 1;
+    await writeCommAuditLog(user.activeCompanyId, user.id, isToggle ? "automation_toggled" : "automation_edited", {
+      actionDetails: {
+        ruleId: rule.id,
+        eventKey: rule.eventKey,
+        isEnabled: rule.isEnabled,
+        ...(isToggle ? {} : { changes: result.data }),
+      },
+    });
+
     res.json(rule);
   });
   
@@ -10897,46 +10948,48 @@ export async function registerRoutes(app: Express): Promise<Server> {
     return { start: s, end: e };
   }
 
-  const commRoles = ["admin", "office"];
-
-  app.get("/api/communications/analytics", async (req, res) => {
-    if (!req.isAuthenticated()) return res.status(401).send("Not authenticated");
+  app.get("/api/communications/analytics", requireCommPermission("view"), async (req, res) => {
     const user = req.user as UserWithContext;
-    if (!commRoles.includes(user.activeRole)) return res.status(403).send("Insufficient permissions");
     const { preset, startDate, endDate } = req.query as { preset?: string; startDate?: string; endDate?: string };
     const { start, end } = resolveDatePreset(preset, startDate, endDate);
     const analytics = await storage.getCommunicationAnalytics(user.activeCompanyId, start, end);
     res.json(analytics);
   });
 
-  // GET /api/communications
-  app.get("/api/communications", async (req, res) => {
-    if (!req.isAuthenticated()) return res.status(401).send("Unauthorized");
-    const user = req.user as UserWithContext;
-    if (!commRoles.includes(user.activeRole)) return res.status(403).send("Insufficient permissions");
-    const { view, customerId, type, sentById, search, startDate, endDate, status, threadId } = req.query as Record<string, string>;
-    const filters: any = {};
-    if (view) filters.view = view;
-    if (customerId) filters.customerId = customerId;
-    if (type) filters.type = type;
-    if (sentById) filters.sentById = sentById;
-    if (search) filters.search = search;
-    if (startDate) filters.startDate = new Date(startDate);
-    if (endDate) filters.endDate = new Date(endDate);
-    if (status) filters.status = status;
-    if (threadId) filters.threadId = threadId;
-
-    const comms = await storage.getCommunications(user.activeCompanyId, filters);
-    // Seed if empty
-    if (comms.length === 0 && !view && !customerId && !type && !sentById && !search && !startDate && !endDate && !status && !threadId) {
-      const custList = await storage.getCustomers(user.activeCompanyId);
-      if (custList.length > 0) {
-        await storage.seedCommunications(user.activeCompanyId, user.id, custList.map(c => c.id));
-        const seeded = await storage.getCommunications(user.activeCompanyId, filters);
-        return res.json(seeded);
-      }
+  // Helper: validate send-time conditions — returns array of error strings (empty = ok)
+  function validateSendPayload(body: string, templateIsArchived: boolean, recipients: string[]): string[] {
+    const errors: string[] = [];
+    if (!recipients || recipients.length === 0) {
+      errors.push("Recipient list is empty. Please add at least one recipient.");
     }
-    res.json(comms);
+    if (templateIsArchived) {
+      errors.push("This template has been archived and cannot be used for sending.");
+    }
+    const unresolvedTokens = [...body.matchAll(/\{\{([^}]+)\}\}/g)].map((m) => `{{${m[1]}}}`);
+    if (unresolvedTokens.length > 0) {
+      const unique = [...new Set(unresolvedTokens)];
+      errors.push(`${unique.length} merge token${unique.length > 1 ? "s are" : " is"} unresolved: ${unique.join(", ")}`);
+    }
+    return errors;
+  }
+
+  // GET /api/communications/audit-log — admin only (must be before /:id)
+  app.get("/api/communications/audit-log", requireCommPermission("manage_automations"), async (req, res) => {
+    const user = req.user as UserWithContext;
+    const logs = await storage.getCommunicationAuditLogs(user.activeCompanyId, 200);
+    res.json(logs);
+  });
+
+  // GET /api/communications
+  app.get("/api/communications", requireCommPermission("view"), async (req, res) => {
+    const user = req.user as UserWithContext;
+    const { type, status, customerId } = req.query as Record<string, string>;
+    const items = await storage.getCommunications(user.activeCompanyId, {
+      type: type || undefined,
+      status: status || undefined,
+      customerId: customerId || undefined,
+    });
+    res.json(items);
   });
 
   // GET /api/communications/templates
@@ -10968,32 +11021,40 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // GET /api/communications/:id
-  app.get("/api/communications/:id", async (req, res) => {
-    if (!req.isAuthenticated()) return res.status(401).send("Unauthorized");
+  app.get("/api/communications/:id", requireCommPermission("view"), async (req, res) => {
     const user = req.user as UserWithContext;
-    if (!commRoles.includes(user.activeRole)) return res.status(403).send("Insufficient permissions");
     const comm = await storage.getCommunicationById(req.params.id, user.activeCompanyId);
     if (!comm) return res.status(404).json({ error: "Not found" });
     const links = await storage.getCommunicationLinks(req.params.id, user.activeCompanyId);
     res.json({ ...comm, links });
   });
 
-  // POST /api/communications
-  app.post("/api/communications", async (req, res) => {
-    if (!req.isAuthenticated()) return res.status(401).send("Unauthorized");
+  // POST /api/communications — create / send / schedule a communication
+  app.post("/api/communications", requireCommPermission("send"), async (req, res) => {
     const user = req.user as UserWithContext;
-    if (!commRoles.includes(user.activeRole)) return res.status(403).send("Insufficient permissions");
-    const { insertCommunicationSchema } = await import("@shared/schema");
-    const parsed = insertCommunicationSchema.safeParse({
-      ...req.body,
-      companyId: user.activeCompanyId,
-      sentById: user.id,
-      sentAt: req.body.status === "sent" ? new Date() : req.body.sentAt,
-    });
-    if (!parsed.success) return res.status(400).json({ error: parsed.error.flatten() });
+    const result = insertCommunicationSchema.safeParse(req.body);
+    if (!result.success) {
+      return res.status(400).json({ error: result.error.message });
+    }
+    const data = result.data;
 
-    let threadId = parsed.data.threadId;
-    const inReplyTo = parsed.data.inReplyTo;
+    // Send-time validation for non-draft communications
+    if (data.status === "sent" || data.status === "scheduled") {
+      let templateIsArchived = false;
+      const templateId = req.body.templateId as string | undefined;
+      if (templateId) {
+        const tpl = await storage.getCommunicationTemplateById(templateId, user.activeCompanyId);
+        if (tpl?.isArchived) templateIsArchived = true;
+      }
+      const recipients: string[] = req.body.recipients ?? [];
+      const validationErrors = validateSendPayload(data.body, templateIsArchived, recipients);
+      if (validationErrors.length > 0) {
+        return res.status(422).json({ validationErrors });
+      }
+    }
+
+    let threadId = data.threadId;
+    const inReplyTo = data.inReplyTo;
 
     // If replying to a message and no thread exists yet, create one
     if (inReplyTo && !threadId) {
@@ -11014,52 +11075,42 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
     }
 
-    const comm = await storage.createCommunication({ ...parsed.data, threadId: threadId ?? null });
+    const comm = await storage.createCommunication({
+      ...data,
+      threadId: threadId ?? null,
+      companyId: user.activeCompanyId,
+      sentById: user.id,
+      sentByName: user.name,
+    });
+
+    if (comm.status === "sent" || comm.status === "scheduled") {
+      await writeCommAuditLog(user.activeCompanyId, user.id, "communication_sent", {
+        communicationId: comm.id,
+        actionDetails: {
+          subject: comm.subject,
+          type: comm.type,
+          status: comm.status,
+          customerName: comm.customerName,
+        },
+      });
+    }
+
     res.status(201).json(comm);
   });
 
-  // PATCH /api/communications/:id
-  app.patch("/api/communications/:id", async (req, res) => {
-    if (!req.isAuthenticated()) return res.status(401).send("Unauthorized");
+  app.patch("/api/communications/:id", requireCommPermission("send"), async (req, res) => {
     const user = req.user as UserWithContext;
-    if (!commRoles.includes(user.activeRole)) return res.status(403).send("Insufficient permissions");
-    const { insertCommunicationSchema } = await import("@shared/schema");
-    const parsed = insertCommunicationSchema.partial().safeParse(req.body);
-    if (!parsed.success) return res.status(400).json({ error: parsed.error.flatten() });
-
-    const updates = { ...parsed.data };
-    if (updates.scheduledFor) updates.scheduledFor = new Date(updates.scheduledFor as any);
-    if (updates.followUpDueAt) updates.followUpDueAt = new Date(updates.followUpDueAt as any);
-    if (updates.sentAt) updates.sentAt = new Date(updates.sentAt as any);
-
-    const updated = await storage.updateCommunication(req.params.id, user.activeCompanyId, updates);
-    if (!updated) return res.status(404).json({ error: "Not found" });
-    res.json(updated);
+    const updates = req.body;
+    if (updates.scheduledFor) updates.scheduledFor = new Date(updates.scheduledFor);
+    if (updates.followUpDueAt) updates.followUpDueAt = new Date(updates.followUpDueAt);
+    if (updates.sentAt) updates.sentAt = new Date(updates.sentAt);
+    const comm = await storage.updateCommunication(req.params.id, user.activeCompanyId, updates);
+    if (!comm) return res.status(404).json({ error: "Not found" });
+    res.json(comm);
   });
 
-  app.post("/api/communications/:id/send", async (req, res) => {
-    if (!req.isAuthenticated()) return res.status(401).send("Not authenticated");
+  app.delete("/api/communications/:id", requireCommPermission("manage_automations"), async (req, res) => {
     const user = req.user as UserWithContext;
-    if (!commRoles.includes(user.activeRole)) return res.status(403).send("Insufficient permissions");
-    const comm = await storage.getCommunicationById(req.params.id, user.activeCompanyId);
-    if (!comm) return res.status(404).json({ error: "Communication not found" });
-    const { sendCommunication } = await import("./services/communicationProvider");
-    const result = await sendCommunication(req.params.id, user.activeCompanyId);
-    res.json({
-      success: result.success,
-      deliveryStatus: result.deliveryStatus,
-      failureReason: result.failureReason ?? null,
-      communication: result.communication,
-    });
-  });
-
-
-  app.delete("/api/communications/:id", async (req, res) => {
-    if (!req.isAuthenticated()) return res.status(401).send("Unauthorized");
-    const user = req.user as UserWithContext;
-    if (!commRoles.includes(user.activeRole)) return res.status(403).send("Insufficient permissions");
-    const existing = await storage.getCommunicationById(req.params.id, user.activeCompanyId);
-    if (!existing) return res.status(404).json({ error: "Communication not found" });
     await storage.deleteCommunication(req.params.id, user.activeCompanyId);
     res.status(204).end();
   });
@@ -11155,6 +11206,95 @@ export async function registerRoutes(app: Express): Promise<Server> {
     const item = await storage.updateCommunicationTemplate(req.params.id, user.activeCompanyId, parsed.data);
     if (!item) return res.status(404).json({ error: "Not found" });
     res.json(item);
+  });
+
+  // PATCH /api/communications/:id/cancel-schedule — cancel a scheduled send
+  app.patch("/api/communications/:id/cancel-schedule", requireCommPermission("send"), async (req, res) => {
+    const user = req.user as UserWithContext;
+    const comm = await storage.getCommunicationById(req.params.id, user.activeCompanyId);
+    if (!comm) return res.status(404).json({ error: "Not found" });
+    if (comm.status !== "scheduled") {
+      return res.status(400).json({ error: "Only scheduled communications can be cancelled." });
+    }
+    const updated = await storage.updateCommunication(req.params.id, user.activeCompanyId, {
+      status: "draft",
+      scheduledAt: null,
+    });
+
+    await writeCommAuditLog(user.activeCompanyId, user.id, "scheduled_send_cancelled", {
+      communicationId: comm.id,
+      actionDetails: { subject: comm.subject },
+    });
+
+    res.json(updated);
+  });
+
+  // GET /api/communication-templates
+  app.get("/api/communication-templates", requireCommPermission("manage_templates"), async (req, res) => {
+    const user = req.user as UserWithContext;
+    const includeArchived = req.query.includeArchived === "true";
+    const items = await storage.getCommunicationTemplates(user.activeCompanyId, includeArchived);
+    res.json(items);
+  });
+
+  // POST /api/communication-templates — create template
+  app.post("/api/communication-templates", requireCommPermission("manage_templates"), async (req, res) => {
+    const user = req.user as UserWithContext;
+    const result = insertCommunicationTemplateSchema.safeParse({ ...req.body, companyId: user.activeCompanyId });
+    if (!result.success) {
+      return res.status(400).json({ error: result.error.message });
+    }
+    const template = await storage.createCommunicationTemplate(result.data);
+
+    await writeCommAuditLog(user.activeCompanyId, user.id, "template_created", {
+      templateId: template.id,
+      actionDetails: { templateName: template.name, subject: template.subject },
+    });
+
+    res.status(201).json(template);
+  });
+
+  // PATCH /api/communication-templates/:id — edit template
+  app.patch("/api/communication-templates/:id", requireCommPermission("manage_templates"), async (req, res) => {
+    const user = req.user as UserWithContext;
+    const updates = insertCommunicationTemplateSchema.partial().omit({ companyId: true }).parse(req.body);
+    const template = await storage.updateCommunicationTemplate(req.params.id, user.activeCompanyId, updates);
+    if (!template) return res.status(404).json({ error: "Template not found" });
+
+    await writeCommAuditLog(user.activeCompanyId, user.id, "template_edited", {
+      templateId: template.id,
+      actionDetails: { templateName: template.name, subject: template.subject },
+    });
+
+    res.json(template);
+  });
+
+  // POST /api/communication-templates/:id/archive — archive/unarchive template
+  app.post("/api/communication-templates/:id/archive", requireCommPermission("manage_templates"), async (req, res) => {
+    const user = req.user as UserWithContext;
+    const existing = await storage.getCommunicationTemplateById(req.params.id, user.activeCompanyId);
+    if (!existing) return res.status(404).json({ error: "Template not found" });
+
+    const archive = req.body.archive !== false;
+    const template = await storage.updateCommunicationTemplate(req.params.id, user.activeCompanyId, {
+      isArchived: archive,
+    });
+
+    await writeCommAuditLog(user.activeCompanyId, user.id, "template_archived", {
+      templateId: existing.id,
+      actionDetails: { templateName: existing.name, archived: archive },
+    });
+
+    res.json(template);
+  });
+
+  // Seed communications if none exist for this company
+  app.post("/api/communications/seed", requireCommPermission("view"), async (req, res) => {
+    const user = req.user as UserWithContext;
+    const existing = await storage.getCommunications(user.activeCompanyId);
+    if (existing.length > 0) return res.json({ seeded: false, count: existing.length });
+    const count = await seedCommunications(user.activeCompanyId, user.id, user.name);
+    res.json({ seeded: true, count });
   });
 
   const httpServer = createServer(app);

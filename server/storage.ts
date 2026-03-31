@@ -1,6 +1,6 @@
-import { type User, type InsertUser, type Customer, type InsertCustomer, type Contact, type InsertContact, type Company, type InsertCompany, type CompanyUser, type InsertCompanyUser, type Settings, type InsertSettings, type Note, type InsertNote, type Contract, type InsertContract, type ContractStatusHistory, type InsertContractStatusHistory, type ContractDocument, type InsertContractDocument, type ContractMonthlyAmount, type InsertContractMonthlyAmount, type CustomerRateSheet, type InsertCustomerRateSheet, type ContractService, type InsertContractService, type ContractTemplate, type InsertContractTemplate, type ContractBuilderDocument, type InsertContractBuilderDocument, type ContractBuilderSection, type InsertContractBuilderSection, type ContractBuilderVariable, type InsertContractBuilderVariable, type TicketType, type InsertTicketType, type TicketTypeStatus, type InsertTicketTypeStatus, type TicketTypeField, type InsertTicketTypeField, type Ticket, type InsertTicket, type TicketFieldValue, type InsertTicketFieldValue, type TicketStatusHistory, type InsertTicketStatusHistory, type TicketComment, type InsertTicketComment, type TicketCommentMention, type InsertTicketCommentMention, type TicketSource, type InsertTicketSource, type TicketLink, type InsertTicketLink, type TicketTypeCategory, type CustomerMapLayer, type InsertCustomerMapLayer, type CustomerMapDocument, type InsertCustomerMapDocument, type MaintenanceCrew, type InsertMaintenanceCrew, type MaintenanceVisitConfig, type InsertMaintenanceVisitConfig, type WeeklyScheduleTemplate, type InsertWeeklyScheduleTemplate, type ScheduleBlock, type InsertScheduleBlock, type TicketNotification, type InsertTicketNotification, type NotificationType, type PropertyManagementCompany, type InsertPropertyManagementCompany, type PropertyManager, type InsertPropertyManager, type PropertyManagerEmail, type InsertPropertyManagerEmail, type PropertyManagerPhone, type InsertPropertyManagerPhone, type PropertyManagerWithContacts, type Equipment, type InsertEquipment, type EquipmentFile, type InsertEquipmentFile, type EquipmentTicket, type InsertEquipmentTicket, type EquipmentTicketStatusHistory, type InsertEquipmentTicketStatusHistory, type EquipmentWithTicketCount, type SnowEvent, type InsertSnowEvent, type SnowEventAttachment, type InsertSnowEventAttachment, type SnowEventPropertyImpact, type InsertSnowEventPropertyImpact, type SnowEventWithDetails, type SnowEventPropertyImpactWithCustomer, type EmailTemplate, type InsertEmailTemplate, type EmailRule, type InsertEmailRule, type EmailLog, type InsertEmailLog, type EmailLogWithDetails, type Proposal, type InsertProposal, type ProposalFile, type InsertProposalFile, type ProposalWithDetails, type ProposalVersion, type InsertProposalVersion, type ProposalVersionWithUser, type VisualScopeSheet, type InsertVisualScopeSheet, type VisualScopeSheetWithCustomer, type Campaign, type InsertCampaign, type CampaignItem, type InsertCampaignItem, type CampaignWithProgress, type Season, type InsertSeason, type CampaignChecklistTask, type InsertCampaignChecklistTask, type CampaignItemTaskCompletion, type InsertCampaignItemTaskCompletion, type Communication, type InsertCommunication, type CommunicationTemplate, type InsertCommunicationTemplate, type CommunicationThread, type InsertCommunicationThread, type CommunicationLink, type InsertCommunicationLink, type CommunicationWithDetails, type CommunicationAnalytics } from "@shared/schema";
+import { type User, type InsertUser, type Customer, type InsertCustomer, type Contact, type InsertContact, type Company, type InsertCompany, type CompanyUser, type InsertCompanyUser, type Settings, type InsertSettings, type Note, type InsertNote, type Contract, type InsertContract, type ContractStatusHistory, type InsertContractStatusHistory, type ContractDocument, type InsertContractDocument, type ContractMonthlyAmount, type InsertContractMonthlyAmount, type CustomerRateSheet, type InsertCustomerRateSheet, type ContractService, type InsertContractService, type ContractTemplate, type InsertContractTemplate, type ContractBuilderDocument, type InsertContractBuilderDocument, type ContractBuilderSection, type InsertContractBuilderSection, type ContractBuilderVariable, type InsertContractBuilderVariable, type TicketType, type InsertTicketType, type TicketTypeStatus, type InsertTicketTypeStatus, type TicketTypeField, type InsertTicketTypeField, type Ticket, type InsertTicket, type TicketFieldValue, type InsertTicketFieldValue, type TicketStatusHistory, type InsertTicketStatusHistory, type TicketComment, type InsertTicketComment, type TicketCommentMention, type InsertTicketCommentMention, type TicketSource, type InsertTicketSource, type TicketLink, type InsertTicketLink, type TicketTypeCategory, type CustomerMapLayer, type InsertCustomerMapLayer, type CustomerMapDocument, type InsertCustomerMapDocument, type MaintenanceCrew, type InsertMaintenanceCrew, type MaintenanceVisitConfig, type InsertMaintenanceVisitConfig, type WeeklyScheduleTemplate, type InsertWeeklyScheduleTemplate, type ScheduleBlock, type InsertScheduleBlock, type TicketNotification, type InsertTicketNotification, type NotificationType, type PropertyManagementCompany, type InsertPropertyManagementCompany, type PropertyManager, type InsertPropertyManager, type PropertyManagerEmail, type InsertPropertyManagerEmail, type PropertyManagerPhone, type InsertPropertyManagerPhone, type PropertyManagerWithContacts, type Equipment, type InsertEquipment, type EquipmentFile, type InsertEquipmentFile, type EquipmentTicket, type InsertEquipmentTicket, type EquipmentTicketStatusHistory, type InsertEquipmentTicketStatusHistory, type EquipmentWithTicketCount, type SnowEvent, type InsertSnowEvent, type SnowEventAttachment, type InsertSnowEventAttachment, type SnowEventPropertyImpact, type InsertSnowEventPropertyImpact, type SnowEventWithDetails, type SnowEventPropertyImpactWithCustomer, type EmailTemplate, type InsertEmailTemplate, type EmailRule, type InsertEmailRule, type EmailLog, type InsertEmailLog, type EmailLogWithDetails, type Proposal, type InsertProposal, type ProposalFile, type InsertProposalFile, type ProposalWithDetails, type ProposalVersion, type InsertProposalVersion, type ProposalVersionWithUser, type VisualScopeSheet, type InsertVisualScopeSheet, type VisualScopeSheetWithCustomer, type Campaign, type InsertCampaign, type CampaignItem, type InsertCampaignItem, type CampaignWithProgress, type Season, type InsertSeason, type CampaignChecklistTask, type InsertCampaignChecklistTask, type CampaignItemTaskCompletion, type InsertCampaignItemTaskCompletion, type Communication, type InsertCommunication, type CommunicationTemplate, type InsertCommunicationTemplate, type CommunicationThread, type InsertCommunicationThread, type CommunicationLink, type InsertCommunicationLink, type CommunicationWithDetails, type CommunicationAnalytics, type InsertCommunicationAuditLog, type CommunicationAuditLog, type CommunicationAuditLogWithUser } from "@shared/schema";
 import { db } from "./db";
-import { users, customers, contacts, companies, companyUsers, settings, notes, contracts, contractStatusHistory, contractDocuments, contractMonthlyAmounts, customerRateSheets, contractServices, contractTemplates, contractBuilderDocuments, contractBuilderSections, contractBuilderVariables, ticketTypes, ticketTypeStatuses, ticketTypeFields, tickets, ticketFieldValues, ticketStatusHistory, ticketComments, ticketCommentMentions, ticketSources, ticketLinks, customerMapLayers, customerMapDocuments, maintenanceCrews, maintenanceVisitConfigs, weeklyScheduleTemplates, scheduleBlocks, ticketNotifications, propertyManagementCompanies, propertyManagers, propertyManagerEmails, propertyManagerPhones, equipment, equipmentFiles, equipmentTickets, equipmentTicketStatusHistory, snowEvents, snowEventAttachments, snowEventPropertyImpacts, emailTemplates, emailRules, emailLogs, proposals, proposalFiles, proposalVersions, visualScopeSheets, campaigns, campaignItems, campaignChecklistTasks, campaignItemTaskCompletions, seasons, communications, communicationTemplates, communicationThreads, communicationLinks } from "@shared/schema";
+import { users, customers, contacts, companies, companyUsers, settings, notes, contracts, contractStatusHistory, contractDocuments, contractMonthlyAmounts, customerRateSheets, contractServices, contractTemplates, contractBuilderDocuments, contractBuilderSections, contractBuilderVariables, ticketTypes, ticketTypeStatuses, ticketTypeFields, tickets, ticketFieldValues, ticketStatusHistory, ticketComments, ticketCommentMentions, ticketSources, ticketLinks, customerMapLayers, customerMapDocuments, maintenanceCrews, maintenanceVisitConfigs, weeklyScheduleTemplates, scheduleBlocks, ticketNotifications, propertyManagementCompanies, propertyManagers, propertyManagerEmails, propertyManagerPhones, equipment, equipmentFiles, equipmentTickets, equipmentTicketStatusHistory, snowEvents, snowEventAttachments, snowEventPropertyImpacts, emailTemplates, emailRules, emailLogs, proposals, proposalFiles, proposalVersions, visualScopeSheets, campaigns, campaignItems, campaignChecklistTasks, campaignItemTaskCompletions, seasons, communications, communicationTemplates, communicationThreads, communicationLinks, communicationAuditLog } from "@shared/schema";
 import { eq, and, sql, desc, inArray, max } from "drizzle-orm";
 import session from "express-session";
 import connectPg from "connect-pg-simple";
@@ -358,7 +358,7 @@ export interface IStorage {
   updateCommunication(id: string, companyId: string, updates: Partial<InsertCommunication>): Promise<Communication | undefined>;
   deleteCommunication(id: string, companyId: string): Promise<void>;
   getCommunicationStats(companyId: string): Promise<{ drafts: number; scheduledToday: number; openFollowUps: number; overdueFollowUps: number }>;
-  getCommunicationTemplates(companyId: string, includeInactive?: boolean): Promise<CommunicationTemplate[]>;
+  getCommunicationTemplates(companyId: string, includeArchived?: boolean): Promise<CommunicationTemplate[]>;
   getCommunicationTemplateById(id: string, companyId: string): Promise<CommunicationTemplate | undefined>;
   createCommunicationTemplate(template: InsertCommunicationTemplate): Promise<CommunicationTemplate>;
   updateCommunicationTemplate(id: string, companyId: string, updates: Partial<InsertCommunicationTemplate>): Promise<CommunicationTemplate | undefined>;
@@ -370,6 +370,10 @@ export interface IStorage {
   createCommunicationLink(link: InsertCommunicationLink): Promise<CommunicationLink>;
   getCommunicationAnalytics(companyId: string, startDate: Date, endDate: Date): Promise<CommunicationAnalytics>;
   seedCommunications(companyId: string, userId: string, customerIds: string[]): Promise<void>;
+
+  // Communication Audit Log
+  createCommunicationAuditLog(entry: InsertCommunicationAuditLog): Promise<CommunicationAuditLog>;
+  getCommunicationAuditLogs(companyId: string, limit?: number): Promise<CommunicationAuditLogWithUser[]>;
 
   sessionStore: session.Store;
 }
@@ -3071,15 +3075,17 @@ export class PgStorage implements IStorage {
     };
   }
 
-  async getCommunicationTemplates(companyId: string, includeInactive = false): Promise<CommunicationTemplate[]> {
-    if (includeInactive) {
-      return db.select().from(communicationTemplates).where(eq(communicationTemplates.companyId, companyId)).orderBy(communicationTemplates.name);
+  async getCommunicationTemplates(companyId: string, includeArchived = false): Promise<CommunicationTemplate[]> {
+    const conditions = [eq(communicationTemplates.companyId, companyId)];
+    if (!includeArchived) {
+      conditions.push(eq(communicationTemplates.isArchived, false));
     }
-    return db.select().from(communicationTemplates).where(and(eq(communicationTemplates.companyId, companyId), eq(communicationTemplates.isActive, true))).orderBy(communicationTemplates.name);
+    return db.select().from(communicationTemplates).where(and(...conditions)).orderBy(communicationTemplates.name);
   }
 
   async getCommunicationTemplateById(id: string, companyId: string): Promise<CommunicationTemplate | undefined> {
-    const [row] = await db.select().from(communicationTemplates).where(and(eq(communicationTemplates.id, id), eq(communicationTemplates.companyId, companyId)));
+    const [row] = await db.select().from(communicationTemplates)
+      .where(and(eq(communicationTemplates.id, id), eq(communicationTemplates.companyId, companyId)));
     return row;
   }
 
@@ -3104,7 +3110,6 @@ export class PgStorage implements IStorage {
     const [row] = await db.insert(communicationLinks).values(link as typeof communicationLinks.$inferInsert).returning();
     return row;
   }
-
   async getCommunicationAnalytics(companyId: string, startDate: Date, endDate: Date): Promise<CommunicationAnalytics> {
     const { count, gte, lte, lt } = await import("drizzle-orm");
     const now = new Date();
@@ -3145,28 +3150,39 @@ export class PgStorage implements IStorage {
         and(
           eq(communications.companyId, companyId),
           eq(communications.status, "sent"),
-          gte(communications.sentAt, startOfMonth)
+          gte(communications.sentAt, monthAgo)
         )
       );
 
-    const drafts = await db
+    const scheduled = await db
       .select({ count: sql<number>`count(*)::int` })
       .from(communications)
       .where(
         and(
           eq(communications.companyId, companyId),
-          eq(communications.status, "draft")
+          eq(communications.status, "scheduled")
         )
       );
 
-    const overdueFollowUps = await db
+    const openFollowUps = await db
+      .select({ count: sql<number>`count(*)::int` })
+      .from(communications)
+      .where(
+        and(
+          eq(communications.companyId, companyId),
+          eq(communications.followUpStatus, "open")
+        )
+      );
+
+    const followUpsDueThisWeek = await db
       .select({ count: sql<number>`count(*)::int` })
       .from(communications)
       .where(
         and(
           eq(communications.companyId, companyId),
           eq(communications.followUpStatus, "open"),
-          lt(communications.followUpDueAt, now)
+          gte(communications.followUpDueAt, now),
+          lte(communications.followUpDueAt, weekAgo)
         )
       );
 
@@ -3176,16 +3192,8 @@ export class PgStorage implements IStorage {
         count: sql<number>`count(*)::int`,
       })
       .from(communications)
-      .where(
-        and(
-          eq(communications.companyId, companyId),
-          eq(communications.status, "sent"),
-          gte(communications.sentAt, startDate),
-          lte(communications.sentAt, endDate)
-        )
-      )
-      .groupBy(communications.type)
-      .orderBy(desc(sql`count(*)`));
+      .where(and(eq(communications.companyId, companyId), eq(communications.status, "sent")))
+      .groupBy(communications.type);
 
     const byStaff = await db
       .select({
@@ -3195,16 +3203,10 @@ export class PgStorage implements IStorage {
       })
       .from(communications)
       .leftJoin(users, eq(communications.sentById, users.id))
-      .where(
-        and(
-          eq(communications.companyId, companyId),
-          eq(communications.status, "sent"),
-          gte(communications.sentAt, startDate),
-          lte(communications.sentAt, endDate)
-        )
-      )
+      .where(and(eq(communications.companyId, companyId), eq(communications.status, "sent")))
       .groupBy(communications.sentById, users.name)
-      .orderBy(desc(sql`count(*)`));
+      .orderBy(desc(sql`count`))
+      .limit(5);
 
     const byCustomer = await db
       .select({
@@ -3214,17 +3216,10 @@ export class PgStorage implements IStorage {
       })
       .from(communications)
       .leftJoin(customers, eq(communications.customerId, customers.id))
-      .where(
-        and(
-          eq(communications.companyId, companyId),
-          eq(communications.status, "sent"),
-          gte(communications.sentAt, startDate),
-          lte(communications.sentAt, endDate)
-        )
-      )
+      .where(and(eq(communications.companyId, companyId), eq(communications.status, "sent")))
       .groupBy(communications.customerId, customers.name)
-      .orderBy(desc(sql`count(*)`))
-      .limit(10);
+      .orderBy(desc(sql`count`))
+      .limit(5);
 
     const byTemplate = await db
       .select({
@@ -3234,34 +3229,28 @@ export class PgStorage implements IStorage {
       })
       .from(communications)
       .leftJoin(communicationTemplates, eq(communications.templateId, communicationTemplates.id))
-      .where(
-        and(
-          eq(communications.companyId, companyId),
-          eq(communications.status, "sent"),
-          gte(communications.sentAt, startDate),
-          lte(communications.sentAt, endDate)
-        )
-      )
+      .where(and(eq(communications.companyId, companyId), eq(communications.status, "sent")))
       .groupBy(communications.templateId, communicationTemplates.name)
-      .orderBy(desc(sql`count(*)`))
-      .limit(10);
+      .orderBy(desc(sql`count`))
+      .limit(5);
 
     return {
-      totalSentPeriod: allSent[0]?.count ?? 0,
-      totalSentThisWeek: sentThisWeek[0]?.count ?? 0,
-      totalSentThisMonth: sentThisMonth[0]?.count ?? 0,
-      draftsCount: drafts[0]?.count ?? 0,
-      overdueFollowUpsCount: overdueFollowUps[0]?.count ?? 0,
-      sentByType: byType.map(r => ({ type: r.type, count: r.count })),
-      sentByStaff: byStaff.filter(r => r.userId != null).map(r => ({ userId: r.userId!, userName: r.userName ?? "Unknown", count: r.count })),
-      topCustomers: byCustomer.filter(r => r.customerId != null).map(r => ({ customerId: r.customerId!, customerName: r.customerName ?? "Unknown", count: r.count })),
-      topTemplates: byTemplate.filter(r => r.templateId != null).map(r => ({ templateId: r.templateId!, templateName: r.templateName ?? "Unknown", count: r.count })),
+      totalSent: allSent[0].count,
+      sentThisWeek: sentThisWeek[0].count,
+      sentThisMonth: sentThisMonth[0].count,
+      scheduledCount: scheduled[0].count,
+      openFollowUpsCount: openFollowUps[0].count,
+      followUpsDueThisWeekCount: followUpsDueThisWeek[0].count,
+      byType: byType.map(r => ({ type: r.type || "unknown", count: r.count })),
+      byStaff: byStaff.map(r => ({ userId: r.userId || "unknown", userName: r.userName || "Unknown", count: r.count })),
+      byCustomer: byCustomer.map(r => ({ customerId: r.customerId || "unknown", customerName: r.customerName || "Unknown", count: r.count })),
+      byTemplate: byTemplate.map(r => ({ templateId: r.templateId || "unknown", templateName: r.templateName || "Unknown", count: r.count })),
     };
   }
 
   async seedCommunications(companyId: string, userId: string, customerIds: string[]): Promise<void> {
-    const existingCount = await db.select({ count: sql<number>`count(*)::int` }).from(communications).where(eq(communications.companyId, companyId));
-    if ((existingCount[0]?.count ?? 0) > 0) return;
+    const templates = await this.getCommunicationTemplates(companyId);
+    if (templates.length === 0) return;
 
     const templateData = [
       { companyId, name: "Welcome Email", type: "email" as const, subject: "Welcome to High Plains Property Maintenance", body: "Dear valued customer,\n\nWelcome to High Plains! We are thrilled to have you as a client..." },
@@ -3337,6 +3326,32 @@ export class PgStorage implements IStorage {
       contactName: row.contactName ?? undefined,
       sentByName: row.sentByName ?? undefined,
     }));
+  }
+
+  async createCommunicationAuditLog(entry: InsertCommunicationAuditLog): Promise<CommunicationAuditLog> {
+    const [row] = await db.insert(communicationAuditLog).values(entry as typeof communicationAuditLog.$inferInsert).returning();
+    return row;
+  }
+
+  async getCommunicationAuditLogs(companyId: string, limit = 200): Promise<CommunicationAuditLogWithUser[]> {
+    const rows = await db
+      .select({
+        id: communicationAuditLog.id,
+        companyId: communicationAuditLog.companyId,
+        communicationId: communicationAuditLog.communicationId,
+        templateId: communicationAuditLog.templateId,
+        actionType: communicationAuditLog.actionType,
+        actionByUserId: communicationAuditLog.actionByUserId,
+        actionDetails: communicationAuditLog.actionDetails,
+        createdAt: communicationAuditLog.createdAt,
+        actionByUserName: users.name,
+      })
+      .from(communicationAuditLog)
+      .leftJoin(users, eq(communicationAuditLog.actionByUserId, users.id))
+      .where(eq(communicationAuditLog.companyId, companyId))
+      .orderBy(desc(communicationAuditLog.createdAt))
+      .limit(limit);
+    return rows;
   }
 }
 
