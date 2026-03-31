@@ -1,6 +1,6 @@
 import { type User, type InsertUser, type Customer, type InsertCustomer, type Contact, type InsertContact, type Company, type InsertCompany, type CompanyUser, type InsertCompanyUser, type Settings, type InsertSettings, type Note, type InsertNote, type Contract, type InsertContract, type ContractStatusHistory, type InsertContractStatusHistory, type ContractDocument, type InsertContractDocument, type ContractMonthlyAmount, type InsertContractMonthlyAmount, type CustomerRateSheet, type InsertCustomerRateSheet, type ContractService, type InsertContractService, type ContractTemplate, type InsertContractTemplate, type ContractBuilderDocument, type InsertContractBuilderDocument, type ContractBuilderSection, type InsertContractBuilderSection, type ContractBuilderVariable, type InsertContractBuilderVariable, type TicketType, type InsertTicketType, type TicketTypeStatus, type InsertTicketTypeStatus, type TicketTypeField, type InsertTicketTypeField, type Ticket, type InsertTicket, type TicketFieldValue, type InsertTicketFieldValue, type TicketStatusHistory, type InsertTicketStatusHistory, type TicketComment, type InsertTicketComment, type TicketCommentMention, type InsertTicketCommentMention, type TicketSource, type InsertTicketSource, type TicketLink, type InsertTicketLink, type TicketTypeCategory, type CustomerMapLayer, type InsertCustomerMapLayer, type CustomerMapDocument, type InsertCustomerMapDocument, type MaintenanceCrew, type InsertMaintenanceCrew, type MaintenanceVisitConfig, type InsertMaintenanceVisitConfig, type WeeklyScheduleTemplate, type InsertWeeklyScheduleTemplate, type ScheduleBlock, type InsertScheduleBlock, type TicketNotification, type InsertTicketNotification, type NotificationType, type PropertyManagementCompany, type InsertPropertyManagementCompany, type PropertyManager, type InsertPropertyManager, type PropertyManagerEmail, type InsertPropertyManagerEmail, type PropertyManagerPhone, type InsertPropertyManagerPhone, type PropertyManagerWithContacts, type Equipment, type InsertEquipment, type EquipmentFile, type InsertEquipmentFile, type EquipmentTicket, type InsertEquipmentTicket, type EquipmentTicketStatusHistory, type InsertEquipmentTicketStatusHistory, type EquipmentWithTicketCount, type SnowEvent, type InsertSnowEvent, type SnowEventAttachment, type InsertSnowEventAttachment, type SnowEventPropertyImpact, type InsertSnowEventPropertyImpact, type SnowEventWithDetails, type SnowEventPropertyImpactWithCustomer, type EmailTemplate, type InsertEmailTemplate, type EmailRule, type InsertEmailRule, type EmailLog, type InsertEmailLog, type EmailLogWithDetails, type Proposal, type InsertProposal, type ProposalFile, type InsertProposalFile, type ProposalWithDetails, type ProposalVersion, type InsertProposalVersion, type ProposalVersionWithUser, type VisualScopeSheet, type InsertVisualScopeSheet, type VisualScopeSheetWithCustomer, type Campaign, type InsertCampaign, type CampaignItem, type InsertCampaignItem, type CampaignWithProgress, type Season, type InsertSeason, type CampaignChecklistTask, type InsertCampaignChecklistTask, type CampaignItemTaskCompletion, type InsertCampaignItemTaskCompletion, type Communication, type InsertCommunication, type CommunicationTemplate, type InsertCommunicationTemplate, type CommunicationThread, type InsertCommunicationThread, type CommunicationLink, type InsertCommunicationLink, type CommunicationWithDetails, type CommunicationAnalytics, type InsertCommunicationAuditLog, type CommunicationAuditLog, type CommunicationAuditLogWithUser } from "@shared/schema";
 import { db } from "./db";
-import { users, customers, contacts, companies, companyUsers, settings, notes, contracts, contractStatusHistory, contractDocuments, contractMonthlyAmounts, customerRateSheets, contractServices, contractTemplates, contractBuilderDocuments, contractBuilderSections, contractBuilderVariables, ticketTypes, ticketTypeStatuses, ticketTypeFields, tickets, ticketFieldValues, ticketStatusHistory, ticketComments, ticketCommentMentions, ticketSources, ticketLinks, customerMapLayers, customerMapDocuments, maintenanceCrews, maintenanceVisitConfigs, weeklyScheduleTemplates, scheduleBlocks, ticketNotifications, propertyManagementCompanies, propertyManagers, propertyManagerEmails, propertyManagerPhones, equipment, equipmentFiles, equipmentTickets, equipmentTicketStatusHistory, snowEvents, snowEventAttachments, snowEventPropertyImpacts, emailTemplates, emailRules, emailLogs, proposals, proposalFiles, proposalVersions, visualScopeSheets, campaigns, campaignItems, campaignChecklistTasks, campaignItemTaskCompletions, seasons, communications, communicationTemplates, communicationThreads, communicationLinks, communicationAuditLog } from "@shared/schema";
+import { users, customers, contacts, companies, companyUsers, settings, notes, contracts, contractStatusHistory, contractDocuments, contractMonthlyAmounts, customerRateSheets, contractServices, contractTemplates, contractBuilderDocuments, contractBuilderSections, contractBuilderVariables, ticketTypes, ticketTypeStatuses, ticketTypeFields, tickets, ticketFieldValues, ticketStatusHistory, ticketComments, ticketCommentMentions, ticketSources, ticketLinks, customerMapLayers, customerMapDocuments, maintenanceCrews, maintenanceVisitConfigs, weeklyScheduleTemplates, scheduleBlocks, ticketNotifications, propertyManagementCompanies, propertyManagers, propertyManagerEmails, propertyManagerPhones, equipment, equipmentFiles, equipmentTickets, equipmentTicketStatusHistory, snowEvents, snowEventAttachments, snowEventPropertyImpacts, emailTemplates, emailRules, emailLogs, proposals, proposalFiles, proposalVersions, visualScopeSheets, campaigns, campaignItems, campaignChecklistTasks, campaignItemTaskCompletions, seasons, communications, communicationTemplates, communicationThreads, communicationLinks, communicationAuditLog, communicationAutomationRules } from "@shared/schema";
 import { eq, and, sql, desc, inArray, max } from "drizzle-orm";
 import session from "express-session";
 import connectPg from "connect-pg-simple";
@@ -374,6 +374,14 @@ export interface IStorage {
   // Communication Audit Log
   createCommunicationAuditLog(entry: InsertCommunicationAuditLog): Promise<CommunicationAuditLog>;
   getCommunicationAuditLogs(companyId: string, limit?: number): Promise<CommunicationAuditLogWithUser[]>;
+
+  // Communication Automation Rules
+  getCommunicationAutomationRules(companyId: string): Promise<CommunicationAutomationRule[]>;
+  getCommunicationAutomationRuleById(id: string, companyId: string): Promise<CommunicationAutomationRule | undefined>;
+  createCommunicationAutomationRule(rule: InsertCommunicationAutomationRule): Promise<CommunicationAutomationRule>;
+  updateCommunicationAutomationRule(id: string, companyId: string, updates: Partial<InsertCommunicationAutomationRule>): Promise<CommunicationAutomationRule | undefined>;
+  deleteCommunicationAutomationRule(id: string, companyId: string): Promise<void>;
+  updateCommunicationAutomationRuleLastRun(id: string, companyId: string): Promise<void>;
 
   sessionStore: session.Store;
 }
@@ -3352,6 +3360,42 @@ export class PgStorage implements IStorage {
       .orderBy(desc(communicationAuditLog.createdAt))
       .limit(limit);
     return rows;
+  }
+
+  async getCommunicationAutomationRules(companyId: string): Promise<CommunicationAutomationRule[]> {
+    return db.select().from(communicationAutomationRules)
+      .where(eq(communicationAutomationRules.companyId, companyId))
+      .orderBy(communicationAutomationRules.createdAt);
+  }
+
+  async getCommunicationAutomationRuleById(id: string, companyId: string): Promise<CommunicationAutomationRule | undefined> {
+    const [row] = await db.select().from(communicationAutomationRules)
+      .where(and(eq(communicationAutomationRules.id, id), eq(communicationAutomationRules.companyId, companyId)));
+    return row;
+  }
+
+  async createCommunicationAutomationRule(rule: InsertCommunicationAutomationRule): Promise<CommunicationAutomationRule> {
+    const [row] = await db.insert(communicationAutomationRules).values(rule as typeof communicationAutomationRules.$inferInsert).returning();
+    return row;
+  }
+
+  async updateCommunicationAutomationRule(id: string, companyId: string, updates: Partial<InsertCommunicationAutomationRule>): Promise<CommunicationAutomationRule | undefined> {
+    const [row] = await db.update(communicationAutomationRules)
+      .set(updates as Partial<typeof communicationAutomationRules.$inferInsert>)
+      .where(and(eq(communicationAutomationRules.id, id), eq(communicationAutomationRules.companyId, companyId)))
+      .returning();
+    return row;
+  }
+
+  async deleteCommunicationAutomationRule(id: string, companyId: string): Promise<void> {
+    await db.delete(communicationAutomationRules)
+      .where(and(eq(communicationAutomationRules.id, id), eq(communicationAutomationRules.companyId, companyId)));
+  }
+
+  async updateCommunicationAutomationRuleLastRun(id: string, companyId: string): Promise<void> {
+    await db.update(communicationAutomationRules)
+      .set({ lastRunAt: new Date() })
+      .where(and(eq(communicationAutomationRules.id, id), eq(communicationAutomationRules.companyId, companyId)));
   }
 }
 

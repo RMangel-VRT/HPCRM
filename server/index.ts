@@ -1,7 +1,8 @@
 import express, { type Request, Response, NextFunction } from "express";
-import { registerRoutes, migrateProjectSchedulingStatus, migrateFirstBankHierarchy, migrateExtraBillableTicketType, removeProjectInvoicingFields, fixExtraBillableDoneOrder, fixEstimateRequestBillingBehavior, fixProjectDisplayOrders, migrateEstimateSentToProposalWorkflow, migrateProjectNoEstimateTicketType, migrateUserLanguageColumn, migrateUserPhoneColumn, backfillCustomerType, migrateEquipmentProfilePhotoColumn, migrateProposalNumbers, seedCommunicationsBootstrap, seedCommunicationTemplatesBootstrap, migrateCommunicationTemplatesSchema } from "./routes";
+import { registerRoutes, migrateProjectSchedulingStatus, migrateFirstBankHierarchy, migrateExtraBillableTicketType, removeProjectInvoicingFields, fixExtraBillableDoneOrder, fixEstimateRequestBillingBehavior, fixProjectDisplayOrders, migrateEstimateSentToProposalWorkflow, migrateProjectNoEstimateTicketType, migrateUserLanguageColumn, migrateUserPhoneColumn, backfillCustomerType, migrateEquipmentProfilePhotoColumn, migrateProposalNumbers, migrateCommunicationTemplatesSchema, migrateCommunicationsTable, seedCommunicationsBootstrap, seedCommunicationTemplatesBootstrap, migrateAutomationRulesTable, seedAutomationRulesBootstrap } from "./routes";
 import { setupVite, serveStatic, log } from "./vite";
 import { runDueDateNotifications } from "./due-date-notifications";
+import { runAllAutomationRules } from "./services/automationService";
 
 const app = express();
 
@@ -68,6 +69,8 @@ app.use((req, res, next) => {
   await migrateCommunicationTemplatesSchema(); // Create communications tables and extend communication_templates schema with slice-6 columns
   await seedCommunicationsBootstrap(); // Seed sample communications for companies with none
   await seedCommunicationTemplatesBootstrap(); // Seed sample communication templates for companies with none
+  await migrateAutomationRulesTable(); // Create automation rules table
+  await seedAutomationRulesBootstrap(); // Seed five High Plains automation rules for companies with none
 
   app.use((err: any, _req: Request, res: Response, _next: NextFunction) => {
     const status = err.status || err.statusCode || 500;
@@ -105,5 +108,10 @@ app.use((req, res, next) => {
     } else {
       log("Due date notification service disabled in production (Autoscale)");
     }
+    // Run automation rules evaluator hourly in all environments
+    setInterval(() => {
+      runAllAutomationRules().catch((err: Error) => log(`Automation rules error: ${err?.message}`));
+    }, 60 * 60 * 1000);
+    log("Automation rules evaluator started (hourly interval)");
   });
 })();

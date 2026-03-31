@@ -1,0 +1,445 @@
+  const draftsCount = countData?.filter(c => c.status === "draft").length ?? 0;
+  const scheduledCount = countData?.filter(c => c.status === "scheduled").length ?? 0;
+  const followupsCount = countData?.filter(c => c.followUpStatus === "open" || c.followUpStatus === "snoozed").length ?? 0;
+  const overdueCount = countData?.filter(c => c.isOverdue).length ?? 0;
+
+  const navItems: { view: NavView; label: string; icon: React.ElementType; count?: number; overdue?: boolean }[] = [
+    { view: "dashboard", label: "Dashboard", icon: LayoutDashboard },
+    { view: "all", label: "All Communications", icon: MessageSquare },
+    { view: "drafts", label: "Drafts", icon: FileText, count: draftsCount },
+    { view: "sent", label: "Sent", icon: Send },
+    { view: "scheduled", label: "Scheduled", icon: Calendar, count: scheduledCount },
+    { view: "followups", label: "Follow-Ups", icon: AlertCircle, count: followupsCount, overdue: overdueCount > 0 },
+  ];
+
+  const handleNavigateToList = (params: Record<string, string>) => {
+    const view = (params.view as NavView) ?? "all";
+    setActiveView(view);
+    if (params.type) setTypeFilter(params.type);
+    if (params.sentById) setSentByIdFilter(params.sentById);
+    if (params.customerId) setCustomerIdFilter(params.customerId);
+    setSelectedId(null);
+  };
+
+  const handleNavSelect = (view: NavView) => {
+    setActiveView(view);
+    setSelectedId(null);
+    setSearch("");
+    setTypeFilter("");
+    setCustomerIdFilter("");
+    setSentByIdFilter("");
+  };
+
+  const isDashboard = activeView === "dashboard";
+
+  return (
+    <div className="flex h-full overflow-hidden -m-6 md:-m-8">
+      {/* Left Nav Panel */}
+      <div className="w-52 shrink-0 border-r bg-muted/30 flex flex-col overflow-y-auto">
+        <div className="p-4 border-b">
+          <h1 className="text-sm font-semibold text-foreground">Communications</h1>
+          <p className="text-xs text-muted-foreground mt-0.5">Command Center</p>
+        </div>
+        <nav className="flex-1 p-2 space-y-0.5">
+<<<<<<< HEAD
+          {navItems.map(item => {
+            const Icon = item.icon;
+            const isActive = activeView === item.view;
+            return (
+              <button
+                key={item.view}
+                onClick={() => handleNavSelect(item.view)}
+                data-testid={`nav-${item.view}`}
+=======
+          {navSections.map((section) => {
+            const Icon = section.icon;
+            const isActive = viewMode === "communications" && sectionFilter === section.id;
+            return (
+              <button
+                key={section.id}
+                onClick={() => {
+                  setViewMode("communications");
+                  setSectionFilter(section.id);
+                  setSelectedId(null);
+                }}
+                data-testid={`nav-section-${section.id}`}
+>>>>>>> cd60c3b (Add Communication Center Automations (Slice 9))
+                className={`w-full flex items-center justify-between gap-2 px-3 py-2 rounded-md text-sm transition-colors text-left ${
+                  isActive
+                    ? "bg-primary text-primary-foreground"
+                    : "text-foreground/70 hover-elevate"
+                }`}
+              >
+                <div className="flex items-center gap-2 min-w-0">
+                  <Icon className="w-4 h-4 shrink-0" />
+                  <span className="truncate">{item.label}</span>
+                </div>
+                {item.count != null && item.count > 0 && (
+                  <Badge
+                    className={`text-xs shrink-0 border-0 ${
+                      item.overdue
+                        ? "bg-orange-100 text-orange-800 dark:bg-orange-900/30 dark:text-orange-400"
+                        : isActive
+                        ? "bg-primary-foreground/20 text-primary-foreground"
+                        : "bg-muted text-muted-foreground"
+                    }`}
+                    variant="outline"
+                  >
+                    {item.count}
+                  </Badge>
+                )}
+              </button>
+            );
+          })}
+        </nav>
+
+<<<<<<< HEAD
+        <div className="p-2 border-t">
+          <p className="text-xs text-muted-foreground px-3 py-1 font-medium uppercase tracking-wide">Templates</p>
+=======
+        <div className="p-4 border-t space-y-0.5">
+          <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-2">Automation</p>
+          <button
+            className={`w-full flex items-center gap-2 px-3 py-2 rounded-md text-sm text-left ${
+              viewMode === "automations"
+                ? "bg-primary/10 text-primary font-medium"
+                : "text-foreground hover-elevate"
+            }`}
+            data-testid="nav-automations"
+            onClick={() => {
+              setViewMode("automations");
+              setSelectedId(null);
+            }}
+          >
+            <Zap className="w-4 h-4 shrink-0" />
+            <span>Automations</span>
+          </button>
+>>>>>>> cd60c3b (Add Communication Center Automations (Slice 9))
+          <button
+            className="w-full flex items-center gap-2 px-3 py-2 rounded-md text-sm text-foreground/70 hover-elevate text-left"
+            data-testid="nav-templates"
+            onClick={() => {}}
+          >
+            <FileEdit className="w-4 h-4 shrink-0" />
+            <span>Template Manager</span>
+          </button>
+        </div>
+      </div>
+
+<<<<<<< HEAD
+      {/* Center + Right Panels */}
+      {isDashboard ? (
+        <div className="flex-1 overflow-hidden">
+          <AnalyticsDashboard onNavigateToList={handleNavigateToList} />
+        </div>
+      ) : (
+        <>
+          {/* Center Panel */}
+          <div className="w-80 shrink-0 border-r flex flex-col overflow-hidden">
+            {/* Center Header */}
+            <div className="p-3 border-b space-y-2">
+              <div className="relative">
+                <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-muted-foreground" />
+                <Input
+                  className="pl-8 h-8 text-sm"
+                  placeholder="Search messages..."
+                  value={search}
+                  onChange={e => setSearch(e.target.value)}
+                  data-testid="input-search"
+                />
+              </div>
+              <div className="flex items-center gap-2">
+                <Select value={typeFilter || "all"} onValueChange={v => setTypeFilter(v === "all" ? "" : v)}>
+                  <SelectTrigger className="h-8 text-xs" data-testid="select-type-filter">
+                    <SelectValue placeholder="Type" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">All Types</SelectItem>
+                    <SelectItem value="email">Email</SelectItem>
+                    <SelectItem value="sms">SMS</SelectItem>
+                    <SelectItem value="note">Note</SelectItem>
+                    <SelectItem value="letter">Letter</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+
+            {/* List */}
+            <div className="flex-1 overflow-y-auto">
+              <CommunicationsList
+                view={activeView}
+                search={search}
+                typeFilter={typeFilter}
+                customerIdFilter={customerIdFilter}
+                sentByIdFilter={sentByIdFilter}
+                selectedId={selectedId}
+                onSelect={setSelectedId}
+                initialFilters={initialFilters}
+              />
+            </div>
+          </div>
+
+          {/* Right Detail Panel */}
+          <div className="flex-1 overflow-hidden">
+            <DetailPanel id={selectedId} />
+=======
+      {/* Center Panel */}
+      {viewMode === "automations" ? (
+        <div className="flex flex-1 min-w-0 overflow-hidden">
+          <div className="flex-1 overflow-hidden">
+            <AutomationsView templates={templates} />
+          </div>
+        </div>
+      ) : (
+        <>
+          <div className="flex flex-col flex-1 min-w-0 overflow-hidden border-r">
+            {/* Header */}
+            <div className="border-b p-4 space-y-3 shrink-0">
+              <div className="flex items-center justify-between gap-3 flex-wrap">
+                <h1 className="text-lg font-semibold" data-testid="text-page-title">
+                  Communication Command Center
+                </h1>
+                <div className="flex items-center gap-2">
+                  <Button
+                    variant="outline"
+                    disabled
+                    data-testid="button-new-message"
+                    onClick={() => toast({ title: "Coming Soon", description: "Message composition is coming in a future update." })}
+                  >
+                    <Mail className="w-4 h-4 mr-1" />
+                    New Message
+                  </Button>
+                  <Button
+                    variant="outline"
+                    disabled
+                    data-testid="button-templates"
+                    onClick={() => toast({ title: "Coming Soon", description: "Template management is coming in a future update." })}
+                  >
+                    <LayoutTemplate className="w-4 h-4 mr-1" />
+                    Templates
+                  </Button>
+                </div>
+              </div>
+
+              <div className="flex items-center gap-2 flex-wrap">
+                <div className="relative flex-1 min-w-48">
+                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+                  <Input
+                    placeholder="Search by subject or customer..."
+                    value={search}
+                    onChange={(e) => setSearch(e.target.value)}
+                    className="pl-9"
+                    data-testid="input-search"
+                  />
+                </div>
+                <Select value={customerFilter} onValueChange={setCustomerFilter}>
+                  <SelectTrigger className="w-40" data-testid="select-customer-filter">
+                    <SelectValue placeholder="Customer" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">All Customers</SelectItem>
+                    {customers.map((c) => (
+                      <SelectItem key={c.id} value={c.id} data-testid={`option-customer-${c.id}`}>
+                        {c.name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                <Select value={typeFilter} onValueChange={setTypeFilter}>
+                  <SelectTrigger className="w-32" data-testid="select-type-filter">
+                    <SelectValue placeholder="Type" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">All Types</SelectItem>
+                    <SelectItem value="email">Email</SelectItem>
+                    <SelectItem value="sms">SMS</SelectItem>
+                    <SelectItem value="note">Note</SelectItem>
+                    <SelectItem value="letter">Letter</SelectItem>
+                  </SelectContent>
+                </Select>
+                <Select value={statusFilter} onValueChange={setStatusFilter}>
+                  <SelectTrigger className="w-32" data-testid="select-status-filter">
+                    <SelectValue placeholder="Status" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">All Statuses</SelectItem>
+                    <SelectItem value="draft">Draft</SelectItem>
+                    <SelectItem value="sent">Sent</SelectItem>
+                    <SelectItem value="scheduled">Scheduled</SelectItem>
+                    <SelectItem value="failed">Failed</SelectItem>
+                  </SelectContent>
+                </Select>
+                <Select disabled>
+                  <SelectTrigger className="w-36 opacity-60" data-testid="select-date-filter">
+                    <SelectValue placeholder="Date Range" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">All Dates</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+
+            {/* List */}
+            <div className="flex-1 overflow-y-auto">
+              {isLoading ? (
+                <div className="flex items-center justify-center py-16">
+                  <Loader2 className="w-7 h-7 animate-spin text-muted-foreground" />
+                </div>
+              ) : filteredCommunications.length === 0 ? (
+                <div className="flex flex-col items-center justify-center py-16 text-center px-4">
+                  <Inbox className="w-12 h-12 text-muted-foreground/30 mb-3" />
+                  <p className="text-sm text-muted-foreground">No communications found</p>
+                </div>
+              ) : (
+                <div className="divide-y">
+                  {filteredCommunications.map((comm) => (
+                    <button
+                      key={comm.id}
+                      onClick={() => setSelectedId(comm.id === selectedId ? null : comm.id)}
+                      data-testid={`row-communication-${comm.id}`}
+                      className={`w-full text-left px-4 py-3 transition-colors hover-elevate ${
+                        selectedId === comm.id ? "bg-primary/5 border-l-2 border-l-primary" : ""
+                      }`}
+                    >
+                      <div className="flex items-start justify-between gap-2 min-w-0">
+                        <div className="min-w-0 flex-1">
+                          <p className="text-sm font-medium truncate" data-testid={`text-subject-${comm.id}`}>
+                            {comm.subject}
+                          </p>
+                          <p className="text-xs text-muted-foreground truncate mt-0.5">
+                            {comm.customerName ?? "—"}
+                          </p>
+                        </div>
+                        <div className="flex flex-col items-end gap-1 shrink-0">
+                          <p className="text-xs text-muted-foreground">
+                            {formatDate(comm.sentAt ?? comm.scheduledAt ?? comm.createdAt)}
+                          </p>
+                        </div>
+                      </div>
+                      <div className="flex items-center gap-1.5 mt-1.5 flex-wrap">
+                        <TypeBadge type={comm.type} />
+                        <StatusBadge status={comm.status} />
+                        {comm.automationRuleId && <AutomationBadge />}
+                      </div>
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
+
+          {/* Right Panel */}
+          <div className="w-96 shrink-0 flex flex-col overflow-hidden">
+            {selectedComm ? (
+              <div className="flex flex-col h-full overflow-y-auto">
+                <div className="p-4 border-b shrink-0">
+                  <div className="flex items-start gap-2 mb-2 flex-wrap">
+                    <TypeBadge type={selectedComm.type} />
+                    <StatusBadge status={selectedComm.status} />
+                    {selectedComm.automationRuleId && <AutomationBadge />}
+                  </div>
+                  <h2 className="text-base font-semibold leading-snug" data-testid="text-detail-subject">
+                    {selectedComm.subject}
+                  </h2>
+                </div>
+
+                <div className="p-4 border-b shrink-0 space-y-2">
+                  <h3 className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-3">Metadata</h3>
+                  <div className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-2 text-sm">
+                    <div className="flex items-center gap-1.5 text-muted-foreground">
+                      <Building2 className="w-3.5 h-3.5" />
+                      <span>Customer</span>
+                    </div>
+                    <span data-testid="text-detail-customer">{selectedComm.customerName ?? "—"}</span>
+
+                    <div className="flex items-center gap-1.5 text-muted-foreground">
+                      <User className="w-3.5 h-3.5" />
+                      <span>Contact</span>
+                    </div>
+                    <span data-testid="text-detail-contact">{selectedComm.contactName ?? "—"}</span>
+
+                    <div className="flex items-center gap-1.5 text-muted-foreground">
+                      <Tag className="w-3.5 h-3.5" />
+                      <span>Type</span>
+                    </div>
+                    <span>{TYPE_LABELS[selectedComm.type] ?? selectedComm.type}</span>
+
+                    <div className="flex items-center gap-1.5 text-muted-foreground">
+                      <Tag className="w-3.5 h-3.5" />
+                      <span>Status</span>
+                    </div>
+                    <span>{STATUS_LABELS[selectedComm.status] ?? selectedComm.status}</span>
+
+                    <div className="flex items-center gap-1.5 text-muted-foreground">
+                      <UserCheck className="w-3.5 h-3.5" />
+                      <span>Sent by</span>
+                    </div>
+                    <span data-testid="text-detail-sent-by">{selectedComm.sentByName ?? "—"}</span>
+
+                    <div className="flex items-center gap-1.5 text-muted-foreground">
+                      <CalendarDays className="w-3.5 h-3.5" />
+                      <span>Sent at</span>
+                    </div>
+                    <span data-testid="text-detail-sent-at">{formatDate(selectedComm.sentAt)}</span>
+
+                    {selectedComm.scheduledAt && (
+                      <>
+                        <div className="flex items-center gap-1.5 text-muted-foreground">
+                          <Clock className="w-3.5 h-3.5" />
+                          <span>Scheduled</span>
+                        </div>
+                        <span>{formatDate(selectedComm.scheduledAt)}</span>
+                      </>
+                    )}
+
+                    {selectedComm.automationRuleId && (
+                      <>
+                        <div className="flex items-center gap-1.5 text-muted-foreground">
+                          <Zap className="w-3.5 h-3.5" />
+                          <span>Generated by</span>
+                        </div>
+                        <span data-testid="text-detail-automation-rule">
+                          {selectedComm.automationRuleName ?? "Automation Rule"}
+                        </span>
+                      </>
+                    )}
+                  </div>
+                </div>
+
+                <div className="p-4 flex-1 overflow-y-auto">
+                  <h3 className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-3">Message Body</h3>
+                  <p
+                    className="text-sm whitespace-pre-wrap text-foreground leading-relaxed"
+                    data-testid="text-detail-body"
+                  >
+                    {selectedComm.body}
+                  </p>
+                </div>
+
+                <div className="p-4 border-t shrink-0">
+                  <div className="flex items-center gap-1.5 text-muted-foreground mb-2">
+                    <LinkIcon className="w-3.5 h-3.5" />
+                    <h3 className="text-xs font-semibold uppercase tracking-wide">Linked Records</h3>
+                  </div>
+                  <p className="text-xs text-muted-foreground italic">
+                    No linked records. Record linking coming in a future update.
+                  </p>
+                </div>
+              </div>
+            ) : (
+              <div className="flex flex-col items-center justify-center h-full text-center px-6">
+                <Mail className="w-12 h-12 text-muted-foreground/30 mb-3" />
+                <p className="text-sm font-medium text-muted-foreground">Select a communication</p>
+                <p className="text-xs text-muted-foreground mt-1">
+                  Click a row to preview details
+                </p>
+              </div>
+            )}
+>>>>>>> cd60c3b (Add Communication Center Automations (Slice 9))
+          </div>
+        </>
+      )}
+    </div>
+  );
+}

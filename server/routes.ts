@@ -8,9 +8,10 @@ import { setupAuth, type UserWithContext } from "./auth";
 import { storage } from "./storage";
 import { db } from "./db";
 import { eq, and, inArray, sql } from "drizzle-orm";
-import { insertCustomerSchema, insertContactSchema, insertCompanySchema, insertCompanyUserSchema, insertSettingsSchema, insertNoteSchema, insertContractSchema, insertContractDocumentSchema, insertContractBuilderDocumentSchema, insertContractBuilderSectionSchema, insertContractBuilderVariableSchema, insertTicketTypeSchema, insertTicketTypeStatusSchema, insertTicketTypeFieldSchema, insertTicketSchema, insertTicketFieldValueSchema, insertTicketStatusHistorySchema, insertTicketCommentSchema, insertTicketLinkSchema, insertCustomerMapLayerSchema, insertCustomerMapDocumentSchema, insertMaintenanceCrewSchema, insertMaintenanceVisitConfigSchema, insertWeeklyScheduleTemplateSchema, insertScheduleBlockSchema, insertEquipmentSchema, insertEquipmentFileSchema, insertEquipmentTicketSchema, insertEquipmentTicketStatusHistorySchema, insertSnowEventSchema, insertSnowEventPropertyImpactSchema, insertSnowEventAttachmentSchema, insertEmailTemplateSchema, insertEmailRuleSchema, SNOW_RANGES, tickets, ticketLinks, ticketTypes, ticketTypeStatuses, customers as customersTable, contacts as contactsTable, contracts as contractsTable, equipment as equipmentTable, users as usersTable, contractMonthlyAmounts, contractDocuments, contractServices, contractStatusHistory, companyUsers as companyUsersTable, insertCommunicationSchema } from "@shared/schema";
+import { insertCustomerSchema, insertContactSchema, insertCompanySchema, insertCompanyUserSchema, insertSettingsSchema, insertNoteSchema, insertContractSchema, insertContractDocumentSchema, insertContractBuilderDocumentSchema, insertContractBuilderSectionSchema, insertContractBuilderVariableSchema, insertTicketTypeSchema, insertTicketTypeStatusSchema, insertTicketTypeFieldSchema, insertTicketSchema, insertTicketFieldValueSchema, insertTicketStatusHistorySchema, insertTicketCommentSchema, insertTicketLinkSchema, insertCustomerMapLayerSchema, insertCustomerMapDocumentSchema, insertMaintenanceCrewSchema, insertMaintenanceVisitConfigSchema, insertWeeklyScheduleTemplateSchema, insertScheduleBlockSchema, insertEquipmentSchema, insertEquipmentFileSchema, insertEquipmentTicketSchema, insertEquipmentTicketStatusHistorySchema, insertSnowEventSchema, insertSnowEventPropertyImpactSchema, insertSnowEventAttachmentSchema, insertEmailTemplateSchema, insertEmailRuleSchema, insertCommunicationAutomationRuleSchema, SNOW_RANGES, tickets, ticketLinks, ticketTypes, ticketTypeStatuses, customers as customersTable, contacts as contactsTable, contracts as contractsTable, equipment as equipmentTable, users as usersTable, contractMonthlyAmounts, contractDocuments, contractServices, contractStatusHistory, companyUsers as companyUsersTable, insertCommunicationSchema } from "@shared/schema";
 import type { Customer, CaptureParams, CampaignItem, Season, InsertCommunication, InsertCommunicationTemplate, InsertCommunicationAuditLog } from "@shared/schema";
 import { insertCommunicationTemplateSchema } from "@shared/schema";
+import { runAutomationRule } from "./services/automationService";
 import { ObjectStorageService, ObjectNotFoundError, objectStorageClient, signObjectURL } from "./objectStorage";
 import { ObjectPermission, ObjectAccessGroupType, setObjectAclPolicy } from "./objectAcl";
 import { processEmailEvent, resendEmail, sendEmail, getDefaultWorkCompletedTemplate, getDefaultChemicalPreNoticeTemplate, getDefaultChemicalPostNoticeTemplate } from './services/emailService';
@@ -1738,6 +1739,185 @@ export async function seedCommunicationTemplatesBootstrap(): Promise<void> {
     console.log("Communication templates seed bootstrap complete");
   } catch (error) {
     console.error("Error during communication templates seed bootstrap:", error);
+  }
+}
+
+export async function migrateCommunicationsTable(): Promise<void> {
+  console.log("Migrating communications tables...");
+  try {
+    await db.execute(sql`
+      CREATE TABLE IF NOT EXISTS communication_templates (
+        id VARCHAR PRIMARY KEY DEFAULT gen_random_uuid(),
+        company_id VARCHAR NOT NULL REFERENCES companies(id) ON DELETE CASCADE,
+        name TEXT NOT NULL,
+        type TEXT NOT NULL,
+        subject TEXT,
+        body TEXT NOT NULL,
+        created_at TIMESTAMP NOT NULL DEFAULT NOW(),
+        updated_at TIMESTAMP NOT NULL DEFAULT NOW()
+      )
+    `);
+    await db.execute(sql`
+      CREATE TABLE IF NOT EXISTS communications (
+        id VARCHAR PRIMARY KEY DEFAULT gen_random_uuid(),
+        company_id VARCHAR NOT NULL REFERENCES companies(id) ON DELETE CASCADE,
+        customer_id VARCHAR REFERENCES customers(id) ON DELETE SET NULL,
+        contact_id VARCHAR REFERENCES contacts(id) ON DELETE SET NULL,
+        sent_by_id VARCHAR REFERENCES users(id) ON DELETE SET NULL,
+        type TEXT NOT NULL,
+        status TEXT NOT NULL DEFAULT 'draft',
+        subject TEXT NOT NULL,
+        body TEXT NOT NULL,
+        scheduled_at TIMESTAMP,
+        sent_at TIMESTAMP,
+        customer_name TEXT,
+        contact_name TEXT,
+        sent_by_name TEXT,
+        automation_rule_id VARCHAR,
+        automation_rule_name TEXT,
+        created_at TIMESTAMP NOT NULL DEFAULT NOW(),
+        updated_at TIMESTAMP NOT NULL DEFAULT NOW()
+      )
+    `);
+    await db.execute(sql`
+      CREATE INDEX IF NOT EXISTS communications_company_id_idx ON communications(company_id)
+    `);
+    await db.execute(sql`
+      CREATE INDEX IF NOT EXISTS communications_customer_id_idx ON communications(customer_id)
+    `);
+    await db.execute(sql`
+      CREATE TABLE IF NOT EXISTS communication_links (
+        id VARCHAR PRIMARY KEY DEFAULT gen_random_uuid(),
+        company_id VARCHAR NOT NULL REFERENCES companies(id) ON DELETE CASCADE,
+        communication_id VARCHAR NOT NULL REFERENCES communications(id) ON DELETE CASCADE,
+        linked_entity_type TEXT NOT NULL,
+        linked_entity_id VARCHAR NOT NULL,
+        created_at TIMESTAMP NOT NULL DEFAULT NOW()
+      )
+    `);
+    await db.execute(sql`
+      ALTER TABLE communications
+      ADD COLUMN IF NOT EXISTS automation_rule_id VARCHAR,
+      ADD COLUMN IF NOT EXISTS automation_rule_name TEXT,
+      ADD COLUMN IF NOT EXISTS automation_source_record_type TEXT,
+      ADD COLUMN IF NOT EXISTS automation_source_record_id VARCHAR
+    `);
+    console.log("Communications tables migration complete");
+  } catch (error) {
+    console.error("Error migrating communications tables:", error);
+  }
+}
+
+export async function migrateAutomationRulesTable(): Promise<void> {
+  console.log("Migrating communication_automation_rules table...");
+  try {
+    await db.execute(sql`
+      CREATE TABLE IF NOT EXISTS communication_automation_rules (
+        id VARCHAR PRIMARY KEY DEFAULT gen_random_uuid(),
+        company_id VARCHAR NOT NULL REFERENCES companies(id) ON DELETE CASCADE,
+        name TEXT NOT NULL,
+        description TEXT,
+        trigger_type TEXT NOT NULL,
+        event_key TEXT,
+        delay_days INTEGER,
+        recurring_interval_days INTEGER,
+        template_id VARCHAR,
+        recipient_scope TEXT NOT NULL DEFAULT 'primary_contact',
+        auto_send BOOLEAN NOT NULL DEFAULT false,
+        is_enabled BOOLEAN NOT NULL DEFAULT true,
+        last_run_at TIMESTAMP,
+        created_by_id VARCHAR REFERENCES users(id) ON DELETE SET NULL,
+        created_at TIMESTAMP NOT NULL DEFAULT NOW()
+      )
+    `);
+    console.log("communication_automation_rules migration complete");
+  } catch (error) {
+    console.error("Error migrating automation_rules table:", error);
+  }
+}
+
+export async function seedAutomationRulesBootstrap(): Promise<void> {
+  console.log("Seeding automation rules for all companies...");
+  try {
+    const companies = await storage.getCompanies();
+    for (const company of companies) {
+      const existing = await storage.getCommunicationAutomationRules(company.id);
+      if (existing.length > 0) continue;
+
+      const companyUsers = await storage.getCompanyUsersByCompanyId(company.id);
+      if (companyUsers.length === 0) continue;
+      const firstUser = companyUsers[0];
+
+      const seedRules = [
+        {
+          companyId: company.id,
+          name: "Proposal Follow-Up",
+          description: "Send a follow-up communication 3 days after a proposal is created",
+          triggerType: "time_after_event" as const,
+          eventKey: "proposal_created" as const,
+          delayDays: 3,
+          recipientScope: "primary_contact" as const,
+          autoSend: false,
+          isEnabled: true,
+          createdById: firstUser.userId,
+        },
+        {
+          companyId: company.id,
+          name: "Winter Watering Reminder",
+          description: "Recurring reminder every 21 days for winter watering best practices",
+          triggerType: "recurring" as const,
+          recurringIntervalDays: 21,
+          recipientScope: "primary_contact" as const,
+          autoSend: false,
+          isEnabled: true,
+          createdById: firstUser.userId,
+        },
+        {
+          companyId: company.id,
+          name: "Chemical Application Notice",
+          description: "Notify customers 2 days before a scheduled chemical application service date",
+          triggerType: "time_before_event" as const,
+          eventKey: "service_date" as const,
+          delayDays: 2,
+          recipientScope: "primary_contact" as const,
+          autoSend: false,
+          isEnabled: true,
+          createdById: firstUser.userId,
+        },
+        {
+          companyId: company.id,
+          name: "Service Completion Notice",
+          description: "Notify customers the same day a work order is closed",
+          triggerType: "time_after_event" as const,
+          eventKey: "work_order_closed" as const,
+          delayDays: 0,
+          recipientScope: "primary_contact" as const,
+          autoSend: false,
+          isEnabled: true,
+          createdById: firstUser.userId,
+        },
+        {
+          companyId: company.id,
+          name: "Payment Reminder",
+          description: "Send a payment reminder 3 days after invoice due date",
+          triggerType: "time_after_event" as const,
+          eventKey: "invoice_due_date" as const,
+          delayDays: 3,
+          recipientScope: "primary_contact" as const,
+          autoSend: false,
+          isEnabled: false,
+          createdById: firstUser.userId,
+        },
+      ];
+
+      for (const rule of seedRules) {
+        await storage.createCommunicationAutomationRule(rule);
+      }
+      console.log(`Seeded ${seedRules.length} automation rules for company ${company.id}`);
+    }
+    console.log("Automation rules seed bootstrap complete");
+  } catch (error) {
+    console.error("Error seeding automation rules:", error);
   }
 }
 
@@ -11295,6 +11475,58 @@ export async function registerRoutes(app: Express): Promise<Server> {
     if (existing.length > 0) return res.json({ seeded: false, count: existing.length });
     const count = await seedCommunications(user.activeCompanyId, user.id, user.name);
     res.json({ seeded: true, count });
+  });
+
+  // Automation Rules Routes
+  app.get("/api/automation-rules", async (req, res) => {
+    if (!req.isAuthenticated()) return res.status(401).send("Not authenticated");
+    const user = req.user as UserWithContext;
+    if (!commRoles.includes(user.activeRole)) return res.status(403).send("Insufficient permissions");
+    const rules = await storage.getCommunicationAutomationRules(user.activeCompanyId);
+    res.json(rules);
+  });
+
+  app.post("/api/automation-rules", async (req, res) => {
+    if (!req.isAuthenticated()) return res.status(401).send("Not authenticated");
+    const user = req.user as UserWithContext;
+    if (!commRoles.includes(user.activeRole)) return res.status(403).send("Insufficient permissions");
+    const parsed = insertCommunicationAutomationRuleSchema.safeParse({
+      ...req.body,
+      companyId: user.activeCompanyId,
+      createdById: user.id,
+    });
+    if (!parsed.success) return res.status(400).json({ error: parsed.error.flatten() });
+    const rule = await storage.createCommunicationAutomationRule(parsed.data);
+    res.status(201).json(rule);
+  });
+
+  app.patch("/api/automation-rules/:id", async (req, res) => {
+    if (!req.isAuthenticated()) return res.status(401).send("Not authenticated");
+    const user = req.user as UserWithContext;
+    if (!commRoles.includes(user.activeRole)) return res.status(403).send("Insufficient permissions");
+    const rule = await storage.updateCommunicationAutomationRule(req.params.id, user.activeCompanyId, req.body);
+    if (!rule) return res.status(404).json({ error: "Not found" });
+    res.json(rule);
+  });
+
+  app.delete("/api/automation-rules/:id", async (req, res) => {
+    if (!req.isAuthenticated()) return res.status(401).send("Not authenticated");
+    const user = req.user as UserWithContext;
+    if (!commRoles.includes(user.activeRole)) return res.status(403).send("Insufficient permissions");
+    await storage.deleteCommunicationAutomationRule(req.params.id, user.activeCompanyId);
+    res.status(204).send();
+  });
+
+  app.post("/api/automation-rules/:id/run", async (req, res) => {
+    if (!req.isAuthenticated()) return res.status(401).send("Not authenticated");
+    const user = req.user as UserWithContext;
+    if (!commRoles.includes(user.activeRole)) return res.status(403).send("Insufficient permissions");
+    try {
+      const result = await runAutomationRule(req.params.id, user.activeCompanyId);
+      res.json(result);
+    } catch (err: any) {
+      res.status(500).json({ error: err?.message ?? "Failed to run rule" });
+    }
   });
 
   const httpServer = createServer(app);

@@ -9,7 +9,6 @@ import { queryClient, apiRequest } from "@/lib/queryClient";
 import { useAuth } from "@/hooks/use-auth";
 import { useToast } from "@/hooks/use-toast";
 import { useSetBreadcrumbs } from "@/hooks/use-breadcrumbs";
-import { useAuth } from "@/hooks/use-auth";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -22,6 +21,7 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import {
   Popover,
   PopoverContent,
@@ -75,14 +75,19 @@ import {
   ChevronDown,
   Info,
   Star,
+  Zap,
+  Play,
+  Trash2,
+  Bot,
 } from "lucide-react";
-import type { Communication, Customer, CommunicationWithDetails, CommunicationAnalytics, CommunicationTemplate, CommunicationAuditLogWithUser } from "@shared/schema";
+import type { Communication, Customer, CommunicationWithDetails, CommunicationAnalytics, CommunicationTemplate, CommunicationAuditLogWithUser, CommunicationAutomationRule } from "@shared/schema";
 import { COMMUNICATION_TEMPLATE_CATEGORIES, COMMUNICATION_TEMPLATE_CATEGORY_LABELS } from "@shared/schema";
 import ComposeDrawer from "@/components/ComposeDrawer";
 
 type NavView = "dashboard" | "all" | "drafts" | "sent" | "scheduled" | "followups";
 type SectionFilter = "all" | "draft" | "sent" | "scheduled" | "follow_ups" | "templates" | "audit_log";
 type Section = NavView;
+type ViewMode = "communications" | "automations";
 
 const TYPE_ICONS: Record<string, React.ElementType> = {
   email: Mail,
@@ -114,15 +119,6 @@ const STATUS_COLORS: Record<string, string> = {
   failed: "bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-400",
 };
 
-function TypeBadge({ type }: { type: string }) {
-  const Icon = TYPE_ICONS[type];
-  return (
-    <Badge variant="outline" className="gap-1 text-xs capitalize">
-      {Icon && <Icon className="w-3 h-3" />}
-      {TYPE_LABELS[type] ?? type}
-    </Badge>
-  );
-}
 
 function StatusBadge({ status }: { status: string }) {
   const colorClass = STATUS_COLORS[status] ?? "bg-muted text-muted-foreground";
@@ -180,6 +176,28 @@ function formatDate(date: string | Date | null | undefined) {
     day: "numeric",
     year: "numeric",
   });
+}
+
+const TRIGGER_TYPE_LABELS: Record<string, string> = {
+  time_after_event: "Time After Event",
+  time_before_event: "Time Before Event",
+  recurring: "Recurring",
+};
+
+const EVENT_KEY_LABELS: Record<string, string> = {
+  proposal_created: "Proposal Created",
+  work_order_closed: "Work Order Closed",
+  invoice_due_date: "Invoice Due Date",
+  service_date: "Service Date",
+};
+
+function getTriggerSummary(rule: CommunicationAutomationRule): string {
+  if (rule.triggerType === "recurring") {
+    return `Every ${rule.recurringIntervalDays ?? "?"} days`;
+  }
+  const direction = rule.triggerType === "time_after_event" ? "after" : "before";
+  const eventLabel = rule.eventKey ? (EVENT_KEY_LABELS[rule.eventKey] ?? rule.eventKey) : "?";
+  return `${rule.delayDays ?? "?"} days ${direction} ${eventLabel}`;
 }
 
 function formatDateTime(date: string | Date | null | undefined) {
@@ -301,6 +319,556 @@ function AuditLogPanel() {
     </div>
   );
 }
+
+function AutomationBadge() {
+  return (
+    <span
+      className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-xs font-medium bg-violet-100 text-violet-800 dark:bg-violet-900/40 dark:text-violet-300"
+      data-testid="badge-automation"
+    >
+      <Bot className="w-3 h-3" />
+      Automation
+    </span>
+  );
+}
+
+
+
+const automationRuleFormSchema = z.object({
+  name: z.string().min(1, "Name is required"),
+  description: z.string().optional(),
+  triggerType: z.enum(["time_after_event", "time_before_event", "recurring"]),
+  eventKey: z.enum(["proposal_created", "work_order_closed", "invoice_due_date", "service_date"]).optional().nullable(),
+  delayDays: z.coerce.number().int().min(0).optional().nullable(),
+  recurringIntervalDays: z.coerce.number().int().min(1).optional().nullable(),
+  templateId: z.string().optional().nullable(),
+  recipientScope: z.enum(["primary_contact", "all_contacts"]),
+  autoSend: z.boolean(),
+  isEnabled: z.boolean(),
+});
+
+type AutomationRuleFormValues = z.infer<typeof automationRuleFormSchema>;
+
+function AutomationRuleDialog({
+  open,
+  onClose,
+  rule,
+  templates,
+}: {
+  open: boolean;
+  onClose: () => void;
+  rule?: CommunicationAutomationRule | null;
+  templates: CommunicationTemplate[];
+}) {
+  const { toast } = useToast();
+  const isEdit = !!rule;
+
+  const form = useForm<AutomationRuleFormValues>({
+    resolver: zodResolver(automationRuleFormSchema),
+    defaultValues: {
+      name: rule?.name ?? "",
+      description: rule?.description ?? "",
+      triggerType: rule?.triggerType ?? "time_after_event",
+      eventKey: rule?.eventKey ?? null,
+      delayDays: rule?.delayDays ?? 3,
+      recurringIntervalDays: rule?.recurringIntervalDays ?? 7,
+      templateId: rule?.templateId ?? "none",
+      recipientScope: rule?.recipientScope ?? "primary_contact",
+      autoSend: rule?.autoSend ?? false,
+      isEnabled: rule?.isEnabled ?? true,
+    },
+  });
+
+  const triggerType = form.watch("triggerType");
+
+  const createMutation = useMutation({
+    mutationFn: (data: AutomationRuleFormValues) =>
+      apiRequest("POST", "/api/automation-rules", data),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/automation-rules"] });
+      toast({ title: "Rule created", description: "Automation rule created successfully." });
+      onClose();
+    },
+    onError: () => {
+      toast({ title: "Error", description: "Failed to create rule.", variant: "destructive" });
+    },
+  });
+
+  const updateMutation = useMutation({
+    mutationFn: (data: AutomationRuleFormValues) =>
+      apiRequest("PATCH", `/api/automation-rules/${rule?.id}`, data),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/automation-rules"] });
+      toast({ title: "Rule updated", description: "Automation rule updated successfully." });
+      onClose();
+    },
+    onError: () => {
+      toast({ title: "Error", description: "Failed to update rule.", variant: "destructive" });
+    },
+  });
+
+  function onSubmit(data: AutomationRuleFormValues) {
+    if (triggerType !== "recurring") {
+      data.recurringIntervalDays = null;
+    } else {
+      data.eventKey = null;
+      data.delayDays = null;
+    }
+    if (data.templateId === "none") {
+      data.templateId = null;
+    }
+    if (isEdit) {
+      updateMutation.mutate(data);
+    } else {
+      createMutation.mutate(data);
+    }
+  }
+
+  const isPending = createMutation.isPending || updateMutation.isPending;
+
+  return (
+    <Dialog open={open} onOpenChange={(v) => !v && onClose()}>
+      <DialogContent className="max-w-lg max-h-[90vh] overflow-y-auto">
+        <DialogHeader>
+          <DialogTitle>{isEdit ? "Edit Automation Rule" : "New Automation Rule"}</DialogTitle>
+        </DialogHeader>
+        <Form {...form}>
+          <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
+            <FormField
+              control={form.control}
+              name="name"
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel>Rule Name</FormLabel>
+                  <FormControl>
+                    <Input placeholder="e.g. Proposal Follow-Up" data-testid="input-rule-name" {...field} />
+                  </FormControl>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
+
+            <FormField
+              control={form.control}
+              name="description"
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel>Description (optional)</FormLabel>
+                  <FormControl>
+                    <Textarea
+                      placeholder="What does this rule do?"
+                      data-testid="input-rule-description"
+                      {...field}
+                      value={field.value ?? ""}
+                    />
+                  </FormControl>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
+
+            <FormField
+              control={form.control}
+              name="triggerType"
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel>Trigger Type</FormLabel>
+                  <Select onValueChange={field.onChange} value={field.value}>
+                    <FormControl>
+                      <SelectTrigger data-testid="select-trigger-type">
+                        <SelectValue placeholder="Select trigger type" />
+                      </SelectTrigger>
+                    </FormControl>
+                    <SelectContent>
+                      <SelectItem value="time_after_event">Time After Event</SelectItem>
+                      <SelectItem value="time_before_event">Time Before Event</SelectItem>
+                      <SelectItem value="recurring">Recurring</SelectItem>
+                    </SelectContent>
+                  </Select>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
+
+            {(triggerType === "time_after_event" || triggerType === "time_before_event") && (
+              <>
+                <FormField
+                  control={form.control}
+                  name="eventKey"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Event</FormLabel>
+                      <Select onValueChange={field.onChange} value={field.value ?? ""}>
+                        <FormControl>
+                          <SelectTrigger data-testid="select-event-key">
+                            <SelectValue placeholder="Select an event" />
+                          </SelectTrigger>
+                        </FormControl>
+                        <SelectContent>
+                          <SelectItem value="proposal_created">Proposal Created</SelectItem>
+                          <SelectItem value="work_order_closed">Work Order Closed</SelectItem>
+                          <SelectItem value="invoice_due_date">Invoice Due Date</SelectItem>
+                          <SelectItem value="service_date">Service Date</SelectItem>
+                        </SelectContent>
+                      </Select>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+                <FormField
+                  control={form.control}
+                  name="delayDays"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>
+                        {triggerType === "time_after_event" ? "Days After Event" : "Days Before Event"}
+                      </FormLabel>
+                      <FormControl>
+                        <Input
+                          type="number"
+                          min={0}
+                          data-testid="input-delay-days"
+                          {...field}
+                          value={field.value ?? ""}
+                          onChange={(e) => field.onChange(e.target.value === "" ? null : Number(e.target.value))}
+                        />
+                      </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+              </>
+            )}
+
+            {triggerType === "recurring" && (
+              <FormField
+                control={form.control}
+                name="recurringIntervalDays"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Repeat Every (days)</FormLabel>
+                    <FormControl>
+                      <Input
+                        type="number"
+                        min={1}
+                        data-testid="input-recurring-interval"
+                        {...field}
+                        value={field.value ?? ""}
+                        onChange={(e) => field.onChange(e.target.value === "" ? null : Number(e.target.value))}
+                      />
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+            )}
+
+            <FormField
+              control={form.control}
+              name="templateId"
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel>Communication Template (optional)</FormLabel>
+                  <Select onValueChange={field.onChange} value={field.value ?? ""}>
+                    <FormControl>
+                      <SelectTrigger data-testid="select-template">
+                        <SelectValue placeholder="Select a template" />
+                      </SelectTrigger>
+                    </FormControl>
+                    <SelectContent>
+                      <SelectItem value="none">No template</SelectItem>
+                      {templates.map((t) => (
+                        <SelectItem key={t.id} value={t.id}>
+                          {t.name}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
+
+            <FormField
+              control={form.control}
+              name="recipientScope"
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel>Recipient Scope</FormLabel>
+                  <Select onValueChange={field.onChange} value={field.value}>
+                    <FormControl>
+                      <SelectTrigger data-testid="select-recipient-scope">
+                        <SelectValue placeholder="Select recipient scope" />
+                      </SelectTrigger>
+                    </FormControl>
+                    <SelectContent>
+                      <SelectItem value="primary_contact">Primary Contact Only</SelectItem>
+                      <SelectItem value="all_contacts">All Contacts</SelectItem>
+                    </SelectContent>
+                  </Select>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
+
+            <FormField
+              control={form.control}
+              name="isEnabled"
+              render={({ field }) => (
+                <FormItem className="flex items-center gap-3">
+                  <FormControl>
+                    <Switch
+                      checked={field.value}
+                      onCheckedChange={field.onChange}
+                      data-testid="switch-is-enabled"
+                    />
+                  </FormControl>
+                  <FormLabel className="cursor-pointer">Rule Enabled</FormLabel>
+                </FormItem>
+              )}
+            />
+
+            <FormField
+              control={form.control}
+              name="autoSend"
+              render={({ field }) => (
+                <FormItem className="flex items-center gap-3">
+                  <FormControl>
+                    <Switch
+                      checked={field.value}
+                      onCheckedChange={field.onChange}
+                      data-testid="switch-auto-send"
+                    />
+                  </FormControl>
+                  <div>
+                    <FormLabel className="cursor-pointer">Auto-Send</FormLabel>
+                    {field.value && (
+                      <p className="text-xs text-destructive mt-0.5">
+                        Generated communications will be sent without review.
+                      </p>
+                    )}
+                  </div>
+                </FormItem>
+              )}
+            />
+
+            <DialogFooter>
+              <Button type="button" variant="outline" onClick={onClose} disabled={isPending}>
+                Cancel
+              </Button>
+              <Button type="submit" disabled={isPending} data-testid="button-save-rule">
+                {isPending && <Loader2 className="w-4 h-4 mr-1 animate-spin" />}
+                {isEdit ? "Save Changes" : "Create Rule"}
+              </Button>
+            </DialogFooter>
+          </form>
+        </Form>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+function AutomationsView({ templates }: { templates: CommunicationTemplate[] }) {
+  const { toast } = useToast();
+  const [dialogOpen, setDialogOpen] = useState(false);
+  const [editingRule, setEditingRule] = useState<CommunicationAutomationRule | null>(null);
+
+  const { data: rules = [], isLoading } = useQuery<CommunicationAutomationRule[]>({
+    queryKey: ["/api/automation-rules"],
+  });
+
+  const toggleMutation = useMutation({
+    mutationFn: ({ id, isEnabled }: { id: string; isEnabled: boolean }) =>
+      apiRequest("PATCH", `/api/automation-rules/${id}`, { isEnabled }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/automation-rules"] });
+    },
+  });
+
+  const deleteMutation = useMutation({
+    mutationFn: (id: string) => apiRequest("DELETE", `/api/automation-rules/${id}`),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/automation-rules"] });
+      toast({ title: "Rule deleted" });
+    },
+  });
+
+  const runMutation = useMutation({
+    mutationFn: (id: string) => apiRequest("POST", `/api/automation-rules/${id}/run`),
+    onSuccess: async (res) => {
+      const data = await res.json();
+      queryClient.invalidateQueries({ queryKey: ["/api/automation-rules"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/communications"] });
+      toast({
+        title: "Rule executed",
+        description: `Created ${data.draftsCreated} draft communication${data.draftsCreated !== 1 ? "s" : ""}`,
+      });
+    },
+    onError: () => {
+      toast({ title: "Error", description: "Failed to run rule.", variant: "destructive" });
+    },
+  });
+
+  function openCreate() {
+    setEditingRule(null);
+    setDialogOpen(true);
+  }
+
+  function openEdit(rule: CommunicationAutomationRule) {
+    setEditingRule(rule);
+    setDialogOpen(true);
+  }
+
+  const templateNameMap = useMemo(() => {
+    const map: Record<string, string> = {};
+    for (const t of templates) map[t.id] = t.name;
+    return map;
+  }, [templates]);
+
+  return (
+    <div className="flex flex-col h-full">
+      <div className="border-b p-4 shrink-0 flex items-center justify-between gap-3 flex-wrap">
+        <div>
+          <h1 className="text-lg font-semibold" data-testid="text-automations-title">Automation Rules</h1>
+          <p className="text-sm text-muted-foreground mt-0.5">
+            Rules that automatically generate draft communications based on triggers
+          </p>
+        </div>
+        <Button onClick={openCreate} data-testid="button-add-rule">
+          <Plus className="w-4 h-4 mr-1" />
+          Add Rule
+        </Button>
+      </div>
+
+      <div className="flex-1 overflow-y-auto p-4">
+        {isLoading ? (
+          <div className="flex items-center justify-center py-16">
+            <Loader2 className="w-7 h-7 animate-spin text-muted-foreground" />
+          </div>
+        ) : rules.length === 0 ? (
+          <div className="flex flex-col items-center justify-center py-16 text-center px-4">
+            <Zap className="w-12 h-12 text-muted-foreground/30 mb-3" />
+            <p className="text-sm text-muted-foreground">No automation rules yet</p>
+            <Button variant="outline" className="mt-4" onClick={openCreate}>
+              <Plus className="w-4 h-4 mr-1" />
+              Create your first rule
+            </Button>
+          </div>
+        ) : (
+          <div className="space-y-3">
+            {rules.map((rule) => (
+              <div
+                key={rule.id}
+                className="border rounded-md p-4 bg-card space-y-3"
+                data-testid={`card-rule-${rule.id}`}
+              >
+                <div className="flex items-start justify-between gap-3 flex-wrap">
+                  <div className="min-w-0 flex-1">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <h3
+                        className="font-medium text-sm"
+                        data-testid={`text-rule-name-${rule.id}`}
+                      >
+                        {rule.name}
+                      </h3>
+                      {!rule.isEnabled && (
+                        <Badge variant="secondary" className="text-xs">Disabled</Badge>
+                      )}
+                    </div>
+                    {rule.description && (
+                      <p className="text-xs text-muted-foreground mt-0.5">{rule.description}</p>
+                    )}
+                  </div>
+                  <div className="flex items-center gap-1 shrink-0">
+                    <Button
+                      size="icon"
+                      variant="ghost"
+                      onClick={() => runMutation.mutate(rule.id)}
+                      disabled={runMutation.isPending}
+                      title="Run now"
+                      data-testid={`button-run-${rule.id}`}
+                    >
+                      {runMutation.isPending ? (
+                        <Loader2 className="w-4 h-4 animate-spin" />
+                      ) : (
+                        <Play className="w-4 h-4" />
+                      )}
+                    </Button>
+                    <Button
+                      size="icon"
+                      variant="ghost"
+                      onClick={() => openEdit(rule)}
+                      title="Edit rule"
+                      data-testid={`button-edit-${rule.id}`}
+                    >
+                      <FileText className="w-4 h-4" />
+                    </Button>
+                    <Button
+                      size="icon"
+                      variant="ghost"
+                      onClick={() => deleteMutation.mutate(rule.id)}
+                      disabled={deleteMutation.isPending}
+                      title="Delete rule"
+                      data-testid={`button-delete-${rule.id}`}
+                    >
+                      <Trash2 className="w-4 h-4" />
+                    </Button>
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-2 gap-x-4 gap-y-1.5 text-sm">
+                  <div className="flex flex-col">
+                    <span className="text-xs text-muted-foreground">Trigger</span>
+                    <span data-testid={`text-rule-trigger-${rule.id}`}>{getTriggerSummary(rule)}</span>
+                  </div>
+                  <div className="flex flex-col">
+                    <span className="text-xs text-muted-foreground">Template</span>
+                    <span data-testid={`text-rule-template-${rule.id}`}>
+                      {rule.templateId ? (templateNameMap[rule.templateId] ?? "Unknown template") : "None"}
+                    </span>
+                  </div>
+                  <div className="flex flex-col">
+                    <span className="text-xs text-muted-foreground">Last Run</span>
+                    <span data-testid={`text-rule-last-run-${rule.id}`}>{formatDateTime(rule.lastRunAt)}</span>
+                  </div>
+                  <div className="flex flex-col">
+                    <span className="text-xs text-muted-foreground">Recipient</span>
+                    <span>{rule.recipientScope === "all_contacts" ? "All Contacts" : "Primary Contact"}</span>
+                  </div>
+                </div>
+
+                <div className="flex items-center justify-between pt-1 border-t">
+                  <span className="text-xs text-muted-foreground">
+                    {rule.autoSend ? "Auto-send enabled" : "Drafts only"}
+                  </span>
+                  <div className="flex items-center gap-2">
+                    <Label htmlFor={`toggle-${rule.id}`} className="text-xs text-muted-foreground cursor-pointer">
+                      {rule.isEnabled ? "Enabled" : "Disabled"}
+                    </Label>
+                    <Switch
+                      id={`toggle-${rule.id}`}
+                      checked={rule.isEnabled}
+                      onCheckedChange={(v) => toggleMutation.mutate({ id: rule.id, isEnabled: v })}
+                      data-testid={`toggle-rule-${rule.id}`}
+                    />
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+
+      <AutomationRuleDialog
+        open={dialogOpen}
+        onClose={() => setDialogOpen(false)}
+        rule={editingRule}
+        templates={templates}
+      />
+    </div>
+  );
+}
+
 
 // ──────────────────────────────────────────────
 // Nav View type & helpers
@@ -1482,6 +2050,9 @@ export default function CommunicationsCenter() {
   });
 
 
+  const [viewMode, setViewMode] = useState<"communications" | "automations">("communications");
+  const { data: templates = [] } = useQuery<CommunicationTemplate[]>({ queryKey: ["/api/communication-templates"] });
+
   const filteredCommunications = useMemo(() => {
     let items = communications;
 
@@ -1531,6 +2102,7 @@ export default function CommunicationsCenter() {
   const handleNavigateToList = (params: Record<string, string>) => {
     const view = (params.view as NavView) ?? "all";
     setActiveView(view);
+    setViewMode("communications");
     if (params.type) setTypeFilter(params.type);
     if (params.sentById) setSentByIdFilter(params.sentById);
     if (params.customerId) setCustomerIdFilter(params.customerId);
@@ -1540,6 +2112,7 @@ export default function CommunicationsCenter() {
   const handleNavSelect = (view: NavView) => {
     setActiveView(view);
     setShowTemplates(false);
+    setViewMode("communications");
     setSelectedId(null);
     setSearch("");
     setTypeFilter("");
@@ -1652,6 +2225,21 @@ export default function CommunicationsCenter() {
               <FileEdit className="w-4 h-4 shrink-0" />
               <span>Template Manager</span>
             </button>
+            <button
+              className={`w-full flex items-center gap-2 px-3 py-2 rounded-md text-sm text-left transition-colors ${
+                viewMode === "automations"
+                  ? "bg-primary text-primary-foreground"
+                  : "text-foreground/70 hover-elevate"
+              }`}
+              data-testid="nav-automations"
+              onClick={() => {
+                setViewMode("automations");
+                setSelectedId(null);
+              }}
+            >
+              <Zap className="w-4 h-4 shrink-0" />
+              <span>Automations</span>
+            </button>
           </div>
         </div>
       </div>
@@ -1684,6 +2272,10 @@ export default function CommunicationsCenter() {
       ) : sectionFilter === "audit_log" && permissions.isAdmin ? (
         <div className="flex-1 min-w-0 overflow-hidden border-r">
           <AuditLogPanel />
+        </div>
+      ) : viewMode === "automations" ? (
+        <div className="flex-1 overflow-hidden">
+          <AutomationsView templates={templates} />
         </div>
       ) : isDashboard ? (
         <div className="flex-1 overflow-hidden">

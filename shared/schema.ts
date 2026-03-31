@@ -1858,6 +1858,42 @@ export type CommunicationAuditLog = typeof communicationAuditLog.$inferSelect;
 export type CommunicationAuditLogWithUser = CommunicationAuditLog & {
   actionByUserName?: string | null;
 };
+
+// Communication Automation Rules
+export const communicationAutomationRules = pgTable("communication_automation_rules", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  companyId: varchar("company_id").notNull().references(() => companies.id, { onDelete: "cascade" }),
+  name: text("name").notNull(),
+  description: text("description"),
+  triggerType: text("trigger_type").notNull().$type<"time_after_event" | "time_before_event" | "recurring">(),
+  eventKey: text("event_key").$type<"proposal_created" | "work_order_closed" | "invoice_due_date" | "service_date">(),
+  delayDays: integer("delay_days"),
+  recurringIntervalDays: integer("recurring_interval_days"),
+  templateId: varchar("template_id").references(() => communicationTemplates.id, { onDelete: "set null" }),
+  recipientScope: text("recipient_scope").notNull().$type<"primary_contact" | "all_contacts">().default("primary_contact"),
+  autoSend: boolean("auto_send").notNull().default(false),
+  isEnabled: boolean("is_enabled").notNull().default(true),
+  lastRunAt: timestamp("last_run_at"),
+  createdById: varchar("created_by_id").references(() => users.id, { onDelete: "set null" }),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+});
+
+export const insertCommunicationAutomationRuleSchema = createInsertSchema(communicationAutomationRules).omit({
+  id: true,
+  createdAt: true,
+}).extend({
+  triggerType: z.enum(["time_after_event", "time_before_event", "recurring"]),
+  eventKey: z.enum(["proposal_created", "work_order_closed", "invoice_due_date", "service_date"]).nullable().optional(),
+  delayDays: z.number().int().min(0).nullable().optional(),
+  recurringIntervalDays: z.number().int().min(1).nullable().optional(),
+  recipientScope: z.enum(["primary_contact", "all_contacts"]).default("primary_contact"),
+  autoSend: z.boolean().default(false),
+  isEnabled: z.boolean().default(true),
+  lastRunAt: z.coerce.date().nullable().optional(),
+});
+
+export type InsertCommunicationAutomationRule = z.infer<typeof insertCommunicationAutomationRuleSchema>;
+export type CommunicationAutomationRule = typeof communicationAutomationRules.$inferSelect;
 export type MarkupPoint = [number, number];
 export type SymbolType = "tree" | "plant" | "boulder";
 export type MarkupObjectType = "polygon" | "polyline" | "symbol" | "text";
