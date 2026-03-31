@@ -1497,7 +1497,7 @@ export async function migrateCommunicationTemplatesSchema(): Promise<void> {
     await db.execute(sql`ALTER TABLE communication_templates ADD COLUMN IF NOT EXISTS default_communication_type text`);
     await db.execute(sql`ALTER TABLE communication_templates ADD COLUMN IF NOT EXISTS created_by_id varchar REFERENCES users(id) ON DELETE SET NULL`);
 
-    // For existing communications installations: add threading columns
+    // For existing communications installations: add threading and delivery columns
     await db.execute(sql`ALTER TABLE communications ADD COLUMN IF NOT EXISTS template_id varchar REFERENCES communication_templates(id) ON DELETE SET NULL`);
     await db.execute(sql`ALTER TABLE communications ADD COLUMN IF NOT EXISTS thread_id varchar REFERENCES communication_threads(id) ON DELETE SET NULL`);
     await db.execute(sql`ALTER TABLE communications ADD COLUMN IF NOT EXISTS in_reply_to varchar`);
@@ -1507,6 +1507,14 @@ export async function migrateCommunicationTemplatesSchema(): Promise<void> {
     await db.execute(sql`ALTER TABLE communications ADD COLUMN IF NOT EXISTS scheduled_for timestamp`);
     await db.execute(sql`ALTER TABLE communications ADD COLUMN IF NOT EXISTS follow_up_due_at timestamp`);
     await db.execute(sql`ALTER TABLE communications ADD COLUMN IF NOT EXISTS follow_up_status text NOT NULL DEFAULT 'none'`).catch(() => {});
+    await db.execute(sql`ALTER TABLE communications ADD COLUMN IF NOT EXISTS delivery_provider text`);
+    await db.execute(sql`ALTER TABLE communications ADD COLUMN IF NOT EXISTS provider_message_id text`);
+    await db.execute(sql`ALTER TABLE communications ADD COLUMN IF NOT EXISTS delivery_status text NOT NULL DEFAULT 'pending'`).catch(() => {});
+    await db.execute(sql`ALTER TABLE communications ADD COLUMN IF NOT EXISTS failure_reason text`);
+    await db.execute(sql`ALTER TABLE communications ADD COLUMN IF NOT EXISTS recipient_email text`);
+    await db.execute(sql`ALTER TABLE communications ADD COLUMN IF NOT EXISTS customer_name text`);
+    await db.execute(sql`ALTER TABLE communications ADD COLUMN IF NOT EXISTS contact_name text`);
+    await db.execute(sql`ALTER TABLE communications ADD COLUMN IF NOT EXISTS sent_by_name text`);
 
     // Rename communication_links columns if old names exist
     await db.execute(sql`
