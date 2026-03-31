@@ -10,34 +10,37 @@ Test login credentials: randy@highplainsprop.com / Soccer03
 ## System Architecture
 
 ### UI/UX
-The frontend is built with React 18+, TypeScript, Vite, Wouter, and TanStack Query. It utilizes Shadcn/ui and Radix UI primitives, styled with Tailwind CSS, supporting custom theming and light/dark modes.
+The frontend is built with React 18+, TypeScript, Vite, Wouter, and TanStack Query. It utilizes Shadcn/ui and Radix UI primitives, styled with Tailwind CSS, supporting custom theming and light/dark modes. The system supports full Spanish/English localization using i18next and react-i18next, with a user language preference stored and a toggle for instant switching.
 
 ### Technical Implementation
 The backend uses Express.js and TypeScript. Authentication is handled by Passport.js with session-based management stored in PostgreSQL. It supports multi-tenancy with granular role-based access control (Admin, Office, Field Manager, Chemical Manager, Field, Irrigation Manager, Shop Manager). Data is persisted in PostgreSQL (Neon serverless) using Drizzle ORM and Drizzle Kit for migrations. Replit's object storage (Google Cloud Storage) stores contract PDF documents, visual scope images, and ticket PDF attachments with company-scoped ACL and presigned URL uploads.
 
-#### Key Features
--   **Internationalization (i18n):** Full Spanish/English localization using i18next and react-i18next.
--   **Contract Management:** Comprehensive contract lifecycle management system with stateful editing, validation, permission-based access, and support for 8 service types, including a Contract Builder for template-based generation, preview, auto-save, publish, and PDF export.
--   **Ticketing System:** Mobile-first system for field crews with configurable ticket types, custom workflows, and step-specific data capture. Manages a 3-phase project workflow (Sales/Estimating, Field Execution, Billing) with linked tickets categorized by work type to drive billing behavior.
--   **Weekly Schedule System:** Comprehensive scheduling for assigning properties to crews using template-based drag-and-drop, including capacity indicators and PDF export.
--   **Property Maps System:** KML-based layer mapping for field crews to view customer-specific property zones.
--   **Ticket Notifications:** In-app notifications for ticket assignments, completions, mentions, and due dates.
--   **Property Management:** Tracks Property Management Companies and Managers, integrated with customer management.
--   **Equipment Tracking:** Manages various equipment types with CRUD, status tracking, and dedicated ticketing workflows.
--   **Revenue Tracking:** Tracks contracted revenue by service type, offering monthly/YTD totals and annual projections.
--   **Contracts Overview:** Summary page for Admin and Office roles with search, filter, and sortable table.
--   **Customer Detail Page:** Consolidated view of customer information with tabs for Overview, Contacts, Notes, Operations, Maps, Billing, and Settings.
--   **Snow Storm Billing/Tracking:** Manages winter weather events, property impacts, service assignments, and automated invoice ticket generation.
--   **First-Time Setup Flow:** Initial setup for creating the first company and admin user upon deployment.
--   **Reports:** Reporting tool for Admin and Office roles generating exportable lists (Customer/Property, Contacts, Equipment, Contracts, Tickets) with CSV export.
--   **Email Notification System:** Transactional email notifications via SendGrid for events like "Work Completed" tickets, using a template/rule engine with logs.
--   **Proposal Maker:** Tool for Admin and Office roles to create customer proposals, capturing scope, images, and generating branded PDF outputs.
--   **Visual Scope Sheet Tool (VS1-VS5):** Satellite map-based tool for Admin and Office roles to create property scope imagery with interactive SVG overlay editing, server-side PNG export, high-resolution base image capture, integration with Proposal Maker, and "finalize-grade freezing" for immutable visual assets.
--   **Campaign System:** Batch property checklist system for organizing work across multiple properties. Supports General, Chemical, and Irrigation campaigns. Chemical campaigns include a 3-step communication workflow with automated email notifications and weather condition recording. Irrigation campaigns feature per-property checklists with presets and custom options.
--   **Communication Command Center:** Analytics dashboard for Admin and Office roles displaying communication metrics, filtered lists, and deep-linking to details.
--   **Seasons Management System:** Allows grouping campaigns into named time periods for aggregated reporting, accessible to admin, office, and chemical_manager roles.
--   **Communications Center:** Compose and tracking center for admin and office users to author and record outbound communications (email, SMS, note, letter), with template auto-fill, token resolution, and status tracking.
--   **Field Role Layout (FieldAppLayout):** Mobile-first layout for operational roles (field_manager, chemical_manager, irrigation_manager, shop_manager, landscape_supervisor) with a simplified UI and role-specific navigation.
+#### Core Features
+- **Contract Management:** Comprehensive lifecycle management, stateful editing, validation, permission-based access, support for 8 service types, and a Contract Builder with templating, variable substitution, and PDF export.
+- **Ticketing System:** Mobile-first, configurable ticket types, custom workflows, 3-phase project workflow (Sales/Estimating, Field Execution, Billing), linked tickets, and automated invoice ticket generation. Includes an RFP Request pipeline and delegation.
+- **Weekly Schedule System:** Template-based drag-and-drop scheduling for assigning properties to crews, with capacity indicators and PDF export.
+- **Property Maps System:** KML-based layer mapping for field crews to view customer-specific property zones and service areas.
+- **Ticket Notifications:** In-app notifications for ticket assignments, completions, mentions, and due date reminders.
+- **Property Management:** Tracks Property Management Companies and Managers, integrating them with customer management.
+- **Equipment Tracking:** CRUD operations for various equipment types, status tracking, and dedicated equipment ticketing workflows.
+- **Revenue Tracking:** Tracks contracted revenue by service type, with monthly/YTD totals, annual projections, and drill-down capabilities.
+- **Customer Detail Page:** Consolidated view with 7 top-level tabs and sub-tabs for detailed information including billing.
+- **Snow Storm Billing/Tracking:** Manages winter weather events, service assignments, and automated invoice ticket generation.
+- **First-Time Setup Flow:** Initial setup for creating the first company and admin user.
+- **Reports:** Exportable lists (Customer/Property, Contacts, Equipment, Contracts, Tickets Summary) with sortable, searchable data tables and CSV export.
+- **Email Notification System:** Transactional email notifications via SendGrid for events like "Work Completed" tickets, using a template/rule engine with logs.
+- **Proposal Maker:** Tool for creating customer proposals, capturing scope, images, and generating branded PDF outputs.
+- **Visual Scope Sheet Tool (VS1-VS5):** Satellite map-based tool for creating property scope imagery, interactive SVG overlay editor, server-side PNG export, and integration with Proposal Maker. Includes high-resolution image capture and "finalize-grade freezing" for immutable visual assets.
+- **Campaign System:** Batch property checklist system for organizing work (General, Chemical, Irrigation). Supports task assignment, completion tracking, notes, photos, and role-based permissions. Chemical campaigns include a 3-step communication workflow with automated emails and weather capture. Irrigation campaigns feature property-specific checklists with presets (Spring Turn-On, Winterization) and custom options.
+- **Communication Command Center:** Analytics dashboard for Admin/Office roles with a three-panel layout, section filtering (Dashboard, All, Drafts, Sent, Scheduled, Follow-Ups), stat cards, breakdown widgets, and date range filtering. Supports deep-linking to filtered list views.
+- **Seasons Management System:** Allows grouping campaigns into named time periods for aggregated reporting, accessible to admin, office, and chemical_manager roles. Features CRUD operations for seasons and per-season aggregated reports with CSV/PDF export.
+- **Field Role Layout (FieldAppLayout):** Mobile-first layout for operational roles (field_manager, chemical_manager, irrigation_manager, shop_manager, landscape_supervisor) with a sticky top bar, scrollable content, and a floating home button. The dashboard for these roles shows assigned tickets and role-specific navigation cards.
+
+#### Communication Center
+- **Functionality:** Three-panel layout with left navigation (All, Drafts, Sent, Scheduled), center list, and right detail/preview.
+- **Threading:** Messages grouped by `threadId` with reply-count badges and a conversation timeline in the detail panel.
+- **Reply Action:** "Reply" button pre-fills compose drawer with "Re: {subject}" and links to the parent message, automatically creating or reusing a thread.
+- **Compose Drawer:** Full compose form with customer/type/template selectors, subject/body, internal notes, and draft/send options.
 
 ## External Dependencies
 

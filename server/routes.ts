@@ -10787,12 +10787,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
     res.json(analytics);
   });
 
+  // GET /api/communications
   app.get("/api/communications", async (req, res) => {
-    if (!req.isAuthenticated()) return res.status(401).send("Not authenticated");
+    if (!req.isAuthenticated()) return res.status(401).send("Unauthorized");
     const user = req.user as UserWithContext;
     if (!commRoles.includes(user.activeRole)) return res.status(403).send("Insufficient permissions");
-    const { view, customerId, type, sentById, search, startDate, endDate } = req.query as Record<string, string>;
-    const filters: { view?: string; customerId?: string; type?: string; sentById?: string; search?: string; startDate?: Date; endDate?: Date } = {};
+    const { view, customerId, type, sentById, search, startDate, endDate, status, threadId } = req.query as Record<string, string>;
+    const filters: any = {};
     if (view) filters.view = view;
     if (customerId) filters.customerId = customerId;
     if (type) filters.type = type;
@@ -10800,9 +10801,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
     if (search) filters.search = search;
     if (startDate) filters.startDate = new Date(startDate);
     if (endDate) filters.endDate = new Date(endDate);
+    if (status) filters.status = status;
+    if (threadId) filters.threadId = threadId;
+
     const comms = await storage.getCommunications(user.activeCompanyId, filters);
     // Seed if empty
-    if (comms.length === 0) {
+    if (comms.length === 0 && !view && !customerId && !type && !sentById && !search && !startDate && !endDate && !status && !threadId) {
       const custList = await storage.getCustomers(user.activeCompanyId);
       if (custList.length > 0) {
         await storage.seedCommunications(user.activeCompanyId, user.id, custList.map(c => c.id));
@@ -10813,27 +10817,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
     res.json(comms);
   });
 
-  app.get("/api/communications/templates", async (req, res) => {
-    if (!req.isAuthenticated()) return res.status(401).send("Not authenticated");
-    const user = req.user as UserWithContext;
-    if (!commRoles.includes(user.activeRole)) return res.status(403).send("Insufficient permissions");
-    const templates = await storage.getCommunicationTemplates(user.activeCompanyId);
-    res.json(templates);
-  });
-
-  app.post("/api/communications/templates", async (req, res) => {
-    if (!req.isAuthenticated()) return res.status(401).send("Not authenticated");
-    const user = req.user as UserWithContext;
-    if (!commRoles.includes(user.activeRole)) return res.status(403).send("Insufficient permissions");
-    const { insertCommunicationTemplateSchema } = await import("@shared/schema");
-    const parsed = insertCommunicationTemplateSchema.safeParse({ ...req.body, companyId: user.activeCompanyId, createdById: user.id });
-    if (!parsed.success) return res.status(400).json({ error: parsed.error });
-    const template = await storage.createCommunicationTemplate(parsed.data);
-    res.status(201).json(template);
-  });
-
+  // GET /api/communications/:id
   app.get("/api/communications/:id", async (req, res) => {
-    if (!req.isAuthenticated()) return res.status(401).send("Not authenticated");
+    if (!req.isAuthenticated()) return res.status(401).send("Unauthorized");
     const user = req.user as UserWithContext;
     if (!commRoles.includes(user.activeRole)) return res.status(403).send("Insufficient permissions");
     const comm = await storage.getCommunicationById(req.params.id, user.activeCompanyId);
@@ -10842,42 +10828,128 @@ export async function registerRoutes(app: Express): Promise<Server> {
     res.json({ ...comm, links });
   });
 
+  // POST /api/communications
   app.post("/api/communications", async (req, res) => {
-    if (!req.isAuthenticated()) return res.status(401).send("Not authenticated");
+    if (!req.isAuthenticated()) return res.status(401).send("Unauthorized");
     const user = req.user as UserWithContext;
     if (!commRoles.includes(user.activeRole)) return res.status(403).send("Insufficient permissions");
     const { insertCommunicationSchema } = await import("@shared/schema");
-    const parsed = insertCommunicationSchema.safeParse({ ...req.body, companyId: user.activeCompanyId, sentById: user.id });
-    if (!parsed.success) return res.status(400).json({ error: parsed.error });
-    if (parsed.data.status === "sent" && !parsed.data.sentAt) { parsed.data.sentAt = new Date(); }
-    const comm = await storage.createCommunication(parsed.data);
+    const parsed = insertCommunicationSchema.safeParse({
+      ...req.body,
+      companyId: user.activeCompanyId,
+      sentById: user.id,
+      sentAt: req.body.status === "sent" ? new Date() : req.body.sentAt,
+    });
+    if (!parsed.success) return res.status(400).json({ error: parsed.error.flatten() });
+
+    let threadId = parsed.data.threadId;
+    const inReplyTo = parsed.data.inReplyTo;
+
+    // If replying to a message and no thread exists yet, create one
+    if (inReplyTo && !threadId) {
+      const parent = await storage.getCommunicationById(inReplyTo, user.activeCompanyId);
+      if (parent) {
+        if (parent.threadId) {
+          threadId = parent.threadId;
+        } else {
+          const thread = await storage.createCommunicationThread({
+            companyId: user.activeCompanyId,
+            customerId: parent.customerId ?? undefined,
+            subjectRoot: parent.subject.replace(/^Re:\s*/i, ""),
+          });
+          threadId = thread.id;
+          // Also link the parent to the thread
+          await storage.updateCommunication(inReplyTo, user.activeCompanyId, { threadId: thread.id });
+        }
+      }
+    }
+
+    const comm = await storage.createCommunication({ ...parsed.data, threadId: threadId ?? null });
     res.status(201).json(comm);
   });
 
+  // PATCH /api/communications/:id
   app.patch("/api/communications/:id", async (req, res) => {
-    if (!req.isAuthenticated()) return res.status(401).send("Not authenticated");
+    if (!req.isAuthenticated()) return res.status(401).send("Unauthorized");
     const user = req.user as UserWithContext;
     if (!commRoles.includes(user.activeRole)) return res.status(403).send("Insufficient permissions");
-    const existing = await storage.getCommunicationById(req.params.id, user.activeCompanyId);
-    if (!existing) return res.status(404).json({ error: "Not found" });
-    if (existing.status === "sent") return res.status(400).json({ error: "Sent communications cannot be edited" });
-    const updates = req.body;
-    if (updates.scheduledFor) updates.scheduledFor = new Date(updates.scheduledFor);
-    if (updates.followUpDueAt) updates.followUpDueAt = new Date(updates.followUpDueAt);
-    if (updates.sentAt) updates.sentAt = new Date(updates.sentAt);
-    const comm = await storage.updateCommunication(req.params.id, user.activeCompanyId, updates);
-    if (!comm) return res.status(404).json({ error: "Not found" });
-    res.json(comm);
+    const { insertCommunicationSchema } = await import("@shared/schema");
+    const parsed = insertCommunicationSchema.partial().safeParse(req.body);
+    if (!parsed.success) return res.status(400).json({ error: parsed.error.flatten() });
+
+    const updates = { ...parsed.data };
+    if (updates.scheduledFor) updates.scheduledFor = new Date(updates.scheduledFor as any);
+    if (updates.followUpDueAt) updates.followUpDueAt = new Date(updates.followUpDueAt as any);
+    if (updates.sentAt) updates.sentAt = new Date(updates.sentAt as any);
+
+    const updated = await storage.updateCommunication(req.params.id, user.activeCompanyId, updates);
+    if (!updated) return res.status(404).json({ error: "Not found" });
+    res.json(updated);
   });
 
+  // DELETE /api/communications/:id
   app.delete("/api/communications/:id", async (req, res) => {
-    if (!req.isAuthenticated()) return res.status(401).send("Not authenticated");
+    if (!req.isAuthenticated()) return res.status(401).send("Unauthorized");
     const user = req.user as UserWithContext;
     if (!commRoles.includes(user.activeRole)) return res.status(403).send("Insufficient permissions");
     const existing = await storage.getCommunicationById(req.params.id, user.activeCompanyId);
     if (!existing) return res.status(404).json({ error: "Communication not found" });
     await storage.deleteCommunication(req.params.id, user.activeCompanyId);
-    res.status(204).send();
+    res.status(204).end();
+  });
+
+  // GET /api/communication-templates
+  app.get("/api/communication-templates", async (req, res) => {
+    if (!req.isAuthenticated()) return res.status(401).send("Unauthorized");
+    const user = req.user as UserWithContext;
+    if (!commRoles.includes(user.activeRole)) return res.status(403).send("Insufficient permissions");
+    const templates = await storage.getCommunicationTemplates(user.activeCompanyId);
+    res.json(templates);
+  });
+
+  // POST /api/communication-templates
+  app.post("/api/communication-templates", async (req, res) => {
+    if (!req.isAuthenticated()) return res.status(401).send("Unauthorized");
+    const user = req.user as UserWithContext;
+    if (!commRoles.includes(user.activeRole)) return res.status(403).send("Insufficient permissions");
+    const { insertCommunicationTemplateSchema } = await import("@shared/schema");
+    const parsed = insertCommunicationTemplateSchema.safeParse({ ...req.body, companyId: user.activeCompanyId, createdById: user.id });
+    if (!parsed.success) return res.status(400).json({ error: parsed.error.flatten() });
+    const template = await storage.createCommunicationTemplate(parsed.data);
+    res.status(201).json(template);
+  });
+
+  // GET /api/communication-threads
+  app.get("/api/communication-threads", async (req, res) => {
+    if (!req.isAuthenticated()) return res.status(401).send("Unauthorized");
+    const user = req.user as UserWithContext;
+    if (!commRoles.includes(user.activeRole)) return res.status(403).send("Insufficient permissions");
+    const { customerId } = req.query;
+    const threads = await storage.getCommunicationThreads(user.activeCompanyId, {
+      customerId: customerId as string | undefined,
+    });
+    res.json(threads);
+  });
+
+  // POST /api/communication-threads
+  app.post("/api/communication-threads", async (req, res) => {
+    if (!req.isAuthenticated()) return res.status(401).send("Unauthorized");
+    const user = req.user as UserWithContext;
+    if (!commRoles.includes(user.activeRole)) return res.status(403).send("Insufficient permissions");
+    const { insertCommunicationThreadSchema } = await import("@shared/schema");
+    const parsed = insertCommunicationThreadSchema.safeParse({ ...req.body, companyId: user.activeCompanyId });
+    if (!parsed.success) return res.status(400).json({ error: parsed.error.flatten() });
+    const thread = await storage.createCommunicationThread(parsed.data);
+    res.status(201).json(thread);
+  });
+
+  // GET /api/communication-threads/:id/messages
+  app.get("/api/communication-threads/:id/messages", async (req, res) => {
+    if (!req.isAuthenticated()) return res.status(401).send("Unauthorized");
+    const user = req.user as UserWithContext;
+    if (!commRoles.includes(user.activeRole)) return res.status(403).send("Insufficient permissions");
+    const messages = await storage.getThreadMessages(req.params.id, user.activeCompanyId);
+    res.json(messages);
   });
 
   app.get("/api/communication-templates", async (req, res) => {

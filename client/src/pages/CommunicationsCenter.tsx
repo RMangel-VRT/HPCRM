@@ -1,22 +1,24 @@
-import { useState, useMemo, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
 import { useLocation } from "wouter";
-import { useSetBreadcrumbs } from "@/hooks/use-breadcrumbs";
-import { useToast } from "@/hooks/use-toast";
+import { format, formatDistanceToNow } from "date-fns";
 import { queryClient, apiRequest } from "@/lib/queryClient";
+import { useToast } from "@/hooks/use-toast";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import { Switch } from "@/components/ui/switch";
 import { Label } from "@/components/ui/label";
+import { Separator } from "@/components/ui/separator";
+import { ScrollArea } from "@/components/ui/scroll-area";
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import {
   MessageSquare,
   Send,
@@ -36,24 +38,25 @@ import {
   TrendingUp,
   Clock,
   CheckCircle,
-  CalendarDays,
-  Tag,
-  Link as LinkIcon,
-  Plus,
   Eye,
-  Archive,
   Loader2,
-  Inbox,
-  LayoutTemplate,
+  Plus,
+  ArrowDownLeft,
+  ArrowUpRight,
+  MessagesSquare,
+  Reply,
   User,
   UserCheck,
+  Archive,
+  LayoutTemplate,
 } from "lucide-react";
-import type { Communication, CommunicationWithDetails, CommunicationAnalytics, Customer, CommunicationTemplate } from "@shared/schema";
+import type { CommunicationWithDetails, CommunicationAnalytics, CommunicationTemplate } from "@shared/schema";
 import { COMMUNICATION_TEMPLATE_CATEGORIES, COMMUNICATION_TEMPLATE_CATEGORY_LABELS } from "@shared/schema";
 import ComposeDrawer from "@/components/ComposeDrawer";
 
 type NavView = "dashboard" | "all" | "drafts" | "sent" | "scheduled" | "followups";
 type SectionFilter = "all" | "draft" | "sent" | "scheduled" | "follow_ups" | "templates";
+type Section = NavView;
 
 const TYPE_ICONS: Record<string, React.ElementType> = {
   email: Mail,
@@ -76,6 +79,16 @@ const STATUS_COLORS: Record<string, string> = {
   failed: "bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-400",
 };
 
+function TypeBadge({ type }: { type: string }) {
+  const Icon = TYPE_ICONS[type];
+  return (
+    <Badge variant="outline" className="gap-1 text-xs capitalize">
+      {Icon && <Icon className="w-3 h-3" />}
+      {TYPE_LABELS[type] ?? type}
+    </Badge>
+  );
+}
+
 function formatDate(d: string | Date | null | undefined): string {
   if (!d) return "—";
   return new Date(d).toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" });
@@ -96,7 +109,7 @@ interface AnalyticsDashboardProps {
   onNavigateToList: (params: Record<string, string>) => void;
 }
 
-function AnalyticsDashboard({ onNavigateToList }: AnalyticsDashboardProps): JSX.Element {
+function AnalyticsDashboard({ onNavigateToList }: AnalyticsDashboardProps) {
   const [preset, setPreset] = useState<DatePreset>("this_month");
   const [customStart, setCustomStart] = useState("");
   const [customEnd, setCustomEnd] = useState("");
@@ -165,14 +178,433 @@ function AnalyticsDashboard({ onNavigateToList }: AnalyticsDashboardProps): JSX.
     },
   ];
 
-function formatDate(date: string | Date | null | undefined) {
-  if (!date) return "—";
-  return new Date(date).toLocaleDateString("en-US", {
-    month: "short",
-    day: "numeric",
-    year: "numeric",
-  });
+  return (
+    <div className="flex flex-col gap-6 h-full overflow-y-auto p-6">
+      {/* Header row */}
+      <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+        <div>
+          <h2 className="text-xl font-semibold">Communications Overview</h2>
+          <p className="text-sm text-muted-foreground">Activity for: {periodLabel}</p>
+        </div>
+        <div className="flex flex-wrap items-center gap-2">
+          {(["this_week", "this_month", "last_30", "custom"] as DatePreset[]).map(p => (
+            <Button
+              key={p}
+              variant={preset === p ? "default" : "outline"}
+              size="sm"
+              onClick={() => setPreset(p)}
+              data-testid={`button-preset-${p}`}
+            >
+              {presetLabel(p)}
+            </Button>
+          ))}
+        </div>
+      </div>
+
+      {preset === "custom" && (
+        <div className="flex flex-wrap items-center gap-3">
+          <div className="flex items-center gap-2">
+            <label className="text-sm font-medium">From</label>
+            <Input type="date" value={customStart} onChange={e => setCustomStart(e.target.value)} className="w-40" data-testid="input-custom-start" />
+          </div>
+          <div className="flex items-center gap-2">
+            <label className="text-sm font-medium">To</label>
+            <Input type="date" value={customEnd} onChange={e => setCustomEnd(e.target.value)} className="w-40" data-testid="input-custom-end" />
+          </div>
+        </div>
+      )}
+
+      {/* Stat Cards */}
+      <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
+        {statCards.map(card => (
+          <Card
+            key={card.testId}
+            className="cursor-pointer hover-elevate"
+            onClick={card.onClick}
+            data-testid={card.testId}
+          >
+            <CardContent className="pt-4 pb-4">
+              <div className="flex items-start justify-between gap-2">
+                <div>
+                  <p className="text-xs text-muted-foreground font-medium uppercase tracking-wide">{card.label}</p>
+                  {isLoading ? (
+                    <Skeleton className="h-8 w-12 mt-1" />
+                  ) : (
+                    <p className={`text-3xl font-bold mt-1 ${card.variant === "warning" && (analytics?.overdueFollowUpsCount ?? 0) > 0 ? "text-orange-600 dark:text-orange-400" : ""}`}>
+                      {card.value}
+                    </p>
+                  )}
+                  <p className="text-xs text-muted-foreground mt-1">{card.description}</p>
+                </div>
+                <div className="rounded-md bg-primary/10 p-2 shrink-0">
+                  <card.icon className="w-4 h-4 text-primary" />
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+        ))}
+      </div>
+
+      {/* Bottom rows */}
+      <div className="grid grid-cols-1 gap-6 md:grid-cols-2 xl:grid-cols-4">
+        {/* Sent by Type */}
+        <Card>
+          <CardHeader className="pb-2">
+            <CardTitle className="text-sm font-medium flex items-center gap-2">
+              <MessageSquare className="w-4 h-4" />
+              Sent by Type
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            {isLoading ? (
+              <div className="space-y-2">{[1,2,3].map(i => <Skeleton key={i} className="h-8 w-full" />)}</div>
+            ) : !analytics?.sentByType?.length ? (
+              <p className="text-sm text-muted-foreground">No data for this period</p>
+            ) : (
+              <ul className="space-y-1">
+                {analytics.sentByType.map(row => {
+                  const Icon = TYPE_ICONS[row.type] ?? MessageSquare;
+                  return (
+                    <li
+                      key={row.type}
+                      className="flex items-center justify-between gap-2 rounded-md px-2 py-1.5 cursor-pointer hover-elevate"
+                      onClick={() => onNavigateToList({ view: "sent", type: row.type })}
+                      data-testid={`type-row-${row.type}`}
+                    >
+                      <div className="flex items-center gap-2 text-sm">
+                        <Icon className="w-3.5 h-3.5 text-muted-foreground" />
+                        <span>{TYPE_LABELS[row.type] ?? row.type}</span>
+                      </div>
+                      <Badge variant="secondary" className="text-xs">{row.count}</Badge>
+                    </li>
+                  );
+                })}
+              </ul>
+            )}
+          </CardContent>
+        </Card>
+
+        {/* Sent by Staff */}
+        <Card>
+          <CardHeader className="pb-2">
+            <CardTitle className="text-sm font-medium flex items-center gap-2">
+              <Users className="w-4 h-4" />
+              Sent by Staff Member
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            {isLoading ? (
+              <div className="space-y-2">{[1,2,3].map(i => <Skeleton key={i} className="h-8 w-full" />)}</div>
+            ) : !analytics?.sentByStaff?.length ? (
+              <p className="text-sm text-muted-foreground">No data for this period</p>
+            ) : (
+              <ul className="space-y-1">
+                {analytics.sentByStaff.map(row => (
+                  <li
+                    key={row.userId}
+                    className="flex items-center justify-between gap-2 rounded-md px-2 py-1.5 cursor-pointer hover-elevate"
+                    onClick={() => onNavigateToList({ view: "sent", sentById: row.userId })}
+                    data-testid={`staff-row-${row.userId}`}
+                  >
+                    <span className="text-sm truncate">{row.userName}</span>
+                    <Badge variant="secondary" className="text-xs">{row.count}</Badge>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </CardContent>
+        </Card>
+
+        {/* Top Customers */}
+        <Card>
+          <CardHeader className="pb-2">
+            <CardTitle className="text-sm font-medium flex items-center gap-2">
+              <Building2 className="w-4 h-4" />
+              Top Customers
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            {isLoading ? (
+              <div className="space-y-2">{[1,2,3].map(i => <Skeleton key={i} className="h-8 w-full" />)}</div>
+            ) : !analytics?.topCustomers?.length ? (
+              <p className="text-sm text-muted-foreground">No data for this period</p>
+            ) : (
+              <ul className="space-y-1">
+                {analytics.topCustomers.map(row => (
+                  <li
+                    key={row.customerId}
+                    className="flex items-center justify-between gap-2 rounded-md px-2 py-1.5 cursor-pointer hover-elevate"
+                    onClick={() => onNavigateToList({ customerId: row.customerId })}
+                    data-testid={`customer-row-${row.customerId}`}
+                  >
+                    <span className="text-sm truncate">{row.customerName}</span>
+                    <Badge variant="secondary" className="text-xs">{row.count}</Badge>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </CardContent>
+        </Card>
+
+        {/* Top Templates */}
+        <Card>
+          <CardHeader className="pb-2">
+            <CardTitle className="text-sm font-medium flex items-center gap-2">
+              <Star className="w-4 h-4" />
+              Top Templates Used
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            {isLoading ? (
+              <div className="space-y-2">{[1,2,3].map(i => <Skeleton key={i} className="h-8 w-full" />)}</div>
+            ) : !analytics?.topTemplates?.length ? (
+              <p className="text-sm text-muted-foreground">No templates used in this period</p>
+            ) : (
+              <ul className="space-y-1">
+                {analytics.topTemplates.map(row => (
+                  <li
+                    key={row.templateId}
+                    className="flex items-center justify-between gap-2 rounded-md px-2 py-1.5 cursor-pointer hover-elevate"
+                    onClick={() => onNavigateToList({ templateId: row.templateId })}
+                    data-testid={`template-row-${row.templateId}`}
+                  >
+                    <span className="text-sm truncate">{row.templateName}</span>
+                    <Badge variant="secondary" className="text-xs">{row.count}</Badge>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </CardContent>
+        </Card>
+      </div>
+    </div>
+  );
 }
+
+// ──────────────────────────────────────────────
+// Communication Detail Panel
+// ──────────────────────────────────────────────
+
+function DetailPanel({ id }: { id: string | null }) {
+  const { data, isLoading } = useQuery<CommunicationWithDetails & { links?: unknown[] }>({
+    queryKey: ["/api/communications", id],
+    queryFn: async () => {
+      const res = await fetch(`/api/communications/${id}`);
+      if (!res.ok) throw new Error("Failed to fetch");
+      return res.json();
+    },
+    enabled: !!id,
+  });
+
+  if (!id) {
+    return (
+      <div className="flex flex-col items-center justify-center h-full text-center p-8">
+        <MessageSquare className="w-10 h-10 text-muted-foreground mb-3" />
+        <p className="text-muted-foreground text-sm">Select a communication to preview it</p>
+      </div>
+    );
+  }
+
+  if (isLoading) {
+    return (
+      <div className="p-6 space-y-4">
+        <Skeleton className="h-6 w-3/4" />
+        <Skeleton className="h-4 w-1/2" />
+        <Skeleton className="h-32 w-full" />
+      </div>
+    );
+  }
+
+  if (!data) return null;
+
+  const Icon = TYPE_ICONS[data.type] ?? MessageSquare;
+  const displayDate = data.sentAt ?? data.createdAt;
+
+  return (
+    <div className="flex flex-col h-full overflow-y-auto">
+      <div className="p-5 border-b">
+        <div className="flex items-start gap-3">
+          <div className="rounded-md bg-primary/10 p-2 shrink-0">
+            <Icon className="w-4 h-4 text-primary" />
+          </div>
+          <div className="min-w-0 flex-1">
+            <h3 className="font-semibold text-base leading-tight">{data.subject || "(No subject)"}</h3>
+            <div className="flex flex-wrap items-center gap-2 mt-1.5">
+              <Badge className={STATUS_COLORS[data.status] + " text-xs border-0"} variant="outline">
+                {data.status.charAt(0).toUpperCase() + data.status.slice(1)}
+              </Badge>
+              <Badge variant="outline" className="text-xs">
+                <Icon className="w-3 h-3 mr-1" />
+                {TYPE_LABELS[data.type]}
+              </Badge>
+              {data.isOverdue && (
+                <Badge className="bg-orange-100 text-orange-800 dark:bg-orange-900/30 dark:text-orange-400 text-xs border-0" variant="outline">
+                  Overdue Follow-Up
+                </Badge>
+              )}
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div className="p-5 space-y-4 flex-1">
+        {/* Metadata */}
+        <div className="grid grid-cols-2 gap-x-4 gap-y-2 text-sm">
+          <div>
+            <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Customer</p>
+            <p className="mt-0.5">{data.customerName ?? "—"}</p>
+          </div>
+          <div>
+            <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Contact</p>
+            <p className="mt-0.5">{data.contactName ?? "—"}</p>
+          </div>
+          <div>
+            <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Sent By</p>
+            <p className="mt-0.5">{data.sentByName ?? "—"}</p>
+          </div>
+          <div>
+            <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">
+              {data.status === "draft" ? "Created" : "Sent"}
+            </p>
+            <p className="mt-0.5">{formatDateTime(displayDate)}</p>
+          </div>
+          {data.templateName && (
+            <div className="col-span-2">
+              <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Template</p>
+              <p className="mt-0.5">{data.templateName}</p>
+            </div>
+          )}
+          {data.scheduledFor && (
+            <div className="col-span-2">
+              <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Scheduled For</p>
+              <p className="mt-0.5">{formatDateTime(data.scheduledFor)}</p>
+            </div>
+          )}
+          {data.followUpDueAt && (
+            <div className="col-span-2">
+              <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Follow-Up Due</p>
+              <p className={`mt-0.5 ${data.isOverdue ? "text-orange-600 dark:text-orange-400 font-medium" : ""}`}>
+                {formatDateTime(data.followUpDueAt)}
+                {data.isOverdue && " (Overdue)"}
+              </p>
+            </div>
+          )}
+        </div>
+
+        <div className="border-t pt-4">
+          <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide mb-2">Message</p>
+          <p className="text-sm whitespace-pre-wrap leading-relaxed">{data.body}</p>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ──────────────────────────────────────────────
+// Communications List
+// ──────────────────────────────────────────────
+
+interface CommListProps {
+  view: string;
+  search: string;
+  typeFilter: string;
+  customerIdFilter: string;
+  sentByIdFilter: string;
+  selectedId: string | null;
+  onSelect: (id: string) => void;
+  initialFilters?: Record<string, string>;
+}
+
+function CommunicationsList({
+  view,
+  search,
+  typeFilter,
+  customerIdFilter,
+  sentByIdFilter,
+  selectedId,
+  onSelect,
+  initialFilters,
+}: CommListProps) {
+  const params = new URLSearchParams();
+  if (view && view !== "all") params.set("view", view);
+  if (typeFilter) params.set("type", typeFilter);
+  if (customerIdFilter) params.set("customerId", customerIdFilter);
+  if (sentByIdFilter) params.set("sentById", sentByIdFilter);
+  if (search) params.set("search", search);
+  if (initialFilters?.startDate) params.set("startDate", initialFilters.startDate);
+  if (initialFilters?.endDate) params.set("endDate", initialFilters.endDate);
+
+  const { data: comms = [], isLoading } = useQuery<CommunicationWithDetails[]>({
+    queryKey: ["/api/communications", view, search, typeFilter, customerIdFilter, sentByIdFilter, initialFilters?.startDate, initialFilters?.endDate],
+    queryFn: async () => {
+      const res = await fetch(`/api/communications?${params.toString()}`);
+      if (!res.ok) throw new Error("Failed to fetch");
+      return res.json();
+    },
+  });
+
+  if (isLoading) {
+    return (
+      <div className="flex flex-col gap-2 p-3">
+        {[1,2,3,4,5].map(i => <Skeleton key={i} className="h-16 w-full rounded-md" />)}
+      </div>
+    );
+  }
+
+  if (!comms.length) {
+    return (
+      <div className="flex flex-col items-center justify-center h-40 text-center px-4">
+        <p className="text-sm text-muted-foreground">No communications found</p>
+      </div>
+    );
+  }
+
+  return (
+    <ul className="divide-y">
+      {comms.map(c => {
+        const Icon = TYPE_ICONS[c.type] ?? MessageSquare;
+        const displayDate = c.sentAt ?? c.createdAt;
+        return (
+          <li
+            key={c.id}
+            className={`flex items-start gap-3 p-3 cursor-pointer hover-elevate ${selectedId === c.id ? "bg-accent/40" : ""}`}
+            onClick={() => onSelect(c.id)}
+            data-testid={`comm-row-${c.id}`}
+          >
+            <div className="rounded-md bg-muted p-1.5 shrink-0 mt-0.5">
+              <Icon className="w-3.5 h-3.5 text-muted-foreground" />
+            </div>
+            <div className="min-w-0 flex-1">
+              <div className="flex items-start justify-between gap-2">
+                <p className="text-sm font-medium truncate">{c.subject || "(No subject)"}</p>
+                <span className="text-xs text-muted-foreground whitespace-nowrap shrink-0">{formatDate(displayDate)}</span>
+              </div>
+              <p className="text-xs text-muted-foreground truncate mt-0.5">{c.customerName ?? "No customer"}</p>
+              <div className="flex flex-wrap items-center gap-1.5 mt-1.5">
+                <Badge className={STATUS_COLORS[c.status] + " text-xs border-0 py-0"} variant="outline">
+                  {c.status}
+                </Badge>
+                <Badge variant="outline" className="text-xs py-0">
+                  {TYPE_LABELS[c.type]}
+                </Badge>
+                {c.isOverdue && (
+                  <Badge className="bg-orange-100 text-orange-800 dark:bg-orange-900/30 dark:text-orange-400 text-xs border-0 py-0" variant="outline">
+                    Overdue
+                  </Badge>
+                )}
+              </div>
+            </div>
+          </li>
+        );
+      })}
+    </ul>
+  );
+}
+
+// ──────────────────────────────────────────────
+// Main CommunicationsCenter Page
+// ──────────────────────────────────────────────
+
 
 const KNOWN_TOKENS = [
   "customer_name",
@@ -759,499 +1191,6 @@ function TemplateManager() {
 }
 
 export default function CommunicationsCenter() {
-  const { toast } = useToast();
-  const [sectionFilter, setSectionFilter] = useState<SectionFilter>("all");
-  const [typeFilter, setTypeFilter] = useState<string>("all");
-  const [statusFilter, setStatusFilter] = useState<string>("all");
-  const [customerFilter, setCustomerFilter] = useState<string>("all");
-  const [search, setSearch] = useState("");
-  const [selectedId, setSelectedId] = useState<string | null>(null);
-
-  useSetBreadcrumbs([{ label: "Communications" }], []);
-
-  const { data: communications = [], isLoading } = useQuery<Communication[]>({
-    queryKey: ["/api/communications"],
-  });
-
-  const { data: customers = [] } = useQuery<Customer[]>({
-    queryKey: ["/api/customers"],
-  });
-
-  const filteredCommunications = useMemo(() => {
-    let items = communications;
-
-    if (sectionFilter === "follow_ups") {
-      items = items.filter((c) => c.status === "draft" && c.type === "note");
-    } else if (sectionFilter !== "all" && sectionFilter !== "templates") {
-      items = items.filter((c) => c.status === sectionFilter);
-    }
-
-    if (typeFilter !== "all") {
-      items = items.filter((c) => c.type === typeFilter);
-    }
-
-    if (statusFilter !== "all") {
-      items = items.filter((c) => c.status === statusFilter);
-    }
-
-    if (customerFilter !== "all") {
-      items = items.filter((c) => c.customerId === customerFilter);
-    }
-
-    if (search.trim()) {
-      const q = search.toLowerCase();
-      items = items.filter(
-        (c) =>
-          c.subject.toLowerCase().includes(q) ||
-          (c.customerName ?? "").toLowerCase().includes(q) ||
-          c.body.toLowerCase().includes(q)
-      );
-    }
-
-    return items;
-  }, [communications, sectionFilter, typeFilter, statusFilter, customerFilter, search]);
-
-  const selectedComm = filteredCommunications.find((c) => c.id === selectedId) ??
-    communications.find((c) => c.id === selectedId);
-
-  const navSections: { id: SectionFilter; label: string; icon: typeof Inbox; count?: number }[] = [
-    { id: "all", label: "All Communications", icon: Inbox, count: communications.length },
-    { id: "draft", label: "Drafts", icon: FileText, count: communications.filter((c) => c.status === "draft").length },
-    { id: "sent", label: "Sent", icon: Send, count: communications.filter((c) => c.status === "sent").length },
-    { id: "scheduled", label: "Scheduled", icon: Clock, count: communications.filter((c) => c.status === "scheduled").length },
-    { id: "follow_ups", label: "Follow-Ups", icon: UserCheck, count: communications.filter((c) => c.status === "draft" && c.type === "note").length },
-  ];
-
-  const isTemplatesView = sectionFilter === "templates";
-
-  return (
-    <div className="flex flex-col gap-6 h-full overflow-y-auto p-6">
-      {/* Header row */}
-      <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-        <div>
-          <h2 className="text-xl font-semibold">Communications Overview</h2>
-          <p className="text-sm text-muted-foreground">Activity for: {periodLabel}</p>
-        </div>
-        <div className="flex flex-wrap items-center gap-2">
-          {(["this_week", "this_month", "last_30", "custom"] as DatePreset[]).map(p => (
-            <Button
-              key={p}
-              variant={preset === p ? "default" : "outline"}
-              size="sm"
-              onClick={() => setPreset(p)}
-              data-testid={`button-preset-${p}`}
-            >
-              {presetLabel(p)}
-            </Button>
-          ))}
-        </div>
-      </div>
-
-      {preset === "custom" && (
-        <div className="flex flex-wrap items-center gap-3">
-          <div className="flex items-center gap-2">
-            <label className="text-sm font-medium">From</label>
-            <Input type="date" value={customStart} onChange={e => setCustomStart(e.target.value)} className="w-40" data-testid="input-custom-start" />
-          </div>
-          <div className="flex items-center gap-2">
-            <label className="text-sm font-medium">To</label>
-            <Input type="date" value={customEnd} onChange={e => setCustomEnd(e.target.value)} className="w-40" data-testid="input-custom-end" />
-          </div>
-        </div>
-      )}
-
-      {/* Stat Cards */}
-      <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
-        {statCards.map(card => (
-          <Card
-            key={card.testId}
-            className="cursor-pointer hover-elevate"
-            onClick={card.onClick}
-            data-testid={card.testId}
-          >
-            <CardContent className="pt-4 pb-4">
-              <div className="flex items-start justify-between gap-2">
-                <div>
-                  <p className="text-xs text-muted-foreground font-medium uppercase tracking-wide">{card.label}</p>
-                  {isLoading ? (
-                    <Skeleton className="h-8 w-12 mt-1" />
-                  ) : (
-                    <p className={`text-3xl font-bold mt-1 ${card.variant === "warning" && (analytics?.overdueFollowUpsCount ?? 0) > 0 ? "text-orange-600 dark:text-orange-400" : ""}`}>
-                      {card.value}
-                    </p>
-                  )}
-                  <p className="text-xs text-muted-foreground mt-1">{card.description}</p>
-                </div>
-                <div className="rounded-md bg-primary/10 p-2 shrink-0">
-                  <card.icon className="w-4 h-4 text-primary" />
-                </div>
-              </div>
-            </CardContent>
-          </Card>
-        ))}
-      </div>
-
-      {/* Bottom rows */}
-      <div className="grid grid-cols-1 gap-6 md:grid-cols-2 xl:grid-cols-4">
-        {/* Sent by Type */}
-        <Card>
-          <CardHeader className="pb-2">
-            <CardTitle className="text-sm font-medium flex items-center gap-2">
-              <MessageSquare className="w-4 h-4" />
-              Sent by Type
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            {isLoading ? (
-              <div className="space-y-2">{[1,2,3].map(i => <Skeleton key={i} className="h-8 w-full" />)}</div>
-            ) : !analytics?.sentByType?.length ? (
-              <p className="text-sm text-muted-foreground">No data for this period</p>
-            ) : (
-              <ul className="space-y-1">
-                {analytics.sentByType.map(row => {
-                  const Icon = TYPE_ICONS[row.type] ?? MessageSquare;
-                  return (
-                    <li
-                      key={row.type}
-                      className="flex items-center justify-between gap-2 rounded-md px-2 py-1.5 cursor-pointer hover-elevate"
-                      onClick={() => onNavigateToList({ view: "sent", type: row.type })}
-                      data-testid={`type-row-${row.type}`}
-                    >
-                      <div className="flex items-center gap-2 text-sm">
-                        <Icon className="w-3.5 h-3.5 text-muted-foreground" />
-                        <span>{TYPE_LABELS[row.type] ?? row.type}</span>
-                      </div>
-                      <Badge variant="secondary" className="text-xs">{row.count}</Badge>
-                    </li>
-                  );
-                })}
-              </ul>
-            )}
-          </CardContent>
-        </Card>
-
-        {/* Sent by Staff */}
-        <Card>
-          <CardHeader className="pb-2">
-            <CardTitle className="text-sm font-medium flex items-center gap-2">
-              <Users className="w-4 h-4" />
-              Sent by Staff Member
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            {isLoading ? (
-              <div className="space-y-2">{[1,2,3].map(i => <Skeleton key={i} className="h-8 w-full" />)}</div>
-            ) : !analytics?.sentByStaff?.length ? (
-              <p className="text-sm text-muted-foreground">No data for this period</p>
-            ) : (
-              <ul className="space-y-1">
-                {analytics.sentByStaff.map(row => (
-                  <li
-                    key={row.userId}
-                    className="flex items-center justify-between gap-2 rounded-md px-2 py-1.5 cursor-pointer hover-elevate"
-                    onClick={() => onNavigateToList({ view: "sent", sentById: row.userId })}
-                    data-testid={`staff-row-${row.userId}`}
-                  >
-                    <span className="text-sm truncate">{row.userName}</span>
-                    <Badge variant="secondary" className="text-xs">{row.count}</Badge>
-                  </li>
-                ))}
-              </ul>
-            )}
-          </CardContent>
-        </Card>
-
-        {/* Top Customers */}
-        <Card>
-          <CardHeader className="pb-2">
-            <CardTitle className="text-sm font-medium flex items-center gap-2">
-              <Building2 className="w-4 h-4" />
-              Top Customers
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            {isLoading ? (
-              <div className="space-y-2">{[1,2,3].map(i => <Skeleton key={i} className="h-8 w-full" />)}</div>
-            ) : !analytics?.topCustomers?.length ? (
-              <p className="text-sm text-muted-foreground">No data for this period</p>
-            ) : (
-              <ul className="space-y-1">
-                {analytics.topCustomers.map(row => (
-                  <li
-                    key={row.customerId}
-                    className="flex items-center justify-between gap-2 rounded-md px-2 py-1.5 cursor-pointer hover-elevate"
-                    onClick={() => onNavigateToList({ customerId: row.customerId })}
-                    data-testid={`customer-row-${row.customerId}`}
-                  >
-                    <span className="text-sm truncate">{row.customerName}</span>
-                    <Badge variant="secondary" className="text-xs">{row.count}</Badge>
-                  </li>
-                ))}
-              </ul>
-            )}
-          </CardContent>
-        </Card>
-
-        {/* Top Templates */}
-        <Card>
-          <CardHeader className="pb-2">
-            <CardTitle className="text-sm font-medium flex items-center gap-2">
-              <Star className="w-4 h-4" />
-              Top Templates Used
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            {isLoading ? (
-              <div className="space-y-2">{[1,2,3].map(i => <Skeleton key={i} className="h-8 w-full" />)}</div>
-            ) : !analytics?.topTemplates?.length ? (
-              <p className="text-sm text-muted-foreground">No templates used in this period</p>
-            ) : (
-              <ul className="space-y-1">
-                {analytics.topTemplates.map(row => (
-                  <li
-                    key={row.templateId}
-                    className="flex items-center justify-between gap-2 rounded-md px-2 py-1.5 cursor-pointer hover-elevate"
-                    onClick={() => onNavigateToList({ templateId: row.templateId })}
-                    data-testid={`template-row-${row.templateId}`}
-                  >
-                    <span className="text-sm truncate">{row.templateName}</span>
-                    <Badge variant="secondary" className="text-xs">{row.count}</Badge>
-                  </li>
-                ))}
-              </ul>
-            )}
-          </CardContent>
-        </Card>
-      </div>
-    </div>
-  );
-}
-
-// ──────────────────────────────────────────────
-// Communication Detail Panel
-// ──────────────────────────────────────────────
-
-function DetailPanel({ id }: { id: string | null }) {
-  const { data, isLoading } = useQuery<CommunicationWithDetails & { links?: unknown[] }>({
-    queryKey: ["/api/communications", id],
-    queryFn: async () => {
-      const res = await fetch(`/api/communications/${id}`);
-      if (!res.ok) throw new Error("Failed to fetch");
-      return res.json();
-    },
-    enabled: !!id,
-  });
-
-  if (!id) {
-    return (
-      <div className="flex flex-col items-center justify-center h-full text-center p-8">
-        <MessageSquare className="w-10 h-10 text-muted-foreground mb-3" />
-        <p className="text-muted-foreground text-sm">Select a communication to preview it</p>
-      </div>
-    );
-  }
-
-  if (isLoading) {
-    return (
-      <div className="p-6 space-y-4">
-        <Skeleton className="h-6 w-3/4" />
-        <Skeleton className="h-4 w-1/2" />
-        <Skeleton className="h-32 w-full" />
-      </div>
-    );
-  }
-
-  if (!data) return null;
-
-  const Icon = TYPE_ICONS[data.type] ?? MessageSquare;
-  const displayDate = data.sentAt ?? data.createdAt;
-
-  return (
-    <div className="flex flex-col h-full overflow-y-auto">
-      <div className="p-5 border-b">
-        <div className="flex items-start gap-3">
-          <div className="rounded-md bg-primary/10 p-2 shrink-0">
-            <Icon className="w-4 h-4 text-primary" />
-          </div>
-          <div className="min-w-0 flex-1">
-            <h3 className="font-semibold text-base leading-tight">{data.subject || "(No subject)"}</h3>
-            <div className="flex flex-wrap items-center gap-2 mt-1.5">
-              <Badge className={STATUS_COLORS[data.status] + " text-xs border-0"} variant="outline">
-                {data.status.charAt(0).toUpperCase() + data.status.slice(1)}
-              </Badge>
-              <Badge variant="outline" className="text-xs">
-                <Icon className="w-3 h-3 mr-1" />
-                {TYPE_LABELS[data.type]}
-              </Badge>
-              {data.isOverdue && (
-                <Badge className="bg-orange-100 text-orange-800 dark:bg-orange-900/30 dark:text-orange-400 text-xs border-0" variant="outline">
-                  Overdue Follow-Up
-                </Badge>
-              )}
-            </div>
-          </div>
-        </div>
-      </div>
-
-      <div className="p-5 space-y-4 flex-1">
-        {/* Metadata */}
-        <div className="grid grid-cols-2 gap-x-4 gap-y-2 text-sm">
-          <div>
-            <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Customer</p>
-            <p className="mt-0.5">{data.customerName ?? "—"}</p>
-          </div>
-          <div>
-            <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Contact</p>
-            <p className="mt-0.5">{data.contactName ?? "—"}</p>
-          </div>
-          <div>
-            <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Sent By</p>
-            <p className="mt-0.5">{data.sentByName ?? "—"}</p>
-          </div>
-          <div>
-            <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">
-              {data.status === "draft" ? "Created" : "Sent"}
-            </p>
-            <p className="mt-0.5">{formatDateTime(displayDate)}</p>
-          </div>
-          {data.templateName && (
-            <div className="col-span-2">
-              <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Template</p>
-              <p className="mt-0.5">{data.templateName}</p>
-            </div>
-          )}
-          {data.scheduledFor && (
-            <div className="col-span-2">
-              <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Scheduled For</p>
-              <p className="mt-0.5">{formatDateTime(data.scheduledFor)}</p>
-            </div>
-          )}
-          {data.followUpDueAt && (
-            <div className="col-span-2">
-              <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Follow-Up Due</p>
-              <p className={`mt-0.5 ${data.isOverdue ? "text-orange-600 dark:text-orange-400 font-medium" : ""}`}>
-                {formatDateTime(data.followUpDueAt)}
-                {data.isOverdue && " (Overdue)"}
-              </p>
-            </div>
-          )}
-        </div>
-
-        <div className="border-t pt-4">
-          <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide mb-2">Message</p>
-          <p className="text-sm whitespace-pre-wrap leading-relaxed">{data.body}</p>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-// ──────────────────────────────────────────────
-// Communications List
-// ──────────────────────────────────────────────
-
-interface CommListProps {
-  view: string;
-  search: string;
-  typeFilter: string;
-  customerIdFilter: string;
-  sentByIdFilter: string;
-  selectedId: string | null;
-  onSelect: (id: string) => void;
-  initialFilters?: Record<string, string>;
-}
-
-function CommunicationsList({
-  view,
-  search,
-  typeFilter,
-  customerIdFilter,
-  sentByIdFilter,
-  selectedId,
-  onSelect,
-  initialFilters,
-}: CommListProps) {
-  const params = new URLSearchParams();
-  if (view && view !== "all") params.set("view", view);
-  if (typeFilter) params.set("type", typeFilter);
-  if (customerIdFilter) params.set("customerId", customerIdFilter);
-  if (sentByIdFilter) params.set("sentById", sentByIdFilter);
-  if (search) params.set("search", search);
-  if (initialFilters?.startDate) params.set("startDate", initialFilters.startDate);
-  if (initialFilters?.endDate) params.set("endDate", initialFilters.endDate);
-
-  const { data: comms = [], isLoading } = useQuery<CommunicationWithDetails[]>({
-    queryKey: ["/api/communications", view, search, typeFilter, customerIdFilter, sentByIdFilter, initialFilters?.startDate, initialFilters?.endDate],
-    queryFn: async () => {
-      const res = await fetch(`/api/communications?${params.toString()}`);
-      if (!res.ok) throw new Error("Failed to fetch");
-      return res.json();
-    },
-  });
-
-  if (isLoading) {
-    return (
-      <div className="flex flex-col gap-2 p-3">
-        {[1,2,3,4,5].map(i => <Skeleton key={i} className="h-16 w-full rounded-md" />)}
-      </div>
-    );
-  }
-
-  if (!comms.length) {
-    return (
-      <div className="flex flex-col items-center justify-center h-40 text-center px-4">
-        <p className="text-sm text-muted-foreground">No communications found</p>
-      </div>
-    );
-  }
-
-  return (
-    <ul className="divide-y">
-      {comms.map(c => {
-        const Icon = TYPE_ICONS[c.type] ?? MessageSquare;
-        const displayDate = c.sentAt ?? c.createdAt;
-        return (
-          <li
-            key={c.id}
-            className={`flex items-start gap-3 p-3 cursor-pointer hover-elevate ${selectedId === c.id ? "bg-accent/40" : ""}`}
-            onClick={() => onSelect(c.id)}
-            data-testid={`comm-row-${c.id}`}
-          >
-            <div className="rounded-md bg-muted p-1.5 shrink-0 mt-0.5">
-              <Icon className="w-3.5 h-3.5 text-muted-foreground" />
-            </div>
-            <div className="min-w-0 flex-1">
-              <div className="flex items-start justify-between gap-2">
-                <p className="text-sm font-medium truncate">{c.subject || "(No subject)"}</p>
-                <span className="text-xs text-muted-foreground whitespace-nowrap shrink-0">{formatDate(displayDate)}</span>
-              </div>
-              <p className="text-xs text-muted-foreground truncate mt-0.5">{c.customerName ?? "No customer"}</p>
-              <div className="flex flex-wrap items-center gap-1.5 mt-1.5">
-                <Badge className={STATUS_COLORS[c.status] + " text-xs border-0 py-0"} variant="outline">
-                  {c.status}
-                </Badge>
-                <Badge variant="outline" className="text-xs py-0">
-                  {TYPE_LABELS[c.type]}
-                </Badge>
-                {c.isOverdue && (
-                  <Badge className="bg-orange-100 text-orange-800 dark:bg-orange-900/30 dark:text-orange-400 text-xs border-0 py-0" variant="outline">
-                    Overdue
-                  </Badge>
-                )}
-              </div>
-            </div>
-          </li>
-        );
-      })}
-    </ul>
-  );
-}
-
-// ──────────────────────────────────────────────
-// Main CommunicationsCenter Page
-// ──────────────────────────────────────────────
-
-export default function CommunicationsCenter() {
   const [location, navigate] = useLocation();
   const searchParams = new URLSearchParams(location.split("?")[1] ?? "");
 
@@ -1261,25 +1200,15 @@ export default function CommunicationsCenter() {
   const initialType = searchParams.get("type") ?? "";
 
   const [activeView, setActiveView] = useState<NavView>(initialView);
-  const [sectionFilter, setSectionFilter] = useState<SectionFilter>("all");
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [search, setSearch] = useState("");
   const [typeFilter, setTypeFilter] = useState(initialType);
   const [customerIdFilter, setCustomerIdFilter] = useState(initialCustomerId);
   const [sentByIdFilter, setSentByIdFilter] = useState(initialSentById);
-  const [customerFilter, setCustomerFilter] = useState("all");
-  const [statusFilter, setStatusFilter] = useState("all");
-  const [composeOpen, setComposeOpen] = useState(false);
   const [initialFilters] = useState<Record<string, string>>({
     startDate: searchParams.get("startDate") ?? "",
     endDate: searchParams.get("endDate") ?? "",
   });
-
-  const { data: customers = [] } = useQuery<Customer[]>({
-    queryKey: ["/api/customers"],
-  });
-
-  const isTemplatesView = sectionFilter === "templates";
 
   const { data: countData } = useQuery<CommunicationWithDetails[]>({
     queryKey: ["/api/communications", "all"],
@@ -1315,6 +1244,7 @@ export default function CommunicationsCenter() {
 
   const handleNavSelect = (view: NavView) => {
     setActiveView(view);
+    setShowTemplates(false);
     setSelectedId(null);
     setSearch("");
     setTypeFilter("");
@@ -1323,6 +1253,11 @@ export default function CommunicationsCenter() {
   };
 
   const isDashboard = activeView === "dashboard";
+  const [composeOpen, setComposeOpen] = useState(false);
+  const [replyTo, setReplyTo] = useState<CommunicationWithDetails | undefined>();
+  const [showTemplates, setShowTemplates] = useState(false);
+
+  const isTemplatesView = showTemplates;
 
   return (
     <div className="flex h-full overflow-hidden -m-6 md:-m-8">
@@ -1331,6 +1266,15 @@ export default function CommunicationsCenter() {
         <div className="p-4 border-b">
           <h1 className="text-sm font-semibold text-foreground">Communications</h1>
           <p className="text-xs text-muted-foreground mt-0.5">Command Center</p>
+          <Button
+            size="sm"
+            className="w-full mt-3"
+            data-testid="button-new-message"
+            onClick={() => { setReplyTo(undefined); setComposeOpen(true); }}
+          >
+            <Plus className="w-3.5 h-3.5 mr-1.5" />
+            New Message
+          </Button>
         </div>
         <nav className="flex-1 p-2 space-y-0.5">
           {navItems.map(item => {
@@ -1385,15 +1329,12 @@ export default function CommunicationsCenter() {
           <p className="text-xs text-muted-foreground px-3 py-1 font-medium uppercase tracking-wide">Templates</p>
           <button
             className={`w-full flex items-center gap-2 px-3 py-2 rounded-md text-sm text-left transition-colors ${
-              sectionFilter === "templates"
-                ? "bg-primary/10 text-primary font-medium"
-                : "text-foreground hover-elevate"
+              showTemplates
+                ? "bg-primary text-primary-foreground"
+                : "text-foreground/70 hover-elevate"
             }`}
             data-testid="nav-templates"
-            onClick={() => {
-              setSectionFilter("templates");
-              setSelectedId(null);
-            }}
+            onClick={() => { setShowTemplates(true); setSelectedId(null); }}
           >
             <FileEdit className="w-4 h-4 shrink-0" />
             <span>Template Manager</span>
@@ -1401,35 +1342,26 @@ export default function CommunicationsCenter() {
         </div>
       </div>
 
+      {/* ComposeDrawer */}
       <ComposeDrawer
         open={composeOpen}
-        onOpenChange={setComposeOpen}
-        onSuccess={() => {
-          queryClient.invalidateQueries({ queryKey: ["/api/communications"] });
-          queryClient.invalidateQueries({ queryKey: ["/api/communications/analytics"] });
-        }}
+        onClose={() => { setComposeOpen(false); setReplyTo(undefined); }}
+        replyTo={replyTo}
       />
 
-      {/* Main Area */}
+      {/* Center + Right Panels */}
       {isTemplatesView ? (
         <div className="flex-1 min-w-0 overflow-hidden flex flex-col">
-          <div className="border-b p-4 shrink-0 flex items-center justify-between gap-3 flex-wrap">
-            <h1 className="text-lg font-semibold" data-testid="text-page-title">
-              Communication Templates
-            </h1>
-            <div className="flex items-center gap-2">
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => {
-                  setSectionFilter("all");
-                  setSelectedId(null);
-                }}
-                data-testid="button-back-to-communications"
-              >
-                Back to Communications
-              </Button>
-            </div>
+          <div className="border-b p-3 shrink-0 flex items-center justify-between gap-3 flex-wrap">
+            <h2 className="text-sm font-semibold" data-testid="text-templates-title">Communication Templates</h2>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => { setShowTemplates(false); }}
+              data-testid="button-back-to-comms"
+            >
+              Back
+            </Button>
           </div>
           <div className="flex-1 min-h-0 overflow-hidden">
             <TemplateManager />

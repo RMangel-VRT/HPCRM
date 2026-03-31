@@ -1,6 +1,6 @@
-import { type User, type InsertUser, type Customer, type InsertCustomer, type Contact, type InsertContact, type Company, type InsertCompany, type CompanyUser, type InsertCompanyUser, type Settings, type InsertSettings, type Note, type InsertNote, type Contract, type InsertContract, type ContractStatusHistory, type InsertContractStatusHistory, type ContractDocument, type InsertContractDocument, type ContractMonthlyAmount, type InsertContractMonthlyAmount, type CustomerRateSheet, type InsertCustomerRateSheet, type ContractService, type InsertContractService, type ContractTemplate, type InsertContractTemplate, type ContractBuilderDocument, type InsertContractBuilderDocument, type ContractBuilderSection, type InsertContractBuilderSection, type ContractBuilderVariable, type InsertContractBuilderVariable, type TicketType, type InsertTicketType, type TicketTypeStatus, type InsertTicketTypeStatus, type TicketTypeField, type InsertTicketTypeField, type Ticket, type InsertTicket, type TicketFieldValue, type InsertTicketFieldValue, type TicketStatusHistory, type InsertTicketStatusHistory, type TicketComment, type InsertTicketComment, type TicketCommentMention, type InsertTicketCommentMention, type TicketSource, type InsertTicketSource, type TicketLink, type InsertTicketLink, type TicketTypeCategory, type CustomerMapLayer, type InsertCustomerMapLayer, type CustomerMapDocument, type InsertCustomerMapDocument, type MaintenanceCrew, type InsertMaintenanceCrew, type MaintenanceVisitConfig, type InsertMaintenanceVisitConfig, type WeeklyScheduleTemplate, type InsertWeeklyScheduleTemplate, type ScheduleBlock, type InsertScheduleBlock, type TicketNotification, type InsertTicketNotification, type NotificationType, type PropertyManagementCompany, type InsertPropertyManagementCompany, type PropertyManager, type InsertPropertyManager, type PropertyManagerEmail, type InsertPropertyManagerEmail, type PropertyManagerPhone, type InsertPropertyManagerPhone, type PropertyManagerWithContacts, type Equipment, type InsertEquipment, type EquipmentFile, type InsertEquipmentFile, type EquipmentTicket, type InsertEquipmentTicket, type EquipmentTicketStatusHistory, type InsertEquipmentTicketStatusHistory, type EquipmentWithTicketCount, type SnowEvent, type InsertSnowEvent, type SnowEventAttachment, type InsertSnowEventAttachment, type SnowEventPropertyImpact, type InsertSnowEventPropertyImpact, type SnowEventWithDetails, type SnowEventPropertyImpactWithCustomer, type EmailTemplate, type InsertEmailTemplate, type EmailRule, type InsertEmailRule, type EmailLog, type InsertEmailLog, type EmailLogWithDetails, type Proposal, type InsertProposal, type ProposalFile, type InsertProposalFile, type ProposalWithDetails, type ProposalVersion, type InsertProposalVersion, type ProposalVersionWithUser, type VisualScopeSheet, type InsertVisualScopeSheet, type VisualScopeSheetWithCustomer, type Campaign, type InsertCampaign, type CampaignItem, type InsertCampaignItem, type CampaignWithProgress, type Season, type InsertSeason, type CampaignChecklistTask, type InsertCampaignChecklistTask, type CampaignItemTaskCompletion, type InsertCampaignItemTaskCompletion, type Communication, type InsertCommunication, type CommunicationTemplate, type InsertCommunicationTemplate, type CommunicationLink, type InsertCommunicationLink, type CommunicationWithDetails, type CommunicationAnalytics } from "@shared/schema";
+import { type User, type InsertUser, type Customer, type InsertCustomer, type Contact, type InsertContact, type Company, type InsertCompany, type CompanyUser, type InsertCompanyUser, type Settings, type InsertSettings, type Note, type InsertNote, type Contract, type InsertContract, type ContractStatusHistory, type InsertContractStatusHistory, type ContractDocument, type InsertContractDocument, type ContractMonthlyAmount, type InsertContractMonthlyAmount, type CustomerRateSheet, type InsertCustomerRateSheet, type ContractService, type InsertContractService, type ContractTemplate, type InsertContractTemplate, type ContractBuilderDocument, type InsertContractBuilderDocument, type ContractBuilderSection, type InsertContractBuilderSection, type ContractBuilderVariable, type InsertContractBuilderVariable, type TicketType, type InsertTicketType, type TicketTypeStatus, type InsertTicketTypeStatus, type TicketTypeField, type InsertTicketTypeField, type Ticket, type InsertTicket, type TicketFieldValue, type InsertTicketFieldValue, type TicketStatusHistory, type InsertTicketStatusHistory, type TicketComment, type InsertTicketComment, type TicketCommentMention, type InsertTicketCommentMention, type TicketSource, type InsertTicketSource, type TicketLink, type InsertTicketLink, type TicketTypeCategory, type CustomerMapLayer, type InsertCustomerMapLayer, type CustomerMapDocument, type InsertCustomerMapDocument, type MaintenanceCrew, type InsertMaintenanceCrew, type MaintenanceVisitConfig, type InsertMaintenanceVisitConfig, type WeeklyScheduleTemplate, type InsertWeeklyScheduleTemplate, type ScheduleBlock, type InsertScheduleBlock, type TicketNotification, type InsertTicketNotification, type NotificationType, type PropertyManagementCompany, type InsertPropertyManagementCompany, type PropertyManager, type InsertPropertyManager, type PropertyManagerEmail, type InsertPropertyManagerEmail, type PropertyManagerPhone, type InsertPropertyManagerPhone, type PropertyManagerWithContacts, type Equipment, type InsertEquipment, type EquipmentFile, type InsertEquipmentFile, type EquipmentTicket, type InsertEquipmentTicket, type EquipmentTicketStatusHistory, type InsertEquipmentTicketStatusHistory, type EquipmentWithTicketCount, type SnowEvent, type InsertSnowEvent, type SnowEventAttachment, type InsertSnowEventAttachment, type SnowEventPropertyImpact, type InsertSnowEventPropertyImpact, type SnowEventWithDetails, type SnowEventPropertyImpactWithCustomer, type EmailTemplate, type InsertEmailTemplate, type EmailRule, type InsertEmailRule, type EmailLog, type InsertEmailLog, type EmailLogWithDetails, type Proposal, type InsertProposal, type ProposalFile, type InsertProposalFile, type ProposalWithDetails, type ProposalVersion, type InsertProposalVersion, type ProposalVersionWithUser, type VisualScopeSheet, type InsertVisualScopeSheet, type VisualScopeSheetWithCustomer, type Campaign, type InsertCampaign, type CampaignItem, type InsertCampaignItem, type CampaignWithProgress, type Season, type InsertSeason, type CampaignChecklistTask, type InsertCampaignChecklistTask, type CampaignItemTaskCompletion, type InsertCampaignItemTaskCompletion, type Communication, type InsertCommunication, type CommunicationTemplate, type InsertCommunicationTemplate, type CommunicationThread, type InsertCommunicationThread, type CommunicationLink, type InsertCommunicationLink, type CommunicationWithDetails, type CommunicationAnalytics } from "@shared/schema";
 import { db } from "./db";
-import { users, customers, contacts, companies, companyUsers, settings, notes, contracts, contractStatusHistory, contractDocuments, contractMonthlyAmounts, customerRateSheets, contractServices, contractTemplates, contractBuilderDocuments, contractBuilderSections, contractBuilderVariables, ticketTypes, ticketTypeStatuses, ticketTypeFields, tickets, ticketFieldValues, ticketStatusHistory, ticketComments, ticketCommentMentions, ticketSources, ticketLinks, customerMapLayers, customerMapDocuments, maintenanceCrews, maintenanceVisitConfigs, weeklyScheduleTemplates, scheduleBlocks, ticketNotifications, propertyManagementCompanies, propertyManagers, propertyManagerEmails, propertyManagerPhones, equipment, equipmentFiles, equipmentTickets, equipmentTicketStatusHistory, snowEvents, snowEventAttachments, snowEventPropertyImpacts, emailTemplates, emailRules, emailLogs, proposals, proposalFiles, proposalVersions, visualScopeSheets, campaigns, campaignItems, campaignChecklistTasks, campaignItemTaskCompletions, seasons, communications, communicationTemplates, communicationLinks } from "@shared/schema";
+import { users, customers, contacts, companies, companyUsers, settings, notes, contracts, contractStatusHistory, contractDocuments, contractMonthlyAmounts, customerRateSheets, contractServices, contractTemplates, contractBuilderDocuments, contractBuilderSections, contractBuilderVariables, ticketTypes, ticketTypeStatuses, ticketTypeFields, tickets, ticketFieldValues, ticketStatusHistory, ticketComments, ticketCommentMentions, ticketSources, ticketLinks, customerMapLayers, customerMapDocuments, maintenanceCrews, maintenanceVisitConfigs, weeklyScheduleTemplates, scheduleBlocks, ticketNotifications, propertyManagementCompanies, propertyManagers, propertyManagerEmails, propertyManagerPhones, equipment, equipmentFiles, equipmentTickets, equipmentTicketStatusHistory, snowEvents, snowEventAttachments, snowEventPropertyImpacts, emailTemplates, emailRules, emailLogs, proposals, proposalFiles, proposalVersions, visualScopeSheets, campaigns, campaignItems, campaignChecklistTasks, campaignItemTaskCompletions, seasons, communications, communicationTemplates, communicationThreads, communicationLinks } from "@shared/schema";
 import { eq, and, sql, desc, inArray, max } from "drizzle-orm";
 import session from "express-session";
 import connectPg from "connect-pg-simple";
@@ -352,7 +352,7 @@ export interface IStorage {
   deleteSeason(id: string, companyId: string): Promise<void>;
 
   // Communications
-  getCommunications(companyId: string, filters?: { view?: string; customerId?: string; type?: string; sentById?: string; search?: string; startDate?: Date; endDate?: Date; status?: string; fromDate?: string; toDate?: string }): Promise<CommunicationWithDetails[]>;
+  getCommunications(companyId: string, filters?: { view?: string; customerId?: string; type?: string; sentById?: string; search?: string; startDate?: Date; endDate?: Date; status?: string; fromDate?: string; toDate?: string; threadId?: string }): Promise<CommunicationWithDetails[]>;
   getCommunicationById(id: string, companyId: string): Promise<CommunicationWithDetails | undefined>;
   createCommunication(communication: InsertCommunication): Promise<Communication>;
   updateCommunication(id: string, companyId: string, updates: Partial<InsertCommunication>): Promise<Communication | undefined>;
@@ -361,6 +361,10 @@ export interface IStorage {
   getCommunicationTemplateById(id: string, companyId: string): Promise<CommunicationTemplate | undefined>;
   createCommunicationTemplate(template: InsertCommunicationTemplate): Promise<CommunicationTemplate>;
   updateCommunicationTemplate(id: string, companyId: string, updates: Partial<InsertCommunicationTemplate>): Promise<CommunicationTemplate | undefined>;
+  getCommunicationThreads(companyId: string, filters?: { customerId?: string }): Promise<CommunicationThread[]>;
+  getCommunicationThreadById(id: string, companyId: string): Promise<CommunicationThread | undefined>;
+  createCommunicationThread(thread: InsertCommunicationThread): Promise<CommunicationThread>;
+  getThreadMessages(threadId: string, companyId: string): Promise<CommunicationWithDetails[]>;
   getCommunicationLinks(communicationId: string, companyId: string): Promise<CommunicationLink[]>;
   createCommunicationLink(link: InsertCommunicationLink): Promise<CommunicationLink>;
   getCommunicationAnalytics(companyId: string, startDate: Date, endDate: Date): Promise<CommunicationAnalytics>;
@@ -2905,52 +2909,49 @@ export class PgStorage implements IStorage {
     );
   }
 
-  // ─── Communications ───────────────────────────────────────────────────────
+  async getCommunications(companyId: string, filters?: { view?: string; customerId?: string; type?: string; sentById?: string; search?: string; startDate?: Date; endDate?: Date; status?: string; fromDate?: string; toDate?: string; threadId?: string }): Promise<CommunicationWithDetails[]> {
+    const rows = await db.select({
+      comm: communications,
+      customerName: customers.name,
+      contactName: contacts.name,
+      sentByName: users.name,
+      templateName: communicationTemplates.name,
+    })
+      .from(communications)
+      .leftJoin(customers, eq(communications.customerId, customers.id))
+      .leftJoin(contacts, eq(communications.contactId, contacts.id))
+      .leftJoin(users, eq(communications.sentById, users.id))
+      .leftJoin(communicationTemplates, eq(communications.templateId, communicationTemplates.id))
+      .where(and(
+        eq(communications.companyId, companyId),
+        filters?.status ? eq(communications.status, filters.status as any) : undefined,
+        filters?.type ? eq(communications.type, filters.type as any) : undefined,
+        filters?.customerId ? eq(communications.customerId, filters.customerId) : undefined,
+        filters?.threadId ? eq(communications.threadId, filters.threadId) : undefined,
+      ))
+      .orderBy(desc(communications.createdAt));
 
-  async getCommunications(companyId: string, filters?: { view?: string; customerId?: string; type?: string; sentById?: string; search?: string; startDate?: Date; endDate?: Date; status?: string; fromDate?: string; toDate?: string }): Promise<CommunicationWithDetails[]> {
-    const c = communications;
-    const u = users;
-    const cu = customers;
-    const co = contacts;
-    const ct = communicationTemplates;
+    const threadIds = [...new Set(rows.map(r => r.comm.threadId).filter(Boolean))];
+    const replyCounts = new Map<string, number>();
+    if (threadIds.length > 0) {
+      const allThreadComms = await db.select({ threadId: communications.threadId, count: sql<number>`count(*)` })
+        .from(communications)
+        .where(and(eq(communications.companyId, companyId), inArray(communications.threadId, threadIds as string[])))
+        .groupBy(communications.threadId);
+      for (const row of allThreadComms) {
+        if (row.threadId) replyCounts.set(row.threadId, Number(row.count));
+      }
+    }
 
     const now = new Date();
-
-    const rows = await db
-      .select({
-        id: c.id,
-        companyId: c.companyId,
-        customerId: c.customerId,
-        contactId: c.contactId,
-        sentById: c.sentById,
-        templateId: c.templateId,
-        type: c.type,
-        status: c.status,
-        subject: c.subject,
-        body: c.body,
-        scheduledFor: c.scheduledFor,
-        sentAt: c.sentAt,
-        followUpDueAt: c.followUpDueAt,
-        followUpStatus: c.followUpStatus,
-        parentCommunicationId: c.parentCommunicationId,
-        createdAt: c.createdAt,
-        updatedAt: c.updatedAt,
-        customerName: cu.name,
-        contactName: co.name,
-        sentByName: u.name,
-        templateName: ct.name,
-      })
-      .from(c)
-      .leftJoin(u, eq(c.sentById, u.id))
-      .leftJoin(cu, eq(c.customerId, cu.id))
-      .leftJoin(co, eq(c.contactId, co.id))
-      .leftJoin(ct, eq(c.templateId, ct.id))
-      .where(eq(c.companyId, companyId))
-      .orderBy(desc(c.createdAt));
-
     let result = rows.map(r => ({
-      ...r,
-      isOverdue: r.followUpStatus === "open" && r.followUpDueAt != null && r.followUpDueAt < now,
+      ...r.comm,
+      customerName: r.customerName ?? undefined,
+      contactName: r.contactName ?? undefined,
+      sentByName: r.sentByName ?? undefined,
+      templateName: r.templateName ?? undefined,
+      replyCount: r.comm.threadId ? (replyCounts.get(r.comm.threadId) ?? 1) - 1 : 0,
+      isOverdue: r.comm.followUpStatus === "open" && r.comm.followUpDueAt != null && r.comm.followUpDueAt < now,
     })) as CommunicationWithDetails[];
 
     if (filters?.view === "drafts") {
@@ -2963,9 +2964,6 @@ export class PgStorage implements IStorage {
       result = result.filter(r => r.followUpStatus === "open" || r.followUpStatus === "snoozed");
     }
 
-    if (filters?.customerId) result = result.filter(r => r.customerId === filters.customerId);
-    if (filters?.type) result = result.filter(r => r.type === filters.type);
-    if (filters?.status) result = result.filter(r => r.status === filters.status);
     if (filters?.sentById) result = result.filter(r => r.sentById === filters.sentById);
     if (filters?.search) {
       const s = filters.search.toLowerCase();
@@ -2991,48 +2989,29 @@ export class PgStorage implements IStorage {
   }
 
   async getCommunicationById(id: string, companyId: string): Promise<CommunicationWithDetails | undefined> {
-    const c = communications;
-    const u = users;
-    const cu = customers;
-    const co = contacts;
-    const ct = communicationTemplates;
+    const rows = await db.select({
+      comm: communications,
+      customerName: customers.name,
+      contactName: contacts.name,
+      sentByName: users.name,
+      templateName: communicationTemplates.name,
+    })
+      .from(communications)
+      .leftJoin(customers, eq(communications.customerId, customers.id))
+      .leftJoin(contacts, eq(communications.contactId, contacts.id))
+      .leftJoin(users, eq(communications.sentById, users.id))
+      .leftJoin(communicationTemplates, eq(communications.templateId, communicationTemplates.id))
+      .where(and(eq(communications.id, id), eq(communications.companyId, companyId)));
+    if (!rows[0]) return undefined;
+    const row = rows[0];
     const now = new Date();
-
-    const [row] = await db
-      .select({
-        id: c.id,
-        companyId: c.companyId,
-        customerId: c.customerId,
-        contactId: c.contactId,
-        sentById: c.sentById,
-        templateId: c.templateId,
-        type: c.type,
-        status: c.status,
-        subject: c.subject,
-        body: c.body,
-        scheduledFor: c.scheduledFor,
-        sentAt: c.sentAt,
-        followUpDueAt: c.followUpDueAt,
-        followUpStatus: c.followUpStatus,
-        parentCommunicationId: c.parentCommunicationId,
-        createdAt: c.createdAt,
-        updatedAt: c.updatedAt,
-        customerName: cu.name,
-        contactName: co.name,
-        sentByName: u.name,
-        templateName: ct.name,
-      })
-      .from(c)
-      .leftJoin(u, eq(c.sentById, u.id))
-      .leftJoin(cu, eq(c.customerId, cu.id))
-      .leftJoin(co, eq(c.contactId, co.id))
-      .leftJoin(ct, eq(c.templateId, ct.id))
-      .where(and(eq(c.id, id), eq(c.companyId, companyId)));
-
-    if (!row) return undefined;
     return {
-      ...row,
-      isOverdue: row.followUpStatus === "open" && row.followUpDueAt != null && row.followUpDueAt < now,
+      ...row.comm,
+      customerName: row.customerName ?? undefined,
+      contactName: row.contactName ?? undefined,
+      sentByName: row.sentByName ?? undefined,
+      templateName: row.templateName ?? undefined,
+      isOverdue: row.comm.followUpStatus === "open" && row.comm.followUpDueAt != null && row.comm.followUpDueAt < now,
     };
   }
 
@@ -3048,7 +3027,6 @@ export class PgStorage implements IStorage {
       .returning();
     return row;
   }
-
   async deleteCommunication(id: string, companyId: string): Promise<void> {
     await db.delete(communications).where(and(eq(communications.id, id), eq(communications.companyId, companyId)));
   }
@@ -3277,6 +3255,48 @@ export class PgStorage implements IStorage {
     for (const comm of seedData) {
       await this.createCommunication(comm as InsertCommunication);
     }
+  }
+
+  async getCommunicationThreads(companyId: string, filters?: { customerId?: string }): Promise<CommunicationThread[]> {
+    return db.select().from(communicationThreads)
+      .where(and(
+        eq(communicationThreads.companyId, companyId),
+        filters?.customerId ? eq(communicationThreads.customerId, filters.customerId) : undefined,
+      ))
+      .orderBy(desc(communicationThreads.updatedAt));
+  }
+
+  async getCommunicationThreadById(id: string, companyId: string): Promise<CommunicationThread | undefined> {
+    const [row] = await db.select().from(communicationThreads)
+      .where(and(eq(communicationThreads.id, id), eq(communicationThreads.companyId, companyId)));
+    return row;
+  }
+
+  async createCommunicationThread(thread: InsertCommunicationThread): Promise<CommunicationThread> {
+    const [row] = await db.insert(communicationThreads).values(thread as typeof communicationThreads.$inferInsert).returning();
+    return row;
+  }
+
+  async getThreadMessages(threadId: string, companyId: string): Promise<CommunicationWithDetails[]> {
+    const rows = await db.select({
+      comm: communications,
+      customerName: customers.name,
+      contactName: contacts.name,
+      sentByName: users.name,
+    })
+      .from(communications)
+      .leftJoin(customers, eq(communications.customerId, customers.id))
+      .leftJoin(contacts, eq(communications.contactId, contacts.id))
+      .leftJoin(users, eq(communications.sentById, users.id))
+      .where(and(eq(communications.threadId, threadId), eq(communications.companyId, companyId)))
+      .orderBy(communications.createdAt);
+
+    return rows.map(row => ({
+      ...row.comm,
+      customerName: row.customerName ?? undefined,
+      contactName: row.contactName ?? undefined,
+      sentByName: row.sentByName ?? undefined,
+    }));
   }
 }
 

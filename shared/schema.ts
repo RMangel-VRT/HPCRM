@@ -1801,6 +1801,7 @@ export const communicationTemplates = pgTable("communication_templates", {
   description: text("description"),
   isActive: boolean("is_active").notNull().default(true),
   defaultCommunicationType: text("default_communication_type").$type<"email" | "sms" | "note" | "letter">(),
+  createdById: varchar("created_by_id").references(() => users.id, { onDelete: "set null" }),
   createdAt: timestamp("created_at").notNull().defaultNow(),
   updatedAt: timestamp("updated_at").notNull().defaultNow(),
 });
@@ -1824,6 +1825,7 @@ export const insertCommunicationTemplateSchema = createInsertSchema(communicatio
   isActive: z.boolean().default(true),
   description: z.string().nullable().optional(),
   defaultCommunicationType: z.enum(["email", "sms", "note", "letter"]).nullable().optional(),
+  createdById: z.string().nullable().optional(),
 });
 
 export type InsertCommunicationTemplate = z.infer<typeof insertCommunicationTemplateSchema>;
@@ -1844,6 +1846,28 @@ export interface MarkupObject {
   createdAt: string;
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// Communication Center Tables
+// ─────────────────────────────────────────────────────────────────────────────
+
+export const communicationThreads = pgTable("communication_threads", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  companyId: varchar("company_id").notNull().references(() => companies.id, { onDelete: "cascade" }),
+  customerId: varchar("customer_id").references(() => customers.id, { onDelete: "set null" }),
+  subjectRoot: text("subject_root").notNull(),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  updatedAt: timestamp("updated_at").notNull().defaultNow(),
+});
+
+export const insertCommunicationThreadSchema = createInsertSchema(communicationThreads).omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+});
+
+export type InsertCommunicationThread = z.infer<typeof insertCommunicationThreadSchema>;
+export type CommunicationThread = typeof communicationThreads.$inferSelect;
+
 export const communications = pgTable("communications", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
   companyId: varchar("company_id").notNull().references(() => companies.id, { onDelete: "cascade" }),
@@ -1851,17 +1875,20 @@ export const communications = pgTable("communications", {
   contactId: varchar("contact_id").references(() => contacts.id, { onDelete: "set null" }),
   sentById: varchar("sent_by_id").references(() => users.id, { onDelete: "set null" }),
   templateId: varchar("template_id").references(() => communicationTemplates.id, { onDelete: "set null" }),
-  type: text("type").notNull().$type<"email" | "sms" | "note" | "letter">(),
+  threadId: varchar("thread_id").references(() => communicationThreads.id, { onDelete: "set null" }),
+  inReplyTo: varchar("in_reply_to"),
+  parentCommunicationId: varchar("parent_communication_id"),
+  type: text("type").notNull().$type<"email" | "sms" | "note" | "letter">().default("email"),
+  direction: text("direction").notNull().$type<"outbound" | "inbound">().default("outbound"),
   status: text("status").notNull().$type<"draft" | "sent" | "scheduled" | "failed">().default("draft"),
-  subject: text("subject"),
+  subject: text("subject").notNull(),
   body: text("body").notNull(),
+  internalNotes: text("internal_notes"),
   scheduledFor: timestamp("scheduled_for"),
+  scheduledAt: timestamp("scheduled_at"),
   sentAt: timestamp("sent_at"),
   followUpDueAt: timestamp("follow_up_due_at"),
   followUpStatus: text("follow_up_status").$type<"none" | "open" | "done" | "snoozed">().default("none"),
-  parentCommunicationId: varchar("parent_communication_id"),
-  propertyId: varchar("property_id"),
-  internalNotes: text("internal_notes"),
   createdAt: timestamp("created_at").notNull().defaultNow(),
   updatedAt: timestamp("updated_at").notNull().defaultNow(),
 }, (table) => ({
@@ -1874,20 +1901,23 @@ export const insertCommunicationSchema = createInsertSchema(communications).omit
   createdAt: true,
   updatedAt: true,
 }).extend({
-  type: z.enum(["email", "sms", "note", "letter"]),
+  type: z.enum(["email", "sms", "note", "letter"]).default("email"),
+  direction: z.enum(["outbound", "inbound"]).default("outbound"),
   status: z.enum(["draft", "sent", "scheduled", "failed"]).default("draft"),
   subject: z.string().nullable().optional(),
-  customerId: z.string().nullable().optional(),
+  threadId: z.string().nullable().optional(),
+  inReplyTo: z.string().nullable().optional(),
+  parentCommunicationId: z.string().nullable().optional(),
   contactId: z.string().nullable().optional(),
+  customerId: z.string().nullable().optional(),
   sentById: z.string().nullable().optional(),
   templateId: z.string().nullable().optional(),
+  internalNotes: z.string().nullable().optional(),
   scheduledFor: z.coerce.date().nullable().optional(),
+  scheduledAt: z.coerce.date().nullable().optional(),
   sentAt: z.coerce.date().nullable().optional(),
   followUpDueAt: z.coerce.date().nullable().optional(),
   followUpStatus: z.enum(["none", "open", "done", "snoozed"]).default("none"),
-  parentCommunicationId: z.string().nullable().optional(),
-  internalNotes: z.string().optional().nullable(),
-  propertyId: z.string().optional().nullable(),
 });
 
 export type InsertCommunication = z.infer<typeof insertCommunicationSchema>;
@@ -1895,9 +1925,9 @@ export type Communication = typeof communications.$inferSelect;
 
 export const communicationLinks = pgTable("communication_links", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
-  companyId: varchar("company_id").notNull().references(() => companies.id, { onDelete: "cascade" }),
   communicationId: varchar("communication_id").notNull().references(() => communications.id, { onDelete: "cascade" }),
-  linkedType: text("linked_type").notNull().$type<"ticket" | "contract" | "proposal" | "equipment_ticket">(),
+  companyId: varchar("company_id").notNull().references(() => companies.id, { onDelete: "cascade" }),
+  linkedType: text("linked_type").notNull().$type<"ticket" | "contract" | "proposal" | "equipment_ticket" | "snow_event">(),
   linkedId: varchar("linked_id").notNull(),
   createdAt: timestamp("created_at").notNull().defaultNow(),
 });
@@ -1906,7 +1936,7 @@ export const insertCommunicationLinkSchema = createInsertSchema(communicationLin
   id: true,
   createdAt: true,
 }).extend({
-  linkedType: z.enum(["ticket", "contract", "proposal", "equipment_ticket"]),
+  linkedType: z.enum(["ticket", "contract", "proposal", "equipment_ticket", "snow_event"]),
 });
 
 export type InsertCommunicationLink = z.infer<typeof insertCommunicationLinkSchema>;
@@ -1919,6 +1949,8 @@ export type CommunicationWithDetails = Communication & {
   createdByName?: string | null;
   templateName?: string | null;
   isOverdue?: boolean;
+  replyCount?: number;
+  threadSubjectRoot?: string;
 };
 
 export interface CommunicationAnalytics {
@@ -1932,3 +1964,9 @@ export interface CommunicationAnalytics {
   topCustomers: { customerId: string; customerName: string; count: number }[];
   topTemplates: { templateId: string; templateName: string; count: number }[];
 }
+
+export type CommunicationThreadWithMessages = CommunicationThread & {
+  messages: CommunicationWithDetails[];
+  latestActivity?: Date;
+  messageCount: number;
+};
