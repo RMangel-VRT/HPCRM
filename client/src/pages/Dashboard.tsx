@@ -1,5 +1,5 @@
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Users, FileText, DollarSign, TrendingUp } from "lucide-react";
+import { Users, FileText, DollarSign, TrendingUp, AlarmClock, Clock, Send, Bell } from "lucide-react";
 import { useQuery } from "@tanstack/react-query";
 import { useTranslation } from "react-i18next";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -9,6 +9,7 @@ import MyTicketsPreview from "@/components/MyTicketsPreview";
 import SchedulePreview from "@/components/SchedulePreview";
 import PendingInvoices from "@/components/PendingInvoices";
 import { useAuth } from "@/hooks/use-auth";
+import { useLocation } from "wouter";
 import SuperAdminDashboard from "./SuperAdminDashboard";
 import FieldHomeDashboard from "./FieldHomeDashboard";
 
@@ -206,6 +207,107 @@ function AdminOfficeDashboard() {
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
         <PendingInvoices />
+      </div>
+
+      <CommCenterWidgets />
+    </div>
+  );
+}
+
+interface CommStats {
+  drafts: number;
+  scheduledToday: number;
+  openFollowUps: number;
+  overdueFollowUps: number;
+}
+
+function CommCenterWidgets() {
+  const [, navigate] = useLocation();
+  const { data: stats, isLoading } = useQuery<CommStats>({
+    queryKey: ["/api/communications/stats"],
+    refetchInterval: 60000,
+  });
+
+  const widgets = [
+    {
+      title: "Drafts to review",
+      value: stats?.drafts ?? 0,
+      icon: FileText,
+      view: "draft",
+      testId: "card-comm-drafts",
+    },
+    {
+      title: "Scheduled for today",
+      value: stats?.scheduledToday ?? 0,
+      icon: Clock,
+      view: "scheduled",
+      testId: "card-comm-scheduled-today",
+    },
+    {
+      title: "Open follow-ups",
+      value: stats?.openFollowUps ?? 0,
+      icon: AlarmClock,
+      view: "follow_ups",
+      testId: "card-comm-open-followups",
+    },
+    {
+      title: "Overdue follow-ups",
+      value: stats?.overdueFollowUps ?? 0,
+      icon: Bell,
+      view: "follow_ups",
+      testId: "card-comm-overdue-followups",
+      overdue: true,
+    },
+  ];
+
+  if (isLoading) {
+    return (
+      <div className="space-y-2">
+        <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Communications</p>
+        <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+          {[1, 2, 3, 4].map((i) => (
+            <Card key={i}>
+              <CardHeader className="flex flex-row items-center justify-between gap-2 space-y-0 pb-2">
+                <Skeleton className="h-4 w-24" />
+                <Skeleton className="h-4 w-4" />
+              </CardHeader>
+              <CardContent>
+                <Skeleton className="h-8 w-12" />
+              </CardContent>
+            </Card>
+          ))}
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-2">
+      <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Communications</p>
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+        {widgets.map((w) => (
+          <Card
+            key={w.title}
+            className="cursor-pointer hover-elevate"
+            onClick={() => navigate(`/dashboard/communications?view=${w.view}`)}
+            data-testid={w.testId}
+          >
+            <CardHeader className="flex flex-row items-center justify-between gap-2 space-y-0 pb-1">
+              <CardTitle className={`text-xs font-medium ${w.overdue && w.value > 0 ? "text-red-600 dark:text-red-400" : "text-muted-foreground"}`}>
+                {w.title}
+              </CardTitle>
+              <w.icon className={`w-3.5 h-3.5 ${w.overdue && w.value > 0 ? "text-red-500" : "text-muted-foreground"}`} />
+            </CardHeader>
+            <CardContent className="pt-0">
+              <div
+                className={`text-2xl font-bold ${w.overdue && w.value > 0 ? "text-red-600 dark:text-red-400" : ""}`}
+                data-testid={`text-${w.testId}-value`}
+              >
+                {w.value}
+              </div>
+            </CardContent>
+          </Card>
+        ))}
       </div>
     </div>
   );

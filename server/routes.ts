@@ -3,6 +3,7 @@ import type { Express } from "express";
 import { createServer, type Server } from "http";
 import path from "path";
 import { promises as fs } from "fs";
+import { z } from "zod";
 import { setupAuth, type UserWithContext } from "./auth";
 import { storage } from "./storage";
 import { db } from "./db";
@@ -100,6 +101,34 @@ async function seedCommunications(companyId: string, sentById: string, _sentByNa
       subject: "Follow-up on irrigation proposal",
       body: "Need to call back property manager about the irrigation upgrade proposal sent last week. They had questions about the warranty on the new heads.",
       sentAt: null,
+    },
+    {
+      companyId,
+      customerId: companyCustomers[0]?.id ?? null,
+      sentById,
+      type: "email",
+      status: "sent",
+      subject: "Proposal Sent - Irrigation Upgrade",
+      body: "Hi,\n\nPlease find attached our proposal for the irrigation system upgrade discussed during our site visit. The proposal covers new heads for sections 3-5 with a 2-year warranty.\n\nWe look forward to your feedback!\n\nBest,\nHigh Plains Property Maintenance",
+      customerName: companyCustomers[0]?.name ?? null,
+      sentByName,
+      sentAt: new Date("2026-03-25T09:00:00Z"),
+      followUpDueAt: new Date("2026-03-28T09:00:00Z"),
+      followUpStatus: "open" as const,
+    },
+    {
+      companyId,
+      customerId: companyCustomers[3]?.id ?? null,
+      sentById,
+      type: "email",
+      status: "sent",
+      subject: "Contract Renewal - Awaiting Signature",
+      body: "Dear Property Owner,\n\nFollowing our earlier communication, we wanted to remind you that we have not yet received your signed renewal agreement. The deadline to ensure uninterrupted service is May 15, 2026.\n\nPlease don't hesitate to reach out with any questions.\n\nSincerely,\nHigh Plains Property Maintenance",
+      customerName: companyCustomers[3]?.name ?? null,
+      sentByName,
+      sentAt: new Date("2026-03-20T11:00:00Z"),
+      followUpDueAt: new Date("2026-03-25T09:00:00Z"),
+      followUpStatus: "open" as const,
     },
   ];
   const created = await Promise.all(seedData.map((data) => storage.createCommunication(data)));
@@ -1556,6 +1585,20 @@ export async function migrateCommunicationTemplatesSchema(): Promise<void> {
     await db.execute(sql`ALTER TABLE communications ADD COLUMN IF NOT EXISTS direction text NOT NULL DEFAULT 'outbound'`);
     await db.execute(sql`ALTER TABLE communications ADD COLUMN IF NOT EXISTS internal_notes text`);
     await db.execute(sql`ALTER TABLE communication_templates ADD COLUMN IF NOT EXISTS created_by_id varchar`);
+
+    // Add parent_communication_id FK constraint if missing (idempotent)
+    await db.execute(sql`
+      DO $$ BEGIN
+        IF NOT EXISTS (
+          SELECT 1 FROM information_schema.table_constraints
+          WHERE constraint_name = 'communications_parent_id_fk'
+          AND table_name = 'communications'
+        ) THEN
+          ALTER TABLE communications ADD CONSTRAINT communications_parent_id_fk
+            FOREIGN KEY (parent_communication_id) REFERENCES communications(id) ON DELETE SET NULL;
+        END IF;
+      END $$
+    `);
 
     console.log("Communications tables and schema migration complete");
   } catch (error) {
@@ -10894,6 +10937,34 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
     }
     res.json(comms);
+  });
+
+  // GET /api/communications/templates
+  app.get("/api/communications/templates", async (req, res) => {
+    if (!req.isAuthenticated()) return res.status(401).send("Not authenticated");
+    const user = req.user as UserWithContext;
+    if (!commRoles.includes(user.activeRole)) return res.status(403).send("Insufficient permissions");
+    const templates = await storage.getCommunicationTemplates(user.activeCompanyId);
+    res.json(templates);
+  });
+
+  app.post("/api/communications/templates", async (req, res) => {
+    if (!req.isAuthenticated()) return res.status(401).send("Not authenticated");
+    const user = req.user as UserWithContext;
+    if (!commRoles.includes(user.activeRole)) return res.status(403).send("Insufficient permissions");
+    const { insertCommunicationTemplateSchema } = await import("@shared/schema");
+    const parsed = insertCommunicationTemplateSchema.safeParse({ ...req.body, companyId: user.activeCompanyId, createdById: user.id });
+    if (!parsed.success) return res.status(400).json({ error: parsed.error });
+    const template = await storage.createCommunicationTemplate(parsed.data);
+    res.status(201).json(template);
+  });
+
+  app.get("/api/communications/stats", async (req, res) => {
+    if (!req.isAuthenticated()) return res.status(401).send("Not authenticated");
+    const user = req.user as UserWithContext;
+    if (!commRoles.includes(user.activeRole)) return res.status(403).send("Insufficient permissions");
+    const stats = await storage.getCommunicationStats(user.activeCompanyId);
+    res.json(stats);
   });
 
   // GET /api/communications/:id

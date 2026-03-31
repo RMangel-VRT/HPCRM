@@ -1,5 +1,5 @@
 import { sql } from "drizzle-orm";
-import { pgTable, text, varchar, timestamp, unique, integer, jsonb, real, boolean, date, index } from "drizzle-orm/pg-core";
+import { pgTable, text, varchar, timestamp, unique, integer, jsonb, real, boolean, date, index, AnyPgColumn } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
 
@@ -1895,6 +1895,7 @@ export const communications = pgTable("communications", {
   deliveryStatus: text("delivery_status").$type<"pending" | "sent" | "failed">(),
   failureReason: text("failure_reason"),
   recipientEmail: text("recipient_email"),
+  parentCommunicationId: varchar("parent_communication_id").references((): AnyPgColumn => communications.id, { onDelete: "set null" }),
   createdAt: timestamp("created_at").notNull().defaultNow(),
   updatedAt: timestamp("updated_at").notNull().defaultNow(),
 }, (table) => ({

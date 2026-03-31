@@ -65,7 +65,7 @@ app.use((req, res, next) => {
   await backfillCustomerType(); // Backfill customer_type for existing customers
   await migrateEquipmentProfilePhotoColumn(); // Ensure profile_photo_path column exists on equipment table
   await migrateProposalNumbers(); // Add proposal_number column and backfill existing proposals
-  await migrateCommunicationTemplatesSchema(); // Add category, description, is_active, default_communication_type to communication_templates
+  await migrateCommunicationTemplatesSchema(); // Create communications tables and extend communication_templates schema with slice-6 columns
   await seedCommunicationsBootstrap(); // Seed sample communications for companies with none
   await seedCommunicationTemplatesBootstrap(); // Seed sample communication templates for companies with none
 

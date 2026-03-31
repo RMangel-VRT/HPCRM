@@ -42,6 +42,20 @@ The backend uses Express.js and TypeScript. Authentication is handled by Passpor
 - **Reply Action:** "Reply" button pre-fills compose drawer with "Re: {subject}" and links to the parent message, automatically creating or reusing a thread.
 - **Compose Drawer:** Full compose form with customer/type/template selectors, subject/body, internal notes, and draft/send options.
 
+#### Communications Center (Comm Center)
+A communication lifecycle management system accessible to admin and office roles at `/dashboard/communications`. Features a left navigation panel with sections: All, Drafts, Scheduled, Follow-Ups — each with live count badges. The center panel shows a filterable list of communications (email, sms, note, letter) with type badges, status badges, and customer names. The right detail panel shows full communication content with action panels.
+
+**Slice 6 lifecycle features:**
+- **Schedule-Send (admin-only):** A datetime picker in the detail panel lets admins set `scheduledFor` on any communication. Non-admins see a disabled tooltip explaining the restriction.
+- **Follow-Up Creation:** A checkbox + preset (2/5/7 days or custom date) panel lets any admin/office user attach a follow-up reminder to any communication. Sets `followUpDueAt` and `followUpStatus = "open"`.
+- **Follow-Up Queue:** The Follow-Ups nav section filters to items with `followUpStatus = "open"` or `"snoozed"`. Overdue items (due date in the past) are highlighted in red. Each row has inline "Mark Done" (sets status to "done") and "Snooze" (popover with preset dates 1/3/7 days or custom) actions.
+- **Dashboard Widgets:** Four clickable Communication widgets on the Dashboard (Drafts to Review, Scheduled for Today, Open Follow-Ups, Overdue Follow-Ups) link to the relevant Communications Center view via URL query param `?view=draft|scheduled|follow_ups`.
+- **URL-driven section**: On mount, CommunicationsCenter reads `?view=` query param to pre-select the correct nav section.
+
+Schema additions: `scheduled_for` timestamp, `follow_up_due_at` timestamp, `follow_up_status` text (none/open/done/snoozed), `parent_communication_id` varchar. Applied via `migrateCommunicationsSlice6()` startup migration which also creates the base `communications`, `communication_templates`, and `communication_links` tables if they don't exist.
+
+API: `GET /api/communications?view=drafts|scheduled|followups`, `GET /api/communications/stats` (returns counts for dashboard widgets), `PATCH /api/communications/:id` (updates any communication fields; `scheduledFor` writes restricted to admin).
+
 ## External Dependencies
 
 -   **UI Component Libraries:** Radix UI, Shadcn/ui, Lucide React, CMDK

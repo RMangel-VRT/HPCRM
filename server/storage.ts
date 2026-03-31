@@ -357,6 +357,7 @@ export interface IStorage {
   createCommunication(communication: InsertCommunication): Promise<Communication>;
   updateCommunication(id: string, companyId: string, updates: Partial<InsertCommunication>): Promise<Communication | undefined>;
   deleteCommunication(id: string, companyId: string): Promise<void>;
+  getCommunicationStats(companyId: string): Promise<{ drafts: number; scheduledToday: number; openFollowUps: number; overdueFollowUps: number }>;
   getCommunicationTemplates(companyId: string, includeInactive?: boolean): Promise<CommunicationTemplate[]>;
   getCommunicationTemplateById(id: string, companyId: string): Promise<CommunicationTemplate | undefined>;
   createCommunicationTemplate(template: InsertCommunicationTemplate): Promise<CommunicationTemplate>;
@@ -2959,7 +2960,7 @@ export class PgStorage implements IStorage {
     } else if (filters?.view === "sent") {
       result = result.filter(r => r.status === "sent");
     } else if (filters?.view === "scheduled") {
-      result = result.filter(r => r.status === "scheduled");
+      result = result.filter(r => r.status === "scheduled" && (!r.scheduledFor || new Date(r.scheduledFor) > new Date()));
     } else if (filters?.view === "followups") {
       result = result.filter(r => r.followUpStatus === "open" || r.followUpStatus === "snoozed");
     }
@@ -2983,6 +2984,11 @@ export class PgStorage implements IStorage {
       const to = new Date(filters.toDate);
       to.setHours(23, 59, 59, 999);
       result = result.filter(r => (r.sentAt ?? r.createdAt) <= to);
+    }
+
+    // Scheduled view: only show future-dated items
+    if (filters?.view === "scheduled") {
+      result = result.filter(r => r.scheduledFor == null || r.scheduledFor > now);
     }
 
     return result;
@@ -3029,6 +3035,40 @@ export class PgStorage implements IStorage {
   }
   async deleteCommunication(id: string, companyId: string): Promise<void> {
     await db.delete(communications).where(and(eq(communications.id, id), eq(communications.companyId, companyId)));
+  }
+
+  async getCommunicationStats(companyId: string): Promise<{ drafts: number; scheduledToday: number; openFollowUps: number; overdueFollowUps: number }> {
+    const now = new Date();
+    const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+    const todayEnd = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1);
+
+    const [draftsResult, scheduledTodayResult, openFollowUpsResult, overdueFollowUpsResult] = await Promise.all([
+      db.select({ count: sql<number>`count(*)::int` }).from(communications).where(and(
+        eq(communications.companyId, companyId),
+        sql`${communications.status} = 'draft'`
+      )),
+      db.select({ count: sql<number>`count(*)::int` }).from(communications).where(and(
+        eq(communications.companyId, companyId),
+        sql`${communications.status} = 'scheduled'`,
+        sql`${communications.scheduledFor} >= ${todayStart} AND ${communications.scheduledFor} < ${todayEnd}`
+      )),
+      db.select({ count: sql<number>`count(*)::int` }).from(communications).where(and(
+        eq(communications.companyId, companyId),
+        sql`${communications.followUpStatus} = 'open'`
+      )),
+      db.select({ count: sql<number>`count(*)::int` }).from(communications).where(and(
+        eq(communications.companyId, companyId),
+        sql`${communications.followUpStatus} IN ('open', 'snoozed')`,
+        sql`${communications.followUpDueAt} < ${now}`
+      )),
+    ]);
+
+    return {
+      drafts: draftsResult[0]?.count ?? 0,
+      scheduledToday: scheduledTodayResult[0]?.count ?? 0,
+      openFollowUps: openFollowUpsResult[0]?.count ?? 0,
+      overdueFollowUps: overdueFollowUpsResult[0]?.count ?? 0,
+    };
   }
 
   async getCommunicationTemplates(companyId: string, includeInactive = false): Promise<CommunicationTemplate[]> {

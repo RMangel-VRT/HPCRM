@@ -6,6 +6,7 @@ import { z } from "zod";
 import { useLocation } from "wouter";
 import { format, formatDistanceToNow } from "date-fns";
 import { queryClient, apiRequest } from "@/lib/queryClient";
+import { useAuth } from "@/hooks/use-auth";
 import { useToast } from "@/hooks/use-toast";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -20,6 +21,16 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Alert, AlertDescription } from "@/components/ui/alert";
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 import {
   MessageSquare,
   Send,
@@ -51,8 +62,16 @@ import {
   Archive,
   LayoutTemplate,
   XCircle,
+  CalendarDays,
+  Tag,
+  AlarmClock,
+  CheckCircle2,
+  Inbox,
+  ChevronDown,
+  Info,
+  Link as LinkIcon,
 } from "lucide-react";
-import type { CommunicationWithDetails, CommunicationAnalytics, CommunicationTemplate } from "@shared/schema";
+import type { Communication, CommunicationWithDetails, CommunicationAnalytics, CommunicationTemplate } from "@shared/schema";
 import { COMMUNICATION_TEMPLATE_CATEGORIES, COMMUNICATION_TEMPLATE_CATEGORY_LABELS } from "@shared/schema";
 import ComposeDrawer from "@/components/ComposeDrawer";
 
@@ -66,6 +85,8 @@ const TYPE_ICONS: Record<string, React.ElementType> = {
   note: StickyNote,
   letter: FileEdit,
 };
+
+type CommunicationWithOverdue = Communication & { isOverdue?: boolean };
 
 const TYPE_LABELS: Record<string, string> = {
   email: "Email",
@@ -279,9 +300,9 @@ function AnalyticsDashboard({ onNavigateToList }: AnalyticsDashboardProps) {
                       onClick={() => onNavigateToList({ view: "sent", type: row.type })}
                       data-testid={`type-row-${row.type}`}
                     >
-                      <div className="flex items-center gap-2 text-sm">
-                        <Icon className="w-3.5 h-3.5 text-muted-foreground" />
-                        <span>{TYPE_LABELS[row.type] ?? row.type}</span>
+                      <div className="flex items-center gap-2 min-w-0">
+                        <Icon className="w-3.5 h-3.5 text-muted-foreground shrink-0" />
+                        <span className="text-sm truncate">{TYPE_LABELS[row.type] ?? row.type}</span>
                       </div>
                       <Badge variant="secondary" className="text-xs">{row.count}</Badge>
                     </li>
@@ -390,10 +411,170 @@ function AnalyticsDashboard({ onNavigateToList }: AnalyticsDashboardProps) {
 }
 
 // ──────────────────────────────────────────────
-// Communication Detail Panel
+// Nav View type & helpers
+// ──────────────────────────────────────────────
+
+type NavView = "dashboard" | "all" | "drafts" | "sent" | "scheduled" | "followups";
+
+const STATUS_LABELS: Record<string, string> = {
+  draft: "Draft",
+  sent: "Sent",
+  scheduled: "Scheduled",
+  failed: "Failed",
+};
+
+function FollowUpBadge({ status, isOverdue }: { status: string; isOverdue?: boolean }) {
+  if (!status || status === "none") return null;
+  const colorMap: Record<string, string> = {
+    open: isOverdue
+      ? "bg-red-100 text-red-700 dark:bg-red-900/40 dark:text-red-300"
+      : "bg-orange-100 text-orange-700 dark:bg-orange-900/40 dark:text-orange-300",
+    done: "bg-green-100 text-green-700 dark:bg-green-900/40 dark:text-green-300",
+    snoozed: isOverdue
+      ? "bg-red-100 text-red-700 dark:bg-red-900/40 dark:text-red-300"
+      : "bg-sky-100 text-sky-700 dark:bg-sky-900/40 dark:text-sky-300",
+  };
+  const label: Record<string, string> = { open: "Follow-Up Open", done: "Follow-Up Done", snoozed: "Snoozed" };
+  return (
+    <Badge className={`${colorMap[status] ?? ""} text-xs border-0 py-0`} variant="outline">
+      {label[status] ?? status}
+    </Badge>
+  );
+}
+
+function SnoozePopover({ commId, onSnooze }: { commId: string; onSnooze: (id: string, date: string) => void }) {
+  const [open, setOpen] = useState(false);
+  const [customDate, setCustomDate] = useState("");
+  const presets = [
+    { label: "1 day", days: 1 },
+    { label: "3 days", days: 3 },
+    { label: "7 days", days: 7 },
+  ];
+  const snoozeUntil = (days: number) => {
+    const d = new Date();
+    d.setDate(d.getDate() + days);
+    onSnooze(commId, d.toISOString().split("T")[0]);
+    setOpen(false);
+  };
+  return (
+    <Popover open={open} onOpenChange={setOpen}>
+      <PopoverTrigger asChild>
+        <Button size="sm" variant="outline" data-testid={`button-snooze-${commId}`}>
+          <AlarmClock className="w-3.5 h-3.5 mr-1" />
+          Snooze
+        </Button>
+      </PopoverTrigger>
+      <PopoverContent className="w-52 p-2 space-y-1.5">
+        <p className="text-xs font-semibold text-muted-foreground">Snooze until</p>
+        {presets.map((p) => (
+          <Button key={p.days} size="sm" variant="ghost" className="w-full justify-start" onClick={() => snoozeUntil(p.days)}>
+            {p.label}
+          </Button>
+        ))}
+        <div className="pt-1 flex gap-1">
+          <input
+            type="date"
+            className="flex-1 text-xs border rounded px-1 py-0.5"
+            value={customDate}
+            onChange={(e) => setCustomDate(e.target.value)}
+          />
+          <Button size="sm" disabled={!customDate} onClick={() => { onSnooze(commId, customDate); setOpen(false); }}>
+            Set
+          </Button>
+        </div>
+      </PopoverContent>
+    </Popover>
+  );
+}
+
+function ScheduleSendPanel({ isAdmin, value, onChange }: { isAdmin: boolean; value: string; onChange: (v: string) => void }) {
+  return (
+    <div>
+      <label className="text-xs text-muted-foreground block mb-1">Schedule send (admin only)</label>
+      {isAdmin ? (
+        <input
+          type="datetime-local"
+          className="text-xs border rounded px-2 py-1 w-full"
+          value={value}
+          onChange={(e) => onChange(e.target.value)}
+          data-testid="input-schedule-for"
+        />
+      ) : (
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <div className="flex items-center gap-1.5 text-muted-foreground cursor-not-allowed">
+              <input type="datetime-local" className="text-xs border rounded px-2 py-1 w-full opacity-50" disabled />
+              <Info className="w-3.5 h-3.5 shrink-0" />
+            </div>
+          </TooltipTrigger>
+          <TooltipContent>Only admins can schedule send</TooltipContent>
+        </Tooltip>
+      )}
+    </div>
+  );
+}
+
+function FollowUpPanel({
+  enabled,
+  onToggle,
+  preset,
+  onPresetChange,
+  customDate,
+  onCustomDate,
+}: {
+  enabled: boolean;
+  onToggle: () => void;
+  preset: string;
+  onPresetChange: (v: string) => void;
+  customDate: string;
+  onCustomDate: (v: string) => void;
+}) {
+  return (
+    <div>
+      <label className="flex items-center gap-2 text-xs text-muted-foreground cursor-pointer select-none">
+        <input type="checkbox" checked={enabled} onChange={onToggle} data-testid="checkbox-followup-enabled" />
+        Set follow-up reminder
+      </label>
+      {enabled && (
+        <div className="mt-2 space-y-1.5">
+          <Select value={preset} onValueChange={onPresetChange}>
+            <SelectTrigger className="h-7 text-xs" data-testid="select-followup-preset">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="1_week">1 week</SelectItem>
+              <SelectItem value="2_weeks">2 weeks</SelectItem>
+              <SelectItem value="1_month">1 month</SelectItem>
+              <SelectItem value="custom">Custom date</SelectItem>
+            </SelectContent>
+          </Select>
+          {preset === "custom" && (
+            <input
+              type="date"
+              className="text-xs border rounded px-2 py-1 w-full"
+              value={customDate}
+              onChange={(e) => onCustomDate(e.target.value)}
+              data-testid="input-followup-custom-date"
+            />
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ──────────────────────────────────────────────
+// Detail Panel
 // ──────────────────────────────────────────────
 
 function DetailPanel({ id }: { id: string | null }) {
+  const { user } = useAuth();
+  const isAdmin = user?.activeRole === "admin";
+  const [scheduleFor, setScheduleFor] = useState<string>("");
+  const [followUpEnabled, setFollowUpEnabled] = useState(false);
+  const [followUpPreset, setFollowUpPreset] = useState<string>("1_week");
+  const [followUpCustomDate, setFollowUpCustomDate] = useState<string>("");
+
   const { data, isLoading } = useQuery<CommunicationWithDetails & { links?: unknown[] }>({
     queryKey: ["/api/communications", id],
     queryFn: async () => {
@@ -403,6 +584,33 @@ function DetailPanel({ id }: { id: string | null }) {
     },
     enabled: !!id,
   });
+
+  const patchMutation = useMutation({
+    mutationFn: async ({ commId, patch }: { commId: string; patch: Record<string, unknown> }) => {
+      const res = await apiRequest("PATCH", `/api/communications/${commId}`, patch);
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/communications"] });
+    },
+  });
+
+  function handleMarkDone(commId: string) {
+    patchMutation.mutate({ commId, patch: { followUpStatus: "done" } });
+  }
+  function handleSnooze(commId: string, snoozeUntil: string) {
+    patchMutation.mutate({ commId, patch: { followUpStatus: "snoozed", followUpDueAt: snoozeUntil } });
+  }
+  function handleSaveSchedule(commId: string) {
+    patchMutation.mutate({ commId, patch: { scheduledFor: scheduleFor, status: "scheduled" } });
+  }
+  function handleSaveFollowUp(commId: string) {
+    const dueDate = followUpPreset === "custom" ? followUpCustomDate
+      : followUpPreset === "2_weeks" ? new Date(Date.now() + 14 * 24 * 3600 * 1000).toISOString().split("T")[0]
+      : followUpPreset === "1_month" ? new Date(Date.now() + 30 * 24 * 3600 * 1000).toISOString().split("T")[0]
+      : new Date(Date.now() + 7 * 24 * 3600 * 1000).toISOString().split("T")[0];
+    patchMutation.mutate({ commId, patch: { followUpStatus: "open", followUpDueAt: dueDate } });
+  }
 
   if (!id) {
     return (
@@ -436,10 +644,10 @@ function DetailPanel({ id }: { id: string | null }) {
             <Icon className="w-4 h-4 text-primary" />
           </div>
           <div className="min-w-0 flex-1">
-            <h3 className="font-semibold text-base leading-tight">{data.subject || "(No subject)"}</h3>
+            <h3 className="font-semibold text-base leading-tight" data-testid="text-detail-subject">{data.subject || "(No subject)"}</h3>
             <div className="flex flex-wrap items-center gap-2 mt-1.5">
               <Badge className={STATUS_COLORS[data.status] + " text-xs border-0"} variant="outline">
-                {data.status.charAt(0).toUpperCase() + data.status.slice(1)}
+                {STATUS_LABELS[data.status] ?? data.status}
               </Badge>
               <Badge variant="outline" className="text-xs">
                 <Icon className="w-3 h-3 mr-1" />
@@ -449,6 +657,9 @@ function DetailPanel({ id }: { id: string | null }) {
                 <Badge className="bg-orange-100 text-orange-800 dark:bg-orange-900/30 dark:text-orange-400 text-xs border-0" variant="outline">
                   Overdue Follow-Up
                 </Badge>
+              )}
+              {data.followUpStatus && data.followUpStatus !== "none" && (
+                <FollowUpBadge status={data.followUpStatus} isOverdue={data.isOverdue} />
               )}
             </div>
           </div>
@@ -468,21 +679,21 @@ function DetailPanel({ id }: { id: string | null }) {
         <div className="grid grid-cols-2 gap-x-4 gap-y-2 text-sm">
           <div>
             <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Customer</p>
-            <p className="mt-0.5">{data.customerName ?? "—"}</p>
+            <p className="mt-0.5" data-testid="text-detail-customer">{data.customerName ?? "—"}</p>
           </div>
           <div>
             <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Contact</p>
-            <p className="mt-0.5">{data.contactName ?? "—"}</p>
+            <p className="mt-0.5" data-testid="text-detail-contact">{data.contactName ?? "—"}</p>
           </div>
           <div>
             <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Sent By</p>
-            <p className="mt-0.5">{data.sentByName ?? "—"}</p>
+            <p className="mt-0.5" data-testid="text-detail-sent-by">{data.sentByName ?? "—"}</p>
           </div>
           <div>
             <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">
               {data.status === "draft" ? "Created" : "Sent"}
             </p>
-            <p className="mt-0.5">{formatDateTime(displayDate)}</p>
+            <p className="mt-0.5" data-testid="text-detail-sent-at">{formatDateTime(displayDate)}</p>
           </div>
           {data.recipientEmail && (
             <div className="col-span-2">
@@ -511,13 +722,13 @@ function DetailPanel({ id }: { id: string | null }) {
           {data.scheduledFor && (
             <div className="col-span-2">
               <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Scheduled For</p>
-              <p className="mt-0.5">{formatDateTime(data.scheduledFor)}</p>
+              <p className="mt-0.5" data-testid="text-detail-scheduled-for">{formatDateTime(data.scheduledFor)}</p>
             </div>
           )}
           {data.followUpDueAt && (
             <div className="col-span-2">
               <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Follow-Up Due</p>
-              <p className={`mt-0.5 ${data.isOverdue ? "text-orange-600 dark:text-orange-400 font-medium" : ""}`}>
+              <p className={`mt-0.5 ${data.isOverdue ? "text-orange-600 dark:text-orange-400 font-medium" : ""}`} data-testid="text-detail-followup-due">
                 {formatDateTime(data.followUpDueAt)}
                 {data.isOverdue && " (Overdue)"}
               </p>
@@ -527,8 +738,79 @@ function DetailPanel({ id }: { id: string | null }) {
 
         <div className="border-t pt-4">
           <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide mb-2">Message</p>
-          <p className="text-sm whitespace-pre-wrap leading-relaxed">{data.body}</p>
+          <p className="text-sm whitespace-pre-wrap leading-relaxed" data-testid="text-detail-body">{data.body}</p>
         </div>
+      </div>
+
+      {/* Schedule & Follow-Up for drafts */}
+      {data.status === "draft" && (
+        <div className="p-4 border-t shrink-0 space-y-3">
+          <h3 className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Schedule &amp; Follow-Up</h3>
+          <ScheduleSendPanel isAdmin={isAdmin} value={scheduleFor} onChange={setScheduleFor} />
+          <FollowUpPanel
+            enabled={followUpEnabled}
+            onToggle={() => setFollowUpEnabled((v) => !v)}
+            preset={followUpPreset}
+            onPresetChange={setFollowUpPreset}
+            customDate={followUpCustomDate}
+            onCustomDate={setFollowUpCustomDate}
+          />
+          <div className="flex gap-2 pt-1">
+            {isAdmin && scheduleFor ? (
+              <Button
+                size="sm"
+                onClick={() => handleSaveSchedule(data.id)}
+                disabled={patchMutation.isPending}
+                data-testid="button-save-schedule"
+              >
+                <Clock className="w-3.5 h-3.5 mr-1" />
+                Schedule
+              </Button>
+            ) : null}
+            {followUpEnabled && (
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={() => handleSaveFollowUp(data.id)}
+                disabled={patchMutation.isPending}
+                data-testid="button-save-followup"
+              >
+                <AlarmClock className="w-3.5 h-3.5 mr-1" />
+                Save Reminder
+              </Button>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* Follow-up actions */}
+      {data.followUpStatus && (data.followUpStatus === "open" || data.followUpStatus === "snoozed") && (
+        <div className="p-4 border-t shrink-0">
+          <h3 className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-2">Follow-Up Actions</h3>
+          <div className="flex items-center gap-2">
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={() => handleMarkDone(data.id)}
+              disabled={patchMutation.isPending}
+              data-testid="button-detail-markdone"
+            >
+              <CheckCircle2 className="w-3.5 h-3.5 mr-1" />
+              Mark done
+            </Button>
+            <SnoozePopover commId={data.id} onSnooze={handleSnooze} />
+          </div>
+        </div>
+      )}
+
+      <div className="p-4 border-t shrink-0">
+        <div className="flex items-center gap-1.5 text-muted-foreground mb-2">
+          <LinkIcon className="w-3.5 h-3.5" />
+          <h3 className="text-xs font-semibold uppercase tracking-wide">Linked Records</h3>
+        </div>
+        <p className="text-xs text-muted-foreground italic">
+          No linked records. Record linking coming in a future update.
+        </p>
       </div>
     </div>
   );
@@ -577,6 +859,16 @@ function CommunicationsList({
     },
   });
 
+  const patchMutation = useMutation({
+    mutationFn: async ({ commId, patch }: { commId: string; patch: Record<string, unknown> }) => {
+      const res = await apiRequest("PATCH", `/api/communications/${commId}`, patch);
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/communications"] });
+    },
+  });
+
   if (isLoading) {
     return (
       <div className="flex flex-col gap-2 p-3">
@@ -588,6 +880,7 @@ function CommunicationsList({
   if (!comms.length) {
     return (
       <div className="flex flex-col items-center justify-center h-40 text-center px-4">
+        <Inbox className="w-8 h-8 text-muted-foreground/30 mb-2" />
         <p className="text-sm text-muted-foreground">No communications found</p>
       </div>
     );
@@ -599,35 +892,63 @@ function CommunicationsList({
         const Icon = TYPE_ICONS[c.type] ?? MessageSquare;
         const displayDate = c.sentAt ?? c.createdAt;
         return (
-          <li
-            key={c.id}
-            className={`flex items-start gap-3 p-3 cursor-pointer hover-elevate ${selectedId === c.id ? "bg-accent/40" : ""}`}
-            onClick={() => onSelect(c.id)}
-            data-testid={`comm-row-${c.id}`}
-          >
-            <div className="rounded-md bg-muted p-1.5 shrink-0 mt-0.5">
-              <Icon className="w-3.5 h-3.5 text-muted-foreground" />
-            </div>
-            <div className="min-w-0 flex-1">
-              <div className="flex items-start justify-between gap-2">
-                <p className="text-sm font-medium truncate">{c.subject || "(No subject)"}</p>
-                <span className="text-xs text-muted-foreground whitespace-nowrap shrink-0">{formatDate(displayDate)}</span>
+          <li key={c.id} className="flex flex-col">
+            <button
+              className={`flex items-start gap-3 p-3 text-left w-full hover-elevate ${selectedId === c.id ? "bg-accent/40" : ""}`}
+              onClick={() => onSelect(c.id)}
+              data-testid={`comm-row-${c.id}`}
+            >
+              <div className="rounded-md bg-muted p-1.5 shrink-0 mt-0.5">
+                <Icon className="w-3.5 h-3.5 text-muted-foreground" />
               </div>
-              <p className="text-xs text-muted-foreground truncate mt-0.5">{c.customerName ?? "No customer"}</p>
-              <div className="flex flex-wrap items-center gap-1.5 mt-1.5">
-                <Badge className={STATUS_COLORS[c.status] + " text-xs border-0 py-0"} variant="outline">
-                  {c.status}
-                </Badge>
-                <Badge variant="outline" className="text-xs py-0">
-                  {TYPE_LABELS[c.type]}
-                </Badge>
-                {c.isOverdue && (
-                  <Badge className="bg-orange-100 text-orange-800 dark:bg-orange-900/30 dark:text-orange-400 text-xs border-0 py-0" variant="outline">
-                    Overdue
+              <div className="min-w-0 flex-1">
+                <div className="flex items-start justify-between gap-2">
+                  <p className="text-sm font-medium truncate">{c.subject || "(No subject)"}</p>
+                  <span className="text-xs text-muted-foreground whitespace-nowrap shrink-0">{formatDate(displayDate)}</span>
+                </div>
+                <p className="text-xs text-muted-foreground truncate mt-0.5">{c.customerName ?? "No customer"}</p>
+                <div className="flex flex-wrap items-center gap-1.5 mt-1.5">
+                  <Badge className={STATUS_COLORS[c.status] + " text-xs border-0 py-0"} variant="outline">
+                    {STATUS_LABELS[c.status] ?? c.status}
                   </Badge>
+                  <Badge variant="outline" className="text-xs py-0">
+                    {TYPE_LABELS[c.type]}
+                  </Badge>
+                  {c.isOverdue && (
+                    <Badge className="bg-orange-100 text-orange-800 dark:bg-orange-900/30 dark:text-orange-400 text-xs border-0 py-0" variant="outline">
+                      Overdue
+                    </Badge>
+                  )}
+                  {c.followUpStatus && c.followUpStatus !== "none" && (
+                    <FollowUpBadge status={c.followUpStatus} isOverdue={c.isOverdue} />
+                  )}
+                </div>
+              </div>
+            </button>
+            {/* Inline follow-up actions for follow-ups view */}
+            {view === "followups" && c.followUpStatus && (c.followUpStatus === "open" || c.followUpStatus === "snoozed") && (
+              <div className="px-3 pb-2 flex items-center gap-2 pl-12">
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={() => patchMutation.mutate({ commId: c.id, patch: { followUpStatus: "done" } })}
+                  disabled={patchMutation.isPending}
+                  data-testid={`button-markdone-${c.id}`}
+                >
+                  <CheckCircle2 className="w-3.5 h-3.5 mr-1" />
+                  Mark done
+                </Button>
+                <SnoozePopover
+                  commId={c.id}
+                  onSnooze={(commId, date) => patchMutation.mutate({ commId, patch: { followUpStatus: "snoozed", followUpDueAt: date } })}
+                />
+                {c.followUpDueAt && (
+                  <span className={`text-xs ${c.isOverdue ? "text-red-600 dark:text-red-400 font-medium" : "text-muted-foreground"}`}>
+                    Due {formatDate(c.followUpDueAt)}
+                  </span>
                 )}
               </div>
-            </div>
+            )}
           </li>
         );
       })}
