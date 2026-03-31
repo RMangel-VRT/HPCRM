@@ -977,6 +977,9 @@ export default function SettingsPage() {
         </TabsContent>
 
         <TabsContent value="email-templates" className="space-y-6">
+          <div className="rounded-md border border-blue-200 bg-blue-50 dark:border-blue-800 dark:bg-blue-950/30 px-4 py-3 text-sm text-blue-800 dark:text-blue-300">
+            <strong>Note:</strong> These are system notification templates for automated emails (welcome emails, ticket alerts, etc.). For reusable outreach templates to compose messages to customers, visit the <strong>Communication Command Center</strong> and select "Manage Templates" from the left panel.
+          </div>
           <Card>
             <CardHeader>
               <CardTitle>{t("settings.tabs.emailTemplates")}</CardTitle>

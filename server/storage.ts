@@ -357,8 +357,10 @@ export interface IStorage {
   createCommunication(communication: InsertCommunication): Promise<Communication>;
   updateCommunication(id: string, companyId: string, updates: Partial<InsertCommunication>): Promise<Communication | undefined>;
   deleteCommunication(id: string, companyId: string): Promise<void>;
-  getCommunicationTemplates(companyId: string): Promise<CommunicationTemplate[]>;
+  getCommunicationTemplates(companyId: string, includeInactive?: boolean): Promise<CommunicationTemplate[]>;
+  getCommunicationTemplateById(id: string, companyId: string): Promise<CommunicationTemplate | undefined>;
   createCommunicationTemplate(template: InsertCommunicationTemplate): Promise<CommunicationTemplate>;
+  updateCommunicationTemplate(id: string, companyId: string, updates: Partial<InsertCommunicationTemplate>): Promise<CommunicationTemplate | undefined>;
   getCommunicationLinks(communicationId: string, companyId: string): Promise<CommunicationLink[]>;
   createCommunicationLink(link: InsertCommunicationLink): Promise<CommunicationLink>;
   getCommunicationAnalytics(companyId: string, startDate: Date, endDate: Date): Promise<CommunicationAnalytics>;
@@ -3051,12 +3053,28 @@ export class PgStorage implements IStorage {
     await db.delete(communications).where(and(eq(communications.id, id), eq(communications.companyId, companyId)));
   }
 
-  async getCommunicationTemplates(companyId: string): Promise<CommunicationTemplate[]> {
-    return db.select().from(communicationTemplates).where(eq(communicationTemplates.companyId, companyId)).orderBy(communicationTemplates.name);
+  async getCommunicationTemplates(companyId: string, includeInactive = false): Promise<CommunicationTemplate[]> {
+    if (includeInactive) {
+      return db.select().from(communicationTemplates).where(eq(communicationTemplates.companyId, companyId)).orderBy(communicationTemplates.name);
+    }
+    return db.select().from(communicationTemplates).where(and(eq(communicationTemplates.companyId, companyId), eq(communicationTemplates.isActive, true))).orderBy(communicationTemplates.name);
+  }
+
+  async getCommunicationTemplateById(id: string, companyId: string): Promise<CommunicationTemplate | undefined> {
+    const [row] = await db.select().from(communicationTemplates).where(and(eq(communicationTemplates.id, id), eq(communicationTemplates.companyId, companyId)));
+    return row;
   }
 
   async createCommunicationTemplate(template: InsertCommunicationTemplate): Promise<CommunicationTemplate> {
     const [row] = await db.insert(communicationTemplates).values(template as typeof communicationTemplates.$inferInsert).returning();
+    return row;
+  }
+
+  async updateCommunicationTemplate(id: string, companyId: string, updates: Partial<InsertCommunicationTemplate>): Promise<CommunicationTemplate | undefined> {
+    const [row] = await db.update(communicationTemplates)
+      .set({ ...updates, updatedAt: new Date() } as typeof communicationTemplates.$inferInsert)
+      .where(and(eq(communicationTemplates.id, id), eq(communicationTemplates.companyId, companyId)))
+      .returning();
     return row;
   }
 

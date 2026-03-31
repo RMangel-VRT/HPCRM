@@ -1,6 +1,11 @@
-import { useState, useEffect } from "react";
+import { useState, useMemo, useEffect } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
+import { useForm } from "react-hook-form";
+import { zodResolver } from "@hookform/resolvers/zod";
+import { z } from "zod";
 import { useLocation } from "wouter";
+import { useSetBreadcrumbs } from "@/hooks/use-breadcrumbs";
+import { useToast } from "@/hooks/use-toast";
 import { queryClient, apiRequest } from "@/lib/queryClient";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -8,6 +13,10 @@ import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Textarea } from "@/components/ui/textarea";
+import { Switch } from "@/components/ui/switch";
+import { Label } from "@/components/ui/label";
+import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
 import {
   MessageSquare,
   Send,
@@ -27,10 +36,23 @@ import {
   TrendingUp,
   Clock,
   CheckCircle,
+  CalendarDays,
+  Tag,
+  Link as LinkIcon,
+  Plus,
+  Eye,
+  Archive,
+  Loader2,
+  Inbox,
+  LayoutTemplate,
+  User,
+  UserCheck,
 } from "lucide-react";
-import type { CommunicationWithDetails, CommunicationAnalytics } from "@shared/schema";
+import type { Communication, CommunicationWithDetails, CommunicationAnalytics, Customer, CommunicationTemplate } from "@shared/schema";
+import { COMMUNICATION_TEMPLATE_CATEGORIES, COMMUNICATION_TEMPLATE_CATEGORY_LABELS } from "@shared/schema";
 
 type NavView = "dashboard" | "all" | "drafts" | "sent" | "scheduled" | "followups";
+type SectionFilter = "all" | "draft" | "sent" | "scheduled" | "follow_ups" | "templates";
 
 const TYPE_ICONS: Record<string, React.ElementType> = {
   email: Mail,
@@ -73,7 +95,7 @@ interface AnalyticsDashboardProps {
   onNavigateToList: (params: Record<string, string>) => void;
 }
 
-function AnalyticsDashboard({ onNavigateToList }: AnalyticsDashboardProps) {
+function AnalyticsDashboard({ onNavigateToList }: AnalyticsDashboardProps): JSX.Element {
   const [preset, setPreset] = useState<DatePreset>("this_month");
   const [customStart, setCustomStart] = useState("");
   const [customEnd, setCustomEnd] = useState("");
@@ -141,6 +163,665 @@ function AnalyticsDashboard({ onNavigateToList }: AnalyticsDashboardProps) {
       variant: "warning",
     },
   ];
+
+function formatDate(date: string | Date | null | undefined) {
+  if (!date) return "—";
+  return new Date(date).toLocaleDateString("en-US", {
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+  });
+}
+
+const KNOWN_TOKENS = [
+  "customer_name",
+  "property_name",
+  "contact_name",
+  "proposal_name",
+  "proposal_total",
+  "service_date",
+  "pm_name",
+  "company_name",
+];
+
+function TokenHighlightedText({ text }: { text: string }) {
+  if (!text) return null;
+  const parts = text.split(/({{[^}]+}})/g);
+  return (
+    <>
+      {parts.map((part, i) => {
+        const tokenMatch = part.match(/^{{(.+)}}$/);
+        if (tokenMatch) {
+          const tokenKey = tokenMatch[1].trim();
+          const isKnown = KNOWN_TOKENS.includes(tokenKey);
+          return (
+            <span
+              key={i}
+              className={`inline-flex items-center px-1.5 py-0.5 rounded text-xs font-mono font-semibold mx-0.5 ${
+                isKnown
+                  ? "bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-300 border border-amber-300 dark:border-amber-700"
+                  : "bg-muted text-muted-foreground border border-border"
+              }`}
+            >
+              {part}
+            </span>
+          );
+        }
+        return <span key={i} className="whitespace-pre-wrap">{part}</span>;
+      })}
+    </>
+  );
+}
+
+const templateFormSchema = z.object({
+  name: z.string().min(1, "Name is required"),
+  category: z.enum([
+    "proposal_follow_up",
+    "irrigation_approval_request",
+    "service_update",
+    "chemical_notice",
+    "snow_event_notice",
+    "winter_watering",
+    "billing_reminder",
+    "general_outreach",
+  ]),
+  type: z.enum(["email", "sms", "note", "letter"]),
+  subject: z.string().min(1, "Subject is required"),
+  body: z.string().min(1, "Body is required"),
+  description: z.string().nullable().optional(),
+  isActive: z.boolean().default(true),
+  defaultCommunicationType: z.enum(["email", "sms", "note", "letter"]).nullable().optional(),
+});
+
+type TemplateFormValues = z.infer<typeof templateFormSchema>;
+
+function TemplateManager() {
+  const { toast } = useToast();
+  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [isNewTemplate, setIsNewTemplate] = useState(false);
+  const [showInactive, setShowInactive] = useState(false);
+
+  const { data: templates = [], isLoading } = useQuery<CommunicationTemplate[]>({
+    queryKey: ["/api/communication-templates", { includeInactive: showInactive }],
+    queryFn: async () => {
+      const res = await fetch(`/api/communication-templates?includeInactive=${showInactive}`, { credentials: "include" });
+      if (!res.ok) throw new Error("Failed to fetch templates");
+      return res.json();
+    },
+  });
+
+  const selectedTemplate = templates.find((t) => t.id === selectedId) ?? null;
+
+  const form = useForm<TemplateFormValues>({
+    resolver: zodResolver(templateFormSchema),
+    defaultValues: {
+      name: "",
+      category: "general_outreach",
+      type: "email",
+      subject: "",
+      body: "",
+      description: "",
+      isActive: true,
+      defaultCommunicationType: null,
+    },
+  });
+
+  useEffect(() => {
+    if (isNewTemplate) {
+      form.reset({
+        name: "",
+        category: "general_outreach",
+        type: "email",
+        subject: "",
+        body: "",
+        description: "",
+        isActive: true,
+        defaultCommunicationType: null,
+      });
+    } else if (selectedTemplate) {
+      form.reset({
+        name: selectedTemplate.name,
+        category: selectedTemplate.category as TemplateFormValues["category"],
+        type: selectedTemplate.type as TemplateFormValues["type"],
+        subject: selectedTemplate.subject ?? "",
+        body: selectedTemplate.body,
+        description: selectedTemplate.description ?? "",
+        isActive: selectedTemplate.isActive,
+        defaultCommunicationType: (selectedTemplate.defaultCommunicationType as TemplateFormValues["defaultCommunicationType"]) ?? null,
+      });
+    }
+  }, [selectedTemplate, isNewTemplate]);
+
+  const createMutation = useMutation({
+    mutationFn: async (data: TemplateFormValues) => {
+      const res = await apiRequest("POST", "/api/communication-templates", data);
+      return res.json();
+    },
+    onSuccess: (created: CommunicationTemplate) => {
+      queryClient.invalidateQueries({ queryKey: ["/api/communication-templates"] });
+      setIsNewTemplate(false);
+      setSelectedId(created.id);
+      toast({ title: "Template saved", description: `"${created.name}" has been created.` });
+    },
+    onError: () => {
+      toast({ title: "Error", description: "Failed to save template.", variant: "destructive" });
+    },
+  });
+
+  const updateMutation = useMutation({
+    mutationFn: async ({ id, data }: { id: string; data: Partial<TemplateFormValues> }) => {
+      const res = await apiRequest("PATCH", `/api/communication-templates/${id}`, data);
+      return res.json();
+    },
+    onSuccess: (updated: CommunicationTemplate) => {
+      queryClient.invalidateQueries({ queryKey: ["/api/communication-templates"] });
+      toast({ title: "Template saved", description: `"${updated.name}" has been updated.` });
+    },
+    onError: () => {
+      toast({ title: "Error", description: "Failed to update template.", variant: "destructive" });
+    },
+  });
+
+  const handleSelect = (id: string) => {
+    setIsNewTemplate(false);
+    setSelectedId(id === selectedId ? null : id);
+  };
+
+  const handleNew = () => {
+    setSelectedId(null);
+    setIsNewTemplate(true);
+  };
+
+  const handleCancel = () => {
+    setIsNewTemplate(false);
+    if (!selectedTemplate) {
+      setSelectedId(null);
+    } else {
+      form.reset({
+        name: selectedTemplate.name,
+        category: selectedTemplate.category as TemplateFormValues["category"],
+        type: selectedTemplate.type as TemplateFormValues["type"],
+        subject: selectedTemplate.subject ?? "",
+        body: selectedTemplate.body,
+        description: selectedTemplate.description ?? "",
+        isActive: selectedTemplate.isActive,
+        defaultCommunicationType: (selectedTemplate.defaultCommunicationType as TemplateFormValues["defaultCommunicationType"]) ?? null,
+      });
+    }
+  };
+
+  const onSubmit = (values: TemplateFormValues) => {
+    if (isNewTemplate) {
+      createMutation.mutate(values);
+    } else if (selectedId) {
+      updateMutation.mutate({ id: selectedId, data: values });
+    }
+  };
+
+  const grouped = useMemo(() => {
+    const groups: Record<string, CommunicationTemplate[]> = {};
+    for (const cat of COMMUNICATION_TEMPLATE_CATEGORIES) {
+      const items = templates.filter((t) => t.category === cat);
+      if (items.length > 0) {
+        groups[cat] = items;
+      }
+    }
+    return groups;
+  }, [templates]);
+
+  const watchedSubject = form.watch("subject");
+  const watchedBody = form.watch("body");
+  const watchedName = form.watch("name");
+  const watchedCategory = form.watch("category");
+  const watchedIsActive = form.watch("isActive");
+
+  const isEditing = isNewTemplate || (selectedId !== null);
+  const isSaving = createMutation.isPending || updateMutation.isPending;
+
+  return (
+    <div className="flex h-full overflow-hidden">
+      {/* Template List — Left Panel */}
+      <div className="w-64 shrink-0 border-r flex flex-col overflow-hidden">
+        <div className="p-3 border-b flex items-center gap-2">
+          <Button
+            size="sm"
+            onClick={handleNew}
+            data-testid="button-new-template"
+            className="flex-1"
+          >
+            <Plus className="w-3.5 h-3.5 mr-1" />
+            New Template
+          </Button>
+        </div>
+        <div className="px-3 py-2 border-b flex items-center gap-2">
+          <Switch
+            id="show-inactive"
+            checked={showInactive}
+            onCheckedChange={setShowInactive}
+            data-testid="toggle-show-inactive"
+          />
+          <Label htmlFor="show-inactive" className="text-xs text-muted-foreground cursor-pointer">
+            Show archived
+          </Label>
+        </div>
+        <div className="flex-1 overflow-y-auto">
+          {isLoading ? (
+            <div className="flex items-center justify-center py-10">
+              <Loader2 className="w-5 h-5 animate-spin text-muted-foreground" />
+            </div>
+          ) : templates.length === 0 ? (
+            <div className="p-4 text-center">
+              <p className="text-xs text-muted-foreground">No templates yet</p>
+            </div>
+          ) : (
+            <div className="py-2">
+              {Object.entries(grouped).map(([cat, items]) => (
+                <div key={cat} className="mb-1">
+                  <div className="px-3 py-1.5 flex items-center justify-between">
+                    <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">
+                      {COMMUNICATION_TEMPLATE_CATEGORY_LABELS[cat as keyof typeof COMMUNICATION_TEMPLATE_CATEGORY_LABELS]}
+                    </span>
+                    <span className="text-xs text-muted-foreground">{items.length}</span>
+                  </div>
+                  {items.map((t) => (
+                    <button
+                      key={t.id}
+                      onClick={() => handleSelect(t.id)}
+                      data-testid={`template-item-${t.id}`}
+                      className={`w-full text-left px-3 py-2 text-sm transition-colors hover-elevate flex items-start gap-2 ${
+                        selectedId === t.id && !isNewTemplate ? "bg-primary/10 text-primary font-medium" : "text-foreground"
+                      }`}
+                    >
+                      <div className="flex-1 min-w-0">
+                        <p className="truncate text-sm leading-snug">{t.name}</p>
+                        <p className="text-xs text-muted-foreground mt-0.5">{TYPE_LABELS[t.type] ?? t.type}</p>
+                      </div>
+                      {!t.isActive && (
+                        <Archive className="w-3 h-3 text-muted-foreground shrink-0 mt-0.5" />
+                      )}
+                    </button>
+                  ))}
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* Editor — Center Panel */}
+      <div className="flex-1 min-w-0 flex flex-col overflow-hidden border-r">
+        {isEditing ? (
+          <Form {...form}>
+            <form onSubmit={form.handleSubmit(onSubmit)} className="flex flex-col h-full overflow-hidden">
+              <div className="p-4 border-b shrink-0 flex items-center justify-between gap-3 flex-wrap">
+                <h2 className="text-base font-semibold" data-testid="text-editor-title">
+                  {isNewTemplate ? "New Template" : "Edit Template"}
+                </h2>
+                <div className="flex items-center gap-2">
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={handleCancel}
+                    data-testid="button-cancel-template"
+                  >
+                    Cancel
+                  </Button>
+                  <Button
+                    type="submit"
+                    size="sm"
+                    disabled={isSaving}
+                    data-testid="button-save-template"
+                  >
+                    {isSaving && <Loader2 className="w-3.5 h-3.5 mr-1 animate-spin" />}
+                    Save
+                  </Button>
+                </div>
+              </div>
+              <div className="flex-1 overflow-y-auto p-4 space-y-4">
+                <FormField
+                  control={form.control}
+                  name="name"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Template Name</FormLabel>
+                      <FormControl>
+                        <Input placeholder="e.g. Proposal Follow-Up — Standard" {...field} data-testid="input-template-name" />
+                      </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+
+                <div className="grid grid-cols-2 gap-3">
+                  <FormField
+                    control={form.control}
+                    name="category"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>Category</FormLabel>
+                        <Select value={field.value} onValueChange={field.onChange}>
+                          <FormControl>
+                            <SelectTrigger data-testid="select-template-category">
+                              <SelectValue placeholder="Select category" />
+                            </SelectTrigger>
+                          </FormControl>
+                          <SelectContent>
+                            {COMMUNICATION_TEMPLATE_CATEGORIES.map((cat) => (
+                              <SelectItem key={cat} value={cat}>
+                                {COMMUNICATION_TEMPLATE_CATEGORY_LABELS[cat]}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+
+                  <FormField
+                    control={form.control}
+                    name="type"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>Template Type</FormLabel>
+                        <Select value={field.value} onValueChange={field.onChange}>
+                          <FormControl>
+                            <SelectTrigger data-testid="select-template-type">
+                              <SelectValue placeholder="Select type" />
+                            </SelectTrigger>
+                          </FormControl>
+                          <SelectContent>
+                            <SelectItem value="email">Email</SelectItem>
+                            <SelectItem value="sms">SMS</SelectItem>
+                            <SelectItem value="note">Note</SelectItem>
+                            <SelectItem value="letter">Letter</SelectItem>
+                          </SelectContent>
+                        </Select>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+                </div>
+
+                <FormField
+                  control={form.control}
+                  name="subject"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Subject</FormLabel>
+                      <FormControl>
+                        <Input placeholder="e.g. Following up on your proposal — {{proposal_name}}" {...field} data-testid="input-template-subject" />
+                      </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+
+                <FormField
+                  control={form.control}
+                  name="body"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Body</FormLabel>
+                      <FormControl>
+                        <Textarea
+                          placeholder="Write your message here. Use {{customer_name}}, {{property_name}}, {{pm_name}}, etc. to insert dynamic values."
+                          rows={8}
+                          {...field}
+                          data-testid="textarea-template-body"
+                        />
+                      </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+
+                <FormField
+                  control={form.control}
+                  name="description"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Internal Note <span className="text-muted-foreground font-normal">(optional)</span></FormLabel>
+                      <FormControl>
+                        <Textarea
+                          placeholder="Usage notes, guidance for staff, when to use this template..."
+                          rows={3}
+                          {...field}
+                          value={field.value ?? ""}
+                          data-testid="textarea-template-description"
+                        />
+                      </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+
+                <div className="flex items-center justify-between gap-4 pt-1">
+                  <FormField
+                    control={form.control}
+                    name="isActive"
+                    render={({ field }) => (
+                      <FormItem className="flex items-center gap-3 space-y-0">
+                        <FormControl>
+                          <Switch
+                            checked={field.value}
+                            onCheckedChange={field.onChange}
+                            data-testid="toggle-template-active"
+                          />
+                        </FormControl>
+                        <FormLabel className="cursor-pointer">
+                          {field.value ? "Active" : "Archived (inactive)"}
+                        </FormLabel>
+                      </FormItem>
+                    )}
+                  />
+                </div>
+
+                <FormField
+                  control={form.control}
+                  name="defaultCommunicationType"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Default Compose Type <span className="text-muted-foreground font-normal">(optional)</span></FormLabel>
+                      <Select
+                        value={field.value ?? "__none__"}
+                        onValueChange={(val) => field.onChange(val === "__none__" ? null : val)}
+                      >
+                        <FormControl>
+                          <SelectTrigger data-testid="select-template-default-type">
+                            <SelectValue placeholder="Inherit from Template Type" />
+                          </SelectTrigger>
+                        </FormControl>
+                        <SelectContent>
+                          <SelectItem value="__none__">Inherit from Template Type</SelectItem>
+                          <SelectItem value="email">Email</SelectItem>
+                          <SelectItem value="sms">SMS</SelectItem>
+                          <SelectItem value="note">Note</SelectItem>
+                          <SelectItem value="letter">Letter</SelectItem>
+                        </SelectContent>
+                      </Select>
+                      <p className="text-xs text-muted-foreground">
+                        Override the communication type pre-selected when composing with this template.
+                      </p>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+
+                <div className="pt-1">
+                  <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-2">Available Tokens</p>
+                  <div className="flex flex-wrap gap-1.5">
+                    {KNOWN_TOKENS.map((token) => (
+                      <span
+                        key={token}
+                        className="inline-flex items-center px-2 py-0.5 rounded text-xs font-mono bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-300 border border-amber-300 dark:border-amber-700"
+                      >
+                        {`{{${token}}}`}
+                      </span>
+                    ))}
+                  </div>
+                </div>
+              </div>
+            </form>
+          </Form>
+        ) : (
+          <div className="flex flex-col items-center justify-center h-full text-center px-6">
+            <LayoutTemplate className="w-12 h-12 text-muted-foreground/30 mb-3" />
+            <p className="text-sm font-medium text-muted-foreground">Select a template to edit</p>
+            <p className="text-xs text-muted-foreground mt-1">
+              Or click "New Template" to create one
+            </p>
+          </div>
+        )}
+      </div>
+
+      {/* Preview — Right Panel */}
+      <div className="w-80 shrink-0 flex flex-col overflow-hidden bg-muted/20">
+        <div className="p-3 border-b flex items-center gap-2 shrink-0">
+          <Eye className="w-4 h-4 text-muted-foreground" />
+          <span className="text-sm font-semibold text-muted-foreground">Live Preview</span>
+        </div>
+        {isEditing ? (
+          <div className="flex-1 overflow-y-auto p-4 space-y-4">
+            <div>
+              <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-1">Template</p>
+              <p className="text-sm font-medium" data-testid="preview-name">
+                {watchedName || <span className="text-muted-foreground italic">Untitled</span>}
+              </p>
+              {watchedCategory && (
+                <p className="text-xs text-muted-foreground mt-0.5">
+                  {COMMUNICATION_TEMPLATE_CATEGORY_LABELS[watchedCategory as keyof typeof COMMUNICATION_TEMPLATE_CATEGORY_LABELS]}
+                </p>
+              )}
+            </div>
+
+            <div className="flex items-center gap-2">
+              {form.watch("type") && <TypeBadge type={form.watch("type")} />}
+              <span
+                className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium ${
+                  watchedIsActive
+                    ? "bg-green-100 text-green-800 dark:bg-green-900/40 dark:text-green-300"
+                    : "bg-muted text-muted-foreground"
+                }`}
+              >
+                {watchedIsActive ? "Active" : "Archived"}
+              </span>
+            </div>
+
+            {watchedSubject && (
+              <div>
+                <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-1">Subject</p>
+                <p className="text-sm leading-relaxed" data-testid="preview-subject">
+                  <TokenHighlightedText text={watchedSubject} />
+                </p>
+              </div>
+            )}
+
+            {watchedBody && (
+              <div>
+                <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-1">Body</p>
+                <div className="text-sm leading-relaxed" data-testid="preview-body">
+                  <TokenHighlightedText text={watchedBody} />
+                </div>
+              </div>
+            )}
+
+            {!watchedSubject && !watchedBody && (
+              <div className="text-center py-8">
+                <p className="text-xs text-muted-foreground">Fill in the subject and body to see the preview</p>
+              </div>
+            )}
+
+            <div>
+              <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-2">Token Reference</p>
+              <div className="space-y-1 text-xs text-muted-foreground">
+                {KNOWN_TOKENS.map((token) => (
+                  <div key={token} className="flex items-center gap-2">
+                    <span className="font-mono text-amber-700 dark:text-amber-400">{`{{${token}}}`}</span>
+                    <ChevronRight className="w-3 h-3 shrink-0" />
+                    <span className="capitalize">{token.replace(/_/g, " ")}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+        ) : (
+          <div className="flex flex-col items-center justify-center h-full text-center px-6">
+            <Eye className="w-10 h-10 text-muted-foreground/30 mb-3" />
+            <p className="text-xs text-muted-foreground">Preview will appear here when editing a template</p>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+export default function CommunicationsCenter() {
+  const { toast } = useToast();
+  const [sectionFilter, setSectionFilter] = useState<SectionFilter>("all");
+  const [typeFilter, setTypeFilter] = useState<string>("all");
+  const [statusFilter, setStatusFilter] = useState<string>("all");
+  const [customerFilter, setCustomerFilter] = useState<string>("all");
+  const [search, setSearch] = useState("");
+  const [selectedId, setSelectedId] = useState<string | null>(null);
+
+  useSetBreadcrumbs([{ label: "Communications" }], []);
+
+  const { data: communications = [], isLoading } = useQuery<Communication[]>({
+    queryKey: ["/api/communications"],
+  });
+
+  const { data: customers = [] } = useQuery<Customer[]>({
+    queryKey: ["/api/customers"],
+  });
+
+  const filteredCommunications = useMemo(() => {
+    let items = communications;
+
+    if (sectionFilter === "follow_ups") {
+      items = items.filter((c) => c.status === "draft" && c.type === "note");
+    } else if (sectionFilter !== "all" && sectionFilter !== "templates") {
+      items = items.filter((c) => c.status === sectionFilter);
+    }
+
+    if (typeFilter !== "all") {
+      items = items.filter((c) => c.type === typeFilter);
+    }
+
+    if (statusFilter !== "all") {
+      items = items.filter((c) => c.status === statusFilter);
+    }
+
+    if (customerFilter !== "all") {
+      items = items.filter((c) => c.customerId === customerFilter);
+    }
+
+    if (search.trim()) {
+      const q = search.toLowerCase();
+      items = items.filter(
+        (c) =>
+          c.subject.toLowerCase().includes(q) ||
+          (c.customerName ?? "").toLowerCase().includes(q) ||
+          c.body.toLowerCase().includes(q)
+      );
+    }
+
+    return items;
+  }, [communications, sectionFilter, typeFilter, statusFilter, customerFilter, search]);
+
+  const selectedComm = filteredCommunications.find((c) => c.id === selectedId) ??
+    communications.find((c) => c.id === selectedId);
+
+  const navSections: { id: SectionFilter; label: string; icon: typeof Inbox; count?: number }[] = [
+    { id: "all", label: "All Communications", icon: Inbox, count: communications.length },
+    { id: "draft", label: "Drafts", icon: FileText, count: communications.filter((c) => c.status === "draft").length },
+    { id: "sent", label: "Sent", icon: Send, count: communications.filter((c) => c.status === "sent").length },
+    { id: "scheduled", label: "Scheduled", icon: Clock, count: communications.filter((c) => c.status === "scheduled").length },
+    { id: "follow_ups", label: "Follow-Ups", icon: UserCheck, count: communications.filter((c) => c.status === "draft" && c.type === "note").length },
+  ];
+
+  const isTemplatesView = sectionFilter === "templates";
 
   return (
     <div className="flex flex-col gap-6 h-full overflow-y-auto p-6">
@@ -579,15 +1260,24 @@ export default function CommunicationsCenter() {
   const initialType = searchParams.get("type") ?? "";
 
   const [activeView, setActiveView] = useState<NavView>(initialView);
+  const [sectionFilter, setSectionFilter] = useState<SectionFilter>("all");
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [search, setSearch] = useState("");
   const [typeFilter, setTypeFilter] = useState(initialType);
   const [customerIdFilter, setCustomerIdFilter] = useState(initialCustomerId);
   const [sentByIdFilter, setSentByIdFilter] = useState(initialSentById);
+  const [customerFilter, setCustomerFilter] = useState("all");
+  const [statusFilter, setStatusFilter] = useState("all");
   const [initialFilters] = useState<Record<string, string>>({
     startDate: searchParams.get("startDate") ?? "",
     endDate: searchParams.get("endDate") ?? "",
   });
+
+  const { data: customers = [] } = useQuery<Customer[]>({
+    queryKey: ["/api/customers"],
+  });
+
+  const isTemplatesView = sectionFilter === "templates";
 
   const { data: countData } = useQuery<CommunicationWithDetails[]>({
     queryKey: ["/api/communications", "all"],
@@ -681,9 +1371,16 @@ export default function CommunicationsCenter() {
         <div className="p-2 border-t">
           <p className="text-xs text-muted-foreground px-3 py-1 font-medium uppercase tracking-wide">Templates</p>
           <button
-            className="w-full flex items-center gap-2 px-3 py-2 rounded-md text-sm text-foreground/70 hover-elevate text-left"
+            className={`w-full flex items-center gap-2 px-3 py-2 rounded-md text-sm text-left transition-colors ${
+              sectionFilter === "templates"
+                ? "bg-primary/10 text-primary font-medium"
+                : "text-foreground hover-elevate"
+            }`}
             data-testid="nav-templates"
-            onClick={() => {}}
+            onClick={() => {
+              setSectionFilter("templates");
+              setSelectedId(null);
+            }}
           >
             <FileEdit className="w-4 h-4 shrink-0" />
             <span>Template Manager</span>
@@ -691,8 +1388,32 @@ export default function CommunicationsCenter() {
         </div>
       </div>
 
-      {/* Center + Right Panels */}
-      {isDashboard ? (
+      {/* Main Area */}
+      {isTemplatesView ? (
+        <div className="flex-1 min-w-0 overflow-hidden flex flex-col">
+          <div className="border-b p-4 shrink-0 flex items-center justify-between gap-3 flex-wrap">
+            <h1 className="text-lg font-semibold" data-testid="text-page-title">
+              Communication Templates
+            </h1>
+            <div className="flex items-center gap-2">
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => {
+                  setSectionFilter("all");
+                  setSelectedId(null);
+                }}
+                data-testid="button-back-to-communications"
+              >
+                Back to Communications
+              </Button>
+            </div>
+          </div>
+          <div className="flex-1 min-h-0 overflow-hidden">
+            <TemplateManager />
+          </div>
+        </div>
+      ) : isDashboard ? (
         <div className="flex-1 overflow-hidden">
           <AnalyticsDashboard onNavigateToList={handleNavigateToList} />
         </div>

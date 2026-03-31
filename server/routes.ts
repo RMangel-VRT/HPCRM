@@ -9,6 +9,7 @@ import { db } from "./db";
 import { eq, and, inArray, sql } from "drizzle-orm";
 import { insertCustomerSchema, insertContactSchema, insertCompanySchema, insertCompanyUserSchema, insertSettingsSchema, insertNoteSchema, insertContractSchema, insertContractDocumentSchema, insertContractBuilderDocumentSchema, insertContractBuilderSectionSchema, insertContractBuilderVariableSchema, insertTicketTypeSchema, insertTicketTypeStatusSchema, insertTicketTypeFieldSchema, insertTicketSchema, insertTicketFieldValueSchema, insertTicketStatusHistorySchema, insertTicketCommentSchema, insertTicketLinkSchema, insertCustomerMapLayerSchema, insertCustomerMapDocumentSchema, insertMaintenanceCrewSchema, insertMaintenanceVisitConfigSchema, insertWeeklyScheduleTemplateSchema, insertScheduleBlockSchema, insertEquipmentSchema, insertEquipmentFileSchema, insertEquipmentTicketSchema, insertEquipmentTicketStatusHistorySchema, insertSnowEventSchema, insertSnowEventPropertyImpactSchema, insertSnowEventAttachmentSchema, insertEmailTemplateSchema, insertEmailRuleSchema, SNOW_RANGES, tickets, ticketLinks, ticketTypes, ticketTypeStatuses, customers as customersTable, contacts as contactsTable, contracts as contractsTable, equipment as equipmentTable, users as usersTable, contractMonthlyAmounts, contractDocuments, contractServices, contractStatusHistory, companyUsers as companyUsersTable } from "@shared/schema";
 import type { Customer, CaptureParams, CampaignItem, Season, InsertCommunication } from "@shared/schema";
+import { insertCommunicationTemplateSchema } from "@shared/schema";
 import { ObjectStorageService, ObjectNotFoundError, objectStorageClient, signObjectURL } from "./objectStorage";
 import { ObjectPermission, ObjectAccessGroupType, setObjectAclPolicy } from "./objectAcl";
 import { processEmailEvent, resendEmail, sendEmail, getDefaultWorkCompletedTemplate, getDefaultChemicalPreNoticeTemplate, getDefaultChemicalPostNoticeTemplate } from './services/emailService';
@@ -1405,6 +1406,196 @@ export async function migrateProposalNumbers(): Promise<void> {
   }
 }
 
+// Migration: Create communications tables and extend communication_templates schema
+export async function migrateCommunicationTemplatesSchema(): Promise<void> {
+  console.log("Running startup migration: Ensuring communications tables exist and extending schema...");
+  try {
+    // Create communications table if it doesn't exist
+    await db.execute(sql`
+      CREATE TABLE IF NOT EXISTS "communications" (
+        "id" varchar PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
+        "company_id" varchar NOT NULL,
+        "customer_id" varchar,
+        "contact_id" varchar,
+        "sent_by_id" varchar,
+        "type" text NOT NULL,
+        "status" text DEFAULT 'draft' NOT NULL,
+        "subject" text NOT NULL,
+        "body" text NOT NULL,
+        "scheduled_at" timestamp,
+        "sent_at" timestamp,
+        "customer_name" text,
+        "contact_name" text,
+        "sent_by_name" text,
+        "created_at" timestamp DEFAULT now() NOT NULL,
+        "updated_at" timestamp DEFAULT now() NOT NULL
+      )
+    `);
+    await db.execute(sql`
+      DO $$ BEGIN
+        ALTER TABLE communications ADD CONSTRAINT communications_company_id_companies_id_fk
+          FOREIGN KEY (company_id) REFERENCES companies(id) ON DELETE cascade;
+      EXCEPTION WHEN duplicate_object THEN null; END $$
+    `);
+    await db.execute(sql`CREATE INDEX IF NOT EXISTS "communications_company_id_idx" ON "communications" ("company_id")`);
+    await db.execute(sql`CREATE INDEX IF NOT EXISTS "communications_customer_id_idx" ON "communications" ("customer_id")`);
+
+    // Create communication_templates table if it doesn't exist
+    await db.execute(sql`
+      CREATE TABLE IF NOT EXISTS "communication_templates" (
+        "id" varchar PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
+        "company_id" varchar NOT NULL,
+        "name" text NOT NULL,
+        "category" text NOT NULL DEFAULT 'general_outreach',
+        "type" text NOT NULL,
+        "subject" text,
+        "body" text NOT NULL,
+        "description" text,
+        "is_active" boolean NOT NULL DEFAULT true,
+        "default_communication_type" text,
+        "created_at" timestamp DEFAULT now() NOT NULL,
+        "updated_at" timestamp DEFAULT now() NOT NULL
+      )
+    `);
+    await db.execute(sql`
+      DO $$ BEGIN
+        ALTER TABLE communication_templates ADD CONSTRAINT communication_templates_company_id_companies_id_fk
+          FOREIGN KEY (company_id) REFERENCES companies(id) ON DELETE cascade;
+      EXCEPTION WHEN duplicate_object THEN null; END $$
+    `);
+
+    // Create communication_links table if it doesn't exist
+    await db.execute(sql`
+      CREATE TABLE IF NOT EXISTS "communication_links" (
+        "id" varchar PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
+        "company_id" varchar NOT NULL,
+        "communication_id" varchar NOT NULL,
+        "linked_entity_type" text NOT NULL,
+        "linked_entity_id" varchar NOT NULL,
+        "created_at" timestamp DEFAULT now() NOT NULL
+      )
+    `);
+    await db.execute(sql`
+      DO $$ BEGIN
+        ALTER TABLE communication_links ADD CONSTRAINT communication_links_company_id_companies_id_fk
+          FOREIGN KEY (company_id) REFERENCES companies(id) ON DELETE cascade;
+      EXCEPTION WHEN duplicate_object THEN null; END $$
+    `);
+    await db.execute(sql`
+      DO $$ BEGIN
+        ALTER TABLE communication_links ADD CONSTRAINT communication_links_communication_id_communications_id_fk
+          FOREIGN KEY (communication_id) REFERENCES communications(id) ON DELETE cascade;
+      EXCEPTION WHEN duplicate_object THEN null; END $$
+    `);
+
+    // For existing installations: add new columns if they don't exist
+    await db.execute(sql`ALTER TABLE communication_templates ADD COLUMN IF NOT EXISTS category text NOT NULL DEFAULT 'general_outreach'`);
+    await db.execute(sql`ALTER TABLE communication_templates ADD COLUMN IF NOT EXISTS description text`);
+    await db.execute(sql`ALTER TABLE communication_templates ADD COLUMN IF NOT EXISTS is_active boolean NOT NULL DEFAULT true`);
+    await db.execute(sql`ALTER TABLE communication_templates ADD COLUMN IF NOT EXISTS default_communication_type text`);
+
+    console.log("Communications tables and schema migration complete");
+  } catch (error) {
+    console.error("Error during communications schema migration:", error);
+  }
+}
+
+// Seed sample communication templates for a company
+async function seedCommunicationTemplates(companyId: string): Promise<number> {
+  const templates = [
+    {
+      companyId,
+      name: "Proposal Follow-Up — Standard",
+      category: "proposal_follow_up" as const,
+      type: "email" as const,
+      subject: "Following Up on Your Proposal — {{proposal_name}}",
+      body: "Dear {{customer_name}},\n\nI wanted to follow up on the proposal we sent over for {{property_name}}. We understand you may have questions, and we're happy to walk you through any details.\n\nProposal Total: {{proposal_total}}\n\nPlease don't hesitate to reach out — we'd love to move forward when you're ready.\n\nBest regards,\n{{pm_name}}\n{{company_name}}",
+      description: "Standard follow-up email after a proposal is sent. Use within 5–7 business days of delivery.",
+      isActive: true,
+      defaultCommunicationType: "email" as const,
+    },
+    {
+      companyId,
+      name: "Irrigation System Approval Request",
+      category: "irrigation_approval_request" as const,
+      type: "email" as const,
+      subject: "Irrigation System Startup Approval — {{property_name}}",
+      body: "Dear {{contact_name}},\n\nWe are scheduling irrigation system startups for the upcoming season at {{property_name}} and need your approval to proceed.\n\nPlanned Service Date: {{service_date}}\n\nPlease reply to confirm or suggest an alternate date. Our crew will be ready to begin as soon as we receive your authorization.\n\nThank you,\n{{pm_name}}\n{{company_name}}",
+      description: "Sent to property contacts requesting approval before irrigation startup visits.",
+      isActive: true,
+      defaultCommunicationType: "email" as const,
+    },
+    {
+      companyId,
+      name: "Chemical Application Pre-Notice",
+      category: "chemical_notice" as const,
+      type: "email" as const,
+      subject: "Upcoming Chemical Application at {{property_name}}",
+      body: "Dear {{customer_name}},\n\nThis is an advance notice that a chemical application is scheduled at {{property_name}} on {{service_date}}.\n\nPlease ensure that children and pets are kept off treated areas for 24 hours following application. Our technicians will post temporary signage at the time of service.\n\nIf you have any questions or concerns, please contact us before the scheduled date.\n\n{{pm_name}}\n{{company_name}}",
+      description: "Pre-notification for chemical/fertilizer applications. Send 2–3 days before service.",
+      isActive: true,
+      defaultCommunicationType: "email" as const,
+    },
+    {
+      companyId,
+      name: "Snow Event Service Notice",
+      category: "snow_event_notice" as const,
+      type: "sms" as const,
+      subject: "Snow Event — Service Underway",
+      body: "Hi {{contact_name}}, this is {{company_name}}. Snow removal crews are currently servicing {{property_name}}. Please allow extra time and keep walkways clear while work is in progress. Reply STOP to opt out.",
+      description: "Quick SMS notice sent to property contacts during active snow events.",
+      isActive: true,
+      defaultCommunicationType: "sms" as const,
+    },
+    {
+      companyId,
+      name: "Billing Reminder — Past Due",
+      category: "billing_reminder" as const,
+      type: "email" as const,
+      subject: "Friendly Reminder — Balance Due for {{customer_name}}",
+      body: "Dear {{customer_name}},\n\nThis is a friendly reminder that there is an outstanding balance on your account for services at {{property_name}}.\n\nPlease contact our office at your earliest convenience to make arrangements. We appreciate your prompt attention to this matter.\n\nThank you for your continued partnership,\n{{pm_name}}\n{{company_name}}",
+      description: "Polite billing reminder for past-due accounts. Adjust tone as needed for the relationship.",
+      isActive: true,
+      defaultCommunicationType: "email" as const,
+    },
+    {
+      companyId,
+      name: "Winter Watering Reminder",
+      category: "winter_watering" as const,
+      type: "email" as const,
+      subject: "Winter Watering Guidelines for {{property_name}}",
+      body: "Dear {{customer_name}},\n\nAs temperatures fluctuate this winter, we want to remind you about best practices for winter watering at {{property_name}}.\n\nWater during the warmest part of the day (10am–2pm) when temperatures are above 40°F. Avoid watering if snow or ice is expected within 24 hours. Trees and shrubs benefit from deep monthly watering throughout winter.\n\nOur team is available to assist with any questions.\n\n{{pm_name}}\n{{company_name}}",
+      description: "Educational reminder for clients about proper winter irrigation practices.",
+      isActive: true,
+      defaultCommunicationType: "email" as const,
+    },
+    {
+      companyId,
+      name: "Service Update — Delay Notice",
+      category: "service_update" as const,
+      type: "sms" as const,
+      subject: "Service Update for {{property_name}}",
+      body: "Hi {{contact_name}}, {{company_name}} here. Due to weather or crew availability, your scheduled service at {{property_name}} on {{service_date}} has been delayed. We'll be in touch with a rescheduled date soon. Sorry for the inconvenience!",
+      description: "Short SMS notice to let contacts know about a service delay.",
+      isActive: true,
+      defaultCommunicationType: "sms" as const,
+    },
+    {
+      companyId,
+      name: "General Outreach — Check-In",
+      category: "general_outreach" as const,
+      type: "email" as const,
+      subject: "Checking In — {{customer_name}}",
+      body: "Dear {{customer_name}},\n\nI hope this message finds you well. I wanted to take a moment to check in and see how things are going at {{property_name}}.\n\nIf you have any questions about your services, upcoming schedules, or anything else, please feel free to reach out. We appreciate your business and look forward to another great season together.\n\nBest,\n{{pm_name}}\n{{company_name}}",
+      description: "A friendly general check-in note. Useful for relationship maintenance.",
+      isActive: true,
+      defaultCommunicationType: "email" as const,
+    },
+  ];
+  const created = await Promise.all(templates.map((t) => storage.createCommunicationTemplate(t)));
+  return created.length;
+}
+
 // Startup bootstrap: seed sample communications for any company that has none
 export async function seedCommunicationsBootstrap(): Promise<void> {
   console.log("Running startup bootstrap: Checking communications seed data...");
@@ -1424,6 +1615,23 @@ export async function seedCommunicationsBootstrap(): Promise<void> {
     console.log("Communications seed bootstrap complete");
   } catch (error) {
     console.error("Error during communications seed bootstrap:", error);
+  }
+}
+
+// Startup bootstrap: seed sample communication templates for any company that has none
+export async function seedCommunicationTemplatesBootstrap(): Promise<void> {
+  console.log("Running startup bootstrap: Checking communication templates seed data...");
+  try {
+    const companies = await storage.getCompanies();
+    for (const company of companies) {
+      const existing = await storage.getCommunicationTemplates(company.id, true);
+      if (existing.length > 0) continue;
+      await seedCommunicationTemplates(company.id);
+      console.log(`Seeded communication templates for company ${company.id}`);
+    }
+    console.log("Communication templates seed bootstrap complete");
+  } catch (error) {
+    console.error("Error during communication templates seed bootstrap:", error);
   }
 }
 
@@ -10680,6 +10888,45 @@ export async function registerRoutes(app: Express): Promise<Server> {
     if (!commRoles.includes(user.activeRole)) return res.status(403).send("Insufficient permissions");
     await storage.deleteCommunication(req.params.id, user.activeCompanyId);
     res.status(204).send();
+  });
+
+  app.get("/api/communication-templates", async (req, res) => {
+    if (!req.isAuthenticated()) return res.status(401).send("Not authenticated");
+    const user = req.user as UserWithContext;
+    if (!commRoles.includes(user.activeRole)) return res.status(403).send("Insufficient permissions");
+    const includeInactive = req.query.includeInactive === "true";
+    const items = await storage.getCommunicationTemplates(user.activeCompanyId, includeInactive);
+    res.json(items);
+  });
+
+  app.get("/api/communication-templates/:id", async (req, res) => {
+    if (!req.isAuthenticated()) return res.status(401).send("Not authenticated");
+    const user = req.user as UserWithContext;
+    if (!commRoles.includes(user.activeRole)) return res.status(403).send("Insufficient permissions");
+    const item = await storage.getCommunicationTemplateById(req.params.id, user.activeCompanyId);
+    if (!item) return res.status(404).json({ error: "Not found" });
+    res.json(item);
+  });
+
+  app.post("/api/communication-templates", async (req, res) => {
+    if (!req.isAuthenticated()) return res.status(401).send("Not authenticated");
+    const user = req.user as UserWithContext;
+    if (!commRoles.includes(user.activeRole)) return res.status(403).send("Insufficient permissions");
+    const parsed = insertCommunicationTemplateSchema.safeParse({ ...req.body, companyId: user.activeCompanyId });
+    if (!parsed.success) return res.status(400).json({ error: parsed.error.flatten() });
+    const item = await storage.createCommunicationTemplate(parsed.data);
+    res.status(201).json(item);
+  });
+
+  app.patch("/api/communication-templates/:id", async (req, res) => {
+    if (!req.isAuthenticated()) return res.status(401).send("Not authenticated");
+    const user = req.user as UserWithContext;
+    if (!commRoles.includes(user.activeRole)) return res.status(403).send("Insufficient permissions");
+    const parsed = insertCommunicationTemplateSchema.partial().safeParse(req.body);
+    if (!parsed.success) return res.status(400).json({ error: parsed.error.flatten() });
+    const item = await storage.updateCommunicationTemplate(req.params.id, user.activeCompanyId, parsed.data);
+    if (!item) return res.status(404).json({ error: "Not found" });
+    res.json(item);
   });
 
   const httpServer = createServer(app);
