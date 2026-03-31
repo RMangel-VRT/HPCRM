@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { useForm } from "react-hook-form";
+import { useForm, useWatch } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
 import { useMutation, useQuery } from "@tanstack/react-query";
@@ -20,6 +20,7 @@ const composeSchema = z.object({
   type: z.enum(["email", "sms", "note", "letter"]),
   subject: z.string().min(1, "Subject is required"),
   body: z.string().min(1, "Body is required"),
+  recipientEmail: z.string().email("Enter a valid email").optional().or(z.literal("")),
   internalNotes: z.string().optional(),
   templateId: z.string().optional(),
   threadId: z.string().optional(),
@@ -69,11 +70,14 @@ export default function ComposeDrawer({ open, onClose, defaultCustomerId, replyT
       type: "email",
       subject: replyTo ? `Re: ${replyTo.subject.replace(/^Re:\s*/i, "")}` : "",
       body: "",
+      recipientEmail: "",
       internalNotes: "",
       inReplyTo: replyTo?.id,
       threadId: replyTo?.threadId ?? threadId,
     },
   });
+
+  const watchedType = useWatch({ control: form.control, name: "type" });
 
   useEffect(() => {
     if (open) {
@@ -82,13 +86,14 @@ export default function ComposeDrawer({ open, onClose, defaultCustomerId, replyT
         type: "email",
         subject: replyTo ? `Re: ${replyTo.subject.replace(/^Re:\s*/i, "")}` : "",
         body: "",
+        recipientEmail: "",
         internalNotes: "",
         inReplyTo: replyTo?.id,
         threadId: replyTo?.threadId ?? threadId,
       });
       setUnresolvedTokens([]);
     }
-  }, [open, replyTo, defaultCustomerId, threadId]);
+  }, [open]);
 
   const selectedCustomerId = form.watch("customerId");
   const selectedCustomer = customers.find(c => c.id === selectedCustomerId);
@@ -96,7 +101,6 @@ export default function ComposeDrawer({ open, onClose, defaultCustomerId, replyT
   const handleTemplateSelect = (templateId: string) => {
     const template = templates.find(t => t.id === templateId);
     if (!template) return;
-    form.setValue("templateId", templateId);
     const context = { customerName: selectedCustomer?.name };
     const subjectResolved = resolveTokens(template.subject ?? "", context);
     const bodyResolved = resolveTokens(template.body ?? "", context);
@@ -108,23 +112,49 @@ export default function ComposeDrawer({ open, onClose, defaultCustomerId, replyT
 
   const mutation = useMutation({
     mutationFn: async (data: ComposeFormValues & { status: "draft" | "sent" }) => {
-      return apiRequest("POST", "/api/communications", {
+      const created = await apiRequest("POST", "/api/communications", {
         ...data,
         customerId: data.customerId || undefined,
         contactId: data.contactId || undefined,
         templateId: data.templateId || undefined,
         threadId: data.threadId || undefined,
         inReplyTo: data.inReplyTo || undefined,
+        recipientEmail: data.recipientEmail || undefined,
+        status: "draft",
       });
+
+      if (data.status === "sent" && data.type === "email") {
+        const result = await apiRequest("POST", `/api/communications/${created.id}/send`, {
+          recipientEmail: data.recipientEmail || undefined,
+        });
+        return result;
+      }
+
+      return created;
     },
-    onSuccess: async () => {
+    onSuccess: async (result, variables) => {
       await queryClient.invalidateQueries({ queryKey: ["/api/communications"] });
       await queryClient.invalidateQueries({ queryKey: ["/api/communication-threads"] });
-      toast({ title: "Message saved successfully" });
+
+      if (variables.status === "sent" && variables.type === "email") {
+        if (result?.deliveryStatus === "failed") {
+          toast({
+            title: "Email delivery failed",
+            description: result.failureReason ?? "The email could not be delivered.",
+            variant: "destructive",
+          });
+        } else {
+          toast({ title: "Email sent successfully", description: result?.recipientEmail ? `Delivered to ${result.recipientEmail}` : undefined });
+        }
+      } else if (variables.status === "sent") {
+        toast({ title: "Message sent" });
+      } else {
+        toast({ title: "Draft saved" });
+      }
       onClose();
     },
     onError: () => {
-      toast({ title: "Failed to save", description: "An error occurred.", variant: "destructive" });
+      toast({ title: "Failed to send", description: "An error occurred.", variant: "destructive" });
     },
   });
 
@@ -197,6 +227,22 @@ export default function ComposeDrawer({ open, onClose, defaultCustomerId, replyT
                 </FormItem>
               )}
             />
+
+            {watchedType === "email" && (
+              <FormField
+                control={form.control}
+                name="recipientEmail"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Recipient Email</FormLabel>
+                    <FormControl>
+                      <Input {...field} data-testid="input-recipient-email" type="email" placeholder="recipient@example.com" />
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+            )}
 
             {templates.length > 0 && (
               <FormItem>
@@ -279,9 +325,9 @@ export default function ComposeDrawer({ open, onClose, defaultCustomerId, replyT
           <Button
             onClick={() => handleSubmit("sent")}
             disabled={mutation.isPending}
-            data-testid="button-mark-sent"
+            data-testid="button-send"
           >
-            Mark as Sent
+            {watchedType === "email" ? "Send Email" : "Send"}
           </Button>
         </SheetFooter>
       </SheetContent>

@@ -1868,6 +1868,7 @@ export const insertCommunicationThreadSchema = createInsertSchema(communicationT
 export type InsertCommunicationThread = z.infer<typeof insertCommunicationThreadSchema>;
 export type CommunicationThread = typeof communicationThreads.$inferSelect;
 
+
 export const communications = pgTable("communications", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
   companyId: varchar("company_id").notNull().references(() => companies.id, { onDelete: "cascade" }),
@@ -1889,6 +1890,11 @@ export const communications = pgTable("communications", {
   sentAt: timestamp("sent_at"),
   followUpDueAt: timestamp("follow_up_due_at"),
   followUpStatus: text("follow_up_status").$type<"none" | "open" | "done" | "snoozed">().default("none"),
+  deliveryProvider: text("delivery_provider"),
+  providerMessageId: text("provider_message_id"),
+  deliveryStatus: text("delivery_status").$type<"pending" | "sent" | "failed">(),
+  failureReason: text("failure_reason"),
+  recipientEmail: text("recipient_email"),
   createdAt: timestamp("created_at").notNull().defaultNow(),
   updatedAt: timestamp("updated_at").notNull().defaultNow(),
 }, (table) => ({
@@ -1918,6 +1924,11 @@ export const insertCommunicationSchema = createInsertSchema(communications).omit
   sentAt: z.coerce.date().nullable().optional(),
   followUpDueAt: z.coerce.date().nullable().optional(),
   followUpStatus: z.enum(["none", "open", "done", "snoozed"]).default("none"),
+  deliveryProvider: z.string().nullable().optional(),
+  providerMessageId: z.string().nullable().optional(),
+  deliveryStatus: z.enum(["pending", "sent", "failed"]).nullable().optional(),
+  failureReason: z.string().nullable().optional(),
+  recipientEmail: z.string().nullable().optional(),
 });
 
 export type InsertCommunication = z.infer<typeof insertCommunicationSchema>;
@@ -1951,6 +1962,9 @@ export type CommunicationWithDetails = Communication & {
   isOverdue?: boolean;
   replyCount?: number;
   threadSubjectRoot?: string;
+  scheduledFor?: Date | string | null;
+  followUpDueAt?: Date | string | null;
+  followUpStatus?: string | null;
 };
 
 export interface CommunicationAnalytics {

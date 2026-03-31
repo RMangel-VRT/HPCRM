@@ -1448,6 +1448,24 @@ export async function migrateCommunicationTemplatesSchema(): Promise<void> {
       EXCEPTION WHEN duplicate_object THEN null; END $$
     `);
 
+    // Create communication_threads table if it doesn't exist
+    await db.execute(sql`
+      CREATE TABLE IF NOT EXISTS "communication_threads" (
+        "id" varchar PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
+        "company_id" varchar NOT NULL,
+        "customer_id" varchar,
+        "subject_root" text NOT NULL,
+        "created_at" timestamp DEFAULT now() NOT NULL,
+        "updated_at" timestamp DEFAULT now() NOT NULL
+      )
+    `);
+    await db.execute(sql`
+      DO $$ BEGIN
+        ALTER TABLE communication_threads ADD CONSTRAINT communication_threads_company_id_companies_id_fk
+          FOREIGN KEY (company_id) REFERENCES companies(id) ON DELETE cascade;
+      EXCEPTION WHEN duplicate_object THEN null; END $$
+    `);
+
     // Create communication_links table if it doesn't exist
     await db.execute(sql`
       CREATE TABLE IF NOT EXISTS "communication_links" (
@@ -1508,6 +1526,28 @@ export async function migrateCommunicationTemplatesSchema(): Promise<void> {
         ALTER TABLE communication_threads RENAME COLUMN subject TO subject_root;
       EXCEPTION WHEN undefined_column THEN null; END $$
     `);
+
+    // Extended communications columns
+    await db.execute(sql`ALTER TABLE communications ADD COLUMN IF NOT EXISTS template_id varchar`);
+    await db.execute(sql`ALTER TABLE communications ADD COLUMN IF NOT EXISTS follow_up_due_at timestamp`);
+    await db.execute(sql`ALTER TABLE communications ADD COLUMN IF NOT EXISTS follow_up_status text DEFAULT 'none'`);
+    await db.execute(sql`ALTER TABLE communications ADD COLUMN IF NOT EXISTS parent_communication_id varchar`);
+    await db.execute(sql`ALTER TABLE communications ADD COLUMN IF NOT EXISTS scheduled_for timestamp`);
+    await db.execute(sql`ALTER TABLE communications ALTER COLUMN subject DROP NOT NULL`);
+
+    // Delivery fields for communications (Slice 5)
+    await db.execute(sql`ALTER TABLE communications ADD COLUMN IF NOT EXISTS delivery_provider text`);
+    await db.execute(sql`ALTER TABLE communications ADD COLUMN IF NOT EXISTS provider_message_id text`);
+    await db.execute(sql`ALTER TABLE communications ADD COLUMN IF NOT EXISTS delivery_status text`);
+    await db.execute(sql`ALTER TABLE communications ADD COLUMN IF NOT EXISTS failure_reason text`);
+    await db.execute(sql`ALTER TABLE communications ADD COLUMN IF NOT EXISTS recipient_email text`);
+
+    // Columns added in later slices
+    await db.execute(sql`ALTER TABLE communications ADD COLUMN IF NOT EXISTS thread_id varchar`);
+    await db.execute(sql`ALTER TABLE communications ADD COLUMN IF NOT EXISTS in_reply_to varchar`);
+    await db.execute(sql`ALTER TABLE communications ADD COLUMN IF NOT EXISTS direction text NOT NULL DEFAULT 'outbound'`);
+    await db.execute(sql`ALTER TABLE communications ADD COLUMN IF NOT EXISTS internal_notes text`);
+    await db.execute(sql`ALTER TABLE communication_templates ADD COLUMN IF NOT EXISTS created_by_id varchar`);
 
     console.log("Communications tables and schema migration complete");
   } catch (error) {
@@ -10918,7 +10958,23 @@ export async function registerRoutes(app: Express): Promise<Server> {
     res.json(updated);
   });
 
-  // DELETE /api/communications/:id
+  app.post("/api/communications/:id/send", async (req, res) => {
+    if (!req.isAuthenticated()) return res.status(401).send("Not authenticated");
+    const user = req.user as UserWithContext;
+    if (!commRoles.includes(user.activeRole)) return res.status(403).send("Insufficient permissions");
+    const comm = await storage.getCommunicationById(req.params.id, user.activeCompanyId);
+    if (!comm) return res.status(404).json({ error: "Communication not found" });
+    const { sendCommunication } = await import("./services/communicationProvider");
+    const result = await sendCommunication(req.params.id, user.activeCompanyId);
+    res.json({
+      success: result.success,
+      deliveryStatus: result.deliveryStatus,
+      failureReason: result.failureReason ?? null,
+      communication: result.communication,
+    });
+  });
+
+
   app.delete("/api/communications/:id", async (req, res) => {
     if (!req.isAuthenticated()) return res.status(401).send("Unauthorized");
     const user = req.user as UserWithContext;

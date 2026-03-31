@@ -19,6 +19,7 @@ import { Separator } from "@/components/ui/separator";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Alert, AlertDescription } from "@/components/ui/alert";
 import {
   MessageSquare,
   Send,
@@ -49,6 +50,7 @@ import {
   UserCheck,
   Archive,
   LayoutTemplate,
+  XCircle,
 } from "lucide-react";
 import type { CommunicationWithDetails, CommunicationAnalytics, CommunicationTemplate } from "@shared/schema";
 import { COMMUNICATION_TEMPLATE_CATEGORIES, COMMUNICATION_TEMPLATE_CATEGORY_LABELS } from "@shared/schema";
@@ -88,6 +90,12 @@ function TypeBadge({ type }: { type: string }) {
     </Badge>
   );
 }
+
+const DELIVERY_STATUS_COLORS: Record<string, string> = {
+  pending: "bg-yellow-100 text-yellow-800 dark:bg-yellow-900/30 dark:text-yellow-400",
+  sent: "bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-400",
+  failed: "bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-400",
+};
 
 function formatDate(d: string | Date | null | undefined): string {
   if (!d) return "—";
@@ -448,6 +456,14 @@ function DetailPanel({ id }: { id: string | null }) {
       </div>
 
       <div className="p-5 space-y-4 flex-1">
+        {data.deliveryStatus === "failed" && data.failureReason && (
+          <Alert variant="destructive" data-testid="alert-delivery-failed">
+            <XCircle className="w-4 h-4" />
+            <AlertDescription>
+              <span className="font-medium">Delivery failed:</span> {data.failureReason}
+            </AlertDescription>
+          </Alert>
+        )}
         {/* Metadata */}
         <div className="grid grid-cols-2 gap-x-4 gap-y-2 text-sm">
           <div>
@@ -468,6 +484,24 @@ function DetailPanel({ id }: { id: string | null }) {
             </p>
             <p className="mt-0.5">{formatDateTime(displayDate)}</p>
           </div>
+          {data.recipientEmail && (
+            <div className="col-span-2">
+              <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Recipient Email</p>
+              <p className="mt-0.5">{data.recipientEmail}</p>
+            </div>
+          )}
+          {data.deliveryStatus && (
+            <div className="col-span-2">
+              <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Delivery Status</p>
+              <Badge
+                className={`${DELIVERY_STATUS_COLORS[data.deliveryStatus as string] ?? ""} text-xs border-0 mt-0.5`}
+                variant="outline"
+                data-testid="badge-delivery-status"
+              >
+                {data.deliveryStatus.charAt(0).toUpperCase() + data.deliveryStatus.slice(1)}
+              </Badge>
+            </div>
+          )}
           {data.templateName && (
             <div className="col-span-2">
               <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Template</p>
@@ -1130,7 +1164,9 @@ function TemplateManager() {
             </div>
 
             <div className="flex items-center gap-2">
-              {form.watch("type") && <TypeBadge type={form.watch("type")} />}
+              {form.watch("type") && (
+                <Badge variant="outline" className="text-xs capitalize">{form.watch("type")}</Badge>
+              )}
               <span
                 className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium ${
                   watchedIsActive
@@ -1263,17 +1299,19 @@ export default function CommunicationsCenter() {
     <div className="flex h-full overflow-hidden -m-6 md:-m-8">
       {/* Left Nav Panel */}
       <div className="w-52 shrink-0 border-r bg-muted/30 flex flex-col overflow-y-auto">
-        <div className="p-4 border-b">
-          <h1 className="text-sm font-semibold text-foreground">Communications</h1>
-          <p className="text-xs text-muted-foreground mt-0.5">Command Center</p>
+        <div className="p-4 border-b space-y-2">
+          <div>
+            <h1 className="text-sm font-semibold text-foreground">Communications</h1>
+            <p className="text-xs text-muted-foreground mt-0.5">Command Center</p>
+          </div>
           <Button
             size="sm"
-            className="w-full mt-3"
-            data-testid="button-new-message"
+            className="w-full"
             onClick={() => { setReplyTo(undefined); setComposeOpen(true); }}
+            data-testid="button-compose-new"
           >
             <Plus className="w-3.5 h-3.5 mr-1.5" />
-            New Message
+            Compose
           </Button>
         </div>
         <nav className="flex-1 p-2 space-y-0.5">
