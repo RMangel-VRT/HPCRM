@@ -1941,7 +1941,6 @@ export const communications = pgTable("communications", {
   templateId: varchar("template_id").references(() => communicationTemplates.id, { onDelete: "set null" }),
   threadId: varchar("thread_id").references(() => communicationThreads.id, { onDelete: "set null" }),
   inReplyTo: varchar("in_reply_to"),
-  parentCommunicationId: varchar("parent_communication_id"),
   type: text("type").notNull().$type<"email" | "sms" | "note" | "letter">().default("email"),
   direction: text("direction").notNull().$type<"outbound" | "inbound">().default("outbound"),
   status: text("status").notNull().$type<"draft" | "sent" | "scheduled" | "failed">().default("draft"),

@@ -85,10 +85,24 @@ import type { Communication, Customer, CommunicationWithDetails, CommunicationAn
 import { COMMUNICATION_TEMPLATE_CATEGORIES, COMMUNICATION_TEMPLATE_CATEGORY_LABELS } from "@shared/schema";
 import ComposeDrawer from "@/components/ComposeDrawer";
 
-type NavView = "dashboard" | "all" | "drafts" | "sent" | "scheduled" | "followups";
 type SectionFilter = "all" | "draft" | "sent" | "scheduled" | "follow_ups" | "templates" | "audit_log";
-type Section = NavView;
 type ViewMode = "communications" | "automations";
+
+/** Map URL ?view= param (which may use old or new format) to SectionFilter */
+function resolveViewParam(raw: string | undefined): SectionFilter {
+  const MAP: Record<string, SectionFilter> = {
+    drafts: "draft",
+    followups: "follow_ups",
+    follow_ups: "follow_ups",
+    draft: "draft",
+    sent: "sent",
+    scheduled: "scheduled",
+    templates: "templates",
+    audit_log: "audit_log",
+    all: "all",
+  };
+  return (raw && MAP[raw]) ?? "all";
+}
 
 const TYPE_ICONS: Record<string, React.ElementType> = {
   email: Mail,
@@ -2081,8 +2095,7 @@ export default function CommunicationsCenter() {
   ];
 
   const handleNavigateToList = (params: Record<string, string>) => {
-    const view = (params.view as NavView) ?? "all";
-    setSectionFilter(view as SectionFilter);
+    setSectionFilter(resolveViewParam(params.view));
     setViewMode("communications");
     if (params.type) setTypeFilter(params.type);
     if (params.sentById) setSentByIdFilter(params.sentById);
@@ -2090,8 +2103,8 @@ export default function CommunicationsCenter() {
     setSelectedId(null);
   };
 
-  const handleNavSelect = (view: NavView) => {
-    setSectionFilter(view as SectionFilter);
+  const handleNavSelect = (view: SectionFilter) => {
+    setSectionFilter(view);
     setShowTemplates(false);
     setViewMode("communications");
     setSelectedId(null);
@@ -2100,8 +2113,6 @@ export default function CommunicationsCenter() {
     setCustomerIdFilter("");
     setSentByIdFilter("");
   };
-
-  const isDashboard = false;
   const [composeOpen, setComposeOpen] = useState(false);
   const [replyTo, setReplyTo] = useState<CommunicationWithDetails | undefined>();
   const [showTemplates, setShowTemplates] = useState(false);
@@ -2165,7 +2176,7 @@ export default function CommunicationsCenter() {
                       setSectionFilter("audit_log");
                       setShowTemplates(false);
                     } else {
-                      handleNavSelect(section.id as NavView);
+                      handleNavSelect(section.id);
                     }
                   }}
                   className={`w-full flex items-center gap-2 px-3 py-2 rounded-md text-sm transition-colors hover-elevate ${
@@ -2257,10 +2268,6 @@ export default function CommunicationsCenter() {
       ) : viewMode === "automations" ? (
         <div className="flex-1 overflow-hidden">
           <AutomationsView templates={templates} />
-        </div>
-      ) : isDashboard ? (
-        <div className="flex-1 overflow-hidden">
-          <AnalyticsDashboard onNavigateToList={handleNavigateToList} />
         </div>
       ) : (
         <>
