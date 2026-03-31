@@ -50,6 +50,7 @@ import LayerMapViewer from "@/components/LayerMapViewer";
 import CustomerSchedulingSection from "@/components/CustomerSchedulingSection";
 import TicketListView from "@/components/TicketListView";
 import CustomerLocationEditor from "@/components/CustomerLocationEditor";
+import CommunicationListTab from "@/components/CommunicationListTab";
 
 interface ContractCardProps {
   contract: Contract;
@@ -1725,6 +1726,12 @@ export default function CustomerDetail() {
             {t("customerDetail.tabs.maps")}
           </TabsTrigger>
           {(user?.activeRole === "admin" || user?.activeRole === "office") && (
+            <TabsTrigger value="communications" data-testid="tab-communications">
+              <Mail className="w-4 h-4 mr-1" />
+              Communications
+            </TabsTrigger>
+          )}
+          {(user?.activeRole === "admin" || user?.activeRole === "office") && (
             <TabsTrigger value="billing" data-testid="tab-billing">
               {t("customerDetail.tabs.billing")}
             </TabsTrigger>
@@ -2417,6 +2424,14 @@ export default function CustomerDetail() {
         <TabsContent value="maps" className="space-y-4">
           <CustomerMapsSection customerId={params?.id!} />
         </TabsContent>
+
+        {(user?.activeRole === "admin" || user?.activeRole === "office") && (
+          <TabsContent value="communications" className="space-y-4">
+            <CommunicationListTab
+              queryKey={["/api/customers", params?.id!, "communications"]}
+            />
+          </TabsContent>
+        )}
 
         {(user?.activeRole === "admin" || user?.activeRole === "office") && (
           <TabsContent value="settings" className="space-y-4">

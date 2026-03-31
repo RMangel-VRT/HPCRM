@@ -352,7 +352,7 @@ export interface IStorage {
   deleteSeason(id: string, companyId: string): Promise<void>;
 
   // Communications
-  getCommunications(companyId: string, filters?: { view?: string; customerId?: string; type?: string; sentById?: string; search?: string; startDate?: Date; endDate?: Date }): Promise<CommunicationWithDetails[]>;
+  getCommunications(companyId: string, filters?: { view?: string; customerId?: string; type?: string; sentById?: string; search?: string; startDate?: Date; endDate?: Date; status?: string; fromDate?: string; toDate?: string }): Promise<CommunicationWithDetails[]>;
   getCommunicationById(id: string, companyId: string): Promise<CommunicationWithDetails | undefined>;
   createCommunication(communication: InsertCommunication): Promise<Communication>;
   updateCommunication(id: string, companyId: string, updates: Partial<InsertCommunication>): Promise<Communication | undefined>;
@@ -2905,8 +2905,7 @@ export class PgStorage implements IStorage {
 
   // ─── Communications ───────────────────────────────────────────────────────
 
-  async getCommunications(companyId: string, filters?: { view?: string; customerId?: string; type?: string; sentById?: string; search?: string; startDate?: Date; endDate?: Date }): Promise<CommunicationWithDetails[]> {
-    const { gte, lte, like, or, ilike } = await import("drizzle-orm");
+  async getCommunications(companyId: string, filters?: { view?: string; customerId?: string; type?: string; sentById?: string; search?: string; startDate?: Date; endDate?: Date; status?: string; fromDate?: string; toDate?: string }): Promise<CommunicationWithDetails[]> {
     const c = communications;
     const u = users;
     const cu = customers;
@@ -2964,6 +2963,7 @@ export class PgStorage implements IStorage {
 
     if (filters?.customerId) result = result.filter(r => r.customerId === filters.customerId);
     if (filters?.type) result = result.filter(r => r.type === filters.type);
+    if (filters?.status) result = result.filter(r => r.status === filters.status);
     if (filters?.sentById) result = result.filter(r => r.sentById === filters.sentById);
     if (filters?.search) {
       const s = filters.search.toLowerCase();
@@ -2975,6 +2975,15 @@ export class PgStorage implements IStorage {
     }
     if (filters?.startDate) result = result.filter(r => (r.sentAt ?? r.createdAt) >= filters.startDate!);
     if (filters?.endDate) result = result.filter(r => (r.sentAt ?? r.createdAt) <= filters.endDate!);
+    if (filters?.fromDate) {
+      const from = new Date(filters.fromDate);
+      result = result.filter(r => (r.sentAt ?? r.createdAt) >= from);
+    }
+    if (filters?.toDate) {
+      const to = new Date(filters.toDate);
+      to.setHours(23, 59, 59, 999);
+      result = result.filter(r => (r.sentAt ?? r.createdAt) <= to);
+    }
 
     return result;
   }

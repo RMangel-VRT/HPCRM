@@ -7656,6 +7656,42 @@ export async function registerRoutes(app: Express): Promise<Server> {
     const logs = await storage.getEmailLogs(user.activeCompanyId, filters);
     res.json(logs);
   });
+
+  // GET /api/customers/:id/communications — list communications for a specific customer
+  app.get("/api/customers/:id/communications", async (req, res) => {
+    if (!req.isAuthenticated()) return res.status(401).send("Not authenticated");
+    const user = req.user as UserWithContext;
+    if (user.activeRole !== "admin" && user.activeRole !== "office") {
+      return res.status(403).send("Admin or office role required");
+    }
+    const customer = await storage.getCustomerById(req.params.id, user.activeCompanyId);
+    if (!customer) return res.status(404).send("Customer not found");
+    const filters: { type?: string; status?: string; customerId?: string; fromDate?: string; toDate?: string } = { customerId: req.params.id };
+    if (req.query.type) filters.type = req.query.type as string;
+    if (req.query.status) filters.status = req.query.status as string;
+    if (req.query.fromDate) filters.fromDate = req.query.fromDate as string;
+    if (req.query.toDate) filters.toDate = req.query.toDate as string;
+    const items = await storage.getCommunications(user.activeCompanyId, filters);
+    res.json(items);
+  });
+
+  // GET /api/properties/:id/communications — list communications for a property
+  // The communications table has no propertyId column; returns all company communications
+  // that would be scoped to a property (empty until property linkage is added to schema).
+  app.get("/api/properties/:id/communications", async (req, res) => {
+    if (!req.isAuthenticated()) return res.status(401).send("Not authenticated");
+    const user = req.user as UserWithContext;
+    if (user.activeRole !== "admin" && user.activeRole !== "office") {
+      return res.status(403).send("Admin or office role required");
+    }
+    const filters: { type?: string; status?: string; fromDate?: string; toDate?: string } = {};
+    if (req.query.type) filters.type = req.query.type as string;
+    if (req.query.status) filters.status = req.query.status as string;
+    if (req.query.fromDate) filters.fromDate = req.query.fromDate as string;
+    if (req.query.toDate) filters.toDate = req.query.toDate as string;
+    // Communications table has no propertyId column; return empty array (property-level comm is a future schema enhancement)
+    res.json([]);
+  });
   
   // Manually send "Work Completed" email for a ticket (completion protocol final step)
   app.post("/api/tickets/:id/send-completion-email", async (req, res) => {

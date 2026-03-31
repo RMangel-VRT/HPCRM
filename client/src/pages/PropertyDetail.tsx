@@ -3,14 +3,20 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
-import { Edit, Plus, FileText, Ticket as TicketIcon } from "lucide-react";
-import { Link } from "wouter";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Edit, Plus, MessageSquare, Mail } from "lucide-react";
+import { Link, useRoute } from "wouter";
+import CommunicationListTab from "@/components/CommunicationListTab";
+import { useAuth } from "@/hooks/use-auth";
 
 export default function PropertyDetail() {
   const { t } = useTranslation();
+  const [, params] = useRoute("/dashboard/properties/:id");
+  const propertyId = params?.id;
+  const { user } = useAuth();
 
   const property = {
-    id: "1",
+    id: propertyId || "1",
     name: "Main Entrance",
     customer: "Riverside Homeowners Association",
     customerId: "1",
@@ -57,6 +63,8 @@ export default function PropertyDetail() {
     },
   ];
 
+  const isAdminOrOffice = user?.activeRole === "admin" || user?.activeRole === "office";
+
   return (
     <div className="space-y-6">
       <div className="flex items-start justify-between gap-4 flex-wrap">
@@ -84,108 +92,132 @@ export default function PropertyDetail() {
         </Button>
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-        <Card>
-          <CardHeader>
-            <CardTitle className="text-lg">{t("propertyDetail.title")}</CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-3">
-            <div>
-              <p className="text-sm font-medium text-muted-foreground">{t("common.address")}</p>
-              <p className="text-sm">{property.address}</p>
-            </div>
-            <Separator />
-            <div>
-              <p className="text-sm font-medium text-muted-foreground">{t("propertyDetail.size")}</p>
-              <p className="text-sm">{property.acres} acres</p>
-            </div>
-            <Separator />
-            <div>
-              <p className="text-sm font-medium text-muted-foreground">{t("propertyDetail.complexityScore")}</p>
-              <Badge
-                variant="secondary"
-                className={
-                  property.complexity <= 2
-                    ? "bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-400"
-                    : property.complexity <= 3
-                    ? "bg-yellow-100 text-yellow-800 dark:bg-yellow-900/30 dark:text-yellow-400"
-                    : "bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-400"
-                }
-              >
-                {property.complexity}/5
-              </Badge>
-            </div>
-            {property.notes && (
-              <>
+      <Tabs defaultValue="overview">
+        <TabsList>
+          <TabsTrigger value="overview" data-testid="tab-property-overview">
+            {t("common.overview")}
+          </TabsTrigger>
+          {isAdminOrOffice && (
+            <TabsTrigger value="communications" data-testid="tab-property-communications">
+              <Mail className="w-4 h-4 mr-1" />
+              Communications
+            </TabsTrigger>
+          )}
+        </TabsList>
+
+        <TabsContent value="overview" className="space-y-6 mt-4">
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+            <Card>
+              <CardHeader>
+                <CardTitle className="text-lg">{t("propertyDetail.title")}</CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-3">
+                <div>
+                  <p className="text-sm font-medium text-muted-foreground">{t("common.address")}</p>
+                  <p className="text-sm">{property.address}</p>
+                </div>
                 <Separator />
                 <div>
-                  <p className="text-sm font-medium text-muted-foreground mb-1">{t("common.notes")}</p>
-                  <p className="text-sm">{property.notes}</p>
+                  <p className="text-sm font-medium text-muted-foreground">{t("propertyDetail.size")}</p>
+                  <p className="text-sm">{property.acres} acres</p>
                 </div>
-              </>
-            )}
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between gap-2 space-y-0">
-            <CardTitle className="text-lg">{t("propertyDetail.activeContracts")}</CardTitle>
-            <Button variant="ghost" size="icon" data-testid="button-add-contract">
-              <Plus className="w-4 h-4" />
-            </Button>
-          </CardHeader>
-          <CardContent className="space-y-3">
-            {contracts.map((contract) => (
-              <div key={contract.id} className="space-y-1">
-                <div className="flex items-center justify-between">
-                  <p className="text-sm font-medium">{contract.serviceType}</p>
-                  <Badge variant="secondary" className="bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-400">
-                    {t("statuses.active")}
-                  </Badge>
-                </div>
-                <p className="text-sm text-muted-foreground">
-                  {new Date(contract.startDate).toLocaleDateString()} -{" "}
-                  {new Date(contract.endDate).toLocaleDateString()}
-                </p>
-                <p className="text-sm font-medium">{contract.monthlyAmount}/month</p>
-                {contract.id !== contracts[contracts.length - 1].id && <Separator className="mt-3" />}
-              </div>
-            ))}
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between gap-2 space-y-0">
-            <CardTitle className="text-lg">{t("propertyDetail.recentTickets")}</CardTitle>
-            <Button variant="ghost" size="icon" data-testid="button-add-ticket">
-              <Plus className="w-4 h-4" />
-            </Button>
-          </CardHeader>
-          <CardContent className="space-y-3">
-            {tickets.map((ticket) => (
-              <div key={ticket.id} className="space-y-1">
-                <p className="text-sm font-medium">{ticket.title}</p>
-                <div className="flex items-center gap-2">
+                <Separator />
+                <div>
+                  <p className="text-sm font-medium text-muted-foreground">{t("propertyDetail.complexityScore")}</p>
                   <Badge
                     variant="secondary"
                     className={
-                      ticket.status === "open"
-                        ? "bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-400"
-                        : "bg-purple-100 text-purple-800 dark:bg-purple-900/30 dark:text-purple-400"
+                      property.complexity <= 2
+                        ? "bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-400"
+                        : property.complexity <= 3
+                        ? "bg-yellow-100 text-yellow-800 dark:bg-yellow-900/30 dark:text-yellow-400"
+                        : "bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-400"
                     }
                   >
-                    {ticket.status.replace("_", " ")}
+                    {property.complexity}/5
                   </Badge>
-                  <span className="text-xs text-muted-foreground">
-                    {t("propertyDetail.due")} {new Date(ticket.dueDate).toLocaleDateString()}
-                  </span>
                 </div>
-                {ticket.id !== tickets[tickets.length - 1].id && <Separator className="mt-3" />}
-              </div>
-            ))}
-          </CardContent>
-        </Card>
-      </div>
+                {property.notes && (
+                  <>
+                    <Separator />
+                    <div>
+                      <p className="text-sm font-medium text-muted-foreground mb-1">{t("common.notes")}</p>
+                      <p className="text-sm">{property.notes}</p>
+                    </div>
+                  </>
+                )}
+              </CardContent>
+            </Card>
+
+            <Card>
+              <CardHeader className="flex flex-row items-center justify-between gap-2 space-y-0">
+                <CardTitle className="text-lg">{t("propertyDetail.activeContracts")}</CardTitle>
+                <Button variant="ghost" size="icon" data-testid="button-add-contract">
+                  <Plus className="w-4 h-4" />
+                </Button>
+              </CardHeader>
+              <CardContent className="space-y-3">
+                {contracts.map((contract) => (
+                  <div key={contract.id} className="space-y-1">
+                    <div className="flex items-center justify-between">
+                      <p className="text-sm font-medium">{contract.serviceType}</p>
+                      <Badge variant="secondary" className="bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-400">
+                        {t("statuses.active")}
+                      </Badge>
+                    </div>
+                    <p className="text-sm text-muted-foreground">
+                      {new Date(contract.startDate).toLocaleDateString()} -{" "}
+                      {new Date(contract.endDate).toLocaleDateString()}
+                    </p>
+                    <p className="text-sm font-medium">{contract.monthlyAmount}/month</p>
+                    {contract.id !== contracts[contracts.length - 1].id && <Separator className="mt-3" />}
+                  </div>
+                ))}
+              </CardContent>
+            </Card>
+
+            <Card>
+              <CardHeader className="flex flex-row items-center justify-between gap-2 space-y-0">
+                <CardTitle className="text-lg">{t("propertyDetail.recentTickets")}</CardTitle>
+                <Button variant="ghost" size="icon" data-testid="button-add-ticket">
+                  <Plus className="w-4 h-4" />
+                </Button>
+              </CardHeader>
+              <CardContent className="space-y-3">
+                {tickets.map((ticket) => (
+                  <div key={ticket.id} className="space-y-1">
+                    <p className="text-sm font-medium">{ticket.title}</p>
+                    <div className="flex items-center gap-2">
+                      <Badge
+                        variant="secondary"
+                        className={
+                          ticket.status === "open"
+                            ? "bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-400"
+                            : "bg-purple-100 text-purple-800 dark:bg-purple-900/30 dark:text-purple-400"
+                        }
+                      >
+                        {ticket.status.replace("_", " ")}
+                      </Badge>
+                      <span className="text-xs text-muted-foreground">
+                        {t("propertyDetail.due")} {new Date(ticket.dueDate).toLocaleDateString()}
+                      </span>
+                    </div>
+                    {ticket.id !== tickets[tickets.length - 1].id && <Separator className="mt-3" />}
+                  </div>
+                ))}
+              </CardContent>
+            </Card>
+          </div>
+        </TabsContent>
+
+        {isAdminOrOffice && (
+          <TabsContent value="communications" className="space-y-4 mt-4">
+            <CommunicationListTab
+              queryKey={["/api/properties", property.id, "communications"]}
+            />
+          </TabsContent>
+        )}
+      </Tabs>
     </div>
   );
 }
