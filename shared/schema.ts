@@ -1758,42 +1758,6 @@ export type CampaignWithProgress = Campaign & {
 
 // Communication Center Tables
 
-export const communications = pgTable("communications", {
-  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
-  companyId: varchar("company_id").notNull().references(() => companies.id, { onDelete: "cascade" }),
-  customerId: varchar("customer_id").references(() => customers.id, { onDelete: "set null" }),
-  contactId: varchar("contact_id").references(() => contacts.id, { onDelete: "set null" }),
-  sentById: varchar("sent_by_id").references(() => users.id, { onDelete: "set null" }),
-  type: text("type").notNull().$type<"email" | "sms" | "note" | "letter">(),
-  status: text("status").notNull().$type<"draft" | "sent" | "scheduled" | "failed">().default("draft"),
-  subject: text("subject").notNull(),
-  body: text("body").notNull(),
-  scheduledAt: timestamp("scheduled_at"),
-  sentAt: timestamp("sent_at"),
-  customerName: text("customer_name"),
-  contactName: text("contact_name"),
-  sentByName: text("sent_by_name"),
-  createdAt: timestamp("created_at").notNull().defaultNow(),
-  updatedAt: timestamp("updated_at").notNull().defaultNow(),
-}, (table) => ({
-  communicationsCompanyIdIdx: index("communications_company_id_idx").on(table.companyId),
-  communicationsCustomerIdIdx: index("communications_customer_id_idx").on(table.customerId),
-}));
-
-export const insertCommunicationSchema = createInsertSchema(communications).omit({
-  id: true,
-  createdAt: true,
-  updatedAt: true,
-}).extend({
-  type: z.enum(["email", "sms", "note", "letter"]),
-  status: z.enum(["draft", "sent", "scheduled", "failed"]).default("draft"),
-  scheduledAt: z.coerce.date().nullable().optional(),
-  sentAt: z.coerce.date().nullable().optional(),
-});
-
-export type InsertCommunication = z.infer<typeof insertCommunicationSchema>;
-export type Communication = typeof communications.$inferSelect;
-
 export type CommunicationTemplateCategory =
   | "proposal_follow_up"
   | "irrigation_approval_request"
@@ -1865,25 +1829,6 @@ export const insertCommunicationTemplateSchema = createInsertSchema(communicatio
 export type InsertCommunicationTemplate = z.infer<typeof insertCommunicationTemplateSchema>;
 export type CommunicationTemplate = typeof communicationTemplates.$inferSelect;
 
-export const communicationLinks = pgTable("communication_links", {
-  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
-  companyId: varchar("company_id").notNull().references(() => companies.id, { onDelete: "cascade" }),
-  communicationId: varchar("communication_id").notNull().references(() => communications.id, { onDelete: "cascade" }),
-  linkedEntityType: text("linked_entity_type").notNull().$type<"ticket" | "proposal" | "contract" | "work_order">(),
-  linkedEntityId: varchar("linked_entity_id").notNull(),
-  createdAt: timestamp("created_at").notNull().defaultNow(),
-});
-
-export const insertCommunicationLinkSchema = createInsertSchema(communicationLinks).omit({
-  id: true,
-  createdAt: true,
-}).extend({
-  linkedEntityType: z.enum(["ticket", "proposal", "contract", "work_order"]),
-});
-
-export type InsertCommunicationLink = z.infer<typeof insertCommunicationLinkSchema>;
-export type CommunicationLink = typeof communicationLinks.$inferSelect;
-
 export type MarkupPoint = [number, number];
 export type SymbolType = "tree" | "plant" | "boulder";
 export type MarkupObjectType = "polygon" | "polyline" | "symbol" | "text";
@@ -1898,35 +1843,6 @@ export interface MarkupObject {
   strokeWidth: number;
   createdAt: string;
 }
-
-// ─────────────────────────────────────────────────────────────────────────────
-// Communication Center Tables
-// ─────────────────────────────────────────────────────────────────────────────
-
-export const communicationTemplates = pgTable("communication_templates", {
-  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
-  companyId: varchar("company_id").notNull().references(() => companies.id, { onDelete: "cascade" }),
-  name: text("name").notNull(),
-  type: text("type").notNull().$type<"email" | "sms" | "note" | "letter">(),
-  subject: text("subject"),
-  body: text("body").notNull(),
-  createdById: varchar("created_by_id").references(() => users.id, { onDelete: "set null" }),
-  createdAt: timestamp("created_at").notNull().defaultNow(),
-  updatedAt: timestamp("updated_at").notNull().defaultNow(),
-});
-
-export const insertCommunicationTemplateSchema = createInsertSchema(communicationTemplates).omit({
-  id: true,
-  createdAt: true,
-  updatedAt: true,
-}).extend({
-  type: z.enum(["email", "sms", "note", "letter"]),
-  subject: z.string().nullable().optional(),
-  createdById: z.string().nullable().optional(),
-});
-
-export type InsertCommunicationTemplate = z.infer<typeof insertCommunicationTemplateSchema>;
-export type CommunicationTemplate = typeof communicationTemplates.$inferSelect;
 
 export const communications = pgTable("communications", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
@@ -1944,6 +1860,8 @@ export const communications = pgTable("communications", {
   followUpDueAt: timestamp("follow_up_due_at"),
   followUpStatus: text("follow_up_status").$type<"none" | "open" | "done" | "snoozed">().default("none"),
   parentCommunicationId: varchar("parent_communication_id"),
+  propertyId: varchar("property_id"),
+  internalNotes: text("internal_notes"),
   createdAt: timestamp("created_at").notNull().defaultNow(),
   updatedAt: timestamp("updated_at").notNull().defaultNow(),
 }, (table) => ({
@@ -1968,6 +1886,8 @@ export const insertCommunicationSchema = createInsertSchema(communications).omit
   followUpDueAt: z.coerce.date().nullable().optional(),
   followUpStatus: z.enum(["none", "open", "done", "snoozed"]).default("none"),
   parentCommunicationId: z.string().nullable().optional(),
+  internalNotes: z.string().optional().nullable(),
+  propertyId: z.string().optional().nullable(),
 });
 
 export type InsertCommunication = z.infer<typeof insertCommunicationSchema>;
@@ -1996,6 +1916,7 @@ export type CommunicationWithDetails = Communication & {
   customerName?: string | null;
   contactName?: string | null;
   sentByName?: string | null;
+  createdByName?: string | null;
   templateName?: string | null;
   isOverdue?: boolean;
 };

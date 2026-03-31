@@ -3246,9 +3246,9 @@ export class PgStorage implements IStorage {
     if ((existingCount[0]?.count ?? 0) > 0) return;
 
     const templateData = [
-      { companyId, name: "Welcome Email", type: "email" as const, subject: "Welcome to High Plains Property Maintenance", body: "Dear valued customer,\n\nWelcome to High Plains! We are thrilled to have you as a client...", createdById: userId },
-      { companyId, name: "Service Reminder SMS", type: "sms" as const, subject: null, body: "Hi! Your scheduled service is coming up this week. We'll be there bright and early!", createdById: userId },
-      { companyId, name: "Seasonal Check-In", type: "email" as const, subject: "Seasonal Service Update", body: "As we head into the new season, we wanted to reach out about your property...", createdById: userId },
+      { companyId, name: "Welcome Email", type: "email" as const, subject: "Welcome to High Plains Property Maintenance", body: "Dear valued customer,\n\nWelcome to High Plains! We are thrilled to have you as a client..." },
+      { companyId, name: "Service Reminder SMS", type: "sms" as const, subject: null, body: "Hi! Your scheduled service is coming up this week. We'll be there bright and early!" },
+      { companyId, name: "Seasonal Check-In", type: "email" as const, subject: "Seasonal Service Update", body: "As we head into the new season, we wanted to reach out about your property..." },
     ];
 
     const insertedTemplates: CommunicationTemplate[] = [];

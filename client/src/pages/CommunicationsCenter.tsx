@@ -50,6 +50,7 @@ import {
 } from "lucide-react";
 import type { Communication, CommunicationWithDetails, CommunicationAnalytics, Customer, CommunicationTemplate } from "@shared/schema";
 import { COMMUNICATION_TEMPLATE_CATEGORIES, COMMUNICATION_TEMPLATE_CATEGORY_LABELS } from "@shared/schema";
+import ComposeDrawer from "@/components/ComposeDrawer";
 
 type NavView = "dashboard" | "all" | "drafts" | "sent" | "scheduled" | "followups";
 type SectionFilter = "all" | "draft" | "sent" | "scheduled" | "follow_ups" | "templates";
@@ -1268,6 +1269,7 @@ export default function CommunicationsCenter() {
   const [sentByIdFilter, setSentByIdFilter] = useState(initialSentById);
   const [customerFilter, setCustomerFilter] = useState("all");
   const [statusFilter, setStatusFilter] = useState("all");
+  const [composeOpen, setComposeOpen] = useState(false);
   const [initialFilters] = useState<Record<string, string>>({
     startDate: searchParams.get("startDate") ?? "",
     endDate: searchParams.get("endDate") ?? "",
@@ -1369,6 +1371,17 @@ export default function CommunicationsCenter() {
         </nav>
 
         <div className="p-2 border-t">
+          <Button
+            className="w-full"
+            onClick={() => setComposeOpen(true)}
+            data-testid="button-new-message"
+          >
+            <Plus className="w-4 h-4 mr-2" />
+            New Message
+          </Button>
+        </div>
+
+        <div className="p-2 border-t">
           <p className="text-xs text-muted-foreground px-3 py-1 font-medium uppercase tracking-wide">Templates</p>
           <button
             className={`w-full flex items-center gap-2 px-3 py-2 rounded-md text-sm text-left transition-colors ${
@@ -1387,6 +1400,15 @@ export default function CommunicationsCenter() {
           </button>
         </div>
       </div>
+
+      <ComposeDrawer
+        open={composeOpen}
+        onOpenChange={setComposeOpen}
+        onSuccess={() => {
+          queryClient.invalidateQueries({ queryKey: ["/api/communications"] });
+          queryClient.invalidateQueries({ queryKey: ["/api/communications/analytics"] });
+        }}
+      />
 
       {/* Main Area */}
       {isTemplatesView ? (
