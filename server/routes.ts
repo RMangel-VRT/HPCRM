@@ -11554,6 +11554,26 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  app.get("/api/customers/:id/campaign-items", async (req, res) => {
+    if (!req.isAuthenticated()) return res.status(401).send("Not authenticated");
+    const user = req.user as UserWithContext;
+    if (user.activeRole !== "admin" && user.activeRole !== "office") {
+      return res.status(403).send("Insufficient permissions");
+    }
+    const items = await storage.getCampaignItemsByCustomer(req.params.id, user.activeCompanyId);
+    res.json(items);
+  });
+
+  app.get("/api/properties/:id/campaign-items", async (req, res) => {
+    if (!req.isAuthenticated()) return res.status(401).send("Not authenticated");
+    const user = req.user as UserWithContext;
+    if (user.activeRole !== "admin" && user.activeRole !== "office") {
+      return res.status(403).send("Insufficient permissions");
+    }
+    const items = await storage.getCampaignItemsByProperty(req.params.id, user.activeCompanyId);
+    res.json(items);
+  });
+
   const httpServer = createServer(app);
 
   return httpServer;

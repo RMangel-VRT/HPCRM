@@ -4,9 +4,10 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Edit, Plus, MessageSquare, Mail } from "lucide-react";
+import { Edit, Plus, MessageSquare, Mail, CheckCircle2 } from "lucide-react";
 import { Link, useRoute } from "wouter";
 import CommunicationListTab from "@/components/CommunicationListTab";
+import ServiceChecklistPanel from "@/components/ServiceChecklistPanel";
 import { useAuth } from "@/hooks/use-auth";
 
 export default function PropertyDetail() {
@@ -97,6 +98,12 @@ export default function PropertyDetail() {
           <TabsTrigger value="overview" data-testid="tab-property-overview">
             {t("common.overview")}
           </TabsTrigger>
+          {isAdminOrOffice && (
+            <TabsTrigger value="service-checklist" data-testid="tab-property-service-checklist">
+              <CheckCircle2 className="w-4 h-4 mr-1" />
+              Service Checklist
+            </TabsTrigger>
+          )}
           {isAdminOrOffice && (
             <TabsTrigger value="communications" data-testid="tab-property-communications">
               <Mail className="w-4 h-4 mr-1" />
@@ -209,6 +216,12 @@ export default function PropertyDetail() {
             </Card>
           </div>
         </TabsContent>
+
+        {isAdminOrOffice && (
+          <TabsContent value="service-checklist" className="space-y-4 mt-4">
+            <ServiceChecklistPanel context={{ type: "property", propertyId: property.id }} />
+          </TabsContent>
+        )}
 
         {isAdminOrOffice && (
           <TabsContent value="communications" className="space-y-4 mt-4">

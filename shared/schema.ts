@@ -1674,6 +1674,7 @@ export const campaignItems = pgTable("campaign_items", {
   campaignId: varchar("campaign_id").notNull().references(() => campaigns.id, { onDelete: "cascade" }),
   companyId: varchar("company_id").notNull().references(() => companies.id, { onDelete: "cascade" }),
   customerId: varchar("customer_id").notNull().references(() => customers.id, { onDelete: "cascade" }),
+  propertyId: varchar("property_id").references(() => customers.id, { onDelete: "set null" }),
   customerName: text("customer_name").notNull(),
   customerCity: text("customer_city").default(""),
   status: text("status").$type<"pending" | "completed" | "skipped">().notNull().default("pending"),

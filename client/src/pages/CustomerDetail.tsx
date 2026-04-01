@@ -51,6 +51,7 @@ import CustomerSchedulingSection from "@/components/CustomerSchedulingSection";
 import TicketListView from "@/components/TicketListView";
 import CustomerLocationEditor from "@/components/CustomerLocationEditor";
 import CommunicationListTab from "@/components/CommunicationListTab";
+import ServiceChecklistPanel from "@/components/ServiceChecklistPanel";
 
 interface ContractCardProps {
   contract: Contract;
@@ -1726,6 +1727,12 @@ export default function CustomerDetail() {
             {t("customerDetail.tabs.maps")}
           </TabsTrigger>
           {(user?.activeRole === "admin" || user?.activeRole === "office") && (
+            <TabsTrigger value="service-checklist" data-testid="tab-service-checklist">
+              <CheckCircle2 className="w-4 h-4 mr-1" />
+              Service Checklist
+            </TabsTrigger>
+          )}
+          {(user?.activeRole === "admin" || user?.activeRole === "office") && (
             <TabsTrigger value="communications" data-testid="tab-communications">
               <Mail className="w-4 h-4 mr-1" />
               Communications
@@ -2424,6 +2431,12 @@ export default function CustomerDetail() {
         <TabsContent value="maps" className="space-y-4">
           <CustomerMapsSection customerId={params?.id!} />
         </TabsContent>
+
+        {(user?.activeRole === "admin" || user?.activeRole === "office") && (
+          <TabsContent value="service-checklist" className="space-y-4 mt-4">
+            <ServiceChecklistPanel context={{ type: "customer", customerId: params?.id! }} />
+          </TabsContent>
+        )}
 
         {(user?.activeRole === "admin" || user?.activeRole === "office") && (
           <TabsContent value="communications" className="space-y-4">

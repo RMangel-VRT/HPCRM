@@ -335,6 +335,8 @@ export interface IStorage {
   updateCampaign(id: string, companyId: string, updates: Partial<InsertCampaign>): Promise<Campaign | undefined>;
   deleteCampaign(id: string, companyId: string): Promise<void>;
   getCampaignItems(campaignId: string, companyId: string): Promise<CampaignItem[]>;
+  getCampaignItemsByCustomer(customerId: string, companyId: string): Promise<(CampaignItem & { campaignTitle: string; campaignCategory: string; campaignSubtype: string | null; campaignStatus: string; windowStart: string; windowEnd: string; seasonId: string | null })[]>;
+  getCampaignItemsByProperty(propertyId: string, companyId: string): Promise<(CampaignItem & { campaignTitle: string; campaignCategory: string; campaignSubtype: string | null; campaignStatus: string; windowStart: string; windowEnd: string; seasonId: string | null })[]>;
   createCampaignItem(item: InsertCampaignItem): Promise<CampaignItem>;
   updateCampaignItem(id: string, companyId: string, updates: Partial<InsertCampaignItem & { updatedAt: Date }>): Promise<CampaignItem | undefined>;
   deleteCampaignItem(id: string, companyId: string): Promise<void>;
@@ -2846,6 +2848,106 @@ export class PgStorage implements IStorage {
 
   async getCampaignItems(campaignId: string, companyId: string): Promise<CampaignItem[]> {
     return db.select().from(campaignItems).where(and(eq(campaignItems.campaignId, campaignId), eq(campaignItems.companyId, companyId)));
+  }
+
+  async getCampaignItemsByCustomer(customerId: string, companyId: string): Promise<(CampaignItem & { campaignTitle: string; campaignCategory: string; campaignSubtype: string | null; campaignStatus: string; windowStart: string; windowEnd: string; seasonId: string | null })[]> {
+    type Row = CampaignItem & { campaignTitle: string; campaignCategory: string; campaignSubtype: string | null; campaignStatus: string; windowStart: string; windowEnd: string; seasonId: string | null };
+    const rows = await db
+      .select({
+        id: campaignItems.id,
+        campaignId: campaignItems.campaignId,
+        companyId: campaignItems.companyId,
+        customerId: campaignItems.customerId,
+        propertyId: campaignItems.propertyId,
+        customerName: campaignItems.customerName,
+        customerCity: campaignItems.customerCity,
+        status: campaignItems.status,
+        notes: campaignItems.notes,
+        skipReason: campaignItems.skipReason,
+        photos: campaignItems.photos,
+        completedById: campaignItems.completedById,
+        completedAt: campaignItems.completedAt,
+        workflowStep: campaignItems.workflowStep,
+        preCommSentAt: campaignItems.preCommSentAt,
+        preCommSentById: campaignItems.preCommSentById,
+        workCompletedAt: campaignItems.workCompletedAt,
+        workCompletedById: campaignItems.workCompletedById,
+        postCommSentAt: campaignItems.postCommSentAt,
+        postCommSentById: campaignItems.postCommSentById,
+        preCommEmailLogId: campaignItems.preCommEmailLogId,
+        postCommEmailLogId: campaignItems.postCommEmailLogId,
+        weatherTemp: campaignItems.weatherTemp,
+        weatherWindSpeed: campaignItems.weatherWindSpeed,
+        weatherWindDirection: campaignItems.weatherWindDirection,
+        weatherHumidity: campaignItems.weatherHumidity,
+        weatherConditions: campaignItems.weatherConditions,
+        weatherRecordedAt: campaignItems.weatherRecordedAt,
+        finishedWithoutComms: campaignItems.finishedWithoutComms,
+        createdAt: campaignItems.createdAt,
+        updatedAt: campaignItems.updatedAt,
+        campaignTitle: campaigns.title,
+        campaignCategory: campaigns.category,
+        campaignSubtype: campaigns.subtype,
+        campaignStatus: campaigns.status,
+        windowStart: campaigns.windowStart,
+        windowEnd: campaigns.windowEnd,
+        seasonId: campaigns.seasonId,
+      })
+      .from(campaignItems)
+      .innerJoin(campaigns, eq(campaignItems.campaignId, campaigns.id))
+      .where(and(eq(campaignItems.customerId, customerId), eq(campaignItems.companyId, companyId)))
+      .orderBy(desc(campaigns.windowStart));
+    return rows as Row[];
+  }
+
+  async getCampaignItemsByProperty(propertyId: string, companyId: string): Promise<(CampaignItem & { campaignTitle: string; campaignCategory: string; campaignSubtype: string | null; campaignStatus: string; windowStart: string; windowEnd: string; seasonId: string | null })[]> {
+    type Row = CampaignItem & { campaignTitle: string; campaignCategory: string; campaignSubtype: string | null; campaignStatus: string; windowStart: string; windowEnd: string; seasonId: string | null };
+    const rows = await db
+      .select({
+        id: campaignItems.id,
+        campaignId: campaignItems.campaignId,
+        companyId: campaignItems.companyId,
+        customerId: campaignItems.customerId,
+        propertyId: campaignItems.propertyId,
+        customerName: campaignItems.customerName,
+        customerCity: campaignItems.customerCity,
+        status: campaignItems.status,
+        notes: campaignItems.notes,
+        skipReason: campaignItems.skipReason,
+        photos: campaignItems.photos,
+        completedById: campaignItems.completedById,
+        completedAt: campaignItems.completedAt,
+        workflowStep: campaignItems.workflowStep,
+        preCommSentAt: campaignItems.preCommSentAt,
+        preCommSentById: campaignItems.preCommSentById,
+        workCompletedAt: campaignItems.workCompletedAt,
+        workCompletedById: campaignItems.workCompletedById,
+        postCommSentAt: campaignItems.postCommSentAt,
+        postCommSentById: campaignItems.postCommSentById,
+        preCommEmailLogId: campaignItems.preCommEmailLogId,
+        postCommEmailLogId: campaignItems.postCommEmailLogId,
+        weatherTemp: campaignItems.weatherTemp,
+        weatherWindSpeed: campaignItems.weatherWindSpeed,
+        weatherWindDirection: campaignItems.weatherWindDirection,
+        weatherHumidity: campaignItems.weatherHumidity,
+        weatherConditions: campaignItems.weatherConditions,
+        weatherRecordedAt: campaignItems.weatherRecordedAt,
+        finishedWithoutComms: campaignItems.finishedWithoutComms,
+        createdAt: campaignItems.createdAt,
+        updatedAt: campaignItems.updatedAt,
+        campaignTitle: campaigns.title,
+        campaignCategory: campaigns.category,
+        campaignSubtype: campaigns.subtype,
+        campaignStatus: campaigns.status,
+        windowStart: campaigns.windowStart,
+        windowEnd: campaigns.windowEnd,
+        seasonId: campaigns.seasonId,
+      })
+      .from(campaignItems)
+      .innerJoin(campaigns, eq(campaignItems.campaignId, campaigns.id))
+      .where(and(eq(campaignItems.propertyId, propertyId), eq(campaignItems.companyId, companyId)))
+      .orderBy(desc(campaigns.windowStart));
+    return rows as Row[];
   }
 
   async createCampaignItem(item: InsertCampaignItem): Promise<CampaignItem> {
