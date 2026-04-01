@@ -1645,6 +1645,7 @@ export const campaigns = pgTable("campaigns", {
   title: text("title").notNull(),
   description: text("description"),
   assignedToId: varchar("assigned_to_id").references(() => users.id, { onDelete: "set null" }),
+  assignedToId2: varchar("assigned_to_id2").references(() => users.id, { onDelete: "set null" }),
   windowStart: date("window_start").notNull(),
   windowEnd: date("window_end").notNull(),
   category: text("category").$type<"general" | "chemical" | "irrigation">().notNull().default("general"),
@@ -1780,6 +1781,7 @@ export type CampaignWithProgress = Campaign & {
   completedItems: number;
   skippedItems: number;
   assignedToName?: string;
+  assignedToName2?: string;
   createdByName?: string;
   seasonName?: string;
 };

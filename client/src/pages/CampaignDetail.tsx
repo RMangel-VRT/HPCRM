@@ -85,6 +85,7 @@ interface CampaignDetailData extends Campaign {
   completedItems: number;
   skippedItems: number;
   assignedToName?: string;
+  assignedToName2?: string;
   createdByName?: string;
   seasonName?: string;
   checklistTasks?: CampaignChecklistTask[];
@@ -404,7 +405,13 @@ export default function CampaignDetail() {
         <Card>
           <CardContent className="p-4">
             <div className="text-xs text-muted-foreground">{t("campaigns.assignedTo")}</div>
-            <div className="text-sm font-medium mt-1">{campaign.assignedToName || t("common.unassigned")}</div>
+            <div className="text-sm font-medium mt-1">
+              {campaign.assignedToName
+                ? campaign.assignedToName2
+                  ? `${campaign.assignedToName}, ${campaign.assignedToName2}`
+                  : campaign.assignedToName
+                : campaign.assignedToName2 || t("common.unassigned")}
+            </div>
           </CardContent>
         </Card>
         <Card>
@@ -1123,6 +1130,7 @@ function EditCampaignDialog({
   const [title, setTitle] = useState(campaign.title);
   const [description, setDescription] = useState(campaign.description || "");
   const [assignedToId, setAssignedToId] = useState(campaign.assignedToId || "none");
+  const [assignedToId2, setAssignedToId2] = useState(campaign.assignedToId2 || "none");
   const [windowStart, setWindowStart] = useState<Date | undefined>(
     campaign.windowStart ? new Date(campaign.windowStart + "T00:00:00") : undefined
   );
@@ -1140,6 +1148,7 @@ function EditCampaignDialog({
       setTitle(campaign.title);
       setDescription(campaign.description || "");
       setAssignedToId(campaign.assignedToId || "none");
+      setAssignedToId2(campaign.assignedToId2 || "none");
       setWindowStart(campaign.windowStart ? new Date(campaign.windowStart + "T00:00:00") : undefined);
       setWindowEnd(campaign.windowEnd ? new Date(campaign.windowEnd + "T00:00:00") : undefined);
       setPropertySearch("");
@@ -1193,7 +1202,7 @@ function EditCampaignDialog({
   }, [availableCustomers, propertySearch]);
 
   const updateMutation = useMutation({
-    mutationFn: async (data: { title: string; description: string | null; assignedToId: string | null; windowStart: string; windowEnd: string }) => {
+    mutationFn: async (data: { title: string; description: string | null; assignedToId: string | null; assignedToId2: string | null; windowStart: string; windowEnd: string }) => {
       const res = await apiRequest("PATCH", `/api/campaigns/${campaignId}`, data);
       return res.json();
     },
@@ -1234,6 +1243,7 @@ function EditCampaignDialog({
         title: title.trim(),
         description: description.trim() || null,
         assignedToId: assignedToId === "none" ? null : assignedToId || null,
+        assignedToId2: assignedToId2 === "none" ? null : assignedToId2 || null,
         windowStart: startStr,
         windowEnd: endStr,
       });
@@ -1357,6 +1367,21 @@ function EditCampaignDialog({
               <SelectContent>
                 <SelectItem value="none">Unassigned</SelectItem>
                 {teamMembers.map(m => (
+                  <SelectItem key={m.id} value={m.id}>{m.name}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+
+          <div className="space-y-2">
+            <Label>Second Assignee (optional)</Label>
+            <Select value={assignedToId2} onValueChange={setAssignedToId2}>
+              <SelectTrigger data-testid="select-edit-assignee2">
+                <SelectValue placeholder="Select..." />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="none">None</SelectItem>
+                {teamMembers.filter(m => m.id !== assignedToId && m.id !== "none").map(m => (
                   <SelectItem key={m.id} value={m.id}>{m.name}</SelectItem>
                 ))}
               </SelectContent>

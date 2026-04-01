@@ -222,8 +222,8 @@ export default function CampaignsList() {
                             {t("campaigns.overdue")}
                           </Badge>
                         )}
-                        {campaign.assignedToName && (
-                          <span>{t("campaigns.assignedTo")}: {campaign.assignedToName}</span>
+                        {(campaign.assignedToName || campaign.assignedToName2) && (
+                          <span>{t("campaigns.assignedTo")}: {[campaign.assignedToName, campaign.assignedToName2].filter(Boolean).join(", ")}</span>
                         )}
                         {campaign.seasonName && (
                           <span data-testid={`text-campaign-season-${campaign.id}`}>Season: {campaign.seasonName}</span>
@@ -261,6 +261,7 @@ function CreateCampaignDialog({ open, onOpenChange }: { open: boolean; onOpenCha
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
   const [assignedToId, setAssignedToId] = useState<string>("");
+  const [assignedToId2, setAssignedToId2] = useState<string>("");
   const [windowStart, setWindowStart] = useState<Date | undefined>(undefined);
   const [windowEnd, setWindowEnd] = useState<Date | undefined>(undefined);
   const [startOpen, setStartOpen] = useState(false);
@@ -317,8 +318,14 @@ function CreateCampaignDialog({ open, onOpenChange }: { open: boolean; onOpenCha
     }
   }, [category, assignedToId, chemicalManagers]);
 
+  useEffect(() => {
+    if (assignedToId2 && assignedToId2 === assignedToId) {
+      setAssignedToId2("");
+    }
+  }, [assignedToId, assignedToId2]);
+
   const createMutation = useMutation({
-    mutationFn: async (data: { title: string; description: string | null; assignedToId: string | null; windowStart: string; windowEnd: string; customerIds: string[]; category: string; subtype?: string; checklistTasks?: { label: string; order: number }[] }) => {
+    mutationFn: async (data: { title: string; description: string | null; assignedToId: string | null; assignedToId2: string | null; windowStart: string; windowEnd: string; customerIds: string[]; category: string; subtype?: string; checklistTasks?: { label: string; order: number }[] }) => {
       const res = await apiRequest("POST", "/api/campaigns", data);
       return res.json();
     },
@@ -399,6 +406,7 @@ function CreateCampaignDialog({ open, onOpenChange }: { open: boolean; onOpenCha
       title: title.trim(),
       description: description.trim() || null,
       assignedToId: assignedToId || null,
+      assignedToId2: (assignedToId2 && assignedToId2 !== "none") ? assignedToId2 : null,
       windowStart: windowStart ? format(windowStart, "yyyy-MM-dd") : "",
       windowEnd: windowEnd ? format(windowEnd, "yyyy-MM-dd") : "",
       customerIds: Array.from(selectedCustomerIds),
@@ -419,6 +427,8 @@ function CreateCampaignDialog({ open, onOpenChange }: { open: boolean; onOpenCha
   const selectedCustomers = selectableCustomers.filter(c => selectedCustomerIds.has(c.id));
   const assigneePool = category === "chemical" ? chemicalManagers : allAssignableMembers;
   const assigneeName = allAssignableMembers.find(m => m.id === assignedToId)?.name || t("common.unassigned");
+  const assignee2Name = allAssignableMembers.find(m => m.id === assignedToId2)?.name;
+  const assigneePool2 = assigneePool.filter(m => m.id !== assignedToId);
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -503,6 +513,22 @@ function CreateCampaignDialog({ open, onOpenChange }: { open: boolean; onOpenCha
                 <SelectContent>
                   {assigneePool.map((m, idx) => (
                     <SelectItem key={m.id} value={m.id} data-testid={`select-campaign-assignee-${idx}`}>
+                      {m.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-2">
+              <Label>Second Assignee ({t("common.optional")})</Label>
+              <Select value={assignedToId2} onValueChange={setAssignedToId2}>
+                <SelectTrigger data-testid="select-campaign-assignee2">
+                  <SelectValue placeholder={t("common.select")} />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="none">None</SelectItem>
+                  {assigneePool2.map((m, idx) => (
+                    <SelectItem key={m.id} value={m.id} data-testid={`select-campaign-assignee2-${idx}`}>
                       {m.name}
                     </SelectItem>
                   ))}
@@ -701,6 +727,12 @@ function CreateCampaignDialog({ open, onOpenChange }: { open: boolean; onOpenCha
                   <span className="text-sm text-muted-foreground">{t("campaigns.assignedTo")}</span>
                   <span className="text-sm">{assigneeName}</span>
                 </div>
+                {assignee2Name && (
+                  <div className="flex justify-between gap-2">
+                    <span className="text-sm text-muted-foreground">Second Assignee</span>
+                    <span className="text-sm">{assignee2Name}</span>
+                  </div>
+                )}
                 <div className="flex justify-between gap-2">
                   <span className="text-sm text-muted-foreground">{t("common.properties")}</span>
                   <span className="text-sm font-medium">{selectedCustomerIds.size}</span>

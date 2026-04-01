@@ -1357,6 +1357,27 @@ export async function migrateCampaignItemExceptionType(): Promise<void> {
   }
 }
 
+export async function migrateCampaignItemsNewColumns(): Promise<void> {
+  console.log("Running startup migration: Ensuring property_id and service_plan_category columns exist on campaign_items table...");
+  try {
+    await db.execute(sql`ALTER TABLE campaign_items ADD COLUMN IF NOT EXISTS property_id varchar REFERENCES customers(id) ON DELETE SET NULL`);
+    await db.execute(sql`ALTER TABLE campaign_items ADD COLUMN IF NOT EXISTS service_plan_category text`);
+    console.log("Campaign items new columns migration complete");
+  } catch (error) {
+    console.error("Error during campaign_items new columns migration:", error);
+  }
+}
+
+export async function migrateCampaignAssignedToId2(): Promise<void> {
+  console.log("Running startup migration: Ensuring assigned_to_id2 column exists on campaigns table...");
+  try {
+    await db.execute(sql`ALTER TABLE campaigns ADD COLUMN IF NOT EXISTS assigned_to_id2 varchar REFERENCES users(id) ON DELETE SET NULL`);
+    console.log("Campaign assigned_to_id2 column migration complete");
+  } catch (error) {
+    console.error("Error during campaigns assigned_to_id2 migration:", error);
+  }
+}
+
 export async function backfillCustomerType(): Promise<void> {
   console.log("Running startup migration: Backfilling customer_type for existing customers...");
   try {
@@ -10140,10 +10161,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
     if (user.activeRole !== "admin" && user.activeRole !== "office") {
       return res.status(403).send("Only admin/office can create campaigns");
     }
-    const { title, description, assignedToId, windowStart, windowEnd, customerIds, category, subtype, checklistTasks } = req.body as {
+    const { title, description, assignedToId, assignedToId2, windowStart, windowEnd, customerIds, category, subtype, checklistTasks } = req.body as {
       title?: string;
       description?: string;
       assignedToId?: string;
+      assignedToId2?: string;
       windowStart?: string;
       windowEnd?: string;
       customerIds?: string[];
@@ -10159,14 +10181,22 @@ export async function registerRoutes(app: Express): Promise<Server> {
     if (windowStart > windowEnd) {
       return res.status(400).json({ error: "Start date must be before or equal to end date" });
     }
-    if (assignedToId) {
+    if (assignedToId || assignedToId2) {
       const companyUsers = await storage.getCompanyUsersByCompanyId(user.activeCompanyId);
-      const assigneeCompanyUser = companyUsers.find(cu => cu.userId === assignedToId);
-      if (!assigneeCompanyUser) {
-        return res.status(400).json({ error: "Assignee must be a member of this company" });
+      if (assignedToId) {
+        const assigneeCompanyUser = companyUsers.find(cu => cu.userId === assignedToId);
+        if (!assigneeCompanyUser) {
+          return res.status(400).json({ error: "Assignee must be a member of this company" });
+        }
+        if (campaignCategory === "chemical" && assigneeCompanyUser.role !== "chemical_manager") {
+          return res.status(400).json({ error: "Chemical campaigns must be assigned to a chemical manager" });
+        }
       }
-      if (campaignCategory === "chemical" && assigneeCompanyUser.role !== "chemical_manager") {
-        return res.status(400).json({ error: "Chemical campaigns must be assigned to a chemical manager" });
+      if (assignedToId2) {
+        const assignee2CompanyUser = companyUsers.find(cu => cu.userId === assignedToId2);
+        if (!assignee2CompanyUser) {
+          return res.status(400).json({ error: "Second assignee must be a member of this company" });
+        }
       }
     }
     const allCustomers = await storage.getCustomers(user.activeCompanyId);
@@ -10210,6 +10240,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         title,
         description: description || null,
         assignedToId: assignedToId || null,
+        assignedToId2: assignedToId2 || null,
         windowStart,
         windowEnd,
         category: campaignCategory,
@@ -10239,12 +10270,15 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
     const campaign = await storage.getCampaignById(req.params.id, user.activeCompanyId);
     if (!campaign) return res.status(404).json({ error: "Not found" });
-    if ((user.activeRole === "field" || user.activeRole === "landscape_supervisor") && campaign.assignedToId !== user.id) {
+    if ((user.activeRole === "field" || user.activeRole === "landscape_supervisor") && campaign.assignedToId !== user.id && campaign.assignedToId2 !== user.id) {
       return res.status(403).send("Not assigned to this campaign");
     }
     const items = await storage.getCampaignItems(req.params.id, user.activeCompanyId);
     const assignedUser = campaign.assignedToId
       ? await storage.getUserById(campaign.assignedToId)
+      : undefined;
+    const assignedUser2 = campaign.assignedToId2
+      ? await storage.getUserById(campaign.assignedToId2)
       : undefined;
     const createdUser = campaign.createdById
       ? await storage.getUserById(campaign.createdById)
@@ -10312,6 +10346,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       completedItems: items.filter((i: { status: string }) => i.status === "completed").length,
       skippedItems: items.filter((i: { status: string }) => i.status === "skipped").length,
       assignedToName: assignedUser?.name,
+      assignedToName2: assignedUser2?.name,
       createdByName: createdUser?.name,
       seasonName,
       checklistTasks,
@@ -10410,11 +10445,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
     if (user.activeRole !== "admin" && user.activeRole !== "office") {
       return res.status(403).send("Only admin/office can update campaigns");
     }
-    const { status, title, description, assignedToId, windowStart, windowEnd } = req.body as {
+    const { status, title, description, assignedToId, assignedToId2, windowStart, windowEnd } = req.body as {
       status?: string;
       title?: string;
       description?: string;
       assignedToId?: string;
+      assignedToId2?: string;
       windowStart?: string;
       windowEnd?: string;
     };
@@ -10431,18 +10467,27 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(400).json({ error: "Start date must be before or equal to end date" });
       }
     }
-    if (assignedToId) {
+    if (assignedToId || assignedToId2) {
       const companyUsers = await storage.getCompanyUsersByCompanyId(user.activeCompanyId);
-      const isCompanyMember = companyUsers.some(cu => cu.userId === assignedToId);
-      if (!isCompanyMember) {
-        return res.status(400).json({ error: "Assignee must be a member of this company" });
+      if (assignedToId) {
+        const isCompanyMember = companyUsers.some(cu => cu.userId === assignedToId);
+        if (!isCompanyMember) {
+          return res.status(400).json({ error: "Assignee must be a member of this company" });
+        }
+      }
+      if (assignedToId2) {
+        const isCompanyMember2 = companyUsers.some(cu => cu.userId === assignedToId2);
+        if (!isCompanyMember2) {
+          return res.status(400).json({ error: "Second assignee must be a member of this company" });
+        }
       }
     }
-    const updates: Partial<{ status: "active" | "completed" | "archived"; title: string; description: string | null; assignedToId: string | null; windowStart: string; windowEnd: string }> = {};
+    const updates: Partial<{ status: "active" | "completed" | "archived"; title: string; description: string | null; assignedToId: string | null; assignedToId2: string | null; windowStart: string; windowEnd: string }> = {};
     if (status !== undefined) updates.status = status as "active" | "completed" | "archived";
     if (title !== undefined) updates.title = title;
     if (description !== undefined) updates.description = description;
     if (assignedToId !== undefined) updates.assignedToId = assignedToId;
+    if (assignedToId2 !== undefined) updates.assignedToId2 = assignedToId2;
     if (windowStart !== undefined) updates.windowStart = windowStart;
     if (windowEnd !== undefined) updates.windowEnd = windowEnd;
     const updated = await storage.updateCampaign(req.params.id, user.activeCompanyId, updates);
@@ -10577,7 +10622,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     if (!campaign) return res.status(404).json({ error: "Campaign not found" });
     if (campaign.category !== "irrigation") return res.status(400).json({ error: "Not an irrigation campaign" });
     if (campaign.status === "archived") return res.status(403).json({ error: "Campaign is archived — checklist is read-only" });
-    if (user.activeRole === "field" && campaign.assignedToId !== user.id) {
+    if (user.activeRole === "field" && campaign.assignedToId !== user.id && campaign.assignedToId2 !== user.id) {
       return res.status(403).send("Not assigned to this campaign");
     }
     const items = await storage.getCampaignItems(req.params.id, user.activeCompanyId);
@@ -10639,7 +10684,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
     const campaign = await storage.getCampaignById(req.params.id, user.activeCompanyId);
     if (!campaign) return res.status(404).json({ error: "Campaign not found" });
-    if (user.activeRole === "field" && campaign.assignedToId !== user.id) {
+    if (user.activeRole === "field" && campaign.assignedToId !== user.id && campaign.assignedToId2 !== user.id) {
       return res.status(403).send("Not assigned to this campaign");
     }
     const items = await storage.getCampaignItems(req.params.id, user.activeCompanyId);
@@ -10658,7 +10703,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
     const campaign = await storage.getCampaignById(req.params.id, user.activeCompanyId);
     if (!campaign) return res.status(404).json({ error: "Campaign not found" });
-    if ((user.activeRole === "field" || user.activeRole === "landscape_supervisor") && campaign.assignedToId !== user.id) {
+    if ((user.activeRole === "field" || user.activeRole === "landscape_supervisor") && campaign.assignedToId !== user.id && campaign.assignedToId2 !== user.id) {
       return res.status(403).send("Not assigned to this campaign");
     }
     const existingItems = await storage.getCampaignItems(req.params.id, user.activeCompanyId);
@@ -10912,7 +10957,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     try {
       const campaign = await storage.getCampaignById(req.params.id, user.activeCompanyId);
       if (!campaign || campaign.category !== "chemical") return res.status(404).json({ error: "Chemical campaign not found" });
-      if (user.activeRole === "field" && campaign.assignedToId !== user.id) {
+      if (user.activeRole === "field" && campaign.assignedToId !== user.id && campaign.assignedToId2 !== user.id) {
         return res.status(403).send("Not assigned to this campaign");
       }
       const items = await storage.getCampaignItems(req.params.id, user.activeCompanyId);
@@ -10977,7 +11022,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     try {
       const campaign = await storage.getCampaignById(req.params.id, user.activeCompanyId);
       if (!campaign || campaign.category !== "chemical") return res.status(404).json({ error: "Chemical campaign not found" });
-      if (user.activeRole === "field" && campaign.assignedToId !== user.id) {
+      if (user.activeRole === "field" && campaign.assignedToId !== user.id && campaign.assignedToId2 !== user.id) {
         return res.status(403).send("Not assigned to this campaign");
       }
       const items = await storage.getCampaignItems(req.params.id, user.activeCompanyId);
@@ -11011,7 +11056,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     try {
       const campaign = await storage.getCampaignById(req.params.id, user.activeCompanyId);
       if (!campaign || campaign.category !== "chemical") return res.status(404).json({ error: "Chemical campaign not found" });
-      if (user.activeRole === "field" && campaign.assignedToId !== user.id) {
+      if (user.activeRole === "field" && campaign.assignedToId !== user.id && campaign.assignedToId2 !== user.id) {
         return res.status(403).send("Not assigned to this campaign");
       }
       const items = await storage.getCampaignItems(req.params.id, user.activeCompanyId);
@@ -11183,7 +11228,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     const campaign = await storage.getCampaignById(req.params.id, user.activeCompanyId);
     if (!campaign) return res.status(404).json({ error: "Campaign not found" });
     if (campaign.category !== "chemical") return res.status(400).json({ error: "Weather capture is only available for chemical campaigns" });
-    if (user.activeRole === "field" && campaign.assignedToId !== user.id) {
+    if (user.activeRole === "field" && campaign.assignedToId !== user.id && campaign.assignedToId2 !== user.id) {
       return res.status(403).send("Not assigned to this campaign");
     }
     const items = await storage.getCampaignItems(req.params.id, user.activeCompanyId);
