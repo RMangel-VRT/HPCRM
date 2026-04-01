@@ -8234,6 +8234,16 @@ export async function registerRoutes(app: Express): Promise<Server> {
     res.json(logs);
   });
 
+  // GET /api/customers/:id/campaign-items — list all campaign items for a specific customer (joined with campaign data)
+  app.get("/api/customers/:id/campaign-items", async (req, res) => {
+    if (!req.isAuthenticated()) return res.status(401).send("Not authenticated");
+    const user = req.user as UserWithContext;
+    const customer = await storage.getCustomerById(req.params.id, user.activeCompanyId);
+    if (!customer) return res.status(404).send("Customer not found");
+    const items = await storage.getCampaignItemsByCustomerId(req.params.id, user.activeCompanyId);
+    res.json(items);
+  });
+
   // GET /api/customers/:id/communications — list communications for a specific customer
   app.get("/api/customers/:id/communications", async (req, res) => {
     if (!req.isAuthenticated()) return res.status(401).send("Not authenticated");

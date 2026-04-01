@@ -13,6 +13,7 @@ import { Separator } from "@/components/ui/separator";
 import { Input } from "@/components/ui/input";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
+import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription } from "@/components/ui/sheet";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "@/components/ui/alert-dialog";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import {
@@ -1727,14 +1728,10 @@ export default function CustomerDetail() {
             <Map className="w-4 h-4 mr-1" />
             {t("customerDetail.tabs.maps")}
           </TabsTrigger>
-          {/* TODO (Task #90): Add Service Checklist tab trigger here. When implemented, the item detail drawer
-              in that tab should display exceptionType and notes in a "Why not completed?" section per Task #92. */}
-          {(user?.activeRole === "admin" || user?.activeRole === "office") && (
-            <TabsTrigger value="service-checklist" data-testid="tab-service-checklist">
-              <CheckCircle2 className="w-4 h-4 mr-1" />
-              Service Checklist
-            </TabsTrigger>
-          )}
+          <TabsTrigger value="service-checklist" data-testid="tab-service-checklist">
+            <CheckCircle2 className="w-4 h-4 mr-1" />
+            Service Checklist
+          </TabsTrigger>
           {(user?.activeRole === "admin" || user?.activeRole === "office") && (
             <TabsTrigger value="communications" data-testid="tab-communications">
               <Mail className="w-4 h-4 mr-1" />
@@ -2436,6 +2433,10 @@ export default function CustomerDetail() {
 
         <TabsContent value="maps" className="space-y-4">
           <CustomerMapsSection customerId={params?.id!} />
+        </TabsContent>
+
+        <TabsContent value="service-checklist" className="space-y-4">
+          <ServiceChecklistTab customerId={params?.id!} />
         </TabsContent>
 
         {(user?.activeRole === "admin" || user?.activeRole === "office") && (
@@ -4724,6 +4725,474 @@ function CustomerMapsSection({ customerId }: { customerId: string }) {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+    </div>
+  );
+}
+
+// ==================== SERVICE CHECKLIST TAB ====================
+
+type CampaignItemWithCampaign = import("@shared/schema").CampaignItem & {
+  campaign: import("@shared/schema").Campaign;
+};
+
+function ServiceChecklistTab({ customerId }: { customerId: string }) {
+  const currentYear = new Date().getFullYear();
+  const [selectedYear, setSelectedYear] = useState<number>(currentYear);
+  const [statusFilter, setStatusFilter] = useState<string>("all");
+  const [categoryFilter, setCategoryFilter] = useState<string>("all");
+  const [seasonFilter, setSeasonFilter] = useState<string>("all");
+  const [campaignFilter, setCampaignFilter] = useState<string>("all");
+  const [groupBy, setGroupBy] = useState<"season" | "category" | "month">("season");
+  const [selectedItem, setSelectedItem] = useState<CampaignItemWithCampaign | null>(null);
+
+  const { data: rawItems = [], isLoading } = useQuery<CampaignItemWithCampaign[]>({
+    queryKey: ["/api/customers", customerId, "campaign-items"],
+    queryFn: async () => {
+      const res = await fetch(`/api/customers/${customerId}/campaign-items`, { credentials: "include" });
+      if (!res.ok) throw new Error("Failed to fetch campaign items");
+      return res.json();
+    },
+  });
+
+  const { data: companyUsersWithDetails = [] } = useQuery<Array<{ id: string; userId: string; role: string; user: { id: string; firstName: string; lastName: string; email: string } }>>({
+    queryKey: ["/api/company-users"],
+  });
+
+  const { data: seasons = [] } = useQuery<import("@shared/schema").Season[]>({
+    queryKey: ["/api/seasons"],
+  });
+
+  const availableYears = useMemo(() => {
+    const years = new Set<number>();
+    years.add(currentYear);
+    rawItems.forEach((item) => {
+      const start = item.campaign?.windowStart;
+      if (start) {
+        const y = new Date(start).getFullYear();
+        years.add(y);
+      }
+    });
+    return Array.from(years).sort((a, b) => b - a);
+  }, [rawItems, currentYear]);
+
+  const itemsByYear = useMemo(() => {
+    return rawItems.filter((item) => {
+      const start = item.campaign?.windowStart;
+      if (!start) return false;
+      return new Date(start).getFullYear() === selectedYear;
+    });
+  }, [rawItems, selectedYear]);
+
+  const summaryStats = useMemo(() => {
+    const pending = itemsByYear.filter(i => i.status === "pending").length;
+    const completed = itemsByYear.filter(i => i.status === "completed").length;
+    const skipped = itemsByYear.filter(i => i.status === "skipped").length;
+    return { pending, completed, skipped, total: itemsByYear.length };
+  }, [itemsByYear]);
+
+  const availableCampaigns = useMemo(() => {
+    const seen: Record<string, string> = {};
+    const ids: string[] = [];
+    itemsByYear.forEach((item) => {
+      if (item.campaign && !seen[item.campaign.id]) {
+        seen[item.campaign.id] = item.campaign.title;
+        ids.push(item.campaign.id);
+      }
+    });
+    return ids.map((id) => ({ id, title: seen[id] }));
+  }, [itemsByYear]);
+
+  const availableSeasons = useMemo(() => {
+    const seasonIds = new Set<string>();
+    itemsByYear.forEach((item) => {
+      if (item.campaign?.seasonId) seasonIds.add(item.campaign.seasonId);
+    });
+    return seasons.filter((s) => seasonIds.has(s.id));
+  }, [itemsByYear, seasons]);
+
+  const filteredItems = useMemo(() => {
+    return itemsByYear.filter((item) => {
+      if (statusFilter !== "all" && item.status !== statusFilter) return false;
+      if (categoryFilter !== "all" && item.campaign?.category !== categoryFilter) return false;
+      if (seasonFilter !== "all" && item.campaign?.seasonId !== seasonFilter) return false;
+      if (campaignFilter !== "all" && item.campaignId !== campaignFilter) return false;
+      return true;
+    });
+  }, [itemsByYear, statusFilter, categoryFilter, seasonFilter, campaignFilter]);
+
+  const groupedItems = useMemo(() => {
+    const groupByKey = (getKey: (item: CampaignItemWithCampaign) => string | null, getLabel: (key: string, items: CampaignItemWithCampaign[]) => string) => {
+      const keys: string[] = [];
+      const groups: Record<string, CampaignItemWithCampaign[]> = {};
+      filteredItems.forEach((item) => {
+        const key = getKey(item) || "unknown";
+        if (!groups[key]) { groups[key] = []; keys.push(key); }
+        groups[key].push(item);
+      });
+      return keys.map((key) => ({ label: getLabel(key, groups[key]), items: groups[key] }));
+    };
+
+    if (groupBy === "category") {
+      return groupByKey(
+        (item) => item.campaign?.category || "general",
+        (key) => key.charAt(0).toUpperCase() + key.slice(1),
+      );
+    } else if (groupBy === "month") {
+      const monthNames = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
+      return groupByKey(
+        (item) => {
+          const start = item.campaign?.windowStart;
+          if (!start) return null;
+          return monthNames[new Date(start).getMonth()];
+        },
+        (key) => key,
+      );
+    } else {
+      return groupByKey(
+        (item) => item.campaign?.seasonId || "no-season",
+        (key) => {
+          if (key === "no-season") return "No Season";
+          const season = seasons.find((s) => s.id === key);
+          return season?.name || `Season (${key.slice(0, 8)})`;
+        },
+      );
+    }
+  }, [filteredItems, groupBy, seasons]);
+
+  const formatDateRange = (start: string, end: string) => {
+    if (!start || !end) return "";
+    try {
+      const s = format(new Date(start), "MMM d");
+      const e = format(new Date(end), "MMM d, yyyy");
+      return `${s} – ${e}`;
+    } catch {
+      return `${start} – ${end}`;
+    }
+  };
+
+  const getStatusBadgeVariant = (status: string): "default" | "secondary" | "outline" | "destructive" => {
+    if (status === "completed") return "default";
+    if (status === "skipped") return "secondary";
+    return "outline";
+  };
+
+  const getCategoryColor = (category: string) => {
+    if (category === "chemical") return "text-emerald-600 dark:text-emerald-400";
+    if (category === "irrigation") return "text-blue-600 dark:text-blue-400";
+    return "text-muted-foreground";
+  };
+
+  const resolveUserName = (userId: string | null | undefined) => {
+    if (!userId) return null;
+    const cu = companyUsersWithDetails.find(cu => cu.userId === userId);
+    if (cu) {
+      const name = `${cu.user.firstName} ${cu.user.lastName}`.trim();
+      return name || cu.user.email || null;
+    }
+    return null;
+  };
+
+  if (isLoading) {
+    return (
+      <div className="space-y-3">
+        {[1, 2, 3, 4].map((i) => (
+          <Skeleton key={i} className="h-14 w-full" />
+        ))}
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-4" data-testid="service-checklist-tab">
+      {/* Header: Year selector + grouping */}
+      <div className="flex items-center justify-between gap-3 flex-wrap">
+        <div className="flex items-center gap-2 flex-wrap">
+          <Select value={String(selectedYear)} onValueChange={(v) => setSelectedYear(Number(v))}>
+            <SelectTrigger className="w-28" data-testid="select-checklist-year">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {availableYears.map((y) => (
+                <SelectItem key={y} value={String(y)} data-testid={`option-year-${y}`}>
+                  {y}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+          <span className="text-sm text-muted-foreground">
+            {summaryStats.total} service{summaryStats.total !== 1 ? "s" : ""}
+          </span>
+        </div>
+        <div className="flex items-center gap-2">
+          <span className="text-xs text-muted-foreground">Group by:</span>
+          <Select value={groupBy} onValueChange={(v) => setGroupBy(v as "season" | "category" | "month")}>
+            <SelectTrigger className="w-32" data-testid="select-group-by">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="season">Season</SelectItem>
+              <SelectItem value="category">Category</SelectItem>
+              <SelectItem value="month">Month</SelectItem>
+            </SelectContent>
+          </Select>
+        </div>
+      </div>
+
+      {/* Status summary pills */}
+      <div className="flex gap-3 flex-wrap">
+        <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-md border bg-card" data-testid="summary-pending">
+          <Clock className="w-3.5 h-3.5 text-muted-foreground" />
+          <span className="text-sm font-medium">{summaryStats.pending}</span>
+          <span className="text-xs text-muted-foreground">Pending</span>
+        </div>
+        <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-md border bg-card" data-testid="summary-completed">
+          <CheckCircle2 className="w-3.5 h-3.5 text-muted-foreground" />
+          <span className="text-sm font-medium">{summaryStats.completed}</span>
+          <span className="text-xs text-muted-foreground">Completed</span>
+        </div>
+        <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-md border bg-card" data-testid="summary-skipped">
+          <AlertCircle className="w-3.5 h-3.5 text-muted-foreground" />
+          <span className="text-sm font-medium">{summaryStats.skipped}</span>
+          <span className="text-xs text-muted-foreground">Skipped</span>
+        </div>
+      </div>
+
+      {/* Filters */}
+      <div className="flex gap-2 flex-wrap">
+        <Select value={statusFilter} onValueChange={setStatusFilter}>
+          <SelectTrigger className="w-32" data-testid="select-filter-status">
+            <SelectValue placeholder="Status" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="all">All Statuses</SelectItem>
+            <SelectItem value="pending">Pending</SelectItem>
+            <SelectItem value="completed">Completed</SelectItem>
+            <SelectItem value="skipped">Skipped</SelectItem>
+          </SelectContent>
+        </Select>
+
+        <Select value={categoryFilter} onValueChange={setCategoryFilter}>
+          <SelectTrigger className="w-36" data-testid="select-filter-category">
+            <SelectValue placeholder="Category" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="all">All Categories</SelectItem>
+            <SelectItem value="general">General</SelectItem>
+            <SelectItem value="chemical">Chemical</SelectItem>
+            <SelectItem value="irrigation">Irrigation</SelectItem>
+          </SelectContent>
+        </Select>
+
+        <Select value={seasonFilter} onValueChange={setSeasonFilter} disabled={availableSeasons.length === 0}>
+          <SelectTrigger className="w-36" data-testid="select-filter-season">
+            <SelectValue placeholder="All Seasons" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="all">All Seasons</SelectItem>
+            {availableSeasons.map((s) => (
+              <SelectItem key={s.id} value={s.id} data-testid={`option-season-${s.id}`}>
+                {s.name}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+
+        <Select value={campaignFilter} onValueChange={setCampaignFilter} disabled={availableCampaigns.length === 0}>
+          <SelectTrigger className="w-44" data-testid="select-filter-campaign">
+            <SelectValue placeholder="All Campaigns" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="all">All Campaigns</SelectItem>
+            {availableCampaigns.map((c) => (
+              <SelectItem key={c.id} value={c.id} data-testid={`option-campaign-${c.id}`}>
+                {c.title}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+
+        {(statusFilter !== "all" || categoryFilter !== "all" || seasonFilter !== "all" || campaignFilter !== "all") && (
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => { setStatusFilter("all"); setCategoryFilter("all"); setSeasonFilter("all"); setCampaignFilter("all"); }}
+            data-testid="button-clear-filters"
+          >
+            <X className="w-3.5 h-3.5 mr-1" />
+            Clear
+          </Button>
+        )}
+      </div>
+
+      {/* Checklist items */}
+      {filteredItems.length === 0 ? (
+        <div className="text-center py-12 text-muted-foreground text-sm" data-testid="empty-checklist">
+          <CheckCircle2 className="w-8 h-8 mx-auto mb-2 opacity-40" />
+          {rawItems.length === 0
+            ? "No campaign services have been linked to this customer yet."
+            : "No services match the current filters."}
+        </div>
+      ) : (
+        <div className="space-y-6">
+          {groupedItems.map((group) => (
+            <div key={group.label}>
+              <h3 className="text-sm font-medium text-muted-foreground mb-2 uppercase tracking-wide">
+                {group.label}
+              </h3>
+              <div className="space-y-1.5">
+                {group.items.map((item) => (
+                  <div
+                    key={item.id}
+                    className="flex items-center gap-3 p-3 rounded-md border bg-card hover-elevate cursor-pointer"
+                    onClick={() => setSelectedItem(item)}
+                    data-testid={`row-checklist-item-${item.id}`}
+                  >
+                    <div className="flex-shrink-0">
+                      {item.status === "completed" ? (
+                        <CheckCircle2 className="w-4 h-4 text-green-600 dark:text-green-400" />
+                      ) : item.status === "skipped" ? (
+                        <AlertCircle className="w-4 h-4 text-muted-foreground" />
+                      ) : (
+                        <Clock className="w-4 h-4 text-muted-foreground" />
+                      )}
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <span className="text-sm font-medium truncate" data-testid={`text-item-title-${item.id}`}>
+                          {item.campaign?.title || "Untitled Service"}
+                        </span>
+                        <Badge variant="outline" className={`text-xs capitalize ${getCategoryColor(item.campaign?.category || "general")}`} data-testid={`badge-category-${item.id}`}>
+                          {item.campaign?.category || "general"}
+                        </Badge>
+                      </div>
+                      {item.campaign?.windowStart && item.campaign?.windowEnd && (
+                        <p className="text-xs text-muted-foreground mt-0.5" data-testid={`text-window-${item.id}`}>
+                          {formatDateRange(item.campaign.windowStart, item.campaign.windowEnd)}
+                        </p>
+                      )}
+                    </div>
+                    <div className="flex items-center gap-2 flex-shrink-0">
+                      {item.completedAt && (
+                        <span className="text-xs text-muted-foreground hidden sm:block" data-testid={`text-completed-at-${item.id}`}>
+                          {format(new Date(item.completedAt), "MMM d")}
+                        </span>
+                      )}
+                      <Badge variant={getStatusBadgeVariant(item.status)} className="capitalize text-xs" data-testid={`badge-status-${item.id}`}>
+                        {item.status}
+                      </Badge>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* Detail drawer */}
+      <Sheet open={!!selectedItem} onOpenChange={(open) => { if (!open) setSelectedItem(null); }}>
+        <SheetContent side="right" className="w-full sm:max-w-md overflow-y-auto">
+          {selectedItem && (
+            <>
+              <SheetHeader className="mb-4">
+                <SheetTitle data-testid="drawer-title">{selectedItem.campaign?.title || "Service Detail"}</SheetTitle>
+                <SheetDescription>
+                  Read-only service checklist detail
+                </SheetDescription>
+              </SheetHeader>
+              <div className="space-y-4">
+                {/* Status */}
+                <div className="flex items-center gap-2 flex-wrap">
+                  <Badge variant={getStatusBadgeVariant(selectedItem.status)} className="capitalize" data-testid="drawer-status">
+                    {selectedItem.status}
+                  </Badge>
+                  <Badge variant="outline" className={`capitalize ${getCategoryColor(selectedItem.campaign?.category || "general")}`} data-testid="drawer-category">
+                    {selectedItem.campaign?.category || "general"}
+                  </Badge>
+                  {selectedItem.campaign?.subtype && (
+                    <Badge variant="secondary" className="capitalize text-xs" data-testid="drawer-subtype">
+                      {selectedItem.campaign.subtype.replace(/_/g, " ")}
+                    </Badge>
+                  )}
+                </div>
+
+                {/* Campaign info */}
+                <div className="space-y-2">
+                  <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Campaign</p>
+                  <div className="p-3 rounded-md border bg-muted/40 space-y-1.5">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <span className="text-sm font-medium" data-testid="drawer-campaign-title">
+                        {selectedItem.campaign?.title}
+                      </span>
+                      <Link href={`/dashboard/campaigns/${selectedItem.campaignId}`}>
+                        <span className="text-xs text-primary hover:underline cursor-pointer" data-testid="link-campaign-detail">
+                          View campaign
+                        </span>
+                      </Link>
+                    </div>
+                    {selectedItem.campaign?.windowStart && selectedItem.campaign?.windowEnd && (
+                      <p className="text-xs text-muted-foreground" data-testid="drawer-window">
+                        Window: {formatDateRange(selectedItem.campaign.windowStart, selectedItem.campaign.windowEnd)}
+                      </p>
+                    )}
+                  </div>
+                </div>
+
+                {/* Completion details */}
+                {(selectedItem.status === "completed" || selectedItem.completedAt) && (
+                  <div className="space-y-2">
+                    <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Completion</p>
+                    <div className="p-3 rounded-md border bg-muted/40 space-y-1.5">
+                      {selectedItem.completedAt && (
+                        <div className="flex justify-between text-sm gap-2">
+                          <span className="text-muted-foreground">Completed at</span>
+                          <span data-testid="drawer-completed-at">
+                            {format(new Date(selectedItem.completedAt), "MMM d, yyyy 'at' h:mm a")}
+                          </span>
+                        </div>
+                      )}
+                      {selectedItem.completedById && (
+                        <div className="flex justify-between text-sm gap-2">
+                          <span className="text-muted-foreground">Completed by</span>
+                          <span data-testid="drawer-completed-by">
+                            {resolveUserName(selectedItem.completedById) || selectedItem.completedById}
+                          </span>
+                        </div>
+                      )}
+                      {selectedItem.notes && (
+                        <div className="space-y-1">
+                          <span className="text-xs text-muted-foreground">Notes</span>
+                          <p className="text-sm" data-testid="drawer-notes">{selectedItem.notes}</p>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                )}
+
+                {/* Skip reason */}
+                {selectedItem.status === "skipped" && selectedItem.skipReason && (
+                  <div className="space-y-2">
+                    <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Skip Reason</p>
+                    <p className="text-sm p-3 rounded-md border bg-muted/40" data-testid="drawer-skip-reason">
+                      {selectedItem.skipReason}
+                    </p>
+                  </div>
+                )}
+
+                {/* Notes for pending items */}
+                {selectedItem.status === "pending" && selectedItem.notes && (
+                  <div className="space-y-2">
+                    <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Notes</p>
+                    <p className="text-sm p-3 rounded-md border bg-muted/40" data-testid="drawer-pending-notes">
+                      {selectedItem.notes}
+                    </p>
+                  </div>
+                )}
+              </div>
+            </>
+          )}
+        </SheetContent>
+      </Sheet>
     </div>
   );
 }
