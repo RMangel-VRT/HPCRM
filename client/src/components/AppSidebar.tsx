@@ -34,6 +34,7 @@ import {
   ClipboardCheck,
   Leaf,
   MessagesSquare,
+  Activity,
 } from "lucide-react";
 import {
   Dialog,
@@ -189,6 +190,10 @@ export default function AppSidebar({
 
     if (userRole === "admin" || userRole === "office") {
       items.push({ title: "Communications", url: "/dashboard/communications", icon: MessagesSquare });
+    }
+
+    if (userRole === "admin" || userRole === "office") {
+      items.push({ title: t("nav.operations"), url: "/dashboard/operations", icon: Activity });
     }
 
     if (userRole === "admin" || userRole === "office") {

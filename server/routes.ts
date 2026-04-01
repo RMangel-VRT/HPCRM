@@ -11593,6 +11593,314 @@ export async function registerRoutes(app: Express): Promise<Server> {
     res.json(items);
   });
 
+  // ─── Operations Checklist API (admin/office only) ──────────────────────────
+  const operationsRoles = ["admin", "office"];
+
+  interface OperationsCampaignItemRow {
+    itemId: string;
+    campaignId: string;
+    campaignTitle: string;
+    campaignCategory: string;
+    windowStart: string;
+    windowEnd: string;
+    customerId: string;
+    customerName: string;
+    customerCity: string | null;
+    pmCompanyName: string | null;
+    status: string;
+    skipReason?: string | null;
+    completedAt?: string | null;
+    updatedAt?: string | null;
+  }
+
+  interface OperationsMissingObligationRow {
+    customerId: string;
+    customerName: string;
+    customerCity: string | null;
+    pmCompanyName: string | null;
+    serviceCategory: string;
+    serviceType: string;
+    expectedQuantity: number;
+    expectedUpToNow: number;
+    scheduledCount: number;
+    completedCount: number;
+  }
+
+  app.get("/api/operations/overdue", async (req, res) => {
+    if (!req.isAuthenticated()) return res.status(401).send("Not authenticated");
+    const user = req.user as UserWithContext;
+    if (!operationsRoles.includes(user.activeRole)) return res.status(403).send("Insufficient permissions");
+
+    const { pmSearch, category, customerSearch } = req.query as Record<string, string | undefined>;
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+
+    const allCampaigns = await storage.getCampaigns(user.activeCompanyId);
+    const results: OperationsCampaignItemRow[] = [];
+
+    for (const campaign of allCampaigns) {
+      const windowEnd = new Date(campaign.windowEnd + "T23:59:59");
+      if (windowEnd >= today) continue;
+      if (category && campaign.category !== category) continue;
+
+      const items = await storage.getCampaignItems(campaign.id, user.activeCompanyId);
+      for (const item of items) {
+        if (item.status === "completed") continue;
+
+        const customer = item.customerId ? await storage.getCustomerById(item.customerId, user.activeCompanyId) : null;
+        if (!customer) continue;
+
+        if (customerSearch && !customer.name.toLowerCase().includes(customerSearch.toLowerCase())) continue;
+
+        let pmCompanyName = customer.managementCompany || null;
+        if (customer.propertyManagementCompanyId) {
+          const pmc = await storage.getPropertyManagementCompanyById(customer.propertyManagementCompanyId, user.activeCompanyId);
+          if (pmc) pmCompanyName = pmc.name;
+        }
+
+        if (pmSearch && pmCompanyName && !pmCompanyName.toLowerCase().includes(pmSearch.toLowerCase())) continue;
+        if (pmSearch && !pmCompanyName) continue;
+
+        results.push({
+          itemId: item.id,
+          campaignId: campaign.id,
+          campaignTitle: campaign.title,
+          campaignCategory: campaign.category,
+          windowStart: campaign.windowStart,
+          windowEnd: campaign.windowEnd,
+          customerId: customer.id,
+          customerName: customer.name,
+          customerCity: customer.city,
+          pmCompanyName,
+          status: item.status,
+        });
+      }
+    }
+
+    results.sort((a, b) => new Date(a.windowEnd).getTime() - new Date(b.windowEnd).getTime());
+    res.json(results);
+  });
+
+  app.get("/api/operations/due-this-week", async (req, res) => {
+    if (!req.isAuthenticated()) return res.status(401).send("Not authenticated");
+    const user = req.user as UserWithContext;
+    if (!operationsRoles.includes(user.activeRole)) return res.status(403).send("Insufficient permissions");
+
+    const { pmSearch, category, customerSearch } = req.query as Record<string, string | undefined>;
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const nextWeek = new Date(today);
+    nextWeek.setDate(nextWeek.getDate() + 7);
+
+    const allCampaigns = await storage.getCampaigns(user.activeCompanyId);
+    const results: OperationsCampaignItemRow[] = [];
+
+    for (const campaign of allCampaigns) {
+      const windowStart = new Date(campaign.windowStart + "T00:00:00");
+      const windowEnd = new Date(campaign.windowEnd + "T23:59:59");
+      if (windowStart > nextWeek || windowEnd < today) continue;
+      if (category && campaign.category !== category) continue;
+
+      const items = await storage.getCampaignItems(campaign.id, user.activeCompanyId);
+      for (const item of items) {
+        if (item.status === "completed") continue;
+
+        const customer = item.customerId ? await storage.getCustomerById(item.customerId, user.activeCompanyId) : null;
+        if (!customer) continue;
+
+        if (customerSearch && !customer.name.toLowerCase().includes(customerSearch.toLowerCase())) continue;
+
+        let pmCompanyName = customer.managementCompany || null;
+        if (customer.propertyManagementCompanyId) {
+          const pmc = await storage.getPropertyManagementCompanyById(customer.propertyManagementCompanyId, user.activeCompanyId);
+          if (pmc) pmCompanyName = pmc.name;
+        }
+
+        if (pmSearch && pmCompanyName && !pmCompanyName.toLowerCase().includes(pmSearch.toLowerCase())) continue;
+        if (pmSearch && !pmCompanyName) continue;
+
+        results.push({
+          itemId: item.id,
+          campaignId: campaign.id,
+          campaignTitle: campaign.title,
+          campaignCategory: campaign.category,
+          windowStart: campaign.windowStart,
+          windowEnd: campaign.windowEnd,
+          customerId: customer.id,
+          customerName: customer.name,
+          customerCity: customer.city,
+          pmCompanyName,
+          status: item.status,
+        });
+      }
+    }
+
+    results.sort((a, b) => new Date(a.windowEnd).getTime() - new Date(b.windowEnd).getTime());
+    res.json(results);
+  });
+
+  app.get("/api/operations/missing-obligations", async (req, res) => {
+    if (!req.isAuthenticated()) return res.status(401).send("Not authenticated");
+    const user = req.user as UserWithContext;
+    if (!operationsRoles.includes(user.activeRole)) return res.status(403).send("Insufficient permissions");
+
+    const { pmSearch, category, customerSearch } = req.query as Record<string, string | undefined>;
+    const currentYear = new Date().getFullYear();
+    const currentMonth = new Date().getMonth() + 1;
+
+    // Map contract service types to campaign categories
+    // chemical => chemical, irrigation-related => irrigation, everything else => general
+    const serviceTypeToCampaignCategory = (serviceType: string): string => {
+      if (serviceType === "chemical") return "chemical";
+      if (serviceType === "irrigation") return "irrigation";
+      return "general";
+    };
+
+    // Fetch all campaigns once (performance: avoid re-fetching in inner loops)
+    const allCampaigns = await storage.getCampaigns(user.activeCompanyId);
+    const currentYearCampaigns = allCampaigns.filter(c => {
+      const startYear = new Date(c.windowStart + "T00:00:00").getFullYear();
+      const endYear = new Date(c.windowEnd + "T23:59:59").getFullYear();
+      return startYear === currentYear || endYear === currentYear;
+    });
+
+    // Pre-fetch items for relevant campaigns
+    const campaignItemsMap = new Map<string, CampaignItem[]>();
+    for (const camp of currentYearCampaigns) {
+      const items = await storage.getCampaignItems(camp.id, user.activeCompanyId);
+      campaignItemsMap.set(camp.id, items);
+    }
+
+    const allCustomers = await storage.getCustomers(user.activeCompanyId);
+    const results: OperationsMissingObligationRow[] = [];
+
+    for (const customer of allCustomers) {
+      if (customer.status !== "active") continue;
+      if (customerSearch && !customer.name.toLowerCase().includes(customerSearch.toLowerCase())) continue;
+
+      let pmCompanyName = customer.managementCompany || null;
+      if (customer.propertyManagementCompanyId) {
+        const pmc = await storage.getPropertyManagementCompanyById(customer.propertyManagementCompanyId, user.activeCompanyId);
+        if (pmc) pmCompanyName = pmc.name;
+      }
+
+      if (pmSearch && pmCompanyName && !pmCompanyName.toLowerCase().includes(pmSearch.toLowerCase())) continue;
+      if (pmSearch && !pmCompanyName) continue;
+
+      const contracts = await storage.getContractsByCustomerId(customer.id, user.activeCompanyId);
+      const activeContracts = contracts.filter(c => c.status === "active");
+
+      for (const contract of activeContracts) {
+        const services = await storage.getContractServices(contract.id, user.activeCompanyId);
+        for (const svc of services) {
+          // expectedQuantity is the annual expected count for this service
+          const expectedQuantity = svc.annualCount;
+          if (expectedQuantity === 0) continue;
+
+          // expectedUpToNow is the sum of monthly distribution up to the current month (year-to-date expected)
+          const expectedUpToNow = svc.monthlyDistribution
+            .slice(0, currentMonth)
+            .reduce((a, b) => a + b, 0);
+
+          // Map service type to campaign category for counting
+          const campaignCategory = serviceTypeToCampaignCategory(svc.serviceType);
+
+          // Apply category filter: filter param matches campaign category
+          if (category && campaignCategory !== category) continue;
+
+          // Count scheduled and completed items for this customer across relevant campaigns of matching category
+          const relevantCampaigns = currentYearCampaigns.filter(c => c.category === campaignCategory);
+
+          let scheduledCount = 0;
+          let completedCount = 0;
+          for (const camp of relevantCampaigns) {
+            const items = campaignItemsMap.get(camp.id) || [];
+            const customerItems = items.filter((i) => i.customerId === customer.id);
+            scheduledCount += customerItems.length;
+            completedCount += customerItems.filter((i) => i.status === "completed").length;
+          }
+
+          // Flag if completed count is behind the expected annual obligation
+          if (completedCount < expectedQuantity) {
+            results.push({
+              customerId: customer.id,
+              customerName: customer.name,
+              customerCity: customer.city,
+              pmCompanyName,
+              serviceCategory: campaignCategory,
+              serviceType: svc.serviceType,
+              expectedQuantity,
+              expectedUpToNow,
+              scheduledCount,
+              completedCount,
+            });
+          }
+        }
+      }
+    }
+
+    res.json(results);
+  });
+
+  app.get("/api/operations/exceptions", async (req, res) => {
+    if (!req.isAuthenticated()) return res.status(401).send("Not authenticated");
+    const user = req.user as UserWithContext;
+    if (!operationsRoles.includes(user.activeRole)) return res.status(403).send("Insufficient permissions");
+
+    const { pmSearch, category, customerSearch } = req.query as Record<string, string | undefined>;
+
+    const allCampaigns = await storage.getCampaigns(user.activeCompanyId);
+    const results: OperationsCampaignItemRow[] = [];
+
+    for (const campaign of allCampaigns) {
+      if (category && campaign.category !== category) continue;
+
+      const items = await storage.getCampaignItems(campaign.id, user.activeCompanyId);
+      for (const item of items) {
+        if (item.status !== "skipped" && !item.skipReason) continue;
+
+        const customer = item.customerId ? await storage.getCustomerById(item.customerId, user.activeCompanyId) : null;
+        if (!customer) continue;
+
+        if (customerSearch && !customer.name.toLowerCase().includes(customerSearch.toLowerCase())) continue;
+
+        let pmCompanyName = customer.managementCompany || null;
+        if (customer.propertyManagementCompanyId) {
+          const pmc = await storage.getPropertyManagementCompanyById(customer.propertyManagementCompanyId, user.activeCompanyId);
+          if (pmc) pmCompanyName = pmc.name;
+        }
+
+        if (pmSearch && pmCompanyName && !pmCompanyName.toLowerCase().includes(pmSearch.toLowerCase())) continue;
+        if (pmSearch && !pmCompanyName) continue;
+
+        results.push({
+          itemId: item.id,
+          campaignId: campaign.id,
+          campaignTitle: campaign.title,
+          campaignCategory: campaign.category,
+          windowStart: campaign.windowStart,
+          windowEnd: campaign.windowEnd,
+          customerId: customer.id,
+          customerName: customer.name,
+          customerCity: customer.city,
+          pmCompanyName,
+          status: item.status,
+          skipReason: item.skipReason || null,
+          completedAt: item.completedAt?.toISOString() || null,
+          updatedAt: item.updatedAt?.toISOString() || null,
+        });
+      }
+    }
+
+    // Sort by most recently modified (when status was set to skipped) descending
+    results.sort((a, b) => {
+      const aTime = a.updatedAt ? new Date(a.updatedAt).getTime() : 0;
+      const bTime = b.updatedAt ? new Date(b.updatedAt).getTime() : 0;
+      return bTime - aTime;
+    });
+    res.json(results);
+  });
+
   const httpServer = createServer(app);
 
   return httpServer;

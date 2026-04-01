@@ -60,6 +60,7 @@ import CampaignItemDetail from "@/pages/CampaignItemDetail";
 import SeasonsPage from "@/pages/SeasonsPage";
 import SeasonDetail from "@/pages/SeasonDetail";
 import CommunicationsCenter from "@/pages/CommunicationsCenter";
+import OperationsPage from "@/pages/OperationsPage";
 import NotFound from "@/pages/not-found";
 
 interface ErrorBoundaryProps {
@@ -273,6 +274,7 @@ function Router() {
           allowedRoles={["admin", "office"]}
         />
         <ProtectedRoute path="/dashboard/communications" component={CommunicationsCenter} allowedRoles={["admin", "office"]} />
+        <ProtectedRoute path="/dashboard/operations" component={OperationsPage} allowedRoles={["admin", "office"]} />
         <ProtectedRoute path="/dashboard/reports" component={ReportsPage} allowedRoles={["admin", "office"]} />
         <ProtectedRoute path="/dashboard/users" component={UsersPage} allowedRoles={["admin"]} />
         <ProtectedRoute path="/dashboard/settings" component={SettingsPage} allowedRoles={["admin", "office"]} />
