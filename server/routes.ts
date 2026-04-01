@@ -10633,6 +10633,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
     const existingCompletions = await storage.getCampaignItemTaskCompletions(req.params.itemId);
     const alreadyCompleted = !!existingCompletions.find(c => c.campaignChecklistTaskId === req.params.taskId);
 
+    const { completedAt: toggleCompletedAtStr } = (req.body || {}) as { completedAt?: string };
+
     const { action } = await storage.toggleCampaignChecklistTaskTx({
       campaignItemId: req.params.itemId,
       taskId: req.params.taskId,
@@ -10656,10 +10658,15 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const updatedCompletions = await storage.getCampaignItemTaskCompletions(req.params.itemId);
       const allTasks = await storage.getCampaignChecklistTasks(req.params.id);
       if (updatedCompletions.length >= allTasks.length) {
+        let toggleCompletedAt = new Date();
+        if (toggleCompletedAtStr) {
+          const parsed = new Date(toggleCompletedAtStr + "T12:00:00");
+          if (!isNaN(parsed.getTime())) toggleCompletedAt = parsed;
+        }
         await storage.updateCampaignItem(req.params.itemId, user.activeCompanyId, {
           status: "completed",
           completedById: user.id,
-          completedAt: new Date(),
+          completedAt: toggleCompletedAt,
           updatedAt: new Date(),
         });
         const allItems = await storage.getCampaignItems(req.params.id, user.activeCompanyId);
@@ -10711,7 +10718,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     if (!targetItem) {
       return res.status(404).json({ error: "Item not found in this campaign" });
     }
-    const { status, notes, skipReason, photos, chemAction, overrideEmail, exceptionType } = req.body as {
+    const { status, notes, skipReason, photos, chemAction, overrideEmail, exceptionType, completedAt: completedAtStr, workCompletedAt: workCompletedAtStr } = req.body as {
       status?: string;
       notes?: string;
       skipReason?: string;
@@ -10719,6 +10726,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
       chemAction?: string;
       overrideEmail?: string;
       exceptionType?: string | null;
+      completedAt?: string;
+      workCompletedAt?: string;
     };
 
     // Handle chemical workflow step advancement
@@ -10773,8 +10782,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
         if (targetItem.workflowStep !== "work_in_progress") {
           return res.status(400).json({ error: "Item is not in work-in-progress step" });
         }
+        let workCompletedAtDate = new Date();
+        if (workCompletedAtStr) {
+          const parsed = new Date(workCompletedAtStr + "T12:00:00");
+          if (!isNaN(parsed.getTime())) workCompletedAtDate = parsed;
+        }
         chemUpdates.workflowStep = "work_completed";
-        chemUpdates.workCompletedAt = new Date();
+        chemUpdates.workCompletedAt = workCompletedAtDate;
         chemUpdates.workCompletedById = user.id;
       } else if (chemAction === "send_post_communication") {
         if (!chemEmailRoles.includes(user.activeRole)) {
@@ -10805,12 +10819,17 @@ export async function registerRoutes(app: Express): Promise<Server> {
           if (!sentLog) {
             return res.status(502).json({ error: "Email delivery failed. Please try again." });
           }
+          let postCommCompletedAt = new Date();
+          if (completedAtStr) {
+            const parsed = new Date(completedAtStr + "T12:00:00");
+            if (!isNaN(parsed.getTime())) postCommCompletedAt = parsed;
+          }
           chemUpdates.workflowStep = "post_communication";
           chemUpdates.postCommSentAt = new Date();
           chemUpdates.postCommSentById = user.id;
           chemUpdates.status = "completed";
           chemUpdates.completedById = user.id;
-          chemUpdates.completedAt = new Date();
+          chemUpdates.completedAt = postCommCompletedAt;
           chemUpdates.postCommEmailLogId = sentLog.id;
         } catch (emailErr) {
           console.error("Failed to send chemical post-notice email:", emailErr);
@@ -10927,7 +10946,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
     if (exceptionType !== undefined) updates.exceptionType = exceptionType;
     if (status === "completed" || status === "skipped") {
       updates.completedById = user.id;
-      updates.completedAt = new Date();
+      let completedAtDate = new Date();
+      if (completedAtStr) {
+        const parsed = new Date(completedAtStr + "T12:00:00");
+        if (!isNaN(parsed.getTime())) completedAtDate = parsed;
+      }
+      updates.completedAt = completedAtDate;
     }
     if (status === "pending") {
       updates.completedById = null;
@@ -11031,10 +11055,15 @@ export async function registerRoutes(app: Express): Promise<Server> {
       if (targetItem.workflowStep !== "work_in_progress") {
         return res.status(400).json({ error: "Item is not in work-in-progress step" });
       }
-      const { notes } = req.body || {};
+      const { notes, workCompletedAt: workCompletedAtStr } = req.body || {};
       const chemUpdates: Partial<CampaignItem> = { updatedAt: new Date() };
+      let workCompletedAtDate = new Date();
+      if (workCompletedAtStr) {
+        const parsed = new Date(workCompletedAtStr + "T12:00:00");
+        if (!isNaN(parsed.getTime())) workCompletedAtDate = parsed;
+      }
       chemUpdates.workflowStep = "work_completed";
-      chemUpdates.workCompletedAt = new Date();
+      chemUpdates.workCompletedAt = workCompletedAtDate;
       chemUpdates.workCompletedById = user.id;
       if (notes !== undefined) chemUpdates.notes = notes;
       const updated = await storage.updateCampaignItem(req.params.itemId, user.activeCompanyId, chemUpdates);
@@ -11065,7 +11094,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       if (targetItem.workflowStep !== "work_completed") {
         return res.status(400).json({ error: "Item is not in work-completed step" });
       }
-      const { notes, overrideEmail } = req.body || {};
+      const { notes, overrideEmail, completedAt: completedAtStr } = req.body || {};
       const chemUpdates: Partial<CampaignItem> = { updatedAt: new Date() };
       const company = await storage.getCompanyById(user.activeCompanyId);
       const { email: resolvedEmail } = await resolveChemRecipientEmail(targetItem.customerId, user.activeCompanyId);
@@ -11094,12 +11123,17 @@ export async function registerRoutes(app: Express): Promise<Server> {
         console.error("Failed to send chemical post-notice email:", emailErr);
         return res.status(500).json({ error: "Failed to send post-completion notification email" });
       }
+      let postCommCompletedAt = new Date();
+      if (completedAtStr) {
+        const parsed = new Date(completedAtStr + "T12:00:00");
+        if (!isNaN(parsed.getTime())) postCommCompletedAt = parsed;
+      }
       chemUpdates.workflowStep = "post_communication";
       chemUpdates.postCommSentAt = new Date();
       chemUpdates.postCommSentById = user.id;
       chemUpdates.status = "completed";
       chemUpdates.completedById = user.id;
-      chemUpdates.completedAt = new Date();
+      chemUpdates.completedAt = postCommCompletedAt;
       if (notes !== undefined) chemUpdates.notes = notes;
       const updated = await storage.updateCampaignItem(req.params.itemId, user.activeCompanyId, chemUpdates);
       if (!updated) return res.status(404).json({ error: "Not found" });

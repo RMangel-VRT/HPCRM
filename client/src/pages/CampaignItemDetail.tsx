@@ -118,6 +118,14 @@ export default function CampaignItemDetail() {
   const [showFinishWithoutComms, setShowFinishWithoutComms] = useState(false);
   const [finishDate, setFinishDate] = useState("");
   const [activityExpanded, setActivityExpanded] = useState(false);
+  const [showMarkCompleteDialog, setShowMarkCompleteDialog] = useState(false);
+  const [markCompleteDate, setMarkCompleteDate] = useState("");
+  const [showCompleteWorkDialog, setShowCompleteWorkDialog] = useState(false);
+  const [completeWorkDate, setCompleteWorkDate] = useState("");
+  const [postCommDate, setPostCommDate] = useState("");
+  const [showIrrigationCompleteDialog, setShowIrrigationCompleteDialog] = useState(false);
+  const [irrigationCompleteDate, setIrrigationCompleteDate] = useState("");
+  const [pendingIrrigationTaskId, setPendingIrrigationTaskId] = useState<string | null>(null);
 
   const { data: campaign, isLoading } = useQuery<CampaignDetailData>({
     queryKey: ["/api/campaigns", campaignId],
@@ -183,7 +191,7 @@ export default function CampaignItemDetail() {
   }, [item?.id, item?.notes, item?.skipReason, item?.photos, item?.exceptionType]);
 
   const updateItemMutation = useMutation({
-    mutationFn: async (data: { status?: string; notes?: string; skipReason?: string; exceptionType?: string | null; photos?: string[]; chemAction?: string; overrideEmail?: string; completionDate?: string; weatherTemp?: number; weatherWindSpeed?: number; weatherWindDirection?: string; weatherHumidity?: number; weatherConditions?: string; customWindowStart?: string; customWindowEnd?: string }) => {
+    mutationFn: async (data: { status?: string; notes?: string; skipReason?: string; exceptionType?: string | null; photos?: string[]; chemAction?: string; overrideEmail?: string; completionDate?: string; weatherTemp?: number; weatherWindSpeed?: number; weatherWindDirection?: string; weatherHumidity?: number; weatherConditions?: string; customWindowStart?: string; customWindowEnd?: string; completedAt?: string; workCompletedAt?: string }) => {
       if (data.chemAction && data.chemAction !== "reset" && data.chemAction !== "finish_without_comms") {
         const routeMap: Record<string, string> = {
           send_pre_communication: "send-pre-comm",
@@ -196,6 +204,8 @@ export default function CampaignItemDetail() {
           if (data.overrideEmail) body.overrideEmail = data.overrideEmail;
           if (data.customWindowStart) body.customWindowStart = data.customWindowStart;
           if (data.customWindowEnd) body.customWindowEnd = data.customWindowEnd;
+          if (data.completedAt) body.completedAt = data.completedAt;
+          if (data.workCompletedAt) body.workCompletedAt = data.workCompletedAt;
           const res = await apiRequest("POST", `/api/campaigns/${campaignId}/items/${itemId}/${route}`, body);
           return res.json();
         }
@@ -253,8 +263,9 @@ export default function CampaignItemDetail() {
   };
 
   const toggleChecklistTaskMutation = useMutation({
-    mutationFn: async (taskId: string) => {
-      const res = await apiRequest("POST", `/api/campaigns/${campaignId}/items/${itemId}/checklist/${taskId}/toggle`);
+    mutationFn: async ({ taskId, completedAt }: { taskId: string; completedAt?: string }) => {
+      const body = completedAt ? { completedAt } : undefined;
+      const res = await apiRequest("POST", `/api/campaigns/${campaignId}/items/${itemId}/checklist/${taskId}/toggle`, body);
       return res.json();
     },
     onSuccess: () => {
@@ -286,6 +297,8 @@ export default function CampaignItemDetail() {
       </div>
     );
   }
+
+  const todayDateString = () => format(new Date(), "yyyy-MM-dd");
 
   const formatWindowDate = (dateStr: string) => {
     try {
@@ -736,7 +749,10 @@ export default function CampaignItemDetail() {
                 {(item.workflowStep ?? "pre_communication") === "work_in_progress" && canComplete && (
                   <Button
                     className="w-full sm:w-auto"
-                    onClick={() => updateItemMutation.mutate({ chemAction: "complete_work", notes })}
+                    onClick={() => {
+                      setCompleteWorkDate(todayDateString());
+                      setShowCompleteWorkDialog(true);
+                    }}
                     disabled={updateItemMutation.isPending}
                     data-testid="button-chem-complete-work"
                   >
@@ -751,6 +767,7 @@ export default function CampaignItemDetail() {
                     onClick={async () => {
                       setLoadingPreview(true);
                       setManualEmail("");
+                      setPostCommDate(todayDateString());
                       try {
                         const res = await fetch(`/api/campaigns/${campaignId}/items/${itemId}/email-preview?type=post`, { credentials: "include" });
                         if (res.ok) setEmailPreview(await res.json());
@@ -892,7 +909,21 @@ export default function CampaignItemDetail() {
                   <input
                     type="checkbox"
                     checked={isChecked}
-                    onChange={() => !isArchivedCampaign && toggleChecklistTaskMutation.mutate(task.id)}
+                    onChange={() => {
+                      if (isArchivedCampaign) return;
+                      if (!isChecked) {
+                        const completedCount = campaign.itemTaskCompletions?.[item.id]?.length || 0;
+                        const totalTasks = campaign.checklistTasks?.length || 0;
+                        const wouldBeLastTask = completedCount === totalTasks - 1;
+                        if (wouldBeLastTask && item.status !== "completed") {
+                          setPendingIrrigationTaskId(task.id);
+                          setIrrigationCompleteDate(todayDateString());
+                          setShowIrrigationCompleteDialog(true);
+                          return;
+                        }
+                      }
+                      toggleChecklistTaskMutation.mutate({ taskId: task.id });
+                    }}
                     disabled={toggleChecklistTaskMutation.isPending || item.status === "skipped" || isArchivedCampaign}
                     className="w-4 h-4 rounded accent-green-600 cursor-pointer disabled:cursor-not-allowed"
                     data-testid={`checkbox-task-${task.id}`}
@@ -1041,7 +1072,10 @@ export default function CampaignItemDetail() {
                 <>
                   <Button
                     className="w-full sm:w-auto"
-                    onClick={() => updateItemMutation.mutate({ status: "completed", notes })}
+                    onClick={() => {
+                      setMarkCompleteDate(todayDateString());
+                      setShowMarkCompleteDialog(true);
+                    }}
                     disabled={updateItemMutation.isPending}
                     data-testid="button-complete-item"
                   >
@@ -1103,6 +1137,108 @@ export default function CampaignItemDetail() {
         </Card>
       )}
 
+      <AlertDialog open={showMarkCompleteDialog} onOpenChange={setShowMarkCompleteDialog}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>{t("campaigns.markComplete")}</AlertDialogTitle>
+            <AlertDialogDescription>Choose the date when this item was completed.</AlertDialogDescription>
+          </AlertDialogHeader>
+          <div className="py-2">
+            <Label className="text-xs text-muted-foreground">Completion Date *</Label>
+            <Input
+              type="date"
+              value={markCompleteDate}
+              onChange={(e) => setMarkCompleteDate(e.target.value)}
+              className="mt-1"
+              data-testid="input-mark-complete-date"
+            />
+          </div>
+          <AlertDialogFooter>
+            <AlertDialogCancel>{t("common.cancel")}</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={() => {
+                updateItemMutation.mutate({ status: "completed", notes, completedAt: markCompleteDate });
+                setShowMarkCompleteDialog(false);
+              }}
+              disabled={!markCompleteDate}
+              data-testid="button-confirm-mark-complete"
+            >
+              <CheckCircle2 className="w-4 h-4 mr-1" />
+              {t("campaigns.markComplete")}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      <AlertDialog open={showCompleteWorkDialog} onOpenChange={setShowCompleteWorkDialog}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>{t("campaigns.chemMarkWorkDone")}</AlertDialogTitle>
+            <AlertDialogDescription>Choose the date when the work was completed.</AlertDialogDescription>
+          </AlertDialogHeader>
+          <div className="py-2">
+            <Label className="text-xs text-muted-foreground">Work Completion Date *</Label>
+            <Input
+              type="date"
+              value={completeWorkDate}
+              onChange={(e) => setCompleteWorkDate(e.target.value)}
+              className="mt-1"
+              data-testid="input-complete-work-date"
+            />
+          </div>
+          <AlertDialogFooter>
+            <AlertDialogCancel>{t("common.cancel")}</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={() => {
+                updateItemMutation.mutate({ chemAction: "complete_work", notes, workCompletedAt: completeWorkDate });
+                setShowCompleteWorkDialog(false);
+              }}
+              disabled={!completeWorkDate}
+              data-testid="button-confirm-complete-work"
+            >
+              <Wrench className="w-4 h-4 mr-1" />
+              {t("campaigns.chemMarkWorkDone")}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      <AlertDialog open={showIrrigationCompleteDialog} onOpenChange={(open) => { if (!open) { setShowIrrigationCompleteDialog(false); setPendingIrrigationTaskId(null); } }}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Complete Checklist</AlertDialogTitle>
+            <AlertDialogDescription>All tasks will be completed. Choose the date this item was finished.</AlertDialogDescription>
+          </AlertDialogHeader>
+          <div className="py-2">
+            <Label className="text-xs text-muted-foreground">Completion Date *</Label>
+            <Input
+              type="date"
+              value={irrigationCompleteDate}
+              onChange={(e) => setIrrigationCompleteDate(e.target.value)}
+              className="mt-1"
+              data-testid="input-irrigation-complete-date"
+            />
+          </div>
+          <AlertDialogFooter>
+            <AlertDialogCancel onClick={() => { setPendingIrrigationTaskId(null); }}>{t("common.cancel")}</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={() => {
+                if (pendingIrrigationTaskId) {
+                  toggleChecklistTaskMutation.mutate({ taskId: pendingIrrigationTaskId, completedAt: irrigationCompleteDate });
+                }
+                setShowIrrigationCompleteDialog(false);
+                setPendingIrrigationTaskId(null);
+              }}
+              disabled={!irrigationCompleteDate}
+              data-testid="button-confirm-irrigation-complete"
+            >
+              <CheckCircle2 className="w-4 h-4 mr-1" />
+              Confirm & Complete
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
       <AlertDialog open={showChemReset} onOpenChange={setShowChemReset}>
         <AlertDialogContent>
           <AlertDialogHeader>
@@ -1124,7 +1260,7 @@ export default function CampaignItemDetail() {
         </AlertDialogContent>
       </AlertDialog>
 
-      <Dialog open={!!showEmailConfirm} onOpenChange={() => { setShowEmailConfirm(null); setEmailPreview(null); setManualEmail(""); setPreNoticeWindowStart(""); setPreNoticeWindowEnd(""); }}>
+      <Dialog open={!!showEmailConfirm} onOpenChange={() => { setShowEmailConfirm(null); setEmailPreview(null); setManualEmail(""); setPreNoticeWindowStart(""); setPreNoticeWindowEnd(""); setPostCommDate(""); }}>
         <DialogContent className="max-w-lg" data-testid="dialog-chem-email-compose">
           <div className="space-y-4">
             <div className="flex items-center gap-2">
@@ -1204,6 +1340,18 @@ export default function CampaignItemDetail() {
                   </div>
                 </div>
               )}
+              {showEmailConfirm === "post" && (
+                <div>
+                  <Label className="text-xs text-muted-foreground">Completion Date *</Label>
+                  <Input
+                    type="date"
+                    value={postCommDate}
+                    onChange={(e) => setPostCommDate(e.target.value)}
+                    className="mt-0.5"
+                    data-testid="input-post-comm-date"
+                  />
+                </div>
+              )}
               <div>
                 <Label className="text-xs text-muted-foreground">{t("campaigns.chemEmailTemplate")}</Label>
                 <div className="text-sm font-medium mt-0.5">{emailPreview?.templateName || "—"}</div>
@@ -1235,14 +1383,16 @@ export default function CampaignItemDetail() {
                   const effectiveEmail = emailPreview?.recipientEmail || manualEmail.trim();
                   const customWindowStart = showEmailConfirm === "pre" ? preNoticeWindowStart : undefined;
                   const customWindowEnd = showEmailConfirm === "pre" ? preNoticeWindowEnd : undefined;
+                  const completedAt = showEmailConfirm === "post" ? postCommDate : undefined;
                   setShowEmailConfirm(null);
                   setEmailPreview(null);
-                  updateItemMutation.mutate({ chemAction: action, notes, overrideEmail: !emailPreview?.recipientEmail ? effectiveEmail : undefined, customWindowStart, customWindowEnd });
+                  updateItemMutation.mutate({ chemAction: action, notes, overrideEmail: !emailPreview?.recipientEmail ? effectiveEmail : undefined, customWindowStart, customWindowEnd, completedAt });
                   setManualEmail("");
                   setPreNoticeWindowStart("");
                   setPreNoticeWindowEnd("");
+                  setPostCommDate("");
                 }}
-                disabled={updateItemMutation.isPending || (!emailPreview?.recipientEmail && (!manualEmail.trim() || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(manualEmail.trim())))}
+                disabled={updateItemMutation.isPending || (!emailPreview?.recipientEmail && (!manualEmail.trim() || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(manualEmail.trim()))) || (showEmailConfirm === "post" && !postCommDate)}
                 data-testid="button-confirm-send-email"
               >
                 {updateItemMutation.isPending && <Loader2 className="w-4 h-4 mr-1 animate-spin" />}
