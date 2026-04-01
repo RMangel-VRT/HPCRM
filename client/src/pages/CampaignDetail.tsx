@@ -7,6 +7,7 @@ import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import { format } from "date-fns";
 import { Card, CardContent } from "@/components/ui/card";
+import EmptyState from "@/components/EmptyState";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -67,6 +68,7 @@ import {
   Plus,
   List,
   Columns,
+  ClipboardCheck,
 } from "lucide-react";
 import type { Campaign, CampaignItem, Season, CampaignChecklistTask, Customer, CompanyUser, User as UserType } from "@shared/schema";
 
@@ -513,6 +515,17 @@ export default function CampaignDetail() {
               Export PDF
             </Button>
           </div>
+          {campaign.items.filter(i => i.status === "completed").length === 0 ? (
+            <Card>
+              <CardContent className="p-0">
+                <EmptyState
+                  icon={ClipboardCheck}
+                  title="No completed items yet"
+                  description="Completed campaign items will appear here with their weather data, notes, and photos."
+                />
+              </CardContent>
+            </Card>
+          ) : (
           <div className="overflow-x-auto">
             <table className="w-full text-sm border-collapse">
               <thead>
@@ -542,12 +555,10 @@ export default function CampaignDetail() {
                     <td className="p-2">{item.photos?.length || 0}</td>
                   </tr>
                 ))}
-                {campaign.items.filter(i => i.status === "completed").length === 0 && (
-                  <tr><td colSpan={9} className="p-8 text-center text-muted-foreground">No completed items yet</td></tr>
-                )}
               </tbody>
             </table>
           </div>
+          )}
         </div>
       ) : (
       <div className="space-y-4">
@@ -627,6 +638,7 @@ export default function CampaignDetail() {
       ) : (
         <ListView
           filteredItems={filteredItems}
+          hasFilter={!!(search.trim() || filterStatus !== "all")}
           isChemicalCampaign={isChemicalCampaign}
           isIrrigationCampaign={isIrrigationCampaign}
           campaign={campaign}
@@ -727,9 +739,10 @@ function ItemCard({ item, isChemicalCampaign, isIrrigationCampaign, campaign, ca
     : item.status === "skipped"
       ? <SkipForward className="w-4 h-4 text-amber-500 shrink-0" />
       : <Clock className="w-4 h-4 text-muted-foreground shrink-0" />;
+  const isArchived = campaign.status === "archived";
   return (
     <Card
-      className="hover-elevate cursor-pointer"
+      className={`cursor-pointer ${isArchived ? "opacity-75" : "hover-elevate"}`}
       onClick={() => navigate(`/dashboard/campaigns/${campaignId}/items/${item.id}`)}
       data-testid={`card-campaign-item-${item.id}`}
     >
@@ -737,7 +750,15 @@ function ItemCard({ item, isChemicalCampaign, isIrrigationCampaign, campaign, ca
         <div className="flex items-center gap-3">
           {statusIconEl}
           <div className="flex-1 min-w-0">
-            <div className="font-medium truncate" data-testid={`text-item-name-${item.id}`}>{item.customerName}</div>
+            <div className="flex items-center gap-2 flex-wrap">
+              <span className="font-medium truncate" data-testid={`text-item-name-${item.id}`}>{item.customerName}</span>
+              {isArchived && (
+                <Badge variant="secondary" className="text-xs shrink-0 gap-1" data-testid={`badge-archived-item-${item.id}`}>
+                  <Archive className="w-3 h-3" />
+                  Archived
+                </Badge>
+              )}
+            </div>
             <div className="flex items-center gap-3 text-xs text-muted-foreground flex-wrap">
               {item.customerCity && (
                 <span className="flex items-center gap-1">
@@ -795,13 +816,14 @@ function ItemCard({ item, isChemicalCampaign, isIrrigationCampaign, campaign, ca
 
 interface ListViewProps extends Omit<ItemCardProps, "item"> {
   filteredItems: CampaignItemWithUser[];
+  hasFilter: boolean;
   openSectionCollapsed: boolean;
   setOpenSectionCollapsed: (v: boolean) => void;
   completedSectionCollapsed: boolean;
   setCompletedSectionCollapsed: (v: boolean) => void;
 }
 
-function ListView({ filteredItems, isChemicalCampaign, isIrrigationCampaign, campaign, campaignId, navigate, getChemStepIcon, getChemStepLabel, t, openSectionCollapsed, setOpenSectionCollapsed, completedSectionCollapsed, setCompletedSectionCollapsed }: ListViewProps) {
+function ListView({ filteredItems, hasFilter, isChemicalCampaign, isIrrigationCampaign, campaign, campaignId, navigate, getChemStepIcon, getChemStepLabel, t, openSectionCollapsed, setOpenSectionCollapsed, completedSectionCollapsed, setCompletedSectionCollapsed }: ListViewProps) {
   const openItems = filteredItems.filter(i => i.status === "pending");
   const completedItems = filteredItems.filter(i => i.status === "completed" || i.status === "skipped");
 
@@ -810,8 +832,14 @@ function ListView({ filteredItems, isChemicalCampaign, isIrrigationCampaign, cam
   if (filteredItems.length === 0) {
     return (
       <Card>
-        <CardContent className="py-8 text-center text-muted-foreground">
-          {t("common.noResults")}
+        <CardContent className="p-0">
+          <EmptyState
+            icon={ClipboardCheck}
+            title={hasFilter ? t("common.noResults") : "No items in this campaign"}
+            description={hasFilter
+              ? "No campaign items match your current search or filter. Try adjusting your criteria."
+              : "This campaign has no items yet. Add properties to get started."}
+          />
         </CardContent>
       </Card>
     );

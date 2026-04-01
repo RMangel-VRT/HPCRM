@@ -1,6 +1,6 @@
-import { type User, type InsertUser, type Customer, type InsertCustomer, type Contact, type InsertContact, type Company, type InsertCompany, type CompanyUser, type InsertCompanyUser, type Settings, type InsertSettings, type Note, type InsertNote, type Contract, type InsertContract, type ContractStatusHistory, type InsertContractStatusHistory, type ContractDocument, type InsertContractDocument, type ContractMonthlyAmount, type InsertContractMonthlyAmount, type CustomerRateSheet, type InsertCustomerRateSheet, type ContractService, type InsertContractService, type ContractTemplate, type InsertContractTemplate, type ContractBuilderDocument, type InsertContractBuilderDocument, type ContractBuilderSection, type InsertContractBuilderSection, type ContractBuilderVariable, type InsertContractBuilderVariable, type TicketType, type InsertTicketType, type TicketTypeStatus, type InsertTicketTypeStatus, type TicketTypeField, type InsertTicketTypeField, type Ticket, type InsertTicket, type TicketFieldValue, type InsertTicketFieldValue, type TicketStatusHistory, type InsertTicketStatusHistory, type TicketComment, type InsertTicketComment, type TicketCommentMention, type InsertTicketCommentMention, type TicketSource, type InsertTicketSource, type TicketLink, type InsertTicketLink, type TicketTypeCategory, type CustomerMapLayer, type InsertCustomerMapLayer, type CustomerMapDocument, type InsertCustomerMapDocument, type MaintenanceCrew, type InsertMaintenanceCrew, type MaintenanceVisitConfig, type InsertMaintenanceVisitConfig, type WeeklyScheduleTemplate, type InsertWeeklyScheduleTemplate, type ScheduleBlock, type InsertScheduleBlock, type TicketNotification, type InsertTicketNotification, type NotificationType, type PropertyManagementCompany, type InsertPropertyManagementCompany, type PropertyManager, type InsertPropertyManager, type PropertyManagerEmail, type InsertPropertyManagerEmail, type PropertyManagerPhone, type InsertPropertyManagerPhone, type PropertyManagerWithContacts, type Equipment, type InsertEquipment, type EquipmentFile, type InsertEquipmentFile, type EquipmentTicket, type InsertEquipmentTicket, type EquipmentTicketStatusHistory, type InsertEquipmentTicketStatusHistory, type EquipmentWithTicketCount, type SnowEvent, type InsertSnowEvent, type SnowEventAttachment, type InsertSnowEventAttachment, type SnowEventPropertyImpact, type InsertSnowEventPropertyImpact, type SnowEventWithDetails, type SnowEventPropertyImpactWithCustomer, type EmailTemplate, type InsertEmailTemplate, type EmailRule, type InsertEmailRule, type EmailLog, type InsertEmailLog, type EmailLogWithDetails, type Proposal, type InsertProposal, type ProposalFile, type InsertProposalFile, type ProposalWithDetails, type ProposalVersion, type InsertProposalVersion, type ProposalVersionWithUser, type VisualScopeSheet, type InsertVisualScopeSheet, type VisualScopeSheetWithCustomer, type Campaign, type InsertCampaign, type CampaignItem, type InsertCampaignItem, type CampaignWithProgress, type Season, type InsertSeason, type CampaignChecklistTask, type InsertCampaignChecklistTask, type CampaignItemTaskCompletion, type InsertCampaignItemTaskCompletion, type Communication, type InsertCommunication, type CommunicationTemplate, type InsertCommunicationTemplate, type CommunicationThread, type InsertCommunicationThread, type CommunicationLink, type InsertCommunicationLink, type CommunicationWithDetails, type CommunicationAnalytics, type InsertCommunicationAuditLog, type CommunicationAuditLog, type CommunicationAuditLogWithUser } from "@shared/schema";
+import { type User, type InsertUser, type Customer, type InsertCustomer, type Contact, type InsertContact, type Company, type InsertCompany, type CompanyUser, type InsertCompanyUser, type Settings, type InsertSettings, type Note, type InsertNote, type Contract, type InsertContract, type ContractStatusHistory, type InsertContractStatusHistory, type ContractDocument, type InsertContractDocument, type ContractMonthlyAmount, type InsertContractMonthlyAmount, type CustomerRateSheet, type InsertCustomerRateSheet, type ContractService, type InsertContractService, type ContractTemplate, type InsertContractTemplate, type ContractBuilderDocument, type InsertContractBuilderDocument, type ContractBuilderSection, type InsertContractBuilderSection, type ContractBuilderVariable, type InsertContractBuilderVariable, type TicketType, type InsertTicketType, type TicketTypeStatus, type InsertTicketTypeStatus, type TicketTypeField, type InsertTicketTypeField, type Ticket, type InsertTicket, type TicketFieldValue, type InsertTicketFieldValue, type TicketStatusHistory, type InsertTicketStatusHistory, type TicketComment, type InsertTicketComment, type TicketCommentMention, type InsertTicketCommentMention, type TicketSource, type InsertTicketSource, type TicketLink, type InsertTicketLink, type TicketTypeCategory, type CustomerMapLayer, type InsertCustomerMapLayer, type CustomerMapDocument, type InsertCustomerMapDocument, type MaintenanceCrew, type InsertMaintenanceCrew, type MaintenanceVisitConfig, type InsertMaintenanceVisitConfig, type WeeklyScheduleTemplate, type InsertWeeklyScheduleTemplate, type ScheduleBlock, type InsertScheduleBlock, type TicketNotification, type InsertTicketNotification, type NotificationType, type PropertyManagementCompany, type InsertPropertyManagementCompany, type PropertyManager, type InsertPropertyManager, type PropertyManagerEmail, type InsertPropertyManagerEmail, type PropertyManagerPhone, type InsertPropertyManagerPhone, type PropertyManagerWithContacts, type Equipment, type InsertEquipment, type EquipmentFile, type InsertEquipmentFile, type EquipmentTicket, type InsertEquipmentTicket, type EquipmentTicketStatusHistory, type InsertEquipmentTicketStatusHistory, type EquipmentWithTicketCount, type SnowEvent, type InsertSnowEvent, type SnowEventAttachment, type InsertSnowEventAttachment, type SnowEventPropertyImpact, type InsertSnowEventPropertyImpact, type SnowEventWithDetails, type SnowEventPropertyImpactWithCustomer, type EmailTemplate, type InsertEmailTemplate, type EmailRule, type InsertEmailRule, type EmailLog, type InsertEmailLog, type EmailLogWithDetails, type Proposal, type InsertProposal, type ProposalFile, type InsertProposalFile, type ProposalWithDetails, type ProposalVersion, type InsertProposalVersion, type ProposalVersionWithUser, type VisualScopeSheet, type InsertVisualScopeSheet, type VisualScopeSheetWithCustomer, type Campaign, type InsertCampaign, type CampaignItem, type InsertCampaignItem, type CampaignWithProgress, type Season, type InsertSeason, type CampaignChecklistTask, type InsertCampaignChecklistTask, type CampaignItemTaskCompletion, type InsertCampaignItemTaskCompletion, type CampaignChecklistAuditLog, type InsertCampaignChecklistAuditLog, type CampaignChecklistAuditLogWithUser, type Communication, type InsertCommunication, type CommunicationTemplate, type InsertCommunicationTemplate, type CommunicationThread, type InsertCommunicationThread, type CommunicationLink, type InsertCommunicationLink, type CommunicationWithDetails, type CommunicationAnalytics, type InsertCommunicationAuditLog, type CommunicationAuditLog, type CommunicationAuditLogWithUser } from "@shared/schema";
 import { db } from "./db";
-import { users, customers, contacts, companies, companyUsers, settings, notes, contracts, contractStatusHistory, contractDocuments, contractMonthlyAmounts, customerRateSheets, contractServices, contractTemplates, contractBuilderDocuments, contractBuilderSections, contractBuilderVariables, ticketTypes, ticketTypeStatuses, ticketTypeFields, tickets, ticketFieldValues, ticketStatusHistory, ticketComments, ticketCommentMentions, ticketSources, ticketLinks, customerMapLayers, customerMapDocuments, maintenanceCrews, maintenanceVisitConfigs, weeklyScheduleTemplates, scheduleBlocks, ticketNotifications, propertyManagementCompanies, propertyManagers, propertyManagerEmails, propertyManagerPhones, equipment, equipmentFiles, equipmentTickets, equipmentTicketStatusHistory, snowEvents, snowEventAttachments, snowEventPropertyImpacts, emailTemplates, emailRules, emailLogs, proposals, proposalFiles, proposalVersions, visualScopeSheets, campaigns, campaignItems, campaignChecklistTasks, campaignItemTaskCompletions, seasons, communications, communicationTemplates, communicationThreads, communicationLinks, communicationAuditLog, communicationAutomationRules } from "@shared/schema";
+import { users, customers, contacts, companies, companyUsers, settings, notes, contracts, contractStatusHistory, contractDocuments, contractMonthlyAmounts, customerRateSheets, contractServices, contractTemplates, contractBuilderDocuments, contractBuilderSections, contractBuilderVariables, ticketTypes, ticketTypeStatuses, ticketTypeFields, tickets, ticketFieldValues, ticketStatusHistory, ticketComments, ticketCommentMentions, ticketSources, ticketLinks, customerMapLayers, customerMapDocuments, maintenanceCrews, maintenanceVisitConfigs, weeklyScheduleTemplates, scheduleBlocks, ticketNotifications, propertyManagementCompanies, propertyManagers, propertyManagerEmails, propertyManagerPhones, equipment, equipmentFiles, equipmentTickets, equipmentTicketStatusHistory, snowEvents, snowEventAttachments, snowEventPropertyImpacts, emailTemplates, emailRules, emailLogs, proposals, proposalFiles, proposalVersions, visualScopeSheets, campaigns, campaignItems, campaignChecklistTasks, campaignItemTaskCompletions, campaignChecklistAuditLog as campaignChecklistAuditLogTable, seasons, communications, communicationTemplates, communicationThreads, communicationLinks, communicationAuditLog, communicationAutomationRules } from "@shared/schema";
 import { eq, and, sql, desc, inArray, max } from "drizzle-orm";
 import session from "express-session";
 import connectPg from "connect-pg-simple";
@@ -346,6 +346,14 @@ export interface IStorage {
   getCampaignItemTaskCompletions(campaignItemId: string): Promise<CampaignItemTaskCompletion[]>;
   createCampaignItemTaskCompletion(completion: InsertCampaignItemTaskCompletion): Promise<CampaignItemTaskCompletion>;
   deleteCampaignItemTaskCompletion(campaignItemId: string, campaignChecklistTaskId: string): Promise<void>;
+  createCampaignChecklistAuditLog(entry: InsertCampaignChecklistAuditLog): Promise<CampaignChecklistAuditLog>;
+  getCampaignChecklistAuditLog(campaignItemId: string): Promise<CampaignChecklistAuditLogWithUser[]>;
+  toggleCampaignChecklistTaskTx(params: {
+    campaignItemId: string;
+    taskId: string;
+    userId: string;
+    currentlyCompleted: boolean;
+  }): Promise<{ action: "completed" | "uncompleted" }>;
 
   getSeasons(companyId: string): Promise<Season[]>;
   getSeasonById(id: string, companyId: string): Promise<Season | undefined>;
@@ -3022,6 +3030,64 @@ export class PgStorage implements IStorage {
         eq(campaignItemTaskCompletions.campaignChecklistTaskId, campaignChecklistTaskId)
       )
     );
+  }
+
+  async createCampaignChecklistAuditLog(entry: InsertCampaignChecklistAuditLog): Promise<CampaignChecklistAuditLog> {
+    const [row] = await db.insert(campaignChecklistAuditLogTable).values(entry as typeof campaignChecklistAuditLogTable.$inferInsert).returning();
+    return row;
+  }
+
+  async getCampaignChecklistAuditLog(campaignItemId: string): Promise<CampaignChecklistAuditLogWithUser[]> {
+    const rows = await db.select({
+      log: campaignChecklistAuditLogTable,
+      userName: users.name,
+      taskLabel: campaignChecklistTasks.label,
+    })
+      .from(campaignChecklistAuditLogTable)
+      .leftJoin(users, eq(campaignChecklistAuditLogTable.userId, users.id))
+      .leftJoin(campaignChecklistTasks, eq(campaignChecklistAuditLogTable.campaignChecklistTaskId, campaignChecklistTasks.id))
+      .where(eq(campaignChecklistAuditLogTable.campaignItemId, campaignItemId))
+      .orderBy(desc(campaignChecklistAuditLogTable.timestamp));
+    return rows.map(r => ({
+      ...r.log,
+      userName: r.userName ?? undefined,
+      taskLabel: r.taskLabel ?? undefined,
+    }));
+  }
+
+  async toggleCampaignChecklistTaskTx(params: {
+    campaignItemId: string;
+    taskId: string;
+    userId: string;
+    currentlyCompleted: boolean;
+  }): Promise<{ action: "completed" | "uncompleted" }> {
+    const { campaignItemId, taskId, userId, currentlyCompleted } = params;
+    const action: "completed" | "uncompleted" = currentlyCompleted ? "uncompleted" : "completed";
+
+    await db.transaction(async (tx) => {
+      if (currentlyCompleted) {
+        await tx.delete(campaignItemTaskCompletions).where(
+          and(
+            eq(campaignItemTaskCompletions.campaignItemId, campaignItemId),
+            eq(campaignItemTaskCompletions.campaignChecklistTaskId, taskId)
+          )
+        );
+      } else {
+        await tx.insert(campaignItemTaskCompletions).values({
+          campaignItemId,
+          campaignChecklistTaskId: taskId,
+          completedById: userId,
+        } as typeof campaignItemTaskCompletions.$inferInsert);
+      }
+      await tx.insert(campaignChecklistAuditLogTable).values({
+        campaignItemId,
+        campaignChecklistTaskId: taskId,
+        userId,
+        action,
+      } as typeof campaignChecklistAuditLogTable.$inferInsert);
+    });
+
+    return { action };
   }
 
   async getCommunications(companyId: string, filters?: { view?: string; customerId?: string; type?: string; sentById?: string; search?: string; startDate?: Date; endDate?: Date; status?: string; fromDate?: string; toDate?: string; threadId?: string }): Promise<CommunicationWithDetails[]> {

@@ -23,6 +23,7 @@ import {
   DialogFooter,
 } from "@/components/ui/dialog";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import EmptyState from "@/components/EmptyState";
 import {
   Select,
   SelectContent,
@@ -173,9 +174,14 @@ export default function CampaignsList() {
 
       {filteredCampaigns.length === 0 ? (
         <Card>
-          <CardContent className="flex flex-col items-center justify-center py-12 gap-3">
-            <ClipboardCheck className="w-12 h-12 text-muted-foreground/40" />
-            <p className="text-muted-foreground">{t("campaigns.noCampaigns")}</p>
+          <CardContent className="p-0">
+            <EmptyState
+              icon={ClipboardCheck}
+              title={(search.trim() || statusFilter !== "all") ? t("campaigns.noCampaigns") : "No campaigns yet"}
+              description={(search.trim() || statusFilter !== "all")
+                ? "No campaigns match your current filters. Try adjusting the search or status filter."
+                : "Create your first campaign to start managing work across multiple properties."}
+            />
           </CardContent>
         </Card>
       ) : (

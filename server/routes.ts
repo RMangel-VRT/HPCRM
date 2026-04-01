@@ -10389,14 +10389,15 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.post("/api/campaigns/:id/items/:itemId/checklist/:taskId/toggle", async (req, res) => {
     if (!req.isAuthenticated()) return res.status(401).send("Not authenticated");
     const user = req.user as UserWithContext;
-    const allowedRoles = ["admin", "office", "field_manager", "field", "chemical_manager", "landscape_supervisor"];
+    const allowedRoles = ["admin", "office", "field_manager", "field", "irrigation_manager"];
     if (!allowedRoles.includes(user.activeRole)) {
       return res.status(403).send("Insufficient permissions");
     }
     const campaign = await storage.getCampaignById(req.params.id, user.activeCompanyId);
     if (!campaign) return res.status(404).json({ error: "Campaign not found" });
     if (campaign.category !== "irrigation") return res.status(400).json({ error: "Not an irrigation campaign" });
-    if ((user.activeRole === "field" || user.activeRole === "landscape_supervisor") && campaign.assignedToId !== user.id) {
+    if (campaign.status === "archived") return res.status(403).json({ error: "Campaign is archived — checklist is read-only" });
+    if (user.activeRole === "field" && campaign.assignedToId !== user.id) {
       return res.status(403).send("Not assigned to this campaign");
     }
     const items = await storage.getCampaignItems(req.params.id, user.activeCompanyId);
@@ -10405,29 +10406,28 @@ export async function registerRoutes(app: Express): Promise<Server> {
     if (targetItem.status === "skipped") return res.status(400).json({ error: "Cannot toggle tasks on a skipped item" });
 
     const existingCompletions = await storage.getCampaignItemTaskCompletions(req.params.itemId);
-    const alreadyCompleted = existingCompletions.find(c => c.campaignChecklistTaskId === req.params.taskId);
+    const alreadyCompleted = !!existingCompletions.find(c => c.campaignChecklistTaskId === req.params.taskId);
 
-    if (alreadyCompleted) {
-      await storage.deleteCampaignItemTaskCompletion(req.params.itemId, req.params.taskId);
-      if (targetItem.status === "completed") {
-        await storage.updateCampaignItem(req.params.itemId, user.activeCompanyId, {
-          status: "pending",
-          completedById: null,
-          completedAt: null,
-          updatedAt: new Date(),
-        });
-        const allItems = await storage.getCampaignItems(req.params.id, user.activeCompanyId);
-        const hasPending = allItems.some(i => i.id === req.params.itemId ? true : i.status === "pending");
-        if (hasPending && campaign.status === "completed") {
-          await storage.updateCampaign(req.params.id, user.activeCompanyId, { status: "active" });
-        }
-      }
-    } else {
-      await storage.createCampaignItemTaskCompletion({
-        campaignItemId: req.params.itemId,
-        campaignChecklistTaskId: req.params.taskId,
-        completedById: user.id,
+    const { action } = await storage.toggleCampaignChecklistTaskTx({
+      campaignItemId: req.params.itemId,
+      taskId: req.params.taskId,
+      userId: user.id,
+      currentlyCompleted: alreadyCompleted,
+    });
+
+    if (action === "uncompleted" && targetItem.status === "completed") {
+      await storage.updateCampaignItem(req.params.itemId, user.activeCompanyId, {
+        status: "pending",
+        completedById: null,
+        completedAt: null,
+        updatedAt: new Date(),
       });
+      const allItems = await storage.getCampaignItems(req.params.id, user.activeCompanyId);
+      const hasPending = allItems.some(i => i.id === req.params.itemId ? true : i.status === "pending");
+      if (hasPending && campaign.status === "completed") {
+        await storage.updateCampaign(req.params.id, user.activeCompanyId, { status: "active" });
+      }
+    } else if (action === "completed") {
       const updatedCompletions = await storage.getCampaignItemTaskCompletions(req.params.itemId);
       const allTasks = await storage.getCampaignChecklistTasks(req.params.id);
       if (updatedCompletions.length >= allTasks.length) {
@@ -10448,6 +10448,25 @@ export async function registerRoutes(app: Express): Promise<Server> {
     const finalCompletions = await storage.getCampaignItemTaskCompletions(req.params.itemId);
     const updatedItem = (await storage.getCampaignItems(req.params.id, user.activeCompanyId)).find(i => i.id === req.params.itemId);
     res.json({ item: updatedItem, completions: finalCompletions });
+  });
+
+  app.get("/api/campaigns/:id/items/:itemId/checklist/audit", async (req, res) => {
+    if (!req.isAuthenticated()) return res.status(401).send("Not authenticated");
+    const user = req.user as UserWithContext;
+    const allowedRoles = ["admin", "office", "field_manager", "field", "chemical_manager", "landscape_supervisor", "irrigation_manager"];
+    if (!allowedRoles.includes(user.activeRole)) {
+      return res.status(403).send("Insufficient permissions");
+    }
+    const campaign = await storage.getCampaignById(req.params.id, user.activeCompanyId);
+    if (!campaign) return res.status(404).json({ error: "Campaign not found" });
+    if (user.activeRole === "field" && campaign.assignedToId !== user.id) {
+      return res.status(403).send("Not assigned to this campaign");
+    }
+    const items = await storage.getCampaignItems(req.params.id, user.activeCompanyId);
+    const targetItem = items.find(i => i.id === req.params.itemId);
+    if (!targetItem) return res.status(404).json({ error: "Item not found" });
+    const auditLog = await storage.getCampaignChecklistAuditLog(req.params.itemId);
+    res.json(auditLog);
   });
 
   app.patch("/api/campaigns/:id/items/:itemId", async (req, res) => {

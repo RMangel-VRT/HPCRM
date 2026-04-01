@@ -35,7 +35,13 @@ import {
   Wrench,
   Send,
   AlertCircle,
+  Activity,
+  ChevronDown,
+  ChevronRight,
+  Archive,
+  ClipboardList,
 } from "lucide-react";
+import type { CampaignChecklistAuditLogWithUser } from "@shared/schema";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -103,6 +109,7 @@ export default function CampaignItemDetail() {
   const [preNoticeWindowEnd, setPreNoticeWindowEnd] = useState("");
   const [showFinishWithoutComms, setShowFinishWithoutComms] = useState(false);
   const [finishDate, setFinishDate] = useState("");
+  const [activityExpanded, setActivityExpanded] = useState(false);
 
   const { data: campaign, isLoading } = useQuery<CampaignDetailData>({
     queryKey: ["/api/campaigns", campaignId],
@@ -121,6 +128,29 @@ export default function CampaignItemDetail() {
   });
 
   const item = campaign?.items?.find(i => i.id === itemId);
+
+  const { data: customerExists, isLoading: customerCheckLoading } = useQuery<boolean>({
+    queryKey: ["/api/customers", item?.customerId, "exists"],
+    queryFn: async () => {
+      if (!item?.customerId) return false;
+      const res = await fetch(`/api/customers/${item.customerId}`, { credentials: "include" });
+      return res.ok;
+    },
+    enabled: !!item?.customerId,
+    staleTime: 60000,
+  });
+
+  const { data: auditLog = [], isLoading: auditLogLoading } = useQuery<CampaignChecklistAuditLogWithUser[]>({
+    queryKey: ["/api/campaigns", campaignId, "items", itemId, "checklist", "audit"],
+    queryFn: async () => {
+      const res = await fetch(`/api/campaigns/${campaignId}/items/${itemId}/checklist/audit`, { credentials: "include" });
+      if (!res.ok) return [];
+      return res.json();
+    },
+    enabled: !!campaignId && !!itemId && activityExpanded,
+  });
+
+  const isArchivedCampaign = campaign?.status === "archived";
 
   const canManage = user?.activeRole === "admin" || user?.activeRole === "office";
   const canComplete = ["admin", "office", "field_manager", "field", "chemical_manager", "landscape_supervisor"].includes(user?.activeRole || "");
@@ -221,6 +251,7 @@ export default function CampaignItemDetail() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/campaigns", campaignId] });
       queryClient.invalidateQueries({ queryKey: ["/api/campaigns"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/campaigns", campaignId, "items", itemId, "checklist", "audit"] });
     },
     onError: () => {
       toast({ title: t("campaigns.updateFailed"), variant: "destructive" });
@@ -308,6 +339,16 @@ export default function CampaignItemDetail() {
           </p>
         </div>
       </div>
+
+      {isArchivedCampaign && (
+        <div className="flex items-center gap-3 p-4 rounded-md border border-amber-500/30 bg-amber-500/10 text-amber-800 dark:text-amber-300" data-testid="banner-archived-campaign">
+          <Archive className="w-5 h-5 shrink-0" />
+          <div>
+            <p className="font-semibold text-sm">This campaign is archived — checklist is read-only</p>
+            <p className="text-xs mt-0.5 opacity-80">No actions can be performed on archived campaigns. Reactivate the campaign to make changes.</p>
+          </div>
+        </div>
+      )}
 
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
         <Card>
@@ -501,6 +542,12 @@ export default function CampaignItemDetail() {
           <CardTitle className="text-sm">{t("campaigns.itemCustomerLinks")}</CardTitle>
         </CardHeader>
         <CardContent className="pt-0">
+          {(!item.customerId || (!customerCheckLoading && customerExists === false)) ? (
+            <div className="flex items-center gap-2 p-3 rounded-md border border-destructive/30 bg-destructive/10 text-destructive text-sm" data-testid="warning-missing-customer">
+              <AlertCircle className="w-4 h-4 shrink-0" />
+              <span>{!item.customerId ? "Customer record not linked" : "Linked customer record no longer exists"}</span>
+            </div>
+          ) : (
           <div className="flex items-center gap-2 flex-wrap">
             <Button
               variant="outline"
@@ -520,6 +567,7 @@ export default function CampaignItemDetail() {
               </Link>
             )}
           </div>
+          )}
         </CardContent>
       </Card>
 
@@ -607,7 +655,7 @@ export default function CampaignItemDetail() {
               )}
             </div>
 
-            {item.status !== "skipped" && (
+            {item.status !== "skipped" && !isArchivedCampaign && (
               <div className="flex flex-col sm:flex-row sm:items-center gap-2 w-full sm:w-auto">
                 {(item.workflowStep ?? "pre_communication") === "pre_communication" && canSendChemEmails && (
                   <Button
@@ -681,7 +729,7 @@ export default function CampaignItemDetail() {
                     {t("campaigns.chemCompletedWithoutComms")}
                   </Badge>
                 )}
-                {canFinishWithoutComms && item.status !== "completed" && item.status !== "skipped" && (
+                {!isArchivedCampaign && canFinishWithoutComms && item.status !== "completed" && item.status !== "skipped" && (
                   <Button
                     variant="outline"
                     onClick={() => {
@@ -695,7 +743,7 @@ export default function CampaignItemDetail() {
                     {t("campaigns.chemFinishWithoutComms")}
                   </Button>
                 )}
-                {canReopen && (item.workflowStep ?? "pre_communication") !== "pre_communication" && item.status !== "completed" && (
+                {!isArchivedCampaign && canReopen && (item.workflowStep ?? "pre_communication") !== "pre_communication" && item.status !== "completed" && (
                   <Button
                     variant="outline"
                     size="sm"
@@ -710,7 +758,7 @@ export default function CampaignItemDetail() {
               </div>
             )}
 
-            {item.status !== "completed" && item.status !== "skipped" && canSkip && (
+            {!isArchivedCampaign && item.status !== "completed" && item.status !== "skipped" && canSkip && (
               <div className="flex flex-col sm:flex-row sm:items-center gap-2">
                 {!showSkip ? (
                   <Button
@@ -748,7 +796,7 @@ export default function CampaignItemDetail() {
               </div>
             )}
 
-            {item.status === "skipped" && canReopen && (
+            {!isArchivedCampaign && item.status === "skipped" && canReopen && (
               <Button
                 variant="outline"
                 className="w-full sm:w-auto"
@@ -764,18 +812,27 @@ export default function CampaignItemDetail() {
         </Card>
       )}
 
-      {isIrrigationCampaign && campaign.checklistTasks && campaign.checklistTasks.length > 0 && (
+      {isIrrigationCampaign && (
         <Card data-testid="card-irrigation-checklist">
           <CardHeader className="pb-3">
             <CardTitle className="text-sm flex items-center gap-2">
               <CheckCircle2 className="w-4 h-4" />
               {t("campaigns.checklistTasks")}
-              <Badge variant="outline" className="ml-auto text-xs">
-                {campaign.itemTaskCompletions?.[item.id]?.length || 0}/{campaign.checklistTasks.length}
-              </Badge>
+              {campaign.checklistTasks && campaign.checklistTasks.length > 0 && (
+                <Badge variant="outline" className="ml-auto text-xs">
+                  {campaign.itemTaskCompletions?.[item.id]?.length || 0}/{campaign.checklistTasks.length}
+                </Badge>
+              )}
             </CardTitle>
           </CardHeader>
           <CardContent className="pt-0 space-y-2">
+            {(!campaign.checklistTasks || campaign.checklistTasks.length === 0) ? (
+              <div className="flex items-center gap-2 p-3 rounded-md border border-dashed text-sm text-muted-foreground" data-testid="empty-checklist-tasks">
+                <ClipboardList className="w-4 h-4 shrink-0" />
+                <span>No checklist tasks have been configured for this campaign</span>
+              </div>
+            ) : (
+            <>
             {campaign.checklistTasks.map(task => {
               const isChecked = campaign.itemTaskCompletions?.[item.id]?.includes(task.id) || false;
               return (
@@ -787,9 +844,9 @@ export default function CampaignItemDetail() {
                   <input
                     type="checkbox"
                     checked={isChecked}
-                    onChange={() => toggleChecklistTaskMutation.mutate(task.id)}
-                    disabled={toggleChecklistTaskMutation.isPending || item.status === "skipped"}
-                    className="w-4 h-4 rounded accent-green-600 cursor-pointer"
+                    onChange={() => !isArchivedCampaign && toggleChecklistTaskMutation.mutate(task.id)}
+                    disabled={toggleChecklistTaskMutation.isPending || item.status === "skipped" || isArchivedCampaign}
+                    className="w-4 h-4 rounded accent-green-600 cursor-pointer disabled:cursor-not-allowed"
                     data-testid={`checkbox-task-${task.id}`}
                   />
                   <span className={`text-sm flex-1 ${isChecked ? "line-through text-muted-foreground" : ""}`}>
@@ -806,7 +863,7 @@ export default function CampaignItemDetail() {
                 </Badge>
               </div>
             )}
-            {item.status !== "completed" && item.status !== "skipped" && canSkip && (
+            {!isArchivedCampaign && item.status !== "completed" && item.status !== "skipped" && canSkip && (
               <div className="flex items-center gap-2 pt-2 flex-wrap">
                 {!showSkip ? (
                   <Button
@@ -841,7 +898,7 @@ export default function CampaignItemDetail() {
                 )}
               </div>
             )}
-            {canReopen && (item.status === "completed" || item.status === "skipped") && (
+            {!isArchivedCampaign && canReopen && (item.status === "completed" || item.status === "skipped") && (
               <div className="flex items-center gap-2 pt-2">
                 <Button
                   variant="outline"
@@ -855,11 +912,80 @@ export default function CampaignItemDetail() {
                 </Button>
               </div>
             )}
+            </>
+            )}
           </CardContent>
         </Card>
       )}
 
-      {!isChemicalCampaign && !isIrrigationCampaign && canComplete && (
+      {isIrrigationCampaign && (
+        <Card data-testid="card-checklist-activity">
+          <button
+            className="w-full text-left"
+            onClick={() => setActivityExpanded(prev => !prev)}
+            data-testid="button-toggle-activity"
+          >
+            <CardHeader className="pb-3">
+              <CardTitle className="text-sm flex items-center gap-2">
+                <Activity className="w-4 h-4" />
+                Checklist Activity
+                {activityExpanded ? (
+                  <ChevronDown className="w-4 h-4 ml-auto text-muted-foreground" />
+                ) : (
+                  <ChevronRight className="w-4 h-4 ml-auto text-muted-foreground" />
+                )}
+              </CardTitle>
+            </CardHeader>
+          </button>
+          {activityExpanded && (
+            <CardContent className="pt-0">
+              {auditLogLoading ? (
+                <div className="flex items-center gap-2 py-4 text-sm text-muted-foreground" data-testid="loading-activity">
+                  <Loader2 className="w-4 h-4 animate-spin" />
+                  <span>Loading activity...</span>
+                </div>
+              ) : auditLog.length === 0 ? (
+                <p className="text-sm text-muted-foreground py-4 text-center" data-testid="empty-activity">
+                  No checklist activity yet
+                </p>
+              ) : (
+                <div className="space-y-2" data-testid="activity-list">
+                  {auditLog.map((entry) => (
+                    <div
+                      key={entry.id}
+                      className="flex items-start gap-3 py-2 border-b last:border-0"
+                      data-testid={`activity-entry-${entry.id}`}
+                    >
+                      <div className={`mt-0.5 w-5 h-5 rounded-full flex items-center justify-center shrink-0 ${entry.action === "completed" ? "bg-green-600/15 text-green-600" : "bg-muted text-muted-foreground"}`}>
+                        {entry.action === "completed" ? (
+                          <CheckCircle2 className="w-3 h-3" />
+                        ) : (
+                          <RotateCcw className="w-3 h-3" />
+                        )}
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <p className="text-sm">
+                          <span className="font-medium">{entry.userName ?? "Unknown user"}</span>
+                          {" "}
+                          <span className="text-muted-foreground">
+                            {entry.action === "completed" ? "checked off" : "unchecked"}{" "}
+                            <span className="text-foreground">{entry.taskLabel}</span>
+                          </span>
+                        </p>
+                        <p className="text-xs text-muted-foreground mt-0.5">
+                          {format(new Date(String(entry.timestamp)), "MMM d, yyyy 'at' h:mm a")}
+                        </p>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </CardContent>
+          )}
+        </Card>
+      )}
+
+      {!isChemicalCampaign && !isIrrigationCampaign && canComplete && !isArchivedCampaign && (
         <Card>
           <CardContent className="p-4">
             <div className="flex flex-col sm:flex-row sm:items-center gap-2">

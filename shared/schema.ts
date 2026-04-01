@@ -1748,6 +1748,30 @@ export const insertCampaignItemTaskCompletionSchema = createInsertSchema(campaig
 export type InsertCampaignItemTaskCompletion = z.infer<typeof insertCampaignItemTaskCompletionSchema>;
 export type CampaignItemTaskCompletion = typeof campaignItemTaskCompletions.$inferSelect;
 
+export const campaignChecklistAuditLog = pgTable("campaign_checklist_audit_log", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  campaignItemId: varchar("campaign_item_id").notNull().references(() => campaignItems.id, { onDelete: "cascade" }),
+  campaignChecklistTaskId: varchar("campaign_checklist_task_id").notNull().references(() => campaignChecklistTasks.id, { onDelete: "cascade" }),
+  userId: varchar("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+  action: text("action").notNull().$type<"completed" | "uncompleted">(),
+  timestamp: timestamp("timestamp").notNull().defaultNow(),
+});
+
+export const insertCampaignChecklistAuditLogSchema = createInsertSchema(campaignChecklistAuditLog).omit({
+  id: true,
+  timestamp: true,
+}).extend({
+  action: z.enum(["completed", "uncompleted"]),
+});
+
+export type InsertCampaignChecklistAuditLog = z.infer<typeof insertCampaignChecklistAuditLogSchema>;
+export type CampaignChecklistAuditLog = typeof campaignChecklistAuditLog.$inferSelect;
+
+export type CampaignChecklistAuditLogWithUser = CampaignChecklistAuditLog & {
+  userName?: string;
+  taskLabel?: string;
+};
+
 export type CampaignWithProgress = Campaign & {
   totalItems: number;
   completedItems: number;
