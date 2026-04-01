@@ -1727,6 +1727,8 @@ export default function CustomerDetail() {
             <Map className="w-4 h-4 mr-1" />
             {t("customerDetail.tabs.maps")}
           </TabsTrigger>
+          {/* TODO (Task #90): Add Service Checklist tab trigger here. When implemented, the item detail drawer
+              in that tab should display exceptionType and notes in a "Why not completed?" section per Task #92. */}
           {(user?.activeRole === "admin" || user?.activeRole === "office") && (
             <TabsTrigger value="service-checklist" data-testid="tab-service-checklist">
               <CheckCircle2 className="w-4 h-4 mr-1" />

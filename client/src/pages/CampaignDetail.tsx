@@ -69,6 +69,8 @@ import {
   List,
   Columns,
   ClipboardCheck,
+  StickyNote,
+  AlertCircle,
 } from "lucide-react";
 import type { Campaign, CampaignItem, Season, CampaignChecklistTask, Customer, CompanyUser, User as UserType } from "@shared/schema";
 
@@ -125,6 +127,8 @@ export default function CampaignDetail() {
   const [, navigate] = useLocation();
   const [search, setSearch] = useState("");
   const [filterStatus, setFilterStatus] = useState<string>("all");
+  const [filterExceptionsOnly, setFilterExceptionsOnly] = useState(false);
+  const [selectedItem, setSelectedItem] = useState<CampaignItemWithUser | null>(null);
   const [deleteOpen, setDeleteOpen] = useState(false);
   const [activeTab, setActiveTab] = useState<"items" | "report">("items");
   const [seasonDialogOpen, setSeasonDialogOpen] = useState(false);
@@ -252,12 +256,15 @@ export default function CampaignDetail() {
     if (filterStatus !== "all") {
       items = items.filter(i => i.status === filterStatus);
     }
+    if (filterExceptionsOnly) {
+      items = items.filter(i => !!i.exceptionType);
+    }
     if (search.trim()) {
       const s = search.toLowerCase();
       items = items.filter(i => i.customerName.toLowerCase().includes(s));
     }
     return sortItems(items);
-  }, [campaign?.items, filterStatus, search, sortBy]);
+  }, [campaign?.items, filterStatus, filterExceptionsOnly, search, sortBy]);
 
   const kanbanItems = useMemo(() => {
     if (!campaign?.items) return [];
@@ -266,8 +273,11 @@ export default function CampaignDetail() {
       const s = search.toLowerCase();
       items = items.filter(i => i.customerName.toLowerCase().includes(s));
     }
+    if (filterExceptionsOnly) {
+      items = items.filter(i => !!i.exceptionType);
+    }
     return sortItems(items);
-  }, [campaign?.items, search, sortBy]);
+  }, [campaign?.items, search, sortBy, filterExceptionsOnly]);
 
   const updateCampaignMutation = useMutation({
     mutationFn: async (data: { status?: string; title?: string; description?: string }) => {
@@ -587,6 +597,17 @@ export default function CampaignDetail() {
           </Select>
         )}
         {viewMode === "list" && (
+          <Button
+            variant={filterExceptionsOnly ? "default" : "outline"}
+            size="sm"
+            onClick={() => setFilterExceptionsOnly(!filterExceptionsOnly)}
+            data-testid="button-filter-exceptions"
+          >
+            <AlertCircle className="w-3.5 h-3.5 mr-1.5" />
+            Exceptions only
+          </Button>
+        )}
+        {viewMode === "list" && (
           <Select value={sortBy} onValueChange={setSortBy}>
             <SelectTrigger className="w-[180px]" data-testid="select-item-sort">
               <SelectValue />
@@ -644,6 +665,7 @@ export default function CampaignDetail() {
           campaign={campaign}
           campaignId={id!}
           navigate={navigate}
+          onSelectItem={setSelectedItem}
           getChemStepIcon={getChemStepIcon}
           getChemStepLabel={getChemStepLabel}
           t={t}
@@ -655,6 +677,96 @@ export default function CampaignDetail() {
       )}
       </div>
       )}
+
+      <Dialog open={!!selectedItem} onOpenChange={(open) => { if (!open) setSelectedItem(null); }}>
+        <DialogContent data-testid="dialog-item-detail-panel">
+          {selectedItem && (
+            <div className="space-y-4">
+              <DialogHeader>
+                <DialogTitle className="flex items-center gap-2">
+                  {selectedItem.status === "completed"
+                    ? <CheckCircle2 className="w-4 h-4 text-green-600" />
+                    : selectedItem.status === "skipped"
+                      ? <SkipForward className="w-4 h-4 text-amber-500" />
+                      : <Clock className="w-4 h-4 text-muted-foreground" />}
+                  {selectedItem.customerName}
+                </DialogTitle>
+              </DialogHeader>
+              <div className="flex items-center gap-2 flex-wrap">
+                <Badge
+                  variant={selectedItem.status === "completed" ? "default" : selectedItem.status === "skipped" ? "secondary" : "outline"}
+                  className={selectedItem.status === "completed" ? "bg-green-600" : ""}
+                >
+                  {selectedItem.status === "completed" ? t("campaigns.completed")
+                    : selectedItem.status === "skipped" ? t("campaigns.skippedLabel")
+                    : t("campaigns.pending")}
+                </Badge>
+                {selectedItem.exceptionType && (
+                  <Badge
+                    variant="outline"
+                    className="text-amber-600 border-amber-400 bg-amber-50 dark:bg-amber-950/20 dark:border-amber-700 dark:text-amber-400"
+                    data-testid="badge-panel-exception"
+                  >
+                    <AlertCircle className="w-3 h-3 mr-1" />
+                    {EXCEPTION_LABELS[selectedItem.exceptionType] || selectedItem.exceptionType}
+                  </Badge>
+                )}
+              </div>
+              {selectedItem.customerCity && (
+                <div className="flex items-center gap-1.5 text-sm text-muted-foreground">
+                  <MapPin className="w-3.5 h-3.5" />
+                  {selectedItem.customerCity}
+                </div>
+              )}
+              {selectedItem.completedAt && (
+                <div className="flex items-center gap-1.5 text-sm text-muted-foreground">
+                  <CheckCircle2 className="w-3.5 h-3.5" />
+                  Completed {format(new Date(selectedItem.completedAt), "PPp")}
+                  {selectedItem.completedByName && ` by ${selectedItem.completedByName}`}
+                </div>
+              )}
+              {(selectedItem.exceptionType || selectedItem.notes) && (
+                <div className="space-y-2 rounded-md border p-3 bg-amber-50/50 dark:bg-amber-950/10 border-amber-200 dark:border-amber-800" data-testid="panel-why-not-completed">
+                  <p className="text-sm font-semibold flex items-center gap-1.5">
+                    <AlertCircle className="w-3.5 h-3.5 text-amber-600" />
+                    Why not completed?
+                  </p>
+                  {selectedItem.exceptionType && (
+                    <p className="text-sm" data-testid="text-panel-exception-label">
+                      <span className="text-muted-foreground">Exception: </span>
+                      {EXCEPTION_LABELS[selectedItem.exceptionType] || selectedItem.exceptionType}
+                    </p>
+                  )}
+                  {selectedItem.notes && (
+                    <p className="text-sm whitespace-pre-wrap" data-testid="text-panel-notes">
+                      <span className="text-muted-foreground">Notes: </span>
+                      {selectedItem.notes}
+                    </p>
+                  )}
+                </div>
+              )}
+              {selectedItem.skipReason && (
+                <div className="flex items-center gap-1.5 text-sm">
+                  <SkipForward className="w-3.5 h-3.5 text-amber-500" />
+                  <span className="text-muted-foreground">Skip reason: </span>
+                  <span>{selectedItem.skipReason}</span>
+                </div>
+              )}
+              <div className="pt-2">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => { setSelectedItem(null); navigate(`/dashboard/campaigns/${id}/items/${selectedItem.id}`); }}
+                  data-testid="button-open-item-detail"
+                >
+                  Open Item Detail
+                  <ChevronRight className="w-3.5 h-3.5 ml-1" />
+                </Button>
+              </div>
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
 
       <Dialog open={seasonDialogOpen} onOpenChange={setSeasonDialogOpen}>
         <DialogContent>
@@ -721,6 +833,15 @@ export default function CampaignDetail() {
   );
 }
 
+const EXCEPTION_LABELS: Record<string, string> = {
+  weather_delayed: "Weather Delayed",
+  customer_declined: "Customer Declined",
+  inaccessible_area: "Inaccessible Area",
+  moved_to_next_visit: "Moved to Next Visit",
+  partial_completion: "Partial Completion",
+  waiting_on_approval: "Waiting on Approval",
+};
+
 interface ItemCardProps {
   item: CampaignItemWithUser;
   isChemicalCampaign: boolean;
@@ -728,12 +849,13 @@ interface ItemCardProps {
   campaign: CampaignDetailData;
   campaignId: string;
   navigate: (path: string) => void;
+  onSelectItem?: (item: CampaignItemWithUser) => void;
   getChemStepIcon: (step: string | null, itemStatus?: string) => (React.JSX.Element | null);
   getChemStepLabel: (step: string | null, itemStatus?: string) => string;
   t: (key: string) => string;
 }
 
-function ItemCard({ item, isChemicalCampaign, isIrrigationCampaign, campaign, campaignId, navigate, getChemStepIcon, getChemStepLabel, t }: ItemCardProps) {
+function ItemCard({ item, isChemicalCampaign, isIrrigationCampaign, campaign, campaignId, navigate, onSelectItem, getChemStepIcon, getChemStepLabel, t }: ItemCardProps) {
   const statusIconEl = item.status === "completed"
     ? <CheckCircle2 className="w-4 h-4 text-green-600 shrink-0" />
     : item.status === "skipped"
@@ -798,16 +920,40 @@ function ItemCard({ item, isChemicalCampaign, isIrrigationCampaign, campaign, ca
               </div>
             )}
           </div>
-          <Badge
-            variant={item.status === "completed" ? "default" : item.status === "skipped" ? "secondary" : "outline"}
-            className={item.status === "completed" ? "bg-green-600" : ""}
-            data-testid={`badge-item-status-${item.id}`}
-          >
-            {item.status === "completed" ? t("campaigns.completed")
-              : item.status === "skipped" ? t("campaigns.skippedLabel")
-              : t("campaigns.pending")}
-          </Badge>
-          <ChevronRight className="w-4 h-4 text-muted-foreground shrink-0" />
+          <div className="flex items-center gap-1.5 shrink-0">
+            {item.notes && (
+              <button
+                type="button"
+                className="flex items-center justify-center"
+                onClick={(e) => { e.stopPropagation(); onSelectItem?.(item); }}
+                data-testid={`icon-notes-${item.id}`}
+                title="Has notes — click to view"
+              >
+                <StickyNote className="w-3.5 h-3.5 text-muted-foreground hover:text-foreground transition-colors" />
+              </button>
+            )}
+            {item.exceptionType && (
+              <Badge
+                variant="outline"
+                className="text-amber-600 border-amber-400 bg-amber-50 dark:bg-amber-950/20 dark:border-amber-700 dark:text-amber-400 text-xs whitespace-nowrap"
+                data-testid={`badge-exception-${item.id}`}
+                onClick={(e) => { e.stopPropagation(); onSelectItem?.(item); }}
+              >
+                <AlertCircle className="w-3 h-3 mr-1" />
+                {EXCEPTION_LABELS[item.exceptionType] || item.exceptionType}
+              </Badge>
+            )}
+            <Badge
+              variant={item.status === "completed" ? "default" : item.status === "skipped" ? "secondary" : "outline"}
+              className={item.status === "completed" ? "bg-green-600" : ""}
+              data-testid={`badge-item-status-${item.id}`}
+            >
+              {item.status === "completed" ? t("campaigns.completed")
+                : item.status === "skipped" ? t("campaigns.skippedLabel")
+                : t("campaigns.pending")}
+            </Badge>
+            <ChevronRight className="w-4 h-4 text-muted-foreground" />
+          </div>
         </div>
       </CardContent>
     </Card>
@@ -823,11 +969,11 @@ interface ListViewProps extends Omit<ItemCardProps, "item"> {
   setCompletedSectionCollapsed: (v: boolean) => void;
 }
 
-function ListView({ filteredItems, hasFilter, isChemicalCampaign, isIrrigationCampaign, campaign, campaignId, navigate, getChemStepIcon, getChemStepLabel, t, openSectionCollapsed, setOpenSectionCollapsed, completedSectionCollapsed, setCompletedSectionCollapsed }: ListViewProps) {
+function ListView({ filteredItems, hasFilter, isChemicalCampaign, isIrrigationCampaign, campaign, campaignId, navigate, onSelectItem, getChemStepIcon, getChemStepLabel, t, openSectionCollapsed, setOpenSectionCollapsed, completedSectionCollapsed, setCompletedSectionCollapsed }: ListViewProps) {
   const openItems = filteredItems.filter(i => i.status === "pending");
   const completedItems = filteredItems.filter(i => i.status === "completed" || i.status === "skipped");
 
-  const cardProps = { isChemicalCampaign, isIrrigationCampaign, campaign, campaignId, navigate, getChemStepIcon, getChemStepLabel, t };
+  const cardProps = { isChemicalCampaign, isIrrigationCampaign, campaign, campaignId, navigate, onSelectItem, getChemStepIcon, getChemStepLabel, t };
 
   if (filteredItems.length === 0) {
     return (

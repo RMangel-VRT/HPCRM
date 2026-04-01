@@ -1699,6 +1699,7 @@ export const campaignItems = pgTable("campaign_items", {
   weatherConditions: text("weather_conditions"),
   weatherRecordedAt: timestamp("weather_recorded_at"),
   finishedWithoutComms: text("finished_without_comms").$type<"true" | "false">().default("false"),
+  exceptionType: text("exception_type").$type<"weather_delayed" | "customer_declined" | "inaccessible_area" | "moved_to_next_visit" | "partial_completion" | "waiting_on_approval">(),
   createdAt: timestamp("created_at").notNull().defaultNow(),
   updatedAt: timestamp("updated_at").notNull().defaultNow(),
 });
@@ -1714,6 +1715,7 @@ export const insertCampaignItemSchema = createInsertSchema(campaignItems).omit({
   weatherHumidity: z.number().nullable().optional(),
   weatherConditions: z.string().nullable().optional(),
   weatherRecordedAt: z.coerce.date().nullable().optional(),
+  exceptionType: z.enum(["weather_delayed", "customer_declined", "inaccessible_area", "moved_to_next_visit", "partial_completion", "waiting_on_approval"]).nullable().optional(),
 });
 
 export type InsertCampaignItem = z.infer<typeof insertCampaignItemSchema>;

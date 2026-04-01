@@ -1347,6 +1347,16 @@ export async function migrateEquipmentProfilePhotoColumn(): Promise<void> {
   }
 }
 
+export async function migrateCampaignItemExceptionType(): Promise<void> {
+  console.log("Running startup migration: Ensuring exception_type column exists on campaign_items table...");
+  try {
+    await db.execute(sql`ALTER TABLE campaign_items ADD COLUMN IF NOT EXISTS exception_type text`);
+    console.log("Campaign item exception_type column migration complete");
+  } catch (error) {
+    console.error("Error during campaign_items exception_type migration:", error);
+  }
+}
+
 export async function backfillCustomerType(): Promise<void> {
   console.log("Running startup migration: Backfilling customer_type for existing customers...");
   try {
@@ -10616,13 +10626,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
     if (!targetItem) {
       return res.status(404).json({ error: "Item not found in this campaign" });
     }
-    const { status, notes, skipReason, photos, chemAction, overrideEmail } = req.body as {
+    const { status, notes, skipReason, photos, chemAction, overrideEmail, exceptionType } = req.body as {
       status?: string;
       notes?: string;
       skipReason?: string;
       photos?: string[];
       chemAction?: string;
       overrideEmail?: string;
+      exceptionType?: string | null;
     };
 
     // Handle chemical workflow step advancement
@@ -10819,11 +10830,16 @@ export async function registerRoutes(app: Express): Promise<Server> {
     if (status === "skipped" && (!skipReason || !skipReason.trim())) {
       return res.status(400).json({ error: "Skip reason is required" });
     }
-    const updates: Partial<{ status: "pending" | "completed" | "skipped"; notes: string | null; skipReason: string | null; photos: string[]; completedById: string | null; completedAt: Date | null; updatedAt: Date }> = {};
+    const validExceptionTypes = ["weather_delayed", "customer_declined", "inaccessible_area", "moved_to_next_visit", "partial_completion", "waiting_on_approval"];
+    if (exceptionType !== undefined && exceptionType !== null && !validExceptionTypes.includes(exceptionType)) {
+      return res.status(400).json({ error: "Invalid exception type" });
+    }
+    const updates: Partial<{ status: "pending" | "completed" | "skipped"; notes: string | null; skipReason: string | null; photos: string[]; completedById: string | null; completedAt: Date | null; updatedAt: Date; exceptionType: string | null }> = {};
     if (status !== undefined) updates.status = status as "pending" | "completed" | "skipped";
     if (notes !== undefined) updates.notes = notes;
     if (skipReason !== undefined) updates.skipReason = skipReason;
     if (photos !== undefined) updates.photos = photos;
+    if (exceptionType !== undefined) updates.exceptionType = exceptionType;
     if (status === "completed" || status === "skipped") {
       updates.completedById = user.id;
       updates.completedAt = new Date();

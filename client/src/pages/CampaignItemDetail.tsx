@@ -16,6 +16,13 @@ import {
   DialogContent,
 } from "@/components/ui/dialog";
 import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import {
   Loader2,
   ArrowLeft,
   CheckCircle2,
@@ -96,6 +103,7 @@ export default function CampaignItemDetail() {
 
   const [notes, setNotes] = useState("");
   const [skipReason, setSkipReason] = useState("");
+  const [exceptionType, setExceptionType] = useState<string>("");
   const [photos, setPhotos] = useState<string[]>([]);
   const [showSkip, setShowSkip] = useState(false);
   const [uploading, setUploading] = useState(false);
@@ -168,13 +176,14 @@ export default function CampaignItemDetail() {
     if (item) {
       setNotes(item.notes || "");
       setSkipReason(item.skipReason || "");
+      setExceptionType(item.exceptionType || "");
       setPhotos(item.photos || []);
       setShowSkip(false);
     }
-  }, [item?.id, item?.notes, item?.skipReason, item?.photos]);
+  }, [item?.id, item?.notes, item?.skipReason, item?.photos, item?.exceptionType]);
 
   const updateItemMutation = useMutation({
-    mutationFn: async (data: { status?: string; notes?: string; skipReason?: string; photos?: string[]; chemAction?: string; overrideEmail?: string; completionDate?: string; weatherTemp?: number; weatherWindSpeed?: number; weatherWindDirection?: string; weatherHumidity?: number; weatherConditions?: string; customWindowStart?: string; customWindowEnd?: string }) => {
+    mutationFn: async (data: { status?: string; notes?: string; skipReason?: string; exceptionType?: string | null; photos?: string[]; chemAction?: string; overrideEmail?: string; completionDate?: string; weatherTemp?: number; weatherWindSpeed?: number; weatherWindDirection?: string; weatherHumidity?: number; weatherConditions?: string; customWindowStart?: string; customWindowEnd?: string }) => {
       if (data.chemAction && data.chemAction !== "reset" && data.chemAction !== "finish_without_comms") {
         const routeMap: Record<string, string> = {
           send_pre_communication: "send-pre-comm",
@@ -483,6 +492,45 @@ export default function CampaignItemDetail() {
           >
             {updateItemMutation.isPending && <Loader2 className="w-3 h-3 mr-1 animate-spin" />}
             {t("campaigns.saveNotes")}
+          </Button>
+        </CardContent>
+      </Card>
+
+      <Card data-testid="card-exception-type">
+        <CardHeader className="pb-3">
+          <CardTitle className="text-sm flex items-center gap-2">
+            <AlertCircle className="w-4 h-4" />
+            Exception Type
+          </CardTitle>
+        </CardHeader>
+        <CardContent className="pt-0 space-y-3">
+          <p className="text-xs text-muted-foreground">Flag why this item could not be completed normally. Can be set independently of status.</p>
+          <Select
+            value={exceptionType || "none"}
+            onValueChange={(val) => setExceptionType(val === "none" ? "" : val)}
+          >
+            <SelectTrigger data-testid="select-exception-type">
+              <SelectValue placeholder="No exception" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="none">No exception</SelectItem>
+              <SelectItem value="weather_delayed">Weather Delayed</SelectItem>
+              <SelectItem value="customer_declined">Customer Declined</SelectItem>
+              <SelectItem value="inaccessible_area">Inaccessible Area</SelectItem>
+              <SelectItem value="moved_to_next_visit">Moved to Next Visit</SelectItem>
+              <SelectItem value="partial_completion">Partial Completion</SelectItem>
+              <SelectItem value="waiting_on_approval">Waiting on Approval</SelectItem>
+            </SelectContent>
+          </Select>
+          <Button
+            size="sm"
+            variant="outline"
+            onClick={() => updateItemMutation.mutate({ exceptionType: exceptionType || null })}
+            disabled={updateItemMutation.isPending}
+            data-testid="button-save-exception-type"
+          >
+            {updateItemMutation.isPending && <Loader2 className="w-3 h-3 mr-1 animate-spin" />}
+            Save Exception
           </Button>
         </CardContent>
       </Card>
