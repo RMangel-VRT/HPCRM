@@ -1,7 +1,7 @@
 import { type User, type InsertUser, type Customer, type InsertCustomer, type Contact, type InsertContact, type Company, type InsertCompany, type CompanyUser, type InsertCompanyUser, type Settings, type InsertSettings, type Note, type InsertNote, type Contract, type InsertContract, type ContractStatusHistory, type InsertContractStatusHistory, type ContractDocument, type InsertContractDocument, type ContractMonthlyAmount, type InsertContractMonthlyAmount, type CustomerRateSheet, type InsertCustomerRateSheet, type ContractService, type InsertContractService, type ContractTemplate, type InsertContractTemplate, type ContractBuilderDocument, type InsertContractBuilderDocument, type ContractBuilderSection, type InsertContractBuilderSection, type ContractBuilderVariable, type InsertContractBuilderVariable, type TicketType, type InsertTicketType, type TicketTypeStatus, type InsertTicketTypeStatus, type TicketTypeField, type InsertTicketTypeField, type Ticket, type InsertTicket, type TicketFieldValue, type InsertTicketFieldValue, type TicketStatusHistory, type InsertTicketStatusHistory, type TicketComment, type InsertTicketComment, type TicketCommentMention, type InsertTicketCommentMention, type TicketSource, type InsertTicketSource, type TicketLink, type InsertTicketLink, type TicketTypeCategory, type CustomerMapLayer, type InsertCustomerMapLayer, type CustomerMapDocument, type InsertCustomerMapDocument, type MaintenanceCrew, type InsertMaintenanceCrew, type MaintenanceVisitConfig, type InsertMaintenanceVisitConfig, type WeeklyScheduleTemplate, type InsertWeeklyScheduleTemplate, type ScheduleBlock, type InsertScheduleBlock, type TicketNotification, type InsertTicketNotification, type NotificationType, type PropertyManagementCompany, type InsertPropertyManagementCompany, type PropertyManager, type InsertPropertyManager, type PropertyManagerEmail, type InsertPropertyManagerEmail, type PropertyManagerPhone, type InsertPropertyManagerPhone, type PropertyManagerWithContacts, type Equipment, type InsertEquipment, type EquipmentFile, type InsertEquipmentFile, type EquipmentTicket, type InsertEquipmentTicket, type EquipmentTicketStatusHistory, type InsertEquipmentTicketStatusHistory, type EquipmentWithTicketCount, type SnowEvent, type InsertSnowEvent, type SnowEventAttachment, type InsertSnowEventAttachment, type SnowEventPropertyImpact, type InsertSnowEventPropertyImpact, type SnowEventWithDetails, type SnowEventPropertyImpactWithCustomer, type EmailTemplate, type InsertEmailTemplate, type EmailRule, type InsertEmailRule, type EmailLog, type InsertEmailLog, type EmailLogWithDetails, type Proposal, type InsertProposal, type ProposalFile, type InsertProposalFile, type ProposalWithDetails, type ProposalVersion, type InsertProposalVersion, type ProposalVersionWithUser, type VisualScopeSheet, type InsertVisualScopeSheet, type VisualScopeSheetWithCustomer, type Campaign, type InsertCampaign, type CampaignItem, type InsertCampaignItem, type CampaignWithProgress, type Season, type InsertSeason, type CampaignChecklistTask, type InsertCampaignChecklistTask, type CampaignItemTaskCompletion, type InsertCampaignItemTaskCompletion, type CampaignChecklistAuditLog, type InsertCampaignChecklistAuditLog, type CampaignChecklistAuditLogWithUser, type Communication, type InsertCommunication, type CommunicationTemplate, type InsertCommunicationTemplate, type CommunicationThread, type InsertCommunicationThread, type CommunicationLink, type InsertCommunicationLink, type CommunicationWithDetails, type CommunicationAnalytics, type InsertCommunicationAuditLog, type CommunicationAuditLog, type CommunicationAuditLogWithUser } from "@shared/schema";
 import { db } from "./db";
 import { users, customers, contacts, companies, companyUsers, settings, notes, contracts, contractStatusHistory, contractDocuments, contractMonthlyAmounts, customerRateSheets, contractServices, contractTemplates, contractBuilderDocuments, contractBuilderSections, contractBuilderVariables, ticketTypes, ticketTypeStatuses, ticketTypeFields, tickets, ticketFieldValues, ticketStatusHistory, ticketComments, ticketCommentMentions, ticketSources, ticketLinks, customerMapLayers, customerMapDocuments, maintenanceCrews, maintenanceVisitConfigs, weeklyScheduleTemplates, scheduleBlocks, ticketNotifications, propertyManagementCompanies, propertyManagers, propertyManagerEmails, propertyManagerPhones, equipment, equipmentFiles, equipmentTickets, equipmentTicketStatusHistory, snowEvents, snowEventAttachments, snowEventPropertyImpacts, emailTemplates, emailRules, emailLogs, proposals, proposalFiles, proposalVersions, visualScopeSheets, campaigns, campaignItems, campaignChecklistTasks, campaignItemTaskCompletions, campaignChecklistAuditLog as campaignChecklistAuditLogTable, seasons, communications, communicationTemplates, communicationThreads, communicationLinks, communicationAuditLog, communicationAutomationRules, servicePlanTemplates, servicePlanTemplateItems, customerServicePlans } from "@shared/schema";
-import { eq, and, sql, desc, inArray, max } from "drizzle-orm";
+import { eq, and, sql, desc, asc, inArray, max } from "drizzle-orm";
 import session from "express-session";
 import connectPg from "connect-pg-simple";
 import { pool } from "./db";
@@ -335,9 +335,10 @@ export interface IStorage {
   updateCampaign(id: string, companyId: string, updates: Partial<InsertCampaign>): Promise<Campaign | undefined>;
   deleteCampaign(id: string, companyId: string): Promise<void>;
   getCampaignItems(campaignId: string, companyId: string): Promise<CampaignItem[]>;
-  getCampaignItemsByCustomer(customerId: string, companyId: string): Promise<(CampaignItem & { campaignTitle: string; campaignCategory: string; campaignSubtype: string | null; campaignStatus: string; windowStart: string; windowEnd: string; seasonId: string | null })[]>;
-  getCampaignItemsByProperty(propertyId: string, companyId: string): Promise<(CampaignItem & { campaignTitle: string; campaignCategory: string; campaignSubtype: string | null; campaignStatus: string; windowStart: string; windowEnd: string; seasonId: string | null })[]>;
+  getCampaignItemsByCustomer(customerId: string, companyId: string): Promise<(CampaignItem & { campaignTitle: string; campaignCategory: string; campaignSubtype: string | null; campaignStatus: string; campaignWindowStart: string; campaignWindowEnd: string; seasonId: string | null })[]>;
+  getCampaignItemsByProperty(propertyId: string, companyId: string): Promise<(CampaignItem & { campaignTitle: string; campaignCategory: string; campaignSubtype: string | null; campaignStatus: string; campaignWindowStart: string; campaignWindowEnd: string; seasonId: string | null })[]>;
   getCampaignItemsByCustomerId(customerId: string, companyId: string): Promise<(CampaignItem & { campaign: Campaign })[]>;
+  getCampaignItemsGlobal(companyId: string): Promise<(CampaignItem & { campaignTitle: string; campaignWindowStart: string; campaignWindowEnd: string; campaignCategory: string })[]>;
   createCampaignItem(item: InsertCampaignItem): Promise<CampaignItem>;
   updateCampaignItem(id: string, companyId: string, updates: Partial<InsertCampaignItem & { updatedAt: Date }>): Promise<CampaignItem | undefined>;
   deleteCampaignItem(id: string, companyId: string): Promise<void>;
@@ -2874,8 +2875,8 @@ export class PgStorage implements IStorage {
     return db.select().from(campaignItems).where(and(eq(campaignItems.campaignId, campaignId), eq(campaignItems.companyId, companyId)));
   }
 
-  async getCampaignItemsByCustomer(customerId: string, companyId: string): Promise<(CampaignItem & { campaignTitle: string; campaignCategory: string; campaignSubtype: string | null; campaignStatus: string; windowStart: string; windowEnd: string; seasonId: string | null })[]> {
-    type Row = CampaignItem & { campaignTitle: string; campaignCategory: string; campaignSubtype: string | null; campaignStatus: string; windowStart: string; windowEnd: string; seasonId: string | null };
+  async getCampaignItemsByCustomer(customerId: string, companyId: string): Promise<(CampaignItem & { campaignTitle: string; campaignCategory: string; campaignSubtype: string | null; campaignStatus: string; campaignWindowStart: string; campaignWindowEnd: string; seasonId: string | null })[]> {
+    type Row = CampaignItem & { campaignTitle: string; campaignCategory: string; campaignSubtype: string | null; campaignStatus: string; campaignWindowStart: string; campaignWindowEnd: string; seasonId: string | null };
     const rows = await db
       .select({
         id: campaignItems.id,
@@ -2913,8 +2914,8 @@ export class PgStorage implements IStorage {
         campaignCategory: campaigns.category,
         campaignSubtype: campaigns.subtype,
         campaignStatus: campaigns.status,
-        windowStart: campaigns.windowStart,
-        windowEnd: campaigns.windowEnd,
+        campaignWindowStart: campaigns.windowStart,
+        campaignWindowEnd: campaigns.windowEnd,
         seasonId: campaigns.seasonId,
       })
       .from(campaignItems)
@@ -2924,8 +2925,8 @@ export class PgStorage implements IStorage {
     return rows as Row[];
   }
 
-  async getCampaignItemsByProperty(propertyId: string, companyId: string): Promise<(CampaignItem & { campaignTitle: string; campaignCategory: string; campaignSubtype: string | null; campaignStatus: string; windowStart: string; windowEnd: string; seasonId: string | null })[]> {
-    type Row = CampaignItem & { campaignTitle: string; campaignCategory: string; campaignSubtype: string | null; campaignStatus: string; windowStart: string; windowEnd: string; seasonId: string | null };
+  async getCampaignItemsByProperty(propertyId: string, companyId: string): Promise<(CampaignItem & { campaignTitle: string; campaignCategory: string; campaignSubtype: string | null; campaignStatus: string; campaignWindowStart: string; campaignWindowEnd: string; seasonId: string | null })[]> {
+    type Row = CampaignItem & { campaignTitle: string; campaignCategory: string; campaignSubtype: string | null; campaignStatus: string; campaignWindowStart: string; campaignWindowEnd: string; seasonId: string | null };
     const rows = await db
       .select({
         id: campaignItems.id,
@@ -2963,8 +2964,8 @@ export class PgStorage implements IStorage {
         campaignCategory: campaigns.category,
         campaignSubtype: campaigns.subtype,
         campaignStatus: campaigns.status,
-        windowStart: campaigns.windowStart,
-        windowEnd: campaigns.windowEnd,
+        campaignWindowStart: campaigns.windowStart,
+        campaignWindowEnd: campaigns.windowEnd,
         seasonId: campaigns.seasonId,
       })
       .from(campaignItems)
@@ -2985,6 +2986,22 @@ export class PgStorage implements IStorage {
       .where(and(eq(campaignItems.customerId, customerId), eq(campaignItems.companyId, companyId)))
       .orderBy(desc(campaigns.windowStart));
     return rows.map(r => ({ ...r.item, campaign: r.campaign }));
+  }
+
+  async getCampaignItemsGlobal(companyId: string): Promise<(CampaignItem & { campaignTitle: string; campaignWindowStart: string; campaignWindowEnd: string; campaignCategory: string })[]> {
+    const rows = await db
+      .select({
+        ...campaignItems,
+        campaignTitle: campaigns.title,
+        campaignWindowStart: campaigns.windowStart,
+        campaignWindowEnd: campaigns.windowEnd,
+        campaignCategory: campaigns.category,
+      })
+      .from(campaignItems)
+      .innerJoin(campaigns, eq(campaignItems.campaignId, campaigns.id))
+      .where(and(eq(campaignItems.companyId, companyId), eq(campaigns.status, "active")))
+      .orderBy(desc(campaigns.windowStart), asc(campaignItems.customerName));
+    return rows as (CampaignItem & { campaignTitle: string; campaignWindowStart: string; campaignWindowEnd: string; campaignCategory: string })[];
   }
 
   async createCampaignItem(item: InsertCampaignItem): Promise<CampaignItem> {

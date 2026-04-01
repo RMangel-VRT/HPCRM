@@ -35,6 +35,7 @@ import {
   Leaf,
   MessagesSquare,
   Activity,
+  ListChecks,
 } from "lucide-react";
 import {
   Dialog,
@@ -178,6 +179,10 @@ export default function AppSidebar({
 
     if (userRole === "admin" || userRole === "office" || userRole === "field_manager" || userRole === "field" || userRole === "chemical_manager") {
       items.push({ title: t("nav.campaigns"), url: "/dashboard/campaigns", icon: ClipboardCheck });
+    }
+
+    if (userRole === "admin" || userRole === "office" || userRole === "field_manager" || userRole === "chemical_manager") {
+      items.push({ title: "Operations", url: "/dashboard/operations", icon: ListChecks });
     }
 
     if (userRole === "admin" || userRole === "office") {

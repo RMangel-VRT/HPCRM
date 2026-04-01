@@ -1,7 +1,7 @@
 import { useState, useRef, useMemo, useEffect } from "react";
 import { useTranslation } from "react-i18next";
 import { useQuery, useMutation } from "@tanstack/react-query";
-import { useRoute, useLocation, Link } from "wouter";
+import { useRoute, useLocation, useSearch, Link } from "wouter";
 import { useSetBreadcrumbs } from "@/hooks/use-breadcrumbs";
 import type { Customer, Contact, Note, Contract, ContractDocument, ContractMonthlyAmount, CustomerRateSheet, InsertContract, InsertContact, InsertNote, InsertCustomer, CustomerMapLayer, PropertyManagementCompany, PropertyManager, Ticket, SnowEvent, SnowEventPropertyImpact } from "@shared/schema";
 import { insertContractSchema, insertContactSchema, insertNoteSchema, insertCustomerSchema } from "@shared/schema";
@@ -53,7 +53,7 @@ import ServiceFulfillmentPanel from "@/components/ServiceFulfillmentPanel";
 import TicketListView from "@/components/TicketListView";
 import CustomerLocationEditor from "@/components/CustomerLocationEditor";
 import CommunicationListTab from "@/components/CommunicationListTab";
-import ServiceChecklistPanel from "@/components/ServiceChecklistPanel";
+import CustomerServiceChecklist from "@/components/CustomerServiceChecklist";
 import AnnualServiceRollup from "@/components/AnnualServiceRollup";
 
 interface ContractCardProps {
@@ -1028,10 +1028,31 @@ export default function CustomerDetail() {
   const { t } = useTranslation();
   const [, params] = useRoute("/dashboard/customers/:id");
   const [, navigate] = useLocation();
+  const search = useSearch();
   const id = params?.id;
-  const [activeTab, setActiveTab] = useState("overview");
+
+  const searchParams = new URLSearchParams(search);
+  const tabFromUrl = searchParams.get("tab");
+  const subTabFromUrl = searchParams.get("subtab");
+
+  const [activeTab, setActiveTab] = useState(tabFromUrl || "overview");
   const [billingSubTab, setBillingSubTab] = useState("contracts");
-  const [operationsSubTab, setOperationsSubTab] = useState("tickets");
+  const [operationsSubTab, setOperationsSubTab] = useState(
+    tabFromUrl === "operations" ? (subTabFromUrl || "tickets") : "tickets"
+  );
+
+  useEffect(() => {
+    const params = new URLSearchParams(search);
+    const tab = params.get("tab");
+    const subtab = params.get("subtab");
+    if (tab) {
+      setActiveTab(tab);
+      if (tab === "operations" && subtab) {
+        setOperationsSubTab(subtab);
+      }
+    }
+  }, [search]);
+
   const [uploadingContractId, setUploadingContractId] = useState<string | null>(null);
   const [showVersionHistory, setShowVersionHistory] = useState<string | null>(null);
   const [showReplaceConfirm, setShowReplaceConfirm] = useState<string | null>(null);
@@ -2195,6 +2216,12 @@ export default function CustomerDetail() {
                   </TabsTrigger>
                 </>
               )}
+              {(user?.activeRole === "admin" || user?.activeRole === "office" || user?.activeRole === "field_manager" || user?.activeRole === "chemical_manager") && (
+                <TabsTrigger value="service-checklist" data-testid="subtab-service-checklist">
+                  <Wrench className="w-4 h-4 mr-1" />
+                  Service Checklist
+                </TabsTrigger>
+              )}
               {customer.snowEnabled && (user?.activeRole === "admin" || user?.activeRole === "office" || user?.activeRole === "field_manager") && (
                 <TabsTrigger value="snow" data-testid="subtab-snow">
                   <Snowflake className="w-4 h-4 mr-1" />
@@ -2223,6 +2250,12 @@ export default function CustomerDetail() {
             {(user?.activeRole === "admin" || user?.activeRole === "office") && (
               <TabsContent value="visual-scopes" className="space-y-4">
                 <CustomerVisualScopesSection customerId={params?.id!} />
+              </TabsContent>
+            )}
+
+            {(user?.activeRole === "admin" || user?.activeRole === "office" || user?.activeRole === "field_manager" || user?.activeRole === "chemical_manager") && (
+              <TabsContent value="service-checklist">
+                <CustomerServiceChecklist customerId={customer.id} />
               </TabsContent>
             )}
 
@@ -2442,12 +2475,6 @@ export default function CustomerDetail() {
         <TabsContent value="service-checklist" className="space-y-4">
           <ServiceChecklistTab customerId={params?.id!} />
         </TabsContent>
-
-        {(user?.activeRole === "admin" || user?.activeRole === "office") && (
-          <TabsContent value="service-checklist" className="space-y-4 mt-4">
-            <ServiceChecklistPanel context={{ type: "customer", customerId: params?.id! }} />
-          </TabsContent>
-        )}
 
         {(user?.activeRole === "admin" || user?.activeRole === "office") && (
           <TabsContent value="communications" className="space-y-4">

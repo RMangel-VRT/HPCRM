@@ -10534,6 +10534,26 @@ export async function registerRoutes(app: Express): Promise<Server> {
     res.json({ success: true });
   });
 
+  app.get("/api/operations/items", async (req, res) => {
+    if (!req.isAuthenticated()) return res.status(401).send("Not authenticated");
+    const user = req.user as UserWithContext;
+    if (!campaignAllowedRoles.includes(user.activeRole)) {
+      return res.status(403).send("Insufficient permissions");
+    }
+    const items = await storage.getCampaignItemsGlobal(user.activeCompanyId);
+    res.json(items);
+  });
+
+  app.get("/api/customers/:customerId/campaign-items", async (req, res) => {
+    if (!req.isAuthenticated()) return res.status(401).send("Not authenticated");
+    const user = req.user as UserWithContext;
+    if (!campaignAllowedRoles.includes(user.activeRole)) {
+      return res.status(403).send("Insufficient permissions");
+    }
+    const items = await storage.getCampaignItemsByCustomer(req.params.customerId, user.activeCompanyId);
+    res.json(items);
+  });
+
   app.get("/api/campaigns/:id/checklist-tasks", async (req, res) => {
     if (!req.isAuthenticated()) return res.status(401).send("Not authenticated");
     const user = req.user as UserWithContext;
