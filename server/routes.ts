@@ -7,8 +7,8 @@ import { z } from "zod";
 import { setupAuth, type UserWithContext } from "./auth";
 import { storage } from "./storage";
 import { db } from "./db";
-import { eq, and, inArray, sql } from "drizzle-orm";
-import { insertCustomerSchema, insertContactSchema, insertCompanySchema, insertCompanyUserSchema, insertSettingsSchema, insertNoteSchema, insertContractSchema, insertContractDocumentSchema, insertContractBuilderDocumentSchema, insertContractBuilderSectionSchema, insertContractBuilderVariableSchema, insertTicketTypeSchema, insertTicketTypeStatusSchema, insertTicketTypeFieldSchema, insertTicketSchema, insertTicketFieldValueSchema, insertTicketStatusHistorySchema, insertTicketCommentSchema, insertTicketLinkSchema, insertCustomerMapLayerSchema, insertCustomerMapDocumentSchema, insertMaintenanceCrewSchema, insertMaintenanceVisitConfigSchema, insertWeeklyScheduleTemplateSchema, insertScheduleBlockSchema, insertEquipmentSchema, insertEquipmentFileSchema, insertEquipmentTicketSchema, insertEquipmentTicketStatusHistorySchema, insertSnowEventSchema, insertSnowEventPropertyImpactSchema, insertSnowEventAttachmentSchema, insertEmailTemplateSchema, insertEmailRuleSchema, insertCommunicationAutomationRuleSchema, SNOW_RANGES, tickets, ticketLinks, ticketTypes, ticketTypeStatuses, customers as customersTable, contacts as contactsTable, contracts as contractsTable, equipment as equipmentTable, users as usersTable, contractMonthlyAmounts, contractDocuments, contractServices, contractStatusHistory, companyUsers as companyUsersTable, insertCommunicationSchema } from "@shared/schema";
+import { eq, and, inArray, sql, gte, lte } from "drizzle-orm";
+import { insertCustomerSchema, insertContactSchema, insertCompanySchema, insertCompanyUserSchema, insertSettingsSchema, insertNoteSchema, insertContractSchema, insertContractDocumentSchema, insertContractBuilderDocumentSchema, insertContractBuilderSectionSchema, insertContractBuilderVariableSchema, insertTicketTypeSchema, insertTicketTypeStatusSchema, insertTicketTypeFieldSchema, insertTicketSchema, insertTicketFieldValueSchema, insertTicketStatusHistorySchema, insertTicketCommentSchema, insertTicketLinkSchema, insertCustomerMapLayerSchema, insertCustomerMapDocumentSchema, insertMaintenanceCrewSchema, insertMaintenanceVisitConfigSchema, insertWeeklyScheduleTemplateSchema, insertScheduleBlockSchema, insertEquipmentSchema, insertEquipmentFileSchema, insertEquipmentTicketSchema, insertEquipmentTicketStatusHistorySchema, insertSnowEventSchema, insertSnowEventPropertyImpactSchema, insertSnowEventAttachmentSchema, insertEmailTemplateSchema, insertEmailRuleSchema, insertCommunicationAutomationRuleSchema, SNOW_RANGES, tickets, ticketLinks, ticketTypes, ticketTypeStatuses, customers as customersTable, contacts as contactsTable, contracts as contractsTable, equipment as equipmentTable, users as usersTable, contractMonthlyAmounts, contractDocuments, contractServices, contractStatusHistory, companyUsers as companyUsersTable, insertCommunicationSchema, campaigns as campaignsTable, campaignItems as campaignItemsTable } from "@shared/schema";
 import type { Customer, CaptureParams, CampaignItem, Season, InsertCommunication, InsertCommunicationTemplate, InsertCommunicationAuditLog } from "@shared/schema";
 import { insertCommunicationTemplateSchema } from "@shared/schema";
 import { runAutomationRule } from "./services/automationService";
@@ -17,6 +17,7 @@ import { ObjectPermission, ObjectAccessGroupType, setObjectAclPolicy } from "./o
 import { processEmailEvent, resendEmail, sendEmail, getDefaultWorkCompletedTemplate, getDefaultChemicalPreNoticeTemplate, getDefaultChemicalPostNoticeTemplate } from './services/emailService';
 import heicConvert from 'heic-convert';
 import { renderVisualScope, type ExportType } from "./visualScopeRenderer";
+import { ROLLUP_SERVICE_LABELS, campaignToRollupServiceType } from "../shared/serviceCatalog";
 
 // Seed sample communications for a company (used during server bootstrap and via API)
 async function seedCommunications(companyId: string, sentById: string, _sentByName: string): Promise<number> {
@@ -8239,6 +8240,135 @@ export async function registerRoutes(app: Express): Promise<Server> {
     if (req.query.toDate) filters.toDate = req.query.toDate as string;
     const items = await storage.getCommunications(user.activeCompanyId, filters);
     res.json(items);
+  });
+
+  // GET /api/customers/:id/annual-service-rollup — annual service rollup per category
+  app.get("/api/customers/:id/annual-service-rollup", async (req, res) => {
+    if (!req.isAuthenticated()) return res.status(401).send("Not authenticated");
+    const user = req.user as UserWithContext;
+    if (user.activeRole !== "admin" && user.activeRole !== "office") {
+      return res.status(403).send("Admin or office role required");
+    }
+    const customer = await storage.getCustomerById(req.params.id, user.activeCompanyId);
+    if (!customer) return res.status(404).send("Customer not found");
+
+    // contract_services serviceType: mowing, pet_station, chemical, shrub_trimming, ornamental_grass, aeration, cleanups, tree_pruning
+    // campaign category: general, chemical, irrigation
+    // campaign subtype: spring_turn_on, winterization, custom (for irrigation)
+    // Mapping logic is centralized in shared/serviceCatalog.ts (ROLLUP_SERVICE_LABELS, campaignToRollupServiceType)
+
+    // 1. Get all active/paused contracts for customer to determine committed annual service counts.
+    // Note: we aggregate annualCount from any active or paused contract regardless of the contract's
+    // start/end dates; the goal is to reflect current commitments for the calendar year.
+    const allContracts = await storage.getContractsByCustomerId(req.params.id, user.activeCompanyId);
+    const activeContracts = allContracts.filter(c => c.status === "active" || c.status === "paused");
+
+    // Determine the reporting period: use current calendar year as the period.
+    // This ensures we don't mix data from prior or future years.
+    const currentYear = new Date().getFullYear();
+    const periodStart = `${currentYear}-01-01`;
+    const periodEnd = `${currentYear}-12-31`;
+
+    // 2. Get contract services for each active contract
+    const contractServicesMap: Map<string, number> = new Map(); // serviceType -> annualCount sum
+    for (const contract of activeContracts) {
+      const services = await storage.getContractServices(contract.id, user.activeCompanyId);
+      for (const svc of services) {
+        const existing = contractServicesMap.get(svc.serviceType) || 0;
+        contractServicesMap.set(svc.serviceType, existing + svc.annualCount);
+      }
+    }
+
+    // 3. Get campaign items for this customer within the current year window.
+    // Filter campaigns whose window overlaps with the current year period.
+    const allCampaigns = await db
+      .select({
+        campaignId: campaignsTable.id,
+        campaignTitle: campaignsTable.title,
+        windowStart: campaignsTable.windowStart,
+        windowEnd: campaignsTable.windowEnd,
+        category: campaignsTable.category,
+        subtype: campaignsTable.subtype,
+        itemId: campaignItemsTable.id,
+        itemStatus: campaignItemsTable.status,
+      })
+      .from(campaignsTable)
+      .innerJoin(campaignItemsTable, eq(campaignItemsTable.campaignId, campaignsTable.id))
+      .where(and(
+        eq(campaignsTable.companyId, user.activeCompanyId),
+        eq(campaignItemsTable.customerId, req.params.id),
+        eq(campaignItemsTable.companyId, user.activeCompanyId),
+        // Campaign window must overlap with current year: windowEnd >= periodStart AND windowStart <= periodEnd
+        gte(campaignsTable.windowEnd, periodStart),
+        lte(campaignsTable.windowStart, periodEnd)
+      ));
+
+    // 4. Group campaign items by service type.
+    // Campaign category → contract service type mapping:
+    //   chemical → chemical
+    //   irrigation/spring_turn_on → irrigation_open
+    //   irrigation/winterization → irrigation_close
+    //   irrigation/custom → irrigation_custom
+    //   general → use campaign title keywords to match contract service types if possible,
+    //             otherwise bucket into "general" (shown separately from contract services)
+    interface CampaignEntry {
+      id: string;
+      title: string;
+      windowStart: string;
+      windowEnd: string;
+      itemId: string;
+      itemStatus: string;
+    }
+
+    const campaignsByServiceType: Map<string, CampaignEntry[]> = new Map();
+    for (const row of allCampaigns) {
+      const svcType = campaignToRollupServiceType(
+        row.category as "general" | "chemical" | "irrigation",
+        row.subtype,
+        row.campaignTitle
+      );
+      const existing = campaignsByServiceType.get(svcType) || [];
+      existing.push({
+        id: row.campaignId,
+        title: row.campaignTitle,
+        windowStart: row.windowStart,
+        windowEnd: row.windowEnd,
+        itemId: row.itemId,
+        itemStatus: row.itemStatus,
+      });
+      campaignsByServiceType.set(svcType, existing);
+    }
+
+    // 5. Build rollup combining contract services + campaigns
+    const allServiceTypes = new Set<string>([
+      ...Array.from(contractServicesMap.keys()),
+      ...Array.from(campaignsByServiceType.keys()),
+    ]);
+
+    const rollup = Array.from(allServiceTypes).map(svcType => {
+      const campaigns = campaignsByServiceType.get(svcType) || [];
+      const completed = campaigns.filter(c => c.itemStatus === "completed").length;
+      const scheduledFromContract = contractServicesMap.get(svcType) ?? null;
+      const scheduledFromCampaigns = campaigns.length;
+      // Use contract annual count if available, else derive from campaign count
+      const scheduled = scheduledFromContract !== null ? scheduledFromContract : scheduledFromCampaigns;
+      const remaining = Math.max(0, scheduled - completed);
+
+      return {
+        serviceType: svcType,
+        label: ROLLUP_SERVICE_LABELS[svcType as keyof typeof ROLLUP_SERVICE_LABELS] || svcType,
+        scheduled,
+        scheduledSource: scheduledFromContract !== null ? "contract" : "campaigns",
+        completed,
+        remaining,
+        campaigns,
+      };
+    });
+
+    // Sort by label for consistent display
+    rollup.sort((a, b) => a.label.localeCompare(b.label));
+
+    res.json(rollup);
   });
 
   // GET /api/properties/:id/communications — list communications for a property

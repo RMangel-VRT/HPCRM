@@ -52,6 +52,7 @@ import TicketListView from "@/components/TicketListView";
 import CustomerLocationEditor from "@/components/CustomerLocationEditor";
 import CommunicationListTab from "@/components/CommunicationListTab";
 import ServiceChecklistPanel from "@/components/ServiceChecklistPanel";
+import AnnualServiceRollup from "@/components/AnnualServiceRollup";
 
 interface ContractCardProps {
   contract: Contract;
@@ -2173,6 +2174,9 @@ export default function CustomerDetail() {
         </TabsContent>
 
         <TabsContent value="operations" className="space-y-4">
+          {(user?.activeRole === "admin" || user?.activeRole === "office") && (
+            <AnnualServiceRollup customerId={customer.id} />
+          )}
           <Tabs value={operationsSubTab} onValueChange={setOperationsSubTab}>
             <TabsList className="mb-4">
               <TabsTrigger value="tickets" data-testid="subtab-tickets">
