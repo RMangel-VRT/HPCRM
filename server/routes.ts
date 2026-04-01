@@ -10,7 +10,7 @@ import { db } from "./db";
 import { eq, and, inArray, sql, gte, lte } from "drizzle-orm";
 import { insertCustomerSchema, insertContactSchema, insertCompanySchema, insertCompanyUserSchema, insertSettingsSchema, insertNoteSchema, insertContractSchema, insertContractDocumentSchema, insertContractBuilderDocumentSchema, insertContractBuilderSectionSchema, insertContractBuilderVariableSchema, insertTicketTypeSchema, insertTicketTypeStatusSchema, insertTicketTypeFieldSchema, insertTicketSchema, insertTicketFieldValueSchema, insertTicketStatusHistorySchema, insertTicketCommentSchema, insertTicketLinkSchema, insertCustomerMapLayerSchema, insertCustomerMapDocumentSchema, insertMaintenanceCrewSchema, insertMaintenanceVisitConfigSchema, insertWeeklyScheduleTemplateSchema, insertScheduleBlockSchema, insertEquipmentSchema, insertEquipmentFileSchema, insertEquipmentTicketSchema, insertEquipmentTicketStatusHistorySchema, insertSnowEventSchema, insertSnowEventPropertyImpactSchema, insertSnowEventAttachmentSchema, insertEmailTemplateSchema, insertEmailRuleSchema, insertCommunicationAutomationRuleSchema, SNOW_RANGES, tickets, ticketLinks, ticketTypes, ticketTypeStatuses, customers as customersTable, contacts as contactsTable, contracts as contractsTable, equipment as equipmentTable, users as usersTable, contractMonthlyAmounts, contractDocuments, contractServices, contractStatusHistory, companyUsers as companyUsersTable, insertCommunicationSchema, campaigns as campaignsTable, campaignItems as campaignItemsTable } from "@shared/schema";
 import type { Customer, CaptureParams, CampaignItem, Season, InsertCommunication, InsertCommunicationTemplate, InsertCommunicationAuditLog } from "@shared/schema";
-import { insertCommunicationTemplateSchema } from "@shared/schema";
+import { insertCommunicationTemplateSchema, insertServicePlanTemplateSchema, insertServicePlanTemplateItemSchema, insertCustomerServicePlanSchema } from "@shared/schema";
 import { runAutomationRule } from "./services/automationService";
 import { ObjectStorageService, ObjectNotFoundError, objectStorageClient, signObjectURL } from "./objectStorage";
 import { ObjectPermission, ObjectAccessGroupType, setObjectAclPolicy } from "./objectAcl";
@@ -10466,6 +10466,15 @@ export async function registerRoutes(app: Express): Promise<Server> {
     const existingCustomerIds = new Set(existingItems.map(i => i.customerId));
     const allCustomers = await storage.getCustomers(user.activeCompanyId);
     const customerMap = new Map(allCustomers.map(c => [c.id, c]));
+    // Derive service_plan_category from campaign type+subtype for deterministic fulfillment counting
+    let derivedServicePlanCategory: string | null = null;
+    if (campaign.category === "chemical") {
+      derivedServicePlanCategory = "chemical";
+    } else if (campaign.category === "irrigation") {
+      if (campaign.subtype === "spring_turn_on") derivedServicePlanCategory = "irrigation_open";
+      else if (campaign.subtype === "winterization") derivedServicePlanCategory = "irrigation_winterization";
+      else derivedServicePlanCategory = "irrigation_close";
+    }
     const newItems: CampaignItem[] = [];
     for (const custId of customerIds) {
       if (existingCustomerIds.has(custId)) continue;
@@ -10490,6 +10499,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         workCompletedById: null,
         postCommSentAt: null,
         postCommSentById: null,
+        servicePlanCategory: derivedServicePlanCategory,
       });
       newItems.push(item);
     }
@@ -12055,6 +12065,158 @@ export async function registerRoutes(app: Express): Promise<Server> {
       return bTime - aTime;
     });
     res.json(results);
+  });
+
+  // ─── Service Plan Templates API ──────────────────────────────────────────
+
+  app.get("/api/service-plan-templates", async (req, res) => {
+    const user = req.user as UserWithContext;
+    if (!user?.activeCompanyId) return res.status(401).json({ error: "Unauthorized" });
+    const templates = await storage.getServicePlanTemplates(user.activeCompanyId);
+    res.json(templates);
+  });
+
+  app.post("/api/service-plan-templates", async (req, res) => {
+    const user = req.user as UserWithContext;
+    if (!user?.activeCompanyId) return res.status(401).json({ error: "Unauthorized" });
+    if (user.activeRole !== "admin" && !user.isSuperAdminBool) return res.status(403).json({ error: "Admin only" });
+    const createSchema = insertServicePlanTemplateSchema.extend({
+      items: z.array(insertServicePlanTemplateItemSchema.omit({ templateId: true })).optional(),
+    });
+    const parsed = createSchema.safeParse({ ...req.body, companyId: user.activeCompanyId });
+    if (!parsed.success) return res.status(400).json({ error: parsed.error.errors });
+    const { items, ...templateData } = parsed.data;
+    const template = await storage.createServicePlanTemplate(templateData);
+    if (items && items.length > 0) {
+      await storage.upsertServicePlanTemplateItems(template.id, items);
+    }
+    const full = await storage.getServicePlanTemplateById(template.id, user.activeCompanyId);
+    res.json(full);
+  });
+
+  app.patch("/api/service-plan-templates/:id", async (req, res) => {
+    const user = req.user as UserWithContext;
+    if (!user?.activeCompanyId) return res.status(401).json({ error: "Unauthorized" });
+    if (user.activeRole !== "admin" && !user.isSuperAdminBool) return res.status(403).json({ error: "Admin only" });
+    const patchSchema = z.object({
+      name: z.string().min(1).optional(),
+      active: z.enum(["true", "false"]).optional(),
+      items: z.array(insertServicePlanTemplateItemSchema.omit({ templateId: true })).optional(),
+    });
+    const parsed = patchSchema.safeParse(req.body);
+    if (!parsed.success) return res.status(400).json({ error: parsed.error.errors });
+    const { items, ...templateUpdates } = parsed.data;
+    const template = await storage.updateServicePlanTemplate(req.params.id, user.activeCompanyId, templateUpdates);
+    if (!template) return res.status(404).json({ error: "Not found" });
+    if (items !== undefined) {
+      await storage.upsertServicePlanTemplateItems(template.id, items);
+    }
+    const full = await storage.getServicePlanTemplateById(template.id, user.activeCompanyId);
+    res.json(full);
+  });
+
+  app.delete("/api/service-plan-templates/:id", async (req, res) => {
+    const user = req.user as UserWithContext;
+    if (!user?.activeCompanyId) return res.status(401).json({ error: "Unauthorized" });
+    if (user.activeRole !== "admin" && !user.isSuperAdminBool) return res.status(403).json({ error: "Admin only" });
+    await storage.deleteServicePlanTemplate(req.params.id, user.activeCompanyId);
+    res.json({ success: true });
+  });
+
+  // ─── Customer Service Plans API ──────────────────────────────────────────
+
+  app.get("/api/customers/:id/service-plans", async (req, res) => {
+    const user = req.user as UserWithContext;
+    if (!user?.activeCompanyId) return res.status(401).json({ error: "Unauthorized" });
+    const year = req.query.year ? parseInt(req.query.year as string) : undefined;
+    const plans = await storage.getCustomerServicePlans(req.params.id, user.activeCompanyId, year);
+    res.json(plans);
+  });
+
+  app.post("/api/customers/:id/service-plans", async (req, res) => {
+    const user = req.user as UserWithContext;
+    if (!user?.activeCompanyId) return res.status(401).json({ error: "Unauthorized" });
+    if (user.activeRole !== "admin" && user.activeRole !== "office" && !user.isSuperAdminBool) return res.status(403).json({ error: "Admin/office only" });
+    const parsed = insertCustomerServicePlanSchema.safeParse({
+      ...req.body,
+      customerId: req.params.id,
+      companyId: user.activeCompanyId,
+    });
+    if (!parsed.success) return res.status(400).json({ error: parsed.error.errors });
+    try {
+      const plan = await storage.createCustomerServicePlan(parsed.data);
+      res.json(plan);
+    } catch (err: any) {
+      if (err?.code === "23505") {
+        return res.status(409).json({ error: "A service plan entry for this category and year already exists" });
+      }
+      throw err;
+    }
+  });
+
+  app.post("/api/customers/:id/service-plans/from-template", async (req, res) => {
+    const user = req.user as UserWithContext;
+    if (!user?.activeCompanyId) return res.status(401).json({ error: "Unauthorized" });
+    if (user.activeRole !== "admin" && user.activeRole !== "office" && !user.isSuperAdminBool) return res.status(403).json({ error: "Admin/office only" });
+    const fromTemplateSchema = z.object({
+      templateId: z.string().min(1),
+      year: z.union([z.number().int(), z.string().regex(/^\d{4}$/).transform(Number)]),
+    });
+    const parsed = fromTemplateSchema.safeParse(req.body);
+    if (!parsed.success) return res.status(400).json({ error: parsed.error.errors });
+    const { templateId, year } = parsed.data;
+    const template = await storage.getServicePlanTemplateById(templateId, user.activeCompanyId);
+    if (!template) return res.status(404).json({ error: "Template not found" });
+    const results: any[] = [];
+    for (const item of template.items) {
+      try {
+        const plan = await storage.createCustomerServicePlan({
+          companyId: user.activeCompanyId,
+          customerId: req.params.id,
+          year,
+          serviceCategory: item.serviceCategory,
+          expectedQuantity: item.defaultAnnualQuantity,
+          notes: null,
+          sourceContractRef: null,
+        });
+        results.push(plan);
+      } catch (err: any) {
+        if (err?.code !== "23505") throw err;
+        // Skip duplicate entries silently (plan already exists for this category/year)
+      }
+    }
+    res.json(results);
+  });
+
+  app.patch("/api/customers/:customerId/service-plans/:planId", async (req, res) => {
+    const user = req.user as UserWithContext;
+    if (!user?.activeCompanyId) return res.status(401).json({ error: "Unauthorized" });
+    if (user.activeRole !== "admin" && user.activeRole !== "office" && !user.isSuperAdminBool) return res.status(403).json({ error: "Admin/office only" });
+    const patchSchema = z.object({
+      expectedQuantity: z.number().int().min(0).optional(),
+      notes: z.string().nullable().optional(),
+    });
+    const parsed = patchSchema.safeParse(req.body);
+    if (!parsed.success) return res.status(400).json({ error: parsed.error.errors });
+    const plan = await storage.updateCustomerServicePlan(req.params.planId, req.params.customerId, user.activeCompanyId, parsed.data);
+    if (!plan) return res.status(404).json({ error: "Not found" });
+    res.json(plan);
+  });
+
+  app.delete("/api/customers/:customerId/service-plans/:planId", async (req, res) => {
+    const user = req.user as UserWithContext;
+    if (!user?.activeCompanyId) return res.status(401).json({ error: "Unauthorized" });
+    if (user.activeRole !== "admin" && user.activeRole !== "office" && !user.isSuperAdminBool) return res.status(403).json({ error: "Admin/office only" });
+    await storage.deleteCustomerServicePlan(req.params.planId, req.params.customerId, user.activeCompanyId);
+    res.json({ success: true });
+  });
+
+  app.get("/api/customers/:id/service-fulfillment", async (req, res) => {
+    const user = req.user as UserWithContext;
+    if (!user?.activeCompanyId) return res.status(401).json({ error: "Unauthorized" });
+    const year = req.query.year ? parseInt(req.query.year as string) : new Date().getFullYear();
+    const rows = await storage.getServiceFulfillment(req.params.id, user.activeCompanyId, year);
+    res.json(rows);
   });
 
   const httpServer = createServer(app);

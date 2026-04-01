@@ -1,6 +1,6 @@
 import { type User, type InsertUser, type Customer, type InsertCustomer, type Contact, type InsertContact, type Company, type InsertCompany, type CompanyUser, type InsertCompanyUser, type Settings, type InsertSettings, type Note, type InsertNote, type Contract, type InsertContract, type ContractStatusHistory, type InsertContractStatusHistory, type ContractDocument, type InsertContractDocument, type ContractMonthlyAmount, type InsertContractMonthlyAmount, type CustomerRateSheet, type InsertCustomerRateSheet, type ContractService, type InsertContractService, type ContractTemplate, type InsertContractTemplate, type ContractBuilderDocument, type InsertContractBuilderDocument, type ContractBuilderSection, type InsertContractBuilderSection, type ContractBuilderVariable, type InsertContractBuilderVariable, type TicketType, type InsertTicketType, type TicketTypeStatus, type InsertTicketTypeStatus, type TicketTypeField, type InsertTicketTypeField, type Ticket, type InsertTicket, type TicketFieldValue, type InsertTicketFieldValue, type TicketStatusHistory, type InsertTicketStatusHistory, type TicketComment, type InsertTicketComment, type TicketCommentMention, type InsertTicketCommentMention, type TicketSource, type InsertTicketSource, type TicketLink, type InsertTicketLink, type TicketTypeCategory, type CustomerMapLayer, type InsertCustomerMapLayer, type CustomerMapDocument, type InsertCustomerMapDocument, type MaintenanceCrew, type InsertMaintenanceCrew, type MaintenanceVisitConfig, type InsertMaintenanceVisitConfig, type WeeklyScheduleTemplate, type InsertWeeklyScheduleTemplate, type ScheduleBlock, type InsertScheduleBlock, type TicketNotification, type InsertTicketNotification, type NotificationType, type PropertyManagementCompany, type InsertPropertyManagementCompany, type PropertyManager, type InsertPropertyManager, type PropertyManagerEmail, type InsertPropertyManagerEmail, type PropertyManagerPhone, type InsertPropertyManagerPhone, type PropertyManagerWithContacts, type Equipment, type InsertEquipment, type EquipmentFile, type InsertEquipmentFile, type EquipmentTicket, type InsertEquipmentTicket, type EquipmentTicketStatusHistory, type InsertEquipmentTicketStatusHistory, type EquipmentWithTicketCount, type SnowEvent, type InsertSnowEvent, type SnowEventAttachment, type InsertSnowEventAttachment, type SnowEventPropertyImpact, type InsertSnowEventPropertyImpact, type SnowEventWithDetails, type SnowEventPropertyImpactWithCustomer, type EmailTemplate, type InsertEmailTemplate, type EmailRule, type InsertEmailRule, type EmailLog, type InsertEmailLog, type EmailLogWithDetails, type Proposal, type InsertProposal, type ProposalFile, type InsertProposalFile, type ProposalWithDetails, type ProposalVersion, type InsertProposalVersion, type ProposalVersionWithUser, type VisualScopeSheet, type InsertVisualScopeSheet, type VisualScopeSheetWithCustomer, type Campaign, type InsertCampaign, type CampaignItem, type InsertCampaignItem, type CampaignWithProgress, type Season, type InsertSeason, type CampaignChecklistTask, type InsertCampaignChecklistTask, type CampaignItemTaskCompletion, type InsertCampaignItemTaskCompletion, type CampaignChecklistAuditLog, type InsertCampaignChecklistAuditLog, type CampaignChecklistAuditLogWithUser, type Communication, type InsertCommunication, type CommunicationTemplate, type InsertCommunicationTemplate, type CommunicationThread, type InsertCommunicationThread, type CommunicationLink, type InsertCommunicationLink, type CommunicationWithDetails, type CommunicationAnalytics, type InsertCommunicationAuditLog, type CommunicationAuditLog, type CommunicationAuditLogWithUser } from "@shared/schema";
 import { db } from "./db";
-import { users, customers, contacts, companies, companyUsers, settings, notes, contracts, contractStatusHistory, contractDocuments, contractMonthlyAmounts, customerRateSheets, contractServices, contractTemplates, contractBuilderDocuments, contractBuilderSections, contractBuilderVariables, ticketTypes, ticketTypeStatuses, ticketTypeFields, tickets, ticketFieldValues, ticketStatusHistory, ticketComments, ticketCommentMentions, ticketSources, ticketLinks, customerMapLayers, customerMapDocuments, maintenanceCrews, maintenanceVisitConfigs, weeklyScheduleTemplates, scheduleBlocks, ticketNotifications, propertyManagementCompanies, propertyManagers, propertyManagerEmails, propertyManagerPhones, equipment, equipmentFiles, equipmentTickets, equipmentTicketStatusHistory, snowEvents, snowEventAttachments, snowEventPropertyImpacts, emailTemplates, emailRules, emailLogs, proposals, proposalFiles, proposalVersions, visualScopeSheets, campaigns, campaignItems, campaignChecklistTasks, campaignItemTaskCompletions, campaignChecklistAuditLog as campaignChecklistAuditLogTable, seasons, communications, communicationTemplates, communicationThreads, communicationLinks, communicationAuditLog, communicationAutomationRules } from "@shared/schema";
+import { users, customers, contacts, companies, companyUsers, settings, notes, contracts, contractStatusHistory, contractDocuments, contractMonthlyAmounts, customerRateSheets, contractServices, contractTemplates, contractBuilderDocuments, contractBuilderSections, contractBuilderVariables, ticketTypes, ticketTypeStatuses, ticketTypeFields, tickets, ticketFieldValues, ticketStatusHistory, ticketComments, ticketCommentMentions, ticketSources, ticketLinks, customerMapLayers, customerMapDocuments, maintenanceCrews, maintenanceVisitConfigs, weeklyScheduleTemplates, scheduleBlocks, ticketNotifications, propertyManagementCompanies, propertyManagers, propertyManagerEmails, propertyManagerPhones, equipment, equipmentFiles, equipmentTickets, equipmentTicketStatusHistory, snowEvents, snowEventAttachments, snowEventPropertyImpacts, emailTemplates, emailRules, emailLogs, proposals, proposalFiles, proposalVersions, visualScopeSheets, campaigns, campaignItems, campaignChecklistTasks, campaignItemTaskCompletions, campaignChecklistAuditLog as campaignChecklistAuditLogTable, seasons, communications, communicationTemplates, communicationThreads, communicationLinks, communicationAuditLog, communicationAutomationRules, servicePlanTemplates, servicePlanTemplateItems, customerServicePlans } from "@shared/schema";
 import { eq, and, sql, desc, inArray, max } from "drizzle-orm";
 import session from "express-session";
 import connectPg from "connect-pg-simple";
@@ -393,6 +393,21 @@ export interface IStorage {
   updateCommunicationAutomationRule(id: string, companyId: string, updates: Partial<InsertCommunicationAutomationRule>): Promise<CommunicationAutomationRule | undefined>;
   deleteCommunicationAutomationRule(id: string, companyId: string): Promise<void>;
   updateCommunicationAutomationRuleLastRun(id: string, companyId: string): Promise<void>;
+
+  // Service Plan Templates
+  getServicePlanTemplates(companyId: string): Promise<ServicePlanTemplateWithItems[]>;
+  getServicePlanTemplateById(id: string, companyId: string): Promise<ServicePlanTemplateWithItems | undefined>;
+  createServicePlanTemplate(template: InsertServicePlanTemplate): Promise<ServicePlanTemplate>;
+  updateServicePlanTemplate(id: string, companyId: string, updates: Partial<InsertServicePlanTemplate>): Promise<ServicePlanTemplate | undefined>;
+  deleteServicePlanTemplate(id: string, companyId: string): Promise<void>;
+  upsertServicePlanTemplateItems(templateId: string, items: Array<{ serviceCategory: ServicePlanCategory; defaultAnnualQuantity: number }>): Promise<ServicePlanTemplateItem[]>;
+
+  // Customer Service Plans
+  getCustomerServicePlans(customerId: string, companyId: string, year?: number): Promise<CustomerServicePlan[]>;
+  createCustomerServicePlan(plan: InsertCustomerServicePlan): Promise<CustomerServicePlan>;
+  updateCustomerServicePlan(id: string, customerId: string, companyId: string, updates: Partial<InsertCustomerServicePlan>): Promise<CustomerServicePlan | undefined>;
+  deleteCustomerServicePlan(id: string, customerId: string, companyId: string): Promise<void>;
+  getServiceFulfillment(customerId: string, companyId: string, year: number): Promise<ServiceFulfillmentRow[]>;
 
   sessionStore: session.Store;
 }
@@ -3578,6 +3593,193 @@ export class PgStorage implements IStorage {
     await db.update(communicationAutomationRules)
       .set({ lastRunAt: new Date() })
       .where(and(eq(communicationAutomationRules.id, id), eq(communicationAutomationRules.companyId, companyId)));
+  }
+
+  async getServicePlanTemplates(companyId: string): Promise<ServicePlanTemplateWithItems[]> {
+    const templates = await db.select().from(servicePlanTemplates)
+      .where(eq(servicePlanTemplates.companyId, companyId))
+      .orderBy(servicePlanTemplates.name);
+    const allItems = templates.length > 0
+      ? await db.select().from(servicePlanTemplateItems)
+          .where(inArray(servicePlanTemplateItems.templateId, templates.map(t => t.id)))
+      : [];
+    return templates.map(t => ({
+      ...t,
+      items: allItems.filter(i => i.templateId === t.id),
+    }));
+  }
+
+  async getServicePlanTemplateById(id: string, companyId: string): Promise<ServicePlanTemplateWithItems | undefined> {
+    const [template] = await db.select().from(servicePlanTemplates)
+      .where(and(eq(servicePlanTemplates.id, id), eq(servicePlanTemplates.companyId, companyId)));
+    if (!template) return undefined;
+    const items = await db.select().from(servicePlanTemplateItems)
+      .where(eq(servicePlanTemplateItems.templateId, id));
+    return { ...template, items };
+  }
+
+  async createServicePlanTemplate(template: InsertServicePlanTemplate): Promise<ServicePlanTemplate> {
+    const [row] = await db.insert(servicePlanTemplates).values(template as typeof servicePlanTemplates.$inferInsert).returning();
+    return row;
+  }
+
+  async updateServicePlanTemplate(id: string, companyId: string, updates: Partial<InsertServicePlanTemplate>): Promise<ServicePlanTemplate | undefined> {
+    const [row] = await db.update(servicePlanTemplates)
+      .set({ ...updates, updatedAt: new Date() } as Partial<typeof servicePlanTemplates.$inferInsert>)
+      .where(and(eq(servicePlanTemplates.id, id), eq(servicePlanTemplates.companyId, companyId)))
+      .returning();
+    return row;
+  }
+
+  async deleteServicePlanTemplate(id: string, companyId: string): Promise<void> {
+    await db.delete(servicePlanTemplates)
+      .where(and(eq(servicePlanTemplates.id, id), eq(servicePlanTemplates.companyId, companyId)));
+  }
+
+  async upsertServicePlanTemplateItems(templateId: string, items: Array<{ serviceCategory: ServicePlanCategory; defaultAnnualQuantity: number }>): Promise<ServicePlanTemplateItem[]> {
+    await db.delete(servicePlanTemplateItems)
+      .where(eq(servicePlanTemplateItems.templateId, templateId));
+    if (items.length === 0) return [];
+    const rows = await db.insert(servicePlanTemplateItems).values(
+      items.map(i => ({ templateId, serviceCategory: i.serviceCategory, defaultAnnualQuantity: i.defaultAnnualQuantity }))
+    ).returning();
+    return rows;
+  }
+
+  async getCustomerServicePlans(customerId: string, companyId: string, year?: number): Promise<CustomerServicePlan[]> {
+    const conditions = [
+      eq(customerServicePlans.customerId, customerId),
+      eq(customerServicePlans.companyId, companyId),
+    ];
+    if (year !== undefined) {
+      conditions.push(eq(customerServicePlans.year, year));
+    }
+    return db.select().from(customerServicePlans).where(and(...conditions));
+  }
+
+  async createCustomerServicePlan(plan: InsertCustomerServicePlan): Promise<CustomerServicePlan> {
+    const [row] = await db.insert(customerServicePlans).values(plan as typeof customerServicePlans.$inferInsert).returning();
+    return row;
+  }
+
+  async updateCustomerServicePlan(id: string, customerId: string, companyId: string, updates: Partial<InsertCustomerServicePlan>): Promise<CustomerServicePlan | undefined> {
+    const [row] = await db.update(customerServicePlans)
+      .set({ ...updates, updatedAt: new Date() } as Partial<typeof customerServicePlans.$inferInsert>)
+      .where(and(
+        eq(customerServicePlans.id, id),
+        eq(customerServicePlans.customerId, customerId),
+        eq(customerServicePlans.companyId, companyId),
+      ))
+      .returning();
+    return row;
+  }
+
+  async deleteCustomerServicePlan(id: string, customerId: string, companyId: string): Promise<void> {
+    await db.delete(customerServicePlans)
+      .where(and(
+        eq(customerServicePlans.id, id),
+        eq(customerServicePlans.customerId, customerId),
+        eq(customerServicePlans.companyId, companyId),
+      ));
+  }
+
+  async getServiceFulfillment(customerId: string, companyId: string, year: number): Promise<ServiceFulfillmentRow[]> {
+    const plans = await db.select().from(customerServicePlans)
+      .where(and(
+        eq(customerServicePlans.customerId, customerId),
+        eq(customerServicePlans.companyId, companyId),
+        eq(customerServicePlans.year, year),
+      ));
+    if (plans.length === 0) return [];
+
+    const yearStart = `${year}-01-01`;
+    const yearEnd = `${year}-12-31`;
+
+    // Campaign items are the primary source for scheduled/completed counts.
+    // Explicit service_plan_category takes precedence; falls back to campaign type+subtype inference.
+    // "general" campaigns produce a NULL category and are excluded.
+    const campaignItemCounts = await db.execute(sql`
+      SELECT
+        COALESCE(ci.service_plan_category, (
+          CASE
+            WHEN c.category = 'chemical'                                       THEN 'chemical'
+            WHEN c.category = 'irrigation' AND COALESCE(c.subtype,'') = 'spring_turn_on'  THEN 'irrigation_open'
+            WHEN c.category = 'irrigation' AND COALESCE(c.subtype,'') = 'winterization'   THEN 'irrigation_winterization'
+            WHEN c.category = 'irrigation'                                     THEN 'irrigation_close'
+            ELSE NULL
+          END
+        )) as service_category,
+        COUNT(*) FILTER (WHERE ci.status != 'skipped') as scheduled_count,
+        COUNT(*) FILTER (WHERE ci.status = 'completed') as completed_count
+      FROM campaign_items ci
+      JOIN campaigns c ON ci.campaign_id = c.id
+      WHERE ci.customer_id = ${customerId}
+        AND ci.company_id = ${companyId}
+        AND c.window_start <= ${yearEnd}::date
+        AND c.window_end >= ${yearStart}::date
+      GROUP BY 1
+    `);
+
+    // Tickets supplement completed counts for ticket-tracked categories.
+    // Only completed_at (year-filtered) contributes; tickets do not affect scheduledCount.
+    const ticketCounts = await db.execute(sql`
+      SELECT
+        t.service_type,
+        COUNT(*) FILTER (
+          WHERE t.completed_at IS NOT NULL
+            AND EXTRACT(YEAR FROM t.completed_at) = ${year}
+        ) as completed_count
+      FROM tickets t
+      WHERE t.customer_id = ${customerId}
+        AND t.company_id = ${companyId}
+        AND t.service_type IS NOT NULL
+      GROUP BY t.service_type
+    `);
+
+    type CampaignAggRow = { service_category: string | null; scheduled_count: string | number; completed_count: string | number };
+    type TicketAggRow = { service_type: string; completed_count: string | number };
+
+    const campaignRows: CampaignAggRow[] = (campaignItemCounts.rows ?? campaignItemCounts) as CampaignAggRow[];
+    const ticketRows: TicketAggRow[] = (ticketCounts.rows ?? ticketCounts) as TicketAggRow[];
+
+    // Build campaign lookup: service_category -> { scheduled, completed }
+    // Null service_category rows (general campaigns without explicit tagging) are skipped.
+    const campaignMap: Record<string, { scheduled: number; completed: number }> = {};
+    for (const row of campaignRows) {
+      if (!row.service_category) continue;
+      const cat = row.service_category;
+      campaignMap[cat] = {
+        scheduled: (campaignMap[cat]?.scheduled ?? 0) + Number(row.scheduled_count),
+        completed: (campaignMap[cat]?.completed ?? 0) + Number(row.completed_count),
+      };
+    }
+
+    // Build ticket lookup: service_type -> completed count (tickets only affect completedCount)
+    const ticketMap: Record<string, { completed: number }> = {};
+    for (const row of ticketRows) {
+      ticketMap[row.service_type] = {
+        completed: Number(row.completed_count),
+      };
+    }
+
+    return plans.map(plan => {
+      const cat = plan.serviceCategory as ServicePlanCategory;
+
+      // scheduled = campaign items (not skipped) mapped to this service category
+      const scheduledCount = campaignMap[cat]?.scheduled ?? 0;
+
+      // completed = completed campaign items + tickets with completedAt in the target year
+      const completedCount = (campaignMap[cat]?.completed ?? 0) + (ticketMap[cat]?.completed ?? 0);
+
+      return {
+        serviceCategory: cat,
+        expectedQuantity: plan.expectedQuantity,
+        scheduledCount,
+        completedCount,
+        notes: plan.notes,
+        planId: plan.id,
+      };
+    });
   }
 }
 

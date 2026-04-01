@@ -24,6 +24,7 @@ import { Building2, User, Plus, Pencil, Trash2, X, Phone, Mail, Copy, FileText, 
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import type { Settings, PropertyManagementCompany, PropertyManager, PropertyManagerEmail, PropertyManagerPhone, PropertyManagerWithContacts } from "@shared/schema";
+import ServicePlanTemplatesAdmin from "@/components/ServicePlanTemplatesAdmin";
 
 interface ManagerEmailInput {
   email: string;
@@ -493,6 +494,9 @@ export default function SettingsPage() {
           )}
           {isAdmin && (
             <TabsTrigger value="billing" data-testid="tab-billing">{t("settings.tabs.billing")}</TabsTrigger>
+          )}
+          {isAdmin && (
+            <TabsTrigger value="service-plans" data-testid="tab-service-plans">Service Plans</TabsTrigger>
           )}
         </TabsList>
 
@@ -1071,6 +1075,10 @@ export default function SettingsPage() {
 
         <TabsContent value="billing" className="space-y-6">
           <BillingSettings />
+        </TabsContent>
+
+        <TabsContent value="service-plans" className="space-y-6">
+          <ServicePlanTemplatesAdmin />
         </TabsContent>
 
       </Tabs>

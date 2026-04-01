@@ -1700,6 +1700,7 @@ export const campaignItems = pgTable("campaign_items", {
   weatherRecordedAt: timestamp("weather_recorded_at"),
   finishedWithoutComms: text("finished_without_comms").$type<"true" | "false">().default("false"),
   exceptionType: text("exception_type").$type<"weather_delayed" | "customer_declined" | "inaccessible_area" | "moved_to_next_visit" | "partial_completion" | "waiting_on_approval">(),
+  servicePlanCategory: text("service_plan_category"),
   createdAt: timestamp("created_at").notNull().defaultNow(),
   updatedAt: timestamp("updated_at").notNull().defaultNow(),
 });
@@ -2073,4 +2074,123 @@ export type CommunicationThreadWithMessages = CommunicationThread & {
   messages: CommunicationWithDetails[];
   latestActivity?: Date;
   messageCount: number;
+};
+
+// Service Plan Layer Tables
+
+export const SERVICE_PLAN_CATEGORIES = [
+  "mowing",
+  "pet_station",
+  "chemical",
+  "shrub_trimming",
+  "ornamental_grass",
+  "aeration",
+  "cleanups",
+  "tree_pruning",
+  "irrigation_open",
+  "irrigation_close",
+  "irrigation_winterization",
+  "snow_removal",
+  "other",
+] as const;
+export type ServicePlanCategory = typeof SERVICE_PLAN_CATEGORIES[number];
+
+export const SERVICE_PLAN_CATEGORY_LABELS: Record<ServicePlanCategory, string> = {
+  mowing: "Mowing",
+  pet_station: "Pet Station",
+  chemical: "Chemical",
+  shrub_trimming: "Shrub Trimming",
+  ornamental_grass: "Ornamental Grass",
+  aeration: "Aeration",
+  cleanups: "Cleanups",
+  tree_pruning: "Tree Pruning",
+  irrigation_open: "Irrigation Open",
+  irrigation_close: "Irrigation Close",
+  irrigation_winterization: "Irrigation Winterization",
+  snow_removal: "Snow Removal",
+  other: "Other",
+};
+
+export const servicePlanTemplates = pgTable("service_plan_templates", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  companyId: varchar("company_id").notNull().references(() => companies.id, { onDelete: "cascade" }),
+  name: text("name").notNull(),
+  active: text("active").notNull().default("true").$type<"true" | "false">(),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  updatedAt: timestamp("updated_at").notNull().defaultNow(),
+});
+
+export const insertServicePlanTemplateSchema = createInsertSchema(servicePlanTemplates).omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+}).extend({
+  name: z.string().min(1).max(200),
+  active: z.enum(["true", "false"]).default("true"),
+});
+
+export type InsertServicePlanTemplate = z.infer<typeof insertServicePlanTemplateSchema>;
+export type ServicePlanTemplate = typeof servicePlanTemplates.$inferSelect;
+
+export const servicePlanTemplateItems = pgTable("service_plan_template_items", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  templateId: varchar("template_id").notNull().references(() => servicePlanTemplates.id, { onDelete: "cascade" }),
+  serviceCategory: text("service_category").notNull().$type<ServicePlanCategory>(),
+  defaultAnnualQuantity: integer("default_annual_quantity").notNull().default(1),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+});
+
+export const insertServicePlanTemplateItemSchema = createInsertSchema(servicePlanTemplateItems).omit({
+  id: true,
+  createdAt: true,
+}).extend({
+  serviceCategory: z.enum(SERVICE_PLAN_CATEGORIES),
+  defaultAnnualQuantity: z.number().int().min(0),
+});
+
+export type InsertServicePlanTemplateItem = z.infer<typeof insertServicePlanTemplateItemSchema>;
+export type ServicePlanTemplateItem = typeof servicePlanTemplateItems.$inferSelect;
+
+export const customerServicePlans = pgTable("customer_service_plans", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  companyId: varchar("company_id").notNull().references(() => companies.id, { onDelete: "cascade" }),
+  customerId: varchar("customer_id").notNull().references(() => customers.id, { onDelete: "cascade" }),
+  year: integer("year").notNull(),
+  serviceCategory: text("service_category").notNull().$type<ServicePlanCategory>(),
+  expectedQuantity: integer("expected_quantity").notNull().default(1),
+  notes: text("notes"),
+  sourceContractRef: varchar("source_contract_ref").references(() => contracts.id, { onDelete: "set null" }),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  updatedAt: timestamp("updated_at").notNull().defaultNow(),
+}, (table) => ({
+  customerServicePlansCustomerIdx: index("customer_service_plans_customer_idx").on(table.customerId),
+  customerServicePlansCompanyIdx: index("customer_service_plans_company_idx").on(table.companyId),
+}));
+
+export const insertCustomerServicePlanSchema = createInsertSchema(customerServicePlans).omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+}).extend({
+  serviceCategory: z.enum(SERVICE_PLAN_CATEGORIES),
+  year: z.number().int().min(2000).max(2100),
+  expectedQuantity: z.number().int().min(0),
+  notes: z.string().nullable().optional(),
+  sourceContractRef: z.string().nullable().optional(),
+});
+
+export type InsertCustomerServicePlan = z.infer<typeof insertCustomerServicePlanSchema>;
+export type CustomerServicePlan = typeof customerServicePlans.$inferSelect;
+
+export type ServiceFulfillmentRow = {
+  serviceCategory: ServicePlanCategory;
+  expectedQuantity: number;
+  scheduledCount: number;
+  completedCount: number;
+  notes: string | null;
+  planId: string;
+};
+
+export type ServicePlanTemplateWithItems = ServicePlanTemplate & {
+  items: ServicePlanTemplateItem[];
 };

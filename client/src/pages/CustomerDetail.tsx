@@ -49,6 +49,7 @@ import ContractServices from "@/components/ContractServices";
 import ScheduleSummary from "@/components/ScheduleSummary";
 import LayerMapViewer from "@/components/LayerMapViewer";
 import CustomerSchedulingSection from "@/components/CustomerSchedulingSection";
+import ServiceFulfillmentPanel from "@/components/ServiceFulfillmentPanel";
 import TicketListView from "@/components/TicketListView";
 import CustomerLocationEditor from "@/components/CustomerLocationEditor";
 import CommunicationListTab from "@/components/CommunicationListTab";
@@ -1749,6 +1750,9 @@ export default function CustomerDetail() {
               {t("customerDetail.tabs.settings")}
             </TabsTrigger>
           )}
+          <TabsTrigger value="fulfillment" data-testid="tab-fulfillment">
+            Service Plan
+          </TabsTrigger>
         </TabsList>
 
         <TabsContent value="overview" className="space-y-6">
@@ -2459,6 +2463,10 @@ export default function CustomerDetail() {
             <CustomerSchedulingSection customerId={params?.id!} />
           </TabsContent>
         )}
+
+        <TabsContent value="fulfillment" className="space-y-4">
+          <ServiceFulfillmentPanel customerId={params?.id!} />
+        </TabsContent>
       </Tabs>
 
       <Dialog open={isAddContractDialogOpen} onOpenChange={setIsAddContractDialogOpen}>
