@@ -1,7 +1,7 @@
 import { useState } from "react";
 
 export type ServiceTypeFilter = "all" | "maintenance" | "chemical";
-export type StatusFilter = "all" | "active" | "inactive";
+export type StatusFilter = "all" | "active" | "inactive" | "paused" | "ended";
 
 export interface RevenueFilters {
   year: number;
