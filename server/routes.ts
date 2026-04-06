@@ -3676,6 +3676,338 @@ export async function registerRoutes(app: Express): Promise<Server> {
     res.json({ year: yearNum, rows: exceptions });
   });
 
+  // Revenue Export Routes (admin-only, CSV)
+  const MONTHS_SHORT_EXPORT = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+
+  function escapeCsvField(value: string | number | null | undefined): string {
+    if (value === null || value === undefined) return "";
+    let str = String(value);
+    // Prevent CSV formula injection: prefix cells that start with formula chars
+    if (str.match(/^[=+\-@|%]/)) {
+      str = `'${str}`;
+    }
+    if (str.includes(",") || str.includes('"') || str.includes("\n") || str.includes("'")) {
+      return `"${str.replace(/"/g, '""')}"`;
+    }
+    return str;
+  }
+
+  function rowsToCsv(headers: string[], rows: string[][]): string {
+    const lines = [headers.map(escapeCsvField).join(",")];
+    for (const row of rows) {
+      lines.push(row.map(escapeCsvField).join(","));
+    }
+    return lines.join("\n");
+  }
+
+  function isAdminOrSuperAdmin(user: UserWithContext): boolean {
+    return user.activeRole === "admin" || user.isSuperAdminBool === true;
+  }
+
+  // Resolve and authorize the target companyId for export endpoints.
+  // Accepts an optional companyId query param; if provided it must match the user's active company.
+  // Returns the resolved companyId string or null if authorization fails.
+  function resolveExportCompanyId(user: UserWithContext, companyIdParam: string | undefined): string | null {
+    if (companyIdParam !== undefined && companyIdParam !== "") {
+      // Validate it matches the user's active company (no cross-company access)
+      if (companyIdParam !== user.activeCompanyId) return null;
+      return companyIdParam;
+    }
+    return user.activeCompanyId;
+  }
+
+  function applyAuditFilters(
+    rows: Awaited<ReturnType<typeof buildContractAuditRows>>,
+    params: { serviceType?: string; searchQuery?: string; showIssuesOnly?: string; activeOnly?: string }
+  ) {
+    let filtered = rows;
+    if (params.serviceType && params.serviceType !== "all") {
+      const svc = params.serviceType.toLowerCase();
+      filtered = filtered.filter((r) => r.serviceType.toLowerCase() === svc);
+    }
+    if (params.searchQuery) {
+      const q = params.searchQuery.toLowerCase();
+      filtered = filtered.filter((r) => r.propertyName.toLowerCase().includes(q));
+    }
+    if (params.showIssuesOnly === "true") {
+      filtered = filtered.filter((r) => r.auditFlags.length > 0);
+    }
+    if (params.activeOnly === "true") {
+      filtered = filtered.filter((r) => r.contractStatus === "active");
+    }
+    return filtered;
+  }
+
+  // Map raw audit flag keys to UI-friendly labels for CSV output
+  function auditFlagLabel(flag: string): string {
+    const labels: Record<string, string> = {
+      missing_month: "Missing Month",
+      zero_value_active_row: "Zero Value in Active Month",
+      populated_outside_contract_term: "Revenue Outside Contract Term",
+      annual_total_mismatch: "Annual Total Mismatch",
+      inconsistent_monthly_values: "Inconsistent Monthly Values",
+      duplicate_service_line: "Duplicate Service Line",
+      unknown_billing_pattern: "Unknown Billing Pattern",
+    };
+    return labels[flag] ?? flag;
+  }
+
+  // Row-per-issue format headers matching UI terminology
+  const AUDIT_FLAT_HEADERS = ["Property", "Service", "Month", "Expected", "Actual", "Status", "Flag Reason", "Contract Start", "Contract End", "Annual (Stored)", "Annual (Calculated)"];
+
+  // Flat row format: one summary row per contract (with flag details if any issues exist).
+  // For contracts with flags, also emits one additional row per month-specific issue
+  // and one additional row per contract-level flag. Clean contracts appear as one row.
+  function auditRowsToFlatCsvRows(rows: Awaited<ReturnType<typeof buildContractAuditRows>>): string[][] {
+    const dataRows: string[][] = [];
+    for (const r of rows) {
+      if (r.auditFlags.length === 0) {
+        // Clean contract: emit one summary row with no flag details
+        dataRows.push([
+          r.propertyName,
+          r.serviceType,
+          "—",
+          "—",
+          "—",
+          r.auditStatus,
+          "",
+          r.contractTermStart ?? "",
+          r.contractTermEnd ?? "",
+          String(r.annualTotalStored.toFixed(2)),
+          String(r.annualTotalCalculated.toFixed(2)),
+        ]);
+        continue;
+      }
+
+      // Flagged contract: emit one row per month-specific issue
+      for (let i = 0; i < 12; i++) {
+        const monthNum = i + 1;
+        const isExpected = r.expectedActiveMonths.includes(monthNum);
+        const actual = r.monthlyValues[i];
+        const flagsForMonth: string[] = [];
+        if (isExpected && actual === null && r.auditFlags.includes("missing_month")) {
+          flagsForMonth.push(auditFlagLabel("missing_month"));
+        }
+        if (isExpected && actual === 0 && r.auditFlags.includes("zero_value_active_row")) {
+          flagsForMonth.push(auditFlagLabel("zero_value_active_row"));
+        }
+        if (!isExpected && actual !== null && actual > 0 && r.auditFlags.includes("populated_outside_contract_term")) {
+          flagsForMonth.push(auditFlagLabel("populated_outside_contract_term"));
+        }
+        if (flagsForMonth.length > 0) {
+          const expectedStr = isExpected ? "Yes" : "No";
+          const actualStr = actual !== null ? String(actual.toFixed(2)) : "";
+          dataRows.push([
+            r.propertyName,
+            r.serviceType,
+            MONTHS_SHORT_EXPORT[i],
+            expectedStr,
+            actualStr,
+            r.auditStatus,
+            flagsForMonth.join(";"),
+            r.contractTermStart ?? "",
+            r.contractTermEnd ?? "",
+            String(r.annualTotalStored.toFixed(2)),
+            String(r.annualTotalCalculated.toFixed(2)),
+          ]);
+        }
+      }
+
+      // Emit one row per contract-level flag (not tied to a specific month)
+      const contractLevelFlagKeys = ["annual_total_mismatch", "inconsistent_monthly_values", "duplicate_service_line", "unknown_billing_pattern"];
+      for (const flag of r.auditFlags) {
+        if (contractLevelFlagKeys.includes(flag)) {
+          dataRows.push([
+            r.propertyName,
+            r.serviceType,
+            "—",
+            "—",
+            "—",
+            r.auditStatus,
+            auditFlagLabel(flag),
+            r.contractTermStart ?? "",
+            r.contractTermEnd ?? "",
+            String(r.annualTotalStored.toFixed(2)),
+            String(r.annualTotalCalculated.toFixed(2)),
+          ]);
+        }
+      }
+
+      // If the flagged contract has no month-specific or contract-level rows emitted yet,
+      // add a summary row so it still appears in the export
+      const hasMonthFlags = r.auditFlags.some((f) => ["missing_month", "zero_value_active_row", "populated_outside_contract_term"].includes(f));
+      const hasContractFlags = r.auditFlags.some((f) => contractLevelFlagKeys.includes(f));
+      if (!hasMonthFlags && !hasContractFlags) {
+        dataRows.push([
+          r.propertyName,
+          r.serviceType,
+          "—",
+          "—",
+          "—",
+          r.auditStatus,
+          r.auditFlags.map(auditFlagLabel).join(";"),
+          r.contractTermStart ?? "",
+          r.contractTermEnd ?? "",
+          String(r.annualTotalStored.toFixed(2)),
+          String(r.annualTotalCalculated.toFixed(2)),
+        ]);
+      }
+    }
+    return dataRows;
+  }
+
+  // Export ALL audit results — year + companyId only, NO UI filters applied.
+  // This always returns the complete dataset for the year regardless of active UI state.
+  app.get("/api/revenue/export/audit", async (req, res) => {
+    if (!req.isAuthenticated()) return res.status(401).send("Not authenticated");
+    const user = req.user as UserWithContext;
+    if (!isAdminOrSuperAdmin(user)) return res.status(403).send("Admin role required");
+
+    const { year, companyId } = req.query;
+    const yearNum = parseInt(year as string);
+    if (isNaN(yearNum) || yearNum < 2000 || yearNum > 2100) return res.status(400).send("Invalid year");
+    const resolvedCompanyId = resolveExportCompanyId(user, companyId as string | undefined);
+    if (resolvedCompanyId === null) return res.status(403).send("Unauthorized company access");
+
+    const rows = await buildContractAuditRows(resolvedCompanyId, yearNum);
+    const csv = rowsToCsv(AUDIT_FLAT_HEADERS, auditRowsToFlatCsvRows(rows));
+    res.setHeader("Content-Type", "text/csv");
+    res.setHeader("Content-Disposition", `attachment; filename="audit-results-${yearNum}.csv"`);
+    res.send(csv);
+  });
+
+  // Export exceptions only — flagged rows only; accepts year, companyId, and optional filters
+  app.get("/api/revenue/export/exceptions", async (req, res) => {
+    if (!req.isAuthenticated()) return res.status(401).send("Not authenticated");
+    const user = req.user as UserWithContext;
+    if (!isAdminOrSuperAdmin(user)) return res.status(403).send("Admin role required");
+
+    const { year, companyId, serviceType, searchQuery, activeOnly } = req.query;
+    const yearNum = parseInt(year as string);
+    if (isNaN(yearNum) || yearNum < 2000 || yearNum > 2100) return res.status(400).send("Invalid year");
+    const resolvedCompanyId = resolveExportCompanyId(user, companyId as string | undefined);
+    if (resolvedCompanyId === null) return res.status(403).send("Unauthorized company access");
+
+    const allRows = await buildContractAuditRows(resolvedCompanyId, yearNum);
+    // Apply filters first, then keep only rows that have flags (exceptions always show issues)
+    const filtered = applyAuditFilters(allRows, {
+      serviceType: serviceType as string,
+      searchQuery: searchQuery as string,
+      showIssuesOnly: "true", // exceptions always show issues only
+      activeOnly: activeOnly as string,
+    });
+    const rows = filtered.filter((r) => r.auditFlags.length > 0);
+
+    const headers = ["Property", "Service", "Status", "Flag Reason", "Missing Months", "Contract Start", "Contract End", "Annual (Stored)", "Annual (Calculated)"];
+    const dataRows: string[][] = [];
+    for (const r of rows) {
+      for (const flag of r.auditFlags) {
+        dataRows.push([
+          r.propertyName,
+          r.serviceType,
+          r.auditStatus,
+          auditFlagLabel(flag),
+          String(r.missingMonthCount),
+          r.contractTermStart ?? "",
+          r.contractTermEnd ?? "",
+          String(r.annualTotalStored.toFixed(2)),
+          String(r.annualTotalCalculated.toFixed(2)),
+        ]);
+      }
+    }
+
+    const csv = rowsToCsv(headers, dataRows);
+    res.setHeader("Content-Type", "text/csv");
+    res.setHeader("Content-Disposition", `attachment; filename="exceptions-${yearNum}.csv"`);
+    res.send(csv);
+  });
+
+  // Export filtered audit results — accepts year, companyId, and all active UI filter params
+  app.get("/api/revenue/export/filtered", async (req, res) => {
+    if (!req.isAuthenticated()) return res.status(401).send("Not authenticated");
+    const user = req.user as UserWithContext;
+    if (!isAdminOrSuperAdmin(user)) return res.status(403).send("Admin role required");
+
+    const { year, companyId, serviceType, searchQuery, showIssuesOnly, activeOnly } = req.query;
+    const yearNum = parseInt(year as string);
+    if (isNaN(yearNum) || yearNum < 2000 || yearNum > 2100) return res.status(400).send("Invalid year");
+    const resolvedCompanyId = resolveExportCompanyId(user, companyId as string | undefined);
+    if (resolvedCompanyId === null) return res.status(403).send("Unauthorized company access");
+
+    const allRows = await buildContractAuditRows(resolvedCompanyId, yearNum);
+    const rows = applyAuditFilters(allRows, {
+      serviceType: serviceType as string,
+      searchQuery: searchQuery as string,
+      showIssuesOnly: showIssuesOnly as string,
+      activeOnly: activeOnly as string,
+    });
+
+    const csv = rowsToCsv(AUDIT_FLAT_HEADERS, auditRowsToFlatCsvRows(rows));
+    res.setHeader("Content-Type", "text/csv");
+    res.setHeader("Content-Disposition", `attachment; filename="audit-filtered-${yearNum}.csv"`);
+    res.send(csv);
+  });
+
+  // Export revenue matrix — accepts year, companyId, and optional filters; spreadsheet-style CSV
+  app.get("/api/revenue/export/matrix", async (req, res) => {
+    if (!req.isAuthenticated()) return res.status(401).send("Not authenticated");
+    const user = req.user as UserWithContext;
+    if (!isAdminOrSuperAdmin(user)) return res.status(403).send("Admin role required");
+
+    const { year, companyId, serviceType, searchQuery, activeOnly, showIssuesOnly } = req.query;
+    const yearNum = parseInt(year as string);
+    if (isNaN(yearNum) || yearNum < 2000 || yearNum > 2100) return res.status(400).send("Invalid year");
+    const resolvedCompanyId = resolveExportCompanyId(user, companyId as string | undefined);
+    if (resolvedCompanyId === null) return res.status(403).send("Unauthorized company access");
+
+    // Build month-by-month breakdown from contract monthly amounts for the full year
+    const allRows = await buildContractAuditRows(resolvedCompanyId, yearNum);
+    // Apply full filter set for consistency with other export endpoints
+    let rows = applyAuditFilters(allRows, {
+      serviceType: serviceType as string,
+      searchQuery: searchQuery as string,
+      showIssuesOnly: showIssuesOnly as string,
+      activeOnly: activeOnly as string,
+    });
+    // Aggregate by property (customerId) across all service types and 12 months
+    // One row per property matching the Revenue Matrix UI layout ("properties as rows")
+    const matrixData = new Map<string, { propertyName: string; months: (number | null)[]; annual: number }>();
+
+    for (const row of rows) {
+      const key = row.customerId;
+      if (!matrixData.has(key)) {
+        matrixData.set(key, { propertyName: row.propertyName, months: Array(12).fill(null), annual: 0 });
+      }
+      const entry = matrixData.get(key)!;
+      for (let i = 0; i < 12; i++) {
+        const v = row.monthlyValues[i];
+        if (v !== null && v > 0) {
+          entry.months[i] = (entry.months[i] ?? 0) + v;
+        }
+      }
+      entry.annual += row.annualTotalStored;
+    }
+
+    const headers = ["Property", ...MONTHS_SHORT_EXPORT, "Annual Total"];
+    const dataRows: string[][] = [];
+
+    for (const entry of matrixData.values()) {
+      dataRows.push([
+        entry.propertyName,
+        ...entry.months.map((v) => (v === null ? "" : String(v.toFixed(2)))),
+        String(entry.annual.toFixed(2)),
+      ]);
+    }
+
+    // Sort by property name
+    dataRows.sort((a, b) => a[0].localeCompare(b[0]));
+
+    const csv = rowsToCsv(headers, dataRows);
+    res.setHeader("Content-Type", "text/csv");
+    res.setHeader("Content-Disposition", `attachment; filename="revenue-matrix-${yearNum}.csv"`);
+    res.send(csv);
+  });
+
   // Contract Builder routes
   app.get("/api/contract-templates", async (req, res) => {
     if (!req.isAuthenticated()) {

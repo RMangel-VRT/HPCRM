@@ -4,8 +4,11 @@ import { Input } from "@/components/ui/input";
 import { Switch } from "@/components/ui/switch";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Search } from "lucide-react";
+import { Search, Download, ChevronDown } from "lucide-react";
+import { useAuth } from "@/hooks/use-auth";
 import type { RevenueFilters, RevenueFilterSetters, ServiceTypeFilter, StatusFilter } from "@/hooks/use-revenue-filters";
 
 export type RevenueTab = "revenue-matrix" | "contract-audit" | "revenue-exceptions";
@@ -34,6 +37,9 @@ export function RevenueModuleHeader({
   setShowIssuesOnly,
 }: RevenueModuleHeaderProps) {
   const { t } = useTranslation();
+  const { user } = useAuth();
+  const isAdmin = user?.activeRole === "admin" || user?.isSuperAdminBool;
+
   const currentDate = new Date();
   const yearOptions = Array.from({ length: 7 }, (_, i) => currentDate.getFullYear() - 3 + i);
   const monthNames = [
@@ -42,13 +48,80 @@ export function RevenueModuleHeader({
     t("months.september"), t("months.october"), t("months.november"), t("months.december"),
   ];
 
+  function buildExportUrl(exportType: "audit" | "exceptions" | "filtered" | "matrix") {
+    const params = new URLSearchParams();
+    params.set("year", String(year));
+    if (exportType === "audit") {
+      // "All Audit Results" — year only, no UI filters, downloads the complete dataset
+    } else {
+      // "Filtered Results", "Exceptions Only", "Revenue Matrix" all respect active filter state
+      if (serviceType && serviceType !== "all") params.set("serviceType", serviceType);
+      if (searchQuery) params.set("searchQuery", searchQuery);
+      if (showIssuesOnly) params.set("showIssuesOnly", "true");
+      if (activeOnly) params.set("activeOnly", "true");
+    }
+    return `/api/revenue/export/${exportType}?${params.toString()}`;
+  }
+
+  function downloadExport(exportType: "audit" | "exceptions" | "filtered" | "matrix") {
+    const url = buildExportUrl(exportType);
+    const a = document.createElement("a");
+    a.href = url;
+    a.style.display = "none";
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+  }
+
   return (
     <div className="space-y-4">
-      <div>
-        <h1 className="text-3xl font-semibold tracking-tight" data-testid="text-page-title">
-          {t("revenue.title")}
-        </h1>
-        <p className="text-muted-foreground mt-1">{t("revenue.description")}</p>
+      <div className="flex items-start justify-between gap-4 flex-wrap">
+        <div>
+          <h1 className="text-3xl font-semibold tracking-tight" data-testid="text-page-title">
+            {t("revenue.title")}
+          </h1>
+          <p className="text-muted-foreground mt-1">{t("revenue.description")}</p>
+        </div>
+
+        {isAdmin && (
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button variant="outline" data-testid="button-export-dropdown">
+                <Download className="h-4 w-4 mr-2" />
+                Export
+                <ChevronDown className="h-4 w-4 ml-1" />
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end" className="w-56">
+              <DropdownMenuLabel>Export as CSV</DropdownMenuLabel>
+              <DropdownMenuSeparator />
+              <DropdownMenuItem
+                onClick={() => downloadExport("audit")}
+                data-testid="menu-export-audit"
+              >
+                All Audit Results
+              </DropdownMenuItem>
+              <DropdownMenuItem
+                onClick={() => downloadExport("exceptions")}
+                data-testid="menu-export-exceptions"
+              >
+                Exceptions Only
+              </DropdownMenuItem>
+              <DropdownMenuItem
+                onClick={() => downloadExport("matrix")}
+                data-testid="menu-export-matrix"
+              >
+                Revenue Matrix
+              </DropdownMenuItem>
+              <DropdownMenuItem
+                onClick={() => downloadExport("filtered")}
+                data-testid="menu-export-filtered"
+              >
+                Filtered Results
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
+        )}
       </div>
 
       <div className="flex flex-wrap items-center gap-3">
@@ -143,7 +216,7 @@ export function RevenueModuleHeader({
         <TabsTrigger value="contract-audit" data-testid="tab-contract-audit" className="flex items-center gap-1.5">
           {t("revenue.tabs.contractAudit", "Contract Audit")}
           {auditIssueCount > 0 && (
-            <Badge variant="secondary" className="text-xs px-1.5 py-0 h-auto" data-testid="badge-audit-issue-count">
+            <Badge variant="destructive" className="text-xs px-1.5 py-0 h-auto" data-testid="badge-audit-issue-count">
               {auditIssueCount}
             </Badge>
           )}
