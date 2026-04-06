@@ -1,0 +1,41 @@
+Revenue Section Expansion — Contract Revenue Audit Tabs
+Overview Scope Paragraph
+
+Expand the existing Revenue section of the High Plains CRM into a tabbed revenue workspace instead of creating a separate standalone page. The goal is to preserve the current revenue tracking function while adding a much stronger contract validation and audit workflow. The existing spreadsheet-style revenue matrix should remain available as one tab for broad month-by-month visibility, but a new primary Contract Audit tab should be added to help admin users verify that every customer contract and service line is correctly populated for the selected year. This tab should be built as an operational audit dashboard, not just a prettier spreadsheet. It should surface missing months, inconsistent revenue values, duplicate service lines, zero-value entries, and annual total mismatches in a way that is fast to review and easy to correct. The overall design should feel like one cohesive revenue module with shared filters, shared year selection, and shared data sources across all tabs.
+
+Slice 1 — Convert Revenue Page Into Tabbed Workspace
+Objective
+
+Refactor the existing Revenue section so it supports multiple tabs within the same module, while preserving the current revenue matrix view as the starting point.
+
+Why
+
+Right now the revenue section is trying to carry too much on one screen. Before adding audit features, the structure needs to support multiple revenue-specific views in a clean and scalable way.
+
+Tabs to introduce
+Revenue Matrix
+Contract Audit
+Revenue Exceptions
+
+The first release can show the tabs even if only the existing matrix is fully functional at first.
+
+What this slice should do
+Keep this inside the existing Revenue section of the CRM
+Add a tab bar at the top of the Revenue page
+Move the current spreadsheet-style revenue table into the Revenue Matrix tab
+Preserve the existing year selector and revenue data loading behavior
+Create placeholder tab shells for:
+Contract Audit
+Revenue Exceptions
+Make tab state URL-aware if that already matches app patterns
+Keep styling aligned with the rest of the CRM admin experience
+Guardrails
+Do not duplicate revenue logic
+Do not create a separate route outside the existing Revenue area unless current architecture requires nested routing
+Do not change the existing matrix calculations yet
+Preserve current behavior of the existing revenue page under the Revenue Matrix tab
+Done looks like
+Revenue section now opens with a tabbed interface
+Existing matrix view still works exactly as before under its own tab
+Contract Audit and Revenue Exceptions tabs exist as visible destinations
+Shared year selector remains in the Revenue module

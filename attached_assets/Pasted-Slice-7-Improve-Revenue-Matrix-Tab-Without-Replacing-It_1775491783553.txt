@@ -1,0 +1,92 @@
+Slice 7 — Improve Revenue Matrix Tab Without Replacing It
+Objective
+
+Clean up the existing matrix tab so it remains useful as a broad comparison view.
+
+Why
+
+You still want the “see everything on one page” feeling, but it should serve as a secondary validation surface, not the only tool.
+
+What this slice should do
+
+Improve the existing Revenue Matrix tab with:
+
+Sticky first columns for Property and Service
+Better row grouping by property
+Expand/collapse service groups if possible
+Cleaner totals row
+Optional color indicators for blank vs populated cells
+Ability to highlight issues based on audit flags
+Optional toggle between raw values and compact status shading
+Good enhancement ideas
+Hover row highlight across months
+Status icon at the end of each service line
+Click from matrix row into audit detail drawer
+Guardrails
+Do not rebuild this tab from scratch if current table logic works
+Keep this tab familiar for users already using it
+Avoid letting this tab become the primary audit interface again
+Done looks like
+The matrix is cleaner and easier to scan
+It supports the audit workflow instead of competing with it
+Slice 8 — Wire Audit Logic Into Existing Revenue Editing Flow
+Objective
+
+Make the audit system stay current when contract revenue data changes.
+
+Why
+
+The audit page only matters if it reflects real data and updates as corrections are made.
+
+What this slice should do
+Recompute audit results whenever revenue data changes
+Refresh affected rows after edits
+Keep status counts in sync
+Ensure matrix, audit, and exceptions all reflect the same source data
+Add empty states if there are no issues
+Guardrails
+Avoid stale cached results lingering after edits
+Keep recalculation efficient for larger customer sets
+Reuse the same audit engine everywhere
+Done looks like
+Fixing a contract entry updates the audit status accurately
+All tabs stay aligned without manual refresh confusion
+Slice 9 — Add Export / Review Output
+Objective
+
+Give admin users a way to export or review contract audit data outside the UI.
+
+Why
+
+You may still want a spreadsheet or review artifact for year-end checks or team review.
+
+What this slice should do
+
+Add export options such as:
+
+Export full audit results
+Export exceptions only
+Export revenue matrix
+Export filtered results
+Guardrails
+Exports should respect the current year and filters
+Keep column names audit-friendly
+Do not let export structure drift away from UI terminology
+Done looks like
+User can export all contracts or just problem rows for offline review
+Recommended Build Order
+Phase 1
+Slice 1
+Slice 2
+Slice 3
+Phase 2
+Slice 4
+Slice 5
+Slice 6
+Phase 3
+Slice 7
+Slice 8
+Slice 9
+Replit Design Constraint
+
+Use the existing Revenue section as the home for this work and expand it into a tabbed module rather than creating a new standalone page. The UI should feel like a natural extension of the current CRM admin experience, not a separate reporting tool. Keep the current revenue matrix view intact as one tab, then add new tabs for Contract Audit and Revenue Exceptions that use the same shared year selector, filter state, and source revenue data. The Contract Audit tab should become the primary operational validation screen, designed for fast review of contract completeness and revenue population issues. The Revenue Exceptions tab should act as a focused cleanup queue for flagged problems only. All three tabs must stay connected to the same underlying revenue records and should support drilling back to the original source entries rather than introducing duplicate data management patterns.
