@@ -3631,6 +3631,37 @@ export async function registerRoutes(app: Express): Promise<Server> {
     res.json(overviewData);
   });
 
+  app.get("/api/revenue/contract-audit", async (req, res) => {
+    if (!req.isAuthenticated()) {
+      return res.status(401).send("Not authenticated");
+    }
+    const user = req.user as UserWithContext;
+    const { year } = req.query;
+    const yearNum = parseInt(year as string);
+    if (isNaN(yearNum) || yearNum < 2000 || yearNum > 2100) {
+      return res.status(400).send("Invalid year");
+    }
+    const { buildContractAuditRows } = await import("./auditEngine");
+    const rows = await buildContractAuditRows(user.activeCompanyId, yearNum);
+    res.json({ year: yearNum, rows });
+  });
+
+  app.get("/api/revenue/exceptions", async (req, res) => {
+    if (!req.isAuthenticated()) {
+      return res.status(401).send("Not authenticated");
+    }
+    const user = req.user as UserWithContext;
+    const { year } = req.query;
+    const yearNum = parseInt(year as string);
+    if (isNaN(yearNum) || yearNum < 2000 || yearNum > 2100) {
+      return res.status(400).send("Invalid year");
+    }
+    const { buildContractAuditRows } = await import("./auditEngine");
+    const allRows = await buildContractAuditRows(user.activeCompanyId, yearNum);
+    const exceptions = allRows.filter((r) => r.auditFlags.length > 0);
+    res.json({ year: yearNum, rows: exceptions });
+  });
+
   // Contract Builder routes
   app.get("/api/contract-templates", async (req, res) => {
     if (!req.isAuthenticated()) {

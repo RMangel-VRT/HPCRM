@@ -3,13 +3,16 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Input } from "@/components/ui/input";
 import { Switch } from "@/components/ui/switch";
 import { Label } from "@/components/ui/label";
+import { Badge } from "@/components/ui/badge";
 import { TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Search } from "lucide-react";
 import type { RevenueFilters, RevenueFilterSetters, ServiceTypeFilter, StatusFilter } from "@/hooks/use-revenue-filters";
 
 export type RevenueTab = "revenue-matrix" | "contract-audit" | "revenue-exceptions";
 
-interface RevenueModuleHeaderProps extends RevenueFilters, RevenueFilterSetters {}
+interface RevenueModuleHeaderProps extends RevenueFilters, RevenueFilterSetters {
+  exceptionCount?: number;
+}
 
 export function RevenueModuleHeader({
   year,
@@ -19,6 +22,7 @@ export function RevenueModuleHeader({
   statusFilter,
   activeOnly,
   showIssuesOnly,
+  exceptionCount = 0,
   setYear,
   setMonth,
   setSearchQuery,
@@ -137,8 +141,13 @@ export function RevenueModuleHeader({
         <TabsTrigger value="contract-audit" data-testid="tab-contract-audit">
           {t("revenue.tabs.contractAudit", "Contract Audit")}
         </TabsTrigger>
-        <TabsTrigger value="revenue-exceptions" data-testid="tab-revenue-exceptions">
+        <TabsTrigger value="revenue-exceptions" data-testid="tab-revenue-exceptions" className="flex items-center gap-1.5">
           {t("revenue.tabs.revenueExceptions", "Revenue Exceptions")}
+          {exceptionCount > 0 && (
+            <Badge variant="destructive" className="text-xs px-1.5 py-0 h-auto" data-testid="badge-exception-count">
+              {exceptionCount}
+            </Badge>
+          )}
         </TabsTrigger>
       </TabsList>
     </div>
