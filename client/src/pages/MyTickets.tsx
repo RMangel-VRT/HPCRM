@@ -183,9 +183,9 @@ export default function MyTickets() {
   }, [companyUsersData]);
 
   const { data: equipmentTickets = [], isLoading: equipTicketsLoading } = useQuery<EquipmentTicket[]>({
-    queryKey: ["/api/equipment-tickets", { assignedToId: user?.id }],
+    queryKey: ["/api/equipment-tickets", { operatorUserId: user?.id }],
     queryFn: async () => {
-      const res = await fetch(`/api/equipment-tickets?assignedToId=${user?.id}`, { credentials: "include" });
+      const res = await fetch(`/api/equipment-tickets?operatorUserId=${user?.id}`, { credentials: "include" });
       if (!res.ok) return [];
       return res.json();
     },

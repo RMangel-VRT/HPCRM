@@ -7741,16 +7741,48 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
     const user = req.user as UserWithContext;
     
-    if (!canAccessEquipment(user.activeRole)) {
-      return res.status(403).send("Insufficient permissions");
-    }
-    
-    const filters: { equipmentId?: string; status?: string; assignedToId?: string } = {};
+    // Allow any authenticated company member to fetch equipment tickets
+    // (used by MyTickets for operator-based filtering)
+    const filters: { equipmentId?: string; status?: string; assignedToId?: string; operatorUserId?: string } = {};
     if (req.query.equipmentId) filters.equipmentId = req.query.equipmentId as string;
     if (req.query.status) filters.status = req.query.status as string;
     if (req.query.assignedToId) filters.assignedToId = req.query.assignedToId as string;
+    if (req.query.operatorUserId) filters.operatorUserId = req.query.operatorUserId as string;
+    
+    // If using operatorUserId filter, any user can call this for their own ID
+    // Otherwise require equipment access role
+    const isOwnOperatorQuery = filters.operatorUserId && filters.operatorUserId === user.id && !filters.assignedToId && !filters.equipmentId;
+    if (!isOwnOperatorQuery && !canAccessEquipment(user.activeRole)) {
+      return res.status(403).send("Insufficient permissions");
+    }
     
     const tickets = await storage.getEquipmentTickets(user.activeCompanyId, filters);
+    res.json(tickets);
+  });
+
+  // Equipment Tickets - Get all for main list with equipment name (admin/shop/office only)
+  app.get("/api/equipment-tickets-list", async (req, res) => {
+    if (!req.isAuthenticated()) {
+      return res.status(401).send("Not authenticated");
+    }
+    const user = req.user as UserWithContext;
+    
+    const managerRoles = ["field_manager", "chemical_manager", "irrigation_manager"];
+    const isManager = managerRoles.includes(user.activeRole);
+    
+    if (!canAccessEquipment(user.activeRole) && !isManager) {
+      return res.status(403).send("Insufficient permissions");
+    }
+    
+    const filters: { status?: string; operatorUserId?: string } = {};
+    if (req.query.status) filters.status = req.query.status as string;
+    
+    // Manager roles get scoped access: only tickets for equipment they operate
+    if (isManager) {
+      filters.operatorUserId = user.id;
+    }
+    
+    const tickets = await storage.getEquipmentTicketsWithEquipmentName(user.activeCompanyId, filters);
     res.json(tickets);
   });
 

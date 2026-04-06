@@ -22,15 +22,43 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
-import { Plus, Search, ChevronRight, ChevronLeft, ChevronDown, Clock, CalendarDays, Filter, Loader2, Trash2, X, Layers } from "lucide-react";
+import { Plus, Search, ChevronRight, ChevronLeft, ChevronDown, Clock, CalendarDays, Filter, Loader2, Trash2, X, Layers, Wrench } from "lucide-react";
 import { Link } from "wouter";
-import type { Ticket, TicketType, TicketTypeStatus, Customer, User as UserType, CompanyUser } from "@shared/schema";
+import type { Ticket, TicketType, TicketTypeStatus, Customer, User as UserType, CompanyUser, EquipmentTicket } from "@shared/schema";
 import { useAuth } from "@/hooks/use-auth";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import QuickAddToDo from "@/components/QuickAddToDo";
 import BatchTicketDialog from "@/components/BatchTicketDialog";
 import TicketCard from "@/components/TicketCard";
+
+type EquipmentTicketWithName = EquipmentTicket & { equipmentName: string; _type: "equipment" };
+
+const EQUIPMENT_TICKET_STATUS_COLORS: Record<string, string> = {
+  new: "bg-primary/10 text-primary border-primary/30",
+  diagnosing: "bg-blue-50 text-blue-700 border-blue-300 dark:bg-blue-950 dark:text-blue-300 dark:border-blue-700",
+  waiting_on_parts: "bg-yellow-50 text-yellow-700 border-yellow-300 dark:bg-yellow-950 dark:text-yellow-300 dark:border-yellow-700",
+  in_repair: "bg-orange-50 text-orange-700 border-orange-300 dark:bg-orange-950 dark:text-orange-300 dark:border-orange-700",
+  completed: "bg-green-50 text-green-700 border-green-300 dark:bg-green-950 dark:text-green-300 dark:border-green-700",
+  closed: "bg-muted text-muted-foreground border-border",
+};
+
+const EQUIPMENT_TICKET_STATUS_LABELS: Record<string, string> = {
+  new: "New",
+  diagnosing: "Diagnosing",
+  waiting_on_parts: "Waiting on Parts",
+  in_repair: "In Repair",
+  completed: "Completed",
+  closed: "Closed",
+};
+
+const EQUIPMENT_CATEGORY_LABELS: Record<string, string> = {
+  preventative_maintenance: "PM",
+  repair: "Repair",
+  inspection: "Inspection",
+  safety: "Safety",
+  breakdown: "Breakdown",
+};
 
 interface CompanyUserWithDetails {
   companyUser: CompanyUser;
@@ -73,6 +101,7 @@ export default function TicketListView({
   
   const [openSectionCollapsed, setOpenSectionCollapsed] = useState(false);
   const [completedSectionCollapsed, setCompletedSectionCollapsed] = useState(false);
+  const [equipmentSectionCollapsed, setEquipmentSectionCollapsed] = useState(false);
   
   const [completedPage, setCompletedPage] = useState(1);
   const completedPerPage = 10;
@@ -84,6 +113,7 @@ export default function TicketListView({
   const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
 
   const isAdmin = user?.activeRole === "admin";
+  const canSeeEquipmentTickets = user?.activeRole && ["admin", "shop_manager", "office", "field_manager", "chemical_manager", "irrigation_manager"].includes(user.activeRole);
 
   const { data: tickets = [], isLoading: ticketsLoading } = useQuery<Ticket[]>({
     queryKey: customerId ? ["/api/customers", customerId, "tickets"] : ["/api/tickets"],
@@ -111,6 +141,16 @@ export default function TicketListView({
     queryKey: ["/api/scheduling-status"],
   });
   const schedulingStatusId = schedulingStatusData?.schedulingStatusId;
+
+  const { data: equipmentTicketsList = [] } = useQuery<EquipmentTicketWithName[]>({
+    queryKey: ["/api/equipment-tickets-list"],
+    queryFn: async () => {
+      const res = await fetch("/api/equipment-tickets-list", { credentials: "include" });
+      if (!res.ok) return [];
+      return res.json();
+    },
+    enabled: !!canSeeEquipmentTickets && !customerId,
+  });
 
   const usersMap = useMemo(() => {
     const map = new Map<string, UserType>();
@@ -464,7 +504,8 @@ export default function TicketListView({
         </div>
       )}
 
-      {filteredTickets.length === 0 ? (
+      <div className="space-y-4">
+      {filteredTickets.length === 0 && (
         <Card className="mt-8">
           <CardContent className="flex flex-col items-center justify-center py-12 text-center">
             <div className="w-16 h-16 rounded-full bg-muted flex items-center justify-center mb-4">
@@ -488,7 +529,8 @@ export default function TicketListView({
             )}
           </CardContent>
         </Card>
-      ) : (
+      )}
+      {filteredTickets.length > 0 && (
         <div className="space-y-4">
           {selectionMode && (
             <div className="flex items-center justify-between gap-3 py-2 px-3 bg-muted/50 rounded-lg">
@@ -632,8 +674,80 @@ export default function TicketListView({
               </div>
             );
           })()}
+
         </div>
       )}
+
+      {canSeeEquipmentTickets && !customerId && equipmentTicketsList.length > 0 && (
+        <div className="space-y-3 md:space-y-2 mt-6" data-testid="section-equipment-tickets">
+          <div className="flex items-center gap-2 px-1 mb-1">
+            <Wrench className="w-4 h-4 text-muted-foreground" />
+            <span className="text-sm font-semibold text-muted-foreground">Equipment Tickets</span>
+          </div>
+          <button
+            className="flex items-center gap-2 text-sm font-medium text-muted-foreground px-1 hover:text-foreground transition-colors w-full text-left"
+            onClick={() => setEquipmentSectionCollapsed(!equipmentSectionCollapsed)}
+            data-testid="button-toggle-equipment-section"
+          >
+            {equipmentSectionCollapsed ? <ChevronRight className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
+            All Equipment Tickets ({equipmentTicketsList.length})
+          </button>
+          {!equipmentSectionCollapsed && (
+            <div className="space-y-3 md:space-y-2">
+              {equipmentTicketsList.map((ticket) => {
+                const isCompleted = ticket.status === "completed" || ticket.status === "closed";
+                const barColor = isCompleted ? "#22c55e" : "#f59e0b";
+                return (
+                  <Link key={ticket.id} href={`/dashboard/equipment-tickets/${ticket.id}`}>
+                    <Card
+                      className={`hover-elevate active-elevate-2 cursor-pointer transition-colors ${isCompleted ? "opacity-75" : ""}`}
+                      data-testid={`card-equip-ticket-${ticket.id}`}
+                    >
+                      <CardContent className="p-4">
+                        <div className="flex items-start gap-3">
+                          <div className="w-1 self-stretch rounded-full" style={{ backgroundColor: barColor }} />
+                          <div className="flex-1 min-w-0">
+                            <div className="flex items-center gap-2 flex-wrap">
+                              <Badge
+                                variant="outline"
+                                className="text-xs font-normal"
+                                data-testid={`badge-equip-category-${ticket.id}`}
+                              >
+                                {EQUIPMENT_CATEGORY_LABELS[ticket.category] || ticket.category}
+                              </Badge>
+                              <Badge
+                                variant="outline"
+                                className={`text-xs capitalize ${EQUIPMENT_TICKET_STATUS_COLORS[ticket.status] || ""}`}
+                                data-testid={`badge-equip-status-${ticket.id}`}
+                              >
+                                {EQUIPMENT_TICKET_STATUS_LABELS[ticket.status] || ticket.status}
+                              </Badge>
+                              <ChevronRight className="w-5 h-5 text-muted-foreground shrink-0 ml-auto" />
+                            </div>
+                            <div className="flex items-start justify-between gap-2 mt-1">
+                              <h3 className="font-medium text-base leading-tight line-clamp-2 flex-1" data-testid={`text-equip-ticket-title-${ticket.id}`}>
+                                {ticket.title}
+                              </h3>
+                              <span className="font-mono text-xs text-muted-foreground shrink-0" data-testid={`text-equip-ticket-id-${ticket.id}`}>
+                                #{ticket.id.slice(0, 8)}
+                              </span>
+                            </div>
+                            <div className="flex items-center gap-1 mt-1.5 text-sm text-muted-foreground">
+                              <Wrench className="w-3.5 h-3.5 shrink-0" />
+                              <span className="truncate" data-testid={`text-equip-name-${ticket.id}`}>{ticket.equipmentName}</span>
+                            </div>
+                          </div>
+                        </div>
+                      </CardContent>
+                    </Card>
+                  </Link>
+                );
+              })}
+            </div>
+          )}
+        </div>
+      )}
+      </div>
 
       {showBatchActions && (
         <>
