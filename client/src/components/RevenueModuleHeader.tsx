@@ -12,6 +12,7 @@ export type RevenueTab = "revenue-matrix" | "contract-audit" | "revenue-exceptio
 
 interface RevenueModuleHeaderProps extends RevenueFilters, RevenueFilterSetters {
   exceptionCount?: number;
+  auditIssueCount?: number;
 }
 
 export function RevenueModuleHeader({
@@ -23,6 +24,7 @@ export function RevenueModuleHeader({
   activeOnly,
   showIssuesOnly,
   exceptionCount = 0,
+  auditIssueCount = 0,
   setYear,
   setMonth,
   setSearchQuery,
@@ -138,8 +140,13 @@ export function RevenueModuleHeader({
         <TabsTrigger value="revenue-matrix" data-testid="tab-revenue-matrix">
           {t("revenue.tabs.revenueMatrix", "Revenue Matrix")}
         </TabsTrigger>
-        <TabsTrigger value="contract-audit" data-testid="tab-contract-audit">
+        <TabsTrigger value="contract-audit" data-testid="tab-contract-audit" className="flex items-center gap-1.5">
           {t("revenue.tabs.contractAudit", "Contract Audit")}
+          {auditIssueCount > 0 && (
+            <Badge variant="secondary" className="text-xs px-1.5 py-0 h-auto" data-testid="badge-audit-issue-count">
+              {auditIssueCount}
+            </Badge>
+          )}
         </TabsTrigger>
         <TabsTrigger value="revenue-exceptions" data-testid="tab-revenue-exceptions" className="flex items-center gap-1.5">
           {t("revenue.tabs.revenueExceptions", "Revenue Exceptions")}

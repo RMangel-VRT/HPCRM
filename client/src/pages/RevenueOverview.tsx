@@ -311,6 +311,8 @@ function ContractAuditTab({ year }: { year: number }) {
   const completeLines = rows.filter((r) => r.auditStatus === "Complete").length;
   const reviewLines = rows.filter((r) => r.auditStatus !== "Complete").length;
   const totalAnnual = rows.reduce((s, r) => s + r.annualTotalStored, 0);
+  const allInGoodStanding = totalLines > 0 && reviewLines === 0;
+
   const statusOrder: Record<string, number> = { Error: 0, Incomplete: 1, "Needs Review": 2, Complete: 3 };
 
   const grouped = new Map<string, { customerId: string; propertyName: string; rows: ContractAuditRow[] }>();
@@ -361,6 +363,16 @@ function ContractAuditTab({ year }: { year: number }) {
           <CardContent className="flex flex-col items-center justify-center py-16 text-center">
             <CheckCircle2 className="h-8 w-8 text-muted-foreground mb-3" />
             <p className="text-muted-foreground">No contract lines found for {year}.</p>
+          </CardContent>
+        </Card>
+      ) : allInGoodStanding ? (
+        <Card>
+          <CardContent className="flex flex-col items-center justify-center py-16 text-center">
+            <CheckCircle2 className="h-8 w-8 text-green-500 mb-3" />
+            <p className="font-medium">All contracts are in good standing for {year}.</p>
+            <p className="text-sm text-muted-foreground mt-1">
+              {totalLines} service line{totalLines !== 1 ? "s" : ""} across {totalProps} propert{totalProps !== 1 ? "ies" : "y"} passed all audit checks.
+            </p>
           </CardContent>
         </Card>
       ) : (
@@ -578,15 +590,19 @@ export default function RevenueOverview() {
 
   const { data: exceptionsData } = useQuery<{ year: number; rows: ContractAuditRow[] }>({
     queryKey: [`/api/revenue/exceptions?year=${filters.year}`],
-    enabled: tabFromUrl !== "revenue-matrix",
+  });
+
+  const { data: auditData } = useQuery<{ year: number; rows: ContractAuditRow[] }>({
+    queryKey: [`/api/revenue/contract-audit?year=${filters.year}`],
   });
 
   const exceptionCount = exceptionsData?.rows?.length ?? 0;
+  const auditIssueCount = auditData?.rows?.filter((r) => r.auditStatus !== "Complete").length ?? 0;
 
   return (
     <div className="space-y-6">
       <Tabs value={tabFromUrl} onValueChange={handleTabChange}>
-        <RevenueModuleHeader {...filters} exceptionCount={exceptionCount} />
+        <RevenueModuleHeader {...filters} exceptionCount={exceptionCount} auditIssueCount={auditIssueCount} />
 
         <TabsContent value="revenue-matrix" className="mt-4">
           <RevenueMatrixPanel

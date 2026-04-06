@@ -228,6 +228,17 @@ function ContractCard({ contract, customerId, canUploadDocuments, onUploadClick,
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/contracts", contract.id, "monthly-amounts"] });
+      queryClient.invalidateQueries({
+        predicate: (query) => {
+          const key = query.queryKey[0];
+          return typeof key === "string" && (
+            key.startsWith("/api/revenue/contract-audit") ||
+            key.startsWith("/api/revenue/exceptions") ||
+            key.startsWith("/api/revenue/overview")
+          );
+        },
+      });
+      queryClient.invalidateQueries({ queryKey: ["/api/customers", customerId, "all-monthly-amounts"] });
       setHasChanges(false);
       setIsEditingAmounts(false);
       toast({
