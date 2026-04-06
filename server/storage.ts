@@ -81,6 +81,7 @@ export interface IStorage {
   
   getCustomerRevenue(customerId: string, companyId: string, year: number): Promise<CustomerRevenueData>;
   getRevenueOverview(companyId: string, month: number, year: number): Promise<RevenueOverviewData>;
+  getRevenueExceptions(companyId: string, year: number): Promise<RevenueException[]>;
   
   getContractServices(contractId: string, companyId: string): Promise<ContractService[]>;
   createContractService(service: InsertContractService): Promise<ContractService>;
@@ -466,6 +467,18 @@ export interface RevenueOverviewData {
   maintenanceRevenue: ServiceTypeRevenue;
   chemicalRevenue: ServiceTypeRevenue;
   customers: { customerId: string; customerName: string; monthlyRevenue: number; annualProjection: number }[];
+}
+
+export interface RevenueException {
+  customerId: string;
+  customerName: string;
+  contractId: string;
+  serviceType: string;
+  contractStatus: string;
+  flags: string[];
+  missingMonthsCount: number;
+  storedTotal: number;
+  calculatedTotal: number;
 }
 
 export class PgStorage implements IStorage {
@@ -1177,6 +1190,161 @@ export class PgStorage implements IStorage {
       chemicalRevenue,
       customers,
     };
+  }
+
+  async getRevenueExceptions(companyId: string, year: number): Promise<RevenueException[]> {
+    const [allCustomers, allContracts, allAmounts] = await Promise.all([
+      this.getCustomers(companyId),
+      db.select().from(contracts).where(eq(contracts.companyId, companyId)),
+      db.select().from(contractMonthlyAmounts).where(eq(contractMonthlyAmounts.companyId, companyId)),
+    ]);
+
+    const customerMap = new Map<string, { id: string; name: string }>();
+    for (const c of allCustomers) customerMap.set(c.id, { id: c.id, name: c.name });
+
+    const amountsByContract = new Map<string, typeof allAmounts>();
+    for (const amt of allAmounts) {
+      if (!amountsByContract.has(amt.contractId)) amountsByContract.set(amt.contractId, []);
+      amountsByContract.get(amt.contractId)!.push(amt);
+    }
+
+    // Group contracts by (customerId, serviceType) to detect duplicates
+    const contractsByCustomerService = new Map<string, typeof allContracts>();
+    for (const contract of allContracts) {
+      if (contract.status === 'ended') continue;
+      const key = `${contract.customerId}::${contract.serviceType}`;
+      if (!contractsByCustomerService.has(key)) contractsByCustomerService.set(key, []);
+      contractsByCustomerService.get(key)!.push(contract);
+    }
+
+    const exceptions: RevenueException[] = [];
+
+    for (const contract of allContracts) {
+      const customer = customerMap.get(contract.customerId);
+      if (!customer) continue;
+
+      const amounts = amountsByContract.get(contract.id) || [];
+      const flags: string[] = [];
+
+      // Determine the active window for this contract in the given year
+      const contractStartYear = contract.startDate.getUTCFullYear();
+      const contractStartMonth = contract.startDate.getUTCMonth() + 1;
+      const contractEndYear = contract.endDate ? contract.endDate.getUTCFullYear() : null;
+      const contractEndMonth = contract.endDate ? contract.endDate.getUTCMonth() + 1 : null;
+      const startMonthYear = contractStartYear * 100 + contractStartMonth;
+      const endMonthYear = contractEndYear && contractEndMonth ? contractEndYear * 100 + contractEndMonth : null;
+
+      // Determine how many months in the given year are within the contract window
+      let expectedMonths = 0;
+      const monthsInWindow: number[] = [];
+      for (let m = 1; m <= 12; m++) {
+        const my = year * 100 + m;
+        if (my >= startMonthYear && (!endMonthYear || my <= endMonthYear)) {
+          expectedMonths++;
+          monthsInWindow.push(m);
+        }
+      }
+
+      // Months that actually have amount records
+      const recordedMonths = new Set(amounts.map((a) => a.month));
+      const missingMonths = monthsInWindow.filter((m) => !recordedMonths.has(m));
+      const missingMonthsCount = missingMonths.length;
+
+      // Flag 1: Missing months
+      if (expectedMonths > 0 && missingMonthsCount > 0) {
+        flags.push('missing_months');
+      }
+
+      // Stored total (annualValue field on contract does not exist; derive from amounts)
+      // calculatedTotal = sum of monthly amounts for months in window (in dollars)
+      let calculatedTotal = 0;
+      let storedTotal = 0;
+      const outsideAmounts: number[] = [];
+
+      for (const amt of amounts) {
+        const my = year * 100 + amt.month;
+        const inWindow = my >= startMonthYear && (!endMonthYear || my <= endMonthYear);
+        if (inWindow) {
+          calculatedTotal += amt.amount / 100;
+        } else {
+          outsideAmounts.push(amt.month);
+        }
+        storedTotal += amt.amount / 100;
+      }
+
+      // Flag 2: Annual mismatch — sum of all monthly entries != storedTotal (compare calculatedTotal vs storedTotal)
+      // We define this as: sum of in-window months (calculatedTotal) differs from sum of all months (storedTotal)
+      // which means there are outside-window amounts. Flag 5 will catch those; let's define mismatch as
+      // expectedMonths > 0, calculatedTotal != storedTotal when there are no outside months
+      // Actually per spec: "sum of monthly amounts ≠ stored annual contract value"
+      // The contract table doesn't have a stored annual value, so we define mismatch as:
+      // calculatedTotal (in-window) differs from storedTotal (all months) due to outside amounts.
+      // We'll do this as: storedTotal != calculatedTotal (i.e. there are outside months contributing)
+      // Flag 5 handles outside term, so let's define flag 2 as rounding/partial mismatch:
+      // Since there's no separate "annual contract value" stored, we treat this as:
+      // the sum of recorded months in the active year window doesn't equal exactly what's expected
+      // i.e., some months in-window are zero while others are non-zero (inconsistent pricing).
+      // More practically: detect if the amounts are unequal across months (which may indicate a data error)
+      // Per spec intent, use: storedTotal != calculatedTotal (outside amounts exist)
+      if (outsideAmounts.length > 0) {
+        // This means amounts exist outside the contract term — flagged as flag 5 below
+      }
+
+      // Flag 3: Duplicate candidates — more than one contract of same serviceType for this customer (non-ended)
+      const dupKey = `${contract.customerId}::${contract.serviceType}`;
+      const sameCategoryContracts = contractsByCustomerService.get(dupKey) || [];
+      if (sameCategoryContracts.length > 1) {
+        flags.push('duplicate_candidates');
+      }
+
+      // Flag 4: Zero-value rows — all monthly amounts sum to zero (but there are records)
+      if (amounts.length > 0 && storedTotal === 0) {
+        flags.push('zero_value');
+      }
+
+      // Flag 5: Outside contract term — monthly amounts outside the start/end date range
+      if (outsideAmounts.length > 0) {
+        flags.push('outside_term');
+      }
+
+      // Flag 2 revisited: annual mismatch — if expected months > 0 but in-window months have
+      // unequal amounts (some zero, some non-zero), that may indicate a mismatch.
+      // Since we have no "stored annual contract value" field, define mismatch as:
+      // there are records in window but calculatedTotal == 0 while expectedMonths > 0 (already covered by zero_value)
+      // OR some in-window months have very different amounts suggesting data error.
+      // Best available: flag if storedTotal != calculatedTotal (exists outside amounts that don't belong)
+      // This is already captured by outside_term. So for annual_mismatch, detect if any in-window month has
+      // amount != the mode/average — simplified: skip this for now as we have no baseline annual value.
+      // We'll mark annual_mismatch if there are in-window amounts and some months are zero, others non-zero.
+      if (expectedMonths > 0 && amounts.length > 0) {
+        const inWindowAmounts = amounts.filter((a) => {
+          const my = year * 100 + a.month;
+          return my >= startMonthYear && (!endMonthYear || my <= endMonthYear);
+        });
+        const nonZeroInWindow = inWindowAmounts.filter((a) => a.amount > 0);
+        const zeroInWindow = inWindowAmounts.filter((a) => a.amount === 0);
+        // Annual mismatch: has both zero and non-zero amounts in-window (inconsistent data)
+        if (nonZeroInWindow.length > 0 && zeroInWindow.length > 0) {
+          flags.push('annual_mismatch');
+        }
+      }
+
+      if (flags.length > 0) {
+        exceptions.push({
+          customerId: customer.id,
+          customerName: customer.name,
+          contractId: contract.id,
+          serviceType: contract.serviceType,
+          contractStatus: contract.status,
+          flags,
+          missingMonthsCount,
+          storedTotal,
+          calculatedTotal,
+        });
+      }
+    }
+
+    return exceptions;
   }
 
   async getContractServices(contractId: string, companyId: string): Promise<ContractService[]> {

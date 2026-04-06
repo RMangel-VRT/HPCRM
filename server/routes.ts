@@ -3646,6 +3646,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     res.json({ year: yearNum, rows });
   });
 
+
   app.get("/api/revenue/exceptions", async (req, res) => {
     if (!req.isAuthenticated()) {
       return res.status(401).send("Not authenticated");

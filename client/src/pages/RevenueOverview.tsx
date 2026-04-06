@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useMemo } from "react";
 import { useTranslation } from "react-i18next";
 import { useQuery } from "@tanstack/react-query";
 import { useSearch, useLocation } from "wouter";
@@ -17,6 +17,18 @@ import type { ContractAuditRow, AuditFlag } from "@shared/auditTypes";
 import { RevenueMatrixPanel } from "@/components/RevenueMatrixPanel";
 
 type TabValue = "revenue-matrix" | "contract-audit" | "revenue-exceptions";
+
+type SortMode = "severity" | "revenue" | "missing";
+
+type FlagFilter = "missing_months" | "annual_mismatch" | "duplicate_candidates" | "zero_value" | "outside_term";
+
+const FLAG_LABELS: Record<string, { label: string; variant: "default" | "destructive" | "secondary" | "outline" }> = {
+  missing_months: { label: "Missing Months", variant: "destructive" },
+  annual_mismatch: { label: "Annual Mismatch", variant: "destructive" },
+  duplicate_candidates: { label: "Duplicate", variant: "secondary" },
+  zero_value: { label: "Zero Value", variant: "secondary" },
+  outside_term: { label: "Outside Term", variant: "outline" },
+};
 
 const VALID_TABS: TabValue[] = ["revenue-matrix", "contract-audit", "revenue-exceptions"];
 
@@ -480,6 +492,10 @@ export default function RevenueOverview() {
   const search = useSearch();
   const [, navigate] = useLocation();
 
+  const [activeFilters, setActiveFilters] = useState<Set<FlagFilter>>(new Set());
+  const [sortMode, setSortMode] = useState<SortMode>("severity");
+  const [selectedExceptionId, setSelectedExceptionId] = useState<string | null>(null);
+
   const searchParams = new URLSearchParams(search);
   const tabFromUrl = searchParams.get("tab");
   const activeTab: TabValue = isValidTab(tabFromUrl) ? tabFromUrl : "revenue-matrix";
@@ -516,6 +532,7 @@ export default function RevenueOverview() {
 
         <TabsContent value="revenue-exceptions" className="mt-6">
           <RevenueExceptionsTab year={filters.year} />
+
         </TabsContent>
       </Tabs>
     </div>
