@@ -1,162 +1,204 @@
 import { eq } from "drizzle-orm";
-import { db } from "./db";
+import { db as defaultDb } from "./db";
 import { contracts, contractMonthlyAmounts, customers } from "@shared/schema";
 import type { ContractAuditRow, AuditFlag, AuditStatus } from "@shared/auditTypes";
+
+type DbInstance = typeof defaultDb;
+
+function isoDateStr(d: Date | null | undefined): string | null {
+  if (!d) return null;
+  return d.toISOString().split("T")[0];
+}
 
 function getExpectedActiveMonths(
   year: number,
   startDate: Date,
-  endDate: Date | null,
-  billingPattern: string
+  endDate: Date | null
 ): number[] {
-  const months: number[] = [];
-
+  const active: number[] = [];
   for (let m = 1; m <= 12; m++) {
     const monthStart = new Date(Date.UTC(year, m - 1, 1));
     const monthEnd = new Date(Date.UTC(year, m, 0));
 
-    if (monthEnd < startDate) continue;
-    if (endDate && monthStart > endDate) continue;
+    const contractStart = new Date(
+      Date.UTC(startDate.getUTCFullYear(), startDate.getUTCMonth(), startDate.getUTCDate())
+    );
+    const contractEnd = endDate
+      ? new Date(
+          Date.UTC(endDate.getUTCFullYear(), endDate.getUTCMonth(), endDate.getUTCDate())
+        )
+      : null;
 
-    if (billingPattern === "monthly" || billingPattern === "12-of-12") {
-      months.push(m);
-    } else if (billingPattern === "seasonal") {
-      months.push(m);
-    } else {
-      months.push(m);
+    const startsBeforeMonthEnd = contractStart <= monthEnd;
+    const endsAfterMonthStart = contractEnd === null || contractEnd >= monthStart;
+
+    if (startsBeforeMonthEnd && endsAfterMonthStart) {
+      active.push(m);
     }
   }
+  return active;
+}
 
-  return months;
+function contractOverlapsYear(
+  year: number,
+  startDate: Date,
+  endDate: Date | null
+): boolean {
+  return getExpectedActiveMonths(year, startDate, endDate).length > 0;
+}
+
+function deriveAuditStatus(flags: AuditFlag[]): AuditStatus {
+  if (flags.includes("unknown_billing_pattern")) return "Error";
+  if (flags.includes("missing_month") || flags.includes("zero_value_active_row")) return "Incomplete";
+  if (
+    flags.includes("annual_total_mismatch") ||
+    flags.includes("inconsistent_monthly_values") ||
+    flags.includes("populated_outside_contract_term") ||
+    flags.includes("duplicate_service_line")
+  ) {
+    return "Needs Review";
+  }
+  return "Complete";
 }
 
 export async function buildContractAuditRows(
   companyId: string,
-  year: number
+  year: number,
+  dbInstance: DbInstance = defaultDb
 ): Promise<ContractAuditRow[]> {
-  const [allContracts, allAmounts, allCustomers] = await Promise.all([
-    db.select().from(contracts).where(eq(contracts.companyId, companyId)),
-    db.select().from(contractMonthlyAmounts).where(eq(contractMonthlyAmounts.companyId, companyId)),
-    db.select().from(customers).where(eq(customers.companyId, companyId)),
+  const [allCustomers, allContracts, allAmounts] = await Promise.all([
+    dbInstance.select().from(customers).where(eq(customers.companyId, companyId)),
+    dbInstance.select().from(contracts).where(eq(contracts.companyId, companyId)),
+    dbInstance.select().from(contractMonthlyAmounts).where(eq(contractMonthlyAmounts.companyId, companyId)),
   ]);
 
   const customerMap = new Map(allCustomers.map((c) => [c.id, c]));
 
   const amountsByContract = new Map<string, typeof allAmounts>();
   for (const amt of allAmounts) {
-    if (!amountsByContract.has(amt.contractId)) amountsByContract.set(amt.contractId, []);
+    if (!amountsByContract.has(amt.contractId)) {
+      amountsByContract.set(amt.contractId, []);
+    }
     amountsByContract.get(amt.contractId)!.push(amt);
   }
 
-  const serviceLineKey = (customerId: string, serviceType: string) => `${customerId}::${serviceType}`;
-  const serviceLineCounts = new Map<string, number>();
+  const serviceLineKey = (customerId: string, serviceType: string) =>
+    `${customerId}::${serviceType}`;
+
+  const serviceLineContractIds = new Map<string, string[]>();
   for (const contract of allContracts) {
+    if (!contractOverlapsYear(year, contract.startDate, contract.endDate ?? null)) continue;
     const key = serviceLineKey(contract.customerId, contract.serviceType);
-    serviceLineCounts.set(key, (serviceLineCounts.get(key) ?? 0) + 1);
+    if (!serviceLineContractIds.has(key)) serviceLineContractIds.set(key, []);
+    serviceLineContractIds.get(key)!.push(contract.id);
   }
+
+  const duplicateServiceLineIds = new Set<string>();
+  for (const ids of serviceLineContractIds.values()) {
+    if (ids.length > 1) {
+      for (const id of ids) duplicateServiceLineIds.add(id);
+    }
+  }
+
+  const yearContracts = allContracts.filter((c) =>
+    contractOverlapsYear(year, c.startDate, c.endDate ?? null)
+  );
 
   const rows: ContractAuditRow[] = [];
 
-  for (const contract of allContracts) {
+  for (const contract of yearContracts) {
     const customer = customerMap.get(contract.customerId);
     if (!customer) continue;
 
-    const startDate = new Date(contract.startDate);
-    const endDate = contract.endDate ? new Date(contract.endDate) : null;
-
-    const contractStartYear = startDate.getUTCFullYear();
-    const contractEndYear = endDate ? endDate.getUTCFullYear() : null;
-
-    if (contractStartYear > year) continue;
-    if (contractEndYear && contractEndYear < year) continue;
-
-    const expectedActiveMonths = getExpectedActiveMonths(
-      year,
-      startDate,
-      endDate,
-      contract.billingPattern
-    );
-
     const amounts = amountsByContract.get(contract.id) ?? [];
 
-    const monthlyValues: (number | null)[] = new Array(12).fill(null);
+    const amountByMonth = new Map<number, number>();
     for (const amt of amounts) {
-      if (amt.month >= 1 && amt.month <= 12 && amt.amount > 0) {
-        monthlyValues[amt.month - 1] = amt.amount / 100;
-      }
+      amountByMonth.set(amt.month, amt.amount);
     }
 
+    const billingPattern = contract.billingPattern ?? null;
+    const flags: AuditFlag[] = [];
+
+    if (!billingPattern || !["monthly", "seasonal", "12-of-12"].includes(billingPattern)) {
+      flags.push("unknown_billing_pattern");
+    }
+
+    const contractTermStart = contract.startDate;
+    const contractTermEnd = contract.endDate ?? null;
+
+    const expectedActiveMonths = getExpectedActiveMonths(year, contractTermStart, contractTermEnd);
+
+    const monthlyValues: (number | null)[] = [];
     const actualPopulatedMonths: number[] = [];
+    let annualTotalStored = 0;
+    let annualTotalCalculated = 0;
+
     for (let m = 1; m <= 12; m++) {
-      if (monthlyValues[m - 1] !== null && monthlyValues[m - 1]! > 0) {
-        actualPopulatedMonths.push(m);
+      const raw = amountByMonth.get(m);
+      if (raw != null) {
+        const dollars = raw / 100;
+        monthlyValues.push(dollars);
+        annualTotalStored += dollars;
+        if (raw > 0) {
+          actualPopulatedMonths.push(m);
+        }
+      } else {
+        monthlyValues.push(null);
       }
     }
 
-    const annualTotalStored = amounts.reduce((sum, a) => sum + a.amount, 0) / 100;
-
-    const annualTotalCalculated = expectedActiveMonths.reduce((sum, m) => {
+    for (const m of expectedActiveMonths) {
       const val = monthlyValues[m - 1];
-      return sum + (val ?? 0);
-    }, 0);
+      if (val != null) {
+        annualTotalCalculated += val;
+      }
+    }
 
     const missingMonthCount = expectedActiveMonths.filter(
-      (m) => !actualPopulatedMonths.includes(m)
+      (m) => monthlyValues[m - 1] == null
     ).length;
 
     const unexpectedPopulatedMonthCount = actualPopulatedMonths.filter(
       (m) => !expectedActiveMonths.includes(m)
     ).length;
 
-    const flags: AuditFlag[] = [];
-
-    if (missingMonthCount > 0) {
+    if (missingMonthCount > 0 && !flags.includes("unknown_billing_pattern")) {
       flags.push("missing_month");
     }
 
-    const allZero =
-      actualPopulatedMonths.length === 0 && expectedActiveMonths.length > 0;
-    if (allZero) {
-      flags.push("zero_value_active_row");
-    }
-
-    if (
-      Math.abs(annualTotalStored - annualTotalCalculated) > 0.01 &&
-      expectedActiveMonths.length > 0
-    ) {
-      flags.push("annual_total_mismatch");
-    }
-
-    const key = serviceLineKey(contract.customerId, contract.serviceType);
-    if ((serviceLineCounts.get(key) ?? 0) > 1) {
-      flags.push("duplicate_service_line");
+    for (const m of expectedActiveMonths) {
+      const raw = amountByMonth.get(m);
+      if (raw != null && raw === 0) {
+        flags.push("zero_value_active_row");
+        break;
+      }
     }
 
     if (unexpectedPopulatedMonthCount > 0) {
       flags.push("populated_outside_contract_term");
     }
 
-    const populatedValues = expectedActiveMonths
+    if (Math.abs(annualTotalStored - annualTotalCalculated) > 0.01) {
+      flags.push("annual_total_mismatch");
+    }
+
+    const inTermValues = expectedActiveMonths
       .map((m) => monthlyValues[m - 1])
-      .filter((v) => v !== null && v > 0) as number[];
-    if (populatedValues.length > 1) {
-      const avg = populatedValues.reduce((a, b) => a + b, 0) / populatedValues.length;
-      const hasInconsistency = populatedValues.some((v) => Math.abs(v - avg) > avg * 0.5);
-      if (hasInconsistency) {
+      .filter((v): v is number => v != null && v > 0);
+    if (inTermValues.length > 1 && billingPattern === "monthly") {
+      const firstVal = inTermValues[0];
+      const allSame = inTermValues.every((v) => Math.abs(v - firstVal) < 0.01);
+      if (!allSame) {
         flags.push("inconsistent_monthly_values");
       }
     }
 
-    let auditStatus: AuditStatus;
-    if (flags.length === 0) {
-      auditStatus = "Complete";
-    } else if (flags.includes("zero_value_active_row") || flags.includes("duplicate_service_line")) {
-      auditStatus = "Error";
-    } else if (missingMonthCount > 0) {
-      auditStatus = "Incomplete";
-    } else {
-      auditStatus = "Needs Review";
+    if (duplicateServiceLineIds.has(contract.id)) {
+      flags.push("duplicate_service_line");
     }
+
+    const auditStatus = deriveAuditStatus(flags);
 
     rows.push({
       contractId: contract.id,
@@ -164,9 +206,9 @@ export async function buildContractAuditRows(
       propertyName: customer.name,
       serviceType: contract.serviceType,
       contractStatus: contract.status,
-      billingPattern: contract.billingPattern,
-      contractTermStart: startDate.toISOString(),
-      contractTermEnd: endDate ? endDate.toISOString() : null,
+      billingPattern,
+      contractTermStart: isoDateStr(contractTermStart),
+      contractTermEnd: isoDateStr(contractTermEnd),
       expectedActiveMonths,
       actualPopulatedMonths,
       monthlyValues,
@@ -175,7 +217,7 @@ export async function buildContractAuditRows(
       missingMonthCount,
       unexpectedPopulatedMonthCount,
       auditStatus,
-      auditFlags: flags,
+      auditFlags: [...new Set(flags)],
     });
   }
 

@@ -18,6 +18,7 @@ import { processEmailEvent, resendEmail, sendEmail, getDefaultWorkCompletedTempl
 import heicConvert from 'heic-convert';
 import { renderVisualScope, type ExportType } from "./visualScopeRenderer";
 import { ROLLUP_SERVICE_LABELS, campaignToRollupServiceType } from "../shared/serviceCatalog";
+import { buildContractAuditRows } from "./auditEngine";
 
 // Seed sample communications for a company (used during server bootstrap and via API)
 async function seedCommunications(companyId: string, sentById: string, _sentByName: string): Promise<number> {
@@ -3635,13 +3636,19 @@ export async function registerRoutes(app: Express): Promise<Server> {
     if (!req.isAuthenticated()) {
       return res.status(401).send("Not authenticated");
     }
+
     const user = req.user as UserWithContext;
+
+    if (user.activeRole !== "admin") {
+      return res.status(403).send("Insufficient permissions - admin role required");
+    }
+
     const { year } = req.query;
     const yearNum = parseInt(year as string);
     if (isNaN(yearNum) || yearNum < 2000 || yearNum > 2100) {
       return res.status(400).send("Invalid year");
     }
-    const { buildContractAuditRows } = await import("./auditEngine");
+
     const rows = await buildContractAuditRows(user.activeCompanyId, yearNum);
     res.json({ year: yearNum, rows });
   });
@@ -3651,13 +3658,19 @@ export async function registerRoutes(app: Express): Promise<Server> {
     if (!req.isAuthenticated()) {
       return res.status(401).send("Not authenticated");
     }
+
     const user = req.user as UserWithContext;
+
+    if (user.activeRole !== "admin") {
+      return res.status(403).send("Insufficient permissions - admin role required");
+    }
+
     const { year } = req.query;
     const yearNum = parseInt(year as string);
     if (isNaN(yearNum) || yearNum < 2000 || yearNum > 2100) {
       return res.status(400).send("Invalid year");
     }
-    const { buildContractAuditRows } = await import("./auditEngine");
+
     const allRows = await buildContractAuditRows(user.activeCompanyId, yearNum);
     const exceptions = allRows.filter((r) => r.auditFlags.length > 0);
     res.json({ year: yearNum, rows: exceptions });

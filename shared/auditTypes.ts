@@ -4,7 +4,8 @@ export type AuditFlag =
   | "annual_total_mismatch"
   | "duplicate_service_line"
   | "inconsistent_monthly_values"
-  | "populated_outside_contract_term";
+  | "populated_outside_contract_term"
+  | "unknown_billing_pattern";
 
 export type AuditStatus = "Complete" | "Needs Review" | "Incomplete" | "Error";
 
@@ -14,8 +15,8 @@ export interface ContractAuditRow {
   propertyName: string;
   serviceType: string;
   contractStatus: "active" | "paused" | "ended";
-  billingPattern: string;
-  contractTermStart: string;
+  billingPattern: string | null;
+  contractTermStart: string | null;
   contractTermEnd: string | null;
   expectedActiveMonths: number[];
   actualPopulatedMonths: number[];
