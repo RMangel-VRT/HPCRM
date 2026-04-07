@@ -4,6 +4,7 @@ import { useAuth } from "@/hooks/use-auth";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
+import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
   Select,
   SelectContent,
@@ -20,6 +21,23 @@ import {
 } from "lucide-react";
 import ChecklistItemDetailPanel, { type ChecklistItemWithCampaign } from "@/components/ChecklistItemDetailPanel";
 import { useSetBreadcrumbs } from "@/hooks/use-breadcrumbs";
+import CampaignsList from "@/pages/CampaignsList";
+import EquipmentList from "@/pages/EquipmentList";
+import SchedulePage from "@/pages/SchedulePage";
+import SnowEventsList from "@/pages/SnowEventsList";
+import PropertyMapsPage from "@/pages/PropertyMapsPage";
+import CustomerRouteMap from "@/pages/CustomerRouteMap";
+
+type UserRole =
+  | "admin"
+  | "office"
+  | "field_manager"
+  | "chemical_manager"
+  | "field"
+  | "irrigation_manager"
+  | "shop_manager"
+  | "mapping"
+  | "landscape_supervisor";
 
 function statusBadgeVariant(status: string): "default" | "secondary" | "outline" {
   if (status === "completed") return "default";
@@ -102,15 +120,12 @@ function ChecklistRow({ item, isSelected, onSelect }: ChecklistRowProps) {
   );
 }
 
-export default function GlobalOperationsPage() {
-  const { user } = useAuth();
+function ServiceChecklistsTab() {
   const [search, setSearch] = useState("");
   const [filterStatus, setFilterStatus] = useState("all");
   const [filterCategory, setFilterCategory] = useState("all");
   const [selectedItem, setSelectedItem] = useState<ChecklistItemWithCampaign | null>(null);
   const listRef = useRef<HTMLDivElement>(null);
-
-  useSetBreadcrumbs([{ label: "Operations" }]);
 
   const { data: items = [], isLoading } = useQuery<ChecklistItemWithCampaign[]>({
     queryKey: ["/api/operations/items"],
@@ -152,11 +167,6 @@ export default function GlobalOperationsPage() {
   return (
     <div className="flex flex-col h-full overflow-hidden">
       <div className="p-4 border-b space-y-4 shrink-0">
-        <div className="flex items-center gap-3">
-          <ClipboardList className="w-5 h-5 text-muted-foreground" />
-          <h1 className="text-xl font-semibold">Service Operations</h1>
-        </div>
-
         <div className="flex items-center gap-2 flex-wrap">
           <div className="flex items-center gap-1.5 text-sm text-muted-foreground">
             <Clock className="w-4 h-4 text-amber-500" />
@@ -256,6 +266,118 @@ export default function GlobalOperationsPage() {
             onClose={() => setSelectedItem(null)}
           />
         </div>
+      </div>
+    </div>
+  );
+}
+
+interface TabDef {
+  value: string;
+  label: string;
+  roles: UserRole[];
+}
+
+const ALL_TABS: TabDef[] = [
+  {
+    value: "checklists",
+    label: "Service Checklists",
+    roles: ["admin", "office", "field_manager", "chemical_manager"],
+  },
+  {
+    value: "campaigns",
+    label: "Campaigns",
+    roles: ["admin", "office", "field_manager", "chemical_manager"],
+  },
+  {
+    value: "equipment",
+    label: "Equipment",
+    roles: ["admin", "office"],
+  },
+  {
+    value: "schedule",
+    label: "Schedule",
+    roles: ["admin", "office"],
+  },
+  {
+    value: "snow",
+    label: "Snow",
+    roles: ["admin", "office", "field_manager"],
+  },
+  {
+    value: "maps",
+    label: "Property Maps",
+    roles: ["admin", "office", "field_manager", "chemical_manager"],
+  },
+  {
+    value: "routemap",
+    label: "Route Map",
+    roles: ["admin", "field_manager", "chemical_manager"],
+  },
+];
+
+export default function GlobalOperationsPage() {
+  const { user } = useAuth();
+  const role = (user?.activeRole ?? "admin") as UserRole;
+
+  const visibleTabs = ALL_TABS.filter((tab) => tab.roles.includes(role));
+  const [activeTab, setActiveTab] = useState(() => visibleTabs[0]?.value ?? "checklists");
+
+  useSetBreadcrumbs([{ label: "Operations" }]);
+
+  return (
+    <div className="flex flex-col h-full overflow-hidden">
+      <div className="px-4 pt-4 border-b shrink-0">
+        <div className="flex items-center gap-3 mb-3">
+          <ClipboardList className="w-5 h-5 text-muted-foreground" />
+          <h1 className="text-xl font-semibold">Operations</h1>
+        </div>
+        <Tabs value={activeTab} onValueChange={setActiveTab}>
+          <TabsList className="flex-wrap h-auto gap-1" data-testid="tabs-operations">
+            {visibleTabs.map((tab) => (
+              <TabsTrigger
+                key={tab.value}
+                value={tab.value}
+                data-testid={`tab-${tab.value}`}
+              >
+                {tab.label}
+              </TabsTrigger>
+            ))}
+          </TabsList>
+        </Tabs>
+      </div>
+
+      <div className="flex-1 overflow-hidden">
+        {activeTab === "checklists" && <ServiceChecklistsTab />}
+        {activeTab === "campaigns" && (
+          <div className="h-full overflow-y-auto">
+            <CampaignsList />
+          </div>
+        )}
+        {activeTab === "equipment" && (
+          <div className="h-full overflow-y-auto">
+            <EquipmentList />
+          </div>
+        )}
+        {activeTab === "schedule" && (
+          <div className="h-full overflow-y-auto">
+            <SchedulePage />
+          </div>
+        )}
+        {activeTab === "snow" && (
+          <div className="h-full overflow-y-auto">
+            <SnowEventsList />
+          </div>
+        )}
+        {activeTab === "maps" && (
+          <div className="h-full overflow-hidden">
+            <PropertyMapsPage />
+          </div>
+        )}
+        {activeTab === "routemap" && (
+          <div className="h-full overflow-hidden">
+            <CustomerRouteMap />
+          </div>
+        )}
       </div>
     </div>
   );

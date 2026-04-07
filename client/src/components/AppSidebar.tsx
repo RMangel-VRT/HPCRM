@@ -26,16 +26,13 @@ import {
   Mail,
   Phone,
   MessageSquare,
-  Truck,
   FileText,
   Snowflake,
   FileBarChart,
   MapPin,
-  ClipboardCheck,
   Leaf,
   MessagesSquare,
   Activity,
-  ListChecks,
 } from "lucide-react";
 import {
   Dialog,
@@ -173,18 +170,6 @@ export default function AppSidebar({
     if (isSuperAdmin) return [];
     const items: NavItem[] = [];
 
-    if (userRole === "admin" || userRole === "office" || userRole === "shop_manager") {
-      items.push({ title: t("nav.equipment"), url: "/dashboard/equipment", icon: Truck });
-    }
-
-    if (userRole === "admin" || userRole === "office" || userRole === "field_manager" || userRole === "field" || userRole === "chemical_manager") {
-      items.push({ title: t("nav.campaigns"), url: "/dashboard/campaigns", icon: ClipboardCheck });
-    }
-
-    if (userRole === "admin" || userRole === "office" || userRole === "field_manager" || userRole === "chemical_manager") {
-      items.push({ title: "Operations", url: "/dashboard/operations", icon: ListChecks });
-    }
-
     if (userRole === "admin" || userRole === "office") {
       items.push({ title: "Seasons", url: "/dashboard/seasons", icon: Leaf });
     }
@@ -197,16 +182,12 @@ export default function AppSidebar({
       items.push({ title: "Communications", url: "/dashboard/communications", icon: MessagesSquare });
     }
 
-    if (userRole === "admin" || userRole === "office") {
+    if (userRole === "admin" || userRole === "office" || userRole === "field_manager" || userRole === "chemical_manager") {
       items.push({ title: t("nav.operations"), url: "/dashboard/operations", icon: Activity });
     }
 
     if (userRole === "admin" || userRole === "office") {
       items.push({ title: t("nav.reports"), url: "/dashboard/reports", icon: FileBarChart });
-    }
-
-    if (userRole === "admin") {
-      items.push({ title: t("nav.team"), url: "/dashboard/users", icon: Users });
     }
 
     return items;
@@ -216,9 +197,19 @@ export default function AppSidebar({
   const crmItems = getCrmItems();
   const managementItems = getManagementItems();
 
-  const adminItems = (!isSuperAdmin && (userRole === "admin" || userRole === "office"))
-    ? [{ title: t("nav.settings"), url: "/dashboard/settings", icon: Settings }]
-    : [];
+  const getAdminItems = (): NavItem[] => {
+    if (isSuperAdmin) return [];
+    const items: NavItem[] = [];
+    if (userRole === "admin" || userRole === "office") {
+      items.push({ title: t("nav.settings"), url: "/dashboard/settings", icon: Settings });
+    }
+    if (userRole === "admin") {
+      items.push({ title: t("nav.team"), url: "/dashboard/users", icon: Users });
+    }
+    return items;
+  };
+
+  const adminItems = getAdminItems();
 
   const isActive = (url: string) => {
     if (url === "/dashboard") return location === "/dashboard";
