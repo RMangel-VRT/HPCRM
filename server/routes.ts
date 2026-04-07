@@ -1379,6 +1379,16 @@ export async function migrateCampaignAssignedToId2(): Promise<void> {
   }
 }
 
+export async function migrateCustomerRankingColumn(): Promise<void> {
+  console.log("Running startup migration: Ensuring ranking column exists on customers table...");
+  try {
+    await db.execute(sql`ALTER TABLE customers ADD COLUMN IF NOT EXISTS ranking text NOT NULL DEFAULT 'standard'`);
+    console.log("Customer ranking column migration complete");
+  } catch (error) {
+    console.error("Error during customer ranking column migration:", error);
+  }
+}
+
 export async function backfillCustomerType(): Promise<void> {
   console.log("Running startup migration: Backfilling customer_type for existing customers...");
   try {

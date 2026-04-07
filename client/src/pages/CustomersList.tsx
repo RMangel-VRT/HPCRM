@@ -409,6 +409,7 @@ export default function CustomersList() {
                 <SortableHeader column="name" label={t("customers.customerName")} currentSort={sortColumn} currentDirection={sortDirection} onSort={handleSort} />
                 <SortableHeader column="city" label={t("common.address")} currentSort={sortColumn} currentDirection={sortDirection} onSort={handleSort} />
                 <SortableHeader column="status" label={t("common.status")} currentSort={sortColumn} currentDirection={sortDirection} onSort={handleSort} />
+                <TableHead>Ranking</TableHead>
                 <SortableHeader column="acres" label={t("customers.acres")} currentSort={sortColumn} currentDirection={sortDirection} onSort={handleSort} />
                 <SortableHeader column="complexity" label={t("customers.complexity")} currentSort={sortColumn} currentDirection={sortDirection} onSort={handleSort} />
                 <TableHead className="text-right">{t("common.actions")}</TableHead>
@@ -464,6 +465,15 @@ export default function CustomersList() {
                   </TableCell>
                   <TableCell>
                     <StatusBadge status={customer.status} />
+                  </TableCell>
+                  <TableCell>
+                    {(!customer.ranking || customer.ranking === "standard") ? (
+                      <Badge variant="outline" className="text-xs" data-testid={`badge-ranking-${customer.id}`}>Standard</Badge>
+                    ) : customer.ranking === "preferred" ? (
+                      <Badge variant="secondary" className="text-xs" data-testid={`badge-ranking-${customer.id}`}>Preferred</Badge>
+                    ) : (
+                      <Badge variant="default" className="text-xs" data-testid={`badge-ranking-${customer.id}`}>Key Account</Badge>
+                    )}
                   </TableCell>
                   <TableCell className="text-muted-foreground">
                     {customer.acres || "—"}

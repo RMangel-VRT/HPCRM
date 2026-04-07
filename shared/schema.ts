@@ -104,6 +104,7 @@ export const customers = pgTable("customers", {
   includeInRoute: boolean("include_in_route").notNull().default(false),
   locationLat: real("location_lat"),
   locationLng: real("location_lng"),
+  ranking: text("ranking").$type<"standard" | "preferred" | "key_account">().notNull().default("standard"),
   createdAt: timestamp("created_at").notNull().defaultNow(),
   updatedAt: timestamp("updated_at").notNull().defaultNow(),
 }, (table) => ({
@@ -124,6 +125,7 @@ export const insertCustomerSchema = createInsertSchema(customers).omit({
   snowEnabled: z.boolean().default(false),
   locationLat: z.number().nullable().optional(),
   locationLng: z.number().nullable().optional(),
+  ranking: z.enum(["standard", "preferred", "key_account"]).default("standard"),
 });
 
 export type InsertCustomer = z.infer<typeof insertCustomerSchema>;

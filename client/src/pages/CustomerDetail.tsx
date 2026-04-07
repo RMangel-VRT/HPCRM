@@ -1307,6 +1307,23 @@ export default function CustomerDetail() {
     },
   });
 
+  const updateRankingMutation = useMutation({
+    mutationFn: async (ranking: "standard" | "preferred" | "key_account") => {
+      return apiRequest("PATCH", `/api/customers/${id}`, { ranking });
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/customers", id] });
+      queryClient.invalidateQueries({ queryKey: ["/api/customers"] });
+    },
+    onError: (error: Error) => {
+      toast({
+        title: t("common.error"),
+        description: error.message,
+        variant: "destructive",
+      });
+    },
+  });
+
   // Contact management
   const [isAddContactDialogOpen, setIsAddContactDialogOpen] = useState(false);
   const [editingContact, setEditingContact] = useState<Contact | null>(null);
@@ -1708,6 +1725,25 @@ export default function CustomerDetail() {
             ))}
           </div>
         )}
+      </div>
+
+      {/* Row 2.5: Ranking selector */}
+      <div className="flex items-center gap-2">
+        <span className="text-sm text-muted-foreground font-medium">Ranking:</span>
+        <Select
+          value={customer.ranking || "standard"}
+          onValueChange={(value) => updateRankingMutation.mutate(value as "standard" | "preferred" | "key_account")}
+          disabled={updateRankingMutation.isPending}
+        >
+          <SelectTrigger className="w-[160px]" data-testid="select-customer-ranking">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="standard" data-testid="option-ranking-standard">Standard</SelectItem>
+            <SelectItem value="preferred" data-testid="option-ranking-preferred">Preferred</SelectItem>
+            <SelectItem value="key_account" data-testid="option-ranking-key-account">Key Account</SelectItem>
+          </SelectContent>
+        </Select>
       </div>
 
       {/* Row 3: Action buttons */}
