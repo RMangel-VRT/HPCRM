@@ -24,7 +24,6 @@ import {
   Navigation,
   Snowflake,
   Wrench,
-  Radio,
 } from "lucide-react";
 import ChecklistItemDetailPanel, { type ChecklistItemWithCampaign } from "@/components/ChecklistItemDetailPanel";
 import { useSetBreadcrumbs } from "@/hooks/use-breadcrumbs";
@@ -352,26 +351,26 @@ function CommandCenterHeader() {
   const isLoading = checklistsLoading || campaignsLoading;
 
   return (
-    <div className="flex items-center gap-4 px-4 py-3 border-b bg-muted/40 border-l-4 border-l-primary shrink-0">
-      <div className="flex items-center justify-center w-10 h-10 rounded-md bg-primary/10 shrink-0">
-        <Radio className="w-5 h-5 text-primary" />
-      </div>
-      <div className="flex-1 min-w-0">
-        <h1 className="text-lg font-bold leading-tight tracking-tight" data-testid="header-title">
+    <div className="flex items-center gap-4 px-6 py-4 border-b shrink-0">
+      <div className="flex flex-col gap-2">
+        <h1 className="text-2xl font-bold leading-tight tracking-tight" data-testid="header-title">
           Operations Command Center
         </h1>
-        <div className="flex items-center gap-1.5 mt-0.5" data-testid="header-status-line">
+        <div className="flex items-center flex-wrap gap-2" data-testid="header-status-line">
           {isLoading ? (
-            <div className="flex items-center gap-2">
-              <Skeleton className="h-4 w-36 rounded" />
-              <Skeleton className="h-4 w-40 rounded" />
-            </div>
+            <>
+              <Skeleton className="h-5 w-36 rounded-full" />
+              <Skeleton className="h-5 w-40 rounded-full" />
+            </>
           ) : (
-            <p className="text-xs text-muted-foreground">
-              <span className="font-medium text-foreground">{activeCampaigns}</span> active campaign{activeCampaigns !== 1 ? "s" : ""}
-              <span className="mx-1.5 text-muted-foreground/50">&middot;</span>
-              <span className="font-medium text-foreground">{pendingChecklists}</span> pending checklist{pendingChecklists !== 1 ? "s" : ""}
-            </p>
+            <>
+              <Badge variant="secondary" data-testid="badge-active-campaigns">
+                {activeCampaigns} Active Campaign{activeCampaigns !== 1 ? "s" : ""}
+              </Badge>
+              <Badge variant="secondary" data-testid="badge-pending-checklists">
+                {pendingChecklists} Pending Checklist{pendingChecklists !== 1 ? "s" : ""}
+              </Badge>
+            </>
           )}
         </div>
       </div>
