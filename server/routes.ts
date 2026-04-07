@@ -10998,6 +10998,110 @@ export async function registerRoutes(app: Express): Promise<Server> {
     res.json({ success: true });
   });
 
+  // GET /api/operations/customer-service-summaries — summary rollup for all active customers with active contracts
+  app.get("/api/operations/customer-service-summaries", async (req, res) => {
+    if (!req.isAuthenticated()) return res.status(401).send("Not authenticated");
+    const user = req.user as UserWithContext;
+    if (!campaignAllowedRoles.includes(user.activeRole)) {
+      return res.status(403).send("Insufficient permissions");
+    }
+
+    const currentYear = new Date().getFullYear();
+    const periodStart = `${currentYear}-01-01`;
+    const periodEnd = `${currentYear}-12-31`;
+
+    // Get all active customers
+    const allCustomers = await storage.getCustomers(user.activeCompanyId);
+    const activeCustomers = allCustomers.filter(c => c.active === "true");
+
+    // For each active customer, check if they have an active contract
+    // Build results in parallel batches
+    const summaries = await Promise.all(activeCustomers.map(async (customer) => {
+      const allContracts = await storage.getContractsByCustomerId(customer.id, user.activeCompanyId);
+      const activeContracts = allContracts.filter(c => c.status === "active" || c.status === "paused");
+      if (activeContracts.length === 0) return null;
+
+      // Build contract services map
+      const contractServicesMap: Map<string, number> = new Map();
+      for (const contract of activeContracts) {
+        const services = await storage.getContractServices(contract.id, user.activeCompanyId);
+        for (const svc of services) {
+          const existing = contractServicesMap.get(svc.serviceType) || 0;
+          contractServicesMap.set(svc.serviceType, existing + svc.annualCount);
+        }
+      }
+
+      // Get campaign items for this customer in current year
+      const allCampaigns = await db
+        .select({
+          campaignId: campaignsTable.id,
+          campaignTitle: campaignsTable.title,
+          windowStart: campaignsTable.windowStart,
+          windowEnd: campaignsTable.windowEnd,
+          category: campaignsTable.category,
+          subtype: campaignsTable.subtype,
+          itemId: campaignItemsTable.id,
+          itemStatus: campaignItemsTable.status,
+        })
+        .from(campaignsTable)
+        .innerJoin(campaignItemsTable, eq(campaignItemsTable.campaignId, campaignsTable.id))
+        .where(and(
+          eq(campaignsTable.companyId, user.activeCompanyId),
+          eq(campaignItemsTable.customerId, customer.id),
+          eq(campaignItemsTable.companyId, user.activeCompanyId),
+          gte(campaignsTable.windowEnd, periodStart),
+          lte(campaignsTable.windowStart, periodEnd)
+        ));
+
+      // Aggregate totals
+      const campaignsByServiceType: Map<string, { completed: number; total: number }> = new Map();
+      for (const row of allCampaigns) {
+        const svcType = campaignToRollupServiceType(
+          row.category as "general" | "chemical" | "irrigation",
+          row.subtype,
+          row.campaignTitle
+        );
+        const existing = campaignsByServiceType.get(svcType) || { completed: 0, total: 0 };
+        existing.total += 1;
+        if (row.itemStatus === "completed") existing.completed += 1;
+        campaignsByServiceType.set(svcType, existing);
+      }
+
+      const allServiceTypes = new Set<string>([
+        ...Array.from(contractServicesMap.keys()),
+        ...Array.from(campaignsByServiceType.keys()),
+      ]);
+
+      let totalScheduled = 0;
+      let totalCompleted = 0;
+
+      for (const svcType of allServiceTypes) {
+        const campaigns = campaignsByServiceType.get(svcType) || { completed: 0, total: 0 };
+        const scheduledFromContract = contractServicesMap.get(svcType) ?? null;
+        const scheduled = scheduledFromContract !== null ? scheduledFromContract : campaigns.total;
+        totalScheduled += scheduled;
+        totalCompleted += Math.min(campaigns.completed, scheduled);
+      }
+
+      const completionPct = totalScheduled > 0 ? Math.round((totalCompleted / totalScheduled) * 100) : 0;
+
+      return {
+        customerId: customer.id,
+        customerName: customer.name,
+        city: customer.city,
+        state: customer.state,
+        customerType: customer.customerType,
+        ranking: customer.ranking,
+        totalScheduled,
+        totalCompleted,
+        completionPct,
+      };
+    }));
+
+    // Filter out customers without active contracts
+    res.json(summaries.filter(Boolean));
+  });
+
   app.get("/api/operations/items", async (req, res) => {
     if (!req.isAuthenticated()) return res.status(401).send("Not authenticated");
     const user = req.user as UserWithContext;
