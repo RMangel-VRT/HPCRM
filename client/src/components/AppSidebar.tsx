@@ -27,7 +27,6 @@ import {
   Phone,
   MessageSquare,
   FileText,
-  Snowflake,
   FileBarChart,
   MapPin,
   Leaf,
@@ -141,22 +140,16 @@ export default function AppSidebar({
       items.push({ title: t("nav.customers"), url: "/dashboard/field-customers", icon: Building2 });
     }
 
-    if (userRole === "admin" || userRole === "field_manager" || userRole === "chemical_manager") {
-      items.push({ title: t("nav.routeMap"), url: "/dashboard/customers/map", icon: MapPin });
-    }
-
     if (userRole === "admin" || userRole === "office") {
       items.push({ title: t("nav.contracts"), url: "/dashboard/contracts", icon: FileText });
     }
 
-    items.push({ title: t("nav.propertyMaps"), url: "/dashboard/maps", icon: Map });
-
-    if (userRole === "admin" || userRole === "office" || userRole === "irrigation_manager") {
-      items.push({ title: t("nav.schedule"), url: "/dashboard/schedule", icon: CalendarDays });
+    if (userRole === "irrigation_manager") {
+      items.push({ title: t("nav.propertyMaps"), url: "/dashboard/maps", icon: Map });
     }
 
-    if (userRole === "admin" || userRole === "office") {
-      items.push({ title: t("nav.snow"), url: "/dashboard/snow", icon: Snowflake });
+    if (userRole === "irrigation_manager") {
+      items.push({ title: t("nav.schedule"), url: "/dashboard/schedule", icon: CalendarDays });
     }
 
     if (userRole === "admin" || userRole === "office") {
