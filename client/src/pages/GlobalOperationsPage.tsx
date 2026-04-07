@@ -18,6 +18,13 @@ import {
   Clock,
   SkipForward,
   ClipboardList,
+  Megaphone,
+  Calendar,
+  Map,
+  Navigation,
+  Snowflake,
+  Wrench,
+  Radio,
 } from "lucide-react";
 import ChecklistItemDetailPanel, { type ChecklistItemWithCampaign } from "@/components/ChecklistItemDetailPanel";
 import { useSetBreadcrumbs } from "@/hooks/use-breadcrumbs";
@@ -274,74 +281,134 @@ function ServiceChecklistsTab() {
 interface TabDef {
   value: string;
   label: string;
+  icon: React.ElementType;
   roles: UserRole[];
 }
 
 const ALL_TABS: TabDef[] = [
   {
-    value: "checklists",
-    label: "Service Checklists",
-    roles: ["admin", "office", "field_manager", "chemical_manager"],
-  },
-  {
     value: "campaigns",
     label: "Campaigns",
+    icon: Megaphone,
     roles: ["admin", "office", "field_manager", "chemical_manager"],
   },
   {
-    value: "equipment",
-    label: "Equipment",
-    roles: ["admin", "office"],
+    value: "checklists",
+    label: "Service Checklists",
+    icon: ClipboardList,
+    roles: ["admin", "office", "field_manager", "chemical_manager"],
   },
   {
     value: "schedule",
     label: "Schedule",
+    icon: Calendar,
     roles: ["admin", "office"],
-  },
-  {
-    value: "snow",
-    label: "Snow",
-    roles: ["admin", "office", "field_manager"],
   },
   {
     value: "maps",
     label: "Property Maps",
+    icon: Map,
     roles: ["admin", "office", "field_manager", "chemical_manager"],
   },
   {
     value: "routemap",
     label: "Route Map",
+    icon: Navigation,
     roles: ["admin", "field_manager", "chemical_manager"],
   },
+  {
+    value: "snow",
+    label: "Snow",
+    icon: Snowflake,
+    roles: ["admin", "office", "field_manager"],
+  },
+  {
+    value: "equipment",
+    label: "Equipment",
+    icon: Wrench,
+    roles: ["admin", "office"],
+  },
 ];
+
+function CommandCenterHeader() {
+  const { data: checklistItems = [], isLoading: checklistsLoading } = useQuery<ChecklistItemWithCampaign[]>({
+    queryKey: ["/api/operations/items"],
+  });
+
+  type Campaign = { id: number; status: string; title: string };
+  const { data: campaigns = [], isLoading: campaignsLoading } = useQuery<Campaign[]>({
+    queryKey: ["/api/campaigns"],
+  });
+
+  const activeCampaigns = useMemo(
+    () => campaigns.filter((c) => c.status === "active").length,
+    [campaigns]
+  );
+  const pendingChecklists = useMemo(
+    () => checklistItems.filter((i) => i.status === "pending").length,
+    [checklistItems]
+  );
+
+  const isLoading = checklistsLoading || campaignsLoading;
+
+  return (
+    <div className="flex items-center gap-4 px-4 py-3 border-b bg-muted/40 border-l-4 border-l-primary shrink-0">
+      <div className="flex items-center justify-center w-10 h-10 rounded-md bg-primary/10 shrink-0">
+        <Radio className="w-5 h-5 text-primary" />
+      </div>
+      <div className="flex-1 min-w-0">
+        <h1 className="text-lg font-bold leading-tight tracking-tight" data-testid="header-title">
+          Operations Command Center
+        </h1>
+        <div className="flex items-center gap-1.5 mt-0.5" data-testid="header-status-line">
+          {isLoading ? (
+            <div className="flex items-center gap-2">
+              <Skeleton className="h-4 w-36 rounded" />
+              <Skeleton className="h-4 w-40 rounded" />
+            </div>
+          ) : (
+            <p className="text-xs text-muted-foreground">
+              <span className="font-medium text-foreground">{activeCampaigns}</span> active campaign{activeCampaigns !== 1 ? "s" : ""}
+              <span className="mx-1.5 text-muted-foreground/50">&middot;</span>
+              <span className="font-medium text-foreground">{pendingChecklists}</span> pending checklist{pendingChecklists !== 1 ? "s" : ""}
+            </p>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
 
 export default function GlobalOperationsPage() {
   const { user } = useAuth();
   const role = (user?.activeRole ?? "admin") as UserRole;
 
   const visibleTabs = ALL_TABS.filter((tab) => tab.roles.includes(role));
-  const [activeTab, setActiveTab] = useState(() => visibleTabs[0]?.value ?? "checklists");
+  const [activeTab, setActiveTab] = useState(() => visibleTabs[0]?.value ?? "campaigns");
 
   useSetBreadcrumbs([{ label: "Operations" }]);
 
   return (
     <div className="flex flex-col h-full overflow-hidden">
-      <div className="px-4 pt-4 border-b shrink-0">
-        <div className="flex items-center gap-3 mb-3">
-          <ClipboardList className="w-5 h-5 text-muted-foreground" />
-          <h1 className="text-xl font-semibold">Operations</h1>
-        </div>
+      <CommandCenterHeader />
+
+      <div className="px-4 pt-3 border-b shrink-0">
         <Tabs value={activeTab} onValueChange={setActiveTab}>
           <TabsList className="flex-wrap h-auto gap-1" data-testid="tabs-operations">
-            {visibleTabs.map((tab) => (
-              <TabsTrigger
-                key={tab.value}
-                value={tab.value}
-                data-testid={`tab-${tab.value}`}
-              >
-                {tab.label}
-              </TabsTrigger>
-            ))}
+            {visibleTabs.map((tab) => {
+              const Icon = tab.icon;
+              return (
+                <TabsTrigger
+                  key={tab.value}
+                  value={tab.value}
+                  data-testid={`tab-${tab.value}`}
+                  className="flex items-center gap-1.5 py-2 px-3"
+                >
+                  <Icon className="w-4 h-4 shrink-0" />
+                  <span>{tab.label}</span>
+                </TabsTrigger>
+              );
+            })}
           </TabsList>
         </Tabs>
       </div>
