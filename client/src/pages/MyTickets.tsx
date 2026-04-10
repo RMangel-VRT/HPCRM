@@ -12,7 +12,7 @@ import {
 } from "@/components/ui/select";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { Badge } from "@/components/ui/badge";
-import { Search, ChevronRight, ChevronLeft, ChevronDown, Clock, CalendarDays, Filter, Loader2, CheckCircle2, RefreshCw, Wrench, ClipboardCheck } from "lucide-react";
+import { Search, ChevronRight, ChevronLeft, ChevronDown, Clock, CalendarDays, Filter, Loader2, CheckCircle2, RefreshCw, Wrench, ClipboardCheck, List, Columns, MapPin } from "lucide-react";
 import { Link, useSearch } from "wouter";
 import type { Ticket, TicketType, TicketTypeStatus, Customer, EquipmentTicket, Equipment, CompanyUser, User as UserType, CampaignWithProgress } from "@shared/schema";
 import { useTranslation } from "react-i18next";
@@ -61,6 +61,7 @@ const PRIORITY_COLORS: Record<string, string> = {
   low: "bg-muted text-muted-foreground border-border",
 };
 
+type ViewMode = "list" | "kanban-type";
 
 export default function MyTickets() {
   const { user } = useAuth();
@@ -73,10 +74,18 @@ export default function MyTickets() {
   const isUpdatingFromUrl = useRef(false);
   const prevSearchString = useRef(searchString);
   
+  const rawView = urlParams.get("view");
+  const initialViewMode: ViewMode = rawView === "kanban-type" ? "kanban-type" : "list";
+
   const [search, setSearch] = useState(() => urlParams.get("q") || "");
   const [priorityFilter, setPriorityFilter] = useState(() => urlParams.get("priority") || "all");
   const [workTypeFilter, setWorkTypeFilter] = useState(() => urlParams.get("workType") || "all");
-  const [typeFilter, setTypeFilter] = useState(() => urlParams.get("type") || "all");
+  const [typeFilters, setTypeFilters] = useState<string[]>(() => {
+    const raw = urlParams.get("type");
+    return raw ? raw.split(",").filter(Boolean) : [];
+  });
+  const [statusFilter, setStatusFilter] = useState(() => urlParams.get("status") || "all");
+  const [viewMode, setViewMode] = useState<ViewMode>(initialViewMode);
   const [showFilters, setShowFilters] = useState(false);
   const [completedPage, setCompletedPage] = useState(1);
   const completedPerPage = 10;
@@ -97,7 +106,11 @@ export default function MyTickets() {
     setSearch(urlParams.get("q") || "");
     setPriorityFilter(urlParams.get("priority") || "all");
     setWorkTypeFilter(urlParams.get("workType") || "all");
-    setTypeFilter(urlParams.get("type") || "all");
+    const rawType = urlParams.get("type");
+    setTypeFilters(rawType ? rawType.split(",").filter(Boolean) : []);
+    setStatusFilter(urlParams.get("status") || "all");
+    const rv = urlParams.get("view");
+    setViewMode(rv === "kanban-type" ? "kanban-type" : "list");
   }, [searchString, urlParams]);
 
   useEffect(() => {
@@ -110,18 +123,27 @@ export default function MyTickets() {
     if (search) params.set("q", search);
     if (priorityFilter !== "all") params.set("priority", priorityFilter);
     if (workTypeFilter !== "all") params.set("workType", workTypeFilter);
-    if (typeFilter !== "all") params.set("type", typeFilter);
+    if (typeFilters.length > 0) params.set("type", typeFilters.join(","));
+    if (statusFilter !== "all") params.set("status", statusFilter);
+    if (viewMode !== "list") params.set("view", viewMode);
     
     const queryString = params.toString();
     const currentQuery = searchString.startsWith("?") ? searchString.slice(1) : searchString;
     
     if (queryString === currentQuery) return;
     
-    const newUrl = queryString ? `/dashboard/my-tickets?${queryString}` : "/dashboard/my-tickets";
+    const newUrl = queryString ? `/dashboard/tickets/my?${queryString}` : "/dashboard/tickets/my";
     prevSearchString.current = queryString ? `?${queryString}` : "";
     
     window.history.replaceState(null, "", newUrl);
-  }, [search, priorityFilter, workTypeFilter, typeFilter, searchString]);
+  }, [search, priorityFilter, workTypeFilter, typeFilters, statusFilter, viewMode, searchString]);
+
+  // Reset statusFilter when type selection changes to 0 or 2+
+  useEffect(() => {
+    if (typeFilters.length !== 1) {
+      setStatusFilter("all");
+    }
+  }, [typeFilters]);
 
   const saveScrollPosition = useCallback(() => {
     const scrollContainer = document.querySelector('[data-radix-scroll-area-viewport]') || 
@@ -256,14 +278,20 @@ export default function MyTickets() {
     customer: customers.find(c => c.id === ticket.customerId),
   }));
 
+  // Get statuses for the currently selected type (only when exactly one type pill is selected)
+  const selectedTypeStatuses = typeFilters.length === 1
+    ? allStatuses.filter((s: TicketTypeStatus) => s.ticketTypeId === typeFilters[0])
+    : [];
+
   const activeFilterCount = useMemo(() => {
     let count = 0;
     if (search) count++;
     if (priorityFilter !== "all") count++;
     if (workTypeFilter !== "all") count++;
-    if (typeFilter !== "all") count++;
+    if (typeFilters.length > 0) count++;
+    if (statusFilter !== "all") count++;
     return count;
-  }, [search, priorityFilter, workTypeFilter, typeFilter]);
+  }, [search, priorityFilter, workTypeFilter, typeFilters, statusFilter]);
 
   const filteredTickets = enrichedTickets.filter((ticket) => {
     const matchesSearch =
@@ -271,8 +299,9 @@ export default function MyTickets() {
       ticket.customer?.name?.toLowerCase().includes(search.toLowerCase()) || false;
     const matchesPriority = priorityFilter === "all" || ticket.priority === priorityFilter;
     const matchesWorkType = workTypeFilter === "all" || ticket.workType === workTypeFilter;
-    const matchesType = typeFilter === "all" || ticket.ticketTypeId === typeFilter;
-    return matchesSearch && matchesPriority && matchesWorkType && matchesType;
+    const matchesType = typeFilters.length === 0 || typeFilters.includes(ticket.ticketTypeId);
+    const matchesStatus = statusFilter === "all" || ticket.currentStatusId === statusFilter;
+    return matchesSearch && matchesPriority && matchesWorkType && matchesType && matchesStatus;
   });
 
   const openTickets = filteredTickets.filter(t => !t.completedAt);
@@ -285,7 +314,7 @@ export default function MyTickets() {
   
   useEffect(() => {
     setCompletedPage(1);
-  }, [search, priorityFilter, workTypeFilter, typeFilter]);
+  }, [search, priorityFilter, workTypeFilter, typeFilters, statusFilter]);
   
   useEffect(() => {
     const totalPages = Math.ceil(completedTickets.length / completedPerPage);
@@ -318,6 +347,144 @@ export default function MyTickets() {
   const hasAnyCustomerTickets = filteredTickets.length > 0;
   const hasAnyEquipTickets = equipmentTickets.length > 0;
 
+  // Shared filter controls used in both showTabs and non-showTabs paths
+  const filterControls = (
+    <>
+      {/* View mode toggle */}
+      <div className="flex items-center gap-1 border rounded-md p-0.5 bg-muted/30 w-fit" data-testid="view-mode-toggle-my">
+        <Button
+          variant={viewMode === "list" ? "secondary" : "ghost"}
+          size="sm"
+          className="gap-1.5"
+          onClick={() => setViewMode("list")}
+          data-testid="button-view-list-my"
+        >
+          <List className="w-3.5 h-3.5" />
+          <span className="hidden sm:inline">List</span>
+        </Button>
+        <Button
+          variant={viewMode === "kanban-type" ? "secondary" : "ghost"}
+          size="sm"
+          className="gap-1.5"
+          onClick={() => setViewMode("kanban-type")}
+          data-testid="button-view-kanban-type-my"
+        >
+          <Columns className="w-3.5 h-3.5" />
+          <span className="hidden sm:inline">By Type</span>
+        </Button>
+      </div>
+
+      <div className="flex gap-2 items-center">
+        <div className="relative flex-1">
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+          <Input
+            placeholder="Search tickets or customers..."
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            className="pl-9 h-11"
+            data-testid="input-search-my-tickets"
+          />
+        </div>
+        <Button
+          variant="outline"
+          size="icon"
+          className="h-11 w-11 shrink-0"
+          onClick={() => refetch()}
+          disabled={isFetching}
+          data-testid="button-refresh-my-tickets"
+        >
+          <RefreshCw className={`w-4 h-4 ${isFetching ? "animate-spin" : ""}`} />
+        </Button>
+        <Button
+          variant="outline"
+          className="h-11 shrink-0 gap-2"
+          onClick={() => setShowFilters(!showFilters)}
+          data-testid="button-toggle-filters-my"
+        >
+          <Filter className="w-4 h-4" />
+          {activeFilterCount > 0 && (
+            <Badge variant="secondary" className="bg-primary text-primary-foreground">
+              {activeFilterCount}
+            </Badge>
+          )}
+        </Button>
+      </div>
+
+      {/* Pill-style type filters */}
+      {ticketTypes.length > 0 && (
+        <div className="flex gap-2 overflow-x-auto pb-1 scrollbar-none" data-testid="pill-filter-row-my">
+          {ticketTypes.map((tt) => {
+            const isActive = typeFilters.includes(tt.id);
+            return (
+              <Button
+                key={tt.id}
+                variant={isActive ? "default" : "outline"}
+                size="sm"
+                className="shrink-0"
+                style={isActive && tt.color ? { backgroundColor: tt.color, borderColor: tt.color } : undefined}
+                onClick={() => {
+                  setTypeFilters(prev =>
+                    prev.includes(tt.id)
+                      ? prev.filter(id => id !== tt.id)
+                      : [...prev, tt.id]
+                  );
+                }}
+                data-testid={`pill-type-my-${tt.id}`}
+              >
+                {tt.name}
+              </Button>
+            );
+          })}
+        </div>
+      )}
+
+      {showFilters && (
+        <div className="flex gap-2 flex-wrap animate-in slide-in-from-top-2 duration-200">
+          <Select value={priorityFilter} onValueChange={setPriorityFilter}>
+            <SelectTrigger className="w-[130px] h-10" data-testid="select-priority-filter-my">
+              <SelectValue placeholder="Priority" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">All Priorities</SelectItem>
+              <SelectItem value="urgent">Urgent</SelectItem>
+              <SelectItem value="high">High</SelectItem>
+              <SelectItem value="normal">Normal</SelectItem>
+              <SelectItem value="low">Low</SelectItem>
+            </SelectContent>
+          </Select>
+          <Select value={workTypeFilter} onValueChange={setWorkTypeFilter}>
+            <SelectTrigger className="w-[150px] h-10" data-testid="select-worktype-filter-my">
+              <SelectValue placeholder="Work Type" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">All Work Types</SelectItem>
+              <SelectItem value="contract">Contract Work</SelectItem>
+              <SelectItem value="extra_work">Extra Billable</SelectItem>
+              <SelectItem value="project">Project</SelectItem>
+              <SelectItem value="admin">Admin</SelectItem>
+              <SelectItem value="estimate_request">Estimate Request</SelectItem>
+              <SelectItem value="shop_todo">Shop To-Do</SelectItem>
+            </SelectContent>
+          </Select>
+          {/* Status filter — only when exactly one type pill is selected */}
+          {typeFilters.length === 1 && selectedTypeStatuses.length > 0 && (
+            <Select value={statusFilter} onValueChange={setStatusFilter}>
+              <SelectTrigger className="w-[160px] h-10" data-testid="select-status-filter-my">
+                <SelectValue placeholder="Status" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">All Statuses</SelectItem>
+                {[...selectedTypeStatuses].sort((a, b) => (a.displayOrder || 0) - (b.displayOrder || 0)).map((status: TicketTypeStatus) => (
+                  <SelectItem key={status.id} value={status.id}>{status.name}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          )}
+        </div>
+      )}
+    </>
+  );
+
   return (
     <div className="space-y-4">
       <div className="flex items-center justify-between gap-3">
@@ -343,169 +510,106 @@ export default function MyTickets() {
           </TabsList>
 
           <TabsContent value="tickets" className="mt-4 space-y-4">
-            <div className="flex gap-2 items-center">
-              <div className="relative flex-1">
-                <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
-                <Input
-                  placeholder="Search tickets or customers..."
-                  value={search}
-                  onChange={(e) => setSearch(e.target.value)}
-                  className="pl-9 h-11"
-                  data-testid="input-search-my-tickets"
-                />
-              </div>
-              <Button
-                variant="outline"
-                size="icon"
-                className="h-11 w-11 shrink-0"
-                onClick={() => refetch()}
-                disabled={isFetching}
-                data-testid="button-refresh-my-tickets"
-              >
-                <RefreshCw className={`w-4 h-4 ${isFetching ? "animate-spin" : ""}`} />
-              </Button>
-              <Button
-                variant="outline"
-                className="h-11 shrink-0 gap-2"
-                onClick={() => setShowFilters(!showFilters)}
-                data-testid="button-toggle-filters-my"
-              >
-                <Filter className="w-4 h-4" />
-                {activeFilterCount > 0 && (
-                  <Badge variant="secondary" className="bg-primary text-primary-foreground">
-                    {activeFilterCount}
-                  </Badge>
-                )}
-              </Button>
-            </div>
-            {showFilters && (
-              <div className="flex gap-2 flex-wrap animate-in slide-in-from-top-2 duration-200">
-                <Select value={priorityFilter} onValueChange={setPriorityFilter}>
-                  <SelectTrigger className="w-[130px] h-10" data-testid="select-priority-filter-my">
-                    <SelectValue placeholder="Priority" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="all">All Priorities</SelectItem>
-                    <SelectItem value="urgent">Urgent</SelectItem>
-                    <SelectItem value="high">High</SelectItem>
-                    <SelectItem value="normal">Normal</SelectItem>
-                    <SelectItem value="low">Low</SelectItem>
-                  </SelectContent>
-                </Select>
-                <Select value={typeFilter} onValueChange={setTypeFilter}>
-                  <SelectTrigger className="w-[140px] h-10" data-testid="select-type-filter-my">
-                    <SelectValue placeholder="Ticket Type" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="all">All Types</SelectItem>
-                    {ticketTypes.map(tt => (
-                      <SelectItem key={tt.id} value={tt.id}>{tt.name}</SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-                <Select value={workTypeFilter} onValueChange={setWorkTypeFilter}>
-                  <SelectTrigger className="w-[150px] h-10" data-testid="select-worktype-filter-my">
-                    <SelectValue placeholder="Work Type" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="all">All Work Types</SelectItem>
-                    <SelectItem value="contract">Contract Work</SelectItem>
-                    <SelectItem value="extra_work">Extra Billable</SelectItem>
-                    <SelectItem value="project">Project</SelectItem>
-                    <SelectItem value="admin">Admin</SelectItem>
-                    <SelectItem value="estimate_request">Estimate Request</SelectItem>
-                    <SelectItem value="shop_todo">Shop To-Do</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-            )}
-            <div className="space-y-4">
-              {openTickets.length > 0 && (
-                <div className="space-y-3 md:space-y-2">
-                  <button
-                    className="flex items-center gap-2 text-sm font-medium text-muted-foreground px-1 hover:text-foreground transition-colors w-full text-left"
-                    onClick={() => setOpenSectionCollapsed(!openSectionCollapsed)}
-                    data-testid="button-toggle-open-section-my"
-                  >
-                    {openSectionCollapsed ? <ChevronRight className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
-                    Open ({openTickets.length})
-                  </button>
-                  {!openSectionCollapsed && (
-                    <div className="space-y-3 md:space-y-2">
-                      {openTickets.map((ticket) => (
-                        <TicketCard
-                          key={ticket.id}
-                          ticket={ticket}
-                          formatDueDate={formatDueDate}
-                          schedulingStatusId={schedulingStatusId}
-                          onNavigate={saveScrollPosition}
-                          usersMap={usersMap}
-                          workflowStatuses={allStatuses.filter((s: TicketTypeStatus) => s.ticketTypeId === ticket.ticketTypeId).sort((a: TicketTypeStatus, b: TicketTypeStatus) => (a.displayOrder || 0) - (b.displayOrder || 0))}
-                        />
-                      ))}
-                    </div>
-                  )}
-                </div>
-              )}
-              {completedTickets.length > 0 && (() => {
-                const totalPages = Math.ceil(completedTickets.length / completedPerPage);
-                const startIdx = (completedPage - 1) * completedPerPage;
-                const paginatedCompleted = completedTickets.slice(startIdx, startIdx + completedPerPage);
-                return (
-                  <div className="space-y-3 md:space-y-2 mt-4">
+            {filterControls}
+
+            {viewMode === "kanban-type" ? (
+              <MyKanbanByType
+                openTickets={openTickets}
+                ticketTypes={ticketTypes}
+                allStatuses={allStatuses}
+                usersMap={usersMap}
+                schedulingStatusId={schedulingStatusId}
+                onNavigate={saveScrollPosition}
+              />
+            ) : (
+              <div className="space-y-4">
+                {openTickets.length > 0 && (
+                  <div className="space-y-3 md:space-y-2">
                     <button
                       className="flex items-center gap-2 text-sm font-medium text-muted-foreground px-1 hover:text-foreground transition-colors w-full text-left"
-                      onClick={() => setCompletedSectionCollapsed(!completedSectionCollapsed)}
-                      data-testid="button-toggle-completed-section-my"
+                      onClick={() => setOpenSectionCollapsed(!openSectionCollapsed)}
+                      data-testid="button-toggle-open-section-my"
                     >
-                      {completedSectionCollapsed ? <ChevronRight className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
-                      Completed ({completedTickets.length})
+                      {openSectionCollapsed ? <ChevronRight className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
+                      Open ({openTickets.length})
                     </button>
-                    {!completedSectionCollapsed && (
-                      <>
-                        <div className="space-y-3 md:space-y-2 opacity-75">
-                          {paginatedCompleted.map((ticket) => (
-                            <TicketCard
-                              key={ticket.id}
-                              ticket={ticket}
-                              formatDueDate={formatDueDate}
-                              schedulingStatusId={schedulingStatusId}
-                              onNavigate={saveScrollPosition}
-                              usersMap={usersMap}
-                              workflowStatuses={allStatuses.filter((s: TicketTypeStatus) => s.ticketTypeId === ticket.ticketTypeId).sort((a: TicketTypeStatus, b: TicketTypeStatus) => (a.displayOrder || 0) - (b.displayOrder || 0))}
-                            />
-                          ))}
-                        </div>
-                        {totalPages > 1 && (
-                          <div className="flex items-center justify-center gap-4 pt-3">
-                            <Button variant="outline" size="sm" onClick={() => setCompletedPage(p => Math.max(1, p - 1))} disabled={completedPage === 1} data-testid="button-my-completed-prev">
-                              <ChevronLeft className="w-4 h-4 mr-1" />Previous
-                            </Button>
-                            <span className="text-sm text-muted-foreground">Page {completedPage} of {totalPages}</span>
-                            <Button variant="outline" size="sm" onClick={() => setCompletedPage(p => Math.min(totalPages, p + 1))} disabled={completedPage === totalPages} data-testid="button-my-completed-next">
-                              Next<ChevronRight className="w-4 h-4 ml-1" />
-                            </Button>
-                          </div>
-                        )}
-                      </>
+                    {!openSectionCollapsed && (
+                      <div className="space-y-3 md:space-y-2">
+                        {openTickets.map((ticket) => (
+                          <TicketCard
+                            key={ticket.id}
+                            ticket={ticket}
+                            formatDueDate={formatDueDate}
+                            schedulingStatusId={schedulingStatusId}
+                            onNavigate={saveScrollPosition}
+                            usersMap={usersMap}
+                            workflowStatuses={allStatuses.filter((s: TicketTypeStatus) => s.ticketTypeId === ticket.ticketTypeId).sort((a: TicketTypeStatus, b: TicketTypeStatus) => (a.displayOrder || 0) - (b.displayOrder || 0))}
+                          />
+                        ))}
+                      </div>
                     )}
                   </div>
-                );
-              })()}
-              {openTickets.length === 0 && completedTickets.length === 0 && (
-                <Card>
-                  <CardContent className="flex flex-col items-center justify-center py-12 text-center">
-                    <div className="w-16 h-16 rounded-full bg-muted flex items-center justify-center mb-4">
-                      <Clock className="w-8 h-8 text-muted-foreground" />
+                )}
+                {completedTickets.length > 0 && (() => {
+                  const totalPages = Math.ceil(completedTickets.length / completedPerPage);
+                  const startIdx = (completedPage - 1) * completedPerPage;
+                  const paginatedCompleted = completedTickets.slice(startIdx, startIdx + completedPerPage);
+                  return (
+                    <div className="space-y-3 md:space-y-2 mt-4">
+                      <button
+                        className="flex items-center gap-2 text-sm font-medium text-muted-foreground px-1 hover:text-foreground transition-colors w-full text-left"
+                        onClick={() => setCompletedSectionCollapsed(!completedSectionCollapsed)}
+                        data-testid="button-toggle-completed-section-my"
+                      >
+                        {completedSectionCollapsed ? <ChevronRight className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
+                        Completed ({completedTickets.length})
+                      </button>
+                      {!completedSectionCollapsed && (
+                        <>
+                          <div className="space-y-3 md:space-y-2 opacity-75">
+                            {paginatedCompleted.map((ticket) => (
+                              <TicketCard
+                                key={ticket.id}
+                                ticket={ticket}
+                                formatDueDate={formatDueDate}
+                                schedulingStatusId={schedulingStatusId}
+                                onNavigate={saveScrollPosition}
+                                usersMap={usersMap}
+                                workflowStatuses={allStatuses.filter((s: TicketTypeStatus) => s.ticketTypeId === ticket.ticketTypeId).sort((a: TicketTypeStatus, b: TicketTypeStatus) => (a.displayOrder || 0) - (b.displayOrder || 0))}
+                              />
+                            ))}
+                          </div>
+                          {totalPages > 1 && (
+                            <div className="flex items-center justify-center gap-4 pt-3">
+                              <Button variant="outline" size="sm" onClick={() => setCompletedPage(p => Math.max(1, p - 1))} disabled={completedPage === 1} data-testid="button-my-completed-prev">
+                                <ChevronLeft className="w-4 h-4 mr-1" />Previous
+                              </Button>
+                              <span className="text-sm text-muted-foreground">Page {completedPage} of {totalPages}</span>
+                              <Button variant="outline" size="sm" onClick={() => setCompletedPage(p => Math.min(totalPages, p + 1))} disabled={completedPage === totalPages} data-testid="button-my-completed-next">
+                                Next<ChevronRight className="w-4 h-4 ml-1" />
+                              </Button>
+                            </div>
+                          )}
+                        </>
+                      )}
                     </div>
-                    <h3 className="text-lg font-medium mb-1">No tickets assigned to you</h3>
-                    <p className="text-sm text-muted-foreground max-w-sm">
-                      You don't have any tickets assigned to you yet.
-                    </p>
-                  </CardContent>
-                </Card>
-              )}
-            </div>
+                  );
+                })()}
+                {openTickets.length === 0 && completedTickets.length === 0 && (
+                  <Card>
+                    <CardContent className="flex flex-col items-center justify-center py-12 text-center">
+                      <div className="w-16 h-16 rounded-full bg-muted flex items-center justify-center mb-4">
+                        <Clock className="w-8 h-8 text-muted-foreground" />
+                      </div>
+                      <h3 className="text-lg font-medium mb-1">No tickets assigned to you</h3>
+                      <p className="text-sm text-muted-foreground max-w-sm">
+                        You don't have any tickets assigned to you yet.
+                      </p>
+                    </CardContent>
+                  </Card>
+                )}
+              </div>
+            )}
           </TabsContent>
 
           <TabsContent value="campaigns" className="mt-4">
@@ -574,89 +678,21 @@ export default function MyTickets() {
         </Tabs>
       )}
 
-      {!showTabs && <>
-      <div className="flex gap-2 items-center">
-        <div className="relative flex-1">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
-          <Input
-            placeholder="Search tickets or customers..."
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            className="pl-9 h-11"
-            data-testid="input-search-my-tickets"
-          />
-        </div>
-        <Button 
-          variant="outline" 
-          size="icon" 
-          className="h-11 w-11 shrink-0"
-          onClick={() => refetch()}
-          disabled={isFetching}
-          data-testid="button-refresh-my-tickets"
-        >
-          <RefreshCw className={`w-4 h-4 ${isFetching ? "animate-spin" : ""}`} />
-        </Button>
-        <Button 
-          variant="outline" 
-          className="h-11 shrink-0 gap-2"
-          onClick={() => setShowFilters(!showFilters)}
-          data-testid="button-toggle-filters-my"
-        >
-          <Filter className="w-4 h-4" />
-          {activeFilterCount > 0 && (
-            <Badge variant="secondary" className="bg-primary text-primary-foreground">
-              {activeFilterCount}
-            </Badge>
-          )}
-        </Button>
-      </div>
+      {!showTabs && (
+        <div className="space-y-4">
+          {filterControls}
 
-      {showFilters && (
-        <div className="flex gap-2 flex-wrap animate-in slide-in-from-top-2 duration-200">
-          <Select value={priorityFilter} onValueChange={setPriorityFilter}>
-            <SelectTrigger className="w-[130px] h-10" data-testid="select-priority-filter-my">
-              <SelectValue placeholder="Priority" />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="all">All Priorities</SelectItem>
-              <SelectItem value="urgent">Urgent</SelectItem>
-              <SelectItem value="high">High</SelectItem>
-              <SelectItem value="normal">Normal</SelectItem>
-              <SelectItem value="low">Low</SelectItem>
-            </SelectContent>
-          </Select>
-
-          <Select value={typeFilter} onValueChange={setTypeFilter}>
-            <SelectTrigger className="w-[140px] h-10" data-testid="select-type-filter-my">
-              <SelectValue placeholder="Ticket Type" />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="all">All Types</SelectItem>
-              {ticketTypes.map(tt => (
-                <SelectItem key={tt.id} value={tt.id}>{tt.name}</SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-
-          <Select value={workTypeFilter} onValueChange={setWorkTypeFilter}>
-            <SelectTrigger className="w-[150px] h-10" data-testid="select-worktype-filter-my">
-              <SelectValue placeholder="Work Type" />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="all">All Work Types</SelectItem>
-              <SelectItem value="contract">Contract Work</SelectItem>
-              <SelectItem value="extra_work">Extra Billable</SelectItem>
-              <SelectItem value="project">Project</SelectItem>
-              <SelectItem value="admin">Admin</SelectItem>
-              <SelectItem value="estimate_request">Estimate Request</SelectItem>
-              <SelectItem value="shop_todo">Shop To-Do</SelectItem>
-            </SelectContent>
-          </Select>
-        </div>
-      )}
-
-      <div className="space-y-4">
-          {hasAnyCustomerTickets && (
+              {/* Customer tickets: list or kanban view */}
+          {viewMode === "kanban-type" ? (
+            <MyKanbanByType
+              openTickets={openTickets}
+              ticketTypes={ticketTypes}
+              allStatuses={allStatuses}
+              usersMap={usersMap}
+              schedulingStatusId={schedulingStatusId}
+              onNavigate={saveScrollPosition}
+            />
+          ) : hasAnyCustomerTickets ? (
             <>
               {openTickets.length > 0 && (
                 <div className="space-y-3 md:space-y-2">
@@ -749,164 +785,326 @@ export default function MyTickets() {
                 );
               })()}
             </>
-          )}
+          ) : null}
 
-          {hasAnyEquipTickets && (
-            <div className="space-y-3 md:space-y-2 mt-6" data-testid="section-equipment-tickets">
-              <div className="flex items-center gap-2 px-1 mb-2">
-                <Wrench className="w-4 h-4 text-muted-foreground" />
-                <span className="text-sm font-semibold text-muted-foreground">Equipment Tickets</span>
-              </div>
+              {hasAnyEquipTickets && (
+                <div className="space-y-3 md:space-y-2 mt-6" data-testid="section-equipment-tickets">
+                  <div className="flex items-center gap-2 px-1 mb-2">
+                    <Wrench className="w-4 h-4 text-muted-foreground" />
+                    <span className="text-sm font-semibold text-muted-foreground">Equipment Tickets</span>
+                  </div>
 
-              {openEquipTickets.length > 0 && (
-                <div className="space-y-3 md:space-y-2">
-                  <button
-                    className="flex items-center gap-2 text-sm font-medium text-muted-foreground px-1 hover:text-foreground transition-colors w-full text-left"
-                    onClick={() => setEquipOpenSectionCollapsed(!equipOpenSectionCollapsed)}
-                    data-testid="button-toggle-equip-open-section"
-                  >
-                    {equipOpenSectionCollapsed ? <ChevronRight className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
-                    Open ({openEquipTickets.length})
-                  </button>
-                  {!equipOpenSectionCollapsed && (
+                  {openEquipTickets.length > 0 && (
                     <div className="space-y-3 md:space-y-2">
-                      {openEquipTickets.map((ticket) => (
-                        <EquipmentTicketCard
-                          key={ticket.id}
-                          ticket={ticket}
-                          equipmentMap={equipmentMap}
-                          formatDueDate={formatDueDate}
-                          onNavigate={saveScrollPosition}
-                        />
-                      ))}
+                      <button
+                        className="flex items-center gap-2 text-sm font-medium text-muted-foreground px-1 hover:text-foreground transition-colors w-full text-left"
+                        onClick={() => setEquipOpenSectionCollapsed(!equipOpenSectionCollapsed)}
+                        data-testid="button-toggle-equip-open-section"
+                      >
+                        {equipOpenSectionCollapsed ? <ChevronRight className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
+                        Open ({openEquipTickets.length})
+                      </button>
+                      {!equipOpenSectionCollapsed && (
+                        <div className="space-y-3 md:space-y-2">
+                          {openEquipTickets.map((ticket) => (
+                            <EquipmentTicketCard
+                              key={ticket.id}
+                              ticket={ticket}
+                              equipmentMap={equipmentMap}
+                              formatDueDate={formatDueDate}
+                              onNavigate={saveScrollPosition}
+                            />
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  )}
+
+                  {completedEquipTickets.length > 0 && (
+                    <div className="space-y-3 md:space-y-2 mt-4">
+                      <button
+                        className="flex items-center gap-2 text-sm font-medium text-muted-foreground px-1 hover:text-foreground transition-colors w-full text-left"
+                        onClick={() => setEquipCompletedSectionCollapsed(!equipCompletedSectionCollapsed)}
+                        data-testid="button-toggle-equip-completed-section"
+                      >
+                        {equipCompletedSectionCollapsed ? <ChevronRight className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
+                        Completed ({completedEquipTickets.length})
+                      </button>
+                      {!equipCompletedSectionCollapsed && (
+                        <div className="space-y-3 md:space-y-2 opacity-75">
+                          {completedEquipTickets.map((ticket) => (
+                            <EquipmentTicketCard
+                              key={ticket.id}
+                              ticket={ticket}
+                              equipmentMap={equipmentMap}
+                              formatDueDate={formatDueDate}
+                              onNavigate={saveScrollPosition}
+                            />
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  )}
+
+                  {equipTicketsLoading && (
+                    <div className="flex items-center justify-center py-6">
+                      <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
                     </div>
                   )}
                 </div>
               )}
 
-              {completedEquipTickets.length > 0 && (
-                <div className="space-y-3 md:space-y-2 mt-4">
+              {showCampaigns && activeCampaigns.length > 0 && (
+                <div className="space-y-3 md:space-y-2 mt-6" data-testid="section-campaigns">
+                  <div className="flex items-center gap-2 px-1 mb-2">
+                    <ClipboardCheck className="w-4 h-4 text-muted-foreground" />
+                    <span className="text-sm font-semibold text-muted-foreground">{t("campaigns.title")}</span>
+                  </div>
+
                   <button
                     className="flex items-center gap-2 text-sm font-medium text-muted-foreground px-1 hover:text-foreground transition-colors w-full text-left"
-                    onClick={() => setEquipCompletedSectionCollapsed(!equipCompletedSectionCollapsed)}
-                    data-testid="button-toggle-equip-completed-section"
+                    onClick={() => setCampaignSectionCollapsed(!campaignSectionCollapsed)}
+                    data-testid="button-toggle-campaigns-section"
                   >
-                    {equipCompletedSectionCollapsed ? <ChevronRight className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
-                    Completed ({completedEquipTickets.length})
+                    {campaignSectionCollapsed ? <ChevronRight className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
+                    {t("campaigns.active")} ({activeCampaigns.length})
                   </button>
-                  {!equipCompletedSectionCollapsed && (
-                    <div className="space-y-3 md:space-y-2 opacity-75">
-                      {completedEquipTickets.map((ticket) => (
-                        <EquipmentTicketCard
-                          key={ticket.id}
-                          ticket={ticket}
-                          equipmentMap={equipmentMap}
-                          formatDueDate={formatDueDate}
-                          onNavigate={saveScrollPosition}
-                        />
-                      ))}
+                  {!campaignSectionCollapsed && (
+                    <div className="space-y-3 md:space-y-2">
+                      {activeCampaigns.map((campaign) => {
+                        const pendingCount = campaign.totalItems - campaign.completedItems - campaign.skippedItems;
+                        return (
+                          <Link key={campaign.id} href={`/dashboard/campaigns/${campaign.id}`} onClick={saveScrollPosition}>
+                            <Card
+                              className="hover-elevate active-elevate-2 cursor-pointer transition-colors"
+                              data-testid={`card-campaign-${campaign.id}`}
+                            >
+                              <CardContent className="p-4">
+                                <div className="flex items-start gap-3">
+                                  <div
+                                    className="w-1 self-stretch rounded-full bg-primary"
+                                  />
+                                  <div className="flex-1 min-w-0">
+                                    <div className="flex items-center justify-between gap-2">
+                                      <h3 className="font-medium text-base leading-tight line-clamp-2 flex-1" data-testid={`text-campaign-title-${campaign.id}`}>
+                                        {campaign.title}
+                                      </h3>
+                                      <ChevronRight className="w-5 h-5 text-muted-foreground shrink-0" />
+                                    </div>
+                                    <div className="flex items-center gap-3 mt-2 text-xs text-muted-foreground">
+                                      <span className="flex items-center gap-1">
+                                        <CalendarDays className="w-3 h-3" />
+                                        {campaign.windowStart && campaign.windowEnd
+                                          ? `${new Date(campaign.windowStart).toLocaleDateString()} - ${new Date(campaign.windowEnd).toLocaleDateString()}`
+                                          : t("campaigns.window")}
+                                      </span>
+                                    </div>
+                                    <div className="flex items-center justify-between mt-2">
+                                      <Badge variant="outline" className="text-xs">
+                                        {pendingCount} {t("campaigns.pending")}
+                                      </Badge>
+                                      <span className="text-xs text-muted-foreground">
+                                        {campaign.completedItems}/{campaign.totalItems} {t("campaigns.done")}
+                                      </span>
+                                    </div>
+                                  </div>
+                                </div>
+                              </CardContent>
+                            </Card>
+                          </Link>
+                        );
+                      })}
+                    </div>
+                  )}
+
+                  {campaignsLoading && (
+                    <div className="flex items-center justify-center py-6">
+                      <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
                     </div>
                   )}
                 </div>
               )}
 
-              {equipTicketsLoading && (
-                <div className="flex items-center justify-center py-6">
-                  <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
-                </div>
+              {viewMode === "list" && !hasAnyCustomerTickets && !equipTicketsLoading && !hasAnyEquipTickets && !(showCampaigns && activeCampaigns.length > 0) && (
+                <Card className="mt-8">
+                  <CardContent className="flex flex-col items-center justify-center py-12 text-center">
+                    <div className="w-16 h-16 rounded-full bg-muted flex items-center justify-center mb-4">
+                      <Clock className="w-8 h-8 text-muted-foreground" />
+                    </div>
+                    <h3 className="text-lg font-medium mb-1">No tickets assigned to you</h3>
+                    <p className="text-sm text-muted-foreground mb-4 max-w-sm">
+                      You don't have any tickets assigned to you yet.
+                    </p>
+                  </CardContent>
+                </Card>
               )}
-            </div>
-          )}
-
-          {showCampaigns && activeCampaigns.length > 0 && (
-            <div className="space-y-3 md:space-y-2 mt-6" data-testid="section-campaigns">
-              <div className="flex items-center gap-2 px-1 mb-2">
-                <ClipboardCheck className="w-4 h-4 text-muted-foreground" />
-                <span className="text-sm font-semibold text-muted-foreground">{t("campaigns.title")}</span>
-              </div>
-
-              <button
-                className="flex items-center gap-2 text-sm font-medium text-muted-foreground px-1 hover:text-foreground transition-colors w-full text-left"
-                onClick={() => setCampaignSectionCollapsed(!campaignSectionCollapsed)}
-                data-testid="button-toggle-campaigns-section"
-              >
-                {campaignSectionCollapsed ? <ChevronRight className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
-                {t("campaigns.active")} ({activeCampaigns.length})
-              </button>
-              {!campaignSectionCollapsed && (
-                <div className="space-y-3 md:space-y-2">
-                  {activeCampaigns.map((campaign) => {
-                    const pendingCount = campaign.totalItems - campaign.completedItems - campaign.skippedItems;
-                    return (
-                      <Link key={campaign.id} href={`/dashboard/campaigns/${campaign.id}`} onClick={saveScrollPosition}>
-                        <Card
-                          className="hover-elevate active-elevate-2 cursor-pointer transition-colors"
-                          data-testid={`card-campaign-${campaign.id}`}
-                        >
-                          <CardContent className="p-4">
-                            <div className="flex items-start gap-3">
-                              <div
-                                className="w-1 self-stretch rounded-full bg-primary"
-                              />
-                              <div className="flex-1 min-w-0">
-                                <div className="flex items-center justify-between gap-2">
-                                  <h3 className="font-medium text-base leading-tight line-clamp-2 flex-1" data-testid={`text-campaign-title-${campaign.id}`}>
-                                    {campaign.title}
-                                  </h3>
-                                  <ChevronRight className="w-5 h-5 text-muted-foreground shrink-0" />
-                                </div>
-                                <div className="flex items-center gap-3 mt-2 text-xs text-muted-foreground">
-                                  <span className="flex items-center gap-1">
-                                    <CalendarDays className="w-3 h-3" />
-                                    {campaign.windowStart && campaign.windowEnd
-                                      ? `${new Date(campaign.windowStart).toLocaleDateString()} - ${new Date(campaign.windowEnd).toLocaleDateString()}`
-                                      : t("campaigns.window")}
-                                  </span>
-                                </div>
-                                <div className="flex items-center justify-between mt-2">
-                                  <Badge variant="outline" className="text-xs">
-                                    {pendingCount} {t("campaigns.pending")}
-                                  </Badge>
-                                  <span className="text-xs text-muted-foreground">
-                                    {campaign.completedItems}/{campaign.totalItems} {t("campaigns.done")}
-                                  </span>
-                                </div>
-                              </div>
-                            </div>
-                          </CardContent>
-                        </Card>
-                      </Link>
-                    );
-                  })}
-                </div>
-              )}
-
-              {campaignsLoading && (
-                <div className="flex items-center justify-center py-6">
-                  <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
-                </div>
-              )}
-            </div>
-          )}
-
-          {!hasAnyCustomerTickets && !equipTicketsLoading && !hasAnyEquipTickets && !(showCampaigns && activeCampaigns.length > 0) && (
-            <Card className="mt-8">
-              <CardContent className="flex flex-col items-center justify-center py-12 text-center">
-                <div className="w-16 h-16 rounded-full bg-muted flex items-center justify-center mb-4">
-                  <Clock className="w-8 h-8 text-muted-foreground" />
-                </div>
-                <h3 className="text-lg font-medium mb-1">No tickets assigned to you</h3>
-                <p className="text-sm text-muted-foreground mb-4 max-w-sm">
-                  You don't have any tickets assigned to you yet.
-                </p>
-              </CardContent>
-            </Card>
-          )}
         </div>
-      </>}
+      )}
     </div>
   );
 }
+
+// ─── Kanban Components (My Tickets) ──────────────────────────────────────────
+
+interface MyKanbanCardProps {
+  ticket: TicketWithDetails;
+  usersMap: Map<string, UserType>;
+  allStatuses: TicketTypeStatus[];
+  schedulingStatusId?: string | null;
+  onNavigate?: () => void;
+}
+
+function MyKanbanCard({ ticket, usersMap, allStatuses, schedulingStatusId, onNavigate }: MyKanbanCardProps) {
+  const barColor = ticket.ticketType?.color || "#6b7280";
+  const needsScheduling = schedulingStatusId && ticket.currentStatusId === schedulingStatusId;
+  const currentStatus = allStatuses.find(s => s.id === ticket.currentStatusId);
+
+  return (
+    <Link href={`/dashboard/tickets/${ticket.id}`} onClick={() => onNavigate?.()}>
+      <Card
+        className={`hover-elevate active-elevate-2 cursor-pointer mb-2 ${needsScheduling ? "ring-2 ring-pink-500 dark:ring-pink-400" : ""}`}
+        data-testid={`kanban-card-my-ticket-${ticket.id}`}
+      >
+        <CardContent className="p-3">
+          <div className="flex items-start gap-2">
+            <div className="w-1 self-stretch rounded-full shrink-0" style={{ backgroundColor: barColor }} />
+            <div className="flex-1 min-w-0">
+              <div className="flex items-center justify-between gap-1 mb-1">
+                {ticket.ticketType && (
+                  <span className="text-xs font-semibold" style={{ color: barColor }} data-testid={`kanban-my-tickettype-${ticket.id}`}>
+                    {ticket.ticketType.name}
+                  </span>
+                )}
+                <span className="font-mono text-xs text-muted-foreground shrink-0" data-testid={`kanban-my-ticket-id-${ticket.id}`}>
+                  #{ticket.id.slice(0, 8)}
+                </span>
+              </div>
+              <p className="text-sm font-medium leading-snug line-clamp-2 mb-1" data-testid={`kanban-my-title-${ticket.id}`}>
+                {ticket.title}
+              </p>
+              {ticket.customer && (
+                <div className="flex items-center gap-1 text-xs text-muted-foreground mb-1.5">
+                  <MapPin className="w-3 h-3 shrink-0" />
+                  <span className="truncate" data-testid={`kanban-my-customer-${ticket.id}`}>{ticket.customer.name}</span>
+                </div>
+              )}
+              <div className="flex items-center justify-between gap-2">
+                {currentStatus && (
+                  <Badge
+                    variant="outline"
+                    className="text-xs truncate max-w-[120px]"
+                    style={{ borderColor: currentStatus.color || undefined }}
+                    data-testid={`kanban-my-status-${ticket.id}`}
+                  >
+                    {currentStatus.name}
+                  </Badge>
+                )}
+                {ticket.assignedToId && (
+                  <span className="text-xs text-muted-foreground truncate max-w-[80px]" data-testid={`kanban-my-assignee-${ticket.id}`}>
+                    {usersMap.get(ticket.assignedToId)?.name || usersMap.get(ticket.assignedToId)?.email?.split("@")[0] || ""}
+                  </span>
+                )}
+              </div>
+            </div>
+          </div>
+        </CardContent>
+      </Card>
+    </Link>
+  );
+}
+
+interface MyKanbanColumnProps {
+  title: string;
+  color?: string;
+  tickets: TicketWithDetails[];
+  usersMap: Map<string, UserType>;
+  allStatuses: TicketTypeStatus[];
+  schedulingStatusId?: string | null;
+  onNavigate?: () => void;
+  testId?: string;
+}
+
+function MyKanbanColumn({ title, color, tickets, usersMap, allStatuses, schedulingStatusId, onNavigate, testId }: MyKanbanColumnProps) {
+  return (
+    <div
+      className="flex flex-col shrink-0 w-72 bg-muted/30 rounded-md border"
+      style={{ height: "calc(100vh - 280px)", minHeight: "300px" }}
+      data-testid={testId}
+    >
+      <div className="flex items-center justify-between gap-2 px-3 py-2.5 border-b shrink-0">
+        <div className="flex items-center gap-2 min-w-0">
+          {color && <div className="w-2.5 h-2.5 rounded-full shrink-0" style={{ backgroundColor: color }} />}
+          <span className="text-sm font-semibold truncate">{title}</span>
+        </div>
+        <Badge variant="secondary" className="text-xs shrink-0">{tickets.length}</Badge>
+      </div>
+      <div className="flex-1 overflow-y-auto p-2">
+        {tickets.length === 0 ? (
+          <div className="flex items-center justify-center h-16 text-xs text-muted-foreground">
+            No open tickets
+          </div>
+        ) : (
+          tickets.map(ticket => (
+            <MyKanbanCard
+              key={ticket.id}
+              ticket={ticket}
+              usersMap={usersMap}
+              allStatuses={allStatuses}
+              schedulingStatusId={schedulingStatusId}
+              onNavigate={onNavigate}
+            />
+          ))
+        )}
+      </div>
+    </div>
+  );
+}
+
+interface MyKanbanByTypeProps {
+  openTickets: TicketWithDetails[];
+  ticketTypes: TicketType[];
+  allStatuses: TicketTypeStatus[];
+  usersMap: Map<string, UserType>;
+  schedulingStatusId?: string | null;
+  onNavigate?: () => void;
+}
+
+function MyKanbanByType({ openTickets, ticketTypes, allStatuses, usersMap, schedulingStatusId, onNavigate }: MyKanbanByTypeProps) {
+  const columns = ticketTypes.map(tt => ({
+    id: tt.id,
+    title: tt.name,
+    color: tt.color || undefined,
+    tickets: openTickets.filter(t => t.ticketTypeId === tt.id),
+  }));
+
+  if (columns.length === 0) {
+    return (
+      <div className="flex items-center justify-center py-16 text-muted-foreground text-sm">
+        No ticket types configured.
+      </div>
+    );
+  }
+
+  return (
+    <div className="flex gap-3 overflow-x-auto pb-4" data-testid="kanban-by-type-my">
+      {columns.map(col => (
+        <MyKanbanColumn
+          key={col.id}
+          title={col.title}
+          color={col.color}
+          tickets={col.tickets}
+          usersMap={usersMap}
+          allStatuses={allStatuses}
+          schedulingStatusId={schedulingStatusId}
+          onNavigate={onNavigate}
+          testId={`kanban-col-my-type-${col.id}`}
+        />
+      ))}
+    </div>
+  );
+}
+
+// ─── Equipment Ticket Card ────────────────────────────────────────────────────
 
 interface EquipmentTicketCardProps {
   ticket: EquipmentTicket;
@@ -973,22 +1171,21 @@ function EquipmentTicketCard({ ticket, equipmentMap, formatDueDate, onNavigate }
                 </div>
               )}
 
-              <div className="flex items-center justify-between mt-3 pt-3 border-t">
-                <div className="flex items-center gap-3">
-                  <Badge
-                    variant="outline"
-                    className={`text-xs ${EQUIPMENT_TICKET_STATUS_COLORS[ticket.status] || ""}`}
-                    data-testid={`badge-my-equip-status-${ticket.id}`}
-                  >
-                    {EQUIPMENT_TICKET_STATUS_LABELS[ticket.status] || ticket.status}
-                  </Badge>
+              {dueInfo && (
+                <div className={`flex items-center gap-1 mt-1.5 text-xs ${dueInfo.className}`}>
+                  <CalendarDays className="w-3 h-3" />
+                  <span>{dueInfo.text}</span>
                 </div>
-                {dueInfo && (
-                  <span className={`text-xs flex items-center gap-1 ${dueInfo.className}`}>
-                    <CalendarDays className="w-3 h-3" />
-                    {dueInfo.text}
-                  </span>
-                )}
+              )}
+
+              <div className="mt-2">
+                <Badge
+                  variant="outline"
+                  className={`text-xs ${EQUIPMENT_TICKET_STATUS_COLORS[ticket.status] || ""}`}
+                  data-testid={`badge-my-equip-status-${ticket.id}`}
+                >
+                  {EQUIPMENT_TICKET_STATUS_LABELS[ticket.status] || ticket.status}
+                </Badge>
               </div>
             </div>
           </div>
