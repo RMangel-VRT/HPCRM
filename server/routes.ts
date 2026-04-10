@@ -20,6 +20,16 @@ import { renderVisualScope, type ExportType } from "./visualScopeRenderer";
 import { ROLLUP_SERVICE_LABELS, campaignToRollupServiceType } from "../shared/serviceCatalog";
 import { buildContractAuditRows } from "./auditEngine";
 
+interface StatusDefinition {
+  name: string;
+  description: string;
+  color: string;
+  order: number;
+  isFinal: "true" | "false";
+  actionType: "needs_action" | "waiting";
+  waitingCategory?: "customer" | "vendor" | "internal" | "other";
+}
+
 // Seed sample communications for a company (used during server bootstrap and via API)
 async function seedCommunications(companyId: string, sentById: string, _sentByName: string): Promise<number> {
   const companyCustomers = await storage.getCustomers(companyId);
@@ -173,6 +183,7 @@ async function ensureInvoiceTicketType(companyId: string): Promise<{
       displayOrder: 0,
       color: "#f59e0b",
       isFinal: "false",
+      actionType: "needs_action",
     });
     console.log(`Created Pending Invoice status for Invoice type`);
   }
@@ -185,6 +196,7 @@ async function ensureInvoiceTicketType(companyId: string): Promise<{
       displayOrder: 1,
       color: "#22c55e",
       isFinal: "true",
+      actionType: "needs_action",
     });
     console.log(`Created Invoiced status for Invoice type`);
     
@@ -238,25 +250,25 @@ async function ensureRFPRequestTicketType(companyId: string): Promise<{
   }
   
   // Define all RFP workflow statuses
-  const rfpStatuses = [
-    { name: "Request Received", description: "RFP logged and ticket created", color: "#6366f1", order: 0, isFinal: "false" as const },
-    { name: "Review Requirements", description: "Reviewing RFP requirements and scope", color: "#8b5cf6", order: 1, isFinal: "false" as const },
-    { name: "Request Missing Info", description: "Requesting additional information from prospect", color: "#f59e0b", order: 2, isFinal: "false" as const },
-    { name: "Pre-Proposal Walk", description: "Property walk scheduled or completed", color: "#06b6d4", order: 3, isFinal: "false" as const },
-    { name: "Proposal Drafted", description: "Proposal is being prepared", color: "#3b82f6", order: 4, isFinal: "false" as const },
-    { name: "Proposal Submitted", description: "Proposal has been sent to prospect", color: "#10b981", order: 5, isFinal: "false" as const },
-    { name: "Awaiting Response", description: "Waiting for decision from prospect", color: "#f97316", order: 6, isFinal: "false" as const },
-    { name: "Decision Received", description: "Decision has been received - select outcome", color: "#eab308", order: 7, isFinal: "false" as const },
-    { name: "Closed - Lost", description: "RFP was not awarded", color: "#ef4444", order: 8, isFinal: "true" as const },
-    { name: "Awarded", description: "RFP was awarded - begin onboarding", color: "#22c55e", order: 9, isFinal: "false" as const },
-    { name: "Contract Executed", description: "Contract has been signed", color: "#14b8a6", order: 10, isFinal: "false" as const },
-    { name: "CRM Setup Complete", description: "Contract and customer details entered in CRM", color: "#0ea5e9", order: 11, isFinal: "false" as const },
-    { name: "Maps Requested", description: "Property maps requested from customer", color: "#a855f7", order: 12, isFinal: "false" as const },
-    { name: "Maps Uploaded", description: "Property maps created and uploaded", color: "#d946ef", order: 13, isFinal: "false" as const },
-    { name: "Contacts Collected", description: "Board and PM contacts collected", color: "#ec4899", order: 14, isFinal: "false" as const },
-    { name: "Post-Award Kickoff", description: "Kickoff walk or meeting completed", color: "#f43f5e", order: 15, isFinal: "false" as const },
-    { name: "Handoff to Operations", description: "Ready for scheduling and operations", color: "#84cc16", order: 16, isFinal: "false" as const },
-    { name: "Closed - Won", description: "RFP complete - customer onboarded", color: "#22c55e", order: 17, isFinal: "true" as const },
+  const rfpStatuses: StatusDefinition[] = [
+    { name: "Request Received", description: "RFP logged and ticket created", color: "#6366f1", order: 0, isFinal: "false" as const, actionType: "needs_action" as const },
+    { name: "Review Requirements", description: "Reviewing RFP requirements and scope", color: "#8b5cf6", order: 1, isFinal: "false" as const, actionType: "needs_action" as const },
+    { name: "Request Missing Info", description: "Requesting additional information from prospect", color: "#f59e0b", order: 2, isFinal: "false" as const, actionType: "waiting" as const, waitingCategory: "customer" as const },
+    { name: "Pre-Proposal Walk", description: "Property walk scheduled or completed", color: "#06b6d4", order: 3, isFinal: "false" as const, actionType: "needs_action" as const },
+    { name: "Proposal Drafted", description: "Proposal is being prepared", color: "#3b82f6", order: 4, isFinal: "false" as const, actionType: "needs_action" as const },
+    { name: "Proposal Submitted", description: "Proposal has been sent to prospect", color: "#10b981", order: 5, isFinal: "false" as const, actionType: "waiting" as const, waitingCategory: "customer" as const },
+    { name: "Awaiting Response", description: "Waiting for decision from prospect", color: "#f97316", order: 6, isFinal: "false" as const, actionType: "waiting" as const, waitingCategory: "customer" as const },
+    { name: "Decision Received", description: "Decision has been received - select outcome", color: "#eab308", order: 7, isFinal: "false" as const, actionType: "needs_action" as const },
+    { name: "Closed - Lost", description: "RFP was not awarded", color: "#ef4444", order: 8, isFinal: "true" as const, actionType: "needs_action" as const },
+    { name: "Awarded", description: "RFP was awarded - begin onboarding", color: "#22c55e", order: 9, isFinal: "false" as const, actionType: "needs_action" as const },
+    { name: "Contract Executed", description: "Contract has been signed", color: "#14b8a6", order: 10, isFinal: "false" as const, actionType: "needs_action" as const },
+    { name: "CRM Setup Complete", description: "Contract and customer details entered in CRM", color: "#0ea5e9", order: 11, isFinal: "false" as const, actionType: "needs_action" as const },
+    { name: "Maps Requested", description: "Property maps requested from customer", color: "#a855f7", order: 12, isFinal: "false" as const, actionType: "waiting" as const, waitingCategory: "customer" as const },
+    { name: "Maps Uploaded", description: "Property maps created and uploaded", color: "#d946ef", order: 13, isFinal: "false" as const, actionType: "needs_action" as const },
+    { name: "Contacts Collected", description: "Board and PM contacts collected", color: "#ec4899", order: 14, isFinal: "false" as const, actionType: "needs_action" as const },
+    { name: "Post-Award Kickoff", description: "Kickoff walk or meeting completed", color: "#f43f5e", order: 15, isFinal: "false" as const, actionType: "needs_action" as const },
+    { name: "Handoff to Operations", description: "Ready for scheduling and operations", color: "#84cc16", order: 16, isFinal: "false" as const, actionType: "needs_action" as const },
+    { name: "Closed - Won", description: "RFP complete - customer onboarded", color: "#22c55e", order: 17, isFinal: "true" as const, actionType: "needs_action" as const },
   ];
   
   // Get existing statuses
@@ -274,6 +286,8 @@ async function ensureRFPRequestTicketType(companyId: string): Promise<{
         displayOrder: statusDef.order,
         color: statusDef.color,
         isFinal: statusDef.isFinal,
+        actionType: statusDef.actionType,
+        waitingCategory: statusDef.waitingCategory,
       });
       console.log(`Created RFP status: ${statusDef.name}`);
     }
@@ -455,17 +469,17 @@ async function ensureProjectTicketType(companyId: string): Promise<{
   }
   
   // Define the 10-step Project workflow (Create Proposal + Proposal Sent replace Estimate Sent)
-  const projectStatuses = [
-    { name: "New", description: "Request captured - pending estimate", color: "#6366f1", order: 0, isFinal: "false" as const },
-    { name: "Estimating", description: "Estimate being prepared in QuickBooks", color: "#8b5cf6", order: 1, isFinal: "false" as const },
-    { name: "Create Proposal", description: "Build the proposal document in this system", color: "#8b5cf6", order: 2, isFinal: "false" as const },
-    { name: "Proposal Sent", description: "Proposal delivered to customer, awaiting decision", color: "#f59e0b", order: 3, isFinal: "false" as const },
-    { name: "Decision Received", description: "Customer decision received", color: "#eab308", order: 4, isFinal: "false" as const },
-    { name: "Ready to Schedule", description: "Approved - needs to be scheduled with crew", color: "#f472b6", order: 5, isFinal: "false" as const },
-    { name: "Work Completed", description: "Execution task completed - ready for billing review", color: "#10b981", order: 6, isFinal: "false" as const },
-    { name: "Ready for Billing", description: "Work verified complete - create invoice", color: "#06b6d4", order: 7, isFinal: "false" as const },
-    { name: "Invoicing", description: "Invoice created in QuickBooks", color: "#22c55e", order: 8, isFinal: "true" as const },
-    { name: "Closed - Lost", description: "Project declined or cancelled", color: "#ef4444", order: 9, isFinal: "true" as const },
+  const projectStatuses: StatusDefinition[] = [
+    { name: "New", description: "Request captured - pending estimate", color: "#6366f1", order: 0, isFinal: "false" as const, actionType: "needs_action" as const },
+    { name: "Estimating", description: "Estimate being prepared in QuickBooks", color: "#8b5cf6", order: 1, isFinal: "false" as const, actionType: "needs_action" as const },
+    { name: "Create Proposal", description: "Build the proposal document in this system", color: "#8b5cf6", order: 2, isFinal: "false" as const, actionType: "needs_action" as const },
+    { name: "Proposal Sent", description: "Proposal delivered to customer, awaiting decision", color: "#f59e0b", order: 3, isFinal: "false" as const, actionType: "waiting" as const, waitingCategory: "customer" as const },
+    { name: "Decision Received", description: "Customer decision received", color: "#eab308", order: 4, isFinal: "false" as const, actionType: "needs_action" as const },
+    { name: "Ready to Schedule", description: "Approved - needs to be scheduled with crew", color: "#f472b6", order: 5, isFinal: "false" as const, actionType: "needs_action" as const },
+    { name: "Work Completed", description: "Execution task completed - ready for billing review", color: "#10b981", order: 6, isFinal: "false" as const, actionType: "needs_action" as const },
+    { name: "Ready for Billing", description: "Work verified complete - create invoice", color: "#06b6d4", order: 7, isFinal: "false" as const, actionType: "needs_action" as const },
+    { name: "Invoicing", description: "Invoice created in QuickBooks", color: "#22c55e", order: 8, isFinal: "true" as const, actionType: "needs_action" as const },
+    { name: "Closed - Lost", description: "Project declined or cancelled", color: "#ef4444", order: 9, isFinal: "true" as const, actionType: "needs_action" as const },
   ];
   
   // Get existing statuses
@@ -483,6 +497,8 @@ async function ensureProjectTicketType(companyId: string): Promise<{
         displayOrder: statusDef.order,
         color: statusDef.color,
         isFinal: statusDef.isFinal,
+        actionType: statusDef.actionType,
+        waitingCategory: statusDef.waitingCategory,
       });
       console.log(`Created status "${statusDef.name}" for Project type`);
     }
@@ -662,13 +678,13 @@ async function ensureExtraBillableTicketType(companyId: string): Promise<{
     console.log(`Created Extra Billable ticket type for company ${companyId}`);
   }
   
-  const ebStatuses = [
-    { name: "New", description: "Extra work request received", color: "#6366f1", order: 0, isFinal: "false" as const },
-    { name: "Ready to Schedule", description: "Approved - needs to be scheduled with crew", color: "#f472b6", order: 1, isFinal: "false" as const },
-    { name: "In Progress", description: "Work is underway", color: "#3b82f6", order: 2, isFinal: "false" as const },
-    { name: "Work Completed", description: "Field work finished - pending billing", color: "#10b981", order: 3, isFinal: "false" as const },
-    { name: "Ready for Billing", description: "Work verified complete - create invoice", color: "#06b6d4", order: 4, isFinal: "false" as const },
-    { name: "Done", description: "Invoice created - ticket closed", color: "#22c55e", order: 5, isFinal: "true" as const },
+  const ebStatuses: StatusDefinition[] = [
+    { name: "New", description: "Extra work request received", color: "#6366f1", order: 0, isFinal: "false" as const, actionType: "needs_action" as const },
+    { name: "Ready to Schedule", description: "Approved - needs to be scheduled with crew", color: "#f472b6", order: 1, isFinal: "false" as const, actionType: "needs_action" as const },
+    { name: "In Progress", description: "Work is underway", color: "#3b82f6", order: 2, isFinal: "false" as const, actionType: "needs_action" as const },
+    { name: "Work Completed", description: "Field work finished - pending billing", color: "#10b981", order: 3, isFinal: "false" as const, actionType: "needs_action" as const },
+    { name: "Ready for Billing", description: "Work verified complete - create invoice", color: "#06b6d4", order: 4, isFinal: "false" as const, actionType: "needs_action" as const },
+    { name: "Done", description: "Invoice created - ticket closed", color: "#22c55e", order: 5, isFinal: "true" as const, actionType: "needs_action" as const },
   ];
   
   let existingStatuses = await storage.getTicketTypeStatuses(ebType.id);
@@ -684,6 +700,8 @@ async function ensureExtraBillableTicketType(companyId: string): Promise<{
         displayOrder: statusDef.order,
         color: statusDef.color,
         isFinal: statusDef.isFinal,
+        actionType: statusDef.actionType,
+        waitingCategory: statusDef.waitingCategory,
       });
       console.log(`Created status "${statusDef.name}" for Extra Billable type`);
     }
@@ -745,14 +763,14 @@ async function ensureProjectNoEstimateTicketType(companyId: string): Promise<{
     console.log(`Created Project (No Estimate) ticket type for company ${companyId}`);
   }
 
-  const pneStatuses = [
-    { name: "New", description: "Project request received and approved", color: "#6366f1", order: 0, isFinal: "false" as const },
-    { name: "Ready to Schedule", description: "Approved - needs to be scheduled with crew", color: "#f472b6", order: 1, isFinal: "false" as const },
-    { name: "Scheduled", description: "Scheduled with crew", color: "#3b82f6", order: 2, isFinal: "false" as const },
-    { name: "Work Completed", description: "Field work finished - pending billing review", color: "#10b981", order: 3, isFinal: "false" as const },
-    { name: "Ready for Billing", description: "Work verified complete - create invoice", color: "#06b6d4", order: 4, isFinal: "false" as const },
-    { name: "Invoicing", description: "Invoice created in QuickBooks", color: "#22c55e", order: 5, isFinal: "true" as const },
-    { name: "Closed - Lost", description: "Project cancelled or closed without billing", color: "#ef4444", order: 6, isFinal: "true" as const },
+  const pneStatuses: StatusDefinition[] = [
+    { name: "New", description: "Project request received and approved", color: "#6366f1", order: 0, isFinal: "false" as const, actionType: "needs_action" as const },
+    { name: "Ready to Schedule", description: "Approved - needs to be scheduled with crew", color: "#f472b6", order: 1, isFinal: "false" as const, actionType: "needs_action" as const },
+    { name: "Scheduled", description: "Scheduled with crew", color: "#3b82f6", order: 2, isFinal: "false" as const, actionType: "needs_action" as const },
+    { name: "Work Completed", description: "Field work finished - pending billing review", color: "#10b981", order: 3, isFinal: "false" as const, actionType: "needs_action" as const },
+    { name: "Ready for Billing", description: "Work verified complete - create invoice", color: "#06b6d4", order: 4, isFinal: "false" as const, actionType: "needs_action" as const },
+    { name: "Invoicing", description: "Invoice created in QuickBooks", color: "#22c55e", order: 5, isFinal: "true" as const, actionType: "needs_action" as const },
+    { name: "Closed - Lost", description: "Project cancelled or closed without billing", color: "#ef4444", order: 6, isFinal: "true" as const, actionType: "needs_action" as const },
   ];
 
   let existingStatuses = await storage.getTicketTypeStatuses(pneType.id);
@@ -768,6 +786,8 @@ async function ensureProjectNoEstimateTicketType(companyId: string): Promise<{
         displayOrder: statusDef.order,
         color: statusDef.color,
         isFinal: statusDef.isFinal,
+        actionType: statusDef.actionType,
+        waitingCategory: statusDef.waitingCategory,
       });
       console.log(`Created status "${statusDef.name}" for Project (No Estimate) type`);
     }
@@ -848,9 +868,9 @@ async function ensureToDoTicketType(companyId: string): Promise<{
   }
   
   // Define simple 2-step To-Do workflow
-  const todoStatuses = [
-    { name: "Open", description: "Task needs to be done", color: "#3b82f6", order: 0, isFinal: "false" as const },
-    { name: "Done", description: "Task completed", color: "#22c55e", order: 1, isFinal: "true" as const },
+  const todoStatuses: StatusDefinition[] = [
+    { name: "Open", description: "Task needs to be done", color: "#3b82f6", order: 0, isFinal: "false" as const, actionType: "needs_action" as const },
+    { name: "Done", description: "Task completed", color: "#22c55e", order: 1, isFinal: "true" as const, actionType: "needs_action" as const },
   ];
   
   // Get existing statuses
@@ -867,6 +887,8 @@ async function ensureToDoTicketType(companyId: string): Promise<{
         displayOrder: statusDef.order,
         color: statusDef.color,
         isFinal: statusDef.isFinal,
+        actionType: statusDef.actionType,
+        waitingCategory: statusDef.waitingCategory,
       });
       console.log(`Created status "${statusDef.name}" for To-Do type`);
     }
@@ -1171,6 +1193,7 @@ export async function migrateEstimateSentToProposalWorkflow(): Promise<void> {
           color: "#8b5cf6",
           displayOrder: 2,
           isFinal: "false",
+          actionType: "needs_action",
         });
         console.log(`Created "Create Proposal" status for company ${company.id}`);
       }
@@ -1186,6 +1209,8 @@ export async function migrateEstimateSentToProposalWorkflow(): Promise<void> {
           color: "#f59e0b",
           displayOrder: 3,
           isFinal: "false",
+          actionType: "waiting",
+          waitingCategory: "customer",
         });
         console.log(`Created "Proposal Sent" status for company ${company.id}`);
       }
@@ -1386,6 +1411,56 @@ export async function migrateCustomerRankingColumn(): Promise<void> {
     console.log("Customer ranking column migration complete");
   } catch (error) {
     console.error("Error during customer ranking column migration:", error);
+  }
+}
+
+export async function migrateTicketTypeStatusActionType(): Promise<void> {
+  console.log("Running startup migration: Ensuring action_type and waiting_category columns exist on ticket_type_statuses table...");
+  try {
+    await db.execute(sql`ALTER TABLE ticket_type_statuses ADD COLUMN IF NOT EXISTS action_type text NOT NULL DEFAULT 'needs_action'`);
+    await db.execute(sql`ALTER TABLE ticket_type_statuses ADD COLUMN IF NOT EXISTS waiting_category text`);
+    console.log("ticket_type_statuses action_type/waiting_category column migration complete");
+  } catch (error) {
+    console.error("Error during ticket_type_statuses action_type migration:", error);
+  }
+}
+
+export async function backfillStatusActionTypes(): Promise<void> {
+  console.log("Running startup migration: Backfilling action_type/waiting_category for existing default workflow statuses...");
+  try {
+    // Define classifications by status name for each known workflow type
+    // Only update statuses that still have the default 'needs_action' / null values
+    // to avoid overwriting intentional admin customizations.
+    const waitingStatuses: Array<{ name: string; waitingCategory: string }> = [
+      // RFP Request workflow
+      { name: "Request Missing Info", waitingCategory: "customer" },
+      { name: "Proposal Submitted", waitingCategory: "customer" },
+      { name: "Awaiting Response", waitingCategory: "customer" },
+      { name: "Maps Requested", waitingCategory: "customer" },
+      // Project workflow
+      { name: "Proposal Sent", waitingCategory: "customer" },
+    ];
+
+    for (const { name, waitingCategory } of waitingStatuses) {
+      await db.execute(sql`
+        UPDATE ticket_type_statuses
+        SET action_type = 'waiting', waiting_category = ${waitingCategory}
+        WHERE name = ${name}
+          AND action_type = 'needs_action'
+          AND waiting_category IS NULL
+      `);
+    }
+
+    // Ensure needs_action statuses have null waiting_category (defensive cleanup)
+    await db.execute(sql`
+      UPDATE ticket_type_statuses
+      SET waiting_category = NULL
+      WHERE action_type = 'needs_action' AND waiting_category IS NOT NULL
+    `);
+
+    console.log("Status action_type backfill complete");
+  } catch (error) {
+    console.error("Error during status action_type backfill:", error);
   }
 }
 
@@ -4984,7 +5059,27 @@ export async function registerRoutes(app: Express): Promise<Server> {
       return res.status(400).send(result.error.message);
     }
 
-    const status = await storage.updateTicketTypeStatus(req.params.id, result.data);
+    // Fetch current status to determine effective actionType for cross-field validation
+    const currentRows = await db.select().from(ticketTypeStatuses).where(eq(ticketTypeStatuses.id, req.params.id));
+    if (!currentRows.length) {
+      return res.status(404).send("Status not found");
+    }
+    const currentStatus = currentRows[0];
+
+    const updateData = { ...result.data };
+    const effectiveActionType = updateData.actionType ?? currentStatus.actionType;
+    const effectiveWaitingCategory = "waitingCategory" in updateData ? updateData.waitingCategory : currentStatus.waitingCategory;
+
+    // Normalize: clear waitingCategory when effective actionType is needs_action
+    if (effectiveActionType === "needs_action") {
+      updateData.waitingCategory = null;
+    }
+    // Validate: waitingCategory is required when effective actionType is waiting
+    if (effectiveActionType === "waiting" && !effectiveWaitingCategory) {
+      return res.status(400).send("waitingCategory is required when actionType is 'waiting'");
+    }
+
+    const status = await storage.updateTicketTypeStatus(req.params.id, updateData);
     if (!status) {
       return res.status(404).send("Status not found");
     }

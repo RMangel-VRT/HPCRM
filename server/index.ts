@@ -1,5 +1,5 @@
 import express, { type Request, Response, NextFunction } from "express";
-import { registerRoutes, migrateProjectSchedulingStatus, migrateFirstBankHierarchy, migrateExtraBillableTicketType, removeProjectInvoicingFields, fixExtraBillableDoneOrder, fixEstimateRequestBillingBehavior, fixProjectDisplayOrders, migrateEstimateSentToProposalWorkflow, migrateProjectNoEstimateTicketType, migrateUserLanguageColumn, migrateUserPhoneColumn, backfillCustomerType, migrateEquipmentProfilePhotoColumn, migrateProposalNumbers, migrateCommunicationTemplatesSchema, migrateCommunicationsTable, seedCommunicationsBootstrap, seedCommunicationTemplatesBootstrap, migrateAutomationRulesTable, seedAutomationRulesBootstrap, migrateCampaignItemExceptionType, migrateCampaignItemsNewColumns, migrateCampaignAssignedToId2, migrateCustomerRankingColumn } from "./routes";
+import { registerRoutes, migrateProjectSchedulingStatus, migrateFirstBankHierarchy, migrateExtraBillableTicketType, removeProjectInvoicingFields, fixExtraBillableDoneOrder, fixEstimateRequestBillingBehavior, fixProjectDisplayOrders, migrateEstimateSentToProposalWorkflow, migrateProjectNoEstimateTicketType, migrateUserLanguageColumn, migrateUserPhoneColumn, backfillCustomerType, migrateEquipmentProfilePhotoColumn, migrateProposalNumbers, migrateCommunicationTemplatesSchema, migrateCommunicationsTable, seedCommunicationsBootstrap, seedCommunicationTemplatesBootstrap, migrateAutomationRulesTable, seedAutomationRulesBootstrap, migrateCampaignItemExceptionType, migrateCampaignItemsNewColumns, migrateCampaignAssignedToId2, migrateCustomerRankingColumn, migrateTicketTypeStatusActionType, backfillStatusActionTypes } from "./routes";
 import { setupVite, serveStatic, log } from "./vite";
 import { runDueDateNotifications } from "./due-date-notifications";
 import { runAllAutomationRules } from "./services/automationService";
@@ -75,6 +75,8 @@ app.use((req, res, next) => {
   await migrateCampaignItemsNewColumns(); // Ensure property_id and service_plan_category columns exist on campaign_items table
   await migrateCampaignAssignedToId2(); // Ensure assigned_to_id2 column exists on campaigns table
   await migrateCustomerRankingColumn(); // Ensure ranking column exists on customers table
+  await migrateTicketTypeStatusActionType(); // Ensure action_type and waiting_category columns exist on ticket_type_statuses
+  await backfillStatusActionTypes(); // Backfill correct action_type/waiting_category for existing default statuses
 
   app.use((err: any, _req: Request, res: Response, _next: NextFunction) => {
     const status = err.status || err.statusCode || 500;

@@ -28,7 +28,7 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
-import { Plus, Search, ChevronRight, ChevronLeft, ChevronDown, ChevronUp, Clock, User as UserIcon, MapPin, CalendarDays, Filter, Loader2, Trash2, X, Layers, Check, List, Columns, Wrench } from "lucide-react";
+import { Plus, Search, ChevronRight, ChevronLeft, ChevronDown, ChevronUp, Clock, User as UserIcon, MapPin, CalendarDays, Filter, Loader2, Trash2, X, Layers, Check, List, Columns, Wrench, AlertCircle } from "lucide-react";
 import { Link, useSearch } from "wouter";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import type { Ticket, TicketType, TicketTypeStatus, Customer, WorkType, User as UserType, CompanyUser, EquipmentTicket } from "@shared/schema";
@@ -99,6 +99,7 @@ export default function TicketsList() {
   const [workTypeFilter, setWorkTypeFilter] = useState(urlParams.get("workType") || "all");
   const [statusFilter, setStatusFilter] = useState(urlParams.get("status") || "all");
   const [assignedToFilter, setAssignedToFilter] = useState(urlParams.get("assignedTo") || "all");
+  const [actionTypeFilter, setActionTypeFilter] = useState(urlParams.get("actionType") || "all");
   const [showFilters, setShowFilters] = useState(false);
   const [showNeedsScheduling, setShowNeedsScheduling] = useState(urlParams.get("needsScheduling") === "true");
   
@@ -128,6 +129,7 @@ export default function TicketsList() {
     setWorkTypeFilter(urlParams.get("workType") || "all");
     setStatusFilter(urlParams.get("status") || "all");
     setAssignedToFilter(urlParams.get("assignedTo") || "all");
+    setActionTypeFilter(urlParams.get("actionType") || "all");
     setShowNeedsScheduling(urlParams.get("needsScheduling") === "true");
     const rv = urlParams.get("view");
     setViewMode((rv === "kanban-type" || rv === "kanban-user") ? rv : "list");
@@ -162,6 +164,7 @@ export default function TicketsList() {
     if (workTypeFilter !== "all") params.set("workType", workTypeFilter);
     if (statusFilter !== "all") params.set("status", statusFilter);
     if (assignedToFilter !== "all") params.set("assignedTo", assignedToFilter);
+    if (actionTypeFilter !== "all") params.set("actionType", actionTypeFilter);
     if (showNeedsScheduling) params.set("needsScheduling", "true");
     if (viewMode !== "list") params.set("view", viewMode);
     
@@ -176,7 +179,7 @@ export default function TicketsList() {
     
     // Use replace to avoid adding to browser history on every keystroke
     window.history.replaceState(null, "", newUrl);
-  }, [search, priorityFilter, typeFilters, workTypeFilter, statusFilter, assignedToFilter, showNeedsScheduling, viewMode, searchString, hasPendingView]);
+  }, [search, priorityFilter, typeFilters, workTypeFilter, statusFilter, assignedToFilter, actionTypeFilter, showNeedsScheduling, viewMode, searchString, hasPendingView]);
 
   // Save scroll position before navigating away
   const saveScrollPosition = useCallback(() => {
@@ -331,9 +334,10 @@ export default function TicketsList() {
     if (workTypeFilter !== "all") count++;
     if (statusFilter !== "all") count++;
     if (assignedToFilter !== "all") count++;
+    if (actionTypeFilter !== "all") count++;
     if (showNeedsScheduling) count++;
     return count;
-  }, [search, priorityFilter, typeFilters, workTypeFilter, statusFilter, assignedToFilter, showNeedsScheduling]);
+  }, [search, priorityFilter, typeFilters, workTypeFilter, statusFilter, assignedToFilter, actionTypeFilter, showNeedsScheduling]);
 
   const filteredTickets = enrichedTickets.filter((ticket) => {
     const matchesSearch =
@@ -344,12 +348,23 @@ export default function TicketsList() {
     const matchesWorkType = workTypeFilter === "all" || ticket.workType === workTypeFilter;
     const matchesStatus = statusFilter === "all" || ticket.currentStatusId === statusFilter;
     const matchesAssignedTo = assignedToFilter === "all" || ticket.assignedToId === assignedToFilter;
+    const matchesActionType = actionTypeFilter === "all" || (() => {
+      const statusActionType = ticket.currentStatus?.actionType || "needs_action";
+      const statusWaitingCategory = ticket.currentStatus?.waitingCategory;
+      if (actionTypeFilter === "needs_action") return statusActionType === "needs_action";
+      if (actionTypeFilter === "waiting") return statusActionType === "waiting";
+      if (actionTypeFilter === "waiting_customer") return statusActionType === "waiting" && statusWaitingCategory === "customer";
+      if (actionTypeFilter === "waiting_vendor") return statusActionType === "waiting" && statusWaitingCategory === "vendor";
+      if (actionTypeFilter === "waiting_internal") return statusActionType === "waiting" && statusWaitingCategory === "internal";
+      if (actionTypeFilter === "waiting_other") return statusActionType === "waiting" && statusWaitingCategory === "other";
+      return true;
+    })();
     
     // Quick filter for scheduling queue (ID-based: currentStatusId === schedulingStatusId)
     const matchesNeedsScheduling = !showNeedsScheduling || 
       (schedulingStatusId && ticket.currentStatusId === schedulingStatusId);
     
-    return matchesSearch && matchesPriority && matchesType && matchesWorkType && matchesStatus && matchesAssignedTo && matchesNeedsScheduling;
+    return matchesSearch && matchesPriority && matchesType && matchesWorkType && matchesStatus && matchesAssignedTo && matchesActionType && matchesNeedsScheduling;
   });
   
   // Get statuses for currently selected ticket type (only when exactly one type is selected)
@@ -699,6 +714,22 @@ export default function TicketsList() {
               {Array.from(usersMap.values()).map((u) => (
                 <SelectItem key={u.id} value={u.id}>{u.name || u.email}</SelectItem>
               ))}
+            </SelectContent>
+          </Select>
+
+          {/* Action Type filter */}
+          <Select value={actionTypeFilter} onValueChange={setActionTypeFilter}>
+            <SelectTrigger className="w-[175px] h-10" data-testid="select-action-type-filter">
+              <SelectValue placeholder="Action Type" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">All Action Types</SelectItem>
+              <SelectItem value="needs_action">Needs Action</SelectItem>
+              <SelectItem value="waiting">Any Waiting</SelectItem>
+              <SelectItem value="waiting_customer">Waiting - Customer</SelectItem>
+              <SelectItem value="waiting_vendor">Waiting - Vendor</SelectItem>
+              <SelectItem value="waiting_internal">Waiting - Internal</SelectItem>
+              <SelectItem value="waiting_other">Waiting - Other</SelectItem>
             </SelectContent>
           </Select>
         </div>
@@ -1080,6 +1111,30 @@ function KanbanCard({ ticket, usersMap, allStatuses, schedulingStatusId, onNavig
                   </span>
                 )}
               </div>
+              {/* Action type badge */}
+              {currentStatus && !ticket.completedAt && (
+                currentStatus.actionType === "waiting" ? (
+                  <Badge
+                    className="text-xs font-normal bg-amber-50 text-amber-700 border-amber-300 dark:bg-amber-950 dark:text-amber-300 dark:border-amber-700 gap-1 mt-1.5"
+                    data-testid={`badge-action-type-waiting-${ticket.id}`}
+                  >
+                    <Clock className="w-3 h-3" />
+                    Waiting{currentStatus.waitingCategory ? ` · ${
+                      currentStatus.waitingCategory === "customer" ? "Customer" :
+                      currentStatus.waitingCategory === "vendor" ? "Vendor" :
+                      currentStatus.waitingCategory === "internal" ? "Internal" : "Other"
+                    }` : ""}
+                  </Badge>
+                ) : (
+                  <Badge
+                    className="text-xs font-normal bg-blue-50 text-blue-700 border-blue-300 dark:bg-blue-950 dark:text-blue-300 dark:border-blue-700 gap-1 mt-1.5"
+                    data-testid={`badge-action-type-needs-action-${ticket.id}`}
+                  >
+                    <AlertCircle className="w-3 h-3" />
+                    Needs Action
+                  </Badge>
+                )
+              )}
             </div>
           </div>
         </CardContent>
@@ -1323,6 +1378,29 @@ function TicketCard({ ticket, formatDueDate, usersMap, schedulingStatusId, selec
                 >
                   Needs Scheduling
                 </Badge>
+              )}
+              {ticket.currentStatus && !ticket.completedAt && (
+                ticket.currentStatus.actionType === "waiting" ? (
+                  <Badge
+                    className="text-xs font-normal bg-amber-50 text-amber-700 border-amber-300 dark:bg-amber-950 dark:text-amber-300 dark:border-amber-700 gap-1"
+                    data-testid={`badge-action-type-waiting-${ticket.id}`}
+                  >
+                    <Clock className="w-3 h-3" />
+                    Waiting{ticket.currentStatus.waitingCategory ? ` · ${
+                      ticket.currentStatus.waitingCategory === "customer" ? "Customer" :
+                      ticket.currentStatus.waitingCategory === "vendor" ? "Vendor" :
+                      ticket.currentStatus.waitingCategory === "internal" ? "Internal" : "Other"
+                    }` : ""}
+                  </Badge>
+                ) : (
+                  <Badge
+                    className="text-xs font-normal bg-blue-50 text-blue-700 border-blue-300 dark:bg-blue-950 dark:text-blue-300 dark:border-blue-700 gap-1"
+                    data-testid={`badge-action-type-needs-action-${ticket.id}`}
+                  >
+                    <AlertCircle className="w-3 h-3" />
+                    Needs Action
+                  </Badge>
+                )
               )}
               {!selectionMode && (
                 <ChevronRight className="w-5 h-5 text-muted-foreground shrink-0 ml-auto" />

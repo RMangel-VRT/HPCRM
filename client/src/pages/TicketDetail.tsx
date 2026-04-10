@@ -60,6 +60,8 @@ import {
   Undo2,
   AlertTriangle,
   Plus,
+  Clock,
+  AlertCircle,
 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { queryClient, apiRequest } from "@/lib/queryClient";
@@ -891,9 +893,34 @@ export default function TicketDetail() {
 
                 <div className="space-y-1">
                   <p className="text-xs text-muted-foreground uppercase tracking-wide">{t('common.status')}</p>
-                  <Badge variant="outline" className="font-medium">
-                    {currentStatus?.name || t('common.unknown')}
-                  </Badge>
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <Badge variant="outline" className="font-medium">
+                      {currentStatus?.name || t('common.unknown')}
+                    </Badge>
+                    {currentStatus && !ticket.completedAt && (
+                      currentStatus.actionType === "waiting" ? (
+                        <Badge
+                          className="bg-amber-50 text-amber-700 border-amber-300 dark:bg-amber-950 dark:text-amber-300 dark:border-amber-700 gap-1 font-normal"
+                          data-testid="badge-action-type-waiting"
+                        >
+                          <Clock className="w-3 h-3" />
+                          Waiting{currentStatus.waitingCategory ? ` · ${
+                            currentStatus.waitingCategory === "customer" ? "Customer" :
+                            currentStatus.waitingCategory === "vendor" ? "Vendor" :
+                            currentStatus.waitingCategory === "internal" ? "Internal" : "Other"
+                          }` : ""}
+                        </Badge>
+                      ) : (
+                        <Badge
+                          className="bg-blue-50 text-blue-700 border-blue-300 dark:bg-blue-950 dark:text-blue-300 dark:border-blue-700 gap-1 font-normal"
+                          data-testid="badge-action-type-needs-action"
+                        >
+                          <AlertCircle className="w-3 h-3" />
+                          Needs Action
+                        </Badge>
+                      )
+                    )}
+                  </div>
                 </div>
 
                 <div className="space-y-1">

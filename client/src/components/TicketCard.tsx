@@ -6,12 +6,19 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
-import { ChevronRight, CalendarDays, Check, User as UserIcon, MapPin } from "lucide-react";
+import { ChevronRight, CalendarDays, Check, User as UserIcon, MapPin, AlertCircle, Clock } from "lucide-react";
 import { Link } from "wouter";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import type { Ticket, TicketType, TicketTypeStatus, Customer, User as UserType } from "@shared/schema";
 import type { WorkType } from "@shared/schema";
 import { WORK_TYPE_CATALOG } from "@shared/workTypeCatalog";
+
+const WAITING_CATEGORY_LABELS: Record<string, string> = {
+  customer: "Customer",
+  vendor: "Vendor",
+  internal: "Internal",
+  other: "Other",
+};
 
 export interface TicketWithDetails extends Ticket {
   ticketType?: TicketType;
@@ -115,6 +122,25 @@ export default function TicketCard({
                 >
                   Needs Scheduling
                 </Badge>
+              )}
+              {ticket.currentStatus && !ticket.completedAt && (
+                ticket.currentStatus.actionType === "waiting" ? (
+                  <Badge
+                    className="text-xs font-normal bg-amber-50 text-amber-700 border-amber-300 dark:bg-amber-950 dark:text-amber-300 dark:border-amber-700 gap-1"
+                    data-testid={`badge-action-type-waiting-${ticket.id}`}
+                  >
+                    <Clock className="w-3 h-3" />
+                    Waiting{ticket.currentStatus.waitingCategory ? ` · ${WAITING_CATEGORY_LABELS[ticket.currentStatus.waitingCategory] || ticket.currentStatus.waitingCategory}` : ""}
+                  </Badge>
+                ) : (
+                  <Badge
+                    className="text-xs font-normal bg-blue-50 text-blue-700 border-blue-300 dark:bg-blue-950 dark:text-blue-300 dark:border-blue-700 gap-1"
+                    data-testid={`badge-action-type-needs-action-${ticket.id}`}
+                  >
+                    <AlertCircle className="w-3 h-3" />
+                    Needs Action
+                  </Badge>
+                )
               )}
               {!selectionMode && (
                 <ChevronRight className="w-5 h-5 text-muted-foreground shrink-0 ml-auto" />

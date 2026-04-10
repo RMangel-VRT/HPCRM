@@ -535,6 +535,8 @@ export const ticketTypeStatuses = pgTable("ticket_type_statuses", {
   displayOrder: integer("display_order").notNull(),
   color: text("color").default("#6b7280"),
   isFinal: text("is_final").notNull().default("false").$type<"true" | "false">(),
+  actionType: text("action_type").notNull().default("needs_action").$type<"needs_action" | "waiting">(),
+  waitingCategory: text("waiting_category").$type<"customer" | "vendor" | "internal" | "other">(),
   createdAt: timestamp("created_at").notNull().defaultNow(),
 }, (table) => ({
   ticketTypeStatusesTypeIdIdx: index("ticket_type_statuses_ticket_type_id_idx").on(table.ticketTypeId),
@@ -546,6 +548,23 @@ export const insertTicketTypeStatusSchema = createInsertSchema(ticketTypeStatuse
 }).extend({
   displayOrder: z.number().int().min(0),
   isFinal: z.enum(["true", "false"]).default("false"),
+  actionType: z.enum(["needs_action", "waiting"]).default("needs_action"),
+  waitingCategory: z.enum(["customer", "vendor", "internal", "other"]).nullable().optional(),
+}).superRefine((data, ctx) => {
+  if (data.actionType === "waiting" && !data.waitingCategory) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      message: "waitingCategory is required when actionType is 'waiting'",
+      path: ["waitingCategory"],
+    });
+  }
+  if (data.actionType === "needs_action" && data.waitingCategory) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      message: "waitingCategory must be null when actionType is 'needs_action'",
+      path: ["waitingCategory"],
+    });
+  }
 });
 
 export type InsertTicketTypeStatus = z.infer<typeof insertTicketTypeStatusSchema>;
