@@ -731,6 +731,7 @@ export const insertTicketCommentSchema = createInsertSchema(ticketComments).omit
 
 export type InsertTicketComment = z.infer<typeof insertTicketCommentSchema>;
 export type TicketComment = typeof ticketComments.$inferSelect;
+export type TicketCommentWithAuthor = TicketComment & { authorName: string };
 
 // Ticket Comment Mentions - tracks @mentions in comments
 export const ticketCommentMentions = pgTable("ticket_comment_mentions", {

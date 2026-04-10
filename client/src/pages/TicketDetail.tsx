@@ -63,7 +63,7 @@ import {
 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { queryClient, apiRequest } from "@/lib/queryClient";
-import type { Ticket, TicketType, TicketTypeStatus, TicketTypeField, TicketFieldValue, TicketComment, TicketStatusHistory, Customer, Contact, Contract, ContractService, WorkType, TicketLink, User as UserType, CompanyUser, CustomerRateSheet, EmailLogWithDetails, ProposalWithDetails } from "@shared/schema";
+import type { Ticket, TicketType, TicketTypeStatus, TicketTypeField, TicketFieldValue, TicketComment, TicketCommentWithAuthor, TicketStatusHistory, Customer, Contact, Contract, ContractService, WorkType, TicketLink, User as UserType, CompanyUser, CustomerRateSheet, EmailLogWithDetails, ProposalWithDetails } from "@shared/schema";
 import { WORK_TYPE_CATALOG } from "@shared/workTypeCatalog";
 import { format, formatDistanceToNow } from "date-fns";
 import { MapContainer, TileLayer, Marker } from "react-leaflet";
@@ -92,7 +92,7 @@ interface TicketDetails {
   statuses: (TicketTypeStatus & { fields: TicketTypeField[] })[];
   fieldValues: TicketFieldValue[];
   statusHistory: TicketStatusHistory[];
-  comments: TicketComment[];
+  comments: TicketCommentWithAuthor[];
   customer: Customer;
   contract: Contract | null;
   contractServices: ContractService[];
@@ -1785,11 +1785,14 @@ export default function TicketDetail() {
                     <div className="flex gap-3">
                       <Avatar className="w-8 h-8 shrink-0">
                         <AvatarFallback className="text-xs">
-                          <User className="w-4 h-4" />
+                          {comment.authorName
+                            ? comment.authorName.split(" ").map((n) => n[0]).join("").slice(0, 2).toUpperCase()
+                            : "?"}
                         </AvatarFallback>
                       </Avatar>
                       <div className="flex-1 min-w-0">
                         <div className="flex items-center gap-2 mb-1">
+                          <span className="text-sm font-semibold" data-testid={`text-comment-author-${comment.id}`}>{comment.authorName}</span>
                           <span className="text-xs text-muted-foreground">
                             {new Date(comment.createdAt).toLocaleDateString()} at{" "}
                             {new Date(comment.createdAt).toLocaleTimeString([], {
@@ -1817,7 +1820,12 @@ export default function TicketDetail() {
                 className="resize-none border-0 focus-visible:ring-0"
                 data-testid="input-comment"
               />
-              <div className="flex justify-end mt-2">
+              <div className="flex items-center justify-between mt-2">
+                {currentUser?.name && (
+                  <span className="text-xs text-muted-foreground" data-testid="text-commenting-as">
+                    Commenting as <span className="font-medium">{currentUser.name}</span>
+                  </span>
+                )}
                 <Button 
                   size="sm" 
                   onClick={handleAddComment}

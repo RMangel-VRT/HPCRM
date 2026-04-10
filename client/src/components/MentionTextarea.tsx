@@ -200,7 +200,10 @@ export function MentionTextarea({
 }
 
 export function renderMentionedText(text: string): React.ReactNode {
-  const mentionRegex = /@\[([^:]+):([^\]]+)\]/g;
+  // Matches @[anything:name] — the id portion is everything before the first colon,
+  // and name is everything after it up to the closing bracket.
+  // This is permissive enough to handle UUIDs, integer ids, or any other id format.
+  const mentionRegex = /@\[([^:\]]+):([^\]]*)\]/g;
   const parts: React.ReactNode[] = [];
   let lastIndex = 0;
   let match;
@@ -211,13 +214,14 @@ export function renderMentionedText(text: string): React.ReactNode {
     }
 
     const [, userId, userName] = match;
+    const displayName = userName.trim() || "Unknown";
     parts.push(
       <span
         key={`mention-${match.index}`}
         className="inline-flex items-center px-1.5 py-0.5 rounded bg-primary/10 text-primary font-medium text-sm"
         data-user-id={userId}
       >
-        @{userName}
+        @{displayName}
       </span>
     );
 
