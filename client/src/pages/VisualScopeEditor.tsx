@@ -35,9 +35,17 @@ import {
   GripHorizontal,
 } from "lucide-react";
 import { apiRequest } from "@/lib/queryClient";
-import type { MarkupObject, MarkupPoint, SymbolType, MarkupDocument, LegendState, LegendEntry } from "@shared/schema";
+import type { MarkupObject, MarkupPoint, SymbolType, MarkupDocument, LegendState, LegendEntry, FillType, TextureScale } from "@shared/schema";
 import { parseMarkupData } from "@shared/schema";
 import { detectLegendEntries, applyLegendState, DEFAULT_LEGEND_STATE } from "@shared/legendUtils";
+import {
+  TEXTURE_LIBRARY,
+  TEXTURE_CATEGORIES,
+  TEXTURE_SCALE_SIZES,
+  getTextureDef,
+  getPatternSvgContent,
+} from "@shared/textures";
+import type { TextureId } from "@shared/textures";
 
 type ActiveTool = "select" | "polygon" | "polyline" | "tree" | "plant" | "boulder" | "text";
 type DashStyle = "solid" | "dashed" | "dotted";
@@ -271,6 +279,43 @@ interface MarkupShapeProps {
   onVertexClick: (idx: number) => void;
 }
 
+function makePatternId(obj: MarkupObject) {
+  return `tex-${obj.id}`;
+}
+
+function PolygonTextureDef({ obj }: { obj: MarkupObject }) {
+  const texId = obj.textureId;
+  const scale = obj.textureScale ?? "medium";
+  if (!texId) return null;
+
+  const texDef = getTextureDef(texId);
+  if (!texDef) return null;
+
+  const tileSize = TEXTURE_SCALE_SIZES[scale];
+  const patId = makePatternId(obj);
+  const content = getPatternSvgContent(texId as TextureId);
+  if (!content) return null;
+
+  return (
+    <defs>
+      <pattern
+        id={patId}
+        x="0"
+        y="0"
+        width={tileSize}
+        height={tileSize}
+        patternUnits="userSpaceOnUse"
+      >
+        <g
+          transform={`scale(${tileSize})`}
+          color={texDef.color}
+          dangerouslySetInnerHTML={{ __html: content }}
+        />
+      </pattern>
+    </defs>
+  );
+}
+
 function MarkupShape({
   obj,
   selected,
@@ -289,6 +334,11 @@ function MarkupShape({
   const da = dashArray(obj.dashStyle, obj.strokeWidth);
 
   if (obj.type === "polygon") {
+    const isTexture = obj.fillType === "texture" && !!obj.textureId && !!getTextureDef(obj.textureId ?? "");
+    const patId = makePatternId(obj);
+    const texOpacity = obj.textureOpacity ?? 0.85;
+    const pts = toSvgPoints(obj.points);
+
     const edges: React.ReactNode[] = [];
     if (selected) {
       const n = obj.points.length;
@@ -314,14 +364,32 @@ function MarkupShape({
 
     return (
       <g transform={rotTransform} opacity={opacity}>
-        <polygon
-          points={toSvgPoints(obj.points)}
-          stroke={obj.strokeColor}
-          fill={obj.fillColor}
-          strokeWidth={sw}
-          strokeLinejoin="round"
-          strokeDasharray={da}
-        />
+        {isTexture && <PolygonTextureDef obj={obj} />}
+        {isTexture ? (
+          <>
+            {/* Light base tint */}
+            <polygon points={pts} stroke="none" fill={obj.fillColor} fillOpacity={0.12} strokeWidth={0} />
+            {/* Texture pattern + stroke */}
+            <polygon
+              points={pts}
+              stroke={obj.strokeColor}
+              fill={`url(#${patId})`}
+              fillOpacity={texOpacity}
+              strokeWidth={sw}
+              strokeLinejoin="round"
+              strokeDasharray={da}
+            />
+          </>
+        ) : (
+          <polygon
+            points={pts}
+            stroke={obj.strokeColor}
+            fill={obj.fillColor}
+            strokeWidth={sw}
+            strokeLinejoin="round"
+            strokeDasharray={da}
+          />
+        )}
         {selected && edges}
         {selected && obj.points.map((p, i) => (
           <circle
@@ -1029,6 +1097,7 @@ export default function VisualScopeEditor({ sheetId, baseImagePath, initialMarku
   const [editingTextValue, setEditingTextValue] = useState("");
   const [selectionPanelText, setSelectionPanelText] = useState("");
   const [legendState, setLegendState] = useState<LegendState>(() => initialLegendState ?? DEFAULT_LEGEND_STATE);
+  const [materialLabelText, setMaterialLabelText] = useState("");
 
   const hasUserEdited = useRef(false);
   const legendUserEdited = useRef(false);
@@ -1082,7 +1151,10 @@ export default function VisualScopeEditor({ sheetId, baseImagePath, initialMarku
     if (selectedObj?.type === "text") {
       setSelectionPanelText(selectedObj.label || "Label");
     }
-  }, [selectedId, selectedObj?.label]);
+    if (selectedObj?.type === "polygon") {
+      setMaterialLabelText(selectedObj.materialLabel || "");
+    }
+  }, [selectedId, selectedObj?.label, selectedObj?.materialLabel]);
 
   useEffect(() => {
     setEditorState(parseMarkupData(initialMarkupData));
@@ -1394,6 +1466,59 @@ export default function VisualScopeEditor({ sheetId, baseImagePath, initialMarku
       return prev.map(o => o.id === selectedId ? { ...o, label } : o);
     });
   }, [selectedId, selectionPanelText, editorState]);
+
+  const handleFillTypeChange = useCallback((fillType: FillType) => {
+    if (!selectedId) return;
+    updateObjects(prev => {
+      pushUndoSnapshot(editorState);
+      return prev.map(o => {
+        if (o.id !== selectedId) return o;
+        if (fillType === "texture") {
+          const defaultTex = o.textureId || "bark-mulch";
+          return { ...o, fillType: "texture", textureId: defaultTex, textureScale: o.textureScale ?? "medium", textureOpacity: o.textureOpacity ?? 0.85 };
+        }
+        return { ...o, fillType: "solid" };
+      });
+    });
+  }, [selectedId, editorState]);
+
+  const handleTextureIdChange = useCallback((textureId: string) => {
+    if (!selectedId) return;
+    const texDef = getTextureDef(textureId);
+    if (!texDef) {
+      console.warn("[TextureFill] Unknown textureId:", textureId);
+      return;
+    }
+    updateObjects(prev => {
+      pushUndoSnapshot(editorState);
+      return prev.map(o => o.id === selectedId ? { ...o, textureId } : o);
+    });
+  }, [selectedId, editorState]);
+
+  const handleTextureScaleChange = useCallback((textureScale: TextureScale) => {
+    if (!selectedId) return;
+    updateObjects(prev => {
+      return prev.map(o => o.id === selectedId ? { ...o, textureScale } : o);
+    });
+  }, [selectedId]);
+
+  const handleTextureOpacityChange = useCallback((textureOpacity: number) => {
+    if (!selectedId) return;
+    updateObjects(prev => {
+      return prev.map(o => o.id === selectedId ? { ...o, textureOpacity } : o);
+    });
+  }, [selectedId]);
+
+  const commitMaterialLabel = useCallback(() => {
+    if (!selectedId) return;
+    const materialLabel = materialLabelText.trim();
+    updateObjects(prev => {
+      const current = prev.find(o => o.id === selectedId);
+      if (current && current.materialLabel === materialLabel) return prev;
+      pushUndoSnapshot(editorState);
+      return prev.map(o => o.id === selectedId ? { ...o, materialLabel } : o);
+    });
+  }, [selectedId, materialLabelText, editorState]);
 
   const startMoveDrag = useCallback((id: string, obj: MarkupObject, startPt: MarkupPoint) => {
     dragStartedUndo.current = false;
@@ -2014,6 +2139,166 @@ export default function VisualScopeEditor({ sheetId, baseImagePath, initialMarku
             <Trash2 className="w-3 h-3 mr-1" />
             Delete
           </Button>
+        </div>
+      )}
+
+      {/* Texture inspector — shown when a polygon is selected */}
+      {selectedObj?.type === "polygon" && (
+        <div className="px-3 py-2 border-b bg-muted/20 flex flex-col gap-2" data-testid="panel-texture-inspector">
+          {/* Fill type toggle */}
+          <div className="flex items-center gap-2">
+            <span className="text-xs font-medium text-muted-foreground shrink-0">Fill</span>
+            <Button
+              size="sm"
+              variant={selectedObj.fillType !== "texture" ? "secondary" : "ghost"}
+              className="text-xs"
+              onClick={() => handleFillTypeChange("solid")}
+              data-testid="button-fill-solid"
+            >
+              Solid
+            </Button>
+            <Button
+              size="sm"
+              variant={selectedObj.fillType === "texture" ? "secondary" : "ghost"}
+              className="text-xs"
+              onClick={() => handleFillTypeChange("texture")}
+              data-testid="button-fill-texture"
+            >
+              Texture
+            </Button>
+          </div>
+
+          {/* Texture controls — only when texture fill is active */}
+          {selectedObj.fillType === "texture" && (
+            <>
+              {/* Texture picker grid grouped by category */}
+              <div className="flex flex-col gap-1.5" data-testid="panel-texture-picker">
+                {TEXTURE_CATEGORIES.map(cat => {
+                  const textures = TEXTURE_LIBRARY.filter(t => t.category === cat.key);
+                  return (
+                    <div key={cat.key}>
+                      <div className="text-xs text-muted-foreground mb-1">{cat.label}</div>
+                      <div className="flex flex-wrap gap-1">
+                        {textures.map(tex => {
+                          const isSelected = selectedObj.textureId === tex.id;
+                          return (
+                            <button
+                              key={tex.id}
+                              title={tex.name}
+                              data-testid={`button-texture-${tex.id}`}
+                              onClick={() => handleTextureIdChange(tex.id)}
+                              style={{
+                                width: 36,
+                                height: 36,
+                                border: isSelected ? `2px solid ${tex.color}` : "2px solid transparent",
+                                borderRadius: 4,
+                                padding: 0,
+                                cursor: "pointer",
+                                position: "relative",
+                                overflow: "hidden",
+                                background: "transparent",
+                              }}
+                              aria-pressed={isSelected}
+                            >
+                              <svg
+                                viewBox="0 0 1 1"
+                                width="100%"
+                                height="100%"
+                                style={{ display: "block", background: `${tex.color}18` }}
+                              >
+                                <defs>
+                                  <pattern
+                                    id={`swatch-${tex.id}`}
+                                    x="0" y="0"
+                                    width={TEXTURE_SCALE_SIZES.medium}
+                                    height={TEXTURE_SCALE_SIZES.medium}
+                                    patternUnits="userSpaceOnUse"
+                                  >
+                                    <g
+                                      transform={`scale(${TEXTURE_SCALE_SIZES.medium})`}
+                                      color={tex.color}
+                                      dangerouslySetInnerHTML={{ __html: getPatternSvgContent(tex.id as TextureId) }}
+                                    />
+                                  </pattern>
+                                </defs>
+                                <rect x="0" y="0" width="1" height="1" fill={`url(#swatch-${tex.id})`} />
+                              </svg>
+                              {isSelected && (
+                                <div style={{
+                                  position: "absolute", inset: 0,
+                                  border: `2px solid ${tex.color}`,
+                                  borderRadius: 2,
+                                  pointerEvents: "none",
+                                }} />
+                              )}
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+
+              {/* Scale selector */}
+              <div className="flex items-center gap-2">
+                <span className="text-xs text-muted-foreground shrink-0">Scale</span>
+                {(["small", "medium", "large"] as TextureScale[]).map(s => (
+                  <Button
+                    key={s}
+                    size="sm"
+                    variant={selectedObj.textureScale === s ? "secondary" : "ghost"}
+                    className="text-xs capitalize"
+                    onClick={() => handleTextureScaleChange(s)}
+                    data-testid={`button-texture-scale-${s}`}
+                  >
+                    {s}
+                  </Button>
+                ))}
+              </div>
+
+              {/* Opacity slider */}
+              <div className="flex items-center gap-2">
+                <span className="text-xs text-muted-foreground shrink-0">Opacity</span>
+                <input
+                  type="range"
+                  min={0}
+                  max={1}
+                  step={0.05}
+                  value={selectedObj.textureOpacity ?? 0.85}
+                  onChange={e => handleTextureOpacityChange(parseFloat(e.target.value))}
+                  className="flex-1 h-4 accent-primary"
+                  data-testid="slider-texture-opacity"
+                />
+                <span className="text-xs text-muted-foreground tabular-nums w-7 text-right">
+                  {Math.round((selectedObj.textureOpacity ?? 0.85) * 100)}%
+                </span>
+              </div>
+
+              {/* Material label input (required when texture active) */}
+              <div className="flex items-center gap-2">
+                <span className="text-xs text-muted-foreground shrink-0">
+                  Material label<span className="text-destructive ml-0.5">*</span>
+                </span>
+                <input
+                  type="text"
+                  value={materialLabelText}
+                  onChange={e => setMaterialLabelText(e.target.value)}
+                  onBlur={commitMaterialLabel}
+                  onKeyDown={e => {
+                    if (e.key === "Enter") {
+                      commitMaterialLabel();
+                      e.currentTarget.blur();
+                    }
+                    e.stopPropagation();
+                  }}
+                  placeholder={getTextureDef(selectedObj.textureId ?? "")?.name ?? "e.g. Bark Mulch Refresh"}
+                  className="flex-1 text-xs px-2 py-1 border border-border rounded-md bg-background focus:outline-none focus:ring-1 focus:ring-ring"
+                  data-testid="input-material-label"
+                />
+              </div>
+            </>
+          )}
         </div>
       )}
 

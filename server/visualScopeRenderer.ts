@@ -1,9 +1,11 @@
 import { createCanvas, loadImage } from "canvas";
-import type { CanvasRenderingContext2D as NodeCanvasCtx } from "canvas";
+import type { CanvasRenderingContext2D as NodeCanvasCtx, Canvas as NodeCanvas } from "canvas";
 import { ObjectStorageService } from "./objectStorage";
 import type { VisualScopeSheet, MarkupObject, MarkupPoint, SymbolType, LegendState, LegendEntry } from "@shared/schema";
 import { flattenMarkupObjects } from "@shared/schema";
 import { detectLegendEntries, applyLegendState, DEFAULT_LEGEND_STATE } from "@shared/legendUtils";
+import { TEXTURE_SCALE_SIZES, getTextureDef } from "@shared/textures";
+import type { TextureId } from "@shared/textures";
 
 export type ExportType = "base" | "overlay" | "combined";
 
@@ -95,6 +97,112 @@ function applyDash(ctx: NodeCanvasCtx, dashStyle: string | undefined, lw: number
   else ctx.setLineDash([]);
 }
 
+function drawTexturePattern(
+  ctx: NodeCanvasCtx,
+  textureId: string,
+  tilePixels: number
+): ReturnType<NodeCanvasCtx["createPattern"]> | null {
+  const texDef = getTextureDef(textureId);
+  if (!texDef) {
+    console.warn("[VisualScopeRenderer] Unknown textureId:", textureId);
+    return null;
+  }
+
+  const tile = createCanvas(tilePixels, tilePixels);
+  const tc = tile.getContext("2d") as NodeCanvasCtx;
+  const s = tilePixels;
+  const color = texDef.color;
+
+  tc.strokeStyle = color;
+  tc.fillStyle = color;
+  tc.lineWidth = Math.max(1, s * 0.055);
+  tc.lineCap = "round";
+
+  const id = textureId as TextureId;
+
+  if (id === "bark-mulch") {
+    tc.strokeStyle = color; tc.lineWidth = Math.max(1, s * 0.06);
+    [[0.1,0.3,0.45,0.25],[0.5,0.7,0.85,0.65],[0.6,0.2,0.9,0.35],[0.05,0.75,0.4,0.8],[0.3,0.5,0.55,0.55]].forEach(([x1,y1,x2,y2]) => {
+      tc.beginPath(); tc.moveTo(x1*s,y1*s); tc.lineTo(x2*s,y2*s); tc.stroke();
+    });
+  } else if (id === "cedar-mulch") {
+    tc.lineWidth = Math.max(1, s * 0.07);
+    [[0.05,0.2,0.3,0.15],[0.55,0.4,0.75,0.35],[0.2,0.65,0.5,0.6],[0.65,0.8,0.95,0.85]].forEach(([x1,y1,x2,y2]) => {
+      tc.beginPath(); tc.moveTo(x1*s,y1*s); tc.lineTo(x2*s,y2*s); tc.stroke();
+    });
+    [[0.45,0.85,0.04],[0.8,0.2,0.04]].forEach(([cx,cy,r]) => {
+      tc.beginPath(); tc.arc(cx*s,cy*s,r*s,0,Math.PI*2); tc.fill();
+    });
+  } else if (id === "compost-soil") {
+    [[0.15,0.15,0.07],[0.5,0.1,0.05],[0.8,0.25,0.06],[0.25,0.5,0.05],[0.65,0.55,0.07],[0.1,0.8,0.06],[0.45,0.75,0.05],[0.85,0.8,0.07]].forEach(([cx,cy,r]) => {
+      tc.beginPath(); tc.arc(cx*s,cy*s,r*s,0,Math.PI*2); tc.fill();
+    });
+  } else if (id === "native-no-mow") {
+    tc.lineWidth = Math.max(1, s * 0.05);
+    [[0.15,1,0.1,0.55],[0.1,0.55,0.05,0.3],[0.4,1,0.45,0.5],[0.45,0.5,0.55,0.2],[0.7,1,0.65,0.6],[0.65,0.6,0.7,0.35],[0.9,1,0.88,0.65]].forEach(([x1,y1,x2,y2]) => {
+      tc.beginPath(); tc.moveTo(x1*s,y1*s); tc.lineTo(x2*s,y2*s); tc.stroke();
+    });
+  } else if (id === "turf") {
+    tc.globalAlpha = 0.5; tc.lineWidth = Math.max(1, s * 0.04);
+    [[0,0.25,1,0.25],[0,0.5,1,0.5],[0,0.75,1,0.75]].forEach(([x1,y1,x2,y2]) => {
+      tc.beginPath(); tc.moveTo(x1*s,y1*s); tc.lineTo(x2*s,y2*s); tc.stroke();
+    });
+    tc.globalAlpha = 1; tc.lineWidth = Math.max(1, s * 0.05);
+    [[0.2,1,0.15,0.6],[0.55,1,0.6,0.6],[0.85,1,0.8,0.7]].forEach(([x1,y1,x2,y2]) => {
+      tc.beginPath(); tc.moveTo(x1*s,y1*s); tc.lineTo(x2*s,y2*s); tc.stroke();
+    });
+  } else if (id === "breeze-fines") {
+    [[0.12,0.12,0.05,0.6],[0.38,0.25,0.04,0.5],[0.65,0.1,0.05,0.6],[0.88,0.35,0.04,0.5],[0.22,0.55,0.04,0.6],[0.5,0.5,0.05,0.5],[0.78,0.62,0.04,0.6],[0.08,0.8,0.04,0.5],[0.45,0.82,0.05,0.6],[0.85,0.88,0.04,0.5]].forEach(([cx,cy,r,a]) => {
+      tc.globalAlpha = a; tc.beginPath(); tc.arc(cx*s,cy*s,r*s,0,Math.PI*2); tc.fill();
+    });
+    tc.globalAlpha = 1;
+  } else if (id === "river-rock") {
+    tc.strokeStyle = color; tc.lineWidth = Math.max(1, s * 0.05); tc.fillStyle = "transparent";
+    [[0.25,0.25,0.18,0.12],[0.72,0.3,0.15,0.1],[0.15,0.72,0.12,0.15],[0.65,0.7,0.2,0.13]].forEach(([cx,cy,rx,ry]) => {
+      tc.beginPath(); tc.ellipse(cx*s,cy*s,rx*s,ry*s,0,0,Math.PI*2); tc.stroke();
+    });
+  } else if (id === "decorative-rock") {
+    tc.strokeStyle = color; tc.lineWidth = Math.max(1, s * 0.05); tc.fillStyle = "transparent";
+    [[[0.15,0.05],[0.35,0.1],[0.3,0.3],[0.1,0.28]],[[0.55,0.15],[0.75,0.08],[0.88,0.3],[0.65,0.38]],[[0.05,0.55],[0.28,0.52],[0.32,0.72],[0.08,0.78]],[[0.5,0.6],[0.72,0.55],[0.8,0.78],[0.55,0.88]]].forEach(pts => {
+      tc.beginPath(); tc.moveTo(pts[0][0]*s,pts[0][1]*s);
+      pts.slice(1).forEach(p => tc.lineTo(p[0]*s,p[1]*s));
+      tc.closePath(); tc.stroke();
+    });
+  } else if (id === "cobble") {
+    tc.strokeStyle = color; tc.lineWidth = Math.max(1, s * 0.06); tc.fillStyle = "transparent";
+    [[0.28,0.28,0.22,0.18],[0.75,0.28,0.18,0.22],[0.28,0.75,0.22,0.18],[0.75,0.75,0.18,0.2]].forEach(([cx,cy,rx,ry]) => {
+      tc.beginPath(); tc.ellipse(cx*s,cy*s,rx*s,ry*s,0,0,Math.PI*2); tc.stroke();
+    });
+  } else if (id === "crusher-fines") {
+    const pts2 = [[0.1,0.1,0.03,0.45],[0.3,0.2,0.025,0.45],[0.55,0.08,0.03,0.45],[0.78,0.18,0.025,0.45],[0.92,0.05,0.02,0.45],[0.18,0.42,0.025,0.45],[0.42,0.48,0.03,0.45],[0.68,0.38,0.025,0.45],[0.88,0.5,0.03,0.45],[0.05,0.72,0.03,0.45],[0.32,0.78,0.025,0.45],[0.6,0.68,0.03,0.45],[0.82,0.8,0.025,0.45],[0.15,0.92,0.02,0.45],[0.5,0.9,0.03,0.45],[0.75,0.95,0.02,0.45]];
+    pts2.forEach(([cx,cy,r,a]) => {
+      tc.globalAlpha = a; tc.beginPath(); tc.arc(cx*s,cy*s,r*s,0,Math.PI*2); tc.fill();
+    });
+    tc.globalAlpha = 1;
+  } else if (id === "diagonal-hatch") {
+    tc.lineWidth = Math.max(1, s * 0.07);
+    [[-0.1,0.1,0.1,-0.1],[0,1,1,0],[0.4,1.1,1.1,0.4],[-0.1,0.6,0.6,-0.1]].forEach(([x1,y1,x2,y2]) => {
+      tc.beginPath(); tc.moveTo(x1*s,y1*s); tc.lineTo(x2*s,y2*s); tc.stroke();
+    });
+  } else if (id === "crosshatch") {
+    tc.lineWidth = Math.max(1, s * 0.06);
+    [[-0.1,0.1,0.1,-0.1],[0,1,1,0],[0.5,1.1,1.1,0.5],[-0.1,0.5,0.5,-0.1],[1.1,0.1,0.9,-0.1],[0,0,1,1],[-0.1,0.4,0.4,0.9],[0.1,-0.1,1.1,0.9]].forEach(([x1,y1,x2,y2]) => {
+      tc.beginPath(); tc.moveTo(x1*s,y1*s); tc.lineTo(x2*s,y2*s); tc.stroke();
+    });
+  } else if (id === "dot-pattern") {
+    [[0.25,0.25],[0.75,0.25],[0.25,0.75],[0.75,0.75]].forEach(([cx,cy]) => {
+      tc.beginPath(); tc.arc(cx*s,cy*s,0.1*s,0,Math.PI*2); tc.fill();
+    });
+  } else if (id === "light-grid") {
+    tc.lineWidth = Math.max(1, s * 0.05);
+    [[0,0,1,0],[0,0.5,1,0.5],[0,0,0,1],[0.5,0,0.5,1]].forEach(([x1,y1,x2,y2]) => {
+      tc.beginPath(); tc.moveTo(x1*s,y1*s); tc.lineTo(x2*s,y2*s); tc.stroke();
+    });
+  }
+
+  return ctx.createPattern(tile as unknown as HTMLCanvasElement, "repeat");
+}
+
 function drawMarkup(
   ctx: NodeCanvasCtx,
   objects: MarkupObject[],
@@ -119,14 +227,54 @@ function drawMarkup(
     }
 
     if (obj.type === "polygon") {
+      const isTexture = obj.fillType === "texture" && !!obj.textureId && !!getTextureDef(obj.textureId);
+
       ctx.beginPath();
       ctx.moveTo(px(points[0][0], width), py(points[0][1], height));
       for (let i = 1; i < points.length; i++) {
         ctx.lineTo(px(points[i][0], width), py(points[i][1], height));
       }
       ctx.closePath();
-      ctx.fillStyle = obj.fillColor || "rgba(29,101,29,0.2)";
-      ctx.fill();
+
+      if (isTexture) {
+        const scaleKey = obj.textureScale ?? "medium";
+        const tilePixels = Math.max(8, Math.round(TEXTURE_SCALE_SIZES[scaleKey] * width));
+        const texOpacity = obj.textureOpacity ?? 0.85;
+
+        // Draw light base tint
+        ctx.save();
+        const baseFill = obj.fillColor || "#1a4d1a";
+        ctx.fillStyle = baseFill;
+        ctx.globalAlpha = 0.12;
+        ctx.fill();
+        ctx.restore();
+
+        // Draw texture pattern
+        ctx.save();
+        try {
+          const pattern = drawTexturePattern(ctx, obj.textureId!, tilePixels);
+          if (pattern) {
+            ctx.fillStyle = pattern;
+            ctx.globalAlpha = texOpacity;
+            ctx.fill();
+          } else {
+            // Fallback to solid fill
+            ctx.fillStyle = obj.fillColor || "rgba(29,101,29,0.2)";
+            ctx.globalAlpha = 1;
+            ctx.fill();
+          }
+        } catch (err) {
+          console.warn("[VisualScopeRenderer] Texture fill failed, falling back to solid:", err);
+          ctx.fillStyle = obj.fillColor || "rgba(29,101,29,0.2)";
+          ctx.globalAlpha = 1;
+          ctx.fill();
+        }
+        ctx.restore();
+      } else {
+        ctx.fillStyle = obj.fillColor || "rgba(29,101,29,0.2)";
+        ctx.fill();
+      }
+
       ctx.strokeStyle = obj.strokeColor || "#1a4d1a";
       const lw = (obj.strokeWidth || 2) * width / 1000;
       ctx.lineWidth = lw;

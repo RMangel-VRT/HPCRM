@@ -1954,6 +1954,9 @@ export type CommunicationAutomationRule = typeof communicationAutomationRules.$i
 export type MarkupPoint = [number, number];
 export type SymbolType = "tree" | "plant" | "boulder";
 export type MarkupObjectType = "polygon" | "polyline" | "symbol" | "text";
+export type FillType = "solid" | "texture";
+export type TextureScale = "small" | "medium" | "large";
+
 export interface MarkupObject {
   id: string;
   type: MarkupObjectType;
@@ -1973,13 +1976,11 @@ export interface MarkupObject {
   rotation?: number;
   zIndex?: number;
   locked?: boolean;
-  // Texture fill fields (Slice 4)
-  fillType?: "solid" | "texture";
+  fillType?: FillType;
   textureId?: string;
-  textureScale?: "small" | "medium" | "large";
+  textureScale?: TextureScale;
   textureOpacity?: number;
   materialLabel?: string;
-  // Legend worthy flag for polylines
   legendWorthy?: boolean;
   legendStyleId?: string;
   legendStyleLabel?: string;
@@ -2001,7 +2002,8 @@ export interface MarkupDocument {
 export type MarkupData = MarkupObject[] | MarkupDocument;
 
 function normalizeMarkupObject(obj: unknown): MarkupObject {
-  const o = (obj && typeof obj === "object" ? obj : {}) as Record<string, unknown>
+  const o = (obj && typeof obj === "object" ? obj : {}) as Record<string, unknown>;
+  const fillType: FillType = o.fillType === "texture" ? "texture" : "solid";
   return {
     id: typeof o.id === "string" && o.id.length > 0 ? o.id : Math.random().toString(36).slice(2, 10),
     type: (o.type as MarkupObject["type"]) ?? "polygon",
@@ -2015,6 +2017,13 @@ function normalizeMarkupObject(obj: unknown): MarkupObject {
     locked: typeof o.locked === "boolean" ? o.locked : false,
     label: typeof o.label === "string" ? o.label : undefined,
     symbolType: typeof o.symbolType === "string" ? (o.symbolType as MarkupObject["symbolType"]) : undefined,
+    fillType,
+    textureId: typeof o.textureId === "string" ? o.textureId : undefined,
+    textureScale: (o.textureScale === "small" || o.textureScale === "medium" || o.textureScale === "large")
+      ? (o.textureScale as TextureScale)
+      : "medium",
+    textureOpacity: typeof o.textureOpacity === "number" ? o.textureOpacity : 0.85,
+    materialLabel: typeof o.materialLabel === "string" ? o.materialLabel : undefined,
   };
 }
 
