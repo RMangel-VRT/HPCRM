@@ -1611,6 +1611,7 @@ export const visualScopeSheets = pgTable("visual_scope_sheets", {
   baseImageMimeType: varchar("base_image_mime_type"),
   baseImageSize: integer("base_image_size"),
   markupData: jsonb("markup_data").$type<MarkupObject[]>().default(sql`'[]'::jsonb`),
+  layerDefs: jsonb("layer_defs").$type<LayerDefinition[]>(),
   captureParams: jsonb("capture_params").$type<CaptureParams>(),
   createdAt: timestamp("created_at").notNull().defaultNow(),
   updatedAt: timestamp("updated_at").notNull().defaultNow(),
@@ -1970,10 +1971,10 @@ export interface MarkupObject {
   fillOpacity?: number;
   dashStyle?: "solid" | "dashed" | "dotted";
   closed?: boolean;
-  layerId?: string;
-  name?: string;
-  createdAt: string;
+  fontSize?: number;
   rotation?: number;
+  symbolSize?: number;
+  createdAt: string;
   zIndex?: number;
   locked?: boolean;
   fillType?: FillType;
@@ -1984,6 +1985,8 @@ export interface MarkupObject {
   legendWorthy?: boolean;
   legendStyleId?: string;
   legendStyleLabel?: string;
+  layerId?: string;
+  name?: string;
 }
 
 export interface MarkupLayer {
@@ -2024,6 +2027,8 @@ function normalizeMarkupObject(obj: unknown): MarkupObject {
       : "medium",
     textureOpacity: typeof o.textureOpacity === "number" ? o.textureOpacity : 0.85,
     materialLabel: typeof o.materialLabel === "string" ? o.materialLabel : undefined,
+    layerId: typeof o.layerId === "string" ? o.layerId : undefined,
+    name: typeof o.name === "string" ? o.name : undefined,
   };
 }
 
@@ -2102,6 +2107,34 @@ export interface LegendState {
   hiddenEntryIds: string[];
   customLabels: Record<string, string>;
   entryOrder: string[];
+}
+
+export interface LayerDefinition {
+  id: string;
+  name: string;
+  visible: boolean;
+  locked: boolean;
+  order: number;
+}
+
+export const SYSTEM_LAYERS: LayerDefinition[] = [
+  { id: "base-image", name: "Base Image", visible: true, locked: true, order: 0 },
+  { id: "areas", name: "Areas", visible: true, locked: false, order: 1 },
+  { id: "lines", name: "Lines", visible: true, locked: false, order: 2 },
+  { id: "symbols", name: "Symbols", visible: true, locked: false, order: 3 },
+  { id: "text-callouts", name: "Text / Callouts", visible: true, locked: false, order: 4 },
+  { id: "legend", name: "Legend", visible: true, locked: false, order: 5 },
+  { id: "notes", name: "Notes", visible: true, locked: false, order: 6 },
+];
+
+export function getDefaultLayerForType(type: MarkupObjectType): string {
+  switch (type) {
+    case "polygon": return "areas";
+    case "polyline": return "lines";
+    case "symbol": return "symbols";
+    case "text": return "text-callouts";
+    default: return "areas";
+  }
 }
 // ─────────────────────────────────────────────────────────────────────────────
 // Communication Center Tables

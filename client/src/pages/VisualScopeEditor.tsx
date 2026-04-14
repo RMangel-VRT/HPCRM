@@ -8,7 +8,12 @@ import {
   Popover,
   PopoverContent,
   PopoverTrigger,
-} from "@/components/ui/popover";
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import {
   MousePointer,
   Pentagon,
@@ -23,20 +28,22 @@ import {
   Info,
   Undo2,
   Redo2,
+  Eye,
+  EyeOff,
   Lock,
   Copy,
   X,
   Map,
-  Eye,
-  EyeOff,
   Settings,
   ChevronUp,
   ChevronDown,
   GripHorizontal,
+  Unlock,
+  Layers,
 } from "lucide-react";
 import { apiRequest } from "@/lib/queryClient";
-import type { MarkupObject, MarkupPoint, SymbolType, MarkupDocument, LegendState, LegendEntry, FillType, TextureScale } from "@shared/schema";
-import { parseMarkupData } from "@shared/schema";
+import type { MarkupObject, MarkupPoint, SymbolType, MarkupDocument, LegendState, LegendEntry, FillType, TextureScale, LayerDefinition } from "@shared/schema";
+import { parseMarkupData, SYSTEM_LAYERS, getDefaultLayerForType } from "@shared/schema";
 import { detectLegendEntries, applyLegendState, DEFAULT_LEGEND_STATE } from "@shared/legendUtils";
 import {
   TEXTURE_LIBRARY,
@@ -55,6 +62,7 @@ interface VisualScopeEditorProps {
   baseImagePath: string;
   initialMarkupData: unknown;
   initialLegendState?: LegendState | null;
+  initialLayerDefs?: LayerDefinition[] | null;
   onSaved?: () => void;
 }
 
@@ -185,25 +193,45 @@ function dashArray(style: DashStyle | undefined, sw: number): string | undefined
   return undefined;
 }
 
+function migrateObjects(objects: MarkupObject[]): MarkupObject[] {
+  return objects.map(obj => ({
+    ...obj,
+    layerId: obj.layerId ?? getDefaultLayerForType(obj.type),
+  }));
+}
+
+function mergeLayerDefs(saved: LayerDefinition[] | null | undefined): LayerDefinition[] {
+  if (!saved || saved.length === 0) return SYSTEM_LAYERS.map(l => ({ ...l }));
+  const savedMap = new Map(saved.map(l => [l.id, l]));
+  return SYSTEM_LAYERS.map(sys => {
+    const s = savedMap.get(sys.id);
+    if (!s) return { ...sys };
+    return {
+      ...sys,
+      visible: sys.id === "base-image" ? true : s.visible,
+      locked: sys.id === "base-image" ? true : s.locked,
+    };
+  });
+}
+
 function SymbolSvg({ type, color, size = 16 }: { type: SymbolType; color?: string; size?: number }) {
-  const fill = color || DEFAULT_SYMBOL_COLORS[type];
   if (type === "tree") {
     return (
       <svg width={size} height={size} viewBox="-1 -1 2 2">
-        <polygon points="0,-0.9 0.85,0.7 -0.85,0.7" fill={fill} />
+        <polygon points="0,-0.9 0.85,0.7 -0.85,0.7" fill={color} />
       </svg>
     );
   }
   if (type === "plant") {
     return (
       <svg width={size} height={size} viewBox="-1 -1 2 2">
-        <circle cx="0" cy="0" r="0.85" fill={fill} />
+        <circle cx="0" cy="0" r="0.85" fill={color} />
       </svg>
     );
   }
   return (
     <svg width={size} height={size} viewBox="-1 -1 2 2">
-      <ellipse cx="0" cy="0" rx="0.9" ry="0.6" fill={fill} />
+      <ellipse cx="0" cy="0" rx="0.9" ry="0.6" fill={color} />
     </svg>
   );
 }
@@ -476,7 +504,7 @@ function MarkupShape({
 
   if (obj.type === "symbol") {
     const [x, y] = obj.points[0];
-    const scale = 0.03;
+    const scale = (obj.symbolSize ?? 30) / 1000;
     const color = obj.strokeColor;
     let inner: React.ReactNode = null;
     if (obj.symbolType === "tree") {
@@ -486,6 +514,7 @@ function MarkupShape({
     } else {
       inner = <ellipse cx="0" cy="0" rx="0.5" ry="0.35" fill={color} />;
     }
+    const rot = obj.rotation ?? 0;
     return (
       <g transform={rotTransform} opacity={opacity}>
         <g transform={`translate(${x} ${y}) scale(${scale})`}>{inner}</g>
@@ -498,12 +527,14 @@ function MarkupShape({
 
   if (obj.type === "text") {
     const [x, y] = obj.points[0];
+    const fs = (obj.fontSize ?? 25) / 1000;
+    const rot = obj.rotation ?? 0;
     return (
       <g transform={rotTransform} opacity={opacity}>
         <text
           x={x}
           y={y}
-          fontSize={0.025}
+          fontSize={fs}
           fill={obj.strokeColor}
           dominantBaseline="middle"
           textAnchor="middle"
@@ -629,7 +660,6 @@ function SelectionHandles({ obj, onStartVertexDrag, onStartRotate }: SelectionHa
 
   return (
     <g style={{ pointerEvents: "none" }}>
-      {/* Bounding box outline */}
       <polygon
         points={rotatedCorners.map(([x, y]) => `${x},${y}`).join(" ")}
         fill="none"
@@ -638,8 +668,6 @@ function SelectionHandles({ obj, onStartVertexDrag, onStartRotate }: SelectionHa
         strokeDasharray="0.006,0.003"
         style={{ pointerEvents: "none" }}
       />
-
-      {/* Vertex handles for polygon/polyline (shown in rotated space) */}
       {(obj.type === "polygon" || obj.type === "polyline") && obj.points.map((p, i) => {
         const rp: MarkupPoint = rotation ? rotatePoint(p, [bb.cx, bb.cy], rotation) : p;
         return (
@@ -660,8 +688,6 @@ function SelectionHandles({ obj, onStartVertexDrag, onStartRotate }: SelectionHa
           />
         );
       })}
-
-      {/* Rotate handle stem line */}
       <line
         x1={lineStart[0]}
         y1={lineStart[1]}
@@ -671,8 +697,6 @@ function SelectionHandles({ obj, onStartVertexDrag, onStartRotate }: SelectionHa
         strokeWidth={selSw}
         style={{ pointerEvents: "none" }}
       />
-
-      {/* Rotate handle circle */}
       <circle
         cx={rotateHandlePos[0]}
         cy={rotateHandlePos[1]}
@@ -687,8 +711,6 @@ function SelectionHandles({ obj, onStartVertexDrag, onStartRotate }: SelectionHa
           onStartRotate(getSvgPoint(e));
         }}
       />
-
-      {/* Rotate cue glyph */}
       <text
         x={rotateHandlePos[0]}
         y={rotateHandlePos[1]}
@@ -704,385 +726,333 @@ function SelectionHandles({ obj, onStartVertexDrag, onStartRotate }: SelectionHa
   );
 }
 
-// ─── Legend Panel ────────────────────────────────────────────────────────────
-
-interface LegendPanelProps {
-  entries: LegendEntry[];
-  allEntries: LegendEntry[];
-  legendState: LegendState;
-  onLegendStateChange: (ls: LegendState) => void;
-  containerRef: React.RefObject<HTMLDivElement>;
+interface LayersPanelProps {
+  layers: LayerDefinition[];
+  activeLayerId: string;
+  onSetActive: (id: string) => void;
+  onToggleVisible: (id: string) => void;
+  onToggleLocked: (id: string) => void;
 }
 
-type Corner = LegendState["position"];
-
-function getCornerStyle(pos: Corner): React.CSSProperties {
-  const m = 10;
-  switch (pos) {
-    case "top-left":     return { top: m, left: m };
-    case "top-right":    return { top: m, right: m };
-    case "bottom-left":  return { bottom: m, left: m };
-    case "bottom-right": return { bottom: m, right: m };
-  }
-}
-
-function nearestCorner(x: number, y: number, w: number, h: number): Corner {
-  const midX = w / 2;
-  const midY = h / 2;
-  if (x <= midX && y <= midY) return "top-left";
-  if (x > midX && y <= midY) return "top-right";
-  if (x <= midX && y > midY) return "bottom-left";
-  return "bottom-right";
-}
-
-function LegendPanel({ entries, allEntries, legendState, onLegendStateChange, containerRef }: LegendPanelProps) {
-  const panelRef = useRef<HTMLDivElement>(null);
-  const draggingRef = useRef(false);
-  const [renamingId, setRenamingId] = useState<string | null>(null);
-  const [renameValue, setRenameValue] = useState("");
-
-  const mode = legendState.mode;
-  const compact = mode === "compact";
-
-  function toggleHide(id: string) {
-    const hidden = legendState.hiddenEntryIds;
-    const next = hidden.includes(id) ? hidden.filter(x => x !== id) : [...hidden, id];
-    onLegendStateChange({ ...legendState, hiddenEntryIds: next });
-  }
-
-  function startRename(entry: LegendEntry) {
-    setRenamingId(entry.id);
-    setRenameValue(legendState.customLabels[entry.id] ?? entry.label);
-  }
-
-  function commitRename() {
-    if (!renamingId) return;
-    onLegendStateChange({
-      ...legendState,
-      customLabels: { ...legendState.customLabels, [renamingId]: renameValue.trim() || (allEntries.find(e => e.id === renamingId)?.label ?? "") },
-    });
-    setRenamingId(null);
-  }
-
-  function moveEntry(id: string, dir: -1 | 1) {
-    const orderedIds = entries.map(e => e.id);
-    const idx = orderedIds.indexOf(id);
-    if (idx < 0) return;
-    const newIdx = idx + dir;
-    if (newIdx < 0 || newIdx >= orderedIds.length) return;
-    const newOrder = [...orderedIds];
-    [newOrder[idx], newOrder[newIdx]] = [newOrder[newIdx], newOrder[idx]];
-    onLegendStateChange({ ...legendState, entryOrder: newOrder });
-  }
-
-  function handleMouseDown(e: React.MouseEvent) {
-    if ((e.target as HTMLElement).closest("button,input")) return;
-    e.preventDefault();
-    if (!containerRef.current || !panelRef.current) return;
-    draggingRef.current = true;
-
-    const onMouseMove = (ev: MouseEvent) => {
-      if (!draggingRef.current || !containerRef.current) return;
-      const rect = containerRef.current.getBoundingClientRect();
-      const x = ev.clientX - rect.left;
-      const y = ev.clientY - rect.top;
-      const corner = nearestCorner(x, y, rect.width, rect.height);
-      if (corner !== legendState.position) {
-        onLegendStateChange({ ...legendState, position: corner });
-      }
-    };
-
-    const onMouseUp = (ev: MouseEvent) => {
-      draggingRef.current = false;
-      if (containerRef.current) {
-        const rect = containerRef.current.getBoundingClientRect();
-        const x = ev.clientX - rect.left;
-        const y = ev.clientY - rect.top;
-        const corner = nearestCorner(x, y, rect.width, rect.height);
-        onLegendStateChange({ ...legendState, position: corner });
-      }
-      window.removeEventListener("mousemove", onMouseMove);
-      window.removeEventListener("mouseup", onMouseUp);
-    };
-
-    window.addEventListener("mousemove", onMouseMove);
-    window.addEventListener("mouseup", onMouseUp);
-  }
-
-  const sectionGroups = useMemo(() => {
-    const materials = entries.filter(e => e.kind === "material");
-    const symbols = entries.filter(e => e.kind === "symbol");
-    const lines = entries.filter(e => e.kind === "line");
-    return { materials, symbols, lines };
-  }, [entries]);
-
-  const panelStyle: React.CSSProperties = {
-    position: "absolute",
-    ...getCornerStyle(legendState.position),
-    background: "rgba(255,255,255,0.93)",
-    border: "1px solid rgba(0,0,0,0.15)",
-    borderRadius: "6px",
-    boxShadow: "0 2px 10px rgba(0,0,0,0.12)",
-    zIndex: 30,
-    minWidth: compact ? "100px" : "160px",
-    maxWidth: "220px",
-    cursor: "grab",
-    userSelect: "none",
-    fontSize: "11px",
-  };
-
-  function EntryRow({ entry }: { entry: LegendEntry }) {
-    const isHidden = legendState.hiddenEntryIds.includes(entry.id);
-    const isFirst = entries[0]?.id === entry.id;
-    const isLast = entries[entries.length - 1]?.id === entry.id;
-
-    return (
-      <div
-        className="flex items-center gap-1 py-0.5 group"
-        style={{ opacity: isHidden ? 0.4 : 1 }}
-        data-testid={`legend-entry-${entry.id}`}
-      >
-        {/* Swatch */}
-        <div className="shrink-0 flex items-center justify-center" style={{ width: 16, height: 16 }}>
-          {entry.kind === "symbol" && entry.symbolType ? (
-            <SymbolSvg type={entry.symbolType} color={entry.color} size={14} />
-          ) : entry.kind === "line" ? (
-            <div style={{ width: 14, height: 2, background: entry.color || "#333", borderRadius: 1 }} />
-          ) : (
-            <div style={{ width: 12, height: 12, borderRadius: 2, background: entry.color || "#888", border: "1px solid rgba(0,0,0,0.2)" }} />
-          )}
-        </div>
-
-        {/* Label */}
-        <div className="flex-1 min-w-0">
-          {renamingId === entry.id ? (
-            <input
-              autoFocus
-              value={renameValue}
-              onChange={e => setRenameValue(e.target.value)}
-              onBlur={commitRename}
-              onKeyDown={e => {
-                if (e.key === "Enter") commitRename();
-                if (e.key === "Escape") setRenamingId(null);
-                e.stopPropagation();
-              }}
-              style={{ fontSize: 10, padding: "0 2px", border: "1px solid #f59e0b", borderRadius: 2, outline: "none", width: "100%", background: "white" }}
-              data-testid={`input-legend-rename-${entry.id}`}
-            />
-          ) : (
-            <span
-              style={{ fontSize: 10, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", display: "block", cursor: "text" }}
-              onClick={() => startRename(entry)}
-              title="Click to rename"
-              data-testid={`text-legend-label-${entry.id}`}
-            >
-              {legendState.customLabels[entry.id] ?? entry.label}
-              {entry.kind === "symbol" && entry.count !== undefined && legendState.showSymbolCounts && (
-                <span style={{ color: "#888", marginLeft: 2 }}>×{entry.count}</span>
-              )}
-            </span>
-          )}
-        </div>
-
-        {/* Controls */}
-        {!compact && (
-          <div className="flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity shrink-0">
-            <button
-              onClick={() => moveEntry(entry.id, -1)}
-              disabled={isFirst}
-              className="p-0.5 rounded hover-elevate disabled:opacity-30"
-              title="Move up"
-              data-testid={`button-legend-up-${entry.id}`}
-            >
-              <ChevronUp className="w-2.5 h-2.5" />
-            </button>
-            <button
-              onClick={() => moveEntry(entry.id, 1)}
-              disabled={isLast}
-              className="p-0.5 rounded hover-elevate disabled:opacity-30"
-              title="Move down"
-              data-testid={`button-legend-down-${entry.id}`}
-            >
-              <ChevronDown className="w-2.5 h-2.5" />
-            </button>
-            <button
-              onClick={() => toggleHide(entry.id)}
-              className="p-0.5 rounded hover-elevate"
-              title={isHidden ? "Show entry" : "Hide entry"}
-              data-testid={`button-legend-toggle-${entry.id}`}
-            >
-              {isHidden ? <EyeOff className="w-2.5 h-2.5 text-muted-foreground" /> : <Eye className="w-2.5 h-2.5 text-muted-foreground" />}
-            </button>
-          </div>
-        )}
-      </div>
-    );
-  }
-
-  const hasAnyVisible = entries.length > 0;
-
-  if (!hasAnyVisible && !compact) {
-    return (
-      <div ref={panelRef} style={panelStyle} onMouseDown={handleMouseDown}>
-        <div style={{ padding: "6px 8px" }}>
-          <div style={{ fontWeight: 600, fontSize: 10, color: "#666", marginBottom: 2 }}>{legendState.title}</div>
-          <div style={{ fontSize: 9, color: "#aaa" }}>No items to show</div>
-        </div>
-      </div>
-    );
-  }
-
+function LayersPanel({ layers, activeLayerId, onSetActive, onToggleVisible, onToggleLocked }: LayersPanelProps) {
   return (
-    <div ref={panelRef} style={panelStyle} onMouseDown={handleMouseDown} data-testid="panel-legend-overlay">
-      {/* Header */}
-      <div style={{ padding: compact ? "4px 6px" : "5px 8px 3px", display: "flex", alignItems: "center", gap: 4, borderBottom: compact ? "none" : "1px solid rgba(0,0,0,0.08)" }}>
-        <GripHorizontal style={{ width: 10, height: 10, color: "#bbb", flexShrink: 0 }} />
-        <span style={{ fontWeight: 700, fontSize: 10, color: "#333", flex: 1 }}>{legendState.title}</span>
+    <div className="flex flex-col" data-testid="panel-layers">
+      <div className="flex items-center gap-1.5 px-2 py-1.5 border-b bg-muted/30">
+        <Layers className="w-3.5 h-3.5 text-muted-foreground" />
+        <span className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Layers</span>
       </div>
-
-      {/* Entries */}
-      {!compact && (
-        <div style={{ padding: "4px 8px 5px" }}>
-          {legendState.showMaterialsGroup && sectionGroups.materials.length > 0 && (
-            <div>
-              <div style={{ fontSize: 8, fontWeight: 600, color: "#999", textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: 2, marginTop: 1 }}>Materials</div>
-              {sectionGroups.materials.map(e => <EntryRow key={e.id} entry={e} />)}
-            </div>
-          )}
-          {legendState.showSymbolsGroup && sectionGroups.symbols.length > 0 && (
-            <div>
-              <div style={{ fontSize: 8, fontWeight: 600, color: "#999", textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: 2, marginTop: 1 }}>Symbols</div>
-              {sectionGroups.symbols.map(e => <EntryRow key={e.id} entry={e} />)}
-            </div>
-          )}
-          {legendState.showLinesGroup && sectionGroups.lines.length > 0 && (
-            <div>
-              <div style={{ fontSize: 8, fontWeight: 600, color: "#999", textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: 2, marginTop: 1 }}>Lines</div>
-              {sectionGroups.lines.map(e => <EntryRow key={e.id} entry={e} />)}
-            </div>
-          )}
-        </div>
-      )}
-
-      {compact && (
-        <div style={{ padding: "3px 6px 4px", display: "flex", flexWrap: "wrap", gap: 4 }}>
-          {entries.map(e => (
-            <div key={e.id} style={{ display: "flex", alignItems: "center", gap: 3 }}>
-              {e.kind === "symbol" && e.symbolType ? (
-                <SymbolSvg type={e.symbolType} color={e.color} size={10} />
-              ) : e.kind === "line" ? (
-                <div style={{ width: 10, height: 2, background: e.color || "#333" }} />
-              ) : (
-                <div style={{ width: 8, height: 8, borderRadius: 1, background: e.color || "#888", border: "1px solid rgba(0,0,0,0.2)" }} />
+      <div className="flex flex-col">
+        {layers.map(layer => {
+          const isActive = layer.id === activeLayerId;
+          const isBase = layer.id === "base-image";
+          return (
+            <div
+              key={layer.id}
+              className={`flex items-center gap-1 px-2 py-1 cursor-pointer hover-elevate text-xs ${isActive ? "bg-accent/60 font-semibold" : ""}`}
+              onClick={() => {
+                if (!layer.locked) onSetActive(layer.id);
+              }}
+              data-testid={`layer-row-${layer.id}`}
+            >
+              <Button
+                size="icon"
+                variant="ghost"
+                className="w-5 h-5 shrink-0"
+                onClick={e => { e.stopPropagation(); onToggleVisible(layer.id); }}
+                title={layer.visible ? "Hide layer" : "Show layer"}
+                data-testid={`button-layer-visibility-${layer.id}`}
+                disabled={isBase}
+              >
+                {layer.visible
+                  ? <Eye className="w-3 h-3" />
+                  : <EyeOff className="w-3 h-3 text-muted-foreground" />}
+              </Button>
+              <Button
+                size="icon"
+                variant="ghost"
+                className="w-5 h-5 shrink-0"
+                onClick={e => { e.stopPropagation(); if (!isBase) onToggleLocked(layer.id); }}
+                title={layer.locked ? "Unlock layer" : "Lock layer"}
+                data-testid={`button-layer-lock-${layer.id}`}
+                disabled={isBase}
+              >
+                {layer.locked
+                  ? <Lock className="w-3 h-3 text-muted-foreground" />
+                  : <Unlock className="w-3 h-3" />}
+              </Button>
+              <span
+                className={`truncate flex-1 ${!layer.visible ? "text-muted-foreground line-through" : ""}`}
+                title={layer.name}
+              >
+                {layer.name}
+              </span>
+              {isActive && (
+                <span className="w-1.5 h-1.5 rounded-full bg-primary shrink-0" title="Active layer" />
               )}
-              <span style={{ fontSize: 9, color: "#444" }}>{legendState.customLabels[e.id] ?? e.label}</span>
             </div>
-          ))}
-        </div>
-      )}
+          );
+        })}
+      </div>
     </div>
   );
 }
 
-// ─── Legend Settings Popover ─────────────────────────────────────────────────
-
-interface LegendSettingsProps {
-  legendState: LegendState;
-  onLegendStateChange: (ls: LegendState) => void;
+interface ObjectInspectorProps {
+  obj: MarkupObject;
+  onChange: (updates: Partial<MarkupObject>) => void;
+  onDelete: () => void;
 }
 
-function LegendSettings({ legendState, onLegendStateChange }: LegendSettingsProps) {
-  function toggle(key: keyof LegendState) {
-    onLegendStateChange({ ...legendState, [key]: !legendState[key as keyof LegendState] });
-  }
-
+function ObjectInspector({ obj, onChange, onDelete }: ObjectInspectorProps) {
   return (
-    <PopoverContent className="w-64 p-3" side="bottom" align="start">
-      <div className="space-y-3">
-        <div>
-          <Label className="text-xs font-semibold">Legend Title</Label>
+    <div className="flex flex-col gap-0" data-testid="panel-inspector">
+      <div className="flex items-center justify-between px-2 py-1.5 border-b bg-muted/30">
+        <span className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Inspector</span>
+        <Button
+          size="icon"
+          variant="ghost"
+          className="w-5 h-5 text-destructive"
+          onClick={onDelete}
+          data-testid="button-inspector-delete"
+          title="Delete object"
+        >
+          <Trash2 className="w-3 h-3" />
+        </Button>
+      </div>
+      <div className="px-2 py-2 space-y-2">
+        <div className="space-y-1">
+          <Label className="text-xs text-muted-foreground">Name / Label</Label>
           <Input
-            value={legendState.title}
-            onChange={e => onLegendStateChange({ ...legendState, title: e.target.value })}
-            className="h-7 text-xs mt-1"
-            data-testid="input-legend-title"
-            placeholder="Legend"
+            className="h-7 text-xs"
+            value={obj.name ?? ""}
+            onChange={e => onChange({ name: e.target.value })}
+            onKeyDown={e => e.stopPropagation()}
+            placeholder="Optional name"
+            data-testid="input-inspector-name"
           />
         </div>
 
-        <div>
-          <Label className="text-xs font-semibold">Position</Label>
-          <div className="grid grid-cols-2 gap-1 mt-1">
-            {(["top-left", "top-right", "bottom-left", "bottom-right"] as const).map(pos => (
-              <Button
-                key={pos}
-                size="sm"
-                variant={legendState.position === pos ? "default" : "outline"}
-                className="text-xs h-7"
-                onClick={() => onLegendStateChange({ ...legendState, position: pos })}
-                data-testid={`button-legend-pos-${pos}`}
-              >
-                {pos.replace("-", " ")}
-              </Button>
-            ))}
-          </div>
-        </div>
-
-        <div>
-          <Label className="text-xs font-semibold">Layout</Label>
-          <div className="flex gap-1 mt-1">
-            <Button
-              size="sm"
-              variant={legendState.mode === "expanded" ? "default" : "outline"}
-              className="text-xs h-7 flex-1"
-              onClick={() => onLegendStateChange({ ...legendState, mode: "expanded" })}
-              data-testid="button-legend-mode-expanded"
-            >
-              Expanded
-            </Button>
-            <Button
-              size="sm"
-              variant={legendState.mode === "compact" ? "default" : "outline"}
-              className="text-xs h-7 flex-1"
-              onClick={() => onLegendStateChange({ ...legendState, mode: "compact" })}
-              data-testid="button-legend-mode-compact"
-            >
-              Compact
-            </Button>
-          </div>
-        </div>
-
-        <div className="space-y-1.5">
-          <Label className="text-xs font-semibold">Show Groups</Label>
-          {([
-            ["showMaterialsGroup", "Materials"],
-            ["showSymbolsGroup", "Symbols"],
-            ["showLinesGroup", "Lines"],
-            ["showSymbolCounts", "Symbol Counts"],
-          ] as const).map(([key, label]) => (
-            <label key={key} className="flex items-center gap-2 cursor-pointer">
-              <input
-                type="checkbox"
-                checked={legendState[key] as boolean}
-                onChange={() => toggle(key)}
-                className="rounded"
-                data-testid={`checkbox-legend-${key}`}
+        {obj.type === "polygon" && (
+          <>
+            <div className="space-y-1">
+              <Label className="text-xs text-muted-foreground">Fill Color</Label>
+              <div className="flex items-center gap-2">
+                <input
+                  type="color"
+                  value={obj.strokeColor}
+                  onChange={e => {
+                    const c = e.target.value;
+                    onChange({ strokeColor: c, fillColor: hexToRgba(c, 0.15) });
+                  }}
+                  className="w-7 h-7 rounded border border-border cursor-pointer"
+                  data-testid="input-inspector-fill-color"
+                />
+                <span className="text-xs text-muted-foreground">{obj.strokeColor}</span>
+              </div>
+            </div>
+            <div className="space-y-1">
+              <Label className="text-xs text-muted-foreground">Fill Opacity</Label>
+              <Input
+                type="number"
+                className="h-7 text-xs"
+                min={0}
+                max={1}
+                step={0.05}
+                value={(() => {
+                  const m = obj.fillColor?.match(/rgba\([^,]+,[^,]+,[^,]+,([^)]+)\)/);
+                  return m ? parseFloat(m[1]).toFixed(2) : "0.15";
+                })()}
+                onChange={e => {
+                  const alpha = Math.max(0, Math.min(1, parseFloat(e.target.value) || 0));
+                  onChange({ fillColor: hexToRgba(obj.strokeColor, alpha) });
+                }}
+                onKeyDown={e => e.stopPropagation()}
+                data-testid="input-inspector-fill-opacity"
               />
-              <span className="text-xs">{label}</span>
-            </label>
-          ))}
+            </div>
+            <div className="space-y-1">
+              <Label className="text-xs text-muted-foreground">Stroke Color</Label>
+              <div className="flex items-center gap-2">
+                <input
+                  type="color"
+                  value={obj.strokeColor}
+                  onChange={e => onChange({ strokeColor: e.target.value })}
+                  className="w-7 h-7 rounded border border-border cursor-pointer"
+                  data-testid="input-inspector-stroke-color"
+                />
+              </div>
+            </div>
+            <div className="space-y-1">
+              <Label className="text-xs text-muted-foreground">Stroke Width</Label>
+              <Input
+                type="number"
+                className="h-7 text-xs"
+                min={1}
+                max={20}
+                value={obj.strokeWidth}
+                onChange={e => onChange({ strokeWidth: parseInt(e.target.value) || 2 })}
+                onKeyDown={e => e.stopPropagation()}
+                data-testid="input-inspector-stroke-width"
+              />
+            </div>
+          </>
+        )}
+
+        {obj.type === "polyline" && (
+          <>
+            <div className="space-y-1">
+              <Label className="text-xs text-muted-foreground">Stroke Color</Label>
+              <div className="flex items-center gap-2">
+                <input
+                  type="color"
+                  value={obj.strokeColor}
+                  onChange={e => onChange({ strokeColor: e.target.value })}
+                  className="w-7 h-7 rounded border border-border cursor-pointer"
+                  data-testid="input-inspector-polyline-color"
+                />
+              </div>
+            </div>
+            <div className="space-y-1">
+              <Label className="text-xs text-muted-foreground">Stroke Width</Label>
+              <Input
+                type="number"
+                className="h-7 text-xs"
+                min={1}
+                max={20}
+                value={obj.strokeWidth}
+                onChange={e => onChange({ strokeWidth: parseInt(e.target.value) || 2 })}
+                onKeyDown={e => e.stopPropagation()}
+                data-testid="input-inspector-polyline-stroke-width"
+              />
+            </div>
+            <div className="space-y-1">
+              <Label className="text-xs text-muted-foreground">Dash Style</Label>
+              <Select
+                value={obj.dashStyle ?? "solid"}
+                onValueChange={v => onChange({ dashStyle: v as "solid" | "dashed" | "dotted" })}
+              >
+                <SelectTrigger className="h-7 text-xs" data-testid="select-inspector-dash-style">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="solid">Solid</SelectItem>
+                  <SelectItem value="dashed">Dashed</SelectItem>
+                  <SelectItem value="dotted">Dotted</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+          </>
+        )}
+
+        {obj.type === "text" && (
+          <>
+            <div className="space-y-1">
+              <Label className="text-xs text-muted-foreground">Text Content</Label>
+              <Input
+                className="h-7 text-xs"
+                value={obj.label ?? ""}
+                onChange={e => onChange({ label: e.target.value || "Label" })}
+                onKeyDown={e => e.stopPropagation()}
+                data-testid="input-inspector-text-content"
+              />
+            </div>
+            <div className="space-y-1">
+              <Label className="text-xs text-muted-foreground">Color</Label>
+              <div className="flex items-center gap-2">
+                <input
+                  type="color"
+                  value={obj.strokeColor}
+                  onChange={e => onChange({ strokeColor: e.target.value })}
+                  className="w-7 h-7 rounded border border-border cursor-pointer"
+                  data-testid="input-inspector-text-color"
+                />
+              </div>
+            </div>
+            <div className="space-y-1">
+              <Label className="text-xs text-muted-foreground">Font Size</Label>
+              <Input
+                type="number"
+                className="h-7 text-xs"
+                min={8}
+                max={80}
+                value={obj.fontSize ?? 25}
+                onChange={e => onChange({ fontSize: parseInt(e.target.value) || 25 })}
+                onKeyDown={e => e.stopPropagation()}
+                data-testid="input-inspector-font-size"
+              />
+            </div>
+            <div className="space-y-1">
+              <Label className="text-xs text-muted-foreground">Rotation (°)</Label>
+              <Input
+                type="number"
+                className="h-7 text-xs"
+                min={-180}
+                max={180}
+                value={obj.rotation ?? 0}
+                onChange={e => onChange({ rotation: parseInt(e.target.value) || 0 })}
+                onKeyDown={e => e.stopPropagation()}
+                data-testid="input-inspector-text-rotation"
+              />
+            </div>
+          </>
+        )}
+
+        {obj.type === "symbol" && (
+          <>
+            <div className="space-y-1">
+              <Label className="text-xs text-muted-foreground">Color</Label>
+              <div className="flex items-center gap-2">
+                <input
+                  type="color"
+                  value={obj.strokeColor}
+                  onChange={e => onChange({ strokeColor: e.target.value, fillColor: e.target.value })}
+                  className="w-7 h-7 rounded border border-border cursor-pointer"
+                  data-testid="input-inspector-symbol-color"
+                />
+              </div>
+            </div>
+            <div className="space-y-1">
+              <Label className="text-xs text-muted-foreground">Size</Label>
+              <Input
+                type="number"
+                className="h-7 text-xs"
+                min={10}
+                max={100}
+                value={obj.symbolSize ?? 30}
+                onChange={e => onChange({ symbolSize: parseInt(e.target.value) || 30 })}
+                onKeyDown={e => e.stopPropagation()}
+                data-testid="input-inspector-symbol-size"
+              />
+            </div>
+            <div className="space-y-1">
+              <Label className="text-xs text-muted-foreground">Rotation (°)</Label>
+              <Input
+                type="number"
+                className="h-7 text-xs"
+                min={-180}
+                max={180}
+                value={obj.rotation ?? 0}
+                onChange={e => onChange({ rotation: parseInt(e.target.value) || 0 })}
+                onKeyDown={e => e.stopPropagation()}
+                data-testid="input-inspector-symbol-rotation"
+              />
+            </div>
+          </>
+        )}
+
+        <div className="pt-1 text-xs text-muted-foreground capitalize">
+          Type: {obj.type}
         </div>
       </div>
-    </PopoverContent>
+    </div>
   );
 }
 
-// ─── Main Editor ─────────────────────────────────────────────────────────────
-
-export default function VisualScopeEditor({ sheetId, baseImagePath, initialMarkupData, initialLegendState, onSaved }: VisualScopeEditorProps) {
+export default function VisualScopeEditor({ sheetId, baseImagePath, initialMarkup, initialLayerDefs, onSaved }: VisualScopeEditorProps) {
   const { t } = useTranslation();
-
-  const [editorState, setEditorState] = useState<MarkupDocument>(() => parseMarkupData(initialMarkupData));
+  const [objects, setObjects] = useState<MarkupObject[]>(() => migrateObjects(initialMarkup));
+  const [layerDefs, setLayerDefs] = useState<LayerDefinition[]>(() => mergeLayerDefs(initialLayerDefs));
+  const [activeLayerId, setActiveLayerId] = useState<string>("areas");
   const [activeTool, setActiveTool] = useState<ActiveTool>("select");
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [selectedVertexIdx, setSelectedVertexIdx] = useState<number | null>(null);
@@ -1095,49 +1065,30 @@ export default function VisualScopeEditor({ sheetId, baseImagePath, initialMarku
   const [saveStatus, setSaveStatus] = useState<"saved" | "saving" | "unsaved">("saved");
   const [editingTextId, setEditingTextId] = useState<string | null>(null);
   const [editingTextValue, setEditingTextValue] = useState("");
-  const [selectionPanelText, setSelectionPanelText] = useState("");
   const [legendState, setLegendState] = useState<LegendState>(() => initialLegendState ?? DEFAULT_LEGEND_STATE);
   const [materialLabelText, setMaterialLabelText] = useState("");
 
   const hasUserEdited = useRef(false);
   const legendUserEdited = useRef(false);
-  const undoStack = useRef<MarkupDocument[]>([]);
-  const redoStack = useRef<MarkupDocument[]>([]);
+  const undoStack = useRef<{ objects: MarkupObject[]; layerDefs: LayerDefinition[] }[]>([]);
+  const redoStack = useRef<{ objects: MarkupObject[]; layerDefs: LayerDefinition[] }[]>([]);
   const svgRef = useRef<SVGSVGElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const dragStartedUndo = useRef(false);
   const vertexDragStartedUndo = useRef(false);
 
-  function pushUndoSnapshot(snapshot: MarkupDocument) {
-    undoStack.current = [...undoStack.current.slice(-MAX_UNDO_STEPS + 1), snapshot];
-    redoStack.current = [];
-  }
-
-  const defaultLayer = editorState.layers.find(l => !l.locked && l.visible) ?? editorState.layers[0];
-  const objects = defaultLayer?.objects ?? [];
   const sortedObjects = [...objects].sort((a, b) => (a.zIndex ?? 0) - (b.zIndex ?? 0));
   const totalPoints = objects.reduce((sum, o) => sum + o.points.length, 0);
   const isAtLimit = objects.length >= 200 || totalPoints >= 5000;
   const selectedObj = selectedId ? objects.find(o => o.id === selectedId) ?? null : null;
 
-  function updateObjects(fn: (objs: MarkupObject[]) => MarkupObject[], opts?: { pushUndo?: boolean }): void {
-    setEditorState(prev => {
-      const activeLayerId = (prev.layers.find(l => !l.locked && l.visible) ?? prev.layers[0])?.id ?? DEFAULT_LAYER_ID;
-      if (opts?.pushUndo) {
-        undoStack.current = [...undoStack.current.slice(-MAX_UNDO_STEPS + 1), prev];
-        redoStack.current = [];
-      }
-      return {
-        ...prev,
-        layers: prev.layers.map(l =>
-          l.id === activeLayerId ? { ...l, objects: fn(l.objects) } : l
-        ),
-      };
-    });
-    hasUserEdited.current = true;
-  }
+  const layerMap = new Map(layerDefs.map(l => [l.id, l]));
 
-  const setObjects = (fn: (objs: MarkupObject[]) => MarkupObject[]) => updateObjects(fn);
+  function isLayerSelectableForObj(obj: MarkupObject): boolean {
+    const layer = layerMap.get(obj.layerId ?? "areas");
+    if (!layer) return true;
+    return layer.visible && !layer.locked;
+  }
 
   // Auto-detect legend entries from objects
   const allLegendEntries = useMemo(() => detectLegendEntries(objects), [objects]);
@@ -1145,8 +1096,6 @@ export default function VisualScopeEditor({ sheetId, baseImagePath, initialMarku
     () => applyLegendState(allLegendEntries, legendState),
     [allLegendEntries, legendState]
   );
-
-  // Sync selection panel text when selection changes or the selected object's label changes
   useEffect(() => {
     if (selectedObj?.type === "text") {
       setSelectionPanelText(selectedObj.label || "Label");
@@ -1158,6 +1107,8 @@ export default function VisualScopeEditor({ sheetId, baseImagePath, initialMarku
 
   useEffect(() => {
     setEditorState(parseMarkupData(initialMarkupData));
+    setObjects(migrateObjects(initialMarkup));
+    setLayerDefs(mergeLayerDefs(initialLayerDefs));
     setActiveTool("select");
     setSelectedId(null);
     setSelectedVertexIdx(null);
@@ -1169,27 +1120,32 @@ export default function VisualScopeEditor({ sheetId, baseImagePath, initialMarku
     setHoveredMidEdge(null);
     setEditingTextId(null);
     setEditingTextValue("");
-    setSelectionPanelText("");
     setLegendState(initialLegendState ?? DEFAULT_LEGEND_STATE);
     undoStack.current = [];
-    redoStack.current = [];
     hasUserEdited.current = false;
     legendUserEdited.current = false;
     dragStartedUndo.current = false;
     vertexDragStartedUndo.current = false;
+    setActiveLayerId("areas");
   }, [sheetId, baseImagePath]);
 
-  const pushUndo = useCallback((snapshot: MarkupDocument) => {
-    pushUndoSnapshot(snapshot);
+  const pushUndo = useCallback((currentObjects: MarkupObject[], currentLayerDefs: LayerDefinition[]) => {
+    undoStack.current = [
+      ...undoStack.current.slice(-MAX_UNDO_STEPS + 1),
+      { objects: currentObjects, layerDefs: currentLayerDefs },
+    ];
   }, []);
   const undo = useCallback(() => {
     if (undoStack.current.length === 0) return;
     const prev = undoStack.current[undoStack.current.length - 1];
     undoStack.current = undoStack.current.slice(0, -1);
     hasUserEdited.current = true;
-    setEditorState(current => {
-      redoStack.current = [...redoStack.current.slice(-MAX_UNDO_STEPS + 1), current];
-      return prev;
+    setObjects(current => {
+      setLayerDefs(currentDefs => {
+        redoStack.current = [...redoStack.current.slice(-MAX_UNDO_STEPS + 1), { objects: current, layerDefs: currentDefs }];
+        return prev.layerDefs;
+      });
+      return prev.objects;
     });
     setSelectedId(null);
   }, []);
@@ -1199,9 +1155,12 @@ export default function VisualScopeEditor({ sheetId, baseImagePath, initialMarku
     const next = redoStack.current[redoStack.current.length - 1];
     redoStack.current = redoStack.current.slice(0, -1);
     hasUserEdited.current = true;
-    setEditorState(current => {
-      undoStack.current = [...undoStack.current.slice(-MAX_UNDO_STEPS + 1), current];
-      return next;
+    setObjects(current => {
+      setLayerDefs(currentDefs => {
+        undoStack.current = [...undoStack.current.slice(-MAX_UNDO_STEPS + 1), { objects: current, layerDefs: currentDefs }];
+        return next.layerDefs;
+      });
+      return next.objects;
     });
     setSelectedId(null);
     setSelectedVertexIdx(null);
@@ -1214,7 +1173,10 @@ export default function VisualScopeEditor({ sheetId, baseImagePath, initialMarku
     const timer = setTimeout(async () => {
       setSaveStatus("saving");
       try {
-        await apiRequest("PATCH", `/api/visual-scope-sheets/${sheetId}`, { markupData: editorState });
+        await apiRequest("PATCH", `/api/visual-scope-sheets/${sheetId}`, {
+          markupData: objects,
+          layerDefs,
+        });
         setSaveStatus("saved");
         onSaved?.();
       } catch {
@@ -1222,7 +1184,7 @@ export default function VisualScopeEditor({ sheetId, baseImagePath, initialMarku
       }
     }, 1500);
     return () => clearTimeout(timer);
-  }, [editorState]);
+  }, [objects, layerDefs]);
 
   // Auto-save legendState
   useEffect(() => {
@@ -1258,7 +1220,6 @@ export default function VisualScopeEditor({ sheetId, baseImagePath, initialMarku
         redo();
         return;
       }
-
       if (e.key === "Escape") {
         if (inProgressPoints.length > 0) {
           setInProgressPoints([]);
@@ -1285,8 +1246,9 @@ export default function VisualScopeEditor({ sheetId, baseImagePath, initialMarku
           if (obj && (obj.type === "polygon" || obj.type === "polyline")) {
             const minPts = obj.type === "polygon" ? 3 : 2;
             if (obj.points.length > minPts) {
-              updateObjects(prev => {
-                pushUndoSnapshot(editorState);
+              setObjects(prev => {
+                pushUndo(prev, layerDefs);
+                hasUserEdited.current = true;
                 const newPts = obj.points.filter((_, i) => i !== selectedVertexIdx);
                 return prev.map(o => o.id === selectedId ? { ...o, points: newPts } : o);
               });
@@ -1296,8 +1258,9 @@ export default function VisualScopeEditor({ sheetId, baseImagePath, initialMarku
           return;
         }
         if (selectedId && document.activeElement === document.body) {
-          updateObjects(prev => {
-            pushUndoSnapshot(editorState);
+          setObjects(prev => {
+            pushUndo(prev, layerDefs);
+            hasUserEdited.current = true;
             return prev.filter(o => o.id !== selectedId);
           });
           setSelectedId(null);
@@ -1307,7 +1270,7 @@ export default function VisualScopeEditor({ sheetId, baseImagePath, initialMarku
     };
     window.addEventListener("keydown", handler);
     return () => window.removeEventListener("keydown", handler);
-  }, [selectedId, selectedVertexIdx, undo, redo, activeTool, inProgressPoints, objects, editorState]);
+  }, [selectedId, selectedVertexIdx, undo, redo, activeTool, inProgressPoints, objects, pushUndo, layerDefs]);
 
   const changeTool = useCallback((tool: ActiveTool) => {
     setActiveTool(tool);
@@ -1319,20 +1282,22 @@ export default function VisualScopeEditor({ sheetId, baseImagePath, initialMarku
 
   const deleteSelected = useCallback(() => {
     if (!selectedId) return;
-    updateObjects(prev => {
-      pushUndoSnapshot(editorState);
+    setObjects(prev => {
+      pushUndo(prev, layerDefs);
+      hasUserEdited.current = true;
       return prev.filter(o => o.id !== selectedId);
     });
     setSelectedId(null);
     setSelectedVertexIdx(null);
-  }, [selectedId, editorState]);
+  }, [selectedId, pushUndo, layerDefs]);
 
   const duplicateSelected = useCallback(() => {
     if (!selectedId) return;
-    updateObjects(prev => {
+    setObjects(prev => {
       const obj = prev.find(o => o.id === selectedId);
       if (!obj) return prev;
-      pushUndoSnapshot(editorState);
+      pushUndo(prev, layerDefs);
+      hasUserEdited.current = true;
       const offset = 0.02;
       const newObj: MarkupObject = {
         ...obj,
@@ -1342,13 +1307,14 @@ export default function VisualScopeEditor({ sheetId, baseImagePath, initialMarku
       };
       return [...prev, newObj];
     });
-  }, [selectedId, editorState]);
+  }, [selectedId, pushUndo, layerDefs]);
 
   const handleColorChange = useCallback((color: string) => {
     setActiveColor(color);
     if (!selectedId) return;
-    updateObjects(prev => {
-      pushUndoSnapshot(editorState);
+    setObjects(prev => {
+      pushUndo(prev, layerDefs);
+      hasUserEdited.current = true;
       return prev.map(o => {
         if (o.id !== selectedId) return o;
         if (o.type === "polygon") {
@@ -1358,29 +1324,37 @@ export default function VisualScopeEditor({ sheetId, baseImagePath, initialMarku
         return { ...o, strokeColor: color, fillColor: color };
       });
     });
-  }, [selectedId, editorState]);
+  }, [selectedId, pushUndo, layerDefs]);
+
+  const handleInspectorChange = useCallback((updates: Partial<MarkupObject>) => {
+    if (!selectedId) return;
+    setObjects(prev => {
+      hasUserEdited.current = true;
+      return prev.map(o => o.id === selectedId ? { ...o, ...updates } : o);
+    });
+  }, [selectedId]);
 
   const handleStrokeWidthChange = useCallback((width: number) => {
     if (!selectedId) return;
-    updateObjects(prev => prev.map(o => o.id === selectedId ? { ...o, strokeWidth: width } : o));
+    setObjects(prev => prev.map(o => o.id === selectedId ? { ...o, strokeWidth: width } : o));
   }, [selectedId]);
 
   const handleDashStyleChange = useCallback((style: DashStyle) => {
     if (!selectedId) return;
-    updateObjects(prev => {
-      pushUndoSnapshot(editorState);
+    setObjects(prev => {
+      pushUndo(objects, layerDefs);
       return prev.map(o => o.id === selectedId ? { ...o, dashStyle: style } : o);
     });
   }, [selectedId, editorState]);
 
   const handleOpacityChange = useCallback((opacity: number) => {
     if (!selectedId) return;
-    updateObjects(prev => prev.map(o => o.id === selectedId ? { ...o, opacity } : o));
+    setObjects(prev => prev.map(o => o.id === selectedId ? { ...o, opacity } : o));
   }, [selectedId]);
 
   const handleFillOpacityChange = useCallback((fillOpacity: number) => {
     if (!selectedId) return;
-    updateObjects(prev => prev.map(o => {
+    setObjects(prev => prev.map(o => {
       if (o.id !== selectedId || o.type !== "polygon") return o;
       return { ...o, fillOpacity, fillColor: hexToRgba(o.strokeColor, fillOpacity) };
     }));
@@ -1389,8 +1363,9 @@ export default function VisualScopeEditor({ sheetId, baseImagePath, initialMarku
 
   const commitPolyline = useCallback((pts: MarkupPoint[]) => {
     if (pts.length < 2) return;
-    updateObjects(prev => {
-      pushUndoSnapshot(editorState);
+    setObjects(prev => {
+      pushUndo(prev, layerDefs);
+      hasUserEdited.current = true;
       return [...prev, {
         id: nanoid8(),
         type: "polyline",
@@ -1401,18 +1376,18 @@ export default function VisualScopeEditor({ sheetId, baseImagePath, initialMarku
         opacity: 1,
         dashStyle: "solid",
         createdAt: new Date().toISOString(),
-        rotation: 0,
-        zIndex: prev.length,
+        layerId: activeLayerId,
       }];
     });
     setInProgressPoints([]);
     setPreviewPoint(null);
-  }, [activeColor, editorState]);
+  }, [activeColor, pushUndo, layerDefs, activeLayerId]);
 
   const commitPolygon = useCallback((pts: MarkupPoint[]) => {
     if (pts.length < 3) return;
-    updateObjects(prev => {
-      pushUndoSnapshot(editorState);
+    setObjects(prev => {
+      pushUndo(prev, layerDefs);
+      hasUserEdited.current = true;
       return [...prev, {
         id: nanoid8(),
         type: "polygon",
@@ -1424,53 +1399,56 @@ export default function VisualScopeEditor({ sheetId, baseImagePath, initialMarku
         opacity: 1,
         dashStyle: "solid",
         createdAt: new Date().toISOString(),
-        rotation: 0,
-        zIndex: prev.length,
+        layerId: activeLayerId,
       }];
     });
     setInProgressPoints([]);
     setPreviewPoint(null);
-  }, [activeColor, editorState]);
+  }, [activeColor, pushUndo, layerDefs, activeLayerId]);
 
   const commitTextEdit = useCallback(() => {
     if (!editingTextId) return;
     const label = editingTextValue.trim();
-    updateObjects(prev => {
-      pushUndoSnapshot(editorState);
+    setObjects(prev => {
+      pushUndo(prev, layerDefs);
+      hasUserEdited.current = true;
       return prev.map(o => o.id === editingTextId ? { ...o, label: label || "Label" } : o);
     });
     setEditingTextId(null);
     setEditingTextValue("");
-  }, [editingTextId, editingTextValue, editorState]);
+  }, [editingTextId, editingTextValue, pushUndo, layerDefs]);
 
   const cancelTextEdit = useCallback(() => {
     if (!editingTextId) return;
     const wasNew = objects.find(o => o.id === editingTextId && o.label === "Label");
     if (wasNew) {
-      updateObjects(prev => {
-        pushUndoSnapshot(editorState);
+      setObjects(prev => {
+        pushUndo(prev, layerDefs);
+        hasUserEdited.current = true;
         return prev.filter(o => o.id !== editingTextId);
       });
     }
     setEditingTextId(null);
     setEditingTextValue("");
-  }, [editingTextId, objects, editorState]);
+  }, [editingTextId, objects, pushUndo, layerDefs]);
 
   const commitSelectionPanelText = useCallback(() => {
     if (!selectedId) return;
     const label = selectionPanelText.trim() || "Label";
-    updateObjects(prev => {
+    setObjects(prev => {
       const current = prev.find(o => o.id === selectedId);
       if (current && current.label === label) return prev;
-      pushUndoSnapshot(editorState);
+      pushUndo(prev, layerDefs);
+      hasUserEdited.current = true;
       return prev.map(o => o.id === selectedId ? { ...o, label } : o);
     });
-  }, [selectedId, selectionPanelText, editorState]);
+  }, [selectedId, selectionPanelText, pushUndo, layerDefs]);
 
   const handleFillTypeChange = useCallback((fillType: FillType) => {
     if (!selectedId) return;
-    updateObjects(prev => {
-      pushUndoSnapshot(editorState);
+    setObjects(prev => {
+      pushUndo(prev, layerDefs);
+      hasUserEdited.current = true;
       return prev.map(o => {
         if (o.id !== selectedId) return o;
         if (fillType === "texture") {
@@ -1480,7 +1458,7 @@ export default function VisualScopeEditor({ sheetId, baseImagePath, initialMarku
         return { ...o, fillType: "solid" };
       });
     });
-  }, [selectedId, editorState]);
+  }, [selectedId, pushUndo, layerDefs]);
 
   const handleTextureIdChange = useCallback((textureId: string) => {
     if (!selectedId) return;
@@ -1489,36 +1467,34 @@ export default function VisualScopeEditor({ sheetId, baseImagePath, initialMarku
       console.warn("[TextureFill] Unknown textureId:", textureId);
       return;
     }
-    updateObjects(prev => {
-      pushUndoSnapshot(editorState);
+    setObjects(prev => {
+      pushUndo(prev, layerDefs);
+      hasUserEdited.current = true;
       return prev.map(o => o.id === selectedId ? { ...o, textureId } : o);
     });
-  }, [selectedId, editorState]);
+  }, [selectedId, pushUndo, layerDefs]);
 
   const handleTextureScaleChange = useCallback((textureScale: TextureScale) => {
     if (!selectedId) return;
-    updateObjects(prev => {
-      return prev.map(o => o.id === selectedId ? { ...o, textureScale } : o);
-    });
+    setObjects(prev => prev.map(o => o.id === selectedId ? { ...o, textureScale } : o));
   }, [selectedId]);
 
   const handleTextureOpacityChange = useCallback((textureOpacity: number) => {
     if (!selectedId) return;
-    updateObjects(prev => {
-      return prev.map(o => o.id === selectedId ? { ...o, textureOpacity } : o);
-    });
+    setObjects(prev => prev.map(o => o.id === selectedId ? { ...o, textureOpacity } : o));
   }, [selectedId]);
 
   const commitMaterialLabel = useCallback(() => {
     if (!selectedId) return;
     const materialLabel = materialLabelText.trim();
-    updateObjects(prev => {
+    setObjects(prev => {
       const current = prev.find(o => o.id === selectedId);
       if (current && current.materialLabel === materialLabel) return prev;
-      pushUndoSnapshot(editorState);
+      pushUndo(prev, layerDefs);
+      hasUserEdited.current = true;
       return prev.map(o => o.id === selectedId ? { ...o, materialLabel } : o);
     });
-  }, [selectedId, materialLabelText, editorState]);
+  }, [selectedId, materialLabelText, pushUndo, layerDefs]);
 
   const startMoveDrag = useCallback((id: string, obj: MarkupObject, startPt: MarkupPoint) => {
     dragStartedUndo.current = false;
@@ -1544,8 +1520,8 @@ export default function VisualScopeEditor({ sheetId, baseImagePath, initialMarku
     if (!obj || (obj.type !== "polygon" && obj.type !== "polyline")) return;
     const minPts = obj.type === "polygon" ? 3 : 2;
     if (obj.points.length <= minPts) return;
-    updateObjects(prev => {
-      pushUndoSnapshot(editorState);
+    setObjects(prev => {
+      pushUndo(objects, layerDefs);
       return prev.map(o => {
         if (o.id !== selectedId) return o;
         return { ...o, points: o.points.filter((_, i) => i !== selectedVertexIdx) };
@@ -1570,8 +1546,8 @@ export default function VisualScopeEditor({ sheetId, baseImagePath, initialMarku
     const obj = objects.find(o => o.id === selectedId);
     if (!obj) return;
     const mp = midpoint(obj.points[edgeIdx], obj.points[(edgeIdx + 1) % obj.points.length]);
-    updateObjects(prev => {
-      pushUndoSnapshot(editorState);
+    setObjects(prev => {
+      pushUndo(objects, layerDefs);
       return prev.map(o => {
         if (o.id !== selectedId) return o;
         const newPts = [...o.points];
@@ -1595,17 +1571,15 @@ export default function VisualScopeEditor({ sheetId, baseImagePath, initialMarku
 
     if (activeTool === "select") {
       let found = false;
-      for (let i = sortedObjects.length - 1; i >= 0; i--) {
-        const obj = sortedObjects[i];
-        if (obj.locked) continue;
+      for (let i = objects.length - 1; i >= 0; i--) {
+        const obj = objects[i];
+        if (!isLayerSelectableForObj(obj)) continue;
         if (hitTestObj(obj, pt)) {
           setSelectedId(obj.id);
           setSelectedVertexIdx(null);
           setActiveColor(obj.strokeColor);
-          if (obj.type === "text") {
-            setSelectionPanelText(obj.label || "Label");
-          }
-          startMoveDrag(obj.id, obj, pt);
+          dragStartedUndo.current = false;
+          setDrag({ kind: "move", id: obj.id, origPoints: obj.points.map(p => [...p] as MarkupPoint), startPt: pt });
           svgRef.current.setPointerCapture(e.pointerId);
           found = true;
           break;
@@ -1619,6 +1593,9 @@ export default function VisualScopeEditor({ sheetId, baseImagePath, initialMarku
     }
 
     if (isAtLimit) return;
+
+    const activeLayer = layerMap.get(activeLayerId);
+    if (activeLayer?.locked) return;
 
     if (activeTool === "polygon") {
       if (inProgressPoints.length >= 3 && distance(pt, inProgressPoints[0]) < CLOSE_POLYGON_RADIUS) {
@@ -1640,8 +1617,9 @@ export default function VisualScopeEditor({ sheetId, baseImagePath, initialMarku
     const symType = symbolTypeMap[activeTool];
     if (symType) {
       const color = DEFAULT_SYMBOL_COLORS[symType];
-      updateObjects(prev => {
-        pushUndoSnapshot(editorState);
+      setObjects(prev => {
+        pushUndo(prev, layerDefs);
+        hasUserEdited.current = true;
         return [...prev, {
           id: nanoid8(),
           type: "symbol",
@@ -1652,8 +1630,7 @@ export default function VisualScopeEditor({ sheetId, baseImagePath, initialMarku
           strokeWidth: 2,
           opacity: 1,
           createdAt: new Date().toISOString(),
-          rotation: 0,
-          zIndex: prev.length,
+          layerId: activeLayerId,
         }];
       });
       return;
@@ -1661,8 +1638,9 @@ export default function VisualScopeEditor({ sheetId, baseImagePath, initialMarku
 
     if (activeTool === "text") {
       const newId = nanoid8();
-      updateObjects(prev => {
-        pushUndoSnapshot(editorState);
+      setObjects(prev => {
+        pushUndo(prev, layerDefs);
+        hasUserEdited.current = true;
         return [...prev, {
           id: newId,
           type: "text",
@@ -1673,15 +1651,14 @@ export default function VisualScopeEditor({ sheetId, baseImagePath, initialMarku
           strokeWidth: 1,
           opacity: 1,
           createdAt: new Date().toISOString(),
-          rotation: 0,
-          zIndex: prev.length,
+          layerId: activeLayerId,
         }];
       });
       setSelectedId(newId);
       setEditingTextId(newId);
       setEditingTextValue("Label");
     }
-  }, [activeTool, sortedObjects, inProgressPoints, isAtLimit, editingTextId, commitPolygon, activeColor, editorState, startMoveDrag]);
+  }, [activeTool, objects, inProgressPoints, isAtLimit, editingTextId, commitPolygon, activeColor, pushUndo, layerDefs, activeLayerId, layerMap]);
 
   const handlePointerMove = useCallback((e: React.PointerEvent<SVGSVGElement>) => {
     if (!svgRef.current) return;
@@ -1694,11 +1671,11 @@ export default function VisualScopeEditor({ sheetId, baseImagePath, initialMarku
     if (draggingVertex) {
       if (!vertexDragStartedUndo.current) {
         vertexDragStartedUndo.current = true;
-        pushUndoSnapshot(editorState);
+        pushUndo(objects, layerDefs);
       }
       const dx = pt[0] - draggingVertex.startPt[0];
       const dy = pt[1] - draggingVertex.startPt[1];
-      updateObjects(prev => prev.map(o => {
+      setObjects(prev => prev.map(o => {
         if (o.id !== draggingVertex.id) return o;
         const newPts = draggingVertex.origPts.map((p, i) => {
           if (i !== draggingVertex.vertexIdx) return p;
@@ -1734,46 +1711,46 @@ export default function VisualScopeEditor({ sheetId, baseImagePath, initialMarku
     if (drag.kind === "move") {
       if (!dragStartedUndo.current) {
         dragStartedUndo.current = true;
-        pushUndoSnapshot(editorState);
+        pushUndo(objects, layerDefs);
       }
       const dx = pt[0] - drag.startPt[0];
       const dy = pt[1] - drag.startPt[1];
-      updateObjects(prev => prev.map(o => {
+      setObjects(prev => prev.map(o => {
         if (o.id !== drag.id) return o;
         const newPoints = drag.origPoints.map(p => [clamp(p[0] + dx), clamp(p[1] + dy)] as MarkupPoint);
         return { ...o, points: newPoints };
       }));
-    } else if (drag.kind === "vertex") {
+    } else if (drag?.kind === "vertex") {
       if (!dragStartedUndo.current) {
         dragStartedUndo.current = true;
-        pushUndoSnapshot(editorState);
+        pushUndo(objects, layerDefs);
       }
       const obj = objects.find(o => o.id === drag.id);
       if (!obj) return;
       const bb = getBbox(obj);
       const rotation = obj.rotation ?? 0;
       const localPt = rotation ? rotatePoint(pt, [bb.cx, bb.cy], -rotation) : pt;
-      updateObjects(prev => prev.map(o => {
+      setObjects(prev => prev.map(o => {
         if (o.id !== drag.id) return o;
         const newPoints = [...o.points] as MarkupPoint[];
         newPoints[drag.vertexIdx] = [clamp(localPt[0]), clamp(localPt[1])];
         return { ...o, points: newPoints };
       }));
-    } else if (drag.kind === "rotate") {
+    } else if (drag?.kind === "rotate") {
       if (!dragStartedUndo.current) {
         dragStartedUndo.current = true;
-        pushUndoSnapshot(editorState);
+        pushUndo(objects, layerDefs);
       }
       const dx = pt[0] - drag.center[0];
       const dy = pt[1] - drag.center[1];
       const currentAngle = Math.atan2(dy, dx) * (180 / Math.PI);
       const delta = currentAngle - drag.startAngle;
       const newRotation = ((drag.origRotation + delta) % 360 + 360) % 360;
-      updateObjects(prev => prev.map(o =>
+      setObjects(prev => prev.map(o =>
         o.id === drag.id ? { ...o, rotation: newRotation } : o
       ));
     }
-  }, [inProgressPoints, drag, draggingVertex, objects, editorState, activeTool, selectedId]);
+  }, [inProgressPoints, drag, draggingVertex, pushUndo, objects, layerDefs, activeTool, selectedId]);
 
   const handlePointerUp = useCallback(() => {
     setDrag(null);
@@ -1794,6 +1771,33 @@ export default function VisualScopeEditor({ sheetId, baseImagePath, initialMarku
     }
   }, [activeTool, inProgressPoints, commitPolyline, commitPolygon, selectedObj, objects, selectedId]);
 
+  const handleToggleVisible = useCallback((layerId: string) => {
+    setLayerDefs(prev => {
+      pushUndo(objects, prev);
+      hasUserEdited.current = true;
+      return prev.map(l => l.id === layerId ? { ...l, visible: !l.visible } : l);
+    });
+    if (selectedId) {
+      const obj = objects.find(o => o.id === selectedId);
+      if (obj?.layerId === layerId) setSelectedId(null);
+    }
+  }, [objects, pushUndo, selectedId, layerDefs]);
+
+  const handleToggleLocked = useCallback((layerId: string) => {
+    setLayerDefs(prev => {
+      hasUserEdited.current = true;
+      return prev.map(l => l.id === layerId ? { ...l, locked: !l.locked } : l);
+    });
+    if (selectedId) {
+      const obj = objects.find(o => o.id === selectedId);
+      if (obj?.layerId === layerId) setSelectedId(null);
+    }
+  }, [objects, selectedId]);
+
+  const treeCnt = objects.filter(o => o.type === "symbol" && o.symbolType === "tree").length;
+  const plantCnt = objects.filter(o => o.type === "symbol" && o.symbolType === "plant").length;
+  const boulderCnt = objects.filter(o => o.type === "symbol" && o.symbolType === "boulder").length;
+  const hasSymbols = treeCnt > 0 || plantCnt > 0 || boulderCnt > 0;
   const canUndo = undoStack.current.length > 0;
   const canRedo = redoStack.current.length > 0;
 
@@ -1816,6 +1820,10 @@ export default function VisualScopeEditor({ sheetId, baseImagePath, initialMarku
       </Button>
     );
   }
+
+  const visibleObjectIds = new Set(
+    layerDefs.filter(l => l.visible).map(l => l.id)
+  );
 
   return (
     <div>
@@ -1854,7 +1862,6 @@ export default function VisualScopeEditor({ sheetId, baseImagePath, initialMarku
 
         <Separator orientation="vertical" className="h-6 mx-1" />
 
-        {/* Undo / Redo buttons */}
         <Button
           size="icon"
           variant="ghost"
@@ -1876,7 +1883,6 @@ export default function VisualScopeEditor({ sheetId, baseImagePath, initialMarku
           <Redo2 className="w-4 h-4" />
         </Button>
 
-        {/* Delete button */}
         <Button
           size="sm"
           variant="ghost"
@@ -1996,7 +2002,7 @@ export default function VisualScopeEditor({ sheetId, baseImagePath, initialMarku
                 step={1}
                 value={selectedObj.strokeWidth}
                 onChange={e => handleStrokeWidthChange(Number(e.target.value))}
-                onMouseUp={() => { pushUndoSnapshot(editorState); }}
+                onMouseUp={() => { pushUndo(objects, layerDefs); }}
                 className="w-20 accent-primary"
                 data-testid="input-stroke-width"
               />
@@ -2032,7 +2038,7 @@ export default function VisualScopeEditor({ sheetId, baseImagePath, initialMarku
                 step={5}
                 value={Math.round((selectedObj.fillOpacity ?? 0.15) * 100)}
                 onChange={e => handleFillOpacityChange(Number(e.target.value) / 100)}
-                onMouseUp={() => { pushUndoSnapshot(editorState); }}
+                onMouseUp={() => { pushUndo(objects, layerDefs); }}
                 className="w-16 accent-primary"
                 data-testid="input-fill-opacity"
               />
@@ -2051,32 +2057,11 @@ export default function VisualScopeEditor({ sheetId, baseImagePath, initialMarku
                 step={5}
                 value={Math.round((selectedObj.opacity ?? 1) * 100)}
                 onChange={e => handleOpacityChange(Number(e.target.value) / 100)}
-                onMouseUp={() => { pushUndoSnapshot(editorState); }}
+                onMouseUp={() => { pushUndo(objects, layerDefs); }}
                 className="w-16 accent-primary"
                 data-testid="input-opacity"
               />
               <span className="text-xs tabular-nums w-7 text-muted-foreground">{Math.round((selectedObj.opacity ?? 1) * 100)}%</span>
-            </div>
-          )}
-          {selectedObj.type === "text" && (
-            <div className="flex items-center gap-1.5">
-              <span className="text-xs text-muted-foreground">Label</span>
-              <input
-                type="text"
-                value={selectionPanelText}
-                onChange={e => setSelectionPanelText(e.target.value)}
-                onBlur={commitSelectionPanelText}
-                onKeyDown={e => {
-                  if (e.key === "Enter") {
-                    commitSelectionPanelText();
-                    e.currentTarget.blur();
-                  }
-                  e.stopPropagation();
-                }}
-                className="text-xs px-2 py-1 border border-border rounded-md bg-background focus:outline-none focus:ring-1 focus:ring-ring"
-                style={{ minWidth: "80px" }}
-                data-testid="input-selection-label"
-              />
             </div>
           )}
 
@@ -2092,7 +2077,7 @@ export default function VisualScopeEditor({ sheetId, baseImagePath, initialMarku
                   setObjects(prev => prev.map(o => o.id === selectedId ? { ...o, label } : o));
                   hasUserEdited.current = true;
                 }}
-                onBlur={() => { pushUndoSnapshot(editorState); }}
+                onBlur={() => { pushUndo(objects, layerDefs); }}
                 onKeyDown={e => e.stopPropagation()}
                 className="text-xs px-2 py-1 border border-border rounded-md bg-background focus:outline-none focus:ring-1 focus:ring-ring"
                 style={{ minWidth: "80px" }}
@@ -2310,35 +2295,16 @@ export default function VisualScopeEditor({ sheetId, baseImagePath, initialMarku
         </div>
       )}
 
-      {/* Editor canvas */}
-      <div
-        ref={containerRef}
-        style={{
-          position: "relative",
-          lineHeight: 0,
-          aspectRatio: "1 / 1",
-          maxHeight: "calc(100vh - 340px)",
-          maxWidth: "calc(100vh - 340px)",
-          width: "100%",
-        }}
-      >
-        {/* Background layer: base image — locked, non-interactive */}
-        <div
-          style={{
-            position: "absolute",
-            inset: 0,
-            pointerEvents: "none",
-            zIndex: 0,
-          }}
-          data-testid="layer-background"
-          aria-label="Background layer (locked)"
-        >
-          <img
-            src={baseImagePath}
-            alt="Base image"
-            style={{ width: "100%", height: "100%", display: "block" }}
-            data-testid="img-base-image"
-            draggable={false}
+      {/* Main editor area: layers | canvas | inspector */}
+      <div className="flex" style={{ minHeight: "300px" }}>
+        {/* Layers Panel */}
+        <div className="border-r shrink-0" style={{ width: "140px" }}>
+          <LayersPanel
+            layers={layerDefs}
+            activeLayerId={activeLayerId}
+            onSetActive={setActiveLayerId}
+            onToggleVisible={handleToggleVisible}
+            onToggleLocked={handleToggleLocked}
           />
         </div>
 
@@ -2362,30 +2328,33 @@ export default function VisualScopeEditor({ sheetId, baseImagePath, initialMarku
           onDoubleClick={handleDoubleClick}
           data-testid="svg-annotation-layer"
         >
-          {sortedObjects.map(obj => (
-            <MarkupShape
-              key={obj.id}
-              obj={obj}
-              selected={obj.id === selectedId}
-              selectedVertexIdx={obj.id === selectedId ? selectedVertexIdx : null}
-              hoveredMidEdge={obj.id === selectedId ? hoveredMidEdge : null}
-              onVertexPointerDown={handleVertexPointerDown}
-              onMidpointClick={handleMidpointClick}
-              onVertexClick={setSelectedVertexIdx}
-            />
-          ))}
+          {sortedObjects
+            .filter(obj => visibleObjectIds.has(obj.layerId ?? "areas"))
+            .map(obj => (
+              <MarkupShape
+                key={obj.id}
+                obj={obj}
+                selected={obj.id === selectedId}
+                selectedVertexIdx={obj.id === selectedId ? selectedVertexIdx : null}
+                hoveredMidEdge={obj.id === selectedId ? hoveredMidEdge : null}
+                onVertexPointerDown={handleVertexPointerDown}
+                onMidpointClick={handleMidpointClick}
+                onVertexClick={setSelectedVertexIdx}
+              />
+            ))}
 
-          {/* Selection handles (rendered on top) */}
-          {selectedObj && activeTool === "select" && (
+          {selectedObj && isLayerSelectableForObj(selectedObj) && (
             <SelectionHandles
               obj={selectedObj}
-              onStartVertexDrag={(idx, startPt) => {
-                const origPt = selectedObj.points[idx];
-                startVertexDrag(selectedObj.id, idx, startPt, origPt);
+              onStartVertexDrag={(idx, pt) => {
+                setDrag({ kind: "vertex", id: selectedObj.id, vertexIdx: idx, startPt: pt, origPt: selectedObj.points[idx] });
               }}
-              onStartRotate={startPt => {
+              onStartRotate={(pt) => {
                 const bb = getBbox(selectedObj);
-                startRotateDrag(selectedObj.id, [bb.cx, bb.cy], startPt, selectedObj.rotation ?? 0);
+                const dx = pt[0] - bb.cx;
+                const dy = pt[1] - bb.cy;
+                const angle = Math.atan2(dy, dx) * (180 / Math.PI);
+                setDrag({ kind: "rotate", id: selectedObj.id, center: [bb.cx, bb.cy], startAngle: angle, origRotation: selectedObj.rotation ?? 0 });
               }}
             />
           )}
@@ -2395,24 +2364,8 @@ export default function VisualScopeEditor({ sheetId, baseImagePath, initialMarku
           )}
         </svg>
 
-        {editingTextId && (() => {
-          const obj = objects.find(o => o.id === editingTextId);
-          if (!obj) return null;
-          return (
-            <TextEditOverlay
-              obj={obj}
-              svgRef={svgRef as React.RefObject<SVGSVGElement>}
-              containerRef={containerRef as React.RefObject<HTMLDivElement>}
-              value={editingTextValue}
-              onChange={setEditingTextValue}
-              onCommit={commitTextEdit}
-              onCancel={cancelTextEdit}
-            />
-          );
-        })()}
-
         {/* Legend overlay */}
-        {legendState.enabled && (allLegendEntries.length > 0 || true) && (
+        {legendState.enabled && (allLegendEntries.length > 0) && (
           <LegendPanel
             entries={visibleLegendEntries}
             allEntries={allLegendEntries}

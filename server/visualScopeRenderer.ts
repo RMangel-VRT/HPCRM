@@ -1,7 +1,7 @@
 import { createCanvas, loadImage } from "canvas";
 import type { CanvasRenderingContext2D as NodeCanvasCtx, Canvas as NodeCanvas } from "canvas";
 import { ObjectStorageService } from "./objectStorage";
-import type { VisualScopeSheet, MarkupObject, MarkupPoint, SymbolType, LegendState, LegendEntry } from "@shared/schema";
+import type { VisualScopeSheet, MarkupObject, MarkupPoint, SymbolType, LegendState, LegendEntry, LayerDefinition } from "@shared/schema";
 import { flattenMarkupObjects } from "@shared/schema";
 import { detectLegendEntries, applyLegendState, DEFAULT_LEGEND_STATE } from "@shared/legendUtils";
 import { TEXTURE_SCALE_SIZES, getTextureDef } from "@shared/textures";
@@ -521,8 +521,24 @@ export async function renderVisualScope(
   }
 
   const height = Math.round(width * baseImg.height / baseImg.width);
-  const objects = flattenMarkupObjects(sheet.markupData);
+  const layerDefs = (sheet.layerDefs as LayerDefinition[] | null) ?? null;
   const legendState: LegendState = (sheet.legendState as LegendState | null) ?? DEFAULT_LEGEND_STATE;
+  const hiddenLayerIds = new Set<string>();
+  if (layerDefs) {
+    for (const l of layerDefs) {
+      if (!l.visible) hiddenLayerIds.add(l.id);
+    }
+  }
+
+  const rawObjects = flattenMarkupObjects(sheet.markupData);
+  const objects = rawObjects.filter(obj => {
+    const layerId = obj.layerId ?? (
+      obj.type === "polygon" ? "areas" :
+      obj.type === "polyline" ? "lines" :
+      obj.type === "symbol" ? "symbols" : "text-callouts"
+    );
+    return !hiddenLayerIds.has(layerId);
+  });
 
   if (type === "base") {
     const canvas = createCanvas(width, height);
