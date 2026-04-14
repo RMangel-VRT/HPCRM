@@ -11,28 +11,36 @@ const MAX_IMAGE_DIM = 20000; // pixels
 function px(n: number, width: number) { return n * width; }
 function py(n: number, height: number) { return n * height; }
 
+const DEFAULT_SYMBOL_COLORS: Record<SymbolType, string> = {
+  tree: "#2d6a2d",
+  plant: "#22c55e",
+  boulder: "#9ca3af",
+};
+
 function drawSymbol(
   ctx: NodeCanvasCtx,
   symbolType: SymbolType,
   cx: number,
   cy: number,
-  s: number
+  s: number,
+  color?: string
 ) {
+  const fill = color || DEFAULT_SYMBOL_COLORS[symbolType];
   ctx.beginPath();
   if (symbolType === "tree") {
     ctx.moveTo(cx, cy - s * 0.5);
     ctx.lineTo(cx + s * 0.5, cy + s * 0.5);
     ctx.lineTo(cx - s * 0.5, cy + s * 0.5);
     ctx.closePath();
-    ctx.fillStyle = "#2d6a2d";
+    ctx.fillStyle = fill;
     ctx.fill();
   } else if (symbolType === "plant") {
     ctx.arc(cx, cy, s * 0.45, 0, Math.PI * 2);
-    ctx.fillStyle = "#22c55e";
+    ctx.fillStyle = fill;
     ctx.fill();
   } else if (symbolType === "boulder") {
     ctx.ellipse(cx, cy, s * 0.5, s * 0.35, 0, 0, Math.PI * 2);
-    ctx.fillStyle = "#9ca3af";
+    ctx.fillStyle = fill;
     ctx.fill();
   }
 }
@@ -101,14 +109,14 @@ function drawMarkup(
       const cx = px(points[0][0], width);
       const cy = py(points[0][1], height);
       const s = width * 0.03;
-      drawSymbol(ctx, obj.symbolType, cx, cy, s);
+      drawSymbol(ctx, obj.symbolType, cx, cy, s, obj.strokeColor || undefined);
 
     } else if (obj.type === "text") {
       const textX = px(points[0][0], width);
       const textY = py(points[0][1], height);
       const fontSize = Math.round(width * 0.012);
       ctx.font = `bold ${fontSize}px Arial, Helvetica, sans-serif`;
-      ctx.fillStyle = obj.fillColor || "#1a4d1a";
+      ctx.fillStyle = obj.strokeColor || "#1a4d1a";
       ctx.shadowColor = "rgba(255,255,255,0.85)";
       ctx.shadowBlur = Math.round(width * 0.003);
       ctx.fillText(obj.label ?? "", textX, textY);

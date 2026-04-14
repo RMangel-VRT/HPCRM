@@ -14,6 +14,7 @@ import {
   Check,
   Loader2,
   Info,
+  Undo2,
 } from "lucide-react";
 import { apiRequest } from "@/lib/queryClient";
 import type { MarkupObject, MarkupPoint, SymbolType } from "@shared/schema";
@@ -26,6 +27,14 @@ interface VisualScopeEditorProps {
   initialMarkup: MarkupObject[];
   onSaved?: () => void;
 }
+
+const MAX_UNDO_STEPS = 20;
+
+const DEFAULT_SYMBOL_COLORS: Record<SymbolType, string> = {
+  tree: "#2d6a2d",
+  plant: "#22c55e",
+  boulder: "#9ca3af",
+};
 
 function clamp(v: number): number {
   return Math.max(0, Math.min(1, v));
@@ -76,25 +85,32 @@ function nanoid8(): string {
   return Math.random().toString(36).slice(2, 10);
 }
 
-function SymbolSvg({ type, size = 16 }: { type: SymbolType; size?: number }) {
-  const half = size / 2;
+function hexToRgba(hex: string, alpha: number): string {
+  const r = parseInt(hex.slice(1, 3), 16);
+  const g = parseInt(hex.slice(3, 5), 16);
+  const b = parseInt(hex.slice(5, 7), 16);
+  return `rgba(${r},${g},${b},${alpha})`;
+}
+
+function SymbolSvg({ type, color, size = 16 }: { type: SymbolType; color?: string; size?: number }) {
+  const fill = color || DEFAULT_SYMBOL_COLORS[type];
   if (type === "tree") {
     return (
       <svg width={size} height={size} viewBox="-1 -1 2 2">
-        <polygon points="0,-0.9 0.85,0.7 -0.85,0.7" fill="#2d6a2d" />
+        <polygon points="0,-0.9 0.85,0.7 -0.85,0.7" fill={fill} />
       </svg>
     );
   }
   if (type === "plant") {
     return (
       <svg width={size} height={size} viewBox="-1 -1 2 2">
-        <circle cx="0" cy="0" r="0.85" fill="#22c55e" />
+        <circle cx="0" cy="0" r="0.85" fill={fill} />
       </svg>
     );
   }
   return (
     <svg width={size} height={size} viewBox="-1 -1 2 2">
-      <ellipse cx="0" cy="0" rx="0.9" ry="0.6" fill="#9ca3af" />
+      <ellipse cx="0" cy="0" rx="0.9" ry="0.6" fill={fill} />
     </svg>
   );
 }
@@ -208,13 +224,14 @@ function MarkupShape({ obj, selected }: MarkupShapeProps) {
   if (obj.type === "symbol") {
     const [x, y] = obj.points[0];
     const scale = 0.03;
+    const color = obj.strokeColor;
     let inner: React.ReactNode = null;
     if (obj.symbolType === "tree") {
-      inner = <polygon points="0,-0.5 0.5,0.5 -0.5,0.5" fill="#2d6a2d" />;
+      inner = <polygon points="0,-0.5 0.5,0.5 -0.5,0.5" fill={color} />;
     } else if (obj.symbolType === "plant") {
-      inner = <circle cx="0" cy="0" r="0.45" fill="#22c55e" />;
+      inner = <circle cx="0" cy="0" r="0.45" fill={color} />;
     } else {
-      inner = <ellipse cx="0" cy="0" rx="0.5" ry="0.35" fill="#9ca3af" />;
+      inner = <ellipse cx="0" cy="0" rx="0.5" ry="0.35" fill={color} />;
     }
     return (
       <g>
@@ -264,9 +281,10 @@ interface InProgressShapeProps {
   points: MarkupPoint[];
   preview: MarkupPoint | null;
   tool: ActiveTool;
+  color: string;
 }
 
-function InProgressShape({ points, preview, tool }: InProgressShapeProps) {
+function InProgressShape({ points, preview, tool, color }: InProgressShapeProps) {
   const all = preview ? [...points, preview] : points;
   if (all.length < 1) return null;
 
@@ -275,7 +293,7 @@ function InProgressShape({ points, preview, tool }: InProgressShapeProps) {
       {all.length >= 2 && (
         <polyline
           points={toSvgPoints(all)}
-          stroke="#1a4d1a"
+          stroke={color}
           strokeWidth={0.002}
           strokeDasharray="0.005,0.003"
           fill="none"
@@ -288,7 +306,7 @@ function InProgressShape({ points, preview, tool }: InProgressShapeProps) {
           y1={preview[1]}
           x2={points[0][0]}
           y2={points[0][1]}
-          stroke="#1a4d1a"
+          stroke={color}
           strokeWidth={0.002}
           strokeDasharray="0.005,0.003"
         />
@@ -299,7 +317,7 @@ function InProgressShape({ points, preview, tool }: InProgressShapeProps) {
           cy={points[0][1]}
           r={0.012}
           fill="none"
-          stroke="#1a4d1a"
+          stroke={color}
           strokeWidth={0.002}
         />
       )}
@@ -312,19 +330,64 @@ export default function VisualScopeEditor({ sheetId, baseImagePath, initialMarku
   const [objects, setObjects] = useState<MarkupObject[]>(initialMarkup);
   const [activeTool, setActiveTool] = useState<ActiveTool>("select");
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [activeColor, setActiveColor] = useState<string>("#1a4d1a");
   const [inProgressPoints, setInProgressPoints] = useState<MarkupPoint[]>([]);
   const [previewPoint, setPreviewPoint] = useState<MarkupPoint | null>(null);
   const [dragging, setDragging] = useState<{ id: string; startX: number; startY: number; origX: number; origY: number } | null>(null);
   const [saveStatus, setSaveStatus] = useState<"saved" | "saving" | "unsaved">("saved");
   const [editingTextId, setEditingTextId] = useState<string | null>(null);
   const [editingTextValue, setEditingTextValue] = useState("");
+  const [selectionPanelText, setSelectionPanelText] = useState("");
 
   const hasUserEdited = useRef(false);
+  const undoStack = useRef<MarkupObject[][]>([]);
   const svgRef = useRef<SVGSVGElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
+  const dragPushedUndo = useRef(false);
 
   const totalPoints = objects.reduce((sum, o) => sum + o.points.length, 0);
   const isAtLimit = objects.length >= 200 || totalPoints >= 5000;
+
+  const selectedObj = selectedId ? objects.find(o => o.id === selectedId) ?? null : null;
+
+  // Sync selection panel text when selection changes or the selected object's label changes
+  useEffect(() => {
+    if (selectedObj?.type === "text") {
+      setSelectionPanelText(selectedObj.label || "Label");
+    }
+  }, [selectedId, selectedObj?.label]);
+
+  // Reset editor state (including undo history) when the sheet or base image changes
+  useEffect(() => {
+    setObjects(initialMarkup);
+    setActiveTool("select");
+    setSelectedId(null);
+    setActiveColor("#1a4d1a");
+    setInProgressPoints([]);
+    setPreviewPoint(null);
+    setDragging(null);
+    setEditingTextId(null);
+    setEditingTextValue("");
+    setSelectionPanelText("");
+    undoStack.current = [];
+    hasUserEdited.current = false;
+    dragPushedUndo.current = false;
+  }, [sheetId, baseImagePath]);
+
+  // Push current objects onto the undo stack (max 20)
+  const pushUndo = useCallback((current: MarkupObject[]) => {
+    undoStack.current = [...undoStack.current.slice(-MAX_UNDO_STEPS + 1), current];
+  }, []);
+
+  // Undo last action
+  const undo = useCallback(() => {
+    if (undoStack.current.length === 0) return;
+    const prev = undoStack.current[undoStack.current.length - 1];
+    undoStack.current = undoStack.current.slice(0, -1);
+    hasUserEdited.current = true;
+    setObjects(prev);
+    setSelectedId(null);
+  }, []);
 
   useEffect(() => {
     if (!hasUserEdited.current) return;
@@ -344,15 +407,25 @@ export default function VisualScopeEditor({ sheetId, baseImagePath, initialMarku
 
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
+      const active = document.activeElement;
+      const inTextField = active instanceof HTMLInputElement || active instanceof HTMLTextAreaElement || (active instanceof HTMLElement && active.isContentEditable);
+      if (e.key === "z" && (e.ctrlKey || e.metaKey) && !e.shiftKey && !inTextField) {
+        e.preventDefault();
+        undo();
+        return;
+      }
       if ((e.key === "Delete" || e.key === "Backspace") && selectedId && document.activeElement === document.body) {
-        hasUserEdited.current = true;
-        setObjects(prev => prev.filter(o => o.id !== selectedId));
+        setObjects(prev => {
+          pushUndo(prev);
+          hasUserEdited.current = true;
+          return prev.filter(o => o.id !== selectedId);
+        });
         setSelectedId(null);
       }
     };
     window.addEventListener("keydown", handler);
     return () => window.removeEventListener("keydown", handler);
-  }, [selectedId]);
+  }, [selectedId, undo, pushUndo]);
 
   const changeTool = useCallback((tool: ActiveTool) => {
     setActiveTool(tool);
@@ -363,62 +436,110 @@ export default function VisualScopeEditor({ sheetId, baseImagePath, initialMarku
 
   const deleteSelected = useCallback(() => {
     if (!selectedId) return;
-    hasUserEdited.current = true;
-    setObjects(prev => prev.filter(o => o.id !== selectedId));
+    setObjects(prev => {
+      pushUndo(prev);
+      hasUserEdited.current = true;
+      return prev.filter(o => o.id !== selectedId);
+    });
     setSelectedId(null);
-  }, [selectedId]);
+  }, [selectedId, pushUndo]);
+
+  // Change the color of selected item or update activeColor
+  const handleColorChange = useCallback((color: string) => {
+    setActiveColor(color);
+    if (!selectedId) return;
+    setObjects(prev => {
+      pushUndo(prev);
+      hasUserEdited.current = true;
+      return prev.map(o => {
+        if (o.id !== selectedId) return o;
+        if (o.type === "polygon") {
+          return { ...o, strokeColor: color, fillColor: hexToRgba(color, 0.15) };
+        }
+        return { ...o, strokeColor: color, fillColor: color };
+      });
+    });
+  }, [selectedId, pushUndo]);
+
+  // Get the "current color" to show in color picker
+  const currentColorForPicker = selectedObj ? selectedObj.strokeColor : activeColor;
 
   const commitPolyline = useCallback((pts: MarkupPoint[]) => {
     if (pts.length < 2) return;
-    hasUserEdited.current = true;
-    setObjects(prev => [...prev, {
-      id: nanoid8(),
-      type: "polyline",
-      points: pts,
-      strokeColor: "#1a4d1a",
-      fillColor: "none",
-      strokeWidth: 2,
-      createdAt: new Date().toISOString(),
-    }]);
+    setObjects(prev => {
+      pushUndo(prev);
+      hasUserEdited.current = true;
+      return [...prev, {
+        id: nanoid8(),
+        type: "polyline",
+        points: pts,
+        strokeColor: activeColor,
+        fillColor: "none",
+        strokeWidth: 2,
+        createdAt: new Date().toISOString(),
+      }];
+    });
     setInProgressPoints([]);
     setPreviewPoint(null);
-  }, []);
+  }, [activeColor, pushUndo]);
 
   const commitPolygon = useCallback((pts: MarkupPoint[]) => {
     if (pts.length < 3) return;
-    hasUserEdited.current = true;
-    setObjects(prev => [...prev, {
-      id: nanoid8(),
-      type: "polygon",
-      points: pts,
-      strokeColor: "#1a4d1a",
-      fillColor: "rgba(26,77,26,0.15)",
-      strokeWidth: 2,
-      createdAt: new Date().toISOString(),
-    }]);
+    setObjects(prev => {
+      pushUndo(prev);
+      hasUserEdited.current = true;
+      return [...prev, {
+        id: nanoid8(),
+        type: "polygon",
+        points: pts,
+        strokeColor: activeColor,
+        fillColor: hexToRgba(activeColor, 0.15),
+        strokeWidth: 2,
+        createdAt: new Date().toISOString(),
+      }];
+    });
     setInProgressPoints([]);
     setPreviewPoint(null);
-  }, []);
+  }, [activeColor, pushUndo]);
 
   const commitTextEdit = useCallback(() => {
     if (!editingTextId) return;
     const label = editingTextValue.trim();
-    hasUserEdited.current = true;
-    setObjects(prev => prev.map(o => o.id === editingTextId ? { ...o, label: label || "Label" } : o));
+    setObjects(prev => {
+      pushUndo(prev);
+      hasUserEdited.current = true;
+      return prev.map(o => o.id === editingTextId ? { ...o, label: label || "Label" } : o);
+    });
     setEditingTextId(null);
     setEditingTextValue("");
-  }, [editingTextId, editingTextValue]);
+  }, [editingTextId, editingTextValue, pushUndo]);
 
   const cancelTextEdit = useCallback(() => {
     if (!editingTextId) return;
     const wasNew = objects.find(o => o.id === editingTextId && o.label === "Label");
     if (wasNew) {
-      hasUserEdited.current = true;
-      setObjects(prev => prev.filter(o => o.id !== editingTextId));
+      setObjects(prev => {
+        pushUndo(prev);
+        hasUserEdited.current = true;
+        return prev.filter(o => o.id !== editingTextId);
+      });
     }
     setEditingTextId(null);
     setEditingTextValue("");
-  }, [editingTextId, objects]);
+  }, [editingTextId, objects, pushUndo]);
+
+  // Commit text label change from selection panel
+  const commitSelectionPanelText = useCallback(() => {
+    if (!selectedId) return;
+    const label = selectionPanelText.trim() || "Label";
+    setObjects(prev => {
+      const current = prev.find(o => o.id === selectedId);
+      if (current && current.label === label) return prev;
+      pushUndo(prev);
+      hasUserEdited.current = true;
+      return prev.map(o => o.id === selectedId ? { ...o, label } : o);
+    });
+  }, [selectedId, selectionPanelText, pushUndo]);
 
   const handlePointerDown = useCallback((e: React.PointerEvent<SVGSVGElement>) => {
     if (!svgRef.current) return;
@@ -432,9 +553,15 @@ export default function VisualScopeEditor({ sheetId, baseImagePath, initialMarku
       let found = false;
       for (let i = objects.length - 1; i >= 0; i--) {
         if (hitTest(objects[i], pt)) {
-          setSelectedId(objects[i].id);
-          const orig = objects[i].points[0];
-          setDragging({ id: objects[i].id, startX: pt[0], startY: pt[1], origX: orig[0], origY: orig[1] });
+          const obj = objects[i];
+          setSelectedId(obj.id);
+          setActiveColor(obj.strokeColor);
+          if (obj.type === "text") {
+            setSelectionPanelText(obj.label || "Label");
+          }
+          const orig = obj.points[0];
+          dragPushedUndo.current = false;
+          setDragging({ id: obj.id, startX: pt[0], startY: pt[1], origX: orig[0], origY: orig[1] });
           svgRef.current.setPointerCapture(e.pointerId);
           found = true;
           break;
@@ -465,39 +592,45 @@ export default function VisualScopeEditor({ sheetId, baseImagePath, initialMarku
     const symbolTypeMap: Record<string, SymbolType | undefined> = { tree: "tree", plant: "plant", boulder: "boulder" };
     const symType = symbolTypeMap[activeTool];
     if (symType) {
-      const colorMap: Record<SymbolType, string> = { tree: "#2d6a2d", plant: "#22c55e", boulder: "#9ca3af" };
-      hasUserEdited.current = true;
-      setObjects(prev => [...prev, {
-        id: nanoid8(),
-        type: "symbol",
-        symbolType: symType,
-        points: [pt],
-        strokeColor: colorMap[symType],
-        fillColor: colorMap[symType],
-        strokeWidth: 2,
-        createdAt: new Date().toISOString(),
-      }]);
+      const color = DEFAULT_SYMBOL_COLORS[symType];
+      setObjects(prev => {
+        pushUndo(prev);
+        hasUserEdited.current = true;
+        return [...prev, {
+          id: nanoid8(),
+          type: "symbol",
+          symbolType: symType,
+          points: [pt],
+          strokeColor: color,
+          fillColor: color,
+          strokeWidth: 2,
+          createdAt: new Date().toISOString(),
+        }];
+      });
       return;
     }
 
     if (activeTool === "text") {
-      hasUserEdited.current = true;
       const newId = nanoid8();
-      setObjects(prev => [...prev, {
-        id: newId,
-        type: "text",
-        points: [pt],
-        label: "Label",
-        strokeColor: "#1a4d1a",
-        fillColor: "none",
-        strokeWidth: 1,
-        createdAt: new Date().toISOString(),
-      }]);
+      setObjects(prev => {
+        pushUndo(prev);
+        hasUserEdited.current = true;
+        return [...prev, {
+          id: newId,
+          type: "text",
+          points: [pt],
+          label: "Label",
+          strokeColor: activeColor,
+          fillColor: "none",
+          strokeWidth: 1,
+          createdAt: new Date().toISOString(),
+        }];
+      });
       setSelectedId(newId);
       setEditingTextId(newId);
       setEditingTextValue("Label");
     }
-  }, [activeTool, objects, inProgressPoints, isAtLimit, editingTextId, commitPolygon]);
+  }, [activeTool, objects, inProgressPoints, isAtLimit, editingTextId, commitPolygon, activeColor, pushUndo]);
 
   const handlePointerMove = useCallback((e: React.PointerEvent<SVGSVGElement>) => {
     if (!svgRef.current) return;
@@ -508,6 +641,12 @@ export default function VisualScopeEditor({ sheetId, baseImagePath, initialMarku
     }
 
     if (dragging) {
+      const draggingObj = objects.find(o => o.id === dragging.id);
+      const isMovable = draggingObj?.type === "symbol" || draggingObj?.type === "text";
+      if (!dragPushedUndo.current && isMovable) {
+        dragPushedUndo.current = true;
+        pushUndo(objects);
+      }
       const dx = pt[0] - dragging.startX;
       const dy = pt[1] - dragging.startY;
       const newX = clamp(dragging.origX + dx);
@@ -519,10 +658,11 @@ export default function VisualScopeEditor({ sheetId, baseImagePath, initialMarku
         return { ...o, points: [[newX, newY]] };
       }));
     }
-  }, [inProgressPoints, dragging]);
+  }, [inProgressPoints, dragging, pushUndo, objects]);
 
   const handlePointerUp = useCallback(() => {
     setDragging(null);
+    dragPushedUndo.current = false;
   }, []);
 
   const handleDoubleClick = useCallback((e: React.MouseEvent<SVGSVGElement>) => {
@@ -538,6 +678,7 @@ export default function VisualScopeEditor({ sheetId, baseImagePath, initialMarku
   const plantCnt = objects.filter(o => o.type === "symbol" && o.symbolType === "plant").length;
   const boulderCnt = objects.filter(o => o.type === "symbol" && o.symbolType === "boulder").length;
   const hasSymbols = treeCnt > 0 || plantCnt > 0 || boulderCnt > 0;
+  const canUndo = undoStack.current.length > 0;
 
   function ToolBtn({ tool, icon: Icon, label }: { tool: ActiveTool; icon: React.ElementType; label: string }) {
     const isActive = activeTool === tool;
@@ -569,15 +710,57 @@ export default function VisualScopeEditor({ sheetId, baseImagePath, initialMarku
         <ToolBtn tool="boulder" icon={Circle} label="Boulder" />
         <ToolBtn tool="text" icon={Type} label="Text label" />
         <Separator orientation="vertical" className="h-6 mx-1" />
+
+        {/* Color picker */}
+        <div className="relative flex items-center" title="Draw color — applies to new shapes and selected items">
+          <label
+            htmlFor="color-picker"
+            className="flex items-center cursor-pointer"
+            aria-label="Color picker"
+          >
+            <span
+              className="w-5 h-5 rounded-sm border border-border"
+              style={{ background: currentColorForPicker }}
+              data-testid="swatch-active-color"
+            />
+          </label>
+          <input
+            id="color-picker"
+            type="color"
+            value={currentColorForPicker}
+            onChange={e => handleColorChange(e.target.value)}
+            className="absolute opacity-0 w-5 h-5 cursor-pointer"
+            style={{ left: 0, top: 0 }}
+            data-testid="input-color-picker"
+            title="Pick color"
+          />
+        </div>
+
+        <Separator orientation="vertical" className="h-6 mx-1" />
+
+        {/* Undo button */}
         <Button
           size="icon"
+          variant="ghost"
+          disabled={!canUndo}
+          onClick={undo}
+          data-testid="button-undo"
+          title="Undo (Ctrl+Z)"
+        >
+          <Undo2 className="w-4 h-4" />
+        </Button>
+
+        {/* Delete button */}
+        <Button
+          size="sm"
           variant="ghost"
           disabled={!selectedId}
           onClick={deleteSelected}
           data-testid="button-delete-selected"
           title="Delete selected (Delete key)"
         >
-          <Trash2 className="w-4 h-4" />
+          <Trash2 className="w-4 h-4 mr-1" />
+          Delete
         </Button>
 
         {inProgressPoints.length > 0 && (
@@ -595,6 +778,72 @@ export default function VisualScopeEditor({ sheetId, baseImagePath, initialMarku
         </div>
       </div>
 
+      {/* Selection edit panel */}
+      {selectedObj && (
+        <div
+          className="flex items-center gap-2 px-3 py-2 border-b bg-muted/40 flex-wrap"
+          data-testid="panel-selection-edit"
+        >
+          <span className="text-xs font-medium text-muted-foreground shrink-0">Selected:</span>
+
+          {/* Color picker for selected item */}
+          <div className="relative flex items-center gap-1.5" title="Change item color">
+            <span className="text-xs text-muted-foreground">Color</span>
+            <label htmlFor="selection-color-picker" className="flex items-center cursor-pointer">
+              <span
+                className="w-5 h-5 rounded-sm border border-border"
+                style={{ background: selectedObj.strokeColor }}
+                data-testid="swatch-selection-color"
+              />
+            </label>
+            <input
+              id="selection-color-picker"
+              type="color"
+              value={selectedObj.strokeColor}
+              onChange={e => handleColorChange(e.target.value)}
+              className="absolute opacity-0 w-5 h-5 cursor-pointer"
+              style={{ left: "2.5rem", top: 0 }}
+              data-testid="input-selection-color-picker"
+            />
+          </div>
+
+          {/* Text edit field for text items */}
+          {selectedObj.type === "text" && (
+            <div className="flex items-center gap-1.5">
+              <span className="text-xs text-muted-foreground">Label</span>
+              <input
+                type="text"
+                value={selectionPanelText}
+                onChange={e => setSelectionPanelText(e.target.value)}
+                onBlur={commitSelectionPanelText}
+                onKeyDown={e => {
+                  if (e.key === "Enter") {
+                    commitSelectionPanelText();
+                    e.currentTarget.blur();
+                  }
+                  e.stopPropagation();
+                }}
+                className="text-xs px-2 py-1 border border-border rounded-md bg-background focus:outline-none focus:ring-1 focus:ring-ring"
+                style={{ minWidth: "80px" }}
+                data-testid="input-selection-label"
+              />
+            </div>
+          )}
+
+          {/* Delete button in selection panel */}
+          <Button
+            size="sm"
+            variant="ghost"
+            onClick={deleteSelected}
+            className="text-destructive hover:text-destructive"
+            data-testid="button-selection-delete"
+          >
+            <Trash2 className="w-3 h-3 mr-1" />
+            Delete
+          </Button>
+        </div>
+      )}
+
       {/* Complexity warning */}
       {isAtLimit && (
         <div className="flex items-center gap-2 px-3 py-2 text-xs bg-amber-50 dark:bg-amber-950 text-amber-700 dark:text-amber-300 border-b" data-testid="banner-markup-limit">
@@ -603,7 +852,7 @@ export default function VisualScopeEditor({ sheetId, baseImagePath, initialMarku
         </div>
       )}
 
-      {/* Editor canvas — constrained to viewport height so the user never has to scroll to reach the toolbar */}
+      {/* Editor canvas */}
       <div
         ref={containerRef}
         style={{
@@ -643,7 +892,7 @@ export default function VisualScopeEditor({ sheetId, baseImagePath, initialMarku
             <MarkupShape key={obj.id} obj={obj} selected={obj.id === selectedId} />
           ))}
           {inProgressPoints.length > 0 && (
-            <InProgressShape points={inProgressPoints} preview={previewPoint} tool={activeTool} />
+            <InProgressShape points={inProgressPoints} preview={previewPoint} tool={activeTool} color={activeColor} />
           )}
         </svg>
 
