@@ -36,17 +36,21 @@ function MapCapture({
   onMapReady,
   onWebGLError,
   onBearingChange,
+  initialCenter,
 }: {
   token: string;
   mapRef: React.RefObject<mapboxgl.Map | null>;
   onMapReady: (ready: boolean) => void;
   onWebGLError?: () => void;
   onBearingChange?: (bearing: number) => void;
+  initialCenter?: { lat: number; lng: number; zoom: number; bearing: number } | null;
 }) {
   const containerRef = useRef<HTMLDivElement>(null);
   const [webglError, setWebglError] = useState<string | null>(null);
   const wrapperRef = useRef<HTMLDivElement>(null);
   const outerRef = useRef<HTMLDivElement>(null);
+  const initialCenterRef = useRef(initialCenter);
+  useEffect(() => { initialCenterRef.current = initialCenter; }, [initialCenter]);
 
   useEffect(() => {
     if (!containerRef.current) return;
@@ -68,6 +72,14 @@ function MapCapture({
       });
       map.addControl(new mapboxgl.NavigationControl(), "top-right");
       map.on("load", () => {
+        const center = initialCenterRef.current;
+        if (center) {
+          map.flyTo({
+            center: [center.lng, center.lat],
+            zoom: center.zoom,
+            bearing: center.bearing,
+          });
+        }
         onMapReady(true);
       });
       map.on("rotate", () => {
@@ -98,8 +110,9 @@ function MapCapture({
     const scale = parentWidth / MAP_RENDER_WIDTH;
     wrapper.style.transform = `scale(${scale})`;
     wrapper.style.transformOrigin = "top left";
-    wrapper.style.height = `${MAP_RENDER_HEIGHT * scale}px`;
+    wrapper.style.height = `${MAP_RENDER_HEIGHT}px`;
     wrapper.style.width = `${MAP_RENDER_WIDTH}px`;
+    outer.style.height = `${MAP_RENDER_HEIGHT * scale}px`;
   });
 
   if (webglError) {
@@ -198,12 +211,14 @@ function CaptureUI({
   token,
   sheetId,
   captureParams,
+  customerAddress,
   onFile,
   onHighResSuccess,
 }: {
   token: string | null;
   sheetId: string;
   captureParams?: CaptureParams | null;
+  customerAddress?: { street?: string | null; city?: string | null; state?: string | null } | null;
   onFile: (file: File) => void;
   onHighResSuccess: () => void;
 }) {
@@ -219,6 +234,32 @@ function CaptureUI({
   const [manualLng, setManualLng] = useState("");
   const [manualZoom, setManualZoom] = useState("14");
   const mapRef = useRef<mapboxgl.Map | null>(null);
+  const [geocodedCenter, setGeocodedCenter] = useState<{ lat: number; lng: number; zoom: number; bearing: number } | null>(null);
+
+  useEffect(() => {
+    if (captureParams) return;
+    const { street, city, state } = customerAddress ?? {};
+    const addressParts = [street, city, state].filter(Boolean);
+    if (!addressParts.length) return;
+    const address = addressParts.join(", ");
+    fetch(`/api/geocode?address=${encodeURIComponent(address)}`, { credentials: "include" })
+      .then(r => r.ok ? r.json() : null)
+      .then(data => {
+        if (data?.lat != null && data?.lng != null) {
+          setGeocodedCenter({ lat: data.lat, lng: data.lng, zoom: 17, bearing: 0 });
+        }
+      })
+      .catch(() => {});
+  }, []);
+
+  useEffect(() => {
+    if (!geocodedCenter || !mapReady || !mapRef.current) return;
+    mapRef.current.flyTo({
+      center: [geocodedCenter.lng, geocodedCenter.lat],
+      zoom: geocodedCenter.zoom,
+      bearing: geocodedCenter.bearing,
+    });
+  }, [geocodedCenter, mapReady]);
 
   function handleBearingSlider(value: number[]) {
     const b = value[0];
@@ -291,6 +332,11 @@ function CaptureUI({
             onMapReady={setMapReady}
             onWebGLError={() => setWebglFallbackMode(true)}
             onBearingChange={setBearing}
+            initialCenter={
+              captureParams
+                ? { lat: captureParams.centerLat, lng: captureParams.centerLng, zoom: captureParams.zoom, bearing: captureParams.bearing }
+                : geocodedCenter
+            }
           />
           {mapReady && (
             <div className="space-y-1.5">
@@ -701,6 +747,7 @@ export default function VisualScopeDraft() {
                 token={mapboxToken}
                 sheetId={id!}
                 captureParams={captureParams}
+                customerAddress={{ street: sheet.customerStreet, city: sheet.customerCity, state: sheet.customerState }}
                 onFile={handleFile}
                 onHighResSuccess={handleHighResSuccess}
               />
@@ -766,6 +813,7 @@ export default function VisualScopeDraft() {
               token={mapboxToken}
               sheetId={id!}
               captureParams={captureParams}
+              customerAddress={{ street: sheet.customerStreet, city: sheet.customerCity, state: sheet.customerState }}
               onFile={handleFile}
               onHighResSuccess={handleHighResSuccess}
             />

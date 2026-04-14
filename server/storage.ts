@@ -3051,12 +3051,24 @@ export class PgStorage implements IStorage {
 
   async getVisualScopeSheet(id: string, companyId: string): Promise<VisualScopeSheetWithCustomer | undefined> {
     const rows = await db
-      .select({ sheet: visualScopeSheets, customerName: customers.name })
+      .select({
+        sheet: visualScopeSheets,
+        customerName: customers.name,
+        customerStreet: customers.street,
+        customerCity: customers.city,
+        customerState: customers.state,
+      })
       .from(visualScopeSheets)
       .leftJoin(customers, eq(visualScopeSheets.customerId, customers.id))
       .where(and(eq(visualScopeSheets.id, id), eq(visualScopeSheets.companyId, companyId)));
     if (!rows[0]) return undefined;
-    return { ...rows[0].sheet, customerName: rows[0].customerName ?? "" };
+    return {
+      ...rows[0].sheet,
+      customerName: rows[0].customerName ?? "",
+      customerStreet: rows[0].customerStreet,
+      customerCity: rows[0].customerCity,
+      customerState: rows[0].customerState,
+    };
   }
 
   async createVisualScopeSheet(data: InsertVisualScopeSheet): Promise<VisualScopeSheet> {

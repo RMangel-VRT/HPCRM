@@ -1624,7 +1624,12 @@ export const insertVisualScopeSheetSchema = createInsertSchema(visualScopeSheets
 
 export type InsertVisualScopeSheet = z.infer<typeof insertVisualScopeSheetSchema>;
 export type VisualScopeSheet = typeof visualScopeSheets.$inferSelect;
-export type VisualScopeSheetWithCustomer = VisualScopeSheet & { customerName: string };
+export type VisualScopeSheetWithCustomer = VisualScopeSheet & {
+  customerName: string;
+  customerStreet?: string | null;
+  customerCity?: string | null;
+  customerState?: string | null;
+};
 
 export interface CaptureParams {
   centerLat: number;
