@@ -6,66 +6,116 @@ import { flattenMarkupObjects } from "@shared/schema";
 import { detectLegendEntries, applyLegendState, DEFAULT_LEGEND_STATE } from "@shared/legendUtils";
 import { TEXTURE_SCALE_SIZES, getTextureDef } from "@shared/textures";
 import type { TextureId } from "@shared/textures";
+import {
+  SYMBOL_MAP,
+  SYMBOL_CATEGORIES,
+  getSymbolsByCategory,
+  LEGACY_SYMBOL_MAP,
+  type SymbolDefinition,
+  type SymbolPrimitive,
+} from "@shared/symbolRegistry";
 
 export type ExportType = "base" | "overlay" | "combined";
 
-const MAX_IMAGE_BYTES = 30 * 1024 * 1024; // 30 MB
-const MAX_IMAGE_DIM = 20000; // pixels
+const MAX_IMAGE_BYTES = 30 * 1024 * 1024;
+const MAX_IMAGE_DIM = 20000;
 
 function px(n: number, width: number) { return n * width; }
 function py(n: number, height: number) { return n * height; }
 
-const DEFAULT_SYMBOL_COLORS: Record<SymbolType, string> = {
-  tree: "#2d6a2d",
-  plant: "#22c55e",
-  boulder: "#9ca3af",
-};
-
-function hexToRgb(hex: string): { r: number; g: number; b: number } | null {
-  const result = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(hex);
-  return result ? {
-    r: parseInt(result[1], 16),
-    g: parseInt(result[2], 16),
-    b: parseInt(result[3], 16),
-  } : null;
+function resolveSymbolDef(obj: MarkupObject): SymbolDefinition | undefined {
+  if (obj.symbolTypeId) return SYMBOL_MAP.get(obj.symbolTypeId);
+  if (obj.symbolType) {
+    const mapped = LEGACY_SYMBOL_MAP[obj.symbolType];
+    if (mapped) return SYMBOL_MAP.get(mapped);
+  }
+  return undefined;
 }
 
-function drawSymbol(
+function drawSymbolPrimitives(
   ctx: NodeCanvasCtx,
-  symbolType: SymbolType,
+  def: SymbolDefinition,
   cx: number,
   cy: number,
-  s: number,
-  color?: string
+  size: number,
+  color: string,
+  rotation: number
 ) {
-  const fill = color || DEFAULT_SYMBOL_COLORS[symbolType];
-  ctx.beginPath();
-  if (symbolType === "tree") {
-    ctx.moveTo(cx, cy - s * 0.5);
-    ctx.lineTo(cx + s * 0.5, cy + s * 0.5);
-    ctx.lineTo(cx - s * 0.5, cy + s * 0.5);
-    ctx.closePath();
-    ctx.fillStyle = fill;
-    ctx.fill();
-  } else if (symbolType === "plant") {
-    ctx.arc(cx, cy, s * 0.45, 0, Math.PI * 2);
-    ctx.fillStyle = fill;
-    ctx.fill();
-  } else if (symbolType === "boulder") {
-    ctx.ellipse(cx, cy, s * 0.5, s * 0.35, 0, 0, Math.PI * 2);
-    ctx.fillStyle = fill;
-    ctx.fill();
+  ctx.save();
+  ctx.translate(cx, cy);
+  ctx.rotate((rotation * Math.PI) / 180);
+  ctx.scale(size, size);
+
+  const sw = 0.08;
+
+  for (const shape of def.shapes) {
+    ctx.save();
+    const filled = (shape as any).filled === true;
+
+    if (shape.kind === "circle") {
+      ctx.beginPath();
+      ctx.arc(shape.cx, shape.cy, shape.r, 0, Math.PI * 2);
+      if (filled) { ctx.fillStyle = color; ctx.fill(); }
+      else { ctx.strokeStyle = color; ctx.lineWidth = sw; ctx.stroke(); }
+
+    } else if (shape.kind === "ellipse") {
+      ctx.save();
+      if (shape.rot) ctx.rotate((shape.rot * Math.PI) / 180);
+      ctx.beginPath();
+      ctx.ellipse(shape.cx, shape.cy, shape.rx, shape.ry, 0, 0, Math.PI * 2);
+      if (filled) { ctx.fillStyle = color; ctx.fill(); }
+      else { ctx.strokeStyle = color; ctx.lineWidth = sw; ctx.stroke(); }
+      ctx.restore();
+
+    } else if (shape.kind === "polygon") {
+      ctx.beginPath();
+      ctx.moveTo(shape.pts[0][0], shape.pts[0][1]);
+      for (let i = 1; i < shape.pts.length; i++) {
+        ctx.lineTo(shape.pts[i][0], shape.pts[i][1]);
+      }
+      ctx.closePath();
+      if (filled) { ctx.fillStyle = color; ctx.fill(); }
+      else { ctx.strokeStyle = color; ctx.lineWidth = sw; ctx.stroke(); }
+
+    } else if (shape.kind === "polyline") {
+      ctx.beginPath();
+      ctx.moveTo(shape.pts[0][0], shape.pts[0][1]);
+      for (let i = 1; i < shape.pts.length; i++) {
+        ctx.lineTo(shape.pts[i][0], shape.pts[i][1]);
+      }
+      ctx.strokeStyle = color;
+      ctx.lineWidth = sw;
+      ctx.lineJoin = "round";
+      ctx.lineCap = "round";
+      ctx.stroke();
+
+    } else if (shape.kind === "line") {
+      ctx.beginPath();
+      ctx.moveTo(shape.x1, shape.y1);
+      ctx.lineTo(shape.x2, shape.y2);
+      ctx.strokeStyle = color;
+      ctx.lineWidth = sw;
+      ctx.lineCap = "round";
+      ctx.stroke();
+
+    } else if (shape.kind === "rect") {
+      if (filled) {
+        ctx.fillStyle = color;
+        ctx.fillRect(shape.x, shape.y, shape.w, shape.h);
+      } else {
+        ctx.strokeStyle = color;
+        ctx.lineWidth = sw;
+        ctx.strokeRect(shape.x, shape.y, shape.w, shape.h);
+      }
+    }
+
+    ctx.restore();
   }
+
+  ctx.restore();
 }
 
-function roundRect(
-  ctx: NodeCanvasCtx,
-  x: number,
-  y: number,
-  w: number,
-  h: number,
-  r: number
-) {
+function roundRect(ctx: NodeCanvasCtx, x: number, y: number, w: number, h: number, r: number) {
   ctx.beginPath();
   ctx.moveTo(x + r, y);
   ctx.lineTo(x + w - r, y);
@@ -81,10 +131,10 @@ function roundRect(
 
 function getObjectCenter(obj: MarkupObject, width: number, height: number): { cx: number; cy: number } {
   if (obj.type === "symbol" || obj.type === "text") {
-    return { cx: px(obj.points[0][0], width), cy: py(obj.points[0][1], height) };
+    return { cx: px((obj.points as MarkupPoint[])[0][0], width), cy: py((obj.points as MarkupPoint[])[0][1], height) };
   }
-  const xs = obj.points.map(p => p[0]);
-  const ys = obj.points.map(p => p[1]);
+  const xs = (obj.points as MarkupPoint[]).map(p => p[0]);
+  const ys = (obj.points as MarkupPoint[]).map(p => p[1]);
   return {
     cx: px((Math.min(...xs) + Math.max(...xs)) / 2, width),
     cy: py((Math.min(...ys) + Math.max(...ys)) / 2, height),
@@ -299,11 +349,37 @@ function drawMarkup(
       ctx.stroke();
       ctx.setLineDash([]);
 
-    } else if (obj.type === "symbol" && obj.symbolType) {
+    } else if (obj.type === "symbol") {
+      const def = resolveSymbolDef(obj);
       const cx = px(points[0][0], width);
       const cy = py(points[0][1], height);
-      const s = width * 0.03;
-      drawSymbol(ctx, obj.symbolType, cx, cy, s, obj.strokeColor || undefined);
+      const scale = obj.scale ?? 1;
+      const rotation = obj.rotation ?? 0;
+      const size = width * 0.04 * scale;
+      const color = obj.strokeColor || def?.defaultColor || "#333333";
+
+      if (def) {
+        drawSymbolPrimitives(ctx, def, cx, cy, size, color, rotation);
+      } else {
+        // Fallback: circle
+        ctx.beginPath();
+        ctx.arc(cx, cy, size * 0.7, 0, Math.PI * 2);
+        ctx.fillStyle = color;
+        ctx.fill();
+      }
+
+      // Draw label below symbol if showLabel is set
+      if (obj.showLabel && obj.label) {
+        const fontSize = Math.round(width * 0.012);
+        ctx.font = `${fontSize}px Arial, Helvetica, sans-serif`;
+        ctx.fillStyle = color;
+        ctx.textAlign = "center";
+        ctx.shadowColor = "rgba(255,255,255,0.85)";
+        ctx.shadowBlur = Math.round(width * 0.002);
+        ctx.fillText(obj.label, cx, cy + size + fontSize * 1.2);
+        ctx.shadowBlur = 0;
+        ctx.textAlign = "left";
+      }
 
     } else if (obj.type === "text") {
       const textX = px(points[0][0], width);
@@ -333,8 +409,20 @@ function drawLegendEntry(
   const iconCx = x + iconSize * 0.5;
   const iconCy = y + iconSize * 0.5;
 
-  if (entry.kind === "symbol" && entry.symbolType) {
-    drawSymbol(ctx, entry.symbolType, iconCx, iconCy, iconSize, entry.color);
+  if (entry.kind === "symbol") {
+    const def = entry.symbolTypeId
+      ? SYMBOL_MAP.get(entry.symbolTypeId)
+      : entry.symbolType
+        ? SYMBOL_MAP.get(LEGACY_SYMBOL_MAP[entry.symbolType] ?? "")
+        : undefined;
+    if (def) {
+      drawSymbolPrimitives(ctx, def, iconCx, iconCy, iconSize * 0.5, entry.color || def.defaultColor, 0);
+    } else {
+      ctx.beginPath();
+      ctx.arc(iconCx, iconCy, iconSize * 0.45, 0, Math.PI * 2);
+      ctx.fillStyle = entry.color || "#333333";
+      ctx.fill();
+    }
   } else if (entry.kind === "line") {
     ctx.strokeStyle = entry.color || "#555";
     ctx.lineWidth = Math.max(1.5, iconSize * 0.12);
@@ -345,10 +433,7 @@ function drawLegendEntry(
     ctx.stroke();
   } else {
     // material — color swatch
-    const rgb = hexToRgb(entry.color || "#888888");
-    ctx.fillStyle = rgb
-      ? `rgba(${rgb.r},${rgb.g},${rgb.b},0.85)`
-      : (entry.color || "#888888");
+    ctx.fillStyle = entry.color || "#888888";
     ctx.beginPath();
     roundRect(ctx, x + 1, y + 1, iconSize - 2, iconSize - 2, 2);
     ctx.fill();

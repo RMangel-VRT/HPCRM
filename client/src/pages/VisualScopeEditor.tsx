@@ -8,19 +8,15 @@ import {
   Popover,
   PopoverContent,
   PopoverTrigger,
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
+} from "@/components/ui/popover";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
+import { ScrollArea } from "@/components/ui/scroll-area";
 import {
   MousePointer,
   Pentagon,
   Minus,
-  TreePine,
-  Flower,
-  Circle,
   Type,
   Trash2,
   Check,
@@ -34,18 +30,7 @@ import {
   Copy,
   X,
   Map,
-  Settings,
-  ChevronUp,
-  ChevronDown,
-  GripHorizontal,
-  Unlock,
-  Layers,
-} from "lucide-react";
-import { apiRequest } from "@/lib/queryClient";
-import type { MarkupObject, MarkupPoint, SymbolType, MarkupDocument, LegendState, LegendEntry, FillType, TextureScale, LayerDefinition } from "@shared/schema";
-import { parseMarkupData, SYSTEM_LAYERS, getDefaultLayerForType } from "@shared/schema";
-import { detectLegendEntries, applyLegendState, DEFAULT_LEGEND_STATE } from "@shared/legendUtils";
-import {
+  Library,
   TEXTURE_LIBRARY,
   TEXTURE_CATEGORIES,
   TEXTURE_SCALE_SIZES,
@@ -53,9 +38,25 @@ import {
   getPatternSvgContent,
 } from "@shared/textures";
 import type { TextureId } from "@shared/textures";
+import {
+  SYMBOL_CATEGORIES,
+  SYMBOL_MAP,
+  LEGACY_SYMBOL_MAP,
+  getSymbolsByCategory,
+  type SymbolDefinition,
+  type SymbolPrimitive,
+  type SymbolCategory,
+} from "@shared/symbolRegistry";
 
-type ActiveTool = "select" | "polygon" | "polyline" | "tree" | "plant" | "boulder" | "text";
+// ─── Types ────────────────────────────────────────────────────────────────────
+type ActiveTool = "select" | "polygon" | "polyline" | "text" | "stamp";
 type DashStyle = "solid" | "dashed" | "dotted";
+
+type DragOp =
+  | { kind: "move"; id: string; origPoints: MarkupPoint[]; startPt: MarkupPoint }
+  | { kind: "vertex"; id: string; vertexIdx: number; startPt: MarkupPoint; origPt: MarkupPoint }
+  | { kind: "rotate"; id: string; center: MarkupPoint; startAngle: number; origRotation: number }
+  | { kind: "resize"; id: string; cx: number; cy: number; origScale: number; startDist: number };
 
 interface VisualScopeEditorProps {
   sheetId: string;
@@ -80,6 +81,11 @@ const DEFAULT_SYMBOL_COLORS: Record<SymbolType, string> = {
 
 const DEFAULT_LAYER_ID = "annotations";
 
+const BASE_SYMBOL_SIZE = 0.04; // normalized SVG units (half-width at scale=1)
+const HANDLE_R = 0.008; // handle radius in SVG units
+const ROT_HANDLE_OFFSET = 0.025; // distance above top edge for rotation handle
+
+// ─── Helpers ──────────────────────────────────────────────────────────────────
 function clamp(v: number): number {
   return Math.max(0, Math.min(1, v));
 }
@@ -134,7 +140,8 @@ function getBbox(obj: MarkupObject): BBox {
   if (obj.points.length === 0) return { x1: 0, y1: 0, x2: 0, y2: 0, cx: 0, cy: 0, w: 0, h: 0 };
   if (obj.type === "symbol" || obj.type === "text") {
     const [x, y] = obj.points[0];
-    const r = obj.type === "symbol" ? 0.04 : 0.07;
+    const scale = obj.scale ?? 1;
+    const r = obj.type === "symbol" ? BASE_SYMBOL_SIZE * scale * 1.5 : 0.07;
     return { x1: x - r, y1: y - r, x2: x + r, y2: y + r, cx: x, cy: y, w: r * 2, h: r * 2 };
   }
   const xs = obj.points.map(p => p[0]);
@@ -150,7 +157,9 @@ function hitTestObj(obj: MarkupObject, pt: MarkupPoint): boolean {
   const testPt: MarkupPoint = rotation ? rotatePoint(pt, [bb.cx, bb.cy], -rotation) : pt;
 
   if (obj.type === "symbol" || obj.type === "text") {
-    return distance(testPt, obj.points[0]) < 0.05;
+    const scale = obj.scale ?? 1;
+    const hs = BASE_SYMBOL_SIZE * scale * 1.5;
+    return distance(testPt, obj.points[0]) < hs;
   }
   if (obj.points.length < 2) return false;
   for (let i = 0; i < obj.points.length - 1; i++) {
@@ -214,89 +223,136 @@ function mergeLayerDefs(saved: LayerDefinition[] | null | undefined): LayerDefin
   });
 }
 
-function SymbolSvg({ type, color, size = 16 }: { type: SymbolType; color?: string; size?: number }) {
-  if (type === "tree") {
+function resolveSymbolDef(obj: MarkupObject): SymbolDefinition | undefined {
+  if (obj.symbolTypeId) return SYMBOL_MAP.get(obj.symbolTypeId);
+  if (obj.symbolType) {
+    const mappedId = LEGACY_SYMBOL_MAP[obj.symbolType];
+    if (mappedId) return SYMBOL_MAP.get(mappedId);
+  }
+  return undefined;
+}
+
+// ─── Symbol SVG Primitive Renderer ────────────────────────────────────────────
+function SymbolPrimitiveEl({
+  shape,
+  color,
+  sw,
+}: {
+  shape: SymbolPrimitive;
+  color: string;
+  sw: number;
+}) {
+  const fill = shape.kind !== "line" && shape.kind !== "polyline" && (shape as any).filled ? color : "none";
+  const stroke = shape.kind === "line" || shape.kind === "polyline" || !(shape as any).filled ? color : "none";
+
+  if (shape.kind === "circle") {
     return (
-      <svg width={size} height={size} viewBox="-1 -1 2 2">
-        <polygon points="0,-0.9 0.85,0.7 -0.85,0.7" fill={color} />
-      </svg>
+      <circle
+        cx={shape.cx}
+        cy={shape.cy}
+        r={shape.r}
+        fill={fill}
+        stroke={stroke}
+        strokeWidth={sw}
+      />
     );
   }
-  if (type === "plant") {
+  if (shape.kind === "ellipse") {
+    const transform = shape.rot ? `rotate(${shape.rot} ${shape.cx} ${shape.cy})` : undefined;
     return (
-      <svg width={size} height={size} viewBox="-1 -1 2 2">
-        <circle cx="0" cy="0" r="0.85" fill={color} />
-      </svg>
+      <ellipse
+        cx={shape.cx}
+        cy={shape.cy}
+        rx={shape.rx}
+        ry={shape.ry}
+        fill={fill}
+        stroke={stroke}
+        strokeWidth={sw}
+        transform={transform}
+      />
     );
   }
+  if (shape.kind === "polygon") {
+    const pts = shape.pts.map(([x, y]) => `${x},${y}`).join(" ");
+    return (
+      <polygon
+        points={pts}
+        fill={fill}
+        stroke={stroke}
+        strokeWidth={sw}
+        strokeLinejoin="round"
+      />
+    );
+  }
+  if (shape.kind === "polyline") {
+    const pts = shape.pts.map(([x, y]) => `${x},${y}`).join(" ");
+    return (
+      <polyline
+        points={pts}
+        fill="none"
+        stroke={color}
+        strokeWidth={sw}
+        strokeLinejoin="round"
+        strokeLinecap="round"
+      />
+    );
+  }
+  if (shape.kind === "line") {
+    return (
+      <line
+        x1={shape.x1}
+        y1={shape.y1}
+        x2={shape.x2}
+        y2={shape.y2}
+        stroke={color}
+        strokeWidth={sw}
+        strokeLinecap="round"
+      />
+    );
+  }
+  if (shape.kind === "rect") {
+    return (
+      <rect
+        x={shape.x}
+        y={shape.y}
+        width={shape.w}
+        height={shape.h}
+        fill={fill}
+        stroke={stroke}
+        strokeWidth={sw}
+      />
+    );
+  }
+  return null;
+}
+
+function SymbolIcon({
+  def,
+  size = 48,
+  color,
+}: {
+  def: SymbolDefinition;
+  size?: number;
+  color?: string;
+}) {
+  const c = color ?? def.defaultColor;
+  const sw = 0.08;
   return (
-    <svg width={size} height={size} viewBox="-1 -1 2 2">
-      <ellipse cx="0" cy="0" rx="0.9" ry="0.6" fill={color} />
+    <svg
+      width={size}
+      height={size}
+      viewBox="-1 -1 2 2"
+      xmlns="http://www.w3.org/2000/svg"
+      style={{ display: "block" }}
+    >
+      {def.shapes.map((shape, i) => (
+        <SymbolPrimitiveEl key={i} shape={shape} color={c} sw={sw} />
+      ))}
     </svg>
   );
 }
 
-interface TextEditOverlayProps {
-  obj: MarkupObject;
-  svgRef: React.RefObject<SVGSVGElement>;
-  containerRef: React.RefObject<HTMLDivElement>;
-  value: string;
-  onChange: (v: string) => void;
-  onCommit: () => void;
-  onCancel: () => void;
-}
-
-function TextEditOverlay({ obj, svgRef, containerRef, value, onChange, onCommit, onCancel }: TextEditOverlayProps) {
-  const inputRef = useRef<HTMLInputElement>(null);
-
-  useEffect(() => {
-    inputRef.current?.focus();
-    inputRef.current?.select();
-  }, []);
-
-  if (!svgRef.current || !containerRef.current) return null;
-
-  const svg = svgRef.current;
-  const container = containerRef.current;
-  const pt = svg.createSVGPoint();
-  pt.x = obj.points[0][0];
-  pt.y = obj.points[0][1];
-  const screen = pt.matrixTransform(svg.getScreenCTM()!);
-  const rect = container.getBoundingClientRect();
-  const left = screen.x - rect.left;
-  const top = screen.y - rect.top;
-
-  return (
-    <input
-      ref={inputRef}
-      value={value}
-      onChange={e => onChange(e.target.value)}
-      onKeyDown={e => {
-        if (e.key === "Enter") onCommit();
-        if (e.key === "Escape") onCancel();
-        e.stopPropagation();
-      }}
-      onBlur={onCommit}
-      style={{
-        position: "absolute",
-        left,
-        top,
-        transform: "translate(-50%, -50%)",
-        fontSize: "13px",
-        border: "1.5px solid #f59e0b",
-        borderRadius: "4px",
-        padding: "2px 8px",
-        background: "white",
-        zIndex: 20,
-        minWidth: "80px",
-        outline: "none",
-        boxShadow: "0 2px 8px rgba(0,0,0,0.15)",
-      }}
-      data-testid="input-text-label"
-    />
-  );
-}
-
+// ─── Markup Shape Renderer ────────────────────────────────────────────────────
 interface MarkupShapeProps {
   obj: MarkupObject;
   selected: boolean;
@@ -358,6 +414,7 @@ function MarkupShape({
   const rotation = obj.rotation ?? 0;
   const rotTransform = rotation ? `rotate(${rotation} ${bb.cx} ${bb.cy})` : undefined;
   const selRing = "#f59e0b";
+  const selSw = 0.003;
   const opacity = obj.opacity ?? 1;
   const da = dashArray(obj.dashStyle, obj.strokeWidth);
 
@@ -473,15 +530,6 @@ function MarkupShape({
           strokeLinecap="round"
           strokeDasharray={da}
         />
-        {/* Wider invisible hit area for selection */}
-        <polyline
-          points={toSvgPoints(obj.points)}
-          stroke="transparent"
-          fill="none"
-          strokeWidth={sw + 0.015}
-          strokeLinecap="round"
-          strokeLinejoin="round"
-        />
         {selected && edges}
         {selected && obj.points.map((p, i) => (
           <circle
@@ -503,23 +551,29 @@ function MarkupShape({
   }
 
   if (obj.type === "symbol") {
-    const [x, y] = obj.points[0];
-    const scale = (obj.symbolSize ?? 30) / 1000;
+    const [cx, cy] = obj.points[0];
+    const scale = obj.scale ?? 1;
+    const rotation = obj.rotation ?? 0;
+    const hs = BASE_SYMBOL_SIZE * scale;
+    const def = resolveSymbolDef(obj);
     const color = obj.strokeColor;
-    let inner: React.ReactNode = null;
-    if (obj.symbolType === "tree") {
-      inner = <polygon points="0,-0.5 0.5,0.5 -0.5,0.5" fill={color} />;
-    } else if (obj.symbolType === "plant") {
-      inner = <circle cx="0" cy="0" r="0.45" fill={color} />;
-    } else {
-      inner = <ellipse cx="0" cy="0" rx="0.5" ry="0.35" fill={color} />;
-    }
-    const rot = obj.rotation ?? 0;
+    const symSw = 0.08;
     return (
-      <g transform={rotTransform} opacity={opacity}>
-        <g transform={`translate(${x} ${y}) scale(${scale})`}>{inner}</g>
+      <g opacity={opacity}>
+        <g transform={`translate(${cx} ${cy}) rotate(${rotation}) scale(${hs})`}>
+          {def ? def.shapes.map((shape, i) => (
+            <SymbolPrimitiveEl key={i} shape={shape} color={color} sw={symSw} />
+          )) : <circle cx="0" cy="0" r="0.7" fill={color} />}
+        </g>
+        {obj.showLabel && obj.label && (
+          <text x={cx} y={cy + hs + 0.018} fontSize={0.018} fill={color}
+            dominantBaseline="hanging" textAnchor="middle" style={{ userSelect: "none" }}>
+            {obj.label}
+          </text>
+        )}
         {selected && (
-          <circle cx={x} cy={y} r={0.045} fill="none" stroke="#f59e0b" strokeWidth={0.003} />
+          <rect x={cx - hs} y={cy - hs} width={hs * 2} height={hs * 2}
+            fill="none" stroke={selRing} strokeWidth={selSw} strokeDasharray="0.006,0.004" />
         )}
       </g>
     );
@@ -549,8 +603,8 @@ function MarkupShape({
             width={0.16}
             height={0.05}
             fill="none"
-            stroke="#f59e0b"
-            strokeWidth={0.003}
+            stroke={selRing}
+            strokeWidth={selSw}
             rx={0.005}
           />
         )}
@@ -561,6 +615,79 @@ function MarkupShape({
   return null;
 }
 
+// ─── Transform Handles ─────────────────────────────────────────────────────────
+interface TransformHandlesProps {
+  obj: MarkupObject;
+  onResizeStart: (e: React.PointerEvent, cx: number, cy: number, origScale: number, startDist: number) => void;
+  onRotateStart: (e: React.PointerEvent, cx: number, cy: number) => void;
+}
+
+function TransformHandles({ obj, onResizeStart, onRotateStart }: TransformHandlesProps) {
+  if (obj.type !== "symbol") return null;
+  const [cx, cy] = obj.points[0];
+  const scale = obj.scale ?? 1;
+  const hs = BASE_SYMBOL_SIZE * scale;
+  const corners: [number, number][] = [
+    [cx - hs, cy - hs],
+    [cx + hs, cy - hs],
+    [cx + hs, cy + hs],
+    [cx - hs, cy + hs],
+  ];
+  const rotHandleY = cy - hs - ROT_HANDLE_OFFSET;
+
+  return (
+    <g>
+      {/* Rotation connector line */}
+      <line
+        x1={cx}
+        y1={cy - hs}
+        x2={cx}
+        y2={rotHandleY}
+        stroke="#f59e0b"
+        strokeWidth={0.002}
+        strokeDasharray="0.004,0.003"
+        style={{ pointerEvents: "none" }}
+      />
+      {/* Rotation handle */}
+      <circle
+        cx={cx}
+        cy={rotHandleY}
+        r={HANDLE_R * 1.3}
+        fill="#f59e0b"
+        stroke="white"
+        strokeWidth={0.002}
+        style={{ cursor: "grab" }}
+        onPointerDown={(e) => {
+          e.stopPropagation();
+          onRotateStart(e, cx, cy);
+        }}
+        data-testid="handle-rotate"
+      />
+      {/* Corner resize handles */}
+      {corners.map(([hx, hy], i) => (
+        <rect
+          key={i}
+          x={hx - HANDLE_R}
+          y={hy - HANDLE_R}
+          width={HANDLE_R * 2}
+          height={HANDLE_R * 2}
+          fill="white"
+          stroke="#f59e0b"
+          strokeWidth={0.002}
+          style={{ cursor: "nwse-resize" }}
+          onPointerDown={(e) => {
+            e.stopPropagation();
+            const dist = distance([hx, hy], [cx, cy]);
+            onResizeStart(e, cx, cy, scale, dist);
+          }}
+          data-testid={`handle-resize-${i}`}
+        />
+      ))}
+    </g>
+  );
+}
+
+// ─── In-progress shape ───────────────────────────────────────────────────────
 interface InProgressShapeProps {
   points: MarkupPoint[];
   preview: MarkupPoint | null;
@@ -611,11 +738,6 @@ function InProgressShape({ points, preview, tool, color }: InProgressShapeProps)
     </g>
   );
 }
-
-type DragOp =
-  | { kind: "move"; id: string; origPoints: MarkupPoint[]; startPt: MarkupPoint }
-  | { kind: "vertex"; id: string; vertexIdx: number; startPt: MarkupPoint; origPt: MarkupPoint }
-  | { kind: "rotate"; id: string; center: MarkupPoint; startAngle: number; origRotation: number };
 
 interface SelectionHandlesProps {
   obj: MarkupObject;
@@ -688,6 +810,8 @@ function SelectionHandles({ obj, onStartVertexDrag, onStartRotate }: SelectionHa
           />
         );
       })}
+
+      {/* Rotate handle stem line */}
       <line
         x1={lineStart[0]}
         y1={lineStart[1]}
@@ -732,6 +856,334 @@ interface LayersPanelProps {
   onSetActive: (id: string) => void;
   onToggleVisible: (id: string) => void;
   onToggleLocked: (id: string) => void;
+}
+
+type Corner = LegendState["position"];
+
+function getCornerStyle(pos: Corner): React.CSSProperties {
+  const m = 10;
+  switch (pos) {
+    case "top-left":     return { top: m, left: m };
+    case "top-right":    return { top: m, right: m };
+    case "bottom-left":  return { bottom: m, left: m };
+    case "bottom-right": return { bottom: m, right: m };
+  }
+}
+
+function nearestCorner(x: number, y: number, w: number, h: number): Corner {
+  const midX = w / 2;
+  const midY = h / 2;
+  if (x <= midX && y <= midY) return "top-left";
+  if (x > midX && y <= midY) return "top-right";
+  if (x <= midX && y > midY) return "bottom-left";
+  return "bottom-right";
+}
+
+function resolveDefFromEntry(entry: LegendEntry): SymbolDefinition | undefined {
+  if (entry.symbolTypeId) return SYMBOL_MAP.get(entry.symbolTypeId);
+  if (entry.symbolType) {
+    const mapped = LEGACY_SYMBOL_MAP[entry.symbolType];
+    if (mapped) return SYMBOL_MAP.get(mapped);
+  }
+  return undefined;
+}
+
+function LegendPanel({ entries, allEntries, legendState, onLegendStateChange, containerRef }: LegendPanelProps) {
+  const panelRef = useRef<HTMLDivElement>(null);
+  const draggingRef = useRef(false);
+  const [renamingId, setRenamingId] = useState<string | null>(null);
+  const [renameValue, setRenameValue] = useState("");
+
+  const mode = legendState.mode;
+  const compact = mode === "compact";
+
+  function toggleHide(id: string) {
+    const hidden = legendState.hiddenEntryIds;
+    const next = hidden.includes(id) ? hidden.filter(x => x !== id) : [...hidden, id];
+    onLegendStateChange({ ...legendState, hiddenEntryIds: next });
+  }
+
+  function startRename(entry: LegendEntry) {
+    setRenamingId(entry.id);
+    setRenameValue(legendState.customLabels[entry.id] ?? entry.label);
+  }
+
+  function commitRename() {
+    if (!renamingId) return;
+    onLegendStateChange({
+      ...legendState,
+      customLabels: { ...legendState.customLabels, [renamingId]: renameValue.trim() || (allEntries.find(e => e.id === renamingId)?.label ?? "") },
+    });
+    setRenamingId(null);
+  }
+
+  function moveEntry(id: string, dir: -1 | 1) {
+    const orderedIds = entries.map(e => e.id);
+    const idx = orderedIds.indexOf(id);
+    if (idx < 0) return;
+    const newIdx = idx + dir;
+    if (newIdx < 0 || newIdx >= orderedIds.length) return;
+    const newOrder = [...orderedIds];
+    [newOrder[idx], newOrder[newIdx]] = [newOrder[newIdx], newOrder[idx]];
+    onLegendStateChange({ ...legendState, entryOrder: newOrder });
+  }
+
+  function handleMouseDown(e: React.MouseEvent) {
+    if ((e.target as HTMLElement).closest("button,input")) return;
+    e.preventDefault();
+    if (!containerRef.current || !panelRef.current) return;
+    draggingRef.current = true;
+
+    const onMouseMove = (ev: MouseEvent) => {
+      if (!draggingRef.current || !containerRef.current) return;
+      const rect = containerRef.current.getBoundingClientRect();
+      const x = ev.clientX - rect.left;
+      const y = ev.clientY - rect.top;
+      const corner = nearestCorner(x, y, rect.width, rect.height);
+      if (corner !== legendState.position) {
+        onLegendStateChange({ ...legendState, position: corner });
+      }
+    };
+
+    const onMouseUp = (ev: MouseEvent) => {
+      draggingRef.current = false;
+      if (containerRef.current) {
+        const rect = containerRef.current.getBoundingClientRect();
+        const x = ev.clientX - rect.left;
+        const y = ev.clientY - rect.top;
+        const corner = nearestCorner(x, y, rect.width, rect.height);
+        onLegendStateChange({ ...legendState, position: corner });
+      }
+      window.removeEventListener("mousemove", onMouseMove);
+      window.removeEventListener("mouseup", onMouseUp);
+    };
+
+    window.addEventListener("mousemove", onMouseMove);
+    window.addEventListener("mouseup", onMouseUp);
+  }
+
+  const sectionGroups = useMemo(() => {
+    const materials = entries.filter(e => e.kind === "material");
+    const symbols = entries.filter(e => e.kind === "symbol");
+    const lines = entries.filter(e => e.kind === "line");
+    return { materials, symbols, lines };
+  }, [entries]);
+
+  const panelStyle: React.CSSProperties = {
+    position: "absolute",
+    ...getCornerStyle(legendState.position),
+    background: "rgba(255,255,255,0.93)",
+    border: "1px solid rgba(0,0,0,0.15)",
+    borderRadius: "6px",
+    boxShadow: "0 2px 10px rgba(0,0,0,0.12)",
+    zIndex: 30,
+    minWidth: compact ? "100px" : "160px",
+    maxWidth: "220px",
+    cursor: "grab",
+    userSelect: "none",
+    fontSize: "11px",
+  };
+
+  function EntryRow({ entry }: { entry: LegendEntry }) {
+    const isHidden = legendState.hiddenEntryIds.includes(entry.id);
+    const isFirst = entries[0]?.id === entry.id;
+    const isLast = entries[entries.length - 1]?.id === entry.id;
+    const entryDef = resolveDefFromEntry(entry);
+
+    return (
+      <div
+        className="flex items-center gap-1 py-0.5 group"
+        style={{ opacity: isHidden ? 0.4 : 1 }}
+        data-testid={`legend-entry-${entry.id}`}
+      >
+        {/* Swatch */}
+        <div className="shrink-0 flex items-center justify-center" style={{ width: 16, height: 16 }}>
+          {entry.kind === "symbol" && entryDef ? (
+            <SymbolIcon def={entryDef} color={entry.color} size={14} />
+          ) : entry.kind === "line" ? (
+            <div style={{ width: 14, height: 2, background: entry.color || "#333", borderRadius: 1 }} />
+          ) : (
+            <div style={{ width: 12, height: 12, borderRadius: 2, background: entry.color || "#888", border: "1px solid rgba(0,0,0,0.2)" }} />
+          )}
+        </div>
+
+        {/* Label */}
+        <div className="flex-1 min-w-0">
+          {renamingId === entry.id ? (
+            <input
+              autoFocus
+              value={renameValue}
+              onChange={e => setRenameValue(e.target.value)}
+              onBlur={commitRename}
+              onKeyDown={e => {
+                if (e.key === "Enter") commitRename();
+                if (e.key === "Escape") setRenamingId(null);
+                e.stopPropagation();
+              }}
+              style={{ fontSize: 10, padding: "0 2px", border: "1px solid #f59e0b", borderRadius: 2, outline: "none", width: "100%", background: "white" }}
+              data-testid={`input-legend-rename-${entry.id}`}
+            />
+          ) : (
+            <span
+              style={{ fontSize: 10, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", display: "block", cursor: "text" }}
+              onClick={() => startRename(entry)}
+              title="Click to rename"
+              data-testid={`text-legend-label-${entry.id}`}
+            >
+              {legendState.customLabels[entry.id] ?? entry.label}
+              {entry.kind === "symbol" && entry.count !== undefined && legendState.showSymbolCounts && (
+                <span style={{ color: "#888", marginLeft: 2 }}>×{entry.count}</span>
+              )}
+            </span>
+          )}
+        </div>
+
+        {/* Controls */}
+        {!compact && (
+          <div className="flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity shrink-0">
+            <button
+              onClick={() => moveEntry(entry.id, -1)}
+              disabled={isFirst}
+              className="p-0.5 rounded hover-elevate disabled:opacity-30"
+              title="Move up"
+              data-testid={`button-legend-up-${entry.id}`}
+            >
+              <ChevronUp className="w-2.5 h-2.5" />
+            </button>
+            <button
+              onClick={() => moveEntry(entry.id, 1)}
+              disabled={isLast}
+              className="p-0.5 rounded hover-elevate disabled:opacity-30"
+              title="Move down"
+              data-testid={`button-legend-down-${entry.id}`}
+            >
+              <ChevronDown className="w-2.5 h-2.5" />
+            </button>
+            <button
+              onClick={() => toggleHide(entry.id)}
+              className="p-0.5 rounded hover-elevate"
+              title={isHidden ? "Show entry" : "Hide entry"}
+              data-testid={`button-legend-toggle-${entry.id}`}
+            >
+              {isHidden ? <EyeOff className="w-2.5 h-2.5 text-muted-foreground" /> : <Eye className="w-2.5 h-2.5 text-muted-foreground" />}
+            </button>
+          </div>
+        )}
+      </div>
+    );
+  }
+
+  const hasAnyVisible = entries.length > 0;
+
+  if (!hasAnyVisible && !compact) {
+    return (
+      <div ref={panelRef} style={panelStyle} onMouseDown={handleMouseDown}>
+        <div style={{ padding: "6px 8px" }}>
+          <div style={{ fontWeight: 600, fontSize: 10, color: "#666", marginBottom: 2 }}>{legendState.title}</div>
+          <div style={{ fontSize: 9, color: "#aaa" }}>No items to show</div>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div ref={panelRef} style={panelStyle} onMouseDown={handleMouseDown}>
+      <div style={{ padding: "4px 8px 3px", borderBottom: "1px solid rgba(0,0,0,0.08)", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+        <span style={{ fontWeight: 600, fontSize: 10, color: "#555" }}>{legendState.title}</span>
+      </div>
+      {!compact && (
+        <div style={{ padding: "4px 8px 5px" }}>
+          {legendState.showMaterialsGroup && sectionGroups.materials.length > 0 && (
+            <div>
+              <div style={{ fontSize: 8, fontWeight: 600, color: "#999", textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: 2, marginTop: 1 }}>Materials</div>
+              {sectionGroups.materials.map(e => <EntryRow key={e.id} entry={e} />)}
+            </div>
+          )}
+          {legendState.showSymbolsGroup && sectionGroups.symbols.length > 0 && (
+            <div>
+              <div style={{ fontSize: 8, fontWeight: 600, color: "#999", textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: 2, marginTop: 1 }}>Symbols</div>
+              {sectionGroups.symbols.map(e => <EntryRow key={e.id} entry={e} />)}
+            </div>
+          )}
+          {legendState.showLinesGroup && sectionGroups.lines.length > 0 && (
+            <div>
+              <div style={{ fontSize: 8, fontWeight: 600, color: "#999", textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: 2, marginTop: 1 }}>Lines</div>
+              {sectionGroups.lines.map(e => <EntryRow key={e.id} entry={e} />)}
+            </div>
+          )}
+        </div>
+      )}
+      {compact && (
+        <div style={{ padding: "3px 6px 4px", display: "flex", flexWrap: "wrap", gap: 4 }}>
+          {entries.map(e => {
+            const def = resolveDefFromEntry(e);
+            return (
+              <div key={e.id} style={{ display: "flex", alignItems: "center", gap: 3 }}>
+                {e.kind === "symbol" && def ? (
+                  <SymbolIcon def={def} color={e.color} size={10} />
+                ) : e.kind === "line" ? (
+                  <div style={{ width: 10, height: 2, background: e.color || "#333" }} />
+                ) : (
+                  <div style={{ width: 8, height: 8, borderRadius: 1, background: e.color || "#888", border: "1px solid rgba(0,0,0,0.2)" }} />
+                )}
+                <span style={{ fontSize: 9, color: "#444" }}>{legendState.customLabels[e.id] ?? e.label}</span>
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
+
+  return (
+    <div ref={panelRef} style={panelStyle} onMouseDown={handleMouseDown}>
+      <div style={{ padding: "4px 8px 3px", borderBottom: "1px solid rgba(0,0,0,0.08)", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+        <span style={{ fontWeight: 600, fontSize: 10, color: "#555" }}>{legendState.title}</span>
+      </div>
+      {!compact && (
+        <div style={{ padding: "4px 8px 5px" }}>
+          {legendState.showMaterialsGroup && sectionGroups.materials.length > 0 && (
+            <div>
+              <div style={{ fontSize: 8, fontWeight: 600, color: "#999", textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: 2, marginTop: 1 }}>Materials</div>
+              {sectionGroups.materials.map(e => <EntryRow key={e.id} entry={e} />)}
+            </div>
+          )}
+          {legendState.showSymbolsGroup && sectionGroups.symbols.length > 0 && (
+            <div>
+              <div style={{ fontSize: 8, fontWeight: 600, color: "#999", textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: 2, marginTop: 1 }}>Symbols</div>
+              {sectionGroups.symbols.map(e => <EntryRow key={e.id} entry={e} />)}
+            </div>
+          )}
+          {legendState.showLinesGroup && sectionGroups.lines.length > 0 && (
+            <div>
+              <div style={{ fontSize: 8, fontWeight: 600, color: "#999", textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: 2, marginTop: 1 }}>Lines</div>
+              {sectionGroups.lines.map(e => <EntryRow key={e.id} entry={e} />)}
+            </div>
+          )}
+        </div>
+      )}
+      {compact && (
+        <div style={{ padding: "3px 6px 4px", display: "flex", flexWrap: "wrap", gap: 4 }}>
+          {entries.map(e => {
+            const def = resolveDefFromEntry(e);
+            return (
+              <div key={e.id} style={{ display: "flex", alignItems: "center", gap: 3 }}>
+                {e.kind === "symbol" && def ? (
+                  <SymbolIcon def={def} color={e.color} size={10} />
+                ) : e.kind === "line" ? (
+                  <div style={{ width: 10, height: 2, background: e.color || "#333" }} />
+                ) : (
+                  <div style={{ width: 8, height: 8, borderRadius: 1, background: e.color || "#888", border: "1px solid rgba(0,0,0,0.2)" }} />
+                )}
+                <span style={{ fontSize: 9, color: "#444" }}>{legendState.customLabels[e.id] ?? e.label}</span>
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
 }
 
 function LayersPanel({ layers, activeLayerId, onSetActive, onToggleVisible, onToggleLocked }: LayersPanelProps) {
@@ -801,6 +1253,70 @@ interface ObjectInspectorProps {
   obj: MarkupObject;
   onChange: (updates: Partial<MarkupObject>) => void;
   onDelete: () => void;
+}
+
+// ─── Symbol Library Panel ─────────────────────────────────────────────────────
+interface SymbolLibraryProps {
+  onSelect: (def: SymbolDefinition) => void;
+}
+
+function SymbolLibrary({ onSelect }: SymbolLibraryProps) {
+  const [activeTab, setActiveTab] = useState<SymbolCategory>("trees");
+
+  return (
+    <div className="flex flex-col gap-3">
+      <Tabs value={activeTab} onValueChange={(v) => setActiveTab(v as SymbolCategory)}>
+        <TabsList className="flex flex-wrap h-auto gap-1 p-1">
+          {SYMBOL_CATEGORIES.map((cat) => (
+            <TabsTrigger
+              key={cat.id}
+              value={cat.id}
+              className="text-xs"
+              data-testid={`tab-symbol-cat-${cat.id}`}
+            >
+              {cat.label}
+            </TabsTrigger>
+          ))}
+        </TabsList>
+        {SYMBOL_CATEGORIES.map((cat) => (
+          <TabsContent key={cat.id} value={cat.id}>
+            <ScrollArea className="h-80">
+              <div className="grid grid-cols-3 gap-2 p-2">
+                {getSymbolsByCategory(cat.id).map((def) => (
+                  <Tooltip key={def.id}>
+                    <TooltipTrigger asChild>
+                      <button
+                        className="flex flex-col items-center gap-1.5 p-2 rounded-md border border-transparent hover-elevate active-elevate-2 text-center focus:outline-none focus:ring-2 focus:ring-ring"
+                        onClick={() => onSelect(def)}
+                        data-testid={`button-symbol-${def.id}`}
+                        type="button"
+                      >
+                        <SymbolIcon def={def} size={44} />
+                        <span className="text-xs text-muted-foreground leading-tight">{def.name}</span>
+                      </button>
+                    </TooltipTrigger>
+                    <TooltipContent side="right" className="p-2">
+                      <div className="flex flex-col items-center gap-1">
+                        <SymbolIcon def={def} size={80} />
+                        <span className="text-xs font-medium">{def.name}</span>
+                      </div>
+                    </TooltipContent>
+                  </Tooltip>
+                ))}
+              </div>
+            </ScrollArea>
+          </TabsContent>
+        ))}
+      </Tabs>
+    </div>
+  );
+}
+
+// ─── Legend Settings Popover ─────────────────────────────────────────────────
+
+interface LegendSettingsProps {
+  legendState: LegendState;
+  onLegendStateChange: (ls: LegendState) => void;
 }
 
 function ObjectInspector({ obj, onChange, onDelete }: ObjectInspectorProps) {
@@ -1054,6 +1570,7 @@ export default function VisualScopeEditor({ sheetId, baseImagePath, initialMarku
   const [layerDefs, setLayerDefs] = useState<LayerDefinition[]>(() => mergeLayerDefs(initialLayerDefs));
   const [activeLayerId, setActiveLayerId] = useState<string>("areas");
   const [activeTool, setActiveTool] = useState<ActiveTool>("select");
+  const [activeSymbolId, setActiveSymbolId] = useState<string>("deciduous-tree");
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [selectedVertexIdx, setSelectedVertexIdx] = useState<number | null>(null);
   const [activeColor, setActiveColor] = useState<string>("#1a4d1a");
@@ -1067,6 +1584,8 @@ export default function VisualScopeEditor({ sheetId, baseImagePath, initialMarku
   const [editingTextValue, setEditingTextValue] = useState("");
   const [legendState, setLegendState] = useState<LegendState>(() => initialLegendState ?? DEFAULT_LEGEND_STATE);
   const [materialLabelText, setMaterialLabelText] = useState("");
+  const [selectionPanelNote, setSelectionPanelNote] = useState("");
+  const [libraryOpen, setLibraryOpen] = useState(false);
 
   const hasUserEdited = useRef(false);
   const legendUserEdited = useRef(false);
@@ -1099,11 +1618,14 @@ export default function VisualScopeEditor({ sheetId, baseImagePath, initialMarku
   useEffect(() => {
     if (selectedObj?.type === "text") {
       setSelectionPanelText(selectedObj.label || "Label");
+    } else if (selectedObj?.type === "symbol") {
+      setSelectionPanelText(selectedObj.label ?? "");
+      setSelectionPanelNote(selectedObj.note ?? "");
     }
     if (selectedObj?.type === "polygon") {
       setMaterialLabelText(selectedObj.materialLabel || "");
     }
-  }, [selectedId, selectedObj?.label, selectedObj?.materialLabel]);
+  }, [selectedId, selectedObj?.label, selectedObj?.materialLabel, selectedObj?.note]);
 
   useEffect(() => {
     setEditorState(parseMarkupData(initialMarkupData));
@@ -1121,6 +1643,7 @@ export default function VisualScopeEditor({ sheetId, baseImagePath, initialMarku
     setEditingTextId(null);
     setEditingTextValue("");
     setLegendState(initialLegendState ?? DEFAULT_LEGEND_STATE);
+    setSelectionPanelNote("");
     undoStack.current = [];
     hasUserEdited.current = false;
     legendUserEdited.current = false;
@@ -1135,6 +1658,7 @@ export default function VisualScopeEditor({ sheetId, baseImagePath, initialMarku
       { objects: currentObjects, layerDefs: currentLayerDefs },
     ];
   }, []);
+
   const undo = useCallback(() => {
     if (undoStack.current.length === 0) return;
     const prev = undoStack.current[undoStack.current.length - 1];
@@ -1432,17 +1956,18 @@ export default function VisualScopeEditor({ sheetId, baseImagePath, initialMarku
     setEditingTextValue("");
   }, [editingTextId, objects, pushUndo, layerDefs]);
 
-  const commitSelectionPanelText = useCallback(() => {
+  const commitSelectionPanelLabel = useCallback(() => {
     if (!selectedId) return;
-    const label = selectionPanelText.trim() || "Label";
-    setObjects(prev => {
+    const cur = objects.find(o => o.id === selectedId);
+    const label = selectionPanelText.trim() || (cur?.type === "text" ? "Label" : "");
+    updateObjects(prev => {
       const current = prev.find(o => o.id === selectedId);
       if (current && current.label === label) return prev;
       pushUndo(prev, layerDefs);
       hasUserEdited.current = true;
       return prev.map(o => o.id === selectedId ? { ...o, label } : o);
     });
-  }, [selectedId, selectionPanelText, pushUndo, layerDefs]);
+  }, [selectedId, selectionPanelText, objects, pushUndo, layerDefs]);
 
   const handleFillTypeChange = useCallback((fillType: FillType) => {
     if (!selectedId) return;
@@ -1562,6 +2087,53 @@ export default function VisualScopeEditor({ sheetId, baseImagePath, initialMarku
     if (svgRef.current) svgRef.current.setPointerCapture(e.pointerId);
   }, [selectedId, objects, editorState]);
 
+  const commitSelectionPanelNote = useCallback(() => {
+    if (!selectedId) return;
+    const note = selectionPanelNote.trim();
+    updateObjects(prev => {
+      const cur = prev.find(o => o.id === selectedId);
+      if (cur && cur.note === note) return prev;
+      pushUndoSnapshot(editorState);
+      return prev.map(o => o.id === selectedId ? { ...o, note } : o);
+    });
+  }, [selectedId, selectionPanelNote, editorState]);
+
+  const toggleShowLabel = useCallback(() => {
+    if (!selectedId) return;
+    updateObjects(prev => {
+      pushUndoSnapshot(editorState);
+      return prev.map(o => o.id === selectedId ? { ...o, showLabel: !o.showLabel } : o);
+    });
+  }, [selectedId, editorState]);
+
+  // ─── Handle Drag Callbacks ──────────────────────────────────────────────────
+  const handleResizeStart = useCallback((
+    e: React.PointerEvent,
+    cx: number,
+    cy: number,
+    origScale: number,
+    startDist: number,
+  ) => {
+    if (!svgRef.current) return;
+    svgRef.current.setPointerCapture(e.pointerId);
+    dragStartedUndo.current = false;
+    setDrag({ kind: "resize", id: selectedId!, cx, cy, origScale, startDist });
+  }, [selectedId]);
+
+  const handleRotateStart = useCallback((e: React.PointerEvent, cx: number, cy: number) => {
+    if (!svgRef.current) return;
+    const pt = clientToSvg(svgRef.current, e.clientX, e.clientY);
+    const dx = pt[0] - cx;
+    const dy = pt[1] - cy;
+    const startAngle = Math.atan2(dy, dx) * (180 / Math.PI);
+    const obj = objects.find(o => o.id === selectedId);
+    const origRotation = obj?.rotation ?? 0;
+    svgRef.current.setPointerCapture(e.pointerId);
+    dragStartedUndo.current = false;
+    setDrag({ kind: "rotate", id: selectedId!, center: [cx, cy], startAngle, origRotation });
+  }, [selectedId, objects]);
+
+  // ─── Canvas Pointer Events ──────────────────────────────────────────────────
   const handlePointerDown = useCallback((e: React.PointerEvent<SVGSVGElement>) => {
     if (!svgRef.current) return;
     e.preventDefault();
@@ -1578,8 +2150,12 @@ export default function VisualScopeEditor({ sheetId, baseImagePath, initialMarku
           setSelectedId(obj.id);
           setSelectedVertexIdx(null);
           setActiveColor(obj.strokeColor);
-          dragStartedUndo.current = false;
-          setDrag({ kind: "move", id: obj.id, origPoints: obj.points.map(p => [...p] as MarkupPoint), startPt: pt });
+          if (obj.type === "text") setSelectionPanelText(obj.label || "Label");
+          if (obj.type === "symbol") {
+            setSelectionPanelText(obj.label ?? "");
+            setSelectionPanelNote(obj.note ?? "");
+          }
+          startMoveDrag(obj.id, obj, pt);
           svgRef.current.setPointerCapture(e.pointerId);
           found = true;
           break;
@@ -1613,26 +2189,34 @@ export default function VisualScopeEditor({ sheetId, baseImagePath, initialMarku
       return;
     }
 
-    const symbolTypeMap: Record<string, SymbolType | undefined> = { tree: "tree", plant: "plant", boulder: "boulder" };
-    const symType = symbolTypeMap[activeTool];
-    if (symType) {
-      const color = DEFAULT_SYMBOL_COLORS[symType];
-      setObjects(prev => {
+    if (activeTool === "stamp") {
+      const def = SYMBOL_MAP.get(activeSymbolId);
+      if (!def) return;
+      const newId = nanoid8();
+      updateObjects(prev => {
         pushUndo(prev, layerDefs);
         hasUserEdited.current = true;
         return [...prev, {
-          id: nanoid8(),
+          id: newId,
           type: "symbol",
-          symbolType: symType,
+          symbolTypeId: def.id,
           points: [pt],
-          strokeColor: color,
-          fillColor: color,
+          scale: 1,
+          rotation: 0,
+          label: "",
+          showLabel: false,
+          note: "",
+          strokeColor: def.defaultColor,
+          fillColor: def.defaultColor,
           strokeWidth: 2,
           opacity: 1,
           createdAt: new Date().toISOString(),
           layerId: activeLayerId,
+          zIndex: prev.length,
         }];
       });
+      setSelectedId(newId);
+      setActiveTool("select");
       return;
     }
 
@@ -1658,7 +2242,7 @@ export default function VisualScopeEditor({ sheetId, baseImagePath, initialMarku
       setEditingTextId(newId);
       setEditingTextValue("Label");
     }
-  }, [activeTool, objects, inProgressPoints, isAtLimit, editingTextId, commitPolygon, activeColor, pushUndo, layerDefs, activeLayerId, layerMap]);
+  }, [activeTool, activeSymbolId, sortedObjects, objects, inProgressPoints, isAtLimit, editingTextId, commitPolygon, activeColor, pushUndo, layerDefs, activeLayerId, layerMap, startMoveDrag]);
 
   const handlePointerMove = useCallback((e: React.PointerEvent<SVGSVGElement>) => {
     if (!svgRef.current) return;
@@ -1749,6 +2333,14 @@ export default function VisualScopeEditor({ sheetId, baseImagePath, initialMarku
       setObjects(prev => prev.map(o =>
         o.id === drag.id ? { ...o, rotation: newRotation } : o
       ));
+    } else if (drag.kind === "resize") {
+      if (!dragStartedUndo.current) {
+        dragStartedUndo.current = true;
+        pushUndoSnapshot(editorState);
+      }
+      const dist = distance(pt, [drag.cx, drag.cy]);
+      const newScale = Math.max(0.1, (drag.origScale * dist) / drag.startDist);
+      updateObjects(prev => prev.map(o => o.id === drag.id ? { ...o, scale: newScale } : o));
     }
   }, [inProgressPoints, drag, draggingVertex, pushUndo, objects, layerDefs, activeTool, selectedId]);
 
@@ -1804,6 +2396,12 @@ export default function VisualScopeEditor({ sheetId, baseImagePath, initialMarku
   const isPolyShape = selectedObj?.type === "polygon" || selectedObj?.type === "polyline";
   const canDeleteVertex = isPolyShape && selectedVertexIdx !== null && selectedObj!.points.length > (selectedObj!.type === "polygon" ? 3 : 2);
 
+  // Cursor for active tool
+  const svgCursor =
+    activeTool === "select" ? "default" :
+    activeTool === "stamp" ? "crosshair" :
+    "crosshair";
+
   function ToolBtn({ tool, icon: Icon, label }: { tool: ActiveTool; icon: React.ElementType; label: string }) {
     const isActive = activeTool === tool;
     return (
@@ -1824,6 +2422,7 @@ export default function VisualScopeEditor({ sheetId, baseImagePath, initialMarku
   const visibleObjectIds = new Set(
     layerDefs.filter(l => l.visible).map(l => l.id)
   );
+  const activeSymbolDef = SYMBOL_MAP.get(activeSymbolId);
 
   return (
     <div>
@@ -1832,11 +2431,53 @@ export default function VisualScopeEditor({ sheetId, baseImagePath, initialMarku
         <ToolBtn tool="select" icon={MousePointer} label="Select" />
         <ToolBtn tool="polygon" icon={Pentagon} label="Polygon — click to add points, click near first point to close, Enter to finish, Esc to cancel" />
         <ToolBtn tool="polyline" icon={Minus} label="Polyline — click to add points, double-click or Enter to finish, Esc to cancel" />
-        <Separator orientation="vertical" className="h-6 mx-1" />
-        <ToolBtn tool="tree" icon={TreePine} label="Tree" />
-        <ToolBtn tool="plant" icon={Flower} label="Plant" />
-        <ToolBtn tool="boulder" icon={Circle} label="Boulder" />
         <ToolBtn tool="text" icon={Type} label="Text label" />
+
+        <Separator orientation="vertical" className="h-6 mx-1" />
+
+        {/* Symbol Library Button */}
+        <Sheet open={libraryOpen} onOpenChange={setLibraryOpen}>
+          <SheetTrigger asChild>
+            <Button
+              size="sm"
+              variant="ghost"
+              className={`toggle-elevate gap-1.5${activeTool === "stamp" ? " toggle-elevated" : ""}`}
+              title="Symbol Library"
+              data-testid="button-symbol-library"
+              disabled={isAtLimit}
+            >
+              <Library className="w-4 h-4" />
+              {activeSymbolDef && (
+                <span className="text-xs text-muted-foreground hidden sm:inline">{activeSymbolDef.name}</span>
+              )}
+            </Button>
+          </SheetTrigger>
+          <SheetContent side="left" className="w-80">
+            <SheetHeader>
+              <SheetTitle>Symbol Library</SheetTitle>
+            </SheetHeader>
+            <div className="mt-4">
+              <SymbolLibrary
+                onSelect={(def) => {
+                  setActiveSymbolId(def.id);
+                  setActiveColor(def.defaultColor);
+                  changeTool("stamp");
+                  setLibraryOpen(false);
+                }}
+              />
+            </div>
+          </SheetContent>
+        </Sheet>
+
+        {/* Stamp tool active indicator */}
+        {activeTool === "stamp" && activeSymbolDef && (
+          <div className="flex items-center gap-1 text-xs text-muted-foreground ml-1">
+            <span className="italic">Stamp:</span>
+            <SymbolIcon def={activeSymbolDef} size={16} />
+            <span>{activeSymbolDef.name}</span>
+          </div>
+        )}
+
         <Separator orientation="vertical" className="h-6 mx-1" />
 
         {/* Color picker */}
@@ -1883,6 +2524,7 @@ export default function VisualScopeEditor({ sheetId, baseImagePath, initialMarku
           <Redo2 className="w-4 h-4" />
         </Button>
 
+        {/* Delete */}
         <Button
           size="sm"
           variant="ghost"
@@ -1952,10 +2594,10 @@ export default function VisualScopeEditor({ sheetId, baseImagePath, initialMarku
         <span className="opacity-60">— {objects.length} object{objects.length !== 1 ? "s" : ""}</span>
       </div>
 
-      {/* Selection edit panel */}
+      {/* Selection / Inspector Panel */}
       {selectedObj && (
         <div
-          className="flex items-center gap-2 px-3 py-2 border-b bg-muted/40 flex-wrap"
+          className="flex items-start gap-3 px-3 py-2 border-b bg-muted/40 flex-wrap"
           data-testid="panel-selection-edit"
         >
           <span className="text-xs font-medium text-muted-foreground shrink-0">
@@ -1963,7 +2605,7 @@ export default function VisualScopeEditor({ sheetId, baseImagePath, initialMarku
             {selectedVertexIdx !== null ? ` — Vertex ${selectedVertexIdx + 1}` : ""}
           </span>
 
-          {/* Color picker for selected item */}
+          {/* Color */}
           <div className="relative flex items-center gap-1.5" title="Change item color">
             <span className="text-xs text-muted-foreground">Color</span>
             <label htmlFor="selection-color-picker" className="flex items-center cursor-pointer">
@@ -2064,6 +2706,29 @@ export default function VisualScopeEditor({ sheetId, baseImagePath, initialMarku
               <span className="text-xs tabular-nums w-7 text-muted-foreground">{Math.round((selectedObj.opacity ?? 1) * 100)}%</span>
             </div>
           )}
+          {/* Label field */}
+          {(selectedObj.type === "text" || selectedObj.type === "symbol") && (
+            <div className="flex items-center gap-1.5">
+              <span className="text-xs text-muted-foreground">Label</span>
+              <input
+                type="text"
+                value={selectionPanelText}
+                onChange={e => setSelectionPanelText(e.target.value)}
+                onBlur={commitSelectionPanelLabel}
+                onKeyDown={e => {
+                  if (e.key === "Enter") {
+                    commitSelectionPanelLabel();
+                    e.currentTarget.blur();
+                  }
+                  e.stopPropagation();
+                }}
+                placeholder={selectedObj.type === "symbol" ? "Optional label" : "Label text"}
+                className="text-xs px-2 py-1 border border-border rounded-md bg-background focus:outline-none focus:ring-1 focus:ring-ring"
+                style={{ minWidth: "80px" }}
+                data-testid="input-selection-label"
+              />
+            </div>
+          )}
 
           {/* Label for polygon/polyline */}
           {isPolyShape && (
@@ -2074,14 +2739,52 @@ export default function VisualScopeEditor({ sheetId, baseImagePath, initialMarku
                 value={selectedObj.label ?? ""}
                 onChange={e => {
                   const label = e.target.value;
-                  setObjects(prev => prev.map(o => o.id === selectedId ? { ...o, label } : o));
-                  hasUserEdited.current = true;
+                  updateObjects(prev => prev.map(o => o.id === selectedId ? { ...o, label } : o));
                 }}
                 onBlur={() => { pushUndo(objects, layerDefs); }}
                 onKeyDown={e => e.stopPropagation()}
                 className="text-xs px-2 py-1 border border-border rounded-md bg-background focus:outline-none focus:ring-1 focus:ring-ring"
                 style={{ minWidth: "80px" }}
                 data-testid="input-poly-label"
+              />
+            </div>
+          )}
+
+          {/* Show/hide label toggle (symbols only) */}
+          {selectedObj.type === "symbol" && (
+            <Button
+              size="sm"
+              variant="ghost"
+              onClick={toggleShowLabel}
+              title={selectedObj.showLabel ? "Hide label" : "Show label"}
+              data-testid="button-toggle-label"
+            >
+              {selectedObj.showLabel
+                ? <><EyeOff className="w-3 h-3 mr-1" />Hide Label</>
+                : <><Eye className="w-3 h-3 mr-1" />Show Label</>}
+            </Button>
+          )}
+
+          {/* Note field (symbols only) */}
+          {selectedObj.type === "symbol" && (
+            <div className="flex items-center gap-1.5">
+              <span className="text-xs text-muted-foreground">Note</span>
+              <input
+                type="text"
+                value={selectionPanelNote}
+                onChange={e => setSelectionPanelNote(e.target.value)}
+                onBlur={commitSelectionPanelNote}
+                onKeyDown={e => {
+                  if (e.key === "Enter") {
+                    commitSelectionPanelNote();
+                    e.currentTarget.blur();
+                  }
+                  e.stopPropagation();
+                }}
+                placeholder="Add a note..."
+                className="text-xs px-2 py-1 border border-border rounded-md bg-background focus:outline-none focus:ring-1 focus:ring-ring"
+                style={{ minWidth: "120px" }}
+                data-testid="input-selection-note"
               />
             </div>
           )}
@@ -2113,7 +2816,7 @@ export default function VisualScopeEditor({ sheetId, baseImagePath, initialMarku
             Duplicate
           </Button>
 
-          {/* Delete button in selection panel */}
+          {/* Delete selected object */}
           <Button
             size="sm"
             variant="ghost"
@@ -2307,6 +3010,39 @@ export default function VisualScopeEditor({ sheetId, baseImagePath, initialMarku
             onToggleLocked={handleToggleLocked}
           />
         </div>
+        {/* Canvas */}
+        <div
+          ref={containerRef}
+          style={{
+            position: "relative",
+            lineHeight: 0,
+            aspectRatio: "1 / 1",
+            maxHeight: "calc(100vh - 340px)",
+            maxWidth: "calc(100vh - 340px)",
+            width: "100%",
+          }}
+        >
+          {/* Background layer: base image — locked, non-interactive */}
+          <div
+            style={{
+              position: "absolute",
+              inset: 0,
+              pointerEvents: "none",
+              zIndex: 0,
+            }}
+            data-testid="layer-background"
+            aria-label="Background layer (locked)"
+          >
+            <img
+              src={baseImagePath}
+              alt="Base image"
+              style={{ width: "100%", height: "100%", display: "block" }}
+              data-testid="img-base-image"
+              draggable={false}
+            />
+          </div>
+          />
+        </div>
 
         {/* Annotation layer: SVG canvas */}
         <svg
@@ -2319,7 +3055,7 @@ export default function VisualScopeEditor({ sheetId, baseImagePath, initialMarku
             width: "100%",
             height: "100%",
             zIndex: 1,
-            cursor: activeTool === "select" ? "default" : "crosshair",
+            cursor: svgCursor,
             touchAction: "none",
           }}
           onPointerDown={handlePointerDown}
@@ -2344,19 +3080,30 @@ export default function VisualScopeEditor({ sheetId, baseImagePath, initialMarku
             ))}
 
           {selectedObj && isLayerSelectableForObj(selectedObj) && (
-            <SelectionHandles
-              obj={selectedObj}
-              onStartVertexDrag={(idx, pt) => {
-                setDrag({ kind: "vertex", id: selectedObj.id, vertexIdx: idx, startPt: pt, origPt: selectedObj.points[idx] });
-              }}
-              onStartRotate={(pt) => {
-                const bb = getBbox(selectedObj);
-                const dx = pt[0] - bb.cx;
-                const dy = pt[1] - bb.cy;
-                const angle = Math.atan2(dy, dx) * (180 / Math.PI);
-                setDrag({ kind: "rotate", id: selectedObj.id, center: [bb.cx, bb.cy], startAngle: angle, origRotation: selectedObj.rotation ?? 0 });
-              }}
-            />
+            <>
+              {(selectedObj.type === "polygon" || selectedObj.type === "polyline") && (
+                <SelectionHandles
+                  obj={selectedObj}
+                  onStartVertexDrag={(idx, pt) => {
+                    setDrag({ kind: "vertex", id: selectedObj.id, vertexIdx: idx, startPt: pt, origPt: selectedObj.points[idx] });
+                  }}
+                  onStartRotate={(pt) => {
+                    const bb = getBbox(selectedObj);
+                    const dx = pt[0] - bb.cx;
+                    const dy = pt[1] - bb.cy;
+                    const angle = Math.atan2(dy, dx) * (180 / Math.PI);
+                    setDrag({ kind: "rotate", id: selectedObj.id, center: [bb.cx, bb.cy], startAngle: angle, origRotation: selectedObj.rotation ?? 0 });
+                  }}
+                />
+              )}
+              {selectedObj.type === "symbol" && (
+                <TransformHandles
+                  obj={selectedObj}
+                  onResizeStart={handleResizeStart}
+                  onRotateStart={handleRotateStart}
+                />
+              )}
+            </>
           )}
 
           {inProgressPoints.length > 0 && (

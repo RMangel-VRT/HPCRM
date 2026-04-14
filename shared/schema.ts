@@ -1963,7 +1963,12 @@ export interface MarkupObject {
   type: MarkupObjectType;
   points: MarkupPoint[];
   symbolType?: SymbolType;
+  symbolTypeId?: string;
+  scale?: number;
+  rotation?: number;
   label?: string;
+  showLabel?: boolean;
+  note?: string;
   strokeColor: string;
   fillColor: string;
   strokeWidth: number;
