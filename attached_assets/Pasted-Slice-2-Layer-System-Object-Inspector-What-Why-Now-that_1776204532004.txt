@@ -1,0 +1,86 @@
+Slice 2 — Layer System + Object Inspector
+What & Why
+
+Now that the editor foundation is object-based, the next step is to make the tool feel organized and controllable. A professional landscape scope tool needs a clear layer model so users can separate base imagery, areas, lines, symbols, text, and future legend elements. It also needs a properties inspector so selected objects can be edited cleanly instead of relying on one-off tool settings. This slice introduces the structural UI that will support all later professional features.
+
+Scope
+Add a visible Layers panel to the editor
+Add default system layers for:
+Base Image
+Areas
+Lines
+Symbols
+Text / Callouts
+Legend
+Notes
+Support layer visibility toggle
+Support layer lock/unlock
+Support reordering objects within the active drawing context
+Add selected-object inspector panel
+Show editable properties based on object type
+Add object naming/label field for easier identification
+Add active layer targeting for newly created objects
+Requirements
+Base Image layer must remain locked by default
+Users must be able to hide/show and lock/unlock non-base layers
+New objects must be assigned to the currently active layer automatically
+Selecting an object must populate the inspector with its editable fields
+Inspector should be object-type aware:
+polygon: fill, opacity, stroke, label/name
+polyline: stroke, width, dash style, label/name
+text: content, font size, rotation, label/name
+symbol placeholder objects: size, rotation, label/name
+Layer state must persist when saving and reopening a sheet
+Keep this slice compatible with existing visual scope records opened under the new editor system
+Done Looks Like
+User sees a layer panel in the editor
+User can toggle visibility of Areas, Lines, Symbols, Text, etc.
+User can lock a layer to prevent accidental edits
+User can select an object and edit its properties from an inspector panel
+New objects go onto the correct active layer
+Saving and reopening restores object layer assignments and layer visibility/lock states
+Guardrails
+Do not overbuild full Adobe/Figma-style layer complexity
+No nested folders or grouped layer trees yet
+No advanced multi-select editing yet
+Keep the panel simple and reliable
+Do not add textures, symbols library, or legend generation yet beyond placeholder layer support
+UX Notes
+Layers panel can be a simple left or right sidebar section
+Inspector panel should only show when an object is selected
+If no object is selected, inspector can show sheet-level metadata or nothing
+Layer names should be editable later, but system default names should be fixed for now unless there is a strong reason otherwise
+Data Model Expectations
+
+Add support in the saved sheet state for:
+
+layer definitions
+layer order
+layer visibility
+layer locked state
+object-to-layer assignment
+active layer indicator
+
+Each object should also support a basic metadata structure including:
+
+id
+type
+layerId
+name
+transform info
+style info
+Test Plan
+Open a new and existing visual scope sheet
+Confirm default layers are present
+Draw objects onto different active layers
+Lock a layer and verify objects on it cannot be edited
+Hide a layer and verify objects disappear visually but remain in state
+Select different object types and verify inspector fields change appropriately
+Save and reload the sheet
+Confirm layer states and object assignments persist correctly
+Confirm Base Image layer stays locked by default
+Done Looks Like for Approval
+The editor now feels structurally organized
+Users can manage drawing content by type
+Selected objects can be edited in a controlled way
+This creates the framework needed for texture fills, symbol libraries, legend generation, and polished exports in later slices

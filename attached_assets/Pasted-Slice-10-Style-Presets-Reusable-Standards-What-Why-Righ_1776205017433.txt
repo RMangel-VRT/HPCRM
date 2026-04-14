@@ -1,0 +1,177 @@
+Slice 10 — Style Presets + Reusable Standards
+What & Why
+
+Right now, the tool is powerful—but every sheet still depends on the user rebuilding styles manually (textures, symbols, labels, etc.). That creates inconsistency and slows your team down.
+
+This slice turns the tool into a system, not just a canvas.
+
+You will:
+
+standardize how High Plains presents work
+speed up sheet creation dramatically
+ensure every proposal looks consistent and professional
+
+This is where your company’s “way of doing things” gets baked into the tool.
+
+Scope
+Add style presets for:
+area (polygon) styles
+line styles
+symbol styles
+Add ability to:
+save presets
+apply presets
+update presets
+Add default preset library (High Plains standards)
+Add sheet templates
+Add quick-apply workflows
+Preset Types
+1. Area (Polygon) Presets
+
+These are the most important.
+
+Each preset includes:
+
+texture
+texture scale
+opacity
+stroke style
+material label
+default name
+Examples (High Plains Standard)
+Bark Mulch Refresh
+Decorative Rock Refresh
+2–4" Cobble Install
+Turf Conversion Area
+Native Area Conversion
+Demo / Removal Area
+2. Line Presets
+
+Each preset includes:
+
+stroke color
+stroke width
+dash style
+label
+Examples
+Proposed Edging
+Drip Line Install
+Plow Route
+Boundary of Work
+Demo Line
+3. Symbol Presets
+
+Each preset includes:
+
+symbol type
+default scale
+default rotation (if applicable)
+label behavior
+Examples
+Tree Install
+Tree Removal
+Boulder Placement
+Valve Box
+Drain Inlet
+Requirements
+Saving Presets
+User can select an object → “Save as Preset”
+Preset captures full style configuration
+Preset is named and stored
+Applying Presets
+User selects:
+object → apply preset
+OR selects preset first → draws with preset applied
+Presets should instantly apply all styles
+Editing Presets
+User can update an existing preset
+Changes should NOT retroactively break existing objects unless explicitly applied
+Sheet Templates
+
+Add the ability to save full sheet setups.
+
+Template Includes:
+layer visibility
+legend settings
+title block format
+notes block layout
+default presets used
+layout type
+Examples:
+HOA Proposal Template
+Enhancement Concept Template
+Internal Planning Template
+Done Looks Like
+User starts a new sheet
+Selects “Turf Conversion Area” preset
+Draws → already styled correctly
+Places symbols → consistent sizing/style
+Legend auto-builds cleanly with consistent naming
+Sheet looks identical in quality regardless of who created it
+Guardrails
+Do NOT overcomplicate preset management UI
+Do NOT introduce permissions/admin complexity yet
+Avoid letting users create messy or redundant presets
+Keep naming clean and intentional
+Default presets should be high-quality and opinionated
+UX Notes
+Preset Picker
+Should exist alongside:
+drawing tools
+symbol library
+Visual preview is important (small swatches/icons)
+Quick Workflow
+
+Ideal flow:
+
+Select preset
+Draw / place object
+Done
+
+No extra styling steps needed.
+
+Data Model Expectations
+Presets
+id
+type (area | line | symbol)
+name
+style configuration object
+optional category
+Objects
+may reference presetId (optional)
+still store their own style (to prevent breaking changes)
+Templates
+id
+name
+layout config
+legend config
+default presets
+Test Plan
+Presets
+Create new preset from object
+Apply preset to new object
+Apply preset to existing object
+Update preset → verify behavior
+Templates
+Create sheet → save as template
+Load template → verify layout consistency
+Ensure legend + title + notes load correctly
+Consistency
+Create multiple sheets using presets
+Verify consistent visual output
+Done Looks Like for Approval
+Users no longer manually style every object
+Output becomes consistent across team members
+Sheet creation time drops significantly
+High Plains standards are embedded into the workflow
+Tool begins to feel like a real internal platform, not just a feature
+Critical Strategic Value
+
+This is where your tool becomes:
+
+scalable across employees
+consistent across properties
+aligned with your brand and process
+
+Without this slice, quality depends on the user.
+With this slice, quality is built into the system.

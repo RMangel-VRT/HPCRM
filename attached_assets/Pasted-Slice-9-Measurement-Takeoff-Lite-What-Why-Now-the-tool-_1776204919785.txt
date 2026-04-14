@@ -1,0 +1,183 @@
+Slice 9 — Measurement + Takeoff Lite
+What & Why
+
+Now the tool looks professional and exports cleanly — but it’s still purely visual. This slice introduces practical utility by adding lightweight measurement and quantity awareness.
+
+The goal is NOT to turn this into CAD or GIS. The goal is to give you:
+
+quick area estimates (mulch, rock, turf conversions)
+linear footage (edging, paths, drip runs)
+counts (trees, boulders, irrigation components)
+
+This directly ties into your real workflows:
+
+proposals
+rough budgeting
+scope validation
+internal planning
+Scope
+Add area calculation for polygons (when scale is known)
+Add linear measurement for polylines (when scale is known)
+Add symbol counts
+Add label display toggles for measurements
+Add basic summary output (takeoff-lite)
+Add scale handling system
+Critical Concept — Scale Awareness
+
+This slice only works if we properly handle scale.
+
+Two Modes:
+1. Scaled Mode (Satellite Capture)
+Mapbox-based images can be considered scale-aware
+You can calculate:
+square feet
+linear feet
+2. Non-Scaled Mode (Manual Upload)
+No reliable scale
+Measurements must be:
+disabled OR
+labeled clearly as “Not to Scale”
+Requirements
+Area Measurement (Polygons)
+Automatically calculate area for each polygon (if scaled)
+Store value in:
+square feet (primary)
+Allow display:
+on-canvas label (toggle)
+inspector panel
+Optional: round values for readability
+Linear Measurement (Polylines)
+Calculate total length of line (if scaled)
+Store value in:
+linear feet
+Allow display:
+on-canvas label (toggle)
+inspector panel
+Symbol Counts
+Count instances per symbol type
+Store as:
+grouped totals (e.g., 14 trees, 6 boulders)
+Feed into:
+legend (optional count display)
+future takeoff summary
+Measurement Labels
+Toggle per object:
+show/hide measurement
+Label style:
+subtle
+readable
+non-intrusive
+Example:
+“2,450 SF”
+“185 LF”
+Summary Output (Takeoff Lite)
+
+Add a lightweight summary panel or export-ready block:
+
+Areas
+Bark Mulch — 3,200 SF
+Cobble — 1,150 SF
+Turf Conversion — 2,800 SF
+Linear
+Edging — 420 LF
+Drip Line — 310 LF
+Counts
+Trees — 12
+Boulders — 6
+
+This can be:
+
+visible in UI
+optionally included in export (future slice integration)
+Done Looks Like
+User draws a mulch area → sees square footage
+User draws edging → sees linear feet
+User places trees → total count available
+Summary gives quick material overview
+Tool becomes useful for estimating conversations, not just visuals
+Guardrails
+Do NOT fake precision on non-scaled images
+Do NOT introduce complex unit systems yet
+Do NOT attempt full takeoff or estimating engine
+Keep calculations simple and trustworthy
+Always indicate when measurements are unavailable or approximate
+UX Notes
+Scale Indicator
+Show somewhere on sheet:
+“Scaled” OR
+“Not to Scale”
+This is important for credibility
+Measurement Display
+Default: OFF (to avoid clutter)
+User can toggle:
+per object
+or globally
+Summary Panel
+Could live:
+in side panel
+or as optional overlay block
+Keep it simple and readable
+Data Model Expectations
+Polygon Additions
+areaSqFt
+showMeasurementLabel (boolean)
+Polyline Additions
+lengthFt
+showMeasurementLabel (boolean)
+Symbol Tracking
+symbolTypeId (already exists)
+aggregation logic for counts
+Sheet-Level
+isScaled (boolean)
+scaleSource (e.g., “mapbox”, “manual”)
+Calculation Expectations
+Must be consistent across:
+editor
+export
+Must update dynamically when:
+vertices are edited
+shapes are resized
+Must be performant even with multiple objects
+Test Plan
+Area
+Draw multiple polygons
+Modify vertices → confirm area updates
+Toggle labels on/off
+Linear
+Draw multiple polylines
+Adjust shape → confirm length updates
+Toggle labels
+Symbol Counts
+Place multiple symbols
+Remove some → confirm count updates
+Scale Handling
+Test with:
+satellite capture (scaled)
+uploaded image (not scaled)
+Verify correct behavior in both
+Summary
+Confirm aggregation accuracy
+Confirm values match individual objects
+Done Looks Like for Approval
+Tool now provides real-world usable numbers
+Users can quickly estimate materials visually
+Measurements are trustworthy and clearly communicated
+The tool bridges the gap between:
+design
+scope
+early estimating
+Critical Philosophy
+
+This is “takeoff-lite,” not estimating software.
+
+The goal is:
+
+quick insight
+visual validation
+proposal support
+
+NOT:
+
+exact bid generation
+cost calculation engine
+precision surveying
