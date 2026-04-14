@@ -1,4 +1,4 @@
-import { Switch, Route, Redirect } from "wouter";
+import { Switch, Route, Redirect, useLocation } from "wouter";
 import { queryClient } from "./lib/queryClient";
 import { QueryClientProvider, useQuery } from "@tanstack/react-query";
 import { Toaster } from "@/components/ui/toaster";
@@ -121,6 +121,8 @@ function Router() {
   const { user, isLoading, logoutMutation } = useAuth();
   const { i18n } = useTranslation();
   const [showLoadingScreen, setShowLoadingScreen] = useState(true);
+  const [location] = useLocation();
+  const isVisualScopeDraft = /^\/dashboard\/tools\/visual-scope\/[^/]+/.test(location);
 
   useEffect(() => {
     if (user?.language) {
@@ -332,7 +334,7 @@ function Router() {
                 </div>
               </header>
               <AppBreadcrumb />
-              <main className="flex-1 overflow-y-auto p-6 md:p-8">
+              <main className={`flex-1 overflow-y-auto ${isVisualScopeDraft ? "" : "p-6 md:p-8"}`}>
                 {renderRouteSwitch()}
               </main>
             </div>

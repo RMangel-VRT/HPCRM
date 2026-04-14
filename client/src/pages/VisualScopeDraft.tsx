@@ -615,7 +615,7 @@ export default function VisualScopeDraft() {
 
   if (isLoading) {
     return (
-      <div className="p-6 max-w-4xl mx-auto space-y-4">
+      <div className="p-6 w-full space-y-4">
         <div className="h-8 bg-muted rounded animate-pulse w-48" />
         <div className="h-64 bg-muted rounded animate-pulse" />
       </div>
@@ -636,8 +636,8 @@ export default function VisualScopeDraft() {
   const baseImageApiUrl = `/api/visual-scope-sheets/${id}/base-image?v=${encodeURIComponent(imgCacheKey)}`;
 
   return (
-    <div className="p-6 max-w-4xl mx-auto space-y-6">
-      <div className="flex items-start gap-3">
+    <div className="w-full space-y-6 pb-6">
+      <div className="flex items-start gap-3 px-6 pt-6">
         <Link href="/dashboard/tools/visual-scope">
           <Button variant="ghost" size="icon" data-testid="button-back-list">
             <ArrowLeft className="w-4 h-4" />
