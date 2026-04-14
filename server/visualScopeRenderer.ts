@@ -1,8 +1,9 @@
 import { createCanvas, loadImage } from "canvas";
 import type { CanvasRenderingContext2D as NodeCanvasCtx } from "canvas";
 import { ObjectStorageService } from "./objectStorage";
-import type { VisualScopeSheet, MarkupObject, MarkupPoint, SymbolType } from "@shared/schema";
+import type { VisualScopeSheet, MarkupObject, MarkupPoint, SymbolType, LegendState, LegendEntry } from "@shared/schema";
 import { flattenMarkupObjects } from "@shared/schema";
+import { detectLegendEntries, applyLegendState, DEFAULT_LEGEND_STATE } from "@shared/legendUtils";
 
 export type ExportType = "base" | "overlay" | "combined";
 
@@ -17,6 +18,15 @@ const DEFAULT_SYMBOL_COLORS: Record<SymbolType, string> = {
   plant: "#22c55e",
   boulder: "#9ca3af",
 };
+
+function hexToRgb(hex: string): { r: number; g: number; b: number } | null {
+  const result = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(hex);
+  return result ? {
+    r: parseInt(result[1], 16),
+    g: parseInt(result[2], 16),
+    b: parseInt(result[3], 16),
+  } : null;
+}
 
 function drawSymbol(
   ctx: NodeCanvasCtx,
@@ -163,29 +173,76 @@ function drawMarkup(
   }
 }
 
+function drawLegendEntry(
+  ctx: NodeCanvasCtx,
+  entry: LegendEntry,
+  x: number,
+  y: number,
+  iconSize: number,
+  fontSize: number,
+  showCounts: boolean
+) {
+  const iconCx = x + iconSize * 0.5;
+  const iconCy = y + iconSize * 0.5;
+
+  if (entry.kind === "symbol" && entry.symbolType) {
+    drawSymbol(ctx, entry.symbolType, iconCx, iconCy, iconSize, entry.color);
+  } else if (entry.kind === "line") {
+    ctx.strokeStyle = entry.color || "#555";
+    ctx.lineWidth = Math.max(1.5, iconSize * 0.12);
+    ctx.lineCap = "round";
+    ctx.beginPath();
+    ctx.moveTo(x, iconCy);
+    ctx.lineTo(x + iconSize, iconCy);
+    ctx.stroke();
+  } else {
+    // material — color swatch
+    const rgb = hexToRgb(entry.color || "#888888");
+    ctx.fillStyle = rgb
+      ? `rgba(${rgb.r},${rgb.g},${rgb.b},0.85)`
+      : (entry.color || "#888888");
+    ctx.beginPath();
+    roundRect(ctx, x + 1, y + 1, iconSize - 2, iconSize - 2, 2);
+    ctx.fill();
+    ctx.strokeStyle = "rgba(0,0,0,0.2)";
+    ctx.lineWidth = 0.5;
+    ctx.stroke();
+  }
+
+  let label = entry.label;
+  if (showCounts && entry.kind === "symbol" && entry.count !== undefined) {
+    label = `${label} \u00d7 ${entry.count}`;
+  }
+
+  ctx.font = `${fontSize}px Arial, Helvetica, sans-serif`;
+  ctx.fillStyle = "#333333";
+  ctx.shadowBlur = 0;
+  ctx.fillText(label, x + iconSize + Math.round(iconSize * 0.4), y + iconSize * 0.78);
+}
+
+function drawLegendGroupHeader(
+  ctx: NodeCanvasCtx,
+  label: string,
+  x: number,
+  y: number,
+  fontSize: number
+) {
+  ctx.font = `bold ${Math.round(fontSize * 0.85)}px Arial, Helvetica, sans-serif`;
+  ctx.fillStyle = "#888888";
+  ctx.fillText(label.toUpperCase(), x, y + fontSize * 0.8);
+}
+
 function drawLegend(
   ctx: NodeCanvasCtx,
   objects: MarkupObject[],
   width: number,
-  height: number
+  height: number,
+  legendState: LegendState
 ) {
-  const counts = { tree: 0, plant: 0, boulder: 0 } as Record<SymbolType, number>;
-  for (const obj of objects) {
-    if (obj.type === "symbol" && obj.symbolType && obj.symbolType in counts) {
-      counts[obj.symbolType]++;
-    }
-  }
+  if (!legendState.enabled) return;
 
-  type LegendEntry = { type: SymbolType; label: string; count: number };
-  const entries: LegendEntry[] = (
-    [
-      { type: "tree" as SymbolType, label: "Trees" },
-      { type: "plant" as SymbolType, label: "Plants" },
-      { type: "boulder" as SymbolType, label: "Boulders" },
-    ] as { type: SymbolType; label: string }[]
-  )
-    .filter((e) => counts[e.type] > 0)
-    .map((e) => ({ ...e, count: counts[e.type] }));
+  const allEntries = detectLegendEntries(objects);
+  const entries = applyLegendState(allEntries, legendState);
 
   if (entries.length === 0) return;
 
@@ -194,43 +251,95 @@ function drawLegend(
   const rowH = Math.round(width * 0.028);
   const fontSize = Math.round(width * 0.013);
   const titleFontSize = Math.round(width * 0.015);
-  const boxWidth = Math.round(width * 0.2);
+  const groupHeaderH = Math.round(width * 0.022);
+  const boxWidth = Math.round(width * 0.22);
   const margin = Math.round(width * 0.015);
-  const boxHeight = pad * 2 + titleFontSize + pad + entries.length * rowH;
-  const bx = width - boxWidth - margin;
-  const by = height - boxHeight - margin;
   const radius = Math.round(pad * 0.5);
+
+  const compact = legendState.mode === "compact";
+
+  const materials = entries.filter(e => e.kind === "material");
+  const symbols = entries.filter(e => e.kind === "symbol");
+  const lines = entries.filter(e => e.kind === "line");
+
+  // Compute content height
+  let contentH = pad + titleFontSize + pad; // title row
+  if (!compact) {
+    if (legendState.showMaterialsGroup && materials.length > 0) {
+      contentH += groupHeaderH + materials.length * rowH;
+    }
+    if (legendState.showSymbolsGroup && symbols.length > 0) {
+      contentH += groupHeaderH + symbols.length * rowH;
+    }
+    if (legendState.showLinesGroup && lines.length > 0) {
+      contentH += groupHeaderH + lines.length * rowH;
+    }
+    contentH += pad;
+  } else {
+    // compact: single row of dot swatches
+    contentH += Math.round(iconSize * 1.5) + pad;
+  }
+
+  const boxHeight = contentH;
+
+  // Determine position corner
+  let bx: number, by: number;
+  switch (legendState.position) {
+    case "top-left":
+      bx = margin; by = margin; break;
+    case "top-right":
+      bx = width - boxWidth - margin; by = margin; break;
+    case "bottom-left":
+      bx = margin; by = height - boxHeight - margin; break;
+    case "bottom-right":
+    default:
+      bx = width - boxWidth - margin; by = height - boxHeight - margin; break;
+  }
 
   ctx.save();
 
+  // Background
   roundRect(ctx, bx, by, boxWidth, boxHeight, radius);
-  ctx.fillStyle = "rgba(255,255,255,0.90)";
+  ctx.fillStyle = "rgba(255,255,255,0.92)";
   ctx.fill();
-  ctx.strokeStyle = "rgba(0,0,0,0.18)";
+  ctx.strokeStyle = "rgba(0,0,0,0.15)";
   ctx.lineWidth = Math.max(1, Math.round(width * 0.0005));
   ctx.stroke();
 
+  // Title
   ctx.font = `bold ${titleFontSize}px Arial, Helvetica, sans-serif`;
   ctx.fillStyle = "#111111";
-  ctx.fillText("Legend", bx + pad, by + pad + titleFontSize);
+  ctx.fillText(legendState.title || "Legend", bx + pad, by + pad + titleFontSize);
 
-  for (let i = 0; i < entries.length; i++) {
-    const entry = entries[i];
-    const rowY = by + pad + titleFontSize + pad + i * rowH;
-    const iconCx = bx + pad + iconSize * 0.5;
-    const iconCy = rowY + iconSize * 0.5;
-    const s = iconSize;
+  if (compact) {
+    // Compact: tiny swatches in a row
+    let cx = bx + pad;
+    const rowY = by + pad + titleFontSize + pad;
+    const compactIconSize = Math.round(iconSize * 0.8);
+    const compactFontSize = Math.round(fontSize * 0.85);
+    for (const entry of entries) {
+      if (cx + compactIconSize + 60 > bx + boxWidth - pad) break;
+      drawLegendEntry(ctx, entry, cx, rowY, compactIconSize, compactFontSize, false);
+      const labelLen = Math.min((legendState.customLabels[entry.id] ?? entry.label).length * compactFontSize * 0.6, 70);
+      cx += compactIconSize + labelLen + pad;
+    }
+  } else {
+    let curY = by + pad + titleFontSize + Math.round(pad * 0.5);
 
-    drawSymbol(ctx, entry.type, iconCx, iconCy, s);
+    function drawSection(sectionEntries: LegendEntry[], groupLabel: string) {
+      if (sectionEntries.length === 0) return;
+      curY += Math.round(pad * 0.4);
+      drawLegendGroupHeader(ctx, groupLabel, bx + pad, curY, groupHeaderH);
+      curY += groupHeaderH;
+      for (const entry of sectionEntries) {
+        drawLegendEntry(ctx, entry, bx + pad, curY, iconSize, fontSize, legendState.showSymbolCounts);
+        curY += rowH;
+      }
+    }
 
-    ctx.font = `${fontSize}px Arial, Helvetica, sans-serif`;
-    ctx.fillStyle = "#333333";
-    ctx.shadowBlur = 0;
-    ctx.fillText(
-      `${entry.label} \u00d7 ${entry.count}`,
-      bx + pad + iconSize + Math.round(pad * 0.6),
-      rowY + iconSize * 0.75
-    );
+    if (legendState.showMaterialsGroup) drawSection(materials, "Materials");
+    if (legendState.showSymbolsGroup) drawSection(symbols, "Symbols");
+    if (legendState.showLinesGroup) drawSection(lines, "Lines");
   }
 
   ctx.restore();
@@ -265,6 +374,7 @@ export async function renderVisualScope(
 
   const height = Math.round(width * baseImg.height / baseImg.width);
   const objects = flattenMarkupObjects(sheet.markupData);
+  const legendState: LegendState = (sheet.legendState as LegendState | null) ?? DEFAULT_LEGEND_STATE;
 
   if (type === "base") {
     const canvas = createCanvas(width, height);
@@ -285,6 +395,6 @@ export async function renderVisualScope(
   const ctx = canvas.getContext("2d");
   ctx.drawImage(baseImg as any, 0, 0, width, height);
   drawMarkup(ctx, objects, width, height);
-  drawLegend(ctx, objects, width, height);
+  drawLegend(ctx, objects, width, height, legendState);
   return canvas.toBuffer("image/png");
 }

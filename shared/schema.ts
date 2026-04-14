@@ -1610,7 +1610,7 @@ export const visualScopeSheets = pgTable("visual_scope_sheets", {
   baseImageFilename: varchar("base_image_filename"),
   baseImageMimeType: varchar("base_image_mime_type"),
   baseImageSize: integer("base_image_size"),
-  markupData: jsonb("markup_data").$type<MarkupData>().default(sql`'[]'::jsonb`),
+  markupData: jsonb("markup_data").$type<MarkupObject[]>().default(sql`'[]'::jsonb`),
   captureParams: jsonb("capture_params").$type<CaptureParams>(),
   createdAt: timestamp("created_at").notNull().defaultNow(),
   updatedAt: timestamp("updated_at").notNull().defaultNow(),
@@ -1973,6 +1973,16 @@ export interface MarkupObject {
   rotation?: number;
   zIndex?: number;
   locked?: boolean;
+  // Texture fill fields (Slice 4)
+  fillType?: "solid" | "texture";
+  textureId?: string;
+  textureScale?: "small" | "medium" | "large";
+  textureOpacity?: number;
+  materialLabel?: string;
+  // Legend worthy flag for polylines
+  legendWorthy?: boolean;
+  legendStyleId?: string;
+  legendStyleLabel?: string;
 }
 
 export interface MarkupLayer {
@@ -1991,7 +2001,7 @@ export interface MarkupDocument {
 export type MarkupData = MarkupObject[] | MarkupDocument;
 
 function normalizeMarkupObject(obj: unknown): MarkupObject {
-  const o = (obj && typeof obj === "object" ? obj : {}) as Record<string, unknown>;
+  const o = (obj && typeof obj === "object" ? obj : {}) as Record<string, unknown>
   return {
     id: typeof o.id === "string" && o.id.length > 0 ? o.id : Math.random().toString(36).slice(2, 10),
     type: (o.type as MarkupObject["type"]) ?? "polygon",
@@ -2009,8 +2019,8 @@ function normalizeMarkupObject(obj: unknown): MarkupObject {
 }
 
 function normalizeMarkupLayer(layer: unknown, fallbackId: string): MarkupLayer {
-  const l = (layer && typeof layer === "object" ? layer : {}) as Record<string, unknown>;
-  const rawObjs = Array.isArray(l.objects) ? l.objects : [];
+  const l = (layer && typeof layer === "object" ? layer : {}) as Record<string, unknown>
+  const rawObjs = Array.isArray(l.objects) ? l.objects : []
   return {
     id: typeof l.id === "string" ? l.id : fallbackId,
     name: typeof l.name === "string" ? l.name : "Annotations",
@@ -2055,6 +2065,35 @@ export function flattenMarkupObjects(data: unknown): MarkupObject[] {
     .sort((a, b) => (a.zIndex ?? 0) - (b.zIndex ?? 0));
 }
 
+// Legend System (Slice 6)
+export type LegendEntryKind = "material" | "symbol" | "line";
+export type LegendPosition = "top-left" | "top-right" | "bottom-left" | "bottom-right";
+export type LegendMode = "compact" | "expanded";
+
+export interface LegendEntry {
+  id: string; // e.g. "material:bark_mulch", "symbol:tree", "line:style1"
+  kind: LegendEntryKind;
+  label: string;
+  color?: string;
+  textureId?: string;
+  symbolType?: SymbolType;
+  lineStyleId?: string;
+  count?: number;
+}
+
+export interface LegendState {
+  enabled: boolean;
+  position: LegendPosition;
+  mode: LegendMode;
+  title: string;
+  showMaterialsGroup: boolean;
+  showSymbolsGroup: boolean;
+  showLinesGroup: boolean;
+  showSymbolCounts: boolean;
+  hiddenEntryIds: string[];
+  customLabels: Record<string, string>;
+  entryOrder: string[];
+}
 // ─────────────────────────────────────────────────────────────────────────────
 // Communication Center Tables
 // ─────────────────────────────────────────────────────────────────────────────

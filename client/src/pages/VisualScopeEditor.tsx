@@ -1,7 +1,14 @@
-import { useState, useRef, useEffect, useCallback } from "react";
+import { useState, useRef, useEffect, useCallback, useMemo } from "react";
 import { useTranslation } from "react-i18next";
 import { Button } from "@/components/ui/button";
 import { Separator } from "@/components/ui/separator";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover";
 import {
   MousePointer,
   Pentagon,
@@ -19,10 +26,18 @@ import {
   Lock,
   Copy,
   X,
+  Map,
+  Eye,
+  EyeOff,
+  Settings,
+  ChevronUp,
+  ChevronDown,
+  GripHorizontal,
 } from "lucide-react";
 import { apiRequest } from "@/lib/queryClient";
-import type { MarkupObject, MarkupPoint, SymbolType, MarkupDocument } from "@shared/schema";
+import type { MarkupObject, MarkupPoint, SymbolType, MarkupDocument, LegendState, LegendEntry } from "@shared/schema";
 import { parseMarkupData } from "@shared/schema";
+import { detectLegendEntries, applyLegendState, DEFAULT_LEGEND_STATE } from "@shared/legendUtils";
 
 type ActiveTool = "select" | "polygon" | "polyline" | "tree" | "plant" | "boulder" | "text";
 type DashStyle = "solid" | "dashed" | "dotted";
@@ -31,6 +46,7 @@ interface VisualScopeEditorProps {
   sheetId: string;
   baseImagePath: string;
   initialMarkupData: unknown;
+  initialLegendState?: LegendState | null;
   onSaved?: () => void;
 }
 
@@ -620,7 +636,382 @@ function SelectionHandles({ obj, onStartVertexDrag, onStartRotate }: SelectionHa
   );
 }
 
-export default function VisualScopeEditor({ sheetId, baseImagePath, initialMarkupData, onSaved }: VisualScopeEditorProps) {
+// ─── Legend Panel ────────────────────────────────────────────────────────────
+
+interface LegendPanelProps {
+  entries: LegendEntry[];
+  allEntries: LegendEntry[];
+  legendState: LegendState;
+  onLegendStateChange: (ls: LegendState) => void;
+  containerRef: React.RefObject<HTMLDivElement>;
+}
+
+type Corner = LegendState["position"];
+
+function getCornerStyle(pos: Corner): React.CSSProperties {
+  const m = 10;
+  switch (pos) {
+    case "top-left":     return { top: m, left: m };
+    case "top-right":    return { top: m, right: m };
+    case "bottom-left":  return { bottom: m, left: m };
+    case "bottom-right": return { bottom: m, right: m };
+  }
+}
+
+function nearestCorner(x: number, y: number, w: number, h: number): Corner {
+  const midX = w / 2;
+  const midY = h / 2;
+  if (x <= midX && y <= midY) return "top-left";
+  if (x > midX && y <= midY) return "top-right";
+  if (x <= midX && y > midY) return "bottom-left";
+  return "bottom-right";
+}
+
+function LegendPanel({ entries, allEntries, legendState, onLegendStateChange, containerRef }: LegendPanelProps) {
+  const panelRef = useRef<HTMLDivElement>(null);
+  const draggingRef = useRef(false);
+  const [renamingId, setRenamingId] = useState<string | null>(null);
+  const [renameValue, setRenameValue] = useState("");
+
+  const mode = legendState.mode;
+  const compact = mode === "compact";
+
+  function toggleHide(id: string) {
+    const hidden = legendState.hiddenEntryIds;
+    const next = hidden.includes(id) ? hidden.filter(x => x !== id) : [...hidden, id];
+    onLegendStateChange({ ...legendState, hiddenEntryIds: next });
+  }
+
+  function startRename(entry: LegendEntry) {
+    setRenamingId(entry.id);
+    setRenameValue(legendState.customLabels[entry.id] ?? entry.label);
+  }
+
+  function commitRename() {
+    if (!renamingId) return;
+    onLegendStateChange({
+      ...legendState,
+      customLabels: { ...legendState.customLabels, [renamingId]: renameValue.trim() || (allEntries.find(e => e.id === renamingId)?.label ?? "") },
+    });
+    setRenamingId(null);
+  }
+
+  function moveEntry(id: string, dir: -1 | 1) {
+    const orderedIds = entries.map(e => e.id);
+    const idx = orderedIds.indexOf(id);
+    if (idx < 0) return;
+    const newIdx = idx + dir;
+    if (newIdx < 0 || newIdx >= orderedIds.length) return;
+    const newOrder = [...orderedIds];
+    [newOrder[idx], newOrder[newIdx]] = [newOrder[newIdx], newOrder[idx]];
+    onLegendStateChange({ ...legendState, entryOrder: newOrder });
+  }
+
+  function handleMouseDown(e: React.MouseEvent) {
+    if ((e.target as HTMLElement).closest("button,input")) return;
+    e.preventDefault();
+    if (!containerRef.current || !panelRef.current) return;
+    draggingRef.current = true;
+
+    const onMouseMove = (ev: MouseEvent) => {
+      if (!draggingRef.current || !containerRef.current) return;
+      const rect = containerRef.current.getBoundingClientRect();
+      const x = ev.clientX - rect.left;
+      const y = ev.clientY - rect.top;
+      const corner = nearestCorner(x, y, rect.width, rect.height);
+      if (corner !== legendState.position) {
+        onLegendStateChange({ ...legendState, position: corner });
+      }
+    };
+
+    const onMouseUp = (ev: MouseEvent) => {
+      draggingRef.current = false;
+      if (containerRef.current) {
+        const rect = containerRef.current.getBoundingClientRect();
+        const x = ev.clientX - rect.left;
+        const y = ev.clientY - rect.top;
+        const corner = nearestCorner(x, y, rect.width, rect.height);
+        onLegendStateChange({ ...legendState, position: corner });
+      }
+      window.removeEventListener("mousemove", onMouseMove);
+      window.removeEventListener("mouseup", onMouseUp);
+    };
+
+    window.addEventListener("mousemove", onMouseMove);
+    window.addEventListener("mouseup", onMouseUp);
+  }
+
+  const sectionGroups = useMemo(() => {
+    const materials = entries.filter(e => e.kind === "material");
+    const symbols = entries.filter(e => e.kind === "symbol");
+    const lines = entries.filter(e => e.kind === "line");
+    return { materials, symbols, lines };
+  }, [entries]);
+
+  const panelStyle: React.CSSProperties = {
+    position: "absolute",
+    ...getCornerStyle(legendState.position),
+    background: "rgba(255,255,255,0.93)",
+    border: "1px solid rgba(0,0,0,0.15)",
+    borderRadius: "6px",
+    boxShadow: "0 2px 10px rgba(0,0,0,0.12)",
+    zIndex: 30,
+    minWidth: compact ? "100px" : "160px",
+    maxWidth: "220px",
+    cursor: "grab",
+    userSelect: "none",
+    fontSize: "11px",
+  };
+
+  function EntryRow({ entry }: { entry: LegendEntry }) {
+    const isHidden = legendState.hiddenEntryIds.includes(entry.id);
+    const isFirst = entries[0]?.id === entry.id;
+    const isLast = entries[entries.length - 1]?.id === entry.id;
+
+    return (
+      <div
+        className="flex items-center gap-1 py-0.5 group"
+        style={{ opacity: isHidden ? 0.4 : 1 }}
+        data-testid={`legend-entry-${entry.id}`}
+      >
+        {/* Swatch */}
+        <div className="shrink-0 flex items-center justify-center" style={{ width: 16, height: 16 }}>
+          {entry.kind === "symbol" && entry.symbolType ? (
+            <SymbolSvg type={entry.symbolType} color={entry.color} size={14} />
+          ) : entry.kind === "line" ? (
+            <div style={{ width: 14, height: 2, background: entry.color || "#333", borderRadius: 1 }} />
+          ) : (
+            <div style={{ width: 12, height: 12, borderRadius: 2, background: entry.color || "#888", border: "1px solid rgba(0,0,0,0.2)" }} />
+          )}
+        </div>
+
+        {/* Label */}
+        <div className="flex-1 min-w-0">
+          {renamingId === entry.id ? (
+            <input
+              autoFocus
+              value={renameValue}
+              onChange={e => setRenameValue(e.target.value)}
+              onBlur={commitRename}
+              onKeyDown={e => {
+                if (e.key === "Enter") commitRename();
+                if (e.key === "Escape") setRenamingId(null);
+                e.stopPropagation();
+              }}
+              style={{ fontSize: 10, padding: "0 2px", border: "1px solid #f59e0b", borderRadius: 2, outline: "none", width: "100%", background: "white" }}
+              data-testid={`input-legend-rename-${entry.id}`}
+            />
+          ) : (
+            <span
+              style={{ fontSize: 10, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", display: "block", cursor: "text" }}
+              onClick={() => startRename(entry)}
+              title="Click to rename"
+              data-testid={`text-legend-label-${entry.id}`}
+            >
+              {legendState.customLabels[entry.id] ?? entry.label}
+              {entry.kind === "symbol" && entry.count !== undefined && legendState.showSymbolCounts && (
+                <span style={{ color: "#888", marginLeft: 2 }}>×{entry.count}</span>
+              )}
+            </span>
+          )}
+        </div>
+
+        {/* Controls */}
+        {!compact && (
+          <div className="flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity shrink-0">
+            <button
+              onClick={() => moveEntry(entry.id, -1)}
+              disabled={isFirst}
+              className="p-0.5 rounded hover-elevate disabled:opacity-30"
+              title="Move up"
+              data-testid={`button-legend-up-${entry.id}`}
+            >
+              <ChevronUp className="w-2.5 h-2.5" />
+            </button>
+            <button
+              onClick={() => moveEntry(entry.id, 1)}
+              disabled={isLast}
+              className="p-0.5 rounded hover-elevate disabled:opacity-30"
+              title="Move down"
+              data-testid={`button-legend-down-${entry.id}`}
+            >
+              <ChevronDown className="w-2.5 h-2.5" />
+            </button>
+            <button
+              onClick={() => toggleHide(entry.id)}
+              className="p-0.5 rounded hover-elevate"
+              title={isHidden ? "Show entry" : "Hide entry"}
+              data-testid={`button-legend-toggle-${entry.id}`}
+            >
+              {isHidden ? <EyeOff className="w-2.5 h-2.5 text-muted-foreground" /> : <Eye className="w-2.5 h-2.5 text-muted-foreground" />}
+            </button>
+          </div>
+        )}
+      </div>
+    );
+  }
+
+  const hasAnyVisible = entries.length > 0;
+
+  if (!hasAnyVisible && !compact) {
+    return (
+      <div ref={panelRef} style={panelStyle} onMouseDown={handleMouseDown}>
+        <div style={{ padding: "6px 8px" }}>
+          <div style={{ fontWeight: 600, fontSize: 10, color: "#666", marginBottom: 2 }}>{legendState.title}</div>
+          <div style={{ fontSize: 9, color: "#aaa" }}>No items to show</div>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div ref={panelRef} style={panelStyle} onMouseDown={handleMouseDown} data-testid="panel-legend-overlay">
+      {/* Header */}
+      <div style={{ padding: compact ? "4px 6px" : "5px 8px 3px", display: "flex", alignItems: "center", gap: 4, borderBottom: compact ? "none" : "1px solid rgba(0,0,0,0.08)" }}>
+        <GripHorizontal style={{ width: 10, height: 10, color: "#bbb", flexShrink: 0 }} />
+        <span style={{ fontWeight: 700, fontSize: 10, color: "#333", flex: 1 }}>{legendState.title}</span>
+      </div>
+
+      {/* Entries */}
+      {!compact && (
+        <div style={{ padding: "4px 8px 5px" }}>
+          {legendState.showMaterialsGroup && sectionGroups.materials.length > 0 && (
+            <div>
+              <div style={{ fontSize: 8, fontWeight: 600, color: "#999", textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: 2, marginTop: 1 }}>Materials</div>
+              {sectionGroups.materials.map(e => <EntryRow key={e.id} entry={e} />)}
+            </div>
+          )}
+          {legendState.showSymbolsGroup && sectionGroups.symbols.length > 0 && (
+            <div>
+              <div style={{ fontSize: 8, fontWeight: 600, color: "#999", textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: 2, marginTop: 1 }}>Symbols</div>
+              {sectionGroups.symbols.map(e => <EntryRow key={e.id} entry={e} />)}
+            </div>
+          )}
+          {legendState.showLinesGroup && sectionGroups.lines.length > 0 && (
+            <div>
+              <div style={{ fontSize: 8, fontWeight: 600, color: "#999", textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: 2, marginTop: 1 }}>Lines</div>
+              {sectionGroups.lines.map(e => <EntryRow key={e.id} entry={e} />)}
+            </div>
+          )}
+        </div>
+      )}
+
+      {compact && (
+        <div style={{ padding: "3px 6px 4px", display: "flex", flexWrap: "wrap", gap: 4 }}>
+          {entries.map(e => (
+            <div key={e.id} style={{ display: "flex", alignItems: "center", gap: 3 }}>
+              {e.kind === "symbol" && e.symbolType ? (
+                <SymbolSvg type={e.symbolType} color={e.color} size={10} />
+              ) : e.kind === "line" ? (
+                <div style={{ width: 10, height: 2, background: e.color || "#333" }} />
+              ) : (
+                <div style={{ width: 8, height: 8, borderRadius: 1, background: e.color || "#888", border: "1px solid rgba(0,0,0,0.2)" }} />
+              )}
+              <span style={{ fontSize: 9, color: "#444" }}>{legendState.customLabels[e.id] ?? e.label}</span>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ─── Legend Settings Popover ─────────────────────────────────────────────────
+
+interface LegendSettingsProps {
+  legendState: LegendState;
+  onLegendStateChange: (ls: LegendState) => void;
+}
+
+function LegendSettings({ legendState, onLegendStateChange }: LegendSettingsProps) {
+  function toggle(key: keyof LegendState) {
+    onLegendStateChange({ ...legendState, [key]: !legendState[key as keyof LegendState] });
+  }
+
+  return (
+    <PopoverContent className="w-64 p-3" side="bottom" align="start">
+      <div className="space-y-3">
+        <div>
+          <Label className="text-xs font-semibold">Legend Title</Label>
+          <Input
+            value={legendState.title}
+            onChange={e => onLegendStateChange({ ...legendState, title: e.target.value })}
+            className="h-7 text-xs mt-1"
+            data-testid="input-legend-title"
+            placeholder="Legend"
+          />
+        </div>
+
+        <div>
+          <Label className="text-xs font-semibold">Position</Label>
+          <div className="grid grid-cols-2 gap-1 mt-1">
+            {(["top-left", "top-right", "bottom-left", "bottom-right"] as const).map(pos => (
+              <Button
+                key={pos}
+                size="sm"
+                variant={legendState.position === pos ? "default" : "outline"}
+                className="text-xs h-7"
+                onClick={() => onLegendStateChange({ ...legendState, position: pos })}
+                data-testid={`button-legend-pos-${pos}`}
+              >
+                {pos.replace("-", " ")}
+              </Button>
+            ))}
+          </div>
+        </div>
+
+        <div>
+          <Label className="text-xs font-semibold">Layout</Label>
+          <div className="flex gap-1 mt-1">
+            <Button
+              size="sm"
+              variant={legendState.mode === "expanded" ? "default" : "outline"}
+              className="text-xs h-7 flex-1"
+              onClick={() => onLegendStateChange({ ...legendState, mode: "expanded" })}
+              data-testid="button-legend-mode-expanded"
+            >
+              Expanded
+            </Button>
+            <Button
+              size="sm"
+              variant={legendState.mode === "compact" ? "default" : "outline"}
+              className="text-xs h-7 flex-1"
+              onClick={() => onLegendStateChange({ ...legendState, mode: "compact" })}
+              data-testid="button-legend-mode-compact"
+            >
+              Compact
+            </Button>
+          </div>
+        </div>
+
+        <div className="space-y-1.5">
+          <Label className="text-xs font-semibold">Show Groups</Label>
+          {([
+            ["showMaterialsGroup", "Materials"],
+            ["showSymbolsGroup", "Symbols"],
+            ["showLinesGroup", "Lines"],
+            ["showSymbolCounts", "Symbol Counts"],
+          ] as const).map(([key, label]) => (
+            <label key={key} className="flex items-center gap-2 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={legendState[key] as boolean}
+                onChange={() => toggle(key)}
+                className="rounded"
+                data-testid={`checkbox-legend-${key}`}
+              />
+              <span className="text-xs">{label}</span>
+            </label>
+          ))}
+        </div>
+      </div>
+    </PopoverContent>
+  );
+}
+
+// ─── Main Editor ─────────────────────────────────────────────────────────────
+
+export default function VisualScopeEditor({ sheetId, baseImagePath, initialMarkupData, initialLegendState, onSaved }: VisualScopeEditorProps) {
   const { t } = useTranslation();
 
   const [editorState, setEditorState] = useState<MarkupDocument>(() => parseMarkupData(initialMarkupData));
@@ -637,8 +1028,10 @@ export default function VisualScopeEditor({ sheetId, baseImagePath, initialMarku
   const [editingTextId, setEditingTextId] = useState<string | null>(null);
   const [editingTextValue, setEditingTextValue] = useState("");
   const [selectionPanelText, setSelectionPanelText] = useState("");
+  const [legendState, setLegendState] = useState<LegendState>(() => initialLegendState ?? DEFAULT_LEGEND_STATE);
 
   const hasUserEdited = useRef(false);
+  const legendUserEdited = useRef(false);
   const undoStack = useRef<MarkupDocument[]>([]);
   const redoStack = useRef<MarkupDocument[]>([]);
   const svgRef = useRef<SVGSVGElement>(null);
@@ -676,6 +1069,15 @@ export default function VisualScopeEditor({ sheetId, baseImagePath, initialMarku
   }
 
   const setObjects = (fn: (objs: MarkupObject[]) => MarkupObject[]) => updateObjects(fn);
+
+  // Auto-detect legend entries from objects
+  const allLegendEntries = useMemo(() => detectLegendEntries(objects), [objects]);
+  const visibleLegendEntries = useMemo(
+    () => applyLegendState(allLegendEntries, legendState),
+    [allLegendEntries, legendState]
+  );
+
+  // Sync selection panel text when selection changes or the selected object's label changes
   useEffect(() => {
     if (selectedObj?.type === "text") {
       setSelectionPanelText(selectedObj.label || "Label");
@@ -696,9 +1098,11 @@ export default function VisualScopeEditor({ sheetId, baseImagePath, initialMarku
     setEditingTextId(null);
     setEditingTextValue("");
     setSelectionPanelText("");
+    setLegendState(initialLegendState ?? DEFAULT_LEGEND_STATE);
     undoStack.current = [];
     redoStack.current = [];
     hasUserEdited.current = false;
+    legendUserEdited.current = false;
     dragStartedUndo.current = false;
     vertexDragStartedUndo.current = false;
   }, [sheetId, baseImagePath]);
@@ -731,6 +1135,7 @@ export default function VisualScopeEditor({ sheetId, baseImagePath, initialMarku
     setSelectedVertexIdx(null);
   }, []);
 
+  // Auto-save markupData
   useEffect(() => {
     if (!hasUserEdited.current) return;
     setSaveStatus("unsaved");
@@ -746,6 +1151,24 @@ export default function VisualScopeEditor({ sheetId, baseImagePath, initialMarku
     }, 1500);
     return () => clearTimeout(timer);
   }, [editorState]);
+
+  // Auto-save legendState
+  useEffect(() => {
+    if (!legendUserEdited.current) return;
+    const timer = setTimeout(async () => {
+      try {
+        await apiRequest("PATCH", `/api/visual-scope-sheets/${sheetId}`, { legendState });
+      } catch {
+        // silent – legend save failure is non-critical
+      }
+    }, 1000);
+    return () => clearTimeout(timer);
+  }, [legendState]);
+
+  const handleLegendStateChange = useCallback((ls: LegendState) => {
+    legendUserEdited.current = true;
+    setLegendState(ls);
+  }, []);
 
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
@@ -1246,10 +1669,6 @@ export default function VisualScopeEditor({ sheetId, baseImagePath, initialMarku
     }
   }, [activeTool, inProgressPoints, commitPolyline, commitPolygon, selectedObj, objects, selectedId]);
 
-  const treeCnt = objects.filter(o => o.type === "symbol" && o.symbolType === "tree").length;
-  const plantCnt = objects.filter(o => o.type === "symbol" && o.symbolType === "plant").length;
-  const boulderCnt = objects.filter(o => o.type === "symbol" && o.symbolType === "boulder").length;
-  const hasSymbols = treeCnt > 0 || plantCnt > 0 || boulderCnt > 0;
   const canUndo = undoStack.current.length > 0;
   const canRedo = redoStack.current.length > 0;
 
@@ -1344,6 +1763,39 @@ export default function VisualScopeEditor({ sheetId, baseImagePath, initialMarku
           <Trash2 className="w-4 h-4 mr-1" />
           Delete
         </Button>
+
+        <Separator orientation="vertical" className="h-6 mx-1" />
+
+        {/* Legend toggle */}
+        <Popover>
+          <PopoverTrigger asChild>
+            <Button
+              size="sm"
+              variant="ghost"
+              className={`toggle-elevate gap-1${legendState.enabled ? " toggle-elevated" : ""}`}
+              data-testid="button-legend-toggle"
+              title="Legend settings"
+            >
+              <Map className="w-4 h-4" />
+              <span className="text-xs">Legend</span>
+              <Settings className="w-3 h-3 text-muted-foreground" />
+            </Button>
+          </PopoverTrigger>
+          <PopoverContent className="p-0" side="bottom" align="start">
+            <div className="p-3 border-b">
+              <label className="flex items-center gap-2 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={legendState.enabled}
+                  onChange={() => handleLegendStateChange({ ...legendState, enabled: !legendState.enabled })}
+                  data-testid="checkbox-legend-enabled"
+                />
+                <span className="text-sm font-medium">Show Legend</span>
+              </label>
+            </div>
+            <LegendSettings legendState={legendState} onLegendStateChange={handleLegendStateChange} />
+          </PopoverContent>
+        </Popover>
 
         {inProgressPoints.length > 0 && (
           <span className="text-xs text-muted-foreground ml-2 italic" data-testid="text-drawing-hint">
@@ -1673,35 +2125,18 @@ export default function VisualScopeEditor({ sheetId, baseImagePath, initialMarku
             />
           );
         })()}
-      </div>
 
-      {/* Legend */}
-      {hasSymbols && (
-        <div className="flex items-center gap-4 px-3 py-2 border-t text-sm flex-wrap" data-testid="panel-legend">
-          <span className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Legend</span>
-          {treeCnt > 0 && (
-            <div className="flex items-center gap-1.5" data-testid="legend-tree">
-              <SymbolSvg type="tree" size={14} />
-              <span className="text-xs">Tree</span>
-              <span className="text-xs font-semibold tabular-nums text-muted-foreground">×{treeCnt}</span>
-            </div>
-          )}
-          {plantCnt > 0 && (
-            <div className="flex items-center gap-1.5" data-testid="legend-plant">
-              <SymbolSvg type="plant" size={14} />
-              <span className="text-xs">Plant</span>
-              <span className="text-xs font-semibold tabular-nums text-muted-foreground">×{plantCnt}</span>
-            </div>
-          )}
-          {boulderCnt > 0 && (
-            <div className="flex items-center gap-1.5" data-testid="legend-boulder">
-              <SymbolSvg type="boulder" size={14} />
-              <span className="text-xs">Boulder</span>
-              <span className="text-xs font-semibold tabular-nums text-muted-foreground">×{boulderCnt}</span>
-            </div>
-          )}
-        </div>
-      )}
+        {/* Legend overlay */}
+        {legendState.enabled && (allLegendEntries.length > 0 || true) && (
+          <LegendPanel
+            entries={visibleLegendEntries}
+            allEntries={allLegendEntries}
+            legendState={legendState}
+            onLegendStateChange={handleLegendStateChange}
+            containerRef={containerRef as React.RefObject<HTMLDivElement>}
+          />
+        )}
+      </div>
     </div>
   );
 }
