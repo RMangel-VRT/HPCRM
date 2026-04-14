@@ -1610,7 +1610,7 @@ export const visualScopeSheets = pgTable("visual_scope_sheets", {
   baseImageFilename: varchar("base_image_filename"),
   baseImageMimeType: varchar("base_image_mime_type"),
   baseImageSize: integer("base_image_size"),
-  markupData: jsonb("markup_data").$type<MarkupObject[]>().default(sql`'[]'::jsonb`),
+  markupData: jsonb("markup_data").$type<MarkupData>().default(sql`'[]'::jsonb`),
   captureParams: jsonb("capture_params").$type<CaptureParams>(),
   createdAt: timestamp("created_at").notNull().defaultNow(),
   updatedAt: timestamp("updated_at").notNull().defaultNow(),
@@ -1964,6 +1964,89 @@ export interface MarkupObject {
   fillColor: string;
   strokeWidth: number;
   createdAt: string;
+  rotation?: number;
+  zIndex?: number;
+  locked?: boolean;
+}
+
+export interface MarkupLayer {
+  id: string;
+  name: string;
+  locked: boolean;
+  visible: boolean;
+  objects: MarkupObject[];
+}
+
+export interface MarkupDocument {
+  version: 2;
+  layers: MarkupLayer[];
+}
+
+export type MarkupData = MarkupObject[] | MarkupDocument;
+
+function normalizeMarkupObject(obj: unknown): MarkupObject {
+  const o = (obj && typeof obj === "object" ? obj : {}) as Record<string, unknown>;
+  return {
+    id: typeof o.id === "string" && o.id.length > 0 ? o.id : Math.random().toString(36).slice(2, 10),
+    type: (o.type as MarkupObject["type"]) ?? "polygon",
+    points: Array.isArray(o.points) ? (o.points as MarkupPoint[]) : [],
+    strokeColor: typeof o.strokeColor === "string" ? o.strokeColor : "#1a4d1a",
+    fillColor: typeof o.fillColor === "string" ? o.fillColor : "none",
+    strokeWidth: typeof o.strokeWidth === "number" ? o.strokeWidth : 2,
+    createdAt: typeof o.createdAt === "string" ? o.createdAt : new Date().toISOString(),
+    rotation: typeof o.rotation === "number" ? o.rotation : 0,
+    zIndex: typeof o.zIndex === "number" ? o.zIndex : 0,
+    locked: typeof o.locked === "boolean" ? o.locked : false,
+    label: typeof o.label === "string" ? o.label : undefined,
+    symbolType: typeof o.symbolType === "string" ? (o.symbolType as MarkupObject["symbolType"]) : undefined,
+  };
+}
+
+function normalizeMarkupLayer(layer: unknown, fallbackId: string): MarkupLayer {
+  const l = (layer && typeof layer === "object" ? layer : {}) as Record<string, unknown>;
+  const rawObjs = Array.isArray(l.objects) ? l.objects : [];
+  return {
+    id: typeof l.id === "string" ? l.id : fallbackId,
+    name: typeof l.name === "string" ? l.name : "Annotations",
+    locked: typeof l.locked === "boolean" ? l.locked : false,
+    visible: typeof l.visible === "boolean" ? l.visible : true,
+    objects: rawObjs.map(normalizeMarkupObject),
+  };
+}
+
+export function parseMarkupData(data: unknown): MarkupDocument {
+  const defaultLayer: MarkupLayer = { id: "annotations", name: "Annotations", locked: false, visible: true, objects: [] };
+  if (!data) {
+    return { version: 2, layers: [defaultLayer] };
+  }
+  if (typeof data === "object" && !Array.isArray(data)) {
+    const d = data as Record<string, unknown>;
+    if (d.version !== 2 && !Array.isArray(d.layers)) {
+      return { version: 2, layers: [defaultLayer] };
+    }
+    const rawLayers = Array.isArray(d.layers) ? d.layers : [defaultLayer];
+    return {
+      version: 2,
+      layers: rawLayers.length > 0
+        ? rawLayers.map((l, i) => normalizeMarkupLayer(l, i === 0 ? "annotations" : `layer-${i}`))
+        : [defaultLayer],
+    };
+  }
+  if (Array.isArray(data)) {
+    return {
+      version: 2,
+      layers: [{ ...defaultLayer, objects: (data as unknown[]).map(normalizeMarkupObject) }],
+    };
+  }
+  return { version: 2, layers: [defaultLayer] };
+}
+
+export function flattenMarkupObjects(data: unknown): MarkupObject[] {
+  const doc = parseMarkupData(data);
+  return doc.layers
+    .filter(l => l.visible)
+    .flatMap(l => l.objects)
+    .sort((a, b) => (a.zIndex ?? 0) - (b.zIndex ?? 0));
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

@@ -15,16 +15,19 @@ import {
   Loader2,
   Info,
   Undo2,
+  Redo2,
+  Lock,
 } from "lucide-react";
 import { apiRequest } from "@/lib/queryClient";
-import type { MarkupObject, MarkupPoint, SymbolType } from "@shared/schema";
+import type { MarkupObject, MarkupPoint, SymbolType, MarkupDocument } from "@shared/schema";
+import { parseMarkupData } from "@shared/schema";
 
 type ActiveTool = "select" | "polygon" | "polyline" | "tree" | "plant" | "boulder" | "text";
 
 interface VisualScopeEditorProps {
   sheetId: string;
   baseImagePath: string;
-  initialMarkup: MarkupObject[];
+  initialMarkupData: unknown;
   onSaved?: () => void;
 }
 
@@ -35,6 +38,8 @@ const DEFAULT_SYMBOL_COLORS: Record<SymbolType, string> = {
   plant: "#22c55e",
   boulder: "#9ca3af",
 };
+
+const DEFAULT_LAYER_ID = "annotations";
 
 function clamp(v: number): number {
   return Math.max(0, Math.min(1, v));
@@ -67,16 +72,49 @@ function pointToSegmentDistance(p: MarkupPoint, a: MarkupPoint, b: MarkupPoint):
   return distance(p, [a[0] + t * dx, a[1] + t * dy]);
 }
 
-function hitTest(obj: MarkupObject, pt: MarkupPoint): boolean {
+function rotatePoint(p: MarkupPoint, center: MarkupPoint, degrees: number): MarkupPoint {
+  if (!degrees) return p;
+  const rad = (degrees * Math.PI) / 180;
+  const cos = Math.cos(rad);
+  const sin = Math.sin(rad);
+  const dx = p[0] - center[0];
+  const dy = p[1] - center[1];
+  return [center[0] + dx * cos - dy * sin, center[1] + dx * sin + dy * cos];
+}
+
+interface BBox {
+  x1: number; y1: number; x2: number; y2: number;
+  cx: number; cy: number; w: number; h: number;
+}
+
+function getBbox(obj: MarkupObject): BBox {
+  if (obj.points.length === 0) return { x1: 0, y1: 0, x2: 0, y2: 0, cx: 0, cy: 0, w: 0, h: 0 };
   if (obj.type === "symbol" || obj.type === "text") {
-    return distance(pt, obj.points[0]) < 0.05;
+    const [x, y] = obj.points[0];
+    const r = obj.type === "symbol" ? 0.04 : 0.07;
+    return { x1: x - r, y1: y - r, x2: x + r, y2: y + r, cx: x, cy: y, w: r * 2, h: r * 2 };
+  }
+  const xs = obj.points.map(p => p[0]);
+  const ys = obj.points.map(p => p[1]);
+  const x1 = Math.min(...xs), x2 = Math.max(...xs);
+  const y1 = Math.min(...ys), y2 = Math.max(...ys);
+  return { x1, y1, x2, y2, cx: (x1 + x2) / 2, cy: (y1 + y2) / 2, w: x2 - x1, h: y2 - y1 };
+}
+
+function hitTestObj(obj: MarkupObject, pt: MarkupPoint): boolean {
+  const rotation = obj.rotation ?? 0;
+  const bb = getBbox(obj);
+  const testPt: MarkupPoint = rotation ? rotatePoint(pt, [bb.cx, bb.cy], -rotation) : pt;
+
+  if (obj.type === "symbol" || obj.type === "text") {
+    return distance(testPt, obj.points[0]) < 0.05;
   }
   if (obj.points.length < 2) return false;
   for (let i = 0; i < obj.points.length - 1; i++) {
-    if (pointToSegmentDistance(pt, obj.points[i], obj.points[i + 1]) < 0.025) return true;
+    if (pointToSegmentDistance(testPt, obj.points[i], obj.points[i + 1]) < 0.025) return true;
   }
   if (obj.type === "polygon" && obj.points.length > 2) {
-    if (pointToSegmentDistance(pt, obj.points[obj.points.length - 1], obj.points[0]) < 0.025) return true;
+    if (pointToSegmentDistance(testPt, obj.points[obj.points.length - 1], obj.points[0]) < 0.025) return true;
   }
   return false;
 }
@@ -183,12 +221,13 @@ interface MarkupShapeProps {
 
 function MarkupShape({ obj, selected }: MarkupShapeProps) {
   const sw = obj.strokeWidth / 1000;
-  const selRing = "#f59e0b";
-  const selSw = 0.003;
+  const bb = getBbox(obj);
+  const rotation = obj.rotation ?? 0;
+  const rotTransform = rotation ? `rotate(${rotation} ${bb.cx} ${bb.cy})` : undefined;
 
   if (obj.type === "polygon") {
     return (
-      <g>
+      <g transform={rotTransform}>
         <polygon
           points={toSvgPoints(obj.points)}
           stroke={obj.strokeColor}
@@ -197,7 +236,7 @@ function MarkupShape({ obj, selected }: MarkupShapeProps) {
           strokeLinejoin="round"
         />
         {selected && obj.points.map((p, i) => (
-          <circle key={i} cx={p[0]} cy={p[1]} r={0.008} fill={selRing} />
+          <circle key={i} cx={p[0]} cy={p[1]} r={0.008} fill="#f59e0b" />
         ))}
       </g>
     );
@@ -205,7 +244,7 @@ function MarkupShape({ obj, selected }: MarkupShapeProps) {
 
   if (obj.type === "polyline") {
     return (
-      <g>
+      <g transform={rotTransform}>
         <polyline
           points={toSvgPoints(obj.points)}
           stroke={obj.strokeColor}
@@ -215,7 +254,7 @@ function MarkupShape({ obj, selected }: MarkupShapeProps) {
           strokeLinecap="round"
         />
         {selected && obj.points.map((p, i) => (
-          <circle key={i} cx={p[0]} cy={p[1]} r={0.008} fill={selRing} />
+          <circle key={i} cx={p[0]} cy={p[1]} r={0.008} fill="#f59e0b" />
         ))}
       </g>
     );
@@ -234,10 +273,10 @@ function MarkupShape({ obj, selected }: MarkupShapeProps) {
       inner = <ellipse cx="0" cy="0" rx="0.5" ry="0.35" fill={color} />;
     }
     return (
-      <g>
+      <g transform={rotTransform}>
         <g transform={`translate(${x} ${y}) scale(${scale})`}>{inner}</g>
         {selected && (
-          <circle cx={x} cy={y} r={0.045} fill="none" stroke={selRing} strokeWidth={selSw} />
+          <circle cx={x} cy={y} r={0.045} fill="none" stroke="#f59e0b" strokeWidth={0.003} />
         )}
       </g>
     );
@@ -246,7 +285,7 @@ function MarkupShape({ obj, selected }: MarkupShapeProps) {
   if (obj.type === "text") {
     const [x, y] = obj.points[0];
     return (
-      <g>
+      <g transform={rotTransform}>
         <text
           x={x}
           y={y}
@@ -265,8 +304,8 @@ function MarkupShape({ obj, selected }: MarkupShapeProps) {
             width={0.16}
             height={0.05}
             fill="none"
-            stroke={selRing}
-            strokeWidth={selSw}
+            stroke="#f59e0b"
+            strokeWidth={0.003}
             rx={0.005}
           />
         )}
@@ -325,67 +364,224 @@ function InProgressShape({ points, preview, tool, color }: InProgressShapeProps)
   );
 }
 
-export default function VisualScopeEditor({ sheetId, baseImagePath, initialMarkup, onSaved }: VisualScopeEditorProps) {
+type DragOp =
+  | { kind: "move"; id: string; origPoints: MarkupPoint[]; startPt: MarkupPoint }
+  | { kind: "vertex"; id: string; vertexIdx: number; startPt: MarkupPoint; origPt: MarkupPoint }
+  | { kind: "rotate"; id: string; center: MarkupPoint; startAngle: number; origRotation: number };
+
+interface SelectionHandlesProps {
+  obj: MarkupObject;
+  onStartVertexDrag: (idx: number, startPt: MarkupPoint) => void;
+  onStartRotate: (startPt: MarkupPoint) => void;
+}
+
+function getSvgPoint(e: React.PointerEvent<SVGCircleElement>): MarkupPoint {
+  const svg = (e.currentTarget as SVGElement).ownerSVGElement!;
+  const svgPt = svg.createSVGPoint();
+  svgPt.x = e.clientX;
+  svgPt.y = e.clientY;
+  const t = svgPt.matrixTransform(svg.getScreenCTM()!.inverse());
+  return [clamp(t.x), clamp(t.y)];
+}
+
+function SelectionHandles({ obj, onStartVertexDrag, onStartRotate }: SelectionHandlesProps) {
+  const bb = getBbox(obj);
+  const rotation = obj.rotation ?? 0;
+  const pad = 0.015;
+  const selRing = "#f59e0b";
+  const selSw = 0.002;
+  const handleR = 0.012;
+  const rotHandleOffset = 0.06;
+
+  const rotateHandlePosLocal: MarkupPoint = [bb.cx, bb.y1 - pad - rotHandleOffset];
+  const rotateHandlePos: MarkupPoint = rotation
+    ? rotatePoint(rotateHandlePosLocal, [bb.cx, bb.cy], rotation)
+    : rotateHandlePosLocal;
+
+  const lineStart: MarkupPoint = rotation
+    ? rotatePoint([bb.cx, bb.y1 - pad], [bb.cx, bb.cy], rotation)
+    : [bb.cx, bb.y1 - pad];
+
+  const corners: MarkupPoint[] = [
+    [bb.x1 - pad, bb.y1 - pad],
+    [bb.x2 + pad, bb.y1 - pad],
+    [bb.x2 + pad, bb.y2 + pad],
+    [bb.x1 - pad, bb.y2 + pad],
+  ];
+  const rotatedCorners = rotation ? corners.map(c => rotatePoint(c, [bb.cx, bb.cy], rotation)) : corners;
+
+  return (
+    <g style={{ pointerEvents: "none" }}>
+      {/* Bounding box outline */}
+      <polygon
+        points={rotatedCorners.map(([x, y]) => `${x},${y}`).join(" ")}
+        fill="none"
+        stroke={selRing}
+        strokeWidth={selSw}
+        strokeDasharray="0.006,0.003"
+        style={{ pointerEvents: "none" }}
+      />
+
+      {/* Vertex handles for polygon/polyline (shown in rotated space) */}
+      {(obj.type === "polygon" || obj.type === "polyline") && obj.points.map((p, i) => {
+        const rp: MarkupPoint = rotation ? rotatePoint(p, [bb.cx, bb.cy], rotation) : p;
+        return (
+          <circle
+            key={i}
+            cx={rp[0]}
+            cy={rp[1]}
+            r={handleR}
+            fill="white"
+            stroke={selRing}
+            strokeWidth={selSw}
+            style={{ cursor: "grab", pointerEvents: "all" }}
+            onPointerDown={e => {
+              e.stopPropagation();
+              e.preventDefault();
+              onStartVertexDrag(i, getSvgPoint(e));
+            }}
+          />
+        );
+      })}
+
+      {/* Rotate handle stem line */}
+      <line
+        x1={lineStart[0]}
+        y1={lineStart[1]}
+        x2={rotateHandlePos[0]}
+        y2={rotateHandlePos[1]}
+        stroke={selRing}
+        strokeWidth={selSw}
+        style={{ pointerEvents: "none" }}
+      />
+
+      {/* Rotate handle circle */}
+      <circle
+        cx={rotateHandlePos[0]}
+        cy={rotateHandlePos[1]}
+        r={handleR}
+        fill="white"
+        stroke={selRing}
+        strokeWidth={selSw}
+        style={{ cursor: "crosshair", pointerEvents: "all" }}
+        onPointerDown={e => {
+          e.stopPropagation();
+          e.preventDefault();
+          onStartRotate(getSvgPoint(e));
+        }}
+      />
+
+      {/* Rotate cue glyph */}
+      <text
+        x={rotateHandlePos[0]}
+        y={rotateHandlePos[1]}
+        textAnchor="middle"
+        dominantBaseline="middle"
+        fontSize={0.018}
+        fill={selRing}
+        style={{ userSelect: "none", pointerEvents: "none" }}
+      >
+        ↻
+      </text>
+    </g>
+  );
+}
+
+export default function VisualScopeEditor({ sheetId, baseImagePath, initialMarkupData, onSaved }: VisualScopeEditorProps) {
   const { t } = useTranslation();
-  const [objects, setObjects] = useState<MarkupObject[]>(initialMarkup);
+
+  const [editorState, setEditorState] = useState<MarkupDocument>(() => parseMarkupData(initialMarkupData));
   const [activeTool, setActiveTool] = useState<ActiveTool>("select");
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [activeColor, setActiveColor] = useState<string>("#1a4d1a");
   const [inProgressPoints, setInProgressPoints] = useState<MarkupPoint[]>([]);
   const [previewPoint, setPreviewPoint] = useState<MarkupPoint | null>(null);
-  const [dragging, setDragging] = useState<{ id: string; startX: number; startY: number; origX: number; origY: number } | null>(null);
+  const [drag, setDrag] = useState<DragOp | null>(null);
   const [saveStatus, setSaveStatus] = useState<"saved" | "saving" | "unsaved">("saved");
   const [editingTextId, setEditingTextId] = useState<string | null>(null);
   const [editingTextValue, setEditingTextValue] = useState("");
   const [selectionPanelText, setSelectionPanelText] = useState("");
 
   const hasUserEdited = useRef(false);
-  const undoStack = useRef<MarkupObject[][]>([]);
+  const undoStack = useRef<MarkupDocument[]>([]);
+  const redoStack = useRef<MarkupDocument[]>([]);
   const svgRef = useRef<SVGSVGElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
-  const dragPushedUndo = useRef(false);
+  const dragStartedUndo = useRef(false);
 
+  function pushUndoSnapshot(snapshot: MarkupDocument) {
+    undoStack.current = [...undoStack.current.slice(-MAX_UNDO_STEPS + 1), snapshot];
+    redoStack.current = [];
+  }
+
+  const defaultLayer = editorState.layers.find(l => !l.locked && l.visible) ?? editorState.layers[0];
+  const objects = defaultLayer?.objects ?? [];
+  const sortedObjects = [...objects].sort((a, b) => (a.zIndex ?? 0) - (b.zIndex ?? 0));
   const totalPoints = objects.reduce((sum, o) => sum + o.points.length, 0);
   const isAtLimit = objects.length >= 200 || totalPoints >= 5000;
-
   const selectedObj = selectedId ? objects.find(o => o.id === selectedId) ?? null : null;
 
-  // Sync selection panel text when selection changes or the selected object's label changes
+  function updateObjects(fn: (objs: MarkupObject[]) => MarkupObject[], opts?: { pushUndo?: boolean }): void {
+    setEditorState(prev => {
+      const activeLayerId = (prev.layers.find(l => !l.locked && l.visible) ?? prev.layers[0])?.id ?? DEFAULT_LAYER_ID;
+      if (opts?.pushUndo) {
+        undoStack.current = [...undoStack.current.slice(-MAX_UNDO_STEPS + 1), prev];
+        redoStack.current = [];
+      }
+      return {
+        ...prev,
+        layers: prev.layers.map(l =>
+          l.id === activeLayerId ? { ...l, objects: fn(l.objects) } : l
+        ),
+      };
+    });
+    hasUserEdited.current = true;
+  }
+
   useEffect(() => {
     if (selectedObj?.type === "text") {
       setSelectionPanelText(selectedObj.label || "Label");
     }
   }, [selectedId, selectedObj?.label]);
 
-  // Reset editor state (including undo history) when the sheet or base image changes
   useEffect(() => {
-    setObjects(initialMarkup);
+    setEditorState(parseMarkupData(initialMarkupData));
     setActiveTool("select");
     setSelectedId(null);
     setActiveColor("#1a4d1a");
     setInProgressPoints([]);
     setPreviewPoint(null);
-    setDragging(null);
+    setDrag(null);
     setEditingTextId(null);
     setEditingTextValue("");
     setSelectionPanelText("");
     undoStack.current = [];
+    redoStack.current = [];
     hasUserEdited.current = false;
-    dragPushedUndo.current = false;
+    dragStartedUndo.current = false;
   }, [sheetId, baseImagePath]);
 
-  // Push current objects onto the undo stack (max 20)
-  const pushUndo = useCallback((current: MarkupObject[]) => {
-    undoStack.current = [...undoStack.current.slice(-MAX_UNDO_STEPS + 1), current];
-  }, []);
-
-  // Undo last action
   const undo = useCallback(() => {
     if (undoStack.current.length === 0) return;
     const prev = undoStack.current[undoStack.current.length - 1];
     undoStack.current = undoStack.current.slice(0, -1);
     hasUserEdited.current = true;
-    setObjects(prev);
+    setEditorState(current => {
+      redoStack.current = [...redoStack.current.slice(-MAX_UNDO_STEPS + 1), current];
+      return prev;
+    });
+    setSelectedId(null);
+  }, []);
+
+  const redo = useCallback(() => {
+    if (redoStack.current.length === 0) return;
+    const next = redoStack.current[redoStack.current.length - 1];
+    redoStack.current = redoStack.current.slice(0, -1);
+    hasUserEdited.current = true;
+    setEditorState(current => {
+      undoStack.current = [...undoStack.current.slice(-MAX_UNDO_STEPS + 1), current];
+      return next;
+    });
     setSelectedId(null);
   }, []);
 
@@ -395,7 +591,7 @@ export default function VisualScopeEditor({ sheetId, baseImagePath, initialMarku
     const timer = setTimeout(async () => {
       setSaveStatus("saving");
       try {
-        await apiRequest("PATCH", `/api/visual-scope-sheets/${sheetId}`, { markupData: objects });
+        await apiRequest("PATCH", `/api/visual-scope-sheets/${sheetId}`, { markupData: editorState });
         setSaveStatus("saved");
         onSaved?.();
       } catch {
@@ -403,21 +599,29 @@ export default function VisualScopeEditor({ sheetId, baseImagePath, initialMarku
       }
     }, 1500);
     return () => clearTimeout(timer);
-  }, [objects]);
+  }, [editorState]);
 
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
       const active = document.activeElement;
-      const inTextField = active instanceof HTMLInputElement || active instanceof HTMLTextAreaElement || (active instanceof HTMLElement && active.isContentEditable);
+      const inTextField =
+        active instanceof HTMLInputElement ||
+        active instanceof HTMLTextAreaElement ||
+        (active instanceof HTMLElement && active.isContentEditable);
       if (e.key === "z" && (e.ctrlKey || e.metaKey) && !e.shiftKey && !inTextField) {
         e.preventDefault();
         undo();
         return;
       }
+      if ((e.key === "z" && (e.ctrlKey || e.metaKey) && e.shiftKey && !inTextField) ||
+          (e.key === "y" && e.ctrlKey && !inTextField)) {
+        e.preventDefault();
+        redo();
+        return;
+      }
       if ((e.key === "Delete" || e.key === "Backspace") && selectedId && document.activeElement === document.body) {
-        setObjects(prev => {
-          pushUndo(prev);
-          hasUserEdited.current = true;
+        updateObjects(prev => {
+          pushUndoSnapshot(editorState);
           return prev.filter(o => o.id !== selectedId);
         });
         setSelectedId(null);
@@ -425,7 +629,7 @@ export default function VisualScopeEditor({ sheetId, baseImagePath, initialMarku
     };
     window.addEventListener("keydown", handler);
     return () => window.removeEventListener("keydown", handler);
-  }, [selectedId, undo, pushUndo]);
+  }, [selectedId, undo, redo, editorState]);
 
   const changeTool = useCallback((tool: ActiveTool) => {
     setActiveTool(tool);
@@ -436,21 +640,18 @@ export default function VisualScopeEditor({ sheetId, baseImagePath, initialMarku
 
   const deleteSelected = useCallback(() => {
     if (!selectedId) return;
-    setObjects(prev => {
-      pushUndo(prev);
-      hasUserEdited.current = true;
+    updateObjects(prev => {
+      pushUndoSnapshot(editorState);
       return prev.filter(o => o.id !== selectedId);
     });
     setSelectedId(null);
-  }, [selectedId, pushUndo]);
+  }, [selectedId, editorState]);
 
-  // Change the color of selected item or update activeColor
   const handleColorChange = useCallback((color: string) => {
     setActiveColor(color);
     if (!selectedId) return;
-    setObjects(prev => {
-      pushUndo(prev);
-      hasUserEdited.current = true;
+    updateObjects(prev => {
+      pushUndoSnapshot(editorState);
       return prev.map(o => {
         if (o.id !== selectedId) return o;
         if (o.type === "polygon") {
@@ -459,16 +660,14 @@ export default function VisualScopeEditor({ sheetId, baseImagePath, initialMarku
         return { ...o, strokeColor: color, fillColor: color };
       });
     });
-  }, [selectedId, pushUndo]);
+  }, [selectedId, editorState]);
 
-  // Get the "current color" to show in color picker
   const currentColorForPicker = selectedObj ? selectedObj.strokeColor : activeColor;
 
   const commitPolyline = useCallback((pts: MarkupPoint[]) => {
     if (pts.length < 2) return;
-    setObjects(prev => {
-      pushUndo(prev);
-      hasUserEdited.current = true;
+    updateObjects(prev => {
+      pushUndoSnapshot(editorState);
       return [...prev, {
         id: nanoid8(),
         type: "polyline",
@@ -477,17 +676,18 @@ export default function VisualScopeEditor({ sheetId, baseImagePath, initialMarku
         fillColor: "none",
         strokeWidth: 2,
         createdAt: new Date().toISOString(),
+        rotation: 0,
+        zIndex: prev.length,
       }];
     });
     setInProgressPoints([]);
     setPreviewPoint(null);
-  }, [activeColor, pushUndo]);
+  }, [activeColor, editorState]);
 
   const commitPolygon = useCallback((pts: MarkupPoint[]) => {
     if (pts.length < 3) return;
-    setObjects(prev => {
-      pushUndo(prev);
-      hasUserEdited.current = true;
+    updateObjects(prev => {
+      pushUndoSnapshot(editorState);
       return [...prev, {
         id: nanoid8(),
         type: "polygon",
@@ -496,50 +696,66 @@ export default function VisualScopeEditor({ sheetId, baseImagePath, initialMarku
         fillColor: hexToRgba(activeColor, 0.15),
         strokeWidth: 2,
         createdAt: new Date().toISOString(),
+        rotation: 0,
+        zIndex: prev.length,
       }];
     });
     setInProgressPoints([]);
     setPreviewPoint(null);
-  }, [activeColor, pushUndo]);
+  }, [activeColor, editorState]);
 
   const commitTextEdit = useCallback(() => {
     if (!editingTextId) return;
     const label = editingTextValue.trim();
-    setObjects(prev => {
-      pushUndo(prev);
-      hasUserEdited.current = true;
+    updateObjects(prev => {
+      pushUndoSnapshot(editorState);
       return prev.map(o => o.id === editingTextId ? { ...o, label: label || "Label" } : o);
     });
     setEditingTextId(null);
     setEditingTextValue("");
-  }, [editingTextId, editingTextValue, pushUndo]);
+  }, [editingTextId, editingTextValue, editorState]);
 
   const cancelTextEdit = useCallback(() => {
     if (!editingTextId) return;
     const wasNew = objects.find(o => o.id === editingTextId && o.label === "Label");
     if (wasNew) {
-      setObjects(prev => {
-        pushUndo(prev);
-        hasUserEdited.current = true;
+      updateObjects(prev => {
+        pushUndoSnapshot(editorState);
         return prev.filter(o => o.id !== editingTextId);
       });
     }
     setEditingTextId(null);
     setEditingTextValue("");
-  }, [editingTextId, objects, pushUndo]);
+  }, [editingTextId, objects, editorState]);
 
-  // Commit text label change from selection panel
   const commitSelectionPanelText = useCallback(() => {
     if (!selectedId) return;
     const label = selectionPanelText.trim() || "Label";
-    setObjects(prev => {
+    updateObjects(prev => {
       const current = prev.find(o => o.id === selectedId);
       if (current && current.label === label) return prev;
-      pushUndo(prev);
-      hasUserEdited.current = true;
+      pushUndoSnapshot(editorState);
       return prev.map(o => o.id === selectedId ? { ...o, label } : o);
     });
-  }, [selectedId, selectionPanelText, pushUndo]);
+  }, [selectedId, selectionPanelText, editorState]);
+
+  const startMoveDrag = useCallback((id: string, obj: MarkupObject, startPt: MarkupPoint) => {
+    dragStartedUndo.current = false;
+    setDrag({ kind: "move", id, origPoints: obj.points.map(p => [...p] as MarkupPoint), startPt });
+  }, []);
+
+  const startVertexDrag = useCallback((id: string, idx: number, startPt: MarkupPoint, origPt: MarkupPoint) => {
+    dragStartedUndo.current = false;
+    setDrag({ kind: "vertex", id, vertexIdx: idx, startPt, origPt });
+  }, []);
+
+  const startRotateDrag = useCallback((id: string, center: MarkupPoint, startPt: MarkupPoint, origRotation: number) => {
+    dragStartedUndo.current = false;
+    const dx = startPt[0] - center[0];
+    const dy = startPt[1] - center[1];
+    const startAngle = Math.atan2(dy, dx) * (180 / Math.PI);
+    setDrag({ kind: "rotate", id, center, startAngle, origRotation });
+  }, []);
 
   const handlePointerDown = useCallback((e: React.PointerEvent<SVGSVGElement>) => {
     if (!svgRef.current) return;
@@ -551,17 +767,16 @@ export default function VisualScopeEditor({ sheetId, baseImagePath, initialMarku
 
     if (activeTool === "select") {
       let found = false;
-      for (let i = objects.length - 1; i >= 0; i--) {
-        if (hitTest(objects[i], pt)) {
-          const obj = objects[i];
+      for (let i = sortedObjects.length - 1; i >= 0; i--) {
+        const obj = sortedObjects[i];
+        if (obj.locked) continue;
+        if (hitTestObj(obj, pt)) {
           setSelectedId(obj.id);
           setActiveColor(obj.strokeColor);
           if (obj.type === "text") {
             setSelectionPanelText(obj.label || "Label");
           }
-          const orig = obj.points[0];
-          dragPushedUndo.current = false;
-          setDragging({ id: obj.id, startX: pt[0], startY: pt[1], origX: orig[0], origY: orig[1] });
+          startMoveDrag(obj.id, obj, pt);
           svgRef.current.setPointerCapture(e.pointerId);
           found = true;
           break;
@@ -593,9 +808,8 @@ export default function VisualScopeEditor({ sheetId, baseImagePath, initialMarku
     const symType = symbolTypeMap[activeTool];
     if (symType) {
       const color = DEFAULT_SYMBOL_COLORS[symType];
-      setObjects(prev => {
-        pushUndo(prev);
-        hasUserEdited.current = true;
+      updateObjects(prev => {
+        pushUndoSnapshot(editorState);
         return [...prev, {
           id: nanoid8(),
           type: "symbol",
@@ -605,6 +819,8 @@ export default function VisualScopeEditor({ sheetId, baseImagePath, initialMarku
           fillColor: color,
           strokeWidth: 2,
           createdAt: new Date().toISOString(),
+          rotation: 0,
+          zIndex: prev.length,
         }];
       });
       return;
@@ -612,9 +828,8 @@ export default function VisualScopeEditor({ sheetId, baseImagePath, initialMarku
 
     if (activeTool === "text") {
       const newId = nanoid8();
-      setObjects(prev => {
-        pushUndo(prev);
-        hasUserEdited.current = true;
+      updateObjects(prev => {
+        pushUndoSnapshot(editorState);
         return [...prev, {
           id: newId,
           type: "text",
@@ -624,13 +839,15 @@ export default function VisualScopeEditor({ sheetId, baseImagePath, initialMarku
           fillColor: "none",
           strokeWidth: 1,
           createdAt: new Date().toISOString(),
+          rotation: 0,
+          zIndex: prev.length,
         }];
       });
       setSelectedId(newId);
       setEditingTextId(newId);
       setEditingTextValue("Label");
     }
-  }, [activeTool, objects, inProgressPoints, isAtLimit, editingTextId, commitPolygon, activeColor, pushUndo]);
+  }, [activeTool, sortedObjects, inProgressPoints, isAtLimit, editingTextId, commitPolygon, activeColor, editorState, startMoveDrag]);
 
   const handlePointerMove = useCallback((e: React.PointerEvent<SVGSVGElement>) => {
     if (!svgRef.current) return;
@@ -640,29 +857,55 @@ export default function VisualScopeEditor({ sheetId, baseImagePath, initialMarku
       setPreviewPoint(pt);
     }
 
-    if (dragging) {
-      const draggingObj = objects.find(o => o.id === dragging.id);
-      const isMovable = draggingObj?.type === "symbol" || draggingObj?.type === "text";
-      if (!dragPushedUndo.current && isMovable) {
-        dragPushedUndo.current = true;
-        pushUndo(objects);
+    if (!drag) return;
+
+    if (drag.kind === "move") {
+      if (!dragStartedUndo.current) {
+        dragStartedUndo.current = true;
+        pushUndoSnapshot(editorState);
       }
-      const dx = pt[0] - dragging.startX;
-      const dy = pt[1] - dragging.startY;
-      const newX = clamp(dragging.origX + dx);
-      const newY = clamp(dragging.origY + dy);
-      hasUserEdited.current = true;
-      setObjects(prev => prev.map(o => {
-        if (o.id !== dragging.id) return o;
-        if (o.type !== "symbol" && o.type !== "text") return o;
-        return { ...o, points: [[newX, newY]] };
+      const dx = pt[0] - drag.startPt[0];
+      const dy = pt[1] - drag.startPt[1];
+      updateObjects(prev => prev.map(o => {
+        if (o.id !== drag.id) return o;
+        const newPoints = drag.origPoints.map(p => [clamp(p[0] + dx), clamp(p[1] + dy)] as MarkupPoint);
+        return { ...o, points: newPoints };
       }));
+    } else if (drag.kind === "vertex") {
+      if (!dragStartedUndo.current) {
+        dragStartedUndo.current = true;
+        pushUndoSnapshot(editorState);
+      }
+      const obj = objects.find(o => o.id === drag.id);
+      if (!obj) return;
+      const bb = getBbox(obj);
+      const rotation = obj.rotation ?? 0;
+      const localPt = rotation ? rotatePoint(pt, [bb.cx, bb.cy], -rotation) : pt;
+      updateObjects(prev => prev.map(o => {
+        if (o.id !== drag.id) return o;
+        const newPoints = [...o.points] as MarkupPoint[];
+        newPoints[drag.vertexIdx] = [clamp(localPt[0]), clamp(localPt[1])];
+        return { ...o, points: newPoints };
+      }));
+    } else if (drag.kind === "rotate") {
+      if (!dragStartedUndo.current) {
+        dragStartedUndo.current = true;
+        pushUndoSnapshot(editorState);
+      }
+      const dx = pt[0] - drag.center[0];
+      const dy = pt[1] - drag.center[1];
+      const currentAngle = Math.atan2(dy, dx) * (180 / Math.PI);
+      const delta = currentAngle - drag.startAngle;
+      const newRotation = ((drag.origRotation + delta) % 360 + 360) % 360;
+      updateObjects(prev => prev.map(o =>
+        o.id === drag.id ? { ...o, rotation: newRotation } : o
+      ));
     }
-  }, [inProgressPoints, dragging, pushUndo, objects]);
+  }, [inProgressPoints, drag, objects, editorState]);
 
   const handlePointerUp = useCallback(() => {
-    setDragging(null);
-    dragPushedUndo.current = false;
+    setDrag(null);
+    dragStartedUndo.current = false;
   }, []);
 
   const handleDoubleClick = useCallback((e: React.MouseEvent<SVGSVGElement>) => {
@@ -671,14 +914,18 @@ export default function VisualScopeEditor({ sheetId, baseImagePath, initialMarku
       commitPolyline(inProgressPoints);
     } else if (activeTool === "polygon" && inProgressPoints.length >= 2) {
       commitPolygon(inProgressPoints);
+    } else if (activeTool === "select" && selectedObj?.type === "text") {
+      setEditingTextId(selectedObj.id);
+      setEditingTextValue(selectedObj.label || "Label");
     }
-  }, [activeTool, inProgressPoints, commitPolyline, commitPolygon]);
+  }, [activeTool, inProgressPoints, commitPolyline, commitPolygon, selectedObj]);
 
   const treeCnt = objects.filter(o => o.type === "symbol" && o.symbolType === "tree").length;
   const plantCnt = objects.filter(o => o.type === "symbol" && o.symbolType === "plant").length;
   const boulderCnt = objects.filter(o => o.type === "symbol" && o.symbolType === "boulder").length;
   const hasSymbols = treeCnt > 0 || plantCnt > 0 || boulderCnt > 0;
   const canUndo = undoStack.current.length > 0;
+  const canRedo = redoStack.current.length > 0;
 
   function ToolBtn({ tool, icon: Icon, label }: { tool: ActiveTool; icon: React.ElementType; label: string }) {
     const isActive = activeTool === tool;
@@ -738,7 +985,7 @@ export default function VisualScopeEditor({ sheetId, baseImagePath, initialMarku
 
         <Separator orientation="vertical" className="h-6 mx-1" />
 
-        {/* Undo button */}
+        {/* Undo / Redo buttons */}
         <Button
           size="icon"
           variant="ghost"
@@ -748,6 +995,16 @@ export default function VisualScopeEditor({ sheetId, baseImagePath, initialMarku
           title="Undo (Ctrl+Z)"
         >
           <Undo2 className="w-4 h-4" />
+        </Button>
+        <Button
+          size="icon"
+          variant="ghost"
+          disabled={!canRedo}
+          onClick={redo}
+          data-testid="button-redo"
+          title="Redo (Ctrl+Shift+Z / Ctrl+Y)"
+        >
+          <Redo2 className="w-4 h-4" />
         </Button>
 
         {/* Delete button */}
@@ -778,6 +1035,15 @@ export default function VisualScopeEditor({ sheetId, baseImagePath, initialMarku
         </div>
       </div>
 
+      {/* Layer indicator */}
+      <div className="flex items-center gap-2 px-3 py-1 border-b bg-muted/20 text-xs text-muted-foreground" data-testid="bar-layer-info">
+        <Lock className="w-3 h-3 shrink-0 opacity-50" />
+        <span className="opacity-70">Base image (locked)</span>
+        <Separator orientation="vertical" className="h-3 mx-1" />
+        <span className="font-medium text-foreground">{defaultLayer?.name ?? "Annotations"}</span>
+        <span className="opacity-60">— {objects.length} object{objects.length !== 1 ? "s" : ""}</span>
+      </div>
+
       {/* Selection edit panel */}
       {selectedObj && (
         <div
@@ -785,6 +1051,7 @@ export default function VisualScopeEditor({ sheetId, baseImagePath, initialMarku
           data-testid="panel-selection-edit"
         >
           <span className="text-xs font-medium text-muted-foreground shrink-0">Selected:</span>
+          <span className="text-xs text-foreground capitalize">{selectedObj.type}</span>
 
           {/* Color picker for selected item */}
           <div className="relative flex items-center gap-1.5" title="Change item color">
@@ -806,6 +1073,13 @@ export default function VisualScopeEditor({ sheetId, baseImagePath, initialMarku
               data-testid="input-selection-color-picker"
             />
           </div>
+
+          {/* Rotation display */}
+          {(selectedObj.rotation ?? 0) !== 0 && (
+            <span className="text-xs text-muted-foreground" data-testid="text-rotation-value">
+              {Math.round(selectedObj.rotation ?? 0)}°
+            </span>
+          )}
 
           {/* Text edit field for text items */}
           {selectedObj.type === "text" && (
@@ -859,18 +1133,32 @@ export default function VisualScopeEditor({ sheetId, baseImagePath, initialMarku
           position: "relative",
           lineHeight: 0,
           aspectRatio: "1 / 1",
-          maxHeight: "calc(100vh - 320px)",
-          maxWidth: "calc(100vh - 320px)",
+          maxHeight: "calc(100vh - 340px)",
+          maxWidth: "calc(100vh - 340px)",
           width: "100%",
         }}
       >
-        <img
-          src={baseImagePath}
-          alt="Base image"
-          style={{ width: "100%", height: "100%", display: "block" }}
-          data-testid="img-base-image"
-          draggable={false}
-        />
+        {/* Background layer: base image — locked, non-interactive */}
+        <div
+          style={{
+            position: "absolute",
+            inset: 0,
+            pointerEvents: "none",
+            zIndex: 0,
+          }}
+          data-testid="layer-background"
+          aria-label="Background layer (locked)"
+        >
+          <img
+            src={baseImagePath}
+            alt="Base image"
+            style={{ width: "100%", height: "100%", display: "block" }}
+            data-testid="img-base-image"
+            draggable={false}
+          />
+        </div>
+
+        {/* Annotation layer: SVG canvas */}
         <svg
           ref={svgRef}
           viewBox="0 0 1 1"
@@ -880,6 +1168,7 @@ export default function VisualScopeEditor({ sheetId, baseImagePath, initialMarku
             inset: 0,
             width: "100%",
             height: "100%",
+            zIndex: 1,
             cursor: activeTool === "select" ? "default" : "crosshair",
             touchAction: "none",
           }}
@@ -887,10 +1176,27 @@ export default function VisualScopeEditor({ sheetId, baseImagePath, initialMarku
           onPointerMove={handlePointerMove}
           onPointerUp={handlePointerUp}
           onDoubleClick={handleDoubleClick}
+          data-testid="svg-annotation-layer"
         >
-          {objects.map(obj => (
+          {sortedObjects.map(obj => (
             <MarkupShape key={obj.id} obj={obj} selected={obj.id === selectedId} />
           ))}
+
+          {/* Selection handles (rendered on top) */}
+          {selectedObj && activeTool === "select" && (
+            <SelectionHandles
+              obj={selectedObj}
+              onStartVertexDrag={(idx, startPt) => {
+                const origPt = selectedObj.points[idx];
+                startVertexDrag(selectedObj.id, idx, startPt, origPt);
+              }}
+              onStartRotate={startPt => {
+                const bb = getBbox(selectedObj);
+                startRotateDrag(selectedObj.id, [bb.cx, bb.cy], startPt, selectedObj.rotation ?? 0);
+              }}
+            />
+          )}
+
           {inProgressPoints.length > 0 && (
             <InProgressShape points={inProgressPoints} preview={previewPoint} tool={activeTool} color={activeColor} />
           )}

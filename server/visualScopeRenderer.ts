@@ -2,6 +2,7 @@ import { createCanvas, loadImage } from "canvas";
 import type { CanvasRenderingContext2D as NodeCanvasCtx } from "canvas";
 import { ObjectStorageService } from "./objectStorage";
 import type { VisualScopeSheet, MarkupObject, MarkupPoint, SymbolType } from "@shared/schema";
+import { flattenMarkupObjects } from "@shared/schema";
 
 export type ExportType = "base" | "overlay" | "combined";
 
@@ -66,17 +67,39 @@ function roundRect(
   ctx.closePath();
 }
 
+function getObjectCenter(obj: MarkupObject, width: number, height: number): { cx: number; cy: number } {
+  if (obj.type === "symbol" || obj.type === "text") {
+    return { cx: px(obj.points[0][0], width), cy: py(obj.points[0][1], height) };
+  }
+  const xs = obj.points.map(p => p[0]);
+  const ys = obj.points.map(p => p[1]);
+  return {
+    cx: px((Math.min(...xs) + Math.max(...xs)) / 2, width),
+    cy: py((Math.min(...ys) + Math.max(...ys)) / 2, height),
+  };
+}
+
 function drawMarkup(
   ctx: NodeCanvasCtx,
   objects: MarkupObject[],
   width: number,
   height: number
 ) {
-  for (const obj of objects) {
+  const sorted = [...objects].sort((a, b) => (a.zIndex ?? 0) - (b.zIndex ?? 0));
+
+  for (const obj of sorted) {
     const points = obj.points as MarkupPoint[];
     if (!points || points.length === 0) continue;
 
     ctx.save();
+
+    const rotation = obj.rotation ?? 0;
+    if (rotation !== 0) {
+      const { cx, cy } = getObjectCenter(obj, width, height);
+      ctx.translate(cx, cy);
+      ctx.rotate((rotation * Math.PI) / 180);
+      ctx.translate(-cx, -cy);
+    }
 
     if (obj.type === "polygon") {
       ctx.beginPath();
@@ -228,7 +251,7 @@ export async function renderVisualScope(
   }
 
   const height = Math.round(width * baseImg.height / baseImg.width);
-  const objects = (sheet.markupData as MarkupObject[] | null) ?? [];
+  const objects = flattenMarkupObjects(sheet.markupData);
 
   if (type === "base") {
     const canvas = createCanvas(width, height);

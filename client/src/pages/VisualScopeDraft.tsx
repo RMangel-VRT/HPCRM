@@ -16,7 +16,7 @@ import { ArrowLeft, Download, RefreshCw, ImageIcon, Loader2, Info, Eye, Zap, Rot
 import { Slider } from "@/components/ui/slider";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
-import type { VisualScopeSheetWithCustomer, MarkupObject, CaptureParams } from "@shared/schema";
+import type { VisualScopeSheetWithCustomer, CaptureParams } from "@shared/schema";
 import mapboxgl from "mapbox-gl";
 import "mapbox-gl/dist/mapbox-gl.css";
 import VisualScopeEditor from "./VisualScopeEditor";
@@ -726,7 +726,7 @@ export default function VisualScopeDraft() {
             <VisualScopeEditor
               sheetId={id!}
               baseImagePath={baseImageApiUrl}
-              initialMarkup={(sheet.markupData as MarkupObject[]) ?? []}
+              initialMarkupData={sheet.markupData ?? []}
               onSaved={() => queryClient.invalidateQueries({ queryKey: ["/api/visual-scope-sheets", id] })}
             />
           </CardContent>
