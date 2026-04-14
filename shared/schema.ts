@@ -1963,6 +1963,12 @@ export interface MarkupObject {
   strokeColor: string;
   fillColor: string;
   strokeWidth: number;
+  opacity?: number;
+  fillOpacity?: number;
+  dashStyle?: "solid" | "dashed" | "dotted";
+  closed?: boolean;
+  layerId?: string;
+  name?: string;
   createdAt: string;
   rotation?: number;
   zIndex?: number;

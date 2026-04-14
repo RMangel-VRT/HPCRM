@@ -79,6 +79,12 @@ function getObjectCenter(obj: MarkupObject, width: number, height: number): { cx
   };
 }
 
+function applyDash(ctx: NodeCanvasCtx, dashStyle: string | undefined, lw: number) {
+  if (dashStyle === "dashed") ctx.setLineDash([lw * 5, lw * 3]);
+  else if (dashStyle === "dotted") ctx.setLineDash([lw, lw * 2]);
+  else ctx.setLineDash([]);
+}
+
 function drawMarkup(
   ctx: NodeCanvasCtx,
   objects: MarkupObject[],
@@ -92,6 +98,7 @@ function drawMarkup(
     if (!points || points.length === 0) continue;
 
     ctx.save();
+    ctx.globalAlpha = typeof obj.opacity === "number" ? obj.opacity : 1;
 
     const rotation = obj.rotation ?? 0;
     if (rotation !== 0) {
@@ -111,9 +118,12 @@ function drawMarkup(
       ctx.fillStyle = obj.fillColor || "rgba(29,101,29,0.2)";
       ctx.fill();
       ctx.strokeStyle = obj.strokeColor || "#1a4d1a";
-      ctx.lineWidth = (obj.strokeWidth || 2) * width / 1000;
+      const lw = (obj.strokeWidth || 2) * width / 1000;
+      ctx.lineWidth = lw;
       ctx.lineJoin = "round";
+      applyDash(ctx, obj.dashStyle, lw);
       ctx.stroke();
+      ctx.setLineDash([]);
 
     } else if (obj.type === "polyline") {
       if (points.length < 2) { ctx.restore(); continue; }
@@ -123,10 +133,13 @@ function drawMarkup(
         ctx.lineTo(px(points[i][0], width), py(points[i][1], height));
       }
       ctx.strokeStyle = obj.strokeColor || "#1a4d1a";
-      ctx.lineWidth = (obj.strokeWidth || 2) * width / 1000;
+      const lw = (obj.strokeWidth || 2) * width / 1000;
+      ctx.lineWidth = lw;
       ctx.lineJoin = "round";
       ctx.lineCap = "round";
+      applyDash(ctx, obj.dashStyle, lw);
       ctx.stroke();
+      ctx.setLineDash([]);
 
     } else if (obj.type === "symbol" && obj.symbolType) {
       const cx = px(points[0][0], width);

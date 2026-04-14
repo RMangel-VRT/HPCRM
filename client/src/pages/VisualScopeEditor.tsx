@@ -17,12 +17,15 @@ import {
   Undo2,
   Redo2,
   Lock,
+  Copy,
+  X,
 } from "lucide-react";
 import { apiRequest } from "@/lib/queryClient";
 import type { MarkupObject, MarkupPoint, SymbolType, MarkupDocument } from "@shared/schema";
 import { parseMarkupData } from "@shared/schema";
 
 type ActiveTool = "select" | "polygon" | "polyline" | "tree" | "plant" | "boulder" | "text";
+type DashStyle = "solid" | "dashed" | "dotted";
 
 interface VisualScopeEditorProps {
   sheetId: string;
@@ -32,6 +35,10 @@ interface VisualScopeEditorProps {
 }
 
 const MAX_UNDO_STEPS = 20;
+const VERTEX_HIT_RADIUS = 0.018;
+const MIDPOINT_HIT_RADIUS = 0.013;
+const SHAPE_HIT_RADIUS = 0.022;
+const CLOSE_POLYGON_RADIUS = 0.025;
 
 const DEFAULT_SYMBOL_COLORS: Record<SymbolType, string> = {
   tree: "#2d6a2d",
@@ -61,6 +68,10 @@ function distance(a: MarkupPoint, b: MarkupPoint): number {
   const dx = a[0] - b[0];
   const dy = a[1] - b[1];
   return Math.sqrt(dx * dx + dy * dy);
+}
+
+function midpoint(a: MarkupPoint, b: MarkupPoint): MarkupPoint {
+  return [(a[0] + b[0]) / 2, (a[1] + b[1]) / 2];
 }
 
 function pointToSegmentDistance(p: MarkupPoint, a: MarkupPoint, b: MarkupPoint): number {
@@ -111,12 +122,25 @@ function hitTestObj(obj: MarkupObject, pt: MarkupPoint): boolean {
   }
   if (obj.points.length < 2) return false;
   for (let i = 0; i < obj.points.length - 1; i++) {
-    if (pointToSegmentDistance(testPt, obj.points[i], obj.points[i + 1]) < 0.025) return true;
+    if (pointToSegmentDistance(testPt, obj.points[i], obj.points[i + 1]) < SHAPE_HIT_RADIUS) return true;
   }
-  if (obj.type === "polygon" && obj.points.length > 2) {
-    if (pointToSegmentDistance(testPt, obj.points[obj.points.length - 1], obj.points[0]) < 0.025) return true;
+  if ((obj.type === "polygon" || obj.closed) && obj.points.length > 2) {
+    if (pointToSegmentDistance(testPt, obj.points[obj.points.length - 1], obj.points[0]) < SHAPE_HIT_RADIUS) return true;
+    if (pointInPolygon(testPt, obj.points)) return true;
   }
   return false;
+}
+
+function pointInPolygon(pt: MarkupPoint, poly: MarkupPoint[]): boolean {
+  let inside = false;
+  for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) {
+    const xi = poly[i][0], yi = poly[i][1];
+    const xj = poly[j][0], yj = poly[j][1];
+    if (((yi > pt[1]) !== (yj > pt[1])) && (pt[0] < (xj - xi) * (pt[1] - yi) / (yj - yi) + xi)) {
+      inside = !inside;
+    }
+  }
+  return inside;
 }
 
 function nanoid8(): string {
@@ -128,6 +152,13 @@ function hexToRgba(hex: string, alpha: number): string {
   const g = parseInt(hex.slice(3, 5), 16);
   const b = parseInt(hex.slice(5, 7), 16);
   return `rgba(${r},${g},${b},${alpha})`;
+}
+
+function dashArray(style: DashStyle | undefined, sw: number): string | undefined {
+  const s = sw / 1000;
+  if (style === "dashed") return `${s * 5},${s * 3}`;
+  if (style === "dotted") return `${s},${s * 2}`;
+  return undefined;
 }
 
 function SymbolSvg({ type, color, size = 16 }: { type: SymbolType; color?: string; size?: number }) {
@@ -217,34 +248,110 @@ function TextEditOverlay({ obj, svgRef, containerRef, value, onChange, onCommit,
 interface MarkupShapeProps {
   obj: MarkupObject;
   selected: boolean;
+  selectedVertexIdx: number | null;
+  hoveredMidEdge: number | null;
+  onVertexPointerDown: (idx: number, e: React.PointerEvent) => void;
+  onMidpointClick: (edgeIdx: number, e: React.PointerEvent) => void;
+  onVertexClick: (idx: number) => void;
 }
 
-function MarkupShape({ obj, selected }: MarkupShapeProps) {
+function MarkupShape({
+  obj,
+  selected,
+  selectedVertexIdx,
+  hoveredMidEdge,
+  onVertexPointerDown,
+  onMidpointClick,
+  onVertexClick,
+}: MarkupShapeProps) {
   const sw = obj.strokeWidth / 1000;
   const bb = getBbox(obj);
   const rotation = obj.rotation ?? 0;
   const rotTransform = rotation ? `rotate(${rotation} ${bb.cx} ${bb.cy})` : undefined;
+  const selRing = "#f59e0b";
+  const opacity = obj.opacity ?? 1;
+  const da = dashArray(obj.dashStyle, obj.strokeWidth);
 
   if (obj.type === "polygon") {
+    const edges: React.ReactNode[] = [];
+    if (selected) {
+      const n = obj.points.length;
+      for (let i = 0; i < n; i++) {
+        const a = obj.points[i];
+        const b = obj.points[(i + 1) % n];
+        const mp = midpoint(a, b);
+        const isHovered = hoveredMidEdge === i;
+        edges.push(
+          <circle
+            key={`mid-${i}`}
+            cx={mp[0]}
+            cy={mp[1]}
+            r={isHovered ? MIDPOINT_HIT_RADIUS : MIDPOINT_HIT_RADIUS * 0.7}
+            fill={isHovered ? "#3b82f6" : "rgba(59,130,246,0.5)"}
+            style={{ cursor: "pointer" }}
+            onPointerDown={e => { e.stopPropagation(); onMidpointClick(i, e); }}
+            data-testid={`handle-midpoint-${obj.id}-${i}`}
+          />
+        );
+      }
+    }
+
     return (
-      <g transform={rotTransform}>
+      <g transform={rotTransform} opacity={opacity}>
         <polygon
           points={toSvgPoints(obj.points)}
           stroke={obj.strokeColor}
           fill={obj.fillColor}
           strokeWidth={sw}
           strokeLinejoin="round"
+          strokeDasharray={da}
         />
+        {selected && edges}
         {selected && obj.points.map((p, i) => (
-          <circle key={i} cx={p[0]} cy={p[1]} r={0.008} fill="#f59e0b" />
+          <circle
+            key={`v-${i}`}
+            cx={p[0]}
+            cy={p[1]}
+            r={VERTEX_HIT_RADIUS}
+            fill={selectedVertexIdx === i ? "#ef4444" : selRing}
+            stroke="white"
+            strokeWidth={0.002}
+            style={{ cursor: "grab" }}
+            onPointerDown={e => { e.stopPropagation(); onVertexPointerDown(i, e); }}
+            onClick={e => { e.stopPropagation(); onVertexClick(i); }}
+            data-testid={`handle-vertex-${obj.id}-${i}`}
+          />
         ))}
       </g>
     );
   }
 
   if (obj.type === "polyline") {
+    const n = obj.points.length;
+    const edges: React.ReactNode[] = [];
+    if (selected) {
+      for (let i = 0; i < n - 1; i++) {
+        const a = obj.points[i];
+        const b = obj.points[i + 1];
+        const mp = midpoint(a, b);
+        const isHovered = hoveredMidEdge === i;
+        edges.push(
+          <circle
+            key={`mid-${i}`}
+            cx={mp[0]}
+            cy={mp[1]}
+            r={isHovered ? MIDPOINT_HIT_RADIUS : MIDPOINT_HIT_RADIUS * 0.7}
+            fill={isHovered ? "#3b82f6" : "rgba(59,130,246,0.5)"}
+            style={{ cursor: "pointer" }}
+            onPointerDown={e => { e.stopPropagation(); onMidpointClick(i, e); }}
+            data-testid={`handle-midpoint-${obj.id}-${i}`}
+          />
+        );
+      }
+    }
+
     return (
-      <g transform={rotTransform}>
+      <g transform={rotTransform} opacity={opacity}>
         <polyline
           points={toSvgPoints(obj.points)}
           stroke={obj.strokeColor}
@@ -252,9 +359,32 @@ function MarkupShape({ obj, selected }: MarkupShapeProps) {
           strokeWidth={sw}
           strokeLinejoin="round"
           strokeLinecap="round"
+          strokeDasharray={da}
         />
+        {/* Wider invisible hit area for selection */}
+        <polyline
+          points={toSvgPoints(obj.points)}
+          stroke="transparent"
+          fill="none"
+          strokeWidth={sw + 0.015}
+          strokeLinecap="round"
+          strokeLinejoin="round"
+        />
+        {selected && edges}
         {selected && obj.points.map((p, i) => (
-          <circle key={i} cx={p[0]} cy={p[1]} r={0.008} fill="#f59e0b" />
+          <circle
+            key={`v-${i}`}
+            cx={p[0]}
+            cy={p[1]}
+            r={VERTEX_HIT_RADIUS}
+            fill={selectedVertexIdx === i ? "#ef4444" : selRing}
+            stroke="white"
+            strokeWidth={0.002}
+            style={{ cursor: "grab" }}
+            onPointerDown={e => { e.stopPropagation(); onVertexPointerDown(i, e); }}
+            onClick={e => { e.stopPropagation(); onVertexClick(i); }}
+            data-testid={`handle-vertex-${obj.id}-${i}`}
+          />
         ))}
       </g>
     );
@@ -273,7 +403,7 @@ function MarkupShape({ obj, selected }: MarkupShapeProps) {
       inner = <ellipse cx="0" cy="0" rx="0.5" ry="0.35" fill={color} />;
     }
     return (
-      <g transform={rotTransform}>
+      <g transform={rotTransform} opacity={opacity}>
         <g transform={`translate(${x} ${y}) scale(${scale})`}>{inner}</g>
         {selected && (
           <circle cx={x} cy={y} r={0.045} fill="none" stroke="#f59e0b" strokeWidth={0.003} />
@@ -285,7 +415,7 @@ function MarkupShape({ obj, selected }: MarkupShapeProps) {
   if (obj.type === "text") {
     const [x, y] = obj.points[0];
     return (
-      <g transform={rotTransform}>
+      <g transform={rotTransform} opacity={opacity}>
         <text
           x={x}
           y={y}
@@ -360,6 +490,9 @@ function InProgressShape({ points, preview, tool, color }: InProgressShapeProps)
           strokeWidth={0.002}
         />
       )}
+      {points.map((p, i) => (
+        <circle key={i} cx={p[0]} cy={p[1]} r={0.006} fill={color} />
+      ))}
     </g>
   );
 }
@@ -493,10 +626,13 @@ export default function VisualScopeEditor({ sheetId, baseImagePath, initialMarku
   const [editorState, setEditorState] = useState<MarkupDocument>(() => parseMarkupData(initialMarkupData));
   const [activeTool, setActiveTool] = useState<ActiveTool>("select");
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [selectedVertexIdx, setSelectedVertexIdx] = useState<number | null>(null);
   const [activeColor, setActiveColor] = useState<string>("#1a4d1a");
   const [inProgressPoints, setInProgressPoints] = useState<MarkupPoint[]>([]);
   const [previewPoint, setPreviewPoint] = useState<MarkupPoint | null>(null);
   const [drag, setDrag] = useState<DragOp | null>(null);
+  const [draggingVertex, setDraggingVertex] = useState<{ id: string; vertexIdx: number; startPt: MarkupPoint; origPts: MarkupPoint[] } | null>(null);
+  const [hoveredMidEdge, setHoveredMidEdge] = useState<number | null>(null);
   const [saveStatus, setSaveStatus] = useState<"saved" | "saving" | "unsaved">("saved");
   const [editingTextId, setEditingTextId] = useState<string | null>(null);
   const [editingTextValue, setEditingTextValue] = useState("");
@@ -508,6 +644,7 @@ export default function VisualScopeEditor({ sheetId, baseImagePath, initialMarku
   const svgRef = useRef<SVGSVGElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const dragStartedUndo = useRef(false);
+  const vertexDragStartedUndo = useRef(false);
 
   function pushUndoSnapshot(snapshot: MarkupDocument) {
     undoStack.current = [...undoStack.current.slice(-MAX_UNDO_STEPS + 1), snapshot];
@@ -538,6 +675,7 @@ export default function VisualScopeEditor({ sheetId, baseImagePath, initialMarku
     hasUserEdited.current = true;
   }
 
+  const setObjects = (fn: (objs: MarkupObject[]) => MarkupObject[]) => updateObjects(fn);
   useEffect(() => {
     if (selectedObj?.type === "text") {
       setSelectionPanelText(selectedObj.label || "Label");
@@ -548,10 +686,13 @@ export default function VisualScopeEditor({ sheetId, baseImagePath, initialMarku
     setEditorState(parseMarkupData(initialMarkupData));
     setActiveTool("select");
     setSelectedId(null);
+    setSelectedVertexIdx(null);
     setActiveColor("#1a4d1a");
     setInProgressPoints([]);
     setPreviewPoint(null);
     setDrag(null);
+    setDraggingVertex(null);
+    setHoveredMidEdge(null);
     setEditingTextId(null);
     setEditingTextValue("");
     setSelectionPanelText("");
@@ -559,8 +700,12 @@ export default function VisualScopeEditor({ sheetId, baseImagePath, initialMarku
     redoStack.current = [];
     hasUserEdited.current = false;
     dragStartedUndo.current = false;
+    vertexDragStartedUndo.current = false;
   }, [sheetId, baseImagePath]);
 
+  const pushUndo = useCallback((snapshot: MarkupDocument) => {
+    pushUndoSnapshot(snapshot);
+  }, []);
   const undo = useCallback(() => {
     if (undoStack.current.length === 0) return;
     const prev = undoStack.current[undoStack.current.length - 1];
@@ -583,6 +728,7 @@ export default function VisualScopeEditor({ sheetId, baseImagePath, initialMarku
       return next;
     });
     setSelectedId(null);
+    setSelectedVertexIdx(null);
   }, []);
 
   useEffect(() => {
@@ -604,36 +750,74 @@ export default function VisualScopeEditor({ sheetId, baseImagePath, initialMarku
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
       const active = document.activeElement;
-      const inTextField =
-        active instanceof HTMLInputElement ||
-        active instanceof HTMLTextAreaElement ||
-        (active instanceof HTMLElement && active.isContentEditable);
-      if (e.key === "z" && (e.ctrlKey || e.metaKey) && !e.shiftKey && !inTextField) {
+      const inTextField = active instanceof HTMLInputElement || active instanceof HTMLTextAreaElement || (active instanceof HTMLElement && active.isContentEditable);
+      if (inTextField) return;
+
+      if (e.key === "z" && (e.ctrlKey || e.metaKey) && !e.shiftKey) {
         e.preventDefault();
         undo();
         return;
       }
-      if ((e.key === "z" && (e.ctrlKey || e.metaKey) && e.shiftKey && !inTextField) ||
-          (e.key === "y" && e.ctrlKey && !inTextField)) {
+      if ((e.key === "z" && (e.ctrlKey || e.metaKey) && e.shiftKey) || (e.key === "y" && e.ctrlKey)) {
         e.preventDefault();
         redo();
         return;
       }
-      if ((e.key === "Delete" || e.key === "Backspace") && selectedId && document.activeElement === document.body) {
-        updateObjects(prev => {
-          pushUndoSnapshot(editorState);
-          return prev.filter(o => o.id !== selectedId);
-        });
-        setSelectedId(null);
+
+      if (e.key === "Escape") {
+        if (inProgressPoints.length > 0) {
+          setInProgressPoints([]);
+          setPreviewPoint(null);
+        } else {
+          setSelectedId(null);
+          setSelectedVertexIdx(null);
+        }
+        return;
+      }
+
+      if (e.key === "Enter") {
+        if (activeTool === "polyline" && inProgressPoints.length >= 2) {
+          commitPolyline(inProgressPoints);
+        } else if (activeTool === "polygon" && inProgressPoints.length >= 3) {
+          commitPolygon(inProgressPoints);
+        }
+        return;
+      }
+
+      if (e.key === "Delete" || e.key === "Backspace") {
+        if (selectedId !== null && selectedVertexIdx !== null) {
+          const obj = objects.find(o => o.id === selectedId);
+          if (obj && (obj.type === "polygon" || obj.type === "polyline")) {
+            const minPts = obj.type === "polygon" ? 3 : 2;
+            if (obj.points.length > minPts) {
+              updateObjects(prev => {
+                pushUndoSnapshot(editorState);
+                const newPts = obj.points.filter((_, i) => i !== selectedVertexIdx);
+                return prev.map(o => o.id === selectedId ? { ...o, points: newPts } : o);
+              });
+              setSelectedVertexIdx(null);
+            }
+          }
+          return;
+        }
+        if (selectedId && document.activeElement === document.body) {
+          updateObjects(prev => {
+            pushUndoSnapshot(editorState);
+            return prev.filter(o => o.id !== selectedId);
+          });
+          setSelectedId(null);
+          setSelectedVertexIdx(null);
+        }
       }
     };
     window.addEventListener("keydown", handler);
     return () => window.removeEventListener("keydown", handler);
-  }, [selectedId, undo, redo, editorState]);
+  }, [selectedId, selectedVertexIdx, undo, redo, activeTool, inProgressPoints, objects, editorState]);
 
   const changeTool = useCallback((tool: ActiveTool) => {
     setActiveTool(tool);
     setSelectedId(null);
+    setSelectedVertexIdx(null);
     setInProgressPoints([]);
     setPreviewPoint(null);
   }, []);
@@ -645,6 +829,24 @@ export default function VisualScopeEditor({ sheetId, baseImagePath, initialMarku
       return prev.filter(o => o.id !== selectedId);
     });
     setSelectedId(null);
+    setSelectedVertexIdx(null);
+  }, [selectedId, editorState]);
+
+  const duplicateSelected = useCallback(() => {
+    if (!selectedId) return;
+    updateObjects(prev => {
+      const obj = prev.find(o => o.id === selectedId);
+      if (!obj) return prev;
+      pushUndoSnapshot(editorState);
+      const offset = 0.02;
+      const newObj: MarkupObject = {
+        ...obj,
+        id: nanoid8(),
+        points: obj.points.map(([x, y]) => [clamp(x + offset), clamp(y + offset)] as MarkupPoint),
+        createdAt: new Date().toISOString(),
+      };
+      return [...prev, newObj];
+    });
   }, [selectedId, editorState]);
 
   const handleColorChange = useCallback((color: string) => {
@@ -655,13 +857,39 @@ export default function VisualScopeEditor({ sheetId, baseImagePath, initialMarku
       return prev.map(o => {
         if (o.id !== selectedId) return o;
         if (o.type === "polygon") {
-          return { ...o, strokeColor: color, fillColor: hexToRgba(color, 0.15) };
+          const fo = o.fillOpacity ?? 0.15;
+          return { ...o, strokeColor: color, fillColor: hexToRgba(color, fo) };
         }
         return { ...o, strokeColor: color, fillColor: color };
       });
     });
   }, [selectedId, editorState]);
 
+  const handleStrokeWidthChange = useCallback((width: number) => {
+    if (!selectedId) return;
+    updateObjects(prev => prev.map(o => o.id === selectedId ? { ...o, strokeWidth: width } : o));
+  }, [selectedId]);
+
+  const handleDashStyleChange = useCallback((style: DashStyle) => {
+    if (!selectedId) return;
+    updateObjects(prev => {
+      pushUndoSnapshot(editorState);
+      return prev.map(o => o.id === selectedId ? { ...o, dashStyle: style } : o);
+    });
+  }, [selectedId, editorState]);
+
+  const handleOpacityChange = useCallback((opacity: number) => {
+    if (!selectedId) return;
+    updateObjects(prev => prev.map(o => o.id === selectedId ? { ...o, opacity } : o));
+  }, [selectedId]);
+
+  const handleFillOpacityChange = useCallback((fillOpacity: number) => {
+    if (!selectedId) return;
+    updateObjects(prev => prev.map(o => {
+      if (o.id !== selectedId || o.type !== "polygon") return o;
+      return { ...o, fillOpacity, fillColor: hexToRgba(o.strokeColor, fillOpacity) };
+    }));
+  }, [selectedId]);
   const currentColorForPicker = selectedObj ? selectedObj.strokeColor : activeColor;
 
   const commitPolyline = useCallback((pts: MarkupPoint[]) => {
@@ -675,6 +903,8 @@ export default function VisualScopeEditor({ sheetId, baseImagePath, initialMarku
         strokeColor: activeColor,
         fillColor: "none",
         strokeWidth: 2,
+        opacity: 1,
+        dashStyle: "solid",
         createdAt: new Date().toISOString(),
         rotation: 0,
         zIndex: prev.length,
@@ -694,7 +924,10 @@ export default function VisualScopeEditor({ sheetId, baseImagePath, initialMarku
         points: pts,
         strokeColor: activeColor,
         fillColor: hexToRgba(activeColor, 0.15),
+        fillOpacity: 0.15,
         strokeWidth: 2,
+        opacity: 1,
+        dashStyle: "solid",
         createdAt: new Date().toISOString(),
         rotation: 0,
         zIndex: prev.length,
@@ -757,10 +990,57 @@ export default function VisualScopeEditor({ sheetId, baseImagePath, initialMarku
     setDrag({ kind: "rotate", id, center, startAngle, origRotation });
   }, []);
 
+  const deleteSelectedVertex = useCallback(() => {
+    if (selectedId === null || selectedVertexIdx === null) return;
+    const obj = objects.find(o => o.id === selectedId);
+    if (!obj || (obj.type !== "polygon" && obj.type !== "polyline")) return;
+    const minPts = obj.type === "polygon" ? 3 : 2;
+    if (obj.points.length <= minPts) return;
+    updateObjects(prev => {
+      pushUndoSnapshot(editorState);
+      return prev.map(o => {
+        if (o.id !== selectedId) return o;
+        return { ...o, points: o.points.filter((_, i) => i !== selectedVertexIdx) };
+      });
+    });
+    setSelectedVertexIdx(null);
+  }, [selectedId, selectedVertexIdx, objects, editorState]);
+
+  const handleVertexPointerDown = useCallback((vertexIdx: number, e: React.PointerEvent) => {
+    if (!svgRef.current || !selectedId) return;
+    const pt = clientToSvg(svgRef.current, e.clientX, e.clientY);
+    const obj = objects.find(o => o.id === selectedId);
+    if (!obj) return;
+    vertexDragStartedUndo.current = false;
+    setDraggingVertex({ id: selectedId, vertexIdx, startPt: pt, origPts: obj.points });
+    svgRef.current.setPointerCapture(e.pointerId);
+  }, [selectedId, objects]);
+
+  const handleMidpointClick = useCallback((edgeIdx: number, e: React.PointerEvent) => {
+    if (!svgRef.current || !selectedId) return;
+    const pt = clientToSvg(svgRef.current, e.clientX, e.clientY);
+    const obj = objects.find(o => o.id === selectedId);
+    if (!obj) return;
+    const mp = midpoint(obj.points[edgeIdx], obj.points[(edgeIdx + 1) % obj.points.length]);
+    updateObjects(prev => {
+      pushUndoSnapshot(editorState);
+      return prev.map(o => {
+        if (o.id !== selectedId) return o;
+        const newPts = [...o.points];
+        newPts.splice(edgeIdx + 1, 0, mp);
+        return { ...o, points: newPts };
+      });
+    });
+    const newIdx = edgeIdx + 1;
+    setSelectedVertexIdx(newIdx);
+    vertexDragStartedUndo.current = true;
+    setDraggingVertex({ id: selectedId, vertexIdx: newIdx, startPt: pt, origPts: [...obj.points.slice(0, edgeIdx + 1), mp, ...obj.points.slice(edgeIdx + 1)] });
+    if (svgRef.current) svgRef.current.setPointerCapture(e.pointerId);
+  }, [selectedId, objects, editorState]);
+
   const handlePointerDown = useCallback((e: React.PointerEvent<SVGSVGElement>) => {
     if (!svgRef.current) return;
     e.preventDefault();
-
     if (editingTextId) return;
 
     const pt = clientToSvg(svgRef.current, e.clientX, e.clientY);
@@ -772,6 +1052,7 @@ export default function VisualScopeEditor({ sheetId, baseImagePath, initialMarku
         if (obj.locked) continue;
         if (hitTestObj(obj, pt)) {
           setSelectedId(obj.id);
+          setSelectedVertexIdx(null);
           setActiveColor(obj.strokeColor);
           if (obj.type === "text") {
             setSelectionPanelText(obj.label || "Label");
@@ -782,14 +1063,17 @@ export default function VisualScopeEditor({ sheetId, baseImagePath, initialMarku
           break;
         }
       }
-      if (!found) setSelectedId(null);
+      if (!found) {
+        setSelectedId(null);
+        setSelectedVertexIdx(null);
+      }
       return;
     }
 
     if (isAtLimit) return;
 
     if (activeTool === "polygon") {
-      if (inProgressPoints.length >= 3 && distance(pt, inProgressPoints[0]) < 0.025) {
+      if (inProgressPoints.length >= 3 && distance(pt, inProgressPoints[0]) < CLOSE_POLYGON_RADIUS) {
         commitPolygon(inProgressPoints);
       } else {
         hasUserEdited.current = true;
@@ -818,6 +1102,7 @@ export default function VisualScopeEditor({ sheetId, baseImagePath, initialMarku
           strokeColor: color,
           fillColor: color,
           strokeWidth: 2,
+          opacity: 1,
           createdAt: new Date().toISOString(),
           rotation: 0,
           zIndex: prev.length,
@@ -838,6 +1123,7 @@ export default function VisualScopeEditor({ sheetId, baseImagePath, initialMarku
           strokeColor: activeColor,
           fillColor: "none",
           strokeWidth: 1,
+          opacity: 1,
           createdAt: new Date().toISOString(),
           rotation: 0,
           zIndex: prev.length,
@@ -857,7 +1143,45 @@ export default function VisualScopeEditor({ sheetId, baseImagePath, initialMarku
       setPreviewPoint(pt);
     }
 
-    if (!drag) return;
+    if (draggingVertex) {
+      if (!vertexDragStartedUndo.current) {
+        vertexDragStartedUndo.current = true;
+        pushUndoSnapshot(editorState);
+      }
+      const dx = pt[0] - draggingVertex.startPt[0];
+      const dy = pt[1] - draggingVertex.startPt[1];
+      updateObjects(prev => prev.map(o => {
+        if (o.id !== draggingVertex.id) return o;
+        const newPts = draggingVertex.origPts.map((p, i) => {
+          if (i !== draggingVertex.vertexIdx) return p;
+          return [clamp(p[0] + dx), clamp(p[1] + dy)] as MarkupPoint;
+        });
+        return { ...o, points: newPts };
+      }));
+      return;
+    }
+
+    if (!drag) {
+      if (selectedId && activeTool === "select") {
+        const obj = objects.find(o => o.id === selectedId);
+        if (obj && (obj.type === "polygon" || obj.type === "polyline")) {
+          const n = obj.points.length;
+          const limit = obj.type === "polygon" ? n : n - 1;
+          let found: number | null = null;
+          for (let i = 0; i < limit; i++) {
+            const a = obj.points[i];
+            const b = obj.points[(i + 1) % n];
+            const mp = midpoint(a, b);
+            if (distance(pt, mp) < MIDPOINT_HIT_RADIUS * 1.5) {
+              found = i;
+              break;
+            }
+          }
+          setHoveredMidEdge(found);
+        }
+      }
+      return;
+    }
 
     if (drag.kind === "move") {
       if (!dragStartedUndo.current) {
@@ -901,11 +1225,13 @@ export default function VisualScopeEditor({ sheetId, baseImagePath, initialMarku
         o.id === drag.id ? { ...o, rotation: newRotation } : o
       ));
     }
-  }, [inProgressPoints, drag, objects, editorState]);
+  }, [inProgressPoints, drag, draggingVertex, objects, editorState, activeTool, selectedId]);
 
   const handlePointerUp = useCallback(() => {
     setDrag(null);
+    setDraggingVertex(null);
     dragStartedUndo.current = false;
+    vertexDragStartedUndo.current = false;
   }, []);
 
   const handleDoubleClick = useCallback((e: React.MouseEvent<SVGSVGElement>) => {
@@ -918,7 +1244,7 @@ export default function VisualScopeEditor({ sheetId, baseImagePath, initialMarku
       setEditingTextId(selectedObj.id);
       setEditingTextValue(selectedObj.label || "Label");
     }
-  }, [activeTool, inProgressPoints, commitPolyline, commitPolygon, selectedObj]);
+  }, [activeTool, inProgressPoints, commitPolyline, commitPolygon, selectedObj, objects, selectedId]);
 
   const treeCnt = objects.filter(o => o.type === "symbol" && o.symbolType === "tree").length;
   const plantCnt = objects.filter(o => o.type === "symbol" && o.symbolType === "plant").length;
@@ -926,6 +1252,9 @@ export default function VisualScopeEditor({ sheetId, baseImagePath, initialMarku
   const hasSymbols = treeCnt > 0 || plantCnt > 0 || boulderCnt > 0;
   const canUndo = undoStack.current.length > 0;
   const canRedo = redoStack.current.length > 0;
+
+  const isPolyShape = selectedObj?.type === "polygon" || selectedObj?.type === "polyline";
+  const canDeleteVertex = isPolyShape && selectedVertexIdx !== null && selectedObj!.points.length > (selectedObj!.type === "polygon" ? 3 : 2);
 
   function ToolBtn({ tool, icon: Icon, label }: { tool: ActiveTool; icon: React.ElementType; label: string }) {
     const isActive = activeTool === tool;
@@ -949,8 +1278,8 @@ export default function VisualScopeEditor({ sheetId, baseImagePath, initialMarku
       {/* Toolbar */}
       <div className="flex items-center gap-1 p-2 border-b flex-wrap" data-testid="toolbar-markup">
         <ToolBtn tool="select" icon={MousePointer} label="Select" />
-        <ToolBtn tool="polygon" icon={Pentagon} label="Polygon — click to add points, click near first point to close" />
-        <ToolBtn tool="polyline" icon={Minus} label="Polyline — click to add points, double-click to finish" />
+        <ToolBtn tool="polygon" icon={Pentagon} label="Polygon — click to add points, click near first point to close, Enter to finish, Esc to cancel" />
+        <ToolBtn tool="polyline" icon={Minus} label="Polyline — click to add points, double-click or Enter to finish, Esc to cancel" />
         <Separator orientation="vertical" className="h-6 mx-1" />
         <ToolBtn tool="tree" icon={TreePine} label="Tree" />
         <ToolBtn tool="plant" icon={Flower} label="Plant" />
@@ -960,11 +1289,7 @@ export default function VisualScopeEditor({ sheetId, baseImagePath, initialMarku
 
         {/* Color picker */}
         <div className="relative flex items-center" title="Draw color — applies to new shapes and selected items">
-          <label
-            htmlFor="color-picker"
-            className="flex items-center cursor-pointer"
-            aria-label="Color picker"
-          >
+          <label htmlFor="color-picker" className="flex items-center cursor-pointer" aria-label="Color picker">
             <span
               className="w-5 h-5 rounded-sm border border-border"
               style={{ background: currentColorForPicker }}
@@ -1023,8 +1348,8 @@ export default function VisualScopeEditor({ sheetId, baseImagePath, initialMarku
         {inProgressPoints.length > 0 && (
           <span className="text-xs text-muted-foreground ml-2 italic" data-testid="text-drawing-hint">
             {activeTool === "polygon"
-              ? "Click near first point to close, or double-click to finish."
-              : "Double-click to finish."}
+              ? "Click near first point to close, Enter to finish, Esc to cancel."
+              : "Double-click or Enter to finish. Esc to cancel."}
           </span>
         )}
 
@@ -1050,8 +1375,10 @@ export default function VisualScopeEditor({ sheetId, baseImagePath, initialMarku
           className="flex items-center gap-2 px-3 py-2 border-b bg-muted/40 flex-wrap"
           data-testid="panel-selection-edit"
         >
-          <span className="text-xs font-medium text-muted-foreground shrink-0">Selected:</span>
-          <span className="text-xs text-foreground capitalize">{selectedObj.type}</span>
+          <span className="text-xs font-medium text-muted-foreground shrink-0">
+            {selectedObj.type.charAt(0).toUpperCase() + selectedObj.type.slice(1)}
+            {selectedVertexIdx !== null ? ` — Vertex ${selectedVertexIdx + 1}` : ""}
+          </span>
 
           {/* Color picker for selected item */}
           <div className="relative flex items-center gap-1.5" title="Change item color">
@@ -1081,7 +1408,79 @@ export default function VisualScopeEditor({ sheetId, baseImagePath, initialMarku
             </span>
           )}
 
-          {/* Text edit field for text items */}
+          {/* Stroke width (for polylines and polygons) */}
+          {isPolyShape && (
+            <div className="flex items-center gap-1.5">
+              <span className="text-xs text-muted-foreground">Width</span>
+              <input
+                type="range"
+                min={1}
+                max={12}
+                step={1}
+                value={selectedObj.strokeWidth}
+                onChange={e => handleStrokeWidthChange(Number(e.target.value))}
+                onMouseUp={() => { pushUndoSnapshot(editorState); }}
+                className="w-20 accent-primary"
+                data-testid="input-stroke-width"
+              />
+              <span className="text-xs tabular-nums w-4 text-muted-foreground">{selectedObj.strokeWidth}</span>
+            </div>
+          )}
+
+          {/* Dash style (polylines and polygons) */}
+          {isPolyShape && (
+            <div className="flex items-center gap-1">
+              <span className="text-xs text-muted-foreground">Line</span>
+              {(["solid", "dashed", "dotted"] as DashStyle[]).map(s => (
+                <button
+                  key={s}
+                  onClick={() => handleDashStyleChange(s)}
+                  className={`px-2 py-0.5 text-xs rounded border transition-colors ${(selectedObj.dashStyle ?? "solid") === s ? "border-primary bg-primary/10 text-primary" : "border-border bg-background text-muted-foreground"}`}
+                  data-testid={`button-dash-${s}`}
+                >
+                  {s}
+                </button>
+              ))}
+            </div>
+          )}
+
+          {/* Fill opacity (polygon only) */}
+          {selectedObj.type === "polygon" && (
+            <div className="flex items-center gap-1.5">
+              <span className="text-xs text-muted-foreground">Fill</span>
+              <input
+                type="range"
+                min={0}
+                max={100}
+                step={5}
+                value={Math.round((selectedObj.fillOpacity ?? 0.15) * 100)}
+                onChange={e => handleFillOpacityChange(Number(e.target.value) / 100)}
+                onMouseUp={() => { pushUndoSnapshot(editorState); }}
+                className="w-16 accent-primary"
+                data-testid="input-fill-opacity"
+              />
+              <span className="text-xs tabular-nums w-7 text-muted-foreground">{Math.round((selectedObj.fillOpacity ?? 0.15) * 100)}%</span>
+            </div>
+          )}
+
+          {/* Opacity */}
+          {(isPolyShape || selectedObj.type === "symbol" || selectedObj.type === "text") && (
+            <div className="flex items-center gap-1.5">
+              <span className="text-xs text-muted-foreground">Opacity</span>
+              <input
+                type="range"
+                min={0}
+                max={100}
+                step={5}
+                value={Math.round((selectedObj.opacity ?? 1) * 100)}
+                onChange={e => handleOpacityChange(Number(e.target.value) / 100)}
+                onMouseUp={() => { pushUndoSnapshot(editorState); }}
+                className="w-16 accent-primary"
+                data-testid="input-opacity"
+              />
+              <span className="text-xs tabular-nums w-7 text-muted-foreground">{Math.round((selectedObj.opacity ?? 1) * 100)}%</span>
+            </div>
+          )}
           {selectedObj.type === "text" && (
             <div className="flex items-center gap-1.5">
               <span className="text-xs text-muted-foreground">Label</span>
@@ -1104,12 +1503,60 @@ export default function VisualScopeEditor({ sheetId, baseImagePath, initialMarku
             </div>
           )}
 
+          {/* Label for polygon/polyline */}
+          {isPolyShape && (
+            <div className="flex items-center gap-1.5">
+              <span className="text-xs text-muted-foreground">Label</span>
+              <input
+                type="text"
+                value={selectedObj.label ?? ""}
+                onChange={e => {
+                  const label = e.target.value;
+                  setObjects(prev => prev.map(o => o.id === selectedId ? { ...o, label } : o));
+                  hasUserEdited.current = true;
+                }}
+                onBlur={() => { pushUndoSnapshot(editorState); }}
+                onKeyDown={e => e.stopPropagation()}
+                className="text-xs px-2 py-1 border border-border rounded-md bg-background focus:outline-none focus:ring-1 focus:ring-ring"
+                style={{ minWidth: "80px" }}
+                data-testid="input-poly-label"
+              />
+            </div>
+          )}
+
+          {/* Vertex delete button */}
+          {canDeleteVertex && (
+            <Button
+              size="sm"
+              variant="ghost"
+              onClick={deleteSelectedVertex}
+              className="text-destructive"
+              data-testid="button-delete-vertex"
+              title="Remove selected vertex (Delete/Backspace)"
+            >
+              <X className="w-3 h-3 mr-1" />
+              Remove vertex
+            </Button>
+          )}
+
+          {/* Duplicate button */}
+          <Button
+            size="sm"
+            variant="ghost"
+            onClick={duplicateSelected}
+            data-testid="button-duplicate"
+            title="Duplicate selected object"
+          >
+            <Copy className="w-3 h-3 mr-1" />
+            Duplicate
+          </Button>
+
           {/* Delete button in selection panel */}
           <Button
             size="sm"
             variant="ghost"
             onClick={deleteSelected}
-            className="text-destructive hover:text-destructive"
+            className="text-destructive"
             data-testid="button-selection-delete"
           >
             <Trash2 className="w-3 h-3 mr-1" />
@@ -1179,7 +1626,16 @@ export default function VisualScopeEditor({ sheetId, baseImagePath, initialMarku
           data-testid="svg-annotation-layer"
         >
           {sortedObjects.map(obj => (
-            <MarkupShape key={obj.id} obj={obj} selected={obj.id === selectedId} />
+            <MarkupShape
+              key={obj.id}
+              obj={obj}
+              selected={obj.id === selectedId}
+              selectedVertexIdx={obj.id === selectedId ? selectedVertexIdx : null}
+              hoveredMidEdge={obj.id === selectedId ? hoveredMidEdge : null}
+              onVertexPointerDown={handleVertexPointerDown}
+              onMidpointClick={handleMidpointClick}
+              onVertexClick={setSelectedVertexIdx}
+            />
           ))}
 
           {/* Selection handles (rendered on top) */}
