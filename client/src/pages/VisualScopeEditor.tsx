@@ -603,12 +603,22 @@ export default function VisualScopeEditor({ sheetId, baseImagePath, initialMarku
         </div>
       )}
 
-      {/* Editor canvas */}
-      <div ref={containerRef} style={{ position: "relative", lineHeight: 0 }}>
+      {/* Editor canvas — constrained to viewport height so the user never has to scroll to reach the toolbar */}
+      <div
+        ref={containerRef}
+        style={{
+          position: "relative",
+          lineHeight: 0,
+          aspectRatio: "1 / 1",
+          maxHeight: "calc(100vh - 320px)",
+          maxWidth: "calc(100vh - 320px)",
+          width: "100%",
+        }}
+      >
         <img
           src={baseImagePath}
           alt="Base image"
-          style={{ width: "100%", height: "auto", display: "block" }}
+          style={{ width: "100%", height: "100%", display: "block" }}
           data-testid="img-base-image"
           draggable={false}
         />

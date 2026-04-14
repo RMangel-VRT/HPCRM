@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect, useCallback } from "react";
+import { useState, useRef, useEffect } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { Link, useParams } from "wouter";
 import { useTranslation } from "react-i18next";
@@ -12,7 +12,7 @@ import {
   SheetHeader,
   SheetTitle,
 } from "@/components/ui/sheet";
-import { ArrowLeft, Download, RefreshCw, Camera, Upload, ImageIcon, Loader2, Info, Eye, Zap, RotateCcw, Compass } from "lucide-react";
+import { ArrowLeft, Download, RefreshCw, ImageIcon, Loader2, Info, Eye, Zap, RotateCcw, Compass } from "lucide-react";
 import { Slider } from "@/components/ui/slider";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
@@ -33,24 +33,20 @@ const MAP_RENDER_HEIGHT = 2000;
 function MapCapture({
   token,
   mapRef,
-  onCapture,
   onMapReady,
   onWebGLError,
   onBearingChange,
 }: {
   token: string;
   mapRef: React.RefObject<mapboxgl.Map | null>;
-  onCapture: (blob: Blob) => void;
   onMapReady: (ready: boolean) => void;
   onWebGLError?: () => void;
   onBearingChange?: (bearing: number) => void;
 }) {
-  const { t } = useTranslation();
   const containerRef = useRef<HTMLDivElement>(null);
-  const [mapReady, setMapReady] = useState(false);
-  const [capturing, setCapturing] = useState(false);
   const [webglError, setWebglError] = useState<string | null>(null);
   const wrapperRef = useRef<HTMLDivElement>(null);
+  const outerRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     if (!containerRef.current) return;
@@ -68,11 +64,10 @@ function MapCapture({
         style: "mapbox://styles/mapbox/satellite-streets-v12",
         center: [-98.5795, 39.8283],
         zoom: 4,
-        preserveDrawingBuffer: true,
+        preserveDrawingBuffer: false,
       });
       map.addControl(new mapboxgl.NavigationControl(), "top-right");
       map.on("load", () => {
-        setMapReady(true);
         onMapReady(true);
       });
       map.on("rotate", () => {
@@ -96,9 +91,10 @@ function MapCapture({
   }, [token]);
 
   useEffect(() => {
-    if (!wrapperRef.current || webglError) return;
+    if (!wrapperRef.current || !outerRef.current || webglError) return;
     const wrapper = wrapperRef.current;
-    const parentWidth = wrapper.parentElement?.clientWidth ?? 600;
+    const outer = outerRef.current;
+    const parentWidth = outer.clientWidth || outer.parentElement?.clientWidth || 600;
     const scale = parentWidth / MAP_RENDER_WIDTH;
     wrapper.style.transform = `scale(${scale})`;
     wrapper.style.transformOrigin = "top left";
@@ -106,49 +102,68 @@ function MapCapture({
     wrapper.style.width = `${MAP_RENDER_WIDTH}px`;
   });
 
-  const handleCapture = useCallback(() => {
-    const map = mapRef.current;
-    if (!map || !mapReady) return;
-    setCapturing(true);
-    map.once("render", () => {
-      try {
-        const canvas = map.getCanvas();
-        canvas.toBlob(blob => {
-          setCapturing(false);
-          if (blob) onCapture(blob);
-        }, "image/png");
-      } catch {
-        setCapturing(false);
-      }
-    });
-    map.triggerRepaint();
-  }, [mapReady, onCapture, mapRef]);
-
   if (webglError) {
     return null;
   }
 
+  const cornerStyle: React.CSSProperties = {
+    position: "absolute",
+    width: 22,
+    height: 22,
+  };
+  const cornerBorder = "3px solid rgba(255,255,255,0.95)";
+
   return (
-    <div className="space-y-3">
+    <div
+      ref={outerRef}
+      style={{ position: "relative", width: "100%", overflow: "hidden", borderRadius: "6px" }}
+      data-testid="container-map-preview"
+    >
       <div
         ref={wrapperRef}
         style={{ width: MAP_RENDER_WIDTH, height: MAP_RENDER_HEIGHT, overflow: "hidden", borderRadius: "6px" }}
       >
         <div ref={containerRef} style={{ width: MAP_RENDER_WIDTH, height: MAP_RENDER_HEIGHT }} />
       </div>
-      <Button
-        onClick={handleCapture}
-        disabled={!mapReady || capturing}
-        variant="outline"
-        className="w-full"
-        data-testid="button-capture-standard"
+
+      {/* Capture zone frame overlay */}
+      <div
+        style={{
+          position: "absolute",
+          inset: 0,
+          pointerEvents: "none",
+          borderRadius: "6px",
+          border: "2px solid rgba(255,255,255,0.55)",
+          boxShadow: "inset 0 0 0 1px rgba(0,0,0,0.25)",
+        }}
+        data-testid="overlay-capture-frame"
       >
-        {capturing ? (
-          <><Loader2 className="w-4 h-4 mr-2 animate-spin" /> {t("visualScope.capturing")}</>
-        ) : (
-          <><Camera className="w-4 h-4 mr-2" /> {t("visualScope.captureStandard")}</>
-        )}
-      </Button>
+        {/* Corner handles */}
+        <div style={{ ...cornerStyle, top: 8, left: 8, borderTop: cornerBorder, borderLeft: cornerBorder }} />
+        <div style={{ ...cornerStyle, top: 8, right: 8, borderTop: cornerBorder, borderRight: cornerBorder }} />
+        <div style={{ ...cornerStyle, bottom: 8, left: 8, borderBottom: cornerBorder, borderLeft: cornerBorder }} />
+        <div style={{ ...cornerStyle, bottom: 8, right: 8, borderBottom: cornerBorder, borderRight: cornerBorder }} />
+
+        {/* Capture area label */}
+        <div
+          style={{
+            position: "absolute",
+            bottom: 14,
+            left: "50%",
+            transform: "translateX(-50%)",
+            background: "rgba(0,0,0,0.52)",
+            color: "white",
+            fontSize: 10,
+            fontWeight: 600,
+            padding: "2px 10px",
+            borderRadius: 4,
+            letterSpacing: "0.07em",
+            whiteSpace: "nowrap",
+          }}
+        >
+          CAPTURE AREA
+        </div>
+      </div>
     </div>
   );
 }
@@ -183,14 +198,12 @@ function CaptureUI({
   token,
   sheetId,
   captureParams,
-  onCapture,
   onFile,
   onHighResSuccess,
 }: {
   token: string | null;
   sheetId: string;
   captureParams?: CaptureParams | null;
-  onCapture: (blob: Blob) => void;
   onFile: (file: File) => void;
   onHighResSuccess: () => void;
 }) {
@@ -275,7 +288,6 @@ function CaptureUI({
           <MapCapture
             token={token}
             mapRef={mapRef}
-            onCapture={onCapture}
             onMapReady={setMapReady}
             onWebGLError={() => setWebglFallbackMode(true)}
             onBearingChange={setBearing}
@@ -514,10 +526,6 @@ export default function VisualScopeDraft() {
     }
   }
 
-  function handleCapture(blob: Blob) {
-    uploadAndSave(blob, "map-capture.png", "image/png", replaceOpen);
-  }
-
   function handleFile(file: File) {
     uploadAndSave(file, file.name, file.type, replaceOpen);
   }
@@ -693,7 +701,6 @@ export default function VisualScopeDraft() {
                 token={mapboxToken}
                 sheetId={id!}
                 captureParams={captureParams}
-                onCapture={handleCapture}
                 onFile={handleFile}
                 onHighResSuccess={handleHighResSuccess}
               />
@@ -759,7 +766,6 @@ export default function VisualScopeDraft() {
               token={mapboxToken}
               sheetId={id!}
               captureParams={captureParams}
-              onCapture={handleCapture}
               onFile={handleFile}
               onHighResSuccess={handleHighResSuccess}
             />
