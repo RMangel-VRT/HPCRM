@@ -2671,15 +2671,6 @@ export default function VisualScopeEditor({
     setDrag({ kind: "rotate", id: selectedId!, center: [cx, cy], startAngle, origRotation });
   }, [selectedId, objects]);
 
-  const commitEditingText = () => {
-    if (!editingTextId) return;
-    const val = editingTextValue.trim() || "Label";
-    pushUndo(objects, layerDefs);
-    setObjects(current => current.map(o => o.id === editingTextId ? { ...o, label: val } : o));
-    setEditingTextId(null);
-    hasUserEdited.current = true;
-  };
-
   // ─── Export ────────────────────────────────────────────────────────────────
   async function handleExport() {
     setIsExporting(true);
