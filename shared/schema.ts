@@ -1613,6 +1613,8 @@ export const visualScopeSheets = pgTable("visual_scope_sheets", {
   markupData: jsonb("markup_data").$type<MarkupObject[]>().default(sql`'[]'::jsonb`),
   layerDefs: jsonb("layer_defs").$type<LayerDefinition[]>(),
   captureParams: jsonb("capture_params").$type<CaptureParams>(),
+  isScaled: boolean("is_scaled").notNull().default(false),
+  scaleSource: varchar("scale_source").$type<"mapbox" | "manual">(),
   createdAt: timestamp("created_at").notNull().defaultNow(),
   updatedAt: timestamp("updated_at").notNull().defaultNow(),
 });
@@ -1995,6 +1997,9 @@ export interface MarkupObject {
   name?: string;
   calloutNumber?: number;
   textAlign?: "left" | "center" | "right";
+  areaSqFt?: number;
+  lengthFt?: number;
+  showMeasurementLabel?: boolean;
 }
 
 export interface SheetMetadata {
@@ -2009,6 +2014,7 @@ export interface SheetMetadata {
   titleBlockPosition?: MarkupPoint;
   titleBlockVisible?: boolean;
   notesBlockPosition?: MarkupPoint;
+  notesBlockVisible?: boolean;
 }
 
 export interface MarkupLayer {
@@ -2055,6 +2061,9 @@ function normalizeMarkupObject(obj: unknown): MarkupObject {
     calloutNumber: typeof o.calloutNumber === "number" ? o.calloutNumber : undefined,
     textAlign: (o.textAlign === "left" || o.textAlign === "center" || o.textAlign === "right") ? o.textAlign : undefined,
     fontSize: typeof o.fontSize === "number" ? o.fontSize : undefined,
+    areaSqFt: typeof o.areaSqFt === "number" ? o.areaSqFt : undefined,
+    lengthFt: typeof o.lengthFt === "number" ? o.lengthFt : undefined,
+    showMeasurementLabel: typeof o.showMeasurementLabel === "boolean" ? o.showMeasurementLabel : undefined,
   };
 }
 
@@ -2072,6 +2081,7 @@ function normalizeSheetMeta(meta: unknown): SheetMetadata {
     titleBlockPosition: Array.isArray(m.titleBlockPosition) ? m.titleBlockPosition as MarkupPoint : undefined,
     titleBlockVisible: typeof m.titleBlockVisible === "boolean" ? m.titleBlockVisible : true,
     notesBlockPosition: Array.isArray(m.notesBlockPosition) ? m.notesBlockPosition as MarkupPoint : undefined,
+    notesBlockVisible: typeof m.notesBlockVisible === "boolean" ? m.notesBlockVisible : true,
   };
 }
 

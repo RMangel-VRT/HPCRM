@@ -4,6 +4,7 @@ import { Button } from "@/components/ui/button";
 import { Separator } from "@/components/ui/separator";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Badge } from "@/components/ui/badge";
 import {
   Popover,
   PopoverContent,
@@ -62,11 +63,14 @@ import {
   Layout,
   FileText,
   RotateCcw,
+  Ruler,
+  AlertCircle,
 } from "lucide-react";
 import { apiRequest } from "@/lib/queryClient";
-import type { MarkupObject, MarkupPoint, SymbolType, MarkupDocument, LegendState, LegendEntry, FillType, TextureScale, LayerDefinition, SheetMetadata } from "@shared/schema";
+import type { MarkupObject, MarkupPoint, SymbolType, MarkupDocument, LegendState, LegendEntry, FillType, TextureScale, LayerDefinition, SheetMetadata, CaptureParams } from "@shared/schema";
 import { parseMarkupData, flattenMarkupObjects, SYSTEM_LAYERS, getDefaultLayerForType } from "@shared/schema";
 import { detectLegendEntries, applyLegendState, DEFAULT_LEGEND_STATE } from "@shared/legendUtils";
+import { isSheetScaled, computeAreaSqFt, computeLengthFt, formatSqFt, formatLinearFt } from "@shared/measurementUtils";
 import {
   TEXTURE_LIBRARY,
   TEXTURE_CATEGORIES,
@@ -101,6 +105,7 @@ interface VisualScopeEditorProps {
   initialLayerDefs?: LayerDefinition[] | null;
   initialLegendState?: LegendState | null;
   initialMarkupData?: unknown;
+  captureParams?: CaptureParams | null;
   onSaved?: () => void;
 }
 
@@ -2021,7 +2026,130 @@ const LAYOUT_PRESETS = {
   },
 };
 
-export default function VisualScopeEditor({ sheetId, baseImagePath, initialMarkup, initialLayerDefs, initialLegendState, initialMarkupData, onSaved }: VisualScopeEditorProps) {
+// --- Legend components ---
+
+function LegendSettings({ legendState, onLegendStateChange }: {
+  legendState: LegendState;
+  onLegendStateChange: (ls: LegendState) => void;
+}) {
+  return (
+    <div className="p-3 space-y-2 text-sm min-w-[200px]">
+      <div>
+        <Label className="text-xs text-muted-foreground block mb-1">Position</Label>
+        <Select
+          value={legendState.position}
+          onValueChange={v => onLegendStateChange({ ...legendState, position: v as LegendState["position"] })}
+        >
+          <SelectTrigger data-testid="select-legend-position" className="h-7 text-xs">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="top-left">Top Left</SelectItem>
+            <SelectItem value="top-right">Top Right</SelectItem>
+            <SelectItem value="bottom-left">Bottom Left</SelectItem>
+            <SelectItem value="bottom-right">Bottom Right</SelectItem>
+          </SelectContent>
+        </Select>
+      </div>
+      <div>
+        <Label className="text-xs text-muted-foreground block mb-1">Mode</Label>
+        <Select
+          value={legendState.mode}
+          onValueChange={v => onLegendStateChange({ ...legendState, mode: v as LegendState["mode"] })}
+        >
+          <SelectTrigger data-testid="select-legend-mode" className="h-7 text-xs">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="compact">Compact</SelectItem>
+            <SelectItem value="expanded">Expanded</SelectItem>
+          </SelectContent>
+        </Select>
+      </div>
+      <label className="flex items-center gap-2 cursor-pointer">
+        <input
+          type="checkbox"
+          checked={legendState.showSymbolCounts}
+          onChange={() => onLegendStateChange({ ...legendState, showSymbolCounts: !legendState.showSymbolCounts })}
+          data-testid="checkbox-legend-show-counts"
+        />
+        <span className="text-xs">Show symbol counts</span>
+      </label>
+      <label className="flex items-center gap-2 cursor-pointer">
+        <input
+          type="checkbox"
+          checked={legendState.showMaterialsGroup}
+          onChange={() => onLegendStateChange({ ...legendState, showMaterialsGroup: !legendState.showMaterialsGroup })}
+          data-testid="checkbox-legend-materials"
+        />
+        <span className="text-xs">Materials</span>
+      </label>
+      <label className="flex items-center gap-2 cursor-pointer">
+        <input
+          type="checkbox"
+          checked={legendState.showSymbolsGroup}
+          onChange={() => onLegendStateChange({ ...legendState, showSymbolsGroup: !legendState.showSymbolsGroup })}
+          data-testid="checkbox-legend-symbols"
+        />
+        <span className="text-xs">Symbols</span>
+      </label>
+      <label className="flex items-center gap-2 cursor-pointer">
+        <input
+          type="checkbox"
+          checked={legendState.showLinesGroup}
+          onChange={() => onLegendStateChange({ ...legendState, showLinesGroup: !legendState.showLinesGroup })}
+          data-testid="checkbox-legend-lines"
+        />
+        <span className="text-xs">Lines</span>
+      </label>
+    </div>
+  );
+}
+
+function LegendPanel({ entries, allEntries, legendState, onLegendStateChange, containerRef }: {
+  entries: LegendEntry[];
+  allEntries: LegendEntry[];
+  legendState: LegendState;
+  onLegendStateChange: (ls: LegendState) => void;
+  containerRef: React.RefObject<HTMLDivElement>;
+}) {
+  const positionCls =
+    legendState.position === "top-left" ? "top-3 left-3" :
+    legendState.position === "top-right" ? "top-3 right-3" :
+    legendState.position === "bottom-left" ? "bottom-3 left-3" :
+    "bottom-3 right-3";
+
+  return (
+    <div
+      className={`absolute ${positionCls} bg-background/90 backdrop-blur-sm border rounded-md shadow-md p-2 text-xs min-w-[140px] max-w-[200px] z-10`}
+      data-testid="panel-legend"
+    >
+      {legendState.title && (
+        <div className="font-semibold text-sm mb-1 border-b pb-1">{legendState.title}</div>
+      )}
+      <div className="space-y-1">
+        {entries.map(e => (
+          <div key={e.id} className="flex items-center gap-2">
+            {e.color && (
+              <div className="w-3 h-3 rounded-sm shrink-0 border" style={{ backgroundColor: e.color }} />
+            )}
+            <span className="text-muted-foreground flex-1 truncate">{e.label}</span>
+            {e.count !== undefined && legendState.showSymbolCounts && (
+              <span className="font-medium">{e.count}</span>
+            )}
+          </div>
+        ))}
+        {entries.length === 0 && (
+          <div className="text-muted-foreground italic">No entries</div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// --- End legend components ---
+
+export default function VisualScopeEditor({ sheetId, baseImagePath, initialMarkup, initialLayerDefs, initialLegendState, initialMarkupData, captureParams, onSaved }: VisualScopeEditorProps) {
   const { t } = useTranslation();
   const [objects, setObjects] = useState<MarkupObject[]>(() => migrateObjects(initialMarkup ?? flattenMarkupObjects(initialMarkupData)));
   const [layerDefs, setLayerDefs] = useState<LayerDefinition[]>(() => mergeLayerDefs(initialLayerDefs));
@@ -2046,6 +2174,8 @@ export default function VisualScopeEditor({ sheetId, baseImagePath, initialMarku
   const [libraryOpen, setLibraryOpen] = useState(false);
   const [showSheetPanel, setShowSheetPanel] = useState(false);
   const [sheetMeta, setSheetMeta] = useState<SheetMetadata>(() => (parseMarkupData(initialMarkupData).sheetMeta ?? {}));
+  const [showMeasurementLabels, setShowMeasurementLabels] = useState(false);
+  const [takeoffOpen, setTakeoffOpen] = useState(false);
 
   const hasUserEdited = useRef(false);
   const legendUserEdited = useRef(false);
@@ -2065,8 +2195,29 @@ export default function VisualScopeEditor({ sheetId, baseImagePath, initialMarku
   const totalPoints = objects.reduce((sum, o) => sum + o.points.length, 0);
   const isAtLimit = objects.length >= 200 || totalPoints >= 5000;
   const selectedObj = selectedId ? objects.find(o => o.id === selectedId) ?? null : null;
+  const defaultLayer = layerDefs.find(l => l.id === activeLayerId) ?? layerDefs[0] ?? null;
+  const scaled = isSheetScaled(captureParams ?? null);
 
   const layerMap = new Map(layerDefs.map(l => [l.id, l]));
+
+  const takeoffSummary = useMemo(() => {
+    let totalAreaSqFt = 0;
+    let totalLengthFt = 0;
+    const symbolCounts: Record<string, number> = {};
+    for (const obj of objects) {
+      if (obj.type === "polygon" && obj.points.length >= 3) {
+        const area = computeAreaSqFt(obj.points, captureParams ?? null);
+        if (area !== null) totalAreaSqFt += area;
+      } else if (obj.type === "polyline" && obj.points.length >= 2) {
+        const len = computeLengthFt(obj.points, captureParams ?? null);
+        if (len !== null) totalLengthFt += len;
+      } else if (["tree", "plant", "boulder"].includes(obj.type)) {
+        const key = obj.type;
+        symbolCounts[key] = (symbolCounts[key] ?? 0) + 1;
+      }
+    }
+    return { totalAreaSqFt, totalLengthFt, symbolCounts };
+  }, [objects, captureParams]);
 
   function isLayerSelectableForObj(obj: MarkupObject): boolean {
     const layer = layerMap.get(obj.layerId ?? "areas");
@@ -2240,14 +2391,141 @@ export default function VisualScopeEditor({ sheetId, baseImagePath, initialMarku
     if (!selectedId || !selectedObj) return;
     pushUndo(objects, layerDefs);
     const newId = nanoid8();
+    const offset = 0.02;
     const newObj: MarkupObject = {
       ...selectedObj,
       id: newId,
-      points: selectedObj.points.map(p => [p[0] + 0.02, p[1] + 0.02] as MarkupPoint),
+      points: selectedObj.points.map(p => [clamp(p[0] + offset), clamp(p[1] + offset)] as MarkupPoint),
+      createdAt: new Date().toISOString(),
       zIndex: (selectedObj.zIndex ?? 0) + 1,
     };
     if (newObj.type === "callout") {
       newObj.calloutNumber = nextCalloutNumber();
+    }
+    setObjects(current => [...current, newObj]);
+    setSelectedId(newId);
+    hasUserEdited.current = true;
+  }, [selectedId, selectedObj, objects, layerDefs, pushUndo, nextCalloutNumber]);
+
+  const handleColorChange = useCallback((color: string) => {
+    setActiveColor(color);
+    if (!selectedId) return;
+    setObjects(prev => {
+      pushUndo(prev, layerDefs);
+      hasUserEdited.current = true;
+      return prev.map(o => {
+        if (o.id !== selectedId) return o;
+        if (o.type === "polygon") {
+          const fo = o.fillOpacity ?? 0.15;
+          return { ...o, strokeColor: color, fillColor: hexToRgba(color, fo) };
+        }
+        return { ...o, strokeColor: color, fillColor: color };
+      });
+    });
+  }, [selectedId, pushUndo, layerDefs]);
+
+  const handleInspectorChange = useCallback((updates: Partial<MarkupObject>) => {
+    if (!selectedId) return;
+    setObjects(prev => {
+      hasUserEdited.current = true;
+      return prev.map(o => o.id === selectedId ? { ...o, ...updates } : o);
+    });
+  }, [selectedId]);
+
+  const handleStrokeWidthChange = useCallback((width: number) => {
+    if (!selectedId) return;
+    setObjects(prev => prev.map(o => o.id === selectedId ? { ...o, strokeWidth: width } : o));
+  }, [selectedId]);
+
+  const handleDashStyleChange = useCallback((style: DashStyle) => {
+    if (!selectedId) return;
+    setObjects(prev => {
+      pushUndo(objects, layerDefs);
+      return prev.map(o => o.id === selectedId ? { ...o, dashStyle: style } : o);
+    });
+  }, [selectedId]);
+
+  const handleOpacityChange = useCallback((opacity: number) => {
+    if (!selectedId) return;
+    setObjects(prev => prev.map(o => o.id === selectedId ? { ...o, opacity } : o));
+  }, [selectedId]);
+
+  const handleFillOpacityChange = useCallback((fillOpacity: number) => {
+    if (!selectedId) return;
+    setObjects(prev => prev.map(o => {
+      if (o.id !== selectedId || o.type !== "polygon") return o;
+      return { ...o, fillOpacity, fillColor: hexToRgba(o.strokeColor, fillOpacity) };
+    }));
+  }, [selectedId]);
+  const currentColorForPicker = selectedObj ? selectedObj.strokeColor : activeColor;
+
+  const commitPolyline = useCallback((pts: MarkupPoint[]) => {
+    if (pts.length < 2) return;
+    setObjects(prev => {
+      pushUndo(prev, layerDefs);
+      hasUserEdited.current = true;
+      return [...prev, {
+        id: nanoid8(),
+        type: "polyline",
+        points: pts,
+        strokeColor: activeColor,
+        fillColor: "none",
+        strokeWidth: 2,
+        opacity: 1,
+        dashStyle: "solid",
+        createdAt: new Date().toISOString(),
+        layerId: activeLayerId,
+      }];
+    });
+    setInProgressPoints([]);
+    setPreviewPoint(null);
+  }, [activeColor, pushUndo, layerDefs, activeLayerId]);
+
+  const commitPolygon = useCallback((pts: MarkupPoint[]) => {
+    if (pts.length < 3) return;
+    setObjects(prev => {
+      pushUndo(prev, layerDefs);
+      hasUserEdited.current = true;
+      return [...prev, {
+        id: nanoid8(),
+        type: "polygon",
+        points: pts,
+        strokeColor: activeColor,
+        fillColor: hexToRgba(activeColor, 0.15),
+        fillOpacity: 0.15,
+        strokeWidth: 2,
+        opacity: 1,
+        dashStyle: "solid",
+        createdAt: new Date().toISOString(),
+        layerId: activeLayerId,
+      }];
+    });
+    setInProgressPoints([]);
+    setPreviewPoint(null);
+  }, [activeColor, pushUndo, layerDefs, activeLayerId]);
+
+  const commitTextEdit = useCallback(() => {
+    if (!editingTextId) return;
+    const label = editingTextValue.trim();
+    setObjects(prev => {
+      pushUndo(prev, layerDefs);
+      hasUserEdited.current = true;
+      return prev.map(o => o.id === editingTextId ? { ...o, label: label || "Label" } : o);
+    });
+    setEditingTextId(null);
+    setEditingTextValue("");
+  }, [editingTextId, editingTextValue, pushUndo, layerDefs]);
+
+  const cancelTextEdit = useCallback(() => {
+    if (!editingTextId) return;
+    const wasNew = objects.find(o => o.id === editingTextId && o.label === "Label");
+    if (wasNew) {
+      setObjects(prev => {
+        pushUndo(prev, layerDefs);
+        hasUserEdited.current = true;
+        return prev.filter(o => o.id !== editingTextId);
+      });
+    }
     }
     setObjects(current => [...current, newObj]);
     setSelectedId(newId);
@@ -2777,87 +3055,218 @@ export default function VisualScopeEditor({ sheetId, baseImagePath, initialMarku
             data-testid="tool-select"
           >
             <MousePointer className="h-4 w-4" />
-          </Button>
-          <Separator orientation="vertical" className="h-6 mx-1" />
-          <Button
-            variant={activeTool === "polygon" ? "default" : "ghost"}
-            size="icon"
-            onClick={() => setActiveTool("polygon")}
-            disabled={isAtLimit}
-            title="Polygon tool (P)"
-            className="h-9 w-9"
-            data-testid="tool-polygon"
-          >
-            <Pentagon className="h-4 w-4" />
-          </Button>
-          <Button
-            variant={activeTool === "polyline" ? "default" : "ghost"}
-            size="icon"
-            onClick={() => setActiveTool("polyline")}
-            disabled={isAtLimit}
-            title="Line tool (L)"
-            className="h-9 w-9"
-            data-testid="tool-polyline"
-          >
-            <Minus className="h-4 w-4" />
-          </Button>
-          <Button
-            variant={activeTool === "tree" ? "default" : "ghost"}
-            size="icon"
-            onClick={() => setActiveTool("tree")}
-            disabled={isAtLimit}
-            title="Tree symbol"
-            className="h-9 w-9"
-            data-testid="tool-tree"
-          >
-            <Library className="h-4 w-4" />
-          </Button>
-          <Button
-            variant={activeTool === "plant" ? "default" : "ghost"}
-            size="icon"
-            onClick={() => setActiveTool("plant")}
-            disabled={isAtLimit}
-            title="Plant symbol"
-            className="h-9 w-9"
-            data-testid="tool-plant"
-          >
-            <Library className="h-4 w-4" />
-          </Button>
-          <Button
-            variant={activeTool === "boulder" ? "default" : "ghost"}
-            size="icon"
-            onClick={() => setActiveTool("boulder")}
-            disabled={isAtLimit}
-            title="Boulder symbol"
-            className="h-9 w-9"
-            data-testid="tool-boulder"
-          >
-            <Library className="h-4 w-4" />
-          </Button>
-          <Button
-            variant={activeTool === "text" ? "default" : "ghost"}
-            size="icon"
-            onClick={() => setActiveTool("text")}
-            disabled={isAtLimit}
-            title="Text tool (T)"
-            className="h-9 w-9"
-            data-testid="tool-text"
-          >
-            <Type className="h-4 w-4" />
-          </Button>
-          <Button
-            variant={activeTool === "callout" ? "default" : "ghost"}
-            size="icon"
-            onClick={() => setActiveTool("callout")}
-            disabled={isAtLimit}
-            title="Callout tool (C)"
-            className="h-9 w-9"
-            data-testid="tool-callout"
-          >
-            <MessageSquare className="h-4 w-4" />
-          </Button>
           <Separator orientation="vertical" className="h-6 mx-1" />
           <div className="flex items-center gap-1.5 px-2">
+
+        <Separator orientation="vertical" className="h-6 mx-1" />
+
+        {/* Symbol Library Button */}
+        <Sheet open={libraryOpen} onOpenChange={setLibraryOpen}>
+          <SheetTrigger asChild>
+            <Button
+              size="sm"
+              variant="ghost"
+              className={`toggle-elevate gap-1.5${activeTool === "stamp" ? " toggle-elevated" : ""}`}
+              title="Symbol Library"
+              data-testid="button-symbol-library"
+              disabled={isAtLimit}
+            >
+              <Library className="w-4 h-4" />
+              {activeSymbolDef && (
+                <span className="text-xs text-muted-foreground hidden sm:inline">{activeSymbolDef.name}</span>
+              )}
+            </Button>
+          </SheetTrigger>
+          <SheetContent side="left" className="w-80">
+            <SheetHeader>
+              <SheetTitle>Symbol Library</SheetTitle>
+            </SheetHeader>
+            <div className="mt-4">
+              <SymbolLibrary
+                onSelect={(def) => {
+                  setActiveSymbolId(def.id);
+                  setActiveColor(def.defaultColor);
+                  changeTool("stamp");
+                  setLibraryOpen(false);
+                }}
+              />
+            </div>
+          </SheetContent>
+        </Sheet>
+
+        {/* Stamp tool active indicator */}
+        {activeTool === "stamp" && activeSymbolDef && (
+          <div className="flex items-center gap-1 text-xs text-muted-foreground ml-1">
+            <span className="italic">Stamp:</span>
+            <SymbolIcon def={activeSymbolDef} size={16} />
+            <span>{activeSymbolDef.name}</span>
+          </div>
+        )}
+
+        <Separator orientation="vertical" className="h-6 mx-1" />
+
+        {/* Color picker */}
+        <div className="relative flex items-center" title="Draw color — applies to new shapes and selected items">
+          <label htmlFor="color-picker" className="flex items-center cursor-pointer" aria-label="Color picker">
+            <span
+              className="w-5 h-5 rounded-sm border border-border"
+              style={{ background: currentColorForPicker }}
+              data-testid="swatch-active-color"
+            />
+          </label>
+          <input
+            id="color-picker"
+            type="color"
+            value={currentColorForPicker}
+            onChange={e => handleColorChange(e.target.value)}
+            className="absolute opacity-0 w-5 h-5 cursor-pointer"
+            style={{ left: 0, top: 0 }}
+            data-testid="input-color-picker"
+            title="Pick color"
+          />
+        </div>
+
+        <Separator orientation="vertical" className="h-6 mx-1" />
+
+        <Button
+          size="icon"
+          variant="ghost"
+          disabled={!canUndo}
+          onClick={undo}
+          data-testid="button-undo"
+          title="Undo (Ctrl+Z)"
+        >
+          <Undo2 className="w-4 h-4" />
+        </Button>
+        <Button
+          size="icon"
+          variant="ghost"
+          disabled={!canRedo}
+          onClick={redo}
+          data-testid="button-redo"
+          title="Redo (Ctrl+Shift+Z / Ctrl+Y)"
+        >
+          <Redo2 className="w-4 h-4" />
+        </Button>
+
+        {/* Delete */}
+        <Button
+          size="sm"
+          variant="ghost"
+          disabled={!selectedId}
+          onClick={deleteSelected}
+          data-testid="button-delete-selected"
+          title="Delete selected (Delete key)"
+        >
+          <Trash2 className="w-4 h-4 mr-1" />
+          Delete
+        </Button>
+
+        <Separator orientation="vertical" className="h-6 mx-1" />
+
+        {/* Legend toggle */}
+        <Popover>
+          <PopoverTrigger asChild>
+            <Button
+              size="sm"
+              variant="ghost"
+              className={`toggle-elevate gap-1${legendState.enabled ? " toggle-elevated" : ""}`}
+              data-testid="button-legend-toggle"
+              title="Legend settings"
+            >
+              <Map className="w-4 h-4" />
+              <span className="text-xs">Legend</span>
+              <Settings className="w-3 h-3 text-muted-foreground" />
+            </Button>
+          </PopoverTrigger>
+          <PopoverContent className="p-0" side="bottom" align="start">
+            <div className="p-3 border-b">
+              <label className="flex items-center gap-2 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={legendState.enabled}
+                  onChange={() => handleLegendStateChange({ ...legendState, enabled: !legendState.enabled })}
+                  data-testid="checkbox-legend-enabled"
+                />
+                <span className="text-sm font-medium">Show Legend</span>
+              </label>
+            </div>
+            <LegendSettings legendState={legendState} onLegendStateChange={handleLegendStateChange} />
+          </PopoverContent>
+        </Popover>
+
+        {/* Measurement labels toggle */}
+        <Button
+          size="sm"
+          variant="ghost"
+          className={`toggle-elevate gap-1${showMeasurementLabels && scaled ? " toggle-elevated" : ""}`}
+          onClick={() => scaled && setShowMeasurementLabels(v => !v)}
+          title={scaled ? "Toggle measurement labels" : "Measurement labels unavailable — sheet is not to scale"}
+          data-testid="button-measurement-labels-toggle"
+          disabled={!scaled}
+        >
+          <Ruler className="w-4 h-4" />
+          <span className="text-xs">Labels</span>
+        </Button>
+
+        {/* Takeoff summary panel toggle */}
+        <Button
+          size="sm"
+          variant="ghost"
+          className={`toggle-elevate gap-1${takeoffOpen ? " toggle-elevated" : ""}`}
+          onClick={() => setTakeoffOpen(v => !v)}
+          title="Takeoff summary"
+          data-testid="button-takeoff-toggle"
+        >
+          <AlertCircle className="w-4 h-4" />
+          <span className="text-xs">Takeoff</span>
+        </Button>
+
+        {inProgressPoints.length > 0 && (
+          <span className="text-xs text-muted-foreground ml-2 italic" data-testid="text-drawing-hint">
+            {activeTool === "polygon"
+              ? "Click near first point to close, Enter to finish, Esc to cancel."
+              : "Double-click or Enter to finish. Esc to cancel."}
+          </span>
+        )}
+
+        <div className="ml-auto flex items-center gap-1 text-xs text-muted-foreground" data-testid="text-save-status">
+          {saveStatus === "saving" && <><Loader2 className="w-3 h-3 animate-spin" />{t("common.saving")}</>}
+          {saveStatus === "saved" && <><Check className="w-3 h-3 text-green-600" />{t("common.save")}</>}
+          {saveStatus === "unsaved" && t("common.save")}
+        </div>
+      </div>
+
+      {/* Layer indicator */}
+      <div className="flex items-center gap-2 px-3 py-1 border-b bg-muted/20 text-xs text-muted-foreground" data-testid="bar-layer-info">
+        <Lock className="w-3 h-3 shrink-0 opacity-50" />
+        <span className="opacity-70">Base image (locked)</span>
+        <Separator orientation="vertical" className="h-3 mx-1" />
+        <span className="font-medium text-foreground">{defaultLayer?.name ?? "Annotations"}</span>
+        <span className="opacity-60">— {objects.length} object{objects.length !== 1 ? "s" : ""}</span>
+      </div>
+
+      {/* Selection / Inspector Panel */}
+      {selectedObj && (
+        <div
+          className="flex items-start gap-3 px-3 py-2 border-b bg-muted/40 flex-wrap"
+          data-testid="panel-selection-edit"
+        >
+          <span className="text-xs font-medium text-muted-foreground shrink-0">
+            {selectedObj.type.charAt(0).toUpperCase() + selectedObj.type.slice(1)}
+            {selectedVertexIdx !== null ? ` — Vertex ${selectedVertexIdx + 1}` : ""}
+          </span>
+
+          {/* Color */}
+          <div className="relative flex items-center gap-1.5" title="Change item color">
+            <span className="text-xs text-muted-foreground">Color</span>
+            <label htmlFor="selection-color-picker" className="flex items-center cursor-pointer">
+              <span
+                className="w-5 h-5 rounded-sm border border-border"
+                style={{ background: selectedObj.strokeColor }}
+                data-testid="swatch-selection-color"
+              />
+            </label>
             <input
               type="color"
               value={activeColor}
@@ -2938,7 +3347,6 @@ export default function VisualScopeEditor({ sheetId, baseImagePath, initialMarku
                     <input
                       type="checkbox"
                       checked={legendState.enabled}
-                      onChange={e => {
                         setLegendState(prev => ({ ...prev, enabled: e.target.checked }));
                         legendUserEdited.current = true;
                         hasUserEdited.current = true;
@@ -3163,9 +3571,69 @@ export default function VisualScopeEditor({ sheetId, baseImagePath, initialMarku
                 onCancel={() => setEditingTextId(null)}
               />
             )}
-          </div>
-        </main>
+          {inProgressPoints.length > 0 && (
+            <InProgressShape points={inProgressPoints} preview={previewPoint} tool={activeTool} color={activeColor} />
+          )}
+          {inProgressPoints.length > 0 && (
+            <InProgressShape points={inProgressPoints} preview={previewPoint} tool={activeTool} color={activeColor} />
+          )}
 
+          {/* Measurement labels on canvas (scaled sheets only, when enabled) */}
+          {showMeasurementLabels && scaled && sortedObjects
+            .filter(obj => visibleObjectIds.has(obj.layerId ?? "areas"))
+            .map(obj => {
+              if (obj.type === "polygon" && obj.points.length >= 3) {
+                const area = computeAreaSqFt(obj.points, captureParams ?? null);
+                if (area === null) return null;
+                const cx = obj.points.reduce((s, p) => s + p[0], 0) / obj.points.length;
+                const cy = obj.points.reduce((s, p) => s + p[1], 0) / obj.points.length;
+                return (
+                  <text
+                    key={`meas-${obj.id}`}
+                    x={cx}
+                    y={cy}
+                    textAnchor="middle"
+                    dominantBaseline="middle"
+                    fontSize="0.025"
+                    fill="white"
+                    stroke="rgba(0,0,0,0.6)"
+                    strokeWidth="0.002"
+                    paintOrder="stroke"
+                    style={{ pointerEvents: "none", fontFamily: "sans-serif" }}
+                    data-testid={`meas-label-${obj.id}`}
+                  >
+                    {formatSqFt(area)}
+                  </text>
+                );
+              } else if (obj.type === "polyline" && obj.points.length >= 2) {
+                const len = computeLengthFt(obj.points, captureParams ?? null);
+                if (len === null) return null;
+                const mid = Math.floor(obj.points.length / 2);
+                const mx = (obj.points[mid - 1][0] + obj.points[mid][0]) / 2;
+                const my = (obj.points[mid - 1][1] + obj.points[mid][1]) / 2;
+                return (
+                  <text
+                    key={`meas-${obj.id}`}
+                    x={mx}
+                    y={my - 0.015}
+                    textAnchor="middle"
+                    dominantBaseline="middle"
+                    fontSize="0.025"
+                    fill="white"
+                    stroke="rgba(0,0,0,0.6)"
+                    strokeWidth="0.002"
+                    paintOrder="stroke"
+                    style={{ pointerEvents: "none", fontFamily: "sans-serif" }}
+                    data-testid={`meas-label-${obj.id}`}
+                  >
+                    {formatLinearFt(len)}
+                  </text>
+                );
+              }
+              return null;
+            })
+          }
+        </svg>
         {showSheetPanel && (
           <aside className="w-64 border-l bg-card flex flex-col shrink-0 overflow-y-auto" data-testid="panel-sheet">
             <div className="flex items-center justify-between px-3 py-2 border-b bg-muted/30">
@@ -3250,6 +3718,66 @@ export default function VisualScopeEditor({ sheetId, baseImagePath, initialMarku
               </div>
             </div>
           </aside>
+        )}
+
+        {/* Scale badge overlay */}
+        <div className="absolute bottom-3 right-3 flex flex-col items-end gap-1.5 z-10 pointer-events-none">
+          {scaled ? (
+            <Badge variant="secondary" className="text-xs gap-1" data-testid="badge-scaled">
+              <Ruler className="w-3 h-3" />
+              Scaled
+            </Badge>
+          ) : (
+            <Badge variant="outline" className="text-xs gap-1 bg-background/80 backdrop-blur-sm" data-testid="badge-not-to-scale">
+              <AlertCircle className="w-3 h-3 text-muted-foreground" />
+              Not to Scale
+            </Badge>
+          )}
+        </div>
+
+        {/* Takeoff summary panel */}
+        {takeoffOpen && (
+          <div
+            className="absolute top-3 right-3 bg-background/95 backdrop-blur-sm border rounded-md shadow-md p-3 text-sm z-20 min-w-[200px] max-w-[260px]"
+            data-testid="panel-takeoff-summary"
+          >
+            <div className="flex items-center justify-between mb-2">
+              <span className="font-semibold text-sm">Takeoff Summary</span>
+              <Button size="icon" variant="ghost" onClick={() => setTakeoffOpen(false)} data-testid="button-takeoff-close">
+                <X className="w-3 h-3" />
+              </Button>
+            </div>
+            {!scaled ? (
+              <div className="flex items-start gap-2 text-xs text-muted-foreground">
+                <AlertCircle className="w-3.5 h-3.5 mt-0.5 shrink-0" />
+                <span>Measurements unavailable — sheet is not to scale.</span>
+              </div>
+            ) : (
+              <div className="space-y-1.5">
+                {takeoffSummary.totalAreaSqFt > 0 && (
+                  <div className="flex items-center justify-between gap-4" data-testid="takeoff-total-area">
+                    <span className="text-muted-foreground text-xs">Total Area</span>
+                    <span className="font-medium tabular-nums text-xs">{formatSqFt(takeoffSummary.totalAreaSqFt)}</span>
+                  </div>
+                )}
+                {takeoffSummary.totalLengthFt > 0 && (
+                  <div className="flex items-center justify-between gap-4" data-testid="takeoff-total-length">
+                    <span className="text-muted-foreground text-xs">Total Length</span>
+                    <span className="font-medium tabular-nums text-xs">{formatLinearFt(takeoffSummary.totalLengthFt)}</span>
+                  </div>
+                )}
+                {Object.entries(takeoffSummary.symbolCounts).map(([type, count]) => (
+                  <div key={type} className="flex items-center justify-between gap-4" data-testid={`takeoff-symbol-${type}`}>
+                    <span className="text-muted-foreground text-xs capitalize">{type}s</span>
+                    <span className="font-medium tabular-nums text-xs">{count}</span>
+                  </div>
+                ))}
+                {takeoffSummary.totalAreaSqFt === 0 && takeoffSummary.totalLengthFt === 0 && Object.keys(takeoffSummary.symbolCounts).length === 0 && (
+                  <div className="text-xs text-muted-foreground italic">No measurements yet. Draw polygons, polylines, or symbols to get started.</div>
+                )}
+              </div>
+            )}
+          </div>
         )}
       </div>
 

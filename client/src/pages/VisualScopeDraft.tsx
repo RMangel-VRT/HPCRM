@@ -729,6 +729,7 @@ export default function VisualScopeDraft() {
               initialMarkupData={sheet.markupData ?? []}
               initialLayerDefs={(sheet.layerDefs as LayerDefinition[] | null | undefined) ?? null}
               initialLegendState={(sheet as any).legendState as LegendState | null}
+              captureParams={captureParams ?? null}
               onSaved={() => queryClient.invalidateQueries({ queryKey: ["/api/visual-scope-sheets", id] })}
             />
           </CardContent>
