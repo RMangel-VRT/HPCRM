@@ -493,6 +493,7 @@ export default function VisualScopeDraft() {
   const [reCapturing, setReCapturing] = useState(false);
   const [editTitle, setEditTitle] = useState<string | null>(null);
   const [editDate, setEditDate] = useState<string | null>(null);
+  const [baseImageErrored, setBaseImageErrored] = useState(false);
   const titleDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const dateDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -564,6 +565,7 @@ export default function VisualScopeDraft() {
       queryClient.invalidateQueries({ queryKey: ["/api/visual-scope-sheets", id] });
       queryClient.invalidateQueries({ queryKey: ["/api/visual-scope-sheets"] });
       toast({ title: isReplace ? t("visualScope.baseReplaced") : t("visualScope.baseSaved") });
+      setBaseImageErrored(false);
       setReplaceOpen(false);
     } catch (err: any) {
       toast({ title: t("proposals.uploadFailed"), description: err.message, variant: "destructive" });
@@ -580,6 +582,7 @@ export default function VisualScopeDraft() {
     queryClient.invalidateQueries({ queryKey: ["/api/visual-scope-sheets", id] });
     queryClient.invalidateQueries({ queryKey: ["/api/visual-scope-sheets"] });
     toast({ title: t("visualScope.highResCaptured"), description: t("visualScope.satelliteSaved") });
+    setBaseImageErrored(false);
     setReplaceOpen(false);
   }
 
@@ -603,6 +606,7 @@ export default function VisualScopeDraft() {
       queryClient.invalidateQueries({ queryKey: ["/api/visual-scope-sheets", id] });
       queryClient.invalidateQueries({ queryKey: ["/api/visual-scope-sheets"] });
       toast({ title: t("visualScope.highResCaptured"), description: t("visualScope.satelliteSaved") });
+      setBaseImageErrored(false);
     } catch (err: any) {
       toast({ title: t("common.error"), description: err.message, variant: "destructive" });
     } finally {
@@ -679,7 +683,7 @@ export default function VisualScopeDraft() {
         </div>
       </div>
 
-      {sheet.baseImagePath ? (
+      {sheet.baseImagePath && !baseImageErrored ? (
         <Card>
           <CardHeader className="pb-3">
             <div className="flex items-center justify-between gap-2 flex-wrap">
@@ -731,6 +735,7 @@ export default function VisualScopeDraft() {
               initialLegendState={(sheet as any).legendState as LegendState | null}
               captureParams={captureParams ?? null}
               onSaved={() => queryClient.invalidateQueries({ queryKey: ["/api/visual-scope-sheets", id] })}
+              onBaseImageError={() => setBaseImageErrored(true)}
             />
           </CardContent>
         </Card>

@@ -60,6 +60,7 @@ import {
   RotateCcw,
   Ruler,
   AlertCircle,
+  ImageOff,
   Map as MapIcon,
   Download,
   Sparkles,
@@ -158,6 +159,7 @@ interface VisualScopeEditorProps {
   initialMarkupData?: unknown;
   captureParams?: CaptureParams | null;
   onSaved?: () => void;
+  onBaseImageError?: () => void;
 }
 
 // ─── Constants ────────────────────────────────────────────────────────────────
@@ -1397,7 +1399,7 @@ const LAYOUT_PRESETS = {
 
 // ─── Main Editor Component ────────────────────────────────────────────────────
 export default function VisualScopeEditor({
-  sheetId, baseImagePath, initialMarkup, initialLayerDefs, initialLegendState, initialMarkupData, captureParams, onSaved,
+  sheetId, baseImagePath, initialMarkup, initialLayerDefs, initialLegendState, initialMarkupData, captureParams, onSaved, onBaseImageError,
 }: VisualScopeEditorProps) {
   const { t } = useTranslation();
 
@@ -1435,6 +1437,7 @@ export default function VisualScopeEditor({
   const [exportBrandingEnabled, setExportBrandingEnabled] = useState(false);
   const [exportCompanyName, setExportCompanyName] = useState("");
   const [isExporting, setIsExporting] = useState(false);
+  const [baseImageError, setBaseImageError] = useState(false);
 
   // Zoom / pan state
   const [viewTransform, setViewTransform] = useState<ViewTransform>({ scale: 1, panX: 0, panY: 0 });
@@ -1826,6 +1829,7 @@ export default function VisualScopeEditor({
     legendUserEdited.current = false;
     dragStartedUndo.current = false;
     setActiveLayerId("areas");
+    setBaseImageError(false);
   }, [sheetId, baseImagePath]);
 
   // ─── Effect: sync selection panel ─────────────────────────────────────────
@@ -3174,7 +3178,24 @@ export default function VisualScopeEditor({
             >
               {/* Base image */}
               <div className="absolute inset-0 pointer-events-none">
-                <img src={baseImagePath} className="w-full h-full object-contain opacity-40 grayscale" alt="Base blueprint" />
+                {baseImageError ? (
+                  <div className="w-full h-full flex flex-col items-center justify-center gap-3 pointer-events-auto" data-testid="base-image-error-overlay">
+                    <ImageOff className="w-10 h-10 text-muted-foreground" />
+                    <p className="text-sm font-medium text-muted-foreground">{t("visualScope.baseImageLoadError", "Base image could not be loaded")}</p>
+                    {onBaseImageError && (
+                      <Button size="sm" variant="outline" onClick={onBaseImageError} data-testid="button-replace-base-image">
+                        {t("visualScope.replaceBaseImage", "Replace base image")}
+                      </Button>
+                    )}
+                  </div>
+                ) : (
+                  <img
+                    src={baseImagePath}
+                    className="w-full h-full object-contain opacity-40 grayscale"
+                    alt="Base blueprint"
+                    onError={() => setBaseImageError(true)}
+                  />
+                )}
               </div>
 
               {/* SVG canvas */}

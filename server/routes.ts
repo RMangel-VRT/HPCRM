@@ -1486,6 +1486,26 @@ export async function migrateVisualScopeScaleColumns(): Promise<void> {
   }
 }
 
+export async function clearInvalidVisualScopeBaseImages(): Promise<void> {
+  console.log("Running startup migration: Clearing invalid base_image_path values on visual_scope_sheets...");
+  try {
+    await db.execute(sql`
+      UPDATE visual_scope_sheets
+      SET base_image_path = NULL,
+          base_image_size = NULL,
+          base_image_mime_type = NULL,
+          base_image_filename = NULL,
+          capture_params = NULL
+      WHERE base_image_path IS NOT NULL
+        AND base_image_path NOT LIKE '/replit-objstore-%'
+        AND base_image_path NOT SIMILAR TO '%[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}%'
+    `);
+    console.log("Invalid visual_scope_sheets base image paths cleared");
+  } catch (error) {
+    console.error("Error during visual_scope_sheets base image path cleanup:", error);
+  }
+}
+
 export async function backfillCustomerType(): Promise<void> {
   console.log("Running startup migration: Backfilling customer_type for existing customers...");
   try {
@@ -10433,8 +10453,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
     const user = req.user as UserWithContext;
     if (!canAccessVisualScope(user.activeRole)) return res.status(403).send("Insufficient permissions");
     const sheet = await storage.getVisualScopeSheet(req.params.id, user.activeCompanyId);
-    if (!sheet) return res.status(404).json({ error: "Not found" });
-    if (!sheet.baseImagePath) return res.status(404).json({ error: "No base image" });
+    if (!sheet) {
+      res.set("Cache-Control", "no-store");
+      return res.status(404).json({ error: "Not found" });
+    }
+    if (!sheet.baseImagePath) {
+      res.set("Cache-Control", "no-store");
+      return res.status(404).json({ error: "No base image" });
+    }
     try {
       const objectStorage = new ObjectStorageService();
       if ((sheet.baseImagePath as string).startsWith("/objects/")) {
@@ -10448,6 +10474,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
     } catch (err) {
       console.error("Error serving VS base image:", err);
+      res.set("Cache-Control", "no-store");
       res.status(500).json({ error: "Failed to serve image" });
     }
   });
