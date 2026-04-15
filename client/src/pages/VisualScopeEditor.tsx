@@ -116,7 +116,7 @@ import {
   getTextureDef,
   getPatternSvgContent,
 } from "@shared/textures";
-import type { TextureId, TextureScale } from "@shared/textures";
+import type { TextureId } from "@shared/textures";
 import {
   SYMBOL_CATEGORIES,
   SYMBOL_MAP,
