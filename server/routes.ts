@@ -1464,13 +1464,14 @@ export async function backfillStatusActionTypes(): Promise<void> {
   }
 }
 
-export async function migrateVisualScopeLayerDefsColumn(): Promise<void> {
-  console.log("Running startup migration: Ensuring layer_defs column exists on visual_scope_sheets table...");
+export async function migrateVisualScopeSheetColumns(): Promise<void> {
+  console.log("Running startup migration: Ensuring layer_defs and capture_params columns exist on visual_scope_sheets table...");
   try {
     await db.execute(sql`ALTER TABLE visual_scope_sheets ADD COLUMN IF NOT EXISTS layer_defs jsonb`);
-    console.log("visual_scope_sheets layer_defs column migration complete");
+    await db.execute(sql`ALTER TABLE visual_scope_sheets ADD COLUMN IF NOT EXISTS capture_params jsonb`);
+    console.log("visual_scope_sheets column migration complete");
   } catch (error) {
-    console.error("Error during visual_scope_sheets layer_defs migration:", error);
+    console.error("Error during visual_scope_sheets column migration:", error);
   }
 }
 
@@ -10768,6 +10769,88 @@ export async function registerRoutes(app: Express): Promise<Server> {
       console.error("VS pro PDF export error:", err);
       return res.status(500).json({ error: "Export failed" });
     }
+  });
+
+  // ─── Style Presets ─────────────────────────────────────────────
+
+  app.get("/api/style-presets", async (req, res) => {
+    if (!req.isAuthenticated()) return res.status(401).send("Not authenticated");
+    const user = req.user as UserWithContext;
+    await storage.seedDefaultStylePresets(user.activeCompanyId);
+    const presets = await storage.getStylePresets(user.activeCompanyId);
+    res.json(presets);
+  });
+
+  app.post("/api/style-presets", async (req, res) => {
+    if (!req.isAuthenticated()) return res.status(401).send("Not authenticated");
+    const user = req.user as UserWithContext;
+    const { name, type, category, styleConfig, isDefault } = req.body;
+    if (!name || !type || !styleConfig) return res.status(400).json({ error: "name, type, and styleConfig are required" });
+    const preset = await storage.createStylePreset({
+      companyId: user.activeCompanyId,
+      name,
+      type,
+      category: category ?? "general",
+      styleConfig,
+      isDefault: isDefault ?? false,
+    });
+    res.status(201).json(preset);
+  });
+
+  app.patch("/api/style-presets/:id", async (req, res) => {
+    if (!req.isAuthenticated()) return res.status(401).send("Not authenticated");
+    const user = req.user as UserWithContext;
+    const preset = await storage.updateStylePreset(req.params.id, user.activeCompanyId, req.body);
+    if (!preset) return res.status(404).json({ error: "Not found" });
+    res.json(preset);
+  });
+
+  app.delete("/api/style-presets/:id", async (req, res) => {
+    if (!req.isAuthenticated()) return res.status(401).send("Not authenticated");
+    const user = req.user as UserWithContext;
+    await storage.deleteStylePreset(req.params.id, user.activeCompanyId);
+    res.status(204).send();
+  });
+
+  // ─── Sheet Templates ───────────────────────────────────────────
+
+  app.get("/api/sheet-templates", async (req, res) => {
+    if (!req.isAuthenticated()) return res.status(401).send("Not authenticated");
+    const user = req.user as UserWithContext;
+    const templates = await storage.getSheetTemplates(user.activeCompanyId);
+    res.json(templates);
+  });
+
+  app.post("/api/sheet-templates", async (req, res) => {
+    if (!req.isAuthenticated()) return res.status(401).send("Not authenticated");
+    const user = req.user as UserWithContext;
+    const { name, layerVisibility, legendConfig, titleBlockFormat, notesLayout, defaultPresetIds } = req.body;
+    if (!name) return res.status(400).json({ error: "name is required" });
+    const template = await storage.createSheetTemplate({
+      companyId: user.activeCompanyId,
+      name,
+      layerVisibility: layerVisibility ?? {},
+      legendConfig: legendConfig ?? {},
+      titleBlockFormat: titleBlockFormat ?? {},
+      notesLayout: notesLayout ?? {},
+      defaultPresetIds: defaultPresetIds ?? [],
+    });
+    res.status(201).json(template);
+  });
+
+  app.patch("/api/sheet-templates/:id", async (req, res) => {
+    if (!req.isAuthenticated()) return res.status(401).send("Not authenticated");
+    const user = req.user as UserWithContext;
+    const template = await storage.updateSheetTemplate(req.params.id, user.activeCompanyId, req.body);
+    if (!template) return res.status(404).json({ error: "Not found" });
+    res.json(template);
+  });
+
+  app.delete("/api/sheet-templates/:id", async (req, res) => {
+    if (!req.isAuthenticated()) return res.status(401).send("Not authenticated");
+    const user = req.user as UserWithContext;
+    await storage.deleteSheetTemplate(req.params.id, user.activeCompanyId);
+    res.status(204).send();
   });
 
   // ─── Campaign System ───────────────────────────────────────────

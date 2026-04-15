@@ -1,6 +1,7 @@
 import { type User, type InsertUser, type Customer, type InsertCustomer, type Contact, type InsertContact, type Company, type InsertCompany, type CompanyUser, type InsertCompanyUser, type Settings, type InsertSettings, type Note, type InsertNote, type Contract, type InsertContract, type ContractStatusHistory, type InsertContractStatusHistory, type ContractDocument, type InsertContractDocument, type ContractMonthlyAmount, type InsertContractMonthlyAmount, type CustomerRateSheet, type InsertCustomerRateSheet, type ContractService, type InsertContractService, type ContractTemplate, type InsertContractTemplate, type ContractBuilderDocument, type InsertContractBuilderDocument, type ContractBuilderSection, type InsertContractBuilderSection, type ContractBuilderVariable, type InsertContractBuilderVariable, type TicketType, type InsertTicketType, type TicketTypeStatus, type InsertTicketTypeStatus, type TicketTypeField, type InsertTicketTypeField, type Ticket, type InsertTicket, type TicketFieldValue, type InsertTicketFieldValue, type TicketStatusHistory, type InsertTicketStatusHistory, type TicketComment, type TicketCommentWithAuthor, type InsertTicketComment, type TicketCommentMention, type InsertTicketCommentMention, type TicketSource, type InsertTicketSource, type TicketLink, type InsertTicketLink, type TicketTypeCategory, type CustomerMapLayer, type InsertCustomerMapLayer, type CustomerMapDocument, type InsertCustomerMapDocument, type MaintenanceCrew, type InsertMaintenanceCrew, type MaintenanceVisitConfig, type InsertMaintenanceVisitConfig, type WeeklyScheduleTemplate, type InsertWeeklyScheduleTemplate, type ScheduleBlock, type InsertScheduleBlock, type TicketNotification, type InsertTicketNotification, type NotificationType, type PropertyManagementCompany, type InsertPropertyManagementCompany, type PropertyManager, type InsertPropertyManager, type PropertyManagerEmail, type InsertPropertyManagerEmail, type PropertyManagerPhone, type InsertPropertyManagerPhone, type PropertyManagerWithContacts, type Equipment, type InsertEquipment, type EquipmentFile, type InsertEquipmentFile, type EquipmentTicket, type InsertEquipmentTicket, type EquipmentTicketStatusHistory, type InsertEquipmentTicketStatusHistory, type EquipmentWithTicketCount, type SnowEvent, type InsertSnowEvent, type SnowEventAttachment, type InsertSnowEventAttachment, type SnowEventPropertyImpact, type InsertSnowEventPropertyImpact, type SnowEventWithDetails, type SnowEventPropertyImpactWithCustomer, type EmailTemplate, type InsertEmailTemplate, type EmailRule, type InsertEmailRule, type EmailLog, type InsertEmailLog, type EmailLogWithDetails, type Proposal, type InsertProposal, type ProposalFile, type InsertProposalFile, type ProposalWithDetails, type ProposalVersion, type InsertProposalVersion, type ProposalVersionWithUser, type VisualScopeSheet, type InsertVisualScopeSheet, type VisualScopeSheetWithCustomer, type Campaign, type InsertCampaign, type CampaignItem, type InsertCampaignItem, type CampaignWithProgress, type Season, type InsertSeason, type CampaignChecklistTask, type InsertCampaignChecklistTask, type CampaignItemTaskCompletion, type InsertCampaignItemTaskCompletion, type CampaignChecklistAuditLog, type InsertCampaignChecklistAuditLog, type CampaignChecklistAuditLogWithUser, type Communication, type InsertCommunication, type CommunicationTemplate, type InsertCommunicationTemplate, type CommunicationThread, type InsertCommunicationThread, type CommunicationLink, type InsertCommunicationLink, type CommunicationWithDetails, type CommunicationAnalytics, type InsertCommunicationAuditLog, type CommunicationAuditLog, type CommunicationAuditLogWithUser } from "@shared/schema";
 import { db } from "./db";
-import { users, customers, contacts, companies, companyUsers, settings, notes, contracts, contractStatusHistory, contractDocuments, contractMonthlyAmounts, customerRateSheets, contractServices, contractTemplates, contractBuilderDocuments, contractBuilderSections, contractBuilderVariables, ticketTypes, ticketTypeStatuses, ticketTypeFields, tickets, ticketFieldValues, ticketStatusHistory, ticketComments, ticketCommentMentions, ticketSources, ticketLinks, customerMapLayers, customerMapDocuments, maintenanceCrews, maintenanceVisitConfigs, weeklyScheduleTemplates, scheduleBlocks, ticketNotifications, propertyManagementCompanies, propertyManagers, propertyManagerEmails, propertyManagerPhones, equipment, equipmentFiles, equipmentTickets, equipmentTicketStatusHistory, snowEvents, snowEventAttachments, snowEventPropertyImpacts, emailTemplates, emailRules, emailLogs, proposals, proposalFiles, proposalVersions, visualScopeSheets, campaigns, campaignItems, campaignChecklistTasks, campaignItemTaskCompletions, campaignChecklistAuditLog as campaignChecklistAuditLogTable, seasons, communications, communicationTemplates, communicationThreads, communicationLinks, communicationAuditLog, communicationAutomationRules, servicePlanTemplates, servicePlanTemplateItems, customerServicePlans } from "@shared/schema";
+import { users, customers, contacts, companies, companyUsers, settings, notes, contracts, contractStatusHistory, contractDocuments, contractMonthlyAmounts, customerRateSheets, contractServices, contractTemplates, contractBuilderDocuments, contractBuilderSections, contractBuilderVariables, ticketTypes, ticketTypeStatuses, ticketTypeFields, tickets, ticketFieldValues, ticketStatusHistory, ticketComments, ticketCommentMentions, ticketSources, ticketLinks, customerMapLayers, customerMapDocuments, maintenanceCrews, maintenanceVisitConfigs, weeklyScheduleTemplates, scheduleBlocks, ticketNotifications, propertyManagementCompanies, propertyManagers, propertyManagerEmails, propertyManagerPhones, equipment, equipmentFiles, equipmentTickets, equipmentTicketStatusHistory, snowEvents, snowEventAttachments, snowEventPropertyImpacts, emailTemplates, emailRules, emailLogs, proposals, proposalFiles, proposalVersions, visualScopeSheets, campaigns, campaignItems, campaignChecklistTasks, campaignItemTaskCompletions, campaignChecklistAuditLog as campaignChecklistAuditLogTable, seasons, communications, communicationTemplates, communicationThreads, communicationLinks, communicationAuditLog, communicationAutomationRules, servicePlanTemplates, servicePlanTemplateItems, customerServicePlans, stylePresets, sheetTemplates } from "@shared/schema";
+import type { StylePreset, InsertStylePreset, SheetTemplate, InsertSheetTemplate } from "@shared/schema";
 import { eq, and, or, sql, desc, asc, inArray, max, type SQL } from "drizzle-orm";
 import session from "express-session";
 import connectPg from "connect-pg-simple";
@@ -411,6 +412,19 @@ export interface IStorage {
   updateCustomerServicePlan(id: string, customerId: string, companyId: string, updates: Partial<InsertCustomerServicePlan>): Promise<CustomerServicePlan | undefined>;
   deleteCustomerServicePlan(id: string, customerId: string, companyId: string): Promise<void>;
   getServiceFulfillment(customerId: string, companyId: string, year: number): Promise<ServiceFulfillmentRow[]>;
+
+  // Style Presets
+  getStylePresets(companyId: string): Promise<StylePreset[]>;
+  createStylePreset(data: InsertStylePreset): Promise<StylePreset>;
+  updateStylePreset(id: string, companyId: string, data: Partial<InsertStylePreset>): Promise<StylePreset | undefined>;
+  deleteStylePreset(id: string, companyId: string): Promise<void>;
+  seedDefaultStylePresets(companyId: string): Promise<void>;
+
+  // Sheet Templates
+  getSheetTemplates(companyId: string): Promise<SheetTemplate[]>;
+  createSheetTemplate(data: InsertSheetTemplate): Promise<SheetTemplate>;
+  updateSheetTemplate(id: string, companyId: string, data: Partial<InsertSheetTemplate>): Promise<SheetTemplate | undefined>;
+  deleteSheetTemplate(id: string, companyId: string): Promise<void>;
 
   sessionStore: session.Store;
 }
@@ -4060,6 +4074,113 @@ export class PgStorage implements IStorage {
         planId: plan.id,
       };
     });
+  }
+
+  // ─── Style Presets ──────────────────────────────────────────────────────────
+
+  async getStylePresets(companyId: string): Promise<StylePreset[]> {
+    const rows = await db
+      .select()
+      .from(stylePresets)
+      .where(
+        or(
+          eq(stylePresets.companyId, companyId),
+          sql`${stylePresets.companyId} IS NULL`
+        )
+      )
+      .orderBy(asc(stylePresets.type), asc(stylePresets.name));
+    return rows;
+  }
+
+  async createStylePreset(data: InsertStylePreset): Promise<StylePreset> {
+    const [row] = await db.insert(stylePresets).values(data as any).returning();
+    return row;
+  }
+
+  async updateStylePreset(id: string, companyId: string, data: Partial<InsertStylePreset>): Promise<StylePreset | undefined> {
+    const [row] = await db
+      .update(stylePresets)
+      .set(data as any)
+      .where(and(eq(stylePresets.id, id), eq(stylePresets.companyId, companyId)))
+      .returning();
+    return row;
+  }
+
+  async deleteStylePreset(id: string, companyId: string): Promise<void> {
+    await db
+      .delete(stylePresets)
+      .where(and(eq(stylePresets.id, id), eq(stylePresets.companyId, companyId)));
+  }
+
+  async seedDefaultStylePresets(companyId: string): Promise<void> {
+    const existing = await db
+      .select({ id: stylePresets.id })
+      .from(stylePresets)
+      .where(and(eq(stylePresets.companyId, companyId), eq(stylePresets.isDefault, true)));
+    if (existing.length > 0) return;
+
+    const HIGH_PLAINS_PRESETS = [
+      // Area presets
+      { type: "area", name: "Bark Mulch Refresh", category: "mulch", styleConfig: { strokeColor: "#8B4513", fillColor: "rgba(139,69,19,0.18)", strokeWidth: 2, fillType: "texture", textureId: "bark-mulch", textureScale: "medium", textureOpacity: 0.6, materialLabel: "Bark Mulch" } },
+      { type: "area", name: "Decorative Rock Refresh", category: "rock", styleConfig: { strokeColor: "#808080", fillColor: "rgba(128,128,128,0.18)", strokeWidth: 2, fillType: "texture", textureId: "decorative-rock", textureScale: "medium", textureOpacity: 0.6, materialLabel: "Decorative Rock" } },
+      { type: "area", name: "2-4\" Cobble Install", category: "rock", styleConfig: { strokeColor: "#696969", fillColor: "rgba(105,105,105,0.18)", strokeWidth: 2, fillType: "texture", textureId: "cobble", textureScale: "large", textureOpacity: 0.7, materialLabel: "2-4\" Cobble" } },
+      { type: "area", name: "Turf Conversion Area", category: "lawn", styleConfig: { strokeColor: "#228B22", fillColor: "rgba(34,139,34,0.18)", strokeWidth: 2, fillType: "solid", materialLabel: "Turf Conversion" } },
+      { type: "area", name: "Native Area Conversion", category: "planting", styleConfig: { strokeColor: "#556B2F", fillColor: "rgba(85,107,47,0.18)", strokeWidth: 2, fillType: "solid", materialLabel: "Native Area" } },
+      { type: "area", name: "Demo / Removal Area", category: "demo", styleConfig: { strokeColor: "#dc2626", fillColor: "rgba(220,38,38,0.12)", strokeWidth: 2, dashStyle: "dashed", materialLabel: "Demo/Removal" } },
+      // Line presets
+      { type: "line", name: "Proposed Edging", category: "edging", styleConfig: { strokeColor: "#f59e0b", strokeWidth: 3, dashStyle: "solid" } },
+      { type: "line", name: "Drip Line Install", category: "irrigation", styleConfig: { strokeColor: "#3b82f6", strokeWidth: 2, dashStyle: "dashed" } },
+      { type: "line", name: "Plow Route", category: "snow", styleConfig: { strokeColor: "#6366f1", strokeWidth: 3, dashStyle: "solid" } },
+      { type: "line", name: "Boundary of Work", category: "scope", styleConfig: { strokeColor: "#ef4444", strokeWidth: 2, dashStyle: "dotted" } },
+      { type: "line", name: "Demo Line", category: "demo", styleConfig: { strokeColor: "#dc2626", strokeWidth: 2, dashStyle: "dashed" } },
+      // Symbol presets
+      { type: "symbol", name: "Tree Install", category: "trees", styleConfig: { symbolTypeId: "deciduous-tree", strokeColor: "#2d6a2d", scale: 1 } },
+      { type: "symbol", name: "Tree Removal", category: "trees", styleConfig: { symbolTypeId: "remove-marker", strokeColor: "#dc2626", scale: 1 } },
+      { type: "symbol", name: "Boulder Placement", category: "rock-hardscape", styleConfig: { symbolTypeId: "boulder", strokeColor: "#9ca3af", scale: 1 } },
+      { type: "symbol", name: "Valve Box", category: "irrigation", styleConfig: { symbolTypeId: "valve-box", strokeColor: "#3b82f6", scale: 1 } },
+      { type: "symbol", name: "Drain Inlet", category: "irrigation", styleConfig: { symbolTypeId: "drain-inlet", strokeColor: "#6366f1", scale: 1 } },
+    ];
+
+    await db.insert(stylePresets).values(
+      HIGH_PLAINS_PRESETS.map(p => ({
+        companyId,
+        type: p.type as any,
+        name: p.name,
+        category: p.category,
+        styleConfig: p.styleConfig as any,
+        isDefault: true,
+      }))
+    );
+  }
+
+  // ─── Sheet Templates ─────────────────────────────────────────────────────────
+
+  async getSheetTemplates(companyId: string): Promise<SheetTemplate[]> {
+    return db
+      .select()
+      .from(sheetTemplates)
+      .where(eq(sheetTemplates.companyId, companyId))
+      .orderBy(asc(sheetTemplates.name));
+  }
+
+  async createSheetTemplate(data: InsertSheetTemplate): Promise<SheetTemplate> {
+    const [row] = await db.insert(sheetTemplates).values(data as any).returning();
+    return row;
+  }
+
+  async updateSheetTemplate(id: string, companyId: string, data: Partial<InsertSheetTemplate>): Promise<SheetTemplate | undefined> {
+    const [row] = await db
+      .update(sheetTemplates)
+      .set(data as any)
+      .where(and(eq(sheetTemplates.id, id), eq(sheetTemplates.companyId, companyId)))
+      .returning();
+    return row;
+  }
+
+  async deleteSheetTemplate(id: string, companyId: string): Promise<void> {
+    await db
+      .delete(sheetTemplates)
+      .where(and(eq(sheetTemplates.id, id), eq(sheetTemplates.companyId, companyId)));
   }
 }
 

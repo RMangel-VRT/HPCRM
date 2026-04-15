@@ -1959,7 +1959,75 @@ export type SymbolType = "tree" | "plant" | "boulder";
 export type MarkupObjectType = "polygon" | "polyline" | "symbol" | "text" | "callout";
 export type FillType = "solid" | "texture";
 export type TextureScale = "small" | "medium" | "large";
+export type StylePresetType = "area" | "line" | "symbol";
 
+export interface StylePresetConfig {
+  strokeColor?: string;
+  fillColor?: string;
+  strokeWidth?: number;
+  dashStyle?: "solid" | "dashed" | "dotted";
+  fillType?: FillType;
+  textureId?: string;
+  textureScale?: TextureScale;
+  textureOpacity?: number;
+  materialLabel?: string;
+  symbolTypeId?: string;
+  scale?: number;
+  opacity?: number;
+}
+
+export const stylePresets = pgTable("style_presets", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  companyId: varchar("company_id").references(() => companies.id, { onDelete: "cascade" }),
+  type: text("type").notNull().$type<StylePresetType>(),
+  name: text("name").notNull(),
+  category: text("category").notNull().default("general"),
+  styleConfig: jsonb("style_config").notNull().$type<StylePresetConfig>(),
+  isDefault: boolean("is_default").notNull().default(false),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+});
+
+export const insertStylePresetSchema = createInsertSchema(stylePresets).omit({
+  id: true,
+  createdAt: true,
+}).extend({
+  type: z.enum(["area", "line", "symbol"]),
+  name: z.string().min(1).max(100),
+  category: z.string().default("general"),
+  styleConfig: z.record(z.any()),
+  isDefault: z.boolean().default(false),
+  companyId: z.string().nullable().optional(),
+});
+
+export type InsertStylePreset = z.infer<typeof insertStylePresetSchema>;
+export type StylePreset = typeof stylePresets.$inferSelect;
+
+export const sheetTemplates = pgTable("sheet_templates", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  companyId: varchar("company_id").notNull().references(() => companies.id, { onDelete: "cascade" }),
+  name: text("name").notNull(),
+  layerVisibility: jsonb("layer_visibility").$type<Record<string, boolean>>().default(sql`'{}'::jsonb`),
+  legendConfig: jsonb("legend_config").$type<Record<string, unknown>>().default(sql`'{}'::jsonb`),
+  titleBlockFormat: jsonb("title_block_format").$type<Record<string, unknown>>().default(sql`'{}'::jsonb`),
+  notesLayout: jsonb("notes_layout").$type<Record<string, unknown>>().default(sql`'{}'::jsonb`),
+  defaultPresetIds: text("default_preset_ids").array().default(sql`ARRAY[]::text[]`),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+});
+
+export const insertSheetTemplateSchema = createInsertSchema(sheetTemplates).omit({
+  id: true,
+  createdAt: true,
+}).extend({
+  name: z.string().min(1).max(100),
+  layerVisibility: z.record(z.boolean()).optional(),
+  legendConfig: z.record(z.any()).optional(),
+  titleBlockFormat: z.record(z.any()).optional(),
+  notesLayout: z.record(z.any()).optional(),
+  defaultPresetIds: z.array(z.string()).default([]),
+});
+
+export type InsertSheetTemplate = z.infer<typeof insertSheetTemplateSchema>;
+export type SheetTemplate = typeof sheetTemplates.$inferSelect;
 
 export interface MarkupObject {
   id: string;
@@ -1980,7 +2048,6 @@ export interface MarkupObject {
   dashStyle?: "solid" | "dashed" | "dotted";
   closed?: boolean;
   fontSize?: number;
-  rotation?: number;
   symbolSize?: number;
   createdAt: string;
   zIndex?: number;
@@ -2000,6 +2067,7 @@ export interface MarkupObject {
   areaSqFt?: number;
   lengthFt?: number;
   showMeasurementLabel?: boolean;
+  presetId?: string;
 }
 
 export interface SheetMetadata {

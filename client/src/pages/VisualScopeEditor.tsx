@@ -26,7 +26,8 @@ import {
   SheetTitle,
 } from "@/components/ui/sheet";
 import { useToast } from "@/hooks/use-toast";
-import { apiRequest } from "@/lib/queryClient";
+import { apiRequest, queryClient } from "@/lib/queryClient";
+import { useQuery } from "@tanstack/react-query";
 import {
   MousePointer,
   Pentagon,
@@ -61,8 +62,16 @@ import {
   AlertCircle,
   Map as MapIcon,
   Download,
+  Sparkles,
+  Tag,
+  ChevronRight,
+  Plus,
+  Paintbrush,
+  Palette,
+  Save,
+  BookOpen,
 } from "lucide-react";
-import type { MarkupObject, MarkupPoint, SymbolType, MarkupDocument, LegendState, LegendEntry, FillType, LayerDefinition, SheetMetadata, CaptureParams } from "@shared/schema";
+import type { MarkupObject, MarkupPoint, SymbolType, MarkupDocument, LegendState, LegendEntry, FillType, TextureScale, LayerDefinition, SheetMetadata, CaptureParams, StylePreset, StylePresetConfig, SheetTemplate } from "@shared/schema";
 import { parseMarkupData, flattenMarkupObjects, SYSTEM_LAYERS, getDefaultLayerForType } from "@shared/schema";
 import { detectLegendEntries, applyLegendState, DEFAULT_LEGEND_STATE } from "@shared/legendUtils";
 import { isSheetScaled, computeAreaSqFt, computeLengthFt, formatSqFt, formatLinearFt } from "@shared/measurementUtils";
@@ -111,7 +120,10 @@ type DragOp =
   | { kind: "move"; id: string; origPoints: MarkupPoint[]; startPt: MarkupPoint }
   | { kind: "vertex"; id: string; vertexIdx: number; startPt: MarkupPoint; origPt: MarkupPoint }
   | { kind: "rotate"; id: string; center: MarkupPoint; startAngle: number; origRotation: number }
-  | { kind: "resize"; id: string; cx: number; cy: number; origScale: number; startDist: number };
+  | { kind: "resize"; id: string; cx: number; cy: number; origScale: number; startDist: number }
+  | { kind: "title-block"; origPos: MarkupPoint; startPt: MarkupPoint }
+  | { kind: "notes-block"; origPos: MarkupPoint; startPt: MarkupPoint }
+  | { kind: "callout-target"; id: string; startPt: MarkupPoint; origTarget: MarkupPoint };
 
 interface VisualScopeEditorProps {
   sheetId: string;
@@ -1063,14 +1075,6 @@ function InProgressShape({ points, preview, tool, color }: InProgressShapeProps)
   );
 }
 
-type DragOp =
-  | { kind: "move"; id: string; origPoints: MarkupPoint[]; startPt: MarkupPoint }
-  | { kind: "vertex"; id: string; vertexIdx: number; startPt: MarkupPoint; origPt: MarkupPoint }
-  | { kind: "rotate"; id: string; center: MarkupPoint; startAngle: number; origRotation: number }
-  | { kind: "resize"; id: string; cx: number; cy: number; origScale: number; startDist: number }
-  | { kind: "callout-target"; id: string; startPt: MarkupPoint; origTarget: MarkupPoint }
-  | { kind: "title-block"; origPos: MarkupPoint; startPt: MarkupPoint }
-  | { kind: "notes-block"; origPos: MarkupPoint; startPt: MarkupPoint };
 interface SelectionHandlesProps {
   obj: MarkupObject;
   onStartVertexDrag: (idx: number, startPt: MarkupPoint) => void;
@@ -2190,6 +2194,25 @@ export default function VisualScopeEditor({ sheetId, baseImagePath, initialMarku
   const [exportCompanyName, setExportCompanyName] = useState("");
   const [isExporting, setIsExporting] = useState(false);
   const { toast } = useToast();
+  const [activePresetId, setActivePresetId] = useState<string | null>(null);
+  const [showPresetsPanel, setShowPresetsPanel] = useState(true);
+  const [savePresetName, setSavePresetName] = useState("");
+  const [savePresetCategory, setSavePresetCategory] = useState("general");
+  const [showSavePresetDialog, setShowSavePresetDialog] = useState(false);
+  const [showSaveTemplateDialog, setShowSaveTemplateDialog] = useState(false);
+  const [saveTemplateName, setSaveTemplateName] = useState("");
+
+  const { data: stylePresetsData } = useQuery<StylePreset[]>({
+    queryKey: ["/api/style-presets"],
+  });
+  const stylePresetList = stylePresetsData ?? [];
+
+  const { data: sheetTemplatesData, refetch: refetchTemplates } = useQuery<SheetTemplate[]>({
+    queryKey: ["/api/sheet-templates"],
+  });
+  const sheetTemplateList = sheetTemplatesData ?? [];
+
+  const activePreset = activePresetId ? stylePresetList.find(p => p.id === activePresetId) ?? null : null;
 
   const hasUserEdited = useRef(false);
   const legendUserEdited = useRef(false);
@@ -2609,15 +2632,6 @@ export default function VisualScopeEditor({ sheetId, baseImagePath, initialMarku
     );
   };
 
-  const commitMaterialLabel = () => {
-    if (!selectedId) return;
-    pushUndo(objects, layerDefs);
-    setObjects(current =>
-      current.map(o => (o.id === selectedId ? { ...o, materialLabel: materialLabelText } : o))
-    );
-    hasUserEdited.current = true;
-  };
-
   const commitMaterialLabel = useCallback(() => {
     if (!selectedId) return;
     const materialLabel = materialLabelText.trim();
@@ -2819,26 +2833,29 @@ export default function VisualScopeEditor({ sheetId, baseImagePath, initialMarku
       const def = SYMBOL_MAP.get(activeSymbolId);
       if (!def) return;
       const newId = nanoid8();
-      setObjects(prev => {
+      const symbolPreset = activePreset?.type === "symbol" ? activePreset : null;
+      const symbolPresetConfig = symbolPreset?.styleConfig as StylePresetConfig | undefined;
+      updateObjects(prev => {
         pushUndo(prev, layerDefs);
         hasUserEdited.current = true;
         return [...prev, {
           id: newId,
           type: "symbol",
-          symbolTypeId: def.id,
+          symbolTypeId: symbolPresetConfig?.symbolTypeId ?? def.id,
           points: [pt],
-          scale: 1,
+          scale: symbolPresetConfig?.scale ?? 1,
           rotation: 0,
           label: "",
           showLabel: false,
           note: "",
-          strokeColor: def.defaultColor,
-          fillColor: def.defaultColor,
+          strokeColor: symbolPresetConfig?.strokeColor ?? def.defaultColor,
+          fillColor: symbolPresetConfig?.strokeColor ?? def.defaultColor,
           strokeWidth: 2,
-          opacity: 1,
+          opacity: symbolPresetConfig?.opacity ?? 1,
           createdAt: new Date().toISOString(),
           layerId: activeLayerId,
           zIndex: prev.length,
+          ...(symbolPreset && { presetId: symbolPreset.id }),
         }];
       });
       setSelectedId(newId);
@@ -2906,6 +2923,100 @@ export default function VisualScopeEditor({ sheetId, baseImagePath, initialMarku
     if (!selectedId) return;
     pushUndo(objects, layerDefs);
     setObjects(current => current.map(o => o.id === selectedId ? { ...o, ...updates } : o));
+    hasUserEdited.current = true;
+  };
+
+  const applyPresetToSelected = (preset: StylePreset) => {
+    if (!selectedObj) return;
+    pushUndo(objects, layerDefs);
+    const c = preset.styleConfig as StylePresetConfig;
+    const updates: Partial<MarkupObject> = {
+      ...(c.strokeColor !== undefined && { strokeColor: c.strokeColor }),
+      ...(c.fillColor !== undefined && { fillColor: c.fillColor }),
+      ...(c.strokeWidth !== undefined && { strokeWidth: c.strokeWidth }),
+      ...(c.dashStyle !== undefined && { dashStyle: c.dashStyle }),
+      ...(c.fillType !== undefined && { fillType: c.fillType }),
+      ...(c.textureId !== undefined && { textureId: c.textureId }),
+      ...(c.textureScale !== undefined && { textureScale: c.textureScale }),
+      ...(c.textureOpacity !== undefined && { textureOpacity: c.textureOpacity }),
+      ...(c.materialLabel !== undefined && { materialLabel: c.materialLabel }),
+      ...(c.opacity !== undefined && { opacity: c.opacity }),
+      presetId: preset.id,
+    };
+    setObjects(current => current.map(o => o.id === selectedId ? { ...o, ...updates } : o));
+    hasUserEdited.current = true;
+  };
+
+  const saveSelectedAsPreset = async () => {
+    if (!selectedObj || !savePresetName.trim()) return;
+    const isPolyline = selectedObj.type === "polyline";
+    const isSymbol = selectedObj.type === "symbol";
+    const presetType = isSymbol ? "symbol" : isPolyline ? "line" : "area";
+    const config: StylePresetConfig = {
+      strokeColor: selectedObj.strokeColor,
+      fillColor: selectedObj.fillColor,
+      strokeWidth: selectedObj.strokeWidth,
+      ...(selectedObj.dashStyle && { dashStyle: selectedObj.dashStyle }),
+      ...(selectedObj.fillType && { fillType: selectedObj.fillType }),
+      ...(selectedObj.textureId && { textureId: selectedObj.textureId }),
+      ...(selectedObj.textureScale && { textureScale: selectedObj.textureScale }),
+      ...(selectedObj.textureOpacity !== undefined && { textureOpacity: selectedObj.textureOpacity }),
+      ...(selectedObj.materialLabel && { materialLabel: selectedObj.materialLabel }),
+      ...(selectedObj.opacity !== undefined && { opacity: selectedObj.opacity }),
+      ...(selectedObj.symbolTypeId && { symbolTypeId: selectedObj.symbolTypeId }),
+      ...(selectedObj.scale !== undefined && { scale: selectedObj.scale }),
+    };
+    try {
+      await apiRequest("POST", "/api/style-presets", {
+        name: savePresetName.trim(),
+        type: presetType,
+        category: savePresetCategory,
+        styleConfig: config,
+        isDefault: false,
+      });
+      await queryClient.invalidateQueries({ queryKey: ["/api/style-presets"] });
+      setShowSavePresetDialog(false);
+      setSavePresetName("");
+    } catch (e) {
+      console.error("Failed to save preset", e);
+    }
+  };
+
+  const saveCurrentAsTemplate = async () => {
+    if (!saveTemplateName.trim()) return;
+    const layerVisibility: Record<string, boolean> = {};
+    layerDefs.forEach(l => { layerVisibility[l.id] = l.visible; });
+    try {
+      await apiRequest("POST", "/api/sheet-templates", {
+        name: saveTemplateName.trim(),
+        layerVisibility,
+        legendConfig: legendState as unknown as Record<string, unknown>,
+        titleBlockFormat: sheetMeta.titleBlockPosition ? { position: sheetMeta.titleBlockPosition } : {},
+        notesLayout: sheetMeta.notesBlockPosition ? { position: sheetMeta.notesBlockPosition } : {},
+        defaultPresetIds: [],
+      });
+      await refetchTemplates();
+      setShowSaveTemplateDialog(false);
+      setSaveTemplateName("");
+    } catch (e) {
+      console.error("Failed to save template", e);
+    }
+  };
+
+  const loadTemplate = (template: SheetTemplate) => {
+    if (template.layerVisibility) {
+      setLayerDefs(prev => prev.map(l => ({
+        ...l,
+        visible: (template.layerVisibility as Record<string, boolean>)[l.id] ?? l.visible,
+      })));
+    }
+    if (template.legendConfig && Object.keys(template.legendConfig).length > 0) {
+      setLegendState(prev => ({ ...prev, ...(template.legendConfig as unknown as Partial<LegendState>) }));
+    }
+    const tf = template.titleBlockFormat as Record<string, unknown>;
+    const nl = template.notesLayout as Record<string, unknown>;
+    if (tf?.position) updateSheetMeta({ titleBlockPosition: tf.position as MarkupPoint });
+    if (nl?.position) updateSheetMeta({ notesBlockPosition: nl.position as MarkupPoint });
     hasUserEdited.current = true;
   };
 
@@ -2983,6 +3094,25 @@ export default function VisualScopeEditor({ sheetId, baseImagePath, initialMarku
     dragStartedUndo.current = false;
   };
 
+  function applyPresetConfig(preset: StylePreset | null, base: Partial<MarkupObject>): Partial<MarkupObject> {
+    if (!preset) return base;
+    const c = preset.styleConfig as StylePresetConfig;
+    return {
+      ...base,
+      ...(c.strokeColor !== undefined && { strokeColor: c.strokeColor }),
+      ...(c.fillColor !== undefined && { fillColor: c.fillColor }),
+      ...(c.strokeWidth !== undefined && { strokeWidth: c.strokeWidth }),
+      ...(c.dashStyle !== undefined && { dashStyle: c.dashStyle }),
+      ...(c.fillType !== undefined && { fillType: c.fillType }),
+      ...(c.textureId !== undefined && { textureId: c.textureId }),
+      ...(c.textureScale !== undefined && { textureScale: c.textureScale }),
+      ...(c.textureOpacity !== undefined && { textureOpacity: c.textureOpacity }),
+      ...(c.materialLabel !== undefined && { materialLabel: c.materialLabel }),
+      ...(c.opacity !== undefined && { opacity: c.opacity }),
+      presetId: preset.id,
+    };
+  }
+
   const commitPolygon = () => {
     if (inProgressPoints.length < 2) {
       setInProgressPoints([]);
@@ -2992,42 +3122,39 @@ export default function VisualScopeEditor({ sheetId, baseImagePath, initialMarku
     pushUndo(objects, layerDefs);
     const newId = nanoid8();
     const isPolyline = activeTool === "polyline";
+    const base: Partial<MarkupObject> = {
+      strokeColor: activeColor,
+      strokeWidth: 2,
+      fillColor: isPolyline ? "none" : hexToRgba(activeColor, 0.15),
+    };
+    const presetForType = activePreset && (
+      (isPolyline && activePreset.type === "line") ||
+      (!isPolyline && activePreset.type === "area")
+    ) ? activePreset : null;
+    const withPreset = applyPresetConfig(presetForType, base);
     const newObj: MarkupObject = {
       id: newId,
       type: isPolyline ? "polyline" : "polygon",
       points: [...inProgressPoints],
-      strokeColor: activeColor,
-      strokeWidth: 2,
-      fillColor: isPolyline ? "none" : hexToRgba(activeColor, 0.15),
+      strokeColor: withPreset.strokeColor ?? activeColor,
+      strokeWidth: withPreset.strokeWidth ?? 2,
+      fillColor: withPreset.fillColor ?? (isPolyline ? "none" : hexToRgba(activeColor, 0.15)),
       layerId: activeLayerId,
       zIndex: objects.length,
       createdAt: new Date().toISOString(),
+      ...(withPreset.dashStyle && { dashStyle: withPreset.dashStyle }),
+      ...(withPreset.fillType && { fillType: withPreset.fillType }),
+      ...(withPreset.textureId && { textureId: withPreset.textureId }),
+      ...(withPreset.textureScale && { textureScale: withPreset.textureScale }),
+      ...(withPreset.textureOpacity !== undefined && { textureOpacity: withPreset.textureOpacity }),
+      ...(withPreset.materialLabel && { materialLabel: withPreset.materialLabel }),
+      ...(withPreset.opacity !== undefined && { opacity: withPreset.opacity }),
+      ...(presetForType && { presetId: presetForType.id }),
     };
     setObjects(current => [...current, newObj]);
     setInProgressPoints([]);
     setPreviewPoint(null);
     setSelectedId(newId);
-    hasUserEdited.current = true;
-  };
-
-  const handleVertexPointerDown = (id: string, idx: number, e: React.PointerEvent) => {
-    const pt = clientToSvg(svgRef.current!, e.clientX, e.clientY);
-    const obj = objects.find(o => o.id === id);
-    if (!obj) return;
-    setDrag({ kind: "vertex", id, vertexIdx: idx, startPt: pt, origPt: [...obj.points[idx]] as MarkupPoint });
-  };
-
-  const handleMidpointClick = (id: string, edgeIdx: number, e: React.PointerEvent) => {
-    pushUndo(objects, layerDefs);
-    setObjects(current => current.map(o => {
-      if (o.id !== id) return o;
-      const pts = [...o.points];
-      const a = pts[edgeIdx];
-      const b = pts[(edgeIdx + 1) % pts.length];
-      const mp = midpoint(a, b);
-      pts.splice(edgeIdx + 1, 0, mp);
-      return { ...o, points: pts };
-    }));
     hasUserEdited.current = true;
   };
 
@@ -3526,6 +3653,69 @@ export default function VisualScopeEditor({ sheetId, baseImagePath, initialMarku
           />
           <Separator />
 
+          {/* Style Presets Panel */}
+          <div className="border-b">
+            <button
+              className="w-full flex items-center justify-between px-3 py-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground hover-elevate"
+              onClick={() => setShowPresetsPanel(p => !p)}
+              data-testid="button-toggle-presets"
+            >
+              <span className="flex items-center gap-1.5">
+                <Palette className="h-3 w-3" />
+                Style Presets
+              </span>
+              {showPresetsPanel ? <ChevronUp className="h-3 w-3" /> : <ChevronDown className="h-3 w-3" />}
+            </button>
+            {showPresetsPanel && (
+              <div className="px-2 pb-2 space-y-1">
+                {stylePresetList.length === 0 ? (
+                  <p className="text-xs text-muted-foreground text-center py-2 opacity-60">No presets yet</p>
+                ) : (
+                  <>
+                    {(["area", "line", "symbol"] as const).map(type => {
+                      const group = stylePresetList.filter(p => p.type === type);
+                      if (group.length === 0) return null;
+                      const typeLabel = type === "area" ? "Areas" : type === "line" ? "Lines" : "Symbols";
+                      return (
+                        <div key={type}>
+                          <p className="text-[10px] text-muted-foreground font-medium uppercase tracking-wider px-1 pt-1 pb-0.5">{typeLabel}</p>
+                          {group.map(preset => (
+                            <button
+                              key={preset.id}
+                              onClick={() => setActivePresetId(activePresetId === preset.id ? null : preset.id)}
+                              className={`w-full text-left flex items-center gap-2 px-2 py-1 rounded-md text-xs hover-elevate ${activePresetId === preset.id ? "bg-primary/10 text-primary font-medium" : "text-foreground"}`}
+                              data-testid={`preset-${preset.id}`}
+                            >
+                              <span
+                                className="w-3 h-3 rounded-sm shrink-0 border border-black/10"
+                                style={{
+                                  background: (preset.styleConfig as StylePresetConfig).strokeColor ?? "#888",
+                                }}
+                              />
+                              <span className="truncate">{preset.name}</span>
+                              {activePresetId === preset.id && <Check className="h-3 w-3 ml-auto shrink-0" />}
+                            </button>
+                          ))}
+                        </div>
+                      );
+                    })}
+                  </>
+                )}
+                {activePresetId && (
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="w-full h-7 text-xs text-muted-foreground mt-1"
+                    onClick={() => setActivePresetId(null)}
+                    data-testid="button-clear-preset"
+                  >
+                    Clear Active Preset
+                  </Button>
+                )}
+              </div>
+            )}
+          </div>
+
           {selectedObj ? (
             <ObjectInspector
               obj={selectedObj}
@@ -3538,10 +3728,86 @@ export default function VisualScopeEditor({ sheetId, baseImagePath, initialMarku
               <p className="text-xs">No object selected</p>
             </div>
           )}
-          )}
 
           {selectedObj && (
             <div className="p-2 pt-0 mt-auto border-t bg-muted/30">
+              {/* Apply Preset to selected */}
+              {stylePresetList.length > 0 && (selectedObj.type === "polygon" || selectedObj.type === "polyline" || selectedObj.type === "symbol") && (
+                <div className="mb-2">
+                  <Select
+                    onValueChange={val => {
+                      const preset = stylePresetList.find(p => p.id === val);
+                      if (preset) applyPresetToSelected(preset);
+                    }}
+                  >
+                    <SelectTrigger className="h-7 text-xs" data-testid="select-apply-preset">
+                      <SelectValue placeholder="Apply preset..." />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {(["area", "line", "symbol"] as const).map(type => {
+                        const group = stylePresetList.filter(p => p.type === type);
+                        if (group.length === 0) return null;
+                        const relevantType = selectedObj.type === "polygon" ? "area" : selectedObj.type === "polyline" ? "line" : "symbol";
+                        if (type !== relevantType) return null;
+                        return group.map(preset => (
+                          <SelectItem key={preset.id} value={preset.id} data-testid={`apply-preset-${preset.id}`}>
+                            {preset.name}
+                          </SelectItem>
+                        ));
+                      })}
+                    </SelectContent>
+                  </Select>
+                </div>
+              )}
+              {/* Save as Preset / duplicate / delete */}
+              {showSavePresetDialog ? (
+                <div className="space-y-1.5 mb-2">
+                  <Input
+                    className="h-7 text-xs"
+                    placeholder="Preset name..."
+                    value={savePresetName}
+                    onChange={e => setSavePresetName(e.target.value)}
+                    data-testid="input-preset-name"
+                    autoFocus
+                  />
+                  <Input
+                    className="h-7 text-xs"
+                    placeholder="Category (e.g. mulch)"
+                    value={savePresetCategory}
+                    onChange={e => setSavePresetCategory(e.target.value)}
+                    data-testid="input-preset-category"
+                  />
+                  <div className="flex gap-1">
+                    <Button
+                      size="sm"
+                      className="h-7 text-xs flex-1"
+                      onClick={saveSelectedAsPreset}
+                      data-testid="button-confirm-save-preset"
+                    >
+                      Save
+                    </Button>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="h-7 text-xs"
+                      onClick={() => setShowSavePresetDialog(false)}
+                    >
+                      Cancel
+                    </Button>
+                  </div>
+                </div>
+              ) : (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="w-full h-7 text-xs gap-1.5 mb-2"
+                  onClick={() => setShowSavePresetDialog(true)}
+                  data-testid="button-save-as-preset"
+                >
+                  <Tag className="h-3 w-3" />
+                  Save as Preset
+                </Button>
+              )}
               <div className="grid grid-cols-2 gap-2">
                 <Button
                   variant="outline"
@@ -3737,6 +4003,61 @@ export default function VisualScopeEditor({ sheetId, baseImagePath, initialMarku
               </Button>
             </div>
             <div className="p-4 space-y-5">
+              {/* Sheet Templates */}
+              <div className="space-y-2">
+                <Label className="text-xs font-medium">Sheet Templates</Label>
+                {sheetTemplateList.length > 0 && (
+                  <div className="grid grid-cols-1 gap-1">
+                    {sheetTemplateList.map(tmpl => (
+                      <Button
+                        key={tmpl.id}
+                        variant="outline"
+                        size="sm"
+                        className="justify-start text-xs h-8 font-normal gap-1.5"
+                        onClick={() => loadTemplate(tmpl)}
+                        data-testid={`template-${tmpl.id}`}
+                      >
+                        <BookOpen className="h-3 w-3" />
+                        {tmpl.name}
+                      </Button>
+                    ))}
+                  </div>
+                )}
+                {showSaveTemplateDialog ? (
+                  <div className="space-y-1.5">
+                    <Input
+                      className="h-8 text-xs"
+                      placeholder="Template name..."
+                      value={saveTemplateName}
+                      onChange={e => setSaveTemplateName(e.target.value)}
+                      data-testid="input-template-name"
+                      autoFocus
+                    />
+                    <div className="flex gap-1">
+                      <Button size="sm" className="h-7 text-xs flex-1" onClick={saveCurrentAsTemplate} data-testid="button-confirm-save-template">
+                        Save
+                      </Button>
+                      <Button variant="ghost" size="sm" className="h-7 text-xs" onClick={() => setShowSaveTemplateDialog(false)}>
+                        Cancel
+                      </Button>
+                    </div>
+                  </div>
+                ) : (
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="w-full justify-start text-xs h-8 font-normal gap-1.5"
+                    onClick={() => setShowSaveTemplateDialog(true)}
+                    data-testid="button-save-template"
+                  >
+                    <Save className="h-3 w-3" />
+                    Save Current as Template
+                  </Button>
+                )}
+              </div>
+
+              <Separator />
+
               <div className="space-y-2">
                 <Label className="text-xs font-medium">Layout Preset</Label>
                 <div className="grid grid-cols-1 gap-1.5">
