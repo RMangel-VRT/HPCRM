@@ -1475,6 +1475,17 @@ export async function migrateVisualScopeSheetColumns(): Promise<void> {
   }
 }
 
+export async function migrateVisualScopeScaleColumns(): Promise<void> {
+  console.log("Running startup migration: Ensuring is_scaled and scale_source columns exist on visual_scope_sheets table...");
+  try {
+    await db.execute(sql`ALTER TABLE visual_scope_sheets ADD COLUMN IF NOT EXISTS is_scaled boolean NOT NULL DEFAULT false`);
+    await db.execute(sql`ALTER TABLE visual_scope_sheets ADD COLUMN IF NOT EXISTS scale_source varchar`);
+    console.log("visual_scope_sheets scale columns migration complete");
+  } catch (error) {
+    console.error("Error during visual_scope_sheets scale columns migration:", error);
+  }
+}
+
 export async function backfillCustomerType(): Promise<void> {
   console.log("Running startup migration: Backfilling customer_type for existing customers...");
   try {
