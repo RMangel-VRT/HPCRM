@@ -854,7 +854,7 @@ function getSvgPoint(e: React.PointerEvent<SVGCircleElement>): MarkupPoint {
   svgPt.x = e.clientX;
   svgPt.y = e.clientY;
   const t = svgPt.matrixTransform(svg.getScreenCTM()!.inverse());
-  return [clamp(t.x), clamp(t.y)];
+  return [clamp01(t.x), clamp01(t.y)];
 }
 
 function SelectionHandles({ obj, onStartVertexDrag, onStartRotate }: SelectionHandlesProps) {
@@ -2024,10 +2024,9 @@ export default function VisualScopeEditor({
         return prev.filter(o => o.id !== editingTextId);
       });
     }
-    setObjects(current => [...current, newObj]);
-    setSelectedId(newId);
-    hasUserEdited.current = true;
-  }, [selectedId, selectedObj, objects, layerDefs, pushUndo, nextCalloutNumber]);
+    setEditingTextId(null);
+    setEditingTextValue("");
+  }, [editingTextId, objects, layerDefs, pushUndo]);
 
   const commitEditingText = () => {
     if (!editingTextId) return;
