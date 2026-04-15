@@ -2068,6 +2068,7 @@ export interface MarkupObject {
   lengthFt?: number;
   showMeasurementLabel?: boolean;
   presetId?: string;
+  groupId?: string;
 }
 
 export interface SheetMetadata {
@@ -2132,6 +2133,7 @@ function normalizeMarkupObject(obj: unknown): MarkupObject {
     areaSqFt: typeof o.areaSqFt === "number" ? o.areaSqFt : undefined,
     lengthFt: typeof o.lengthFt === "number" ? o.lengthFt : undefined,
     showMeasurementLabel: typeof o.showMeasurementLabel === "boolean" ? o.showMeasurementLabel : undefined,
+    groupId: typeof o.groupId === "string" ? o.groupId : undefined,
   };
 }
 
