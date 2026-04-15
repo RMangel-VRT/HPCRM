@@ -788,6 +788,190 @@ function drawNotesBlock(
   ctx.restore();
 }
 
+// ─── Pro Export Types ──────────────────────────────────────────────────────
+
+export type ExportPreset = "standard" | "clean" | "internal";
+
+export interface ExportBranding {
+  enabled: boolean;
+  companyName?: string;
+}
+
+export interface ProExportOptions {
+  preset?: ExportPreset;
+  width?: number;
+  branding?: ExportBranding;
+}
+
+// ─── Title Block ────────────────────────────────────────────────────────────
+
+function wrapText(ctx: NodeCanvasCtx, text: string, maxWidth: number): string[] {
+  const words = text.split(" ");
+  const lines: string[] = [];
+  let line = "";
+  for (const word of words) {
+    const test = line ? `${line} ${word}` : word;
+    if (ctx.measureText(test).width > maxWidth && line) {
+      lines.push(line);
+      line = word;
+    } else {
+      line = test;
+    }
+  }
+  if (line) lines.push(line);
+  return lines;
+}
+
+function drawBrandingHeader(
+  ctx: NodeCanvasCtx,
+  width: number,
+  headerHeight: number,
+  companyName: string
+) {
+  ctx.fillStyle = "#1a4d1a";
+  ctx.fillRect(0, 0, width, headerHeight);
+  const fontSize = Math.round(headerHeight * 0.42);
+  ctx.font = `bold ${fontSize}px Arial, Helvetica, sans-serif`;
+  ctx.fillStyle = "#ffffff";
+  ctx.textAlign = "left";
+  ctx.shadowBlur = 0;
+  ctx.fillText(companyName, Math.round(headerHeight * 0.35), Math.round(headerHeight / 2 + fontSize * 0.36));
+  ctx.textAlign = "left";
+}
+
+function drawExportTitleBlock(
+  ctx: NodeCanvasCtx,
+  y: number,
+  width: number,
+  blockHeight: number,
+  title: string,
+  customerName: string,
+  scopeDate: string
+) {
+  ctx.fillStyle = "#ffffff";
+  ctx.fillRect(0, y, width, blockHeight);
+
+  ctx.strokeStyle = "#1a4d1a";
+  ctx.lineWidth = Math.max(2, Math.round(width * 0.0018));
+  ctx.setLineDash([]);
+  ctx.beginPath();
+  ctx.moveTo(0, y);
+  ctx.lineTo(width, y);
+  ctx.stroke();
+
+  const pad = Math.round(width * 0.018);
+  const titleFontSize = Math.round(width * 0.021);
+  const subtitleFontSize = Math.round(width * 0.013);
+
+  ctx.font = `bold ${titleFontSize}px Arial, Helvetica, sans-serif`;
+  ctx.fillStyle = "#111111";
+  ctx.textAlign = "left";
+  ctx.shadowBlur = 0;
+  ctx.fillText(title, pad, y + pad + titleFontSize);
+
+  ctx.font = `${subtitleFontSize}px Arial, Helvetica, sans-serif`;
+  ctx.fillStyle = "#555555";
+  const sub = [customerName, scopeDate].filter(Boolean).join("   \u00b7   ");
+  ctx.fillText(sub, pad, y + pad + titleFontSize + Math.round(subtitleFontSize * 1.5));
+
+  // Right side: "Visual Scope" label
+  ctx.font = `${subtitleFontSize}px Arial, Helvetica, sans-serif`;
+  ctx.fillStyle = "#aaaaaa";
+  ctx.textAlign = "right";
+  ctx.fillText("Visual Scope", width - pad, y + pad + titleFontSize);
+  ctx.textAlign = "left";
+}
+
+// ─── Pro Export Renderer ────────────────────────────────────────────────────
+
+export async function renderVisualScopeExport(
+  sheet: VisualScopeSheet & { customerName?: string },
+  options: ProExportOptions = {}
+): Promise<Buffer> {
+  const preset = options.preset ?? "standard";
+  const targetWidth = Math.max(1200, Math.min(6000, options.width ?? 2000));
+  const branding = options.branding ?? { enabled: false };
+
+  if (!sheet.baseImagePath) throw new Error("NO_BASE_IMAGE");
+
+  const objectStorage = new ObjectStorageService();
+  let imgBuffer: Buffer;
+  try {
+    imgBuffer = await objectStorage.downloadByPath(sheet.baseImagePath);
+  } catch (err: any) {
+    throw new Error(`Visual Scope export failed: ${err?.message ?? "Object not found"}`);
+  }
+  if (imgBuffer.length > MAX_IMAGE_BYTES) throw new Error("BASE_IMAGE_TOO_LARGE");
+
+  const baseImg = await loadImage(imgBuffer);
+  if (baseImg.width > MAX_IMAGE_DIM || baseImg.height > MAX_IMAGE_DIM) throw new Error("BASE_IMAGE_TOO_LARGE");
+
+  const imgWidth = targetWidth;
+  const imgHeight = Math.round(targetWidth * (baseImg.height / baseImg.width));
+
+  const layerDefs = (sheet.layerDefs as LayerDefinition[] | null) ?? null;
+  const legendState: LegendState = ((sheet as any).legendState as LegendState | null) ?? DEFAULT_LEGEND_STATE;
+
+  const hiddenLayerIds = new Set<string>();
+  if (preset !== "internal" && layerDefs) {
+    for (const l of layerDefs) {
+      if (!l.visible) hiddenLayerIds.add(l.id);
+    }
+  }
+
+  const rawObjects = flattenMarkupObjects(sheet.markupData);
+  const objects = rawObjects.filter(obj => {
+    const layerId = obj.layerId ?? (
+      obj.type === "polygon" ? "areas" :
+      obj.type === "polyline" ? "lines" :
+      obj.type === "symbol" ? "symbols" : "text-callouts"
+    );
+    return !hiddenLayerIds.has(layerId);
+  });
+
+  const brandingH = (branding.enabled && branding.companyName)
+    ? Math.round(imgWidth * 0.030)
+    : 0;
+  const titleBlockH = (preset === "standard" || preset === "internal")
+    ? Math.round(imgWidth * 0.052)
+    : 0;
+  const totalHeight = brandingH + imgHeight + titleBlockH;
+
+  const canvas = createCanvas(imgWidth, totalHeight);
+  const ctx = canvas.getContext("2d") as NodeCanvasCtx;
+
+  ctx.fillStyle = "#ffffff";
+  ctx.fillRect(0, 0, imgWidth, totalHeight);
+
+  if (brandingH > 0) {
+    drawBrandingHeader(ctx, imgWidth, brandingH, branding.companyName!);
+  }
+
+  ctx.drawImage(baseImg as any, 0, brandingH, imgWidth, imgHeight);
+
+  ctx.save();
+  ctx.translate(0, brandingH);
+  drawMarkup(ctx, objects, imgWidth, imgHeight);
+  if (preset !== "clean") {
+    drawLegend(ctx, objects, imgWidth, imgHeight, legendState);
+  }
+  ctx.restore();
+
+  if (titleBlockH > 0) {
+    drawExportTitleBlock(
+      ctx,
+      brandingH + imgHeight,
+      imgWidth,
+      titleBlockH,
+      sheet.title || "Visual Scope",
+      (sheet as any).customerName || "",
+      sheet.scopeDate || ""
+    );
+  }
+
+  return canvas.toBuffer("image/png");
+}
+
 export async function renderVisualScope(
   sheet: VisualScopeSheet,
   type: ExportType,

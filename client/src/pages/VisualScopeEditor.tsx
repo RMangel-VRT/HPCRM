@@ -5,34 +5,28 @@ import { Separator } from "@/components/ui/separator";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
-import {
-  Popover,
-  PopoverContent,
-  PopoverTrigger,
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-  Tabs,
-  TabsList,
-  TabsTrigger,
-  TabsContent,
-  Tooltip,
-  TooltipContent,
-  TooltipTrigger,
-  ScrollArea,
-} from "@/components/ui/select";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import {
-  Popover,
-  PopoverContent,
-  PopoverTrigger,
-} from "@/components/ui/popover";
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogFooter,
+} from "@/components/ui/dialog";
+import { Switch } from "@/components/ui/switch";
+import {
+  Sheet,
+  SheetTrigger,
+  SheetContent,
+  SheetHeader,
+  SheetTitle,
+} from "@/components/ui/sheet";
+import { useToast } from "@/hooks/use-toast";
+import { apiRequest } from "@/lib/queryClient";
 import {
   MousePointer,
   Pentagon,
@@ -65,9 +59,10 @@ import {
   RotateCcw,
   Ruler,
   AlertCircle,
+  Map as MapIcon,
+  Download,
 } from "lucide-react";
-import { apiRequest } from "@/lib/queryClient";
-import type { MarkupObject, MarkupPoint, SymbolType, MarkupDocument, LegendState, LegendEntry, FillType, TextureScale, LayerDefinition, SheetMetadata, CaptureParams } from "@shared/schema";
+import type { MarkupObject, MarkupPoint, SymbolType, MarkupDocument, LegendState, LegendEntry, FillType, LayerDefinition, SheetMetadata, CaptureParams } from "@shared/schema";
 import { parseMarkupData, flattenMarkupObjects, SYSTEM_LAYERS, getDefaultLayerForType } from "@shared/schema";
 import { detectLegendEntries, applyLegendState, DEFAULT_LEGEND_STATE } from "@shared/legendUtils";
 import { isSheetScaled, computeAreaSqFt, computeLengthFt, formatSqFt, formatLinearFt } from "@shared/measurementUtils";
@@ -78,7 +73,7 @@ import {
   getTextureDef,
   getPatternSvgContent,
 } from "@shared/textures";
-import type { TextureId } from "@shared/textures";
+import type { TextureId, TextureScale } from "@shared/textures";
 import {
   SYMBOL_CATEGORIES,
   SYMBOL_MAP,
@@ -88,6 +83,26 @@ import {
   type SymbolPrimitive,
   type SymbolCategory,
 } from "@shared/symbolRegistry";
+import {
+  type MarkupPoint,
+  type MarkupObjectType,
+  type MarkupObject,
+  type LegendEntry,
+  type LegendEntryKind,
+  type LegendState,
+  type LegendPosition,
+  type LegendMode,
+  type LayerDefinition,
+  type SymbolType,
+  type FillType,
+  SYSTEM_LAYERS,
+  getDefaultLayerForType,
+} from "@shared/schema";
+import {
+  DEFAULT_LEGEND_STATE,
+  detectLegendEntries,
+  applyLegendState,
+} from "@shared/legendUtils";
 
 type ActiveTool = "select" | "polygon" | "polyline" | "text" | "stamp" | "tree" | "plant" | "boulder" | "callout";
 type DashStyle = "solid" | "dashed" | "dotted";
@@ -259,8 +274,9 @@ function dashArray(style: DashStyle | undefined, sw: number): string | undefined
   return undefined;
 }
 
-function migrateObjects(objects: MarkupObject[]): MarkupObject[] {
-  return objects.map(obj => ({
+function migrateObjects(objects: unknown): MarkupObject[] {
+  if (!Array.isArray(objects)) return [];
+  return (objects as MarkupObject[]).map(obj => ({
     ...obj,
     layerId: obj.layerId ?? getDefaultLayerForType(obj.type),
   }));
@@ -1198,12 +1214,19 @@ function nearestCorner(x: number, y: number, w: number, h: number): Corner {
 }
 
 function resolveDefFromEntry(entry: LegendEntry): SymbolDefinition | undefined {
-  if (entry.symbolTypeId) return SYMBOL_MAP.get(entry.symbolTypeId);
   if (entry.symbolType) {
     const mapped = LEGACY_SYMBOL_MAP[entry.symbolType];
     if (mapped) return SYMBOL_MAP.get(mapped);
   }
   return undefined;
+}
+
+interface LegendPanelProps {
+  entries: LegendEntry[];
+  allEntries: LegendEntry[];
+  legendState: LegendState;
+  onLegendStateChange: (ls: LegendState) => void;
+  containerRef: React.RefObject<HTMLDivElement>;
 }
 
 function LegendPanel({ entries, allEntries, legendState, onLegendStateChange, containerRef }: LegendPanelProps) {
@@ -1454,56 +1477,6 @@ function LegendPanel({ entries, allEntries, legendState, onLegendStateChange, co
   );
 }
 
-  return (
-    <div ref={panelRef} style={panelStyle} onMouseDown={handleMouseDown}>
-      <div style={{ padding: "4px 8px 3px", borderBottom: "1px solid rgba(0,0,0,0.08)", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-        <span style={{ fontWeight: 600, fontSize: 10, color: "#555" }}>{legendState.title}</span>
-      </div>
-      {!compact && (
-        <div style={{ padding: "4px 8px 5px" }}>
-          {legendState.showMaterialsGroup && sectionGroups.materials.length > 0 && (
-            <div>
-              <div style={{ fontSize: 8, fontWeight: 600, color: "#999", textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: 2, marginTop: 1 }}>Materials</div>
-              {sectionGroups.materials.map(e => <EntryRow key={e.id} entry={e} />)}
-            </div>
-          )}
-          {legendState.showSymbolsGroup && sectionGroups.symbols.length > 0 && (
-            <div>
-              <div style={{ fontSize: 8, fontWeight: 600, color: "#999", textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: 2, marginTop: 1 }}>Symbols</div>
-              {sectionGroups.symbols.map(e => <EntryRow key={e.id} entry={e} />)}
-            </div>
-          )}
-          {legendState.showLinesGroup && sectionGroups.lines.length > 0 && (
-            <div>
-              <div style={{ fontSize: 8, fontWeight: 600, color: "#999", textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: 2, marginTop: 1 }}>Lines</div>
-              {sectionGroups.lines.map(e => <EntryRow key={e.id} entry={e} />)}
-            </div>
-          )}
-        </div>
-      )}
-      {compact && (
-        <div style={{ padding: "3px 6px 4px", display: "flex", flexWrap: "wrap", gap: 4 }}>
-          {entries.map(e => {
-            const def = resolveDefFromEntry(e);
-            return (
-              <div key={e.id} style={{ display: "flex", alignItems: "center", gap: 3 }}>
-                {e.kind === "symbol" && def ? (
-                  <SymbolIcon def={def} color={e.color} size={10} />
-                ) : e.kind === "line" ? (
-                  <div style={{ width: 10, height: 2, background: e.color || "#333" }} />
-                ) : (
-                  <div style={{ width: 8, height: 8, borderRadius: 1, background: e.color || "#888", border: "1px solid rgba(0,0,0,0.2)" }} />
-                )}
-                <span style={{ fontSize: 9, color: "#444" }}>{legendState.customLabels[e.id] ?? e.label}</span>
-              </div>
-            );
-          })}
-        </div>
-      )}
-    </div>
-  );
-}
-
 function LayersPanel({ layers, activeLayerId, onSetActive, onToggleVisible, onToggleLocked }: LayersPanelProps) {
   return (
     <div className="flex flex-col" data-testid="panel-layers">
@@ -1635,6 +1608,39 @@ function SymbolLibrary({ onSelect }: SymbolLibraryProps) {
 interface LegendSettingsProps {
   legendState: LegendState;
   onLegendStateChange: (ls: LegendState) => void;
+}
+
+function LegendSettings({ legendState, onLegendStateChange }: LegendSettingsProps) {
+  const positions: LegendPosition[] = ["top-left", "top-right", "bottom-left", "bottom-right"];
+  const posLabels: Record<LegendPosition, string> = {
+    "top-left": "Top Left", "top-right": "Top Right", "bottom-left": "Bot Left", "bottom-right": "Bot Right",
+  };
+  return (
+    <div className="p-3 flex flex-col gap-3">
+      <div>
+        <p className="text-xs font-medium text-muted-foreground mb-1.5">Position</p>
+        <div className="grid grid-cols-2 gap-1">
+          {positions.map(p => (
+            <Button key={p} size="sm" variant={legendState.position === p ? "default" : "outline"}
+              onClick={() => onLegendStateChange({ ...legendState, position: p })} className="text-xs h-7">
+              {posLabels[p]}
+            </Button>
+          ))}
+        </div>
+      </div>
+      <div>
+        <p className="text-xs font-medium text-muted-foreground mb-1.5">Mode</p>
+        <div className="flex gap-1">
+          {(["compact", "expanded"] as LegendMode[]).map(m => (
+            <Button key={m} size="sm" variant={legendState.mode === m ? "default" : "outline"}
+              onClick={() => onLegendStateChange({ ...legendState, mode: m })} className="text-xs capitalize h-7">
+              {m}
+            </Button>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
 }
 
 function ObjectInspector({ obj, onChange, onDelete }: ObjectInspectorProps) {
@@ -2176,6 +2182,14 @@ export default function VisualScopeEditor({ sheetId, baseImagePath, initialMarku
   const [sheetMeta, setSheetMeta] = useState<SheetMetadata>(() => (parseMarkupData(initialMarkupData).sheetMeta ?? {}));
   const [showMeasurementLabels, setShowMeasurementLabels] = useState(false);
   const [takeoffOpen, setTakeoffOpen] = useState(false);
+  const [exportOpen, setExportOpen] = useState(false);
+  const [exportFormat, setExportFormat] = useState<"png" | "pdf">("png");
+  const [exportResolution, setExportResolution] = useState<"standard" | "high">("standard");
+  const [exportPreset, setExportPreset] = useState<"standard" | "clean" | "internal">("standard");
+  const [exportBrandingEnabled, setExportBrandingEnabled] = useState(false);
+  const [exportCompanyName, setExportCompanyName] = useState("");
+  const [isExporting, setIsExporting] = useState(false);
+  const { toast } = useToast();
 
   const hasUserEdited = useRef(false);
   const legendUserEdited = useRef(false);
@@ -2443,7 +2457,7 @@ export default function VisualScopeEditor({ sheetId, baseImagePath, initialMarku
       pushUndo(objects, layerDefs);
       return prev.map(o => o.id === selectedId ? { ...o, dashStyle: style } : o);
     });
-  }, [selectedId]);
+  }, [selectedId, objects, layerDefs, pushUndo]);
 
   const handleOpacityChange = useCallback((opacity: number) => {
     if (!selectedId) return;
@@ -2545,7 +2559,7 @@ export default function VisualScopeEditor({ sheetId, baseImagePath, initialMarku
     if (!selectedId) return;
     const cur = objects.find(o => o.id === selectedId);
     const label = selectionPanelText.trim() || (cur?.type === "text" ? "Label" : "");
-    updateObjects(prev => {
+    setObjects(prev => {
       const current = prev.find(o => o.id === selectedId);
       if (current && current.label === label) return prev;
       pushUndo(prev, layerDefs);
@@ -2685,7 +2699,7 @@ export default function VisualScopeEditor({ sheetId, baseImagePath, initialMarku
   const commitSelectionPanelNote = useCallback(() => {
     if (!selectedId) return;
     const note = selectionPanelNote.trim();
-    updateObjects(prev => {
+    setObjects(prev => {
       const cur = prev.find(o => o.id === selectedId);
       if (cur && cur.note === note) return prev;
       pushUndo(prev, layerDefs);
@@ -2805,7 +2819,7 @@ export default function VisualScopeEditor({ sheetId, baseImagePath, initialMarku
       const def = SYMBOL_MAP.get(activeSymbolId);
       if (!def) return;
       const newId = nanoid8();
-      updateObjects(prev => {
+      setObjects(prev => {
         pushUndo(prev, layerDefs);
         hasUserEdited.current = true;
         return [...prev, {
@@ -3042,6 +3056,74 @@ export default function VisualScopeEditor({ sheetId, baseImagePath, initialMarku
   const isPolyShape = selectedObj?.type === "polygon" || selectedObj?.type === "polyline";
   const canDeleteVertex = isPolyShape && selectedVertexIdx !== null && selectedObj!.points.length > (selectedObj!.type === "polygon" ? 3 : 2);
 
+  // Cursor for active tool
+  const svgCursor =
+    activeTool === "select" ? "default" :
+    activeTool === "stamp" ? "crosshair" :
+    "crosshair";
+
+  function ToolBtn({ tool, icon: Icon, label }: { tool: ActiveTool; icon: React.ElementType; label: string }) {
+    const isActive = activeTool === tool;
+    return (
+      <Button
+        size="icon"
+        variant="ghost"
+        className={`toggle-elevate${isActive ? " toggle-elevated" : ""}`}
+        onClick={() => changeTool(tool)}
+        title={label}
+        data-testid={`button-tool-${tool}`}
+        disabled={isAtLimit && tool !== "select"}
+      >
+        <Icon className="w-4 h-4" />
+      </Button>
+    );
+  }
+
+  const visibleObjectIds = new Set(
+    layerDefs.filter(l => l.visible).map(l => l.id)
+  );
+  const activeSymbolDef = SYMBOL_MAP.get(activeSymbolId);
+
+  async function handleExport() {
+    setIsExporting(true);
+    try {
+      const endpoint = exportFormat === "pdf"
+        ? `/api/visual-scope-sheets/${sheetId}/export-pdf`
+        : `/api/visual-scope-sheets/${sheetId}/export-png`;
+      const res = await fetch(endpoint, {
+        method: "POST",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          preset: exportPreset,
+          resolution: exportResolution,
+          branding: {
+            enabled: exportBrandingEnabled,
+            companyName: exportBrandingEnabled ? exportCompanyName : undefined,
+          },
+        }),
+      });
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        throw new Error(data.error ?? "Export failed");
+      }
+      const blob = await res.blob();
+      const ext = exportFormat === "pdf" ? "pdf" : "png";
+      const presetLabel = exportPreset === "clean" ? "clean" : exportPreset === "internal" ? "internal" : "proposal";
+      const filename = `visual-scope-${presetLabel}.${ext}`;
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = filename;
+      a.click();
+      URL.revokeObjectURL(url);
+      setExportOpen(false);
+    } catch (err: any) {
+      toast({ title: "Export failed", description: err.message, variant: "destructive" });
+    } finally {
+      setIsExporting(false);
+    }
+  }
   return (
     <div className="flex flex-col h-full bg-background" ref={containerRef}>
       <header className="flex items-center justify-between px-4 h-12 border-b bg-card shrink-0 gap-2">
@@ -3174,7 +3256,7 @@ export default function VisualScopeEditor({ sheetId, baseImagePath, initialMarku
               data-testid="button-legend-toggle"
               title="Legend settings"
             >
-              <Map className="w-4 h-4" />
+              <MapIcon className="w-4 h-4" />
               <span className="text-xs">Legend</span>
               <Settings className="w-3 h-3 text-muted-foreground" />
             </Button>
@@ -3230,10 +3312,22 @@ export default function VisualScopeEditor({ sheetId, baseImagePath, initialMarku
           </span>
         )}
 
-        <div className="ml-auto flex items-center gap-1 text-xs text-muted-foreground" data-testid="text-save-status">
-          {saveStatus === "saving" && <><Loader2 className="w-3 h-3 animate-spin" />{t("common.saving")}</>}
-          {saveStatus === "saved" && <><Check className="w-3 h-3 text-green-600" />{t("common.save")}</>}
-          {saveStatus === "unsaved" && t("common.save")}
+        <div className="ml-auto flex items-center gap-2">
+          <Button
+            size="sm"
+            variant="outline"
+            onClick={() => setExportOpen(true)}
+            data-testid="button-export-modal"
+            title="Export PNG or PDF"
+          >
+            <Download className="w-4 h-4 mr-1" />
+            Export
+          </Button>
+          <div className="flex items-center gap-1 text-xs text-muted-foreground" data-testid="text-save-status">
+            {saveStatus === "saving" && <><Loader2 className="w-3 h-3 animate-spin" />{t("common.saving")}</>}
+            {saveStatus === "saved" && <><Check className="w-3 h-3 text-green-600" />{t("common.save")}</>}
+            {saveStatus === "unsaved" && t("common.save")}
+          </div>
         </div>
       </div>
 
@@ -3242,7 +3336,7 @@ export default function VisualScopeEditor({ sheetId, baseImagePath, initialMarku
         <Lock className="w-3 h-3 shrink-0 opacity-50" />
         <span className="opacity-70">Base image (locked)</span>
         <Separator orientation="vertical" className="h-3 mx-1" />
-        <span className="font-medium text-foreground">{defaultLayer?.name ?? "Annotations"}</span>
+        <span className="font-medium text-foreground">{layerDefs.find(l => l.id === activeLayerId)?.name ?? "Annotations"}</span>
         <span className="opacity-60">— {objects.length} object{objects.length !== 1 ? "s" : ""}</span>
       </div>
 
@@ -3796,6 +3890,122 @@ export default function VisualScopeEditor({ sheetId, baseImagePath, initialMarku
           Sheet ID: {sheetId}
         </div>
       </footer>
+
+      {/* Export Modal */}
+      <Dialog open={exportOpen} onOpenChange={setExportOpen}>
+        <DialogContent className="max-w-md" data-testid="dialog-export">
+          <DialogHeader>
+            <DialogTitle>Export Visual Scope</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-5 py-2">
+            <div className="space-y-2">
+              <Label>Format</Label>
+              <div className="flex gap-2">
+                <Button
+                  size="sm"
+                  variant={exportFormat === "png" ? "default" : "outline"}
+                  onClick={() => setExportFormat("png")}
+                  data-testid="button-export-format-png"
+                >
+                  PNG
+                </Button>
+                <Button
+                  size="sm"
+                  variant={exportFormat === "pdf" ? "default" : "outline"}
+                  onClick={() => setExportFormat("pdf")}
+                  data-testid="button-export-format-pdf"
+                >
+                  PDF
+                </Button>
+              </div>
+            </div>
+
+            <div className="space-y-2">
+              <Label>Resolution</Label>
+              <div className="flex gap-2">
+                <Button
+                  size="sm"
+                  variant={exportResolution === "standard" ? "default" : "outline"}
+                  onClick={() => setExportResolution("standard")}
+                  data-testid="button-export-resolution-standard"
+                >
+                  Standard (2000px)
+                </Button>
+                <Button
+                  size="sm"
+                  variant={exportResolution === "high" ? "default" : "outline"}
+                  onClick={() => setExportResolution("high")}
+                  data-testid="button-export-resolution-high"
+                >
+                  High-Res (4000px)
+                </Button>
+              </div>
+            </div>
+
+            <div className="space-y-2">
+              <Label>Preset</Label>
+              <Select
+                value={exportPreset}
+                onValueChange={(v) => setExportPreset(v as "standard" | "clean" | "internal")}
+              >
+                <SelectTrigger data-testid="select-export-preset">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="standard">Standard Proposal Sheet</SelectItem>
+                  <SelectItem value="clean">Clean Visual Only</SelectItem>
+                  <SelectItem value="internal">Internal Review</SelectItem>
+                </SelectContent>
+              </Select>
+              <p className="text-xs text-muted-foreground">
+                {exportPreset === "standard" && "Full layout: image, markups, legend, and title block."}
+                {exportPreset === "clean" && "Image and markups only — no title block or legend."}
+                {exportPreset === "internal" && "All layers visible, including hidden ones. Includes legend."}
+              </p>
+            </div>
+
+            <div className="space-y-3">
+              <div className="flex items-center justify-between">
+                <Label htmlFor="export-branding-toggle">Branding</Label>
+                <Switch
+                  id="export-branding-toggle"
+                  checked={exportBrandingEnabled}
+                  onCheckedChange={setExportBrandingEnabled}
+                  data-testid="switch-export-branding"
+                />
+              </div>
+              {exportBrandingEnabled && (
+                <div className="space-y-1.5">
+                  <Label htmlFor="export-company-name" className="text-xs text-muted-foreground">Company name</Label>
+                  <Input
+                    id="export-company-name"
+                    value={exportCompanyName}
+                    onChange={e => setExportCompanyName(e.target.value)}
+                    placeholder="Your Company Name"
+                    data-testid="input-export-company-name"
+                  />
+                </div>
+              )}
+            </div>
+          </div>
+
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setExportOpen(false)} data-testid="button-export-cancel">
+              Cancel
+            </Button>
+            <Button
+              onClick={handleExport}
+              disabled={isExporting}
+              data-testid="button-export-confirm"
+            >
+              {isExporting
+                ? <><Loader2 className="w-4 h-4 mr-1 animate-spin" />Exporting...</>
+                : <><Download className="w-4 h-4 mr-1" />Export {exportFormat.toUpperCase()}</>
+              }
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

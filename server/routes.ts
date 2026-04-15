@@ -16,7 +16,7 @@ import { ObjectStorageService, ObjectNotFoundError, objectStorageClient, signObj
 import { ObjectPermission, ObjectAccessGroupType, setObjectAclPolicy } from "./objectAcl";
 import { processEmailEvent, resendEmail, sendEmail, getDefaultWorkCompletedTemplate, getDefaultChemicalPreNoticeTemplate, getDefaultChemicalPostNoticeTemplate } from './services/emailService';
 import heicConvert from 'heic-convert';
-import { renderVisualScope, type ExportType } from "./visualScopeRenderer";
+import { renderVisualScope, renderVisualScopeExport, type ExportType, type ExportPreset } from "./visualScopeRenderer";
 import { ROLLUP_SERVICE_LABELS, campaignToRollupServiceType } from "../shared/serviceCatalog";
 import { buildContractAuditRows } from "./auditEngine";
 
@@ -1461,6 +1461,16 @@ export async function backfillStatusActionTypes(): Promise<void> {
     console.log("Status action_type backfill complete");
   } catch (error) {
     console.error("Error during status action_type backfill:", error);
+  }
+}
+
+export async function migrateVisualScopeLayerDefsColumn(): Promise<void> {
+  console.log("Running startup migration: Ensuring layer_defs column exists on visual_scope_sheets table...");
+  try {
+    await db.execute(sql`ALTER TABLE visual_scope_sheets ADD COLUMN IF NOT EXISTS layer_defs jsonb`);
+    console.log("visual_scope_sheets layer_defs column migration complete");
+  } catch (error) {
+    console.error("Error during visual_scope_sheets layer_defs migration:", error);
   }
 }
 
@@ -10654,6 +10664,111 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.get("/api/visual-scope-sheets/:id/export/base",     (req, res) => handleVsExport(req, res, "base"));
   app.get("/api/visual-scope-sheets/:id/export/overlay",  (req, res) => handleVsExport(req, res, "overlay"));
   app.get("/api/visual-scope-sheets/:id/export/combined", (req, res) => handleVsExport(req, res, "combined"));
+
+  // ─── Pro Export: PNG ────────────────────────────────────────────
+  app.post("/api/visual-scope-sheets/:id/export-png", async (req, res) => {
+    if (!req.isAuthenticated()) return res.status(401).send("Not authenticated");
+    const user = req.user as UserWithContext;
+    if (!canAccessVisualScope(user.activeRole)) return res.status(403).send("Insufficient permissions");
+    const sheet = await storage.getVisualScopeSheet(req.params.id, user.activeCompanyId);
+    if (!sheet) return res.status(404).json({ error: "Not found" });
+    if (!sheet.baseImagePath) return res.status(400).json({ error: "Sheet has no base image" });
+
+    const {
+      preset = "standard",
+      resolution = "standard",
+      branding = { enabled: false },
+    } = req.body as {
+      preset?: ExportPreset;
+      resolution?: "standard" | "high";
+      branding?: { enabled: boolean; companyName?: string };
+    };
+
+    const baseWidth = resolution === "high" ? 4000 : 2000;
+    try {
+      const pngBuffer = await renderVisualScopeExport(sheet as any, {
+        preset,
+        width: baseWidth,
+        branding,
+      });
+      const presetLabel = preset === "clean" ? "clean" : preset === "internal" ? "internal" : "proposal";
+      const filename = `vs-${sheet.id}-${presetLabel}-${baseWidth}px.png`;
+      res.setHeader("Content-Type", "image/png");
+      res.setHeader("Content-Length", pngBuffer.length);
+      res.setHeader("Content-Disposition", `attachment; filename="${filename}"`);
+      res.setHeader("Cache-Control", "no-store");
+      return res.send(pngBuffer);
+    } catch (err: any) {
+      if (err?.message === "NO_BASE_IMAGE") return res.status(400).json({ error: "Sheet has no base image" });
+      if (err?.message === "BASE_IMAGE_TOO_LARGE") return res.status(400).json({ error: "Base image exceeds the maximum allowed size" });
+      console.error("VS pro PNG export error:", err);
+      return res.status(500).json({ error: "Export failed" });
+    }
+  });
+
+  // ─── Pro Export: PDF ────────────────────────────────────────────
+  app.post("/api/visual-scope-sheets/:id/export-pdf", async (req, res) => {
+    if (!req.isAuthenticated()) return res.status(401).send("Not authenticated");
+    const user = req.user as UserWithContext;
+    if (!canAccessVisualScope(user.activeRole)) return res.status(403).send("Insufficient permissions");
+    const sheet = await storage.getVisualScopeSheet(req.params.id, user.activeCompanyId);
+    if (!sheet) return res.status(404).json({ error: "Not found" });
+    if (!sheet.baseImagePath) return res.status(400).json({ error: "Sheet has no base image" });
+
+    const {
+      preset = "standard",
+      resolution = "standard",
+      branding = { enabled: false },
+    } = req.body as {
+      preset?: ExportPreset;
+      resolution?: "standard" | "high";
+      branding?: { enabled: boolean; companyName?: string };
+    };
+
+    const baseWidth = resolution === "high" ? 4000 : 2000;
+    try {
+      const pngBuffer = await renderVisualScopeExport(sheet as any, {
+        preset,
+        width: baseWidth,
+        branding,
+      });
+
+      const PDFDocument = (await import("pdfkit")).default;
+      const chunks: Buffer[] = [];
+      const pdfDoc = new PDFDocument({ autoFirstPage: false, compress: false });
+      pdfDoc.on("data", (chunk: Buffer) => chunks.push(chunk));
+      const pdfDone = new Promise<Buffer>((resolve, reject) => {
+        pdfDoc.on("end", () => resolve(Buffer.concat(chunks)));
+        pdfDoc.on("error", reject);
+      });
+
+      // Parse PNG dimensions from buffer header
+      const pngWidth = pngBuffer.readUInt32BE(16);
+      const pngHeight = pngBuffer.readUInt32BE(20);
+
+      const dpi = resolution === "high" ? 300 : 150;
+      const pageW = (pngWidth / dpi) * 72;
+      const pageH = (pngHeight / dpi) * 72;
+
+      pdfDoc.addPage({ size: [pageW, pageH], margin: 0 });
+      pdfDoc.image(pngBuffer, 0, 0, { width: pageW, height: pageH });
+      pdfDoc.end();
+
+      const pdfBuffer = await pdfDone;
+      const presetLabel = preset === "clean" ? "clean" : preset === "internal" ? "internal" : "proposal";
+      const filename = `vs-${sheet.id}-${presetLabel}.pdf`;
+      res.setHeader("Content-Type", "application/pdf");
+      res.setHeader("Content-Length", pdfBuffer.length);
+      res.setHeader("Content-Disposition", `attachment; filename="${filename}"`);
+      res.setHeader("Cache-Control", "no-store");
+      return res.send(pdfBuffer);
+    } catch (err: any) {
+      if (err?.message === "NO_BASE_IMAGE") return res.status(400).json({ error: "Sheet has no base image" });
+      if (err?.message === "BASE_IMAGE_TOO_LARGE") return res.status(400).json({ error: "Base image exceeds the maximum allowed size" });
+      console.error("VS pro PDF export error:", err);
+      return res.status(500).json({ error: "Export failed" });
+    }
+  });
 
   // ─── Campaign System ───────────────────────────────────────────
   const campaignAllowedRoles = ["admin", "office", "field_manager", "field", "chemical_manager", "landscape_supervisor"];
