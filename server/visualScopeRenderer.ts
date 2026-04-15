@@ -1,8 +1,8 @@
 import { createCanvas, loadImage } from "canvas";
 import type { CanvasRenderingContext2D as NodeCanvasCtx, Canvas as NodeCanvas } from "canvas";
 import { ObjectStorageService } from "./objectStorage";
-import type { VisualScopeSheet, MarkupObject, MarkupPoint, SymbolType, LegendState, LegendEntry, LayerDefinition } from "@shared/schema";
-import { flattenMarkupObjects } from "@shared/schema";
+import type { VisualScopeSheet, MarkupObject, MarkupPoint, SymbolType, LegendState, LegendEntry, LayerDefinition, SheetMetadata } from "@shared/schema";
+import { flattenMarkupObjects, parseMarkupData } from "@shared/schema";
 import { detectLegendEntries, applyLegendState, DEFAULT_LEGEND_STATE } from "@shared/legendUtils";
 import { TEXTURE_SCALE_SIZES, getTextureDef } from "@shared/textures";
 import type { TextureId } from "@shared/textures";
@@ -133,6 +133,9 @@ function getObjectCenter(obj: MarkupObject, width: number, height: number): { cx
   if (obj.type === "symbol" || obj.type === "text") {
     return { cx: px((obj.points as MarkupPoint[])[0][0], width), cy: py((obj.points as MarkupPoint[])[0][1], height) };
   }
+  if (obj.type === "callout") {
+    return { cx: px((obj.points as MarkupPoint[])[0][0], width), cy: py((obj.points as MarkupPoint[])[0][1], height) };
+  }
   const xs = (obj.points as MarkupPoint[]).map(p => p[0]);
   const ys = (obj.points as MarkupPoint[]).map(p => p[1]);
   return {
@@ -250,7 +253,97 @@ function drawTexturePattern(
     });
   }
 
-  return ctx.createPattern(tile as unknown as HTMLCanvasElement, "repeat");
+  return ctx.createPattern(tile as any, "repeat");
+}
+
+function drawCallout(
+  ctx: NodeCanvasCtx,
+  obj: MarkupObject,
+  width: number,
+  height: number
+) {
+  const points = obj.points as MarkupPoint[];
+  if (points.length < 1) return;
+
+  const bx = px(points[0][0], width);
+  const by = py(points[0][1], height);
+  const tx = points.length > 1 ? px(points[1][0], width) : bx;
+  const ty = points.length > 1 ? py(points[1][1], height) : by;
+
+  const BADGE_R = width * 0.028;
+  const lineColor = obj.strokeColor || "#1d4ed8";
+  const lw = Math.max(1, (obj.strokeWidth || 2) * width / 1000);
+
+  const dx = bx - tx;
+  const dy = by - ty;
+  const len = Math.sqrt(dx * dx + dy * dy);
+
+  ctx.save();
+  ctx.globalAlpha = typeof obj.opacity === "number" ? obj.opacity : 1;
+
+  if (len > BADGE_R * 0.5) {
+    const nx = dx / len;
+    const ny = dy / len;
+    const lineEndX = bx - nx * BADGE_R;
+    const lineEndY = by - ny * BADGE_R;
+    const arrLen = width * 0.018;
+    const arrW = width * 0.009;
+    const baseX = tx + nx * arrLen;
+    const baseY = ty + ny * arrLen;
+    const perpX = -ny;
+    const perpY = nx;
+
+    ctx.strokeStyle = lineColor;
+    ctx.lineWidth = lw;
+    applyDash(ctx, obj.dashStyle, lw);
+    ctx.lineCap = "round";
+    ctx.beginPath();
+    ctx.moveTo(lineEndX, lineEndY);
+    ctx.lineTo(baseX, baseY);
+    ctx.stroke();
+    ctx.setLineDash([]);
+
+    ctx.fillStyle = lineColor;
+    ctx.beginPath();
+    ctx.moveTo(tx, ty);
+    ctx.lineTo(baseX + perpX * arrW, baseY + perpY * arrW);
+    ctx.lineTo(baseX - perpX * arrW, baseY - perpY * arrW);
+    ctx.closePath();
+    ctx.fill();
+  }
+
+  ctx.beginPath();
+  ctx.arc(bx, by, BADGE_R, 0, Math.PI * 2);
+  ctx.fillStyle = lineColor;
+  ctx.fill();
+  ctx.strokeStyle = "white";
+  ctx.lineWidth = Math.max(1, width * 0.003);
+  ctx.setLineDash([]);
+  ctx.stroke();
+
+  const num = String(obj.calloutNumber ?? 1);
+  const fontSize = Math.round(BADGE_R * 1.1);
+  ctx.font = `bold ${fontSize}px Arial, Helvetica, sans-serif`;
+  ctx.fillStyle = "white";
+  ctx.textAlign = "center";
+  ctx.textBaseline = "middle";
+  ctx.fillText(num, bx, by);
+
+  if (obj.label) {
+    const labelFontSize = Math.round(width * 0.018);
+    ctx.font = `${labelFontSize}px Arial, Helvetica, sans-serif`;
+    ctx.fillStyle = lineColor;
+    ctx.textAlign = "left";
+    ctx.textBaseline = "middle";
+    ctx.shadowColor = "rgba(255,255,255,0.85)";
+    ctx.shadowBlur = Math.round(width * 0.003);
+    const labelX = bx + BADGE_R + width * 0.008;
+    const truncated = obj.label.length > 25 ? obj.label.slice(0, 25) + "…" : obj.label;
+    ctx.fillText(truncated, labelX, by);
+    ctx.shadowBlur = 0;
+  }
+
+  ctx.restore();
 }
 
 function drawMarkup(
@@ -264,6 +357,11 @@ function drawMarkup(
   for (const obj of sorted) {
     const points = obj.points as MarkupPoint[];
     if (!points || points.length === 0) continue;
+
+    if (obj.type === "callout") {
+      drawCallout(ctx, obj, width, height);
+      continue;
+    }
 
     ctx.save();
     ctx.globalAlpha = typeof obj.opacity === "number" ? obj.opacity : 1;
@@ -384,12 +482,21 @@ function drawMarkup(
     } else if (obj.type === "text") {
       const textX = px(points[0][0], width);
       const textY = py(points[0][1], height);
-      const fontSize = Math.round(width * 0.012);
+      const normFontSize = obj.fontSize ?? 0.025;
+      const fontSize = Math.round(normFontSize * width);
+      const align = obj.textAlign ?? "center";
       ctx.font = `bold ${fontSize}px Arial, Helvetica, sans-serif`;
       ctx.fillStyle = obj.strokeColor || "#1a4d1a";
+      ctx.textAlign = align;
+      ctx.textBaseline = "middle";
       ctx.shadowColor = "rgba(255,255,255,0.85)";
       ctx.shadowBlur = Math.round(width * 0.003);
-      ctx.fillText(obj.label ?? "", textX, textY);
+      const lines = (obj.label ?? "").split("\n");
+      const lineH = fontSize * 1.3;
+      lines.forEach((line, i) => {
+        const yOff = i * lineH - ((lines.length - 1) * lineH) / 2;
+        ctx.fillText(line, textX, textY + yOff);
+      });
       ctx.shadowBlur = 0;
     }
 
@@ -542,6 +649,8 @@ function drawLegend(
   // Title
   ctx.font = `bold ${titleFontSize}px Arial, Helvetica, sans-serif`;
   ctx.fillStyle = "#111111";
+  ctx.textAlign = "left";
+  ctx.textBaseline = "alphabetic";
   ctx.fillText(legendState.title || "Legend", bx + pad, by + pad + titleFontSize);
 
   if (compact) {
@@ -559,7 +668,7 @@ function drawLegend(
   } else {
     let curY = by + pad + titleFontSize + Math.round(pad * 0.5);
 
-    function drawSection(sectionEntries: LegendEntry[], groupLabel: string) {
+    const drawSection = (sectionEntries: LegendEntry[], groupLabel: string) => {
       if (sectionEntries.length === 0) return;
       curY += Math.round(pad * 0.4);
       drawLegendGroupHeader(ctx, groupLabel, bx + pad, curY, groupHeaderH);
@@ -573,6 +682,107 @@ function drawLegend(
     if (legendState.showMaterialsGroup) drawSection(materials, "Materials");
     if (legendState.showSymbolsGroup) drawSection(symbols, "Symbols");
     if (legendState.showLinesGroup) drawSection(lines, "Lines");
+  }
+
+  ctx.restore();
+}
+
+function drawTitleBlock(
+  ctx: NodeCanvasCtx,
+  meta: SheetMetadata,
+  width: number,
+  height: number
+) {
+  const pos = meta.titleBlockPosition ?? [0.02, 0.82];
+  const x = px(pos[0], width);
+  const y = py(pos[1], height);
+
+  const rows = [
+    meta.sheetTitle || "Visual Scope",
+    meta.propertyName ? `Property: ${meta.propertyName}` : null,
+    meta.sheetDate ? `Date: ${meta.sheetDate}` : null,
+    meta.projectName ? `Project: ${meta.projectName}` : null,
+    meta.companyName ? `Company: ${meta.companyName}` : null,
+  ].filter(Boolean) as string[];
+
+  const pad = Math.round(width * 0.012);
+  const titleFontSize = Math.round(width * 0.018);
+  const bodyFontSize = Math.round(width * 0.012);
+  const lineH = Math.round(width * 0.022);
+  const boxW = Math.round(width * 0.28);
+  const boxH = pad * 2 + titleFontSize + (rows.length - 1) * lineH + pad;
+  const radius = Math.round(width * 0.006);
+
+  ctx.save();
+
+  roundRect(ctx, x, y, boxW, boxH, radius);
+  ctx.fillStyle = "rgba(255,255,255,0.92)";
+  ctx.fill();
+  ctx.strokeStyle = "rgba(0,0,0,0.25)";
+  ctx.lineWidth = Math.max(1, Math.round(width * 0.002));
+  ctx.setLineDash([]);
+  ctx.stroke();
+
+  ctx.font = `bold ${titleFontSize}px Arial, Helvetica, sans-serif`;
+  ctx.fillStyle = "#111";
+  ctx.textAlign = "left";
+  ctx.textBaseline = "alphabetic";
+  ctx.fillText(rows[0], x + pad, y + pad + titleFontSize);
+
+  ctx.font = `${bodyFontSize}px Arial, Helvetica, sans-serif`;
+  ctx.fillStyle = "#444";
+  for (let i = 1; i < rows.length; i++) {
+    ctx.fillText(rows[i], x + pad, y + pad + titleFontSize + i * lineH);
+  }
+
+  ctx.restore();
+}
+
+function drawNotesBlock(
+  ctx: NodeCanvasCtx,
+  meta: SheetMetadata,
+  width: number,
+  height: number
+) {
+  const pos = meta.notesBlockPosition ?? [0.72, 0.82];
+  const x = px(pos[0], width);
+  const y = py(pos[1], height);
+  const content = meta.notesContent || "";
+  const lines = content.split("\n").filter(l => l.trim() !== "");
+
+  const pad = Math.round(width * 0.012);
+  const titleFontSize = Math.round(width * 0.015);
+  const bodyFontSize = Math.round(width * 0.011);
+  const lineH = Math.round(width * 0.018);
+  const boxW = Math.round(width * 0.26);
+  const boxH = pad * 2 + titleFontSize + pad * 0.5 + lines.length * lineH + pad;
+  const radius = Math.round(width * 0.006);
+
+  ctx.save();
+
+  roundRect(ctx, x, y, boxW, Math.max(boxH, pad * 3 + titleFontSize), radius);
+  ctx.fillStyle = "rgba(255,255,255,0.92)";
+  ctx.fill();
+  ctx.strokeStyle = "rgba(0,0,0,0.25)";
+  ctx.lineWidth = Math.max(1, Math.round(width * 0.002));
+  ctx.setLineDash([]);
+  ctx.stroke();
+
+  ctx.font = `bold ${titleFontSize}px Arial, Helvetica, sans-serif`;
+  ctx.fillStyle = "#111";
+  ctx.textAlign = "left";
+  ctx.textBaseline = "alphabetic";
+  ctx.fillText("Notes", x + pad, y + pad + titleFontSize);
+
+  ctx.font = `${bodyFontSize}px Arial, Helvetica, sans-serif`;
+  ctx.fillStyle = "#333";
+  for (let i = 0; i < lines.length; i++) {
+    let line = lines[i];
+    if (line.startsWith("-")) {
+      line = "• " + line.slice(1).trimStart();
+    }
+    const truncated = line.length > 40 ? line.slice(0, 40) + "…" : line;
+    ctx.fillText(truncated, x + pad, y + pad + titleFontSize + pad * 0.5 + i * lineH + bodyFontSize);
   }
 
   ctx.restore();
@@ -607,7 +817,7 @@ export async function renderVisualScope(
 
   const height = Math.round(width * baseImg.height / baseImg.width);
   const layerDefs = (sheet.layerDefs as LayerDefinition[] | null) ?? null;
-  const legendState: LegendState = (sheet.legendState as LegendState | null) ?? DEFAULT_LEGEND_STATE;
+  const legendState: LegendState = ((sheet as any).legendState as LegendState | null) ?? DEFAULT_LEGEND_STATE;
   const hiddenLayerIds = new Set<string>();
   if (layerDefs) {
     for (const l of layerDefs) {
@@ -624,6 +834,9 @@ export async function renderVisualScope(
     );
     return !hiddenLayerIds.has(layerId);
   });
+
+  const doc = parseMarkupData(sheet.markupData);
+  const sheetMeta = doc.sheetMeta;
 
   if (type === "base") {
     const canvas = createCanvas(width, height);
@@ -645,5 +858,16 @@ export async function renderVisualScope(
   ctx.drawImage(baseImg as any, 0, 0, width, height);
   drawMarkup(ctx, objects, width, height);
   drawLegend(ctx, objects, width, height, legendState);
+
+  if (sheetMeta) {
+    if (sheetMeta.titleBlockVisible !== false && (sheetMeta.sheetTitle || sheetMeta.propertyName || sheetMeta.sheetDate || sheetMeta.projectName || sheetMeta.companyName)) {
+      drawTitleBlock(ctx, sheetMeta, width, height);
+    }
+    if (sheetMeta.notesVisible !== false && sheetMeta.notesContent) {
+      drawNotesBlock(ctx, sheetMeta, width, height);
+    }
+  }
+
+
   return canvas.toBuffer("image/png");
 }

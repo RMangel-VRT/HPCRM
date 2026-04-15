@@ -1954,9 +1954,10 @@ export type InsertCommunicationAutomationRule = z.infer<typeof insertCommunicati
 export type CommunicationAutomationRule = typeof communicationAutomationRules.$inferSelect;
 export type MarkupPoint = [number, number];
 export type SymbolType = "tree" | "plant" | "boulder";
-export type MarkupObjectType = "polygon" | "polyline" | "symbol" | "text";
+export type MarkupObjectType = "polygon" | "polyline" | "symbol" | "text" | "callout";
 export type FillType = "solid" | "texture";
 export type TextureScale = "small" | "medium" | "large";
+
 
 export interface MarkupObject {
   id: string;
@@ -1992,6 +1993,22 @@ export interface MarkupObject {
   legendStyleLabel?: string;
   layerId?: string;
   name?: string;
+  calloutNumber?: number;
+  textAlign?: "left" | "center" | "right";
+}
+
+export interface SheetMetadata {
+  sheetTitle?: string;
+  propertyName?: string;
+  sheetDate?: string;
+  projectName?: string;
+  companyName?: string;
+  notesContent?: string;
+  notesVisible?: boolean;
+  layoutType?: "proposal_exhibit" | "scope_plan" | "internal_planning";
+  titleBlockPosition?: MarkupPoint;
+  titleBlockVisible?: boolean;
+  notesBlockPosition?: MarkupPoint;
 }
 
 export interface MarkupLayer {
@@ -2005,6 +2022,7 @@ export interface MarkupLayer {
 export interface MarkupDocument {
   version: 2;
   layers: MarkupLayer[];
+  sheetMeta?: SheetMetadata;
 }
 
 export type MarkupData = MarkupObject[] | MarkupDocument;
@@ -2034,6 +2052,26 @@ function normalizeMarkupObject(obj: unknown): MarkupObject {
     materialLabel: typeof o.materialLabel === "string" ? o.materialLabel : undefined,
     layerId: typeof o.layerId === "string" ? o.layerId : undefined,
     name: typeof o.name === "string" ? o.name : undefined,
+    calloutNumber: typeof o.calloutNumber === "number" ? o.calloutNumber : undefined,
+    textAlign: (o.textAlign === "left" || o.textAlign === "center" || o.textAlign === "right") ? o.textAlign : undefined,
+    fontSize: typeof o.fontSize === "number" ? o.fontSize : undefined,
+  };
+}
+
+function normalizeSheetMeta(meta: unknown): SheetMetadata {
+  const m = (meta && typeof meta === "object" ? meta : {}) as Record<string, unknown>;
+  return {
+    sheetTitle: typeof m.sheetTitle === "string" ? m.sheetTitle : undefined,
+    propertyName: typeof m.propertyName === "string" ? m.propertyName : undefined,
+    sheetDate: typeof m.sheetDate === "string" ? m.sheetDate : undefined,
+    projectName: typeof m.projectName === "string" ? m.projectName : undefined,
+    companyName: typeof m.companyName === "string" ? m.companyName : undefined,
+    notesContent: typeof m.notesContent === "string" ? m.notesContent : undefined,
+    notesVisible: typeof m.notesVisible === "boolean" ? m.notesVisible : true,
+    layoutType: (m.layoutType === "proposal_exhibit" || m.layoutType === "scope_plan" || m.layoutType === "internal_planning") ? m.layoutType : undefined,
+    titleBlockPosition: Array.isArray(m.titleBlockPosition) ? m.titleBlockPosition as MarkupPoint : undefined,
+    titleBlockVisible: typeof m.titleBlockVisible === "boolean" ? m.titleBlockVisible : true,
+    notesBlockPosition: Array.isArray(m.notesBlockPosition) ? m.notesBlockPosition as MarkupPoint : undefined,
   };
 }
 
@@ -2065,6 +2103,7 @@ export function parseMarkupData(data: unknown): MarkupDocument {
       layers: rawLayers.length > 0
         ? rawLayers.map((l, i) => normalizeMarkupLayer(l, i === 0 ? "annotations" : `layer-${i}`))
         : [defaultLayer],
+      sheetMeta: d.sheetMeta ? normalizeSheetMeta(d.sheetMeta) : undefined,
     };
   }
   if (Array.isArray(data)) {
