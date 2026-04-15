@@ -1438,6 +1438,9 @@ export default function VisualScopeEditor({
   const [exportCompanyName, setExportCompanyName] = useState("");
   const [isExporting, setIsExporting] = useState(false);
   const [baseImageError, setBaseImageError] = useState(false);
+  const [baseImageKey, setBaseImageKey] = useState(0);
+  const baseImageRetryCount = useRef(0);
+  const baseImageRetryTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Zoom / pan state
   const [viewTransform, setViewTransform] = useState<ViewTransform>({ scale: 1, panX: 0, panY: 0 });
@@ -1768,8 +1771,8 @@ export default function VisualScopeEditor({
       const clamped = clampZoom(newScale);
       if (focalX !== undefined && focalY !== undefined && canvasWrapperRef.current) {
         const rect = canvasWrapperRef.current.getBoundingClientRect();
-        const cx = focalX - rect.left;
-        const cy = focalY - rect.top;
+        const cx = focalX - rect.left - rect.width / 2;
+        const cy = focalY - rect.top - rect.height / 2;
         const scaleFactor = clamped / prev.scale;
         const newPanX = cx - scaleFactor * (cx - prev.panX);
         const newPanY = cy - scaleFactor * (cy - prev.panY);
@@ -1784,6 +1787,22 @@ export default function VisualScopeEditor({
 
   const zoomFit = useCallback(() => {
     setViewTransform({ scale: 1, panX: 0, panY: 0 });
+  }, []);
+
+  const handleBaseImageError = useCallback(() => {
+    if (baseImageRetryCount.current < 3) {
+      baseImageRetryCount.current += 1;
+      baseImageRetryTimer.current = setTimeout(() => {
+        baseImageRetryTimer.current = null;
+        setBaseImageKey(k => k + 1);
+      }, 1000);
+    } else {
+      setBaseImageError(true);
+    }
+  }, []);
+
+  const handleBaseImageLoad = useCallback(() => {
+    baseImageRetryCount.current = 0;
   }, []);
 
   const zoomToSelection = useCallback(() => {
@@ -1830,6 +1849,12 @@ export default function VisualScopeEditor({
     dragStartedUndo.current = false;
     setActiveLayerId("areas");
     setBaseImageError(false);
+    setBaseImageKey(0);
+    baseImageRetryCount.current = 0;
+    if (baseImageRetryTimer.current !== null) {
+      clearTimeout(baseImageRetryTimer.current);
+      baseImageRetryTimer.current = null;
+    }
   }, [sheetId, baseImagePath]);
 
   // ─── Effect: sync selection panel ─────────────────────────────────────────
@@ -3190,10 +3215,12 @@ export default function VisualScopeEditor({
                   </div>
                 ) : (
                   <img
-                    src={baseImagePath}
+                    key={`${baseImagePath}-${baseImageKey}`}
+                    src={baseImageKey > 0 ? `${baseImagePath}${baseImagePath.includes("?") ? "&" : "?"}retry=${baseImageKey}` : baseImagePath}
                     className="w-full h-full object-contain opacity-40 grayscale"
                     alt="Base blueprint"
-                    onError={() => setBaseImageError(true)}
+                    onLoad={handleBaseImageLoad}
+                    onError={handleBaseImageError}
                   />
                 )}
               </div>
