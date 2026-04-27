@@ -213,6 +213,20 @@ export default function TicketDetail() {
     { label: details?.ticket?.title || t('common.loading') },
   ], [details?.ticket?.title]);
 
+  useEffect(() => {
+    const ticketTitle = details?.ticket?.title || (details?.ticket?.id ? `Ticket #${details.ticket.id}` : null);
+    if (!ticketTitle) return;
+    const customerName = details?.customer?.name;
+    if (customerName) {
+      document.title = `${ticketTitle} \u2014 ${customerName} | Greenfield`;
+    } else {
+      document.title = `${ticketTitle} | Greenfield`;
+    }
+    return () => {
+      document.title = "Greenfield";
+    };
+  }, [details?.ticket?.title, details?.ticket?.id, details?.customer?.name]);
+
   // Fetch company users for reassignment/delegation dropdown
   const { data: companyUsersData = [] } = useQuery<CompanyUserWithDetails[]>({
     queryKey: ["/api/companies/users"],
