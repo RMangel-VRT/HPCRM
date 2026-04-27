@@ -1124,9 +1124,6 @@ export class PgStorage implements IStorage {
         if (contract.status === 'paused' || contract.status === 'ended') continue;
 
         const amounts = amountsByContract.get(contract.id) || [];
-        const monthlyMobilization = (contract.hasMobilizationFee && contract.mobilizationFeeAmount)
-          ? contract.mobilizationFeeAmount / 100
-          : 0;
 
         const contractStartYear = contract.startDate.getUTCFullYear();
         const contractStartMonth = contract.startDate.getUTCMonth() + 1;
@@ -1140,7 +1137,7 @@ export class PgStorage implements IStorage {
           const monthYear = year * 100 + amountRecord.month;
           const isInRange = monthYear >= startMonthYear && (!endMonthYear || monthYear <= endMonthYear);
           if (isInRange) {
-            const amountInDollars = (amountRecord.amount / 100) + monthlyMobilization;
+            const amountInDollars = amountRecord.amount / 100;
             contractAnnualTotal += amountInDollars;
             monthlyTotals[amountRecord.month] += amountInDollars;
             if (!monthlyByServiceType[amountRecord.month][contract.serviceType]) {

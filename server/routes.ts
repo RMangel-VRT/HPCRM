@@ -2725,9 +2725,29 @@ export async function registerRoutes(app: Express): Promise<Server> {
       monthlyAmountsByContract.get(ma.contractId)!.push(ma);
     }
     
+    const currentYear = new Date().getFullYear();
+
     const contractsWithTotals = allContracts.map(contract => {
+      if (contract.status === "paused" || contract.status === "ended") {
+        return { ...contract, annualTotal: 0 };
+      }
+
       const amounts = monthlyAmountsByContract.get(contract.id) || [];
-      const annualTotal = amounts.reduce((sum, a) => sum + a.amount, 0);
+
+      const contractStartYear = contract.startDate ? new Date(contract.startDate).getUTCFullYear() : null;
+      const contractStartMonth = contract.startDate ? new Date(contract.startDate).getUTCMonth() + 1 : null;
+      const contractEndYear = contract.endDate ? new Date(contract.endDate).getUTCFullYear() : null;
+      const contractEndMonth = contract.endDate ? new Date(contract.endDate).getUTCMonth() + 1 : null;
+      const startMonthYear = contractStartYear && contractStartMonth ? contractStartYear * 100 + contractStartMonth : null;
+      const endMonthYear = contractEndYear && contractEndMonth ? contractEndYear * 100 + contractEndMonth : null;
+
+      const annualTotal = amounts.reduce((sum, a) => {
+        const monthYear = currentYear * 100 + a.month;
+        const afterStart = !startMonthYear || monthYear >= startMonthYear;
+        const beforeEnd = !endMonthYear || monthYear <= endMonthYear;
+        return afterStart && beforeEnd ? sum + a.amount : sum;
+      }, 0);
+
       return {
         ...contract,
         annualTotal,

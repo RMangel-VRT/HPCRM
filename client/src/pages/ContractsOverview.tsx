@@ -77,6 +77,7 @@ function getStatusVariant(status: string): "default" | "secondary" | "destructiv
 
 export default function ContractsOverview() {
   const { t } = useTranslation();
+  const currentYear = new Date().getFullYear();
   const [searchQuery, setSearchQuery] = useState("");
   const [serviceTypeFilter, setServiceTypeFilter] = useState<string>("all");
   const [statusFilter, setStatusFilter] = useState<string>("all");
@@ -149,13 +150,14 @@ export default function ContractsOverview() {
     if (!contracts) return { total: 0, active: 0, totalAnnualValue: 0, avgContractValue: 0 };
 
     const activeContracts = contracts.filter(c => c.status === "active");
-    const totalAnnualValue = activeContracts.reduce((sum, c) => sum + c.annualTotal, 0);
+    const includedContracts = contracts.filter(c => c.status !== "paused" && c.status !== "ended");
+    const totalAnnualValue = includedContracts.reduce((sum, c) => sum + c.annualTotal, 0);
 
     return {
       total: contracts.length,
       active: activeContracts.length,
       totalAnnualValue,
-      avgContractValue: activeContracts.length > 0 ? totalAnnualValue / activeContracts.length : 0,
+      avgContractValue: includedContracts.length > 0 ? totalAnnualValue / includedContracts.length : 0,
     };
   }, [contracts]);
 
@@ -222,7 +224,7 @@ export default function ContractsOverview() {
 
         <Card>
           <CardHeader className="flex flex-row items-center justify-between gap-2 space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">{t("contracts.totalAnnualValue")}</CardTitle>
+            <CardTitle className="text-sm font-medium">{t("contracts.totalAnnualValue")} {currentYear}</CardTitle>
             <DollarSign className="h-4 w-4 text-muted-foreground" />
           </CardHeader>
           <CardContent>
@@ -296,7 +298,7 @@ export default function ContractsOverview() {
                   <SortButton field="billingPattern">{t("contracts.billingSchedule")}</SortButton>
                 </TableHead>
                 <TableHead className="text-right">
-                  <SortButton field="annualTotal">{t("contracts.totalAnnualValue")}</SortButton>
+                  <SortButton field="annualTotal">{t("contracts.totalAnnualValue")} {currentYear}</SortButton>
                 </TableHead>
                 <TableHead>
                   <SortButton field="status">{t("common.status")}</SortButton>
