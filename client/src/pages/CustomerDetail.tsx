@@ -1781,42 +1781,6 @@ export default function CustomerDetail() {
         />
         <div className="flex-1 min-w-0">
       <Tabs value={activeTab} onValueChange={setActiveTab}>
-        <TabsList>
-          <TabsTrigger value="overview" data-testid="tab-overview">{t("customerDetail.tabs.overview")}</TabsTrigger>
-          <TabsTrigger value="contacts" data-testid="tab-contacts">
-            {t("customerDetail.tabs.contacts")} ({contacts.length})
-          </TabsTrigger>
-          <TabsTrigger value="notes" data-testid="tab-notes">
-            {t("customerDetail.tabs.notes")} ({notes.length})
-          </TabsTrigger>
-          <TabsTrigger value="operations" data-testid="tab-operations">
-            <Wrench className="w-4 h-4 mr-1" />
-            {t("customerDetail.tabs.operations")}
-          </TabsTrigger>
-          <TabsTrigger value="maps" data-testid="tab-maps">
-            <Map className="w-4 h-4 mr-1" />
-            {t("customerDetail.tabs.maps")}
-          </TabsTrigger>
-          <TabsTrigger value="service-checklist" data-testid="tab-service-checklist">
-            <CheckCircle2 className="w-4 h-4 mr-1" />
-            Service Checklist
-          </TabsTrigger>
-          {(user?.activeRole === "admin" || user?.activeRole === "office") && (
-            <TabsTrigger value="communications" data-testid="tab-communications">
-              <Mail className="w-4 h-4 mr-1" />
-              Communications
-            </TabsTrigger>
-          )}
-          {(user?.activeRole === "admin" || user?.activeRole === "office") && (
-            <TabsTrigger value="settings" data-testid="tab-settings">
-              <Settings className="w-4 h-4 mr-1" />
-              {t("customerDetail.tabs.settings")}
-            </TabsTrigger>
-          )}
-          <TabsTrigger value="fulfillment" data-testid="tab-fulfillment">
-            Service Plan
-          </TabsTrigger>
-        </TabsList>
 
         <TabsContent value="overview" className="space-y-6">
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
