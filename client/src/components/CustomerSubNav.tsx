@@ -86,7 +86,7 @@ export default function CustomerSubNav({
       items: [
         {
           value: "overview",
-          label: t("customerDetail.tabs.overview"),
+          label: "Dashboard",
           icon: Eye,
           testId: "rail-tab-overview",
         },

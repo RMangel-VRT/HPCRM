@@ -57,6 +57,7 @@ import CommunicationListTab from "@/components/CommunicationListTab";
 import CustomerServiceChecklist from "@/components/CustomerServiceChecklist";
 import AnnualServiceRollup from "@/components/AnnualServiceRollup";
 import CustomerSubNav from "@/components/CustomerSubNav";
+import CustomerDashboard from "@/components/customer/dashboard/CustomerDashboard";
 
 interface ContractCardProps {
   contract: Contract;
@@ -1785,175 +1786,20 @@ export default function CustomerDetail() {
         <div className="flex-1 min-w-0">
       <Tabs value={activeTab} onValueChange={setActiveTab}>
 
-        <TabsContent value="overview" className="space-y-6">
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-            <Card>
-              <CardHeader>
-                <CardTitle className="text-lg">{t("customerDetail.title")}</CardTitle>
-              </CardHeader>
-              <CardContent className="space-y-3">
-                <div>
-                  <p className="text-sm font-medium text-muted-foreground">{t("common.address")}</p>
-                  <div className="flex items-start gap-1.5 mt-1">
-                    <MapPin className="w-4 h-4 mt-0.5 text-muted-foreground" />
-                    <div>
-                      <p className="text-sm" data-testid="text-customer-address">
-                        {customer.street}
-                      </p>
-                      <p className="text-sm">
-                        {customer.city}, {customer.state} {customer.zip}
-                      </p>
-                    </div>
-                  </div>
-                </div>
-                <Separator />
-                {(customer.propertyManagementCompanyId || customer.propertyManagerId) && (
-                  <>
-                    <div className="space-y-2">
-                      <p className="text-sm font-medium text-muted-foreground">{t("customerDetail.propertyManagement")}</p>
-                      {customer.propertyManagementCompanyId && (
-                        <div className="flex items-center gap-1.5">
-                          <Building className="w-4 h-4 text-muted-foreground" />
-                          <p className="text-sm" data-testid="text-pm-company">
-                            {pmCompanies.find(c => c.id === customer.propertyManagementCompanyId)?.name || t("common.unknown")}
-                          </p>
-                        </div>
-                      )}
-                      {customer.propertyManagerId && (
-                        <div className="flex items-center gap-1.5 ml-5">
-                          <Users className="w-4 h-4 text-muted-foreground" />
-                          <p className="text-sm" data-testid="text-pm-manager">
-                            {pmManagers.find(m => m.id === customer.propertyManagerId)?.name || t("common.unknown")}
-                          </p>
-                        </div>
-                      )}
-                    </div>
-                    <Separator />
-                  </>
-                )}
-                <div className="grid grid-cols-2 gap-4">
-                  <div>
-                    <p className="text-sm font-medium text-muted-foreground">{t("customers.acres")}</p>
-                    <p className="text-sm mt-1" data-testid="text-customer-acres">
-                      {customer.acres || "—"}
-                    </p>
-                  </div>
-                  <div>
-                    <p className="text-sm font-medium text-muted-foreground">{t("customers.complexity")}</p>
-                    <p className="text-sm mt-1" data-testid="text-customer-complexity">
-                      {customer.complexityScore ? `${t("customers.complexity")} ${customer.complexityScore}` : "—"}
-                    </p>
-                  </div>
-                </div>
-                <Separator />
-                <div>
-                  <p className="text-sm font-medium text-muted-foreground">{t("common.filter")}</p>
-                  <div className="flex gap-2 flex-wrap mt-1">
-                    {customer.tags && customer.tags.length > 0 ? (
-                      customer.tags.map((tag) => (
-                        <Badge key={tag} variant="outline" className="text-xs" data-testid={`badge-tag-${tag}`}>
-                          {tag}
-                        </Badge>
-                      ))
-                    ) : (
-                      <p className="text-sm text-muted-foreground">{t("common.none")}</p>
-                    )}
-                  </div>
-                </div>
-              </CardContent>
-            </Card>
-
-            <Card>
-              <CardHeader>
-                <CardTitle className="text-lg">{t("customerDetail.quickStats")}</CardTitle>
-              </CardHeader>
-              <CardContent className="space-y-3">
-                <div className="flex justify-between items-center">
-                  <div className="flex items-center gap-2">
-                    <Users className="w-4 h-4 text-muted-foreground" />
-                    <span className="text-sm">{t("customerDetail.tabs.contacts")}</span>
-                  </div>
-                  <span className="text-sm font-medium" data-testid="text-contacts-count">
-                    {contacts.length}
-                  </span>
-                </div>
-                <Separator />
-                <div className="flex justify-between items-center">
-                  <div className="flex items-center gap-2">
-                    <FileText className="w-4 h-4 text-muted-foreground" />
-                    <span className="text-sm">{t("customerDetail.activeContracts")}</span>
-                  </div>
-                  <span className="text-sm font-medium" data-testid="text-contracts-count">
-                    {contracts.filter(c => c.status === "active").length}
-                  </span>
-                </div>
-                <Separator />
-                <div className="flex justify-between items-center">
-                  <div className="flex items-center gap-2">
-                    <MessageSquare className="w-4 h-4 text-muted-foreground" />
-                    <span className="text-sm">{t("customerDetail.tabs.notes")}</span>
-                  </div>
-                  <span className="text-sm font-medium" data-testid="text-notes-count">
-                    {notes.length}
-                  </span>
-                </div>
-              </CardContent>
-            </Card>
-          </div>
-
-          {isParentCustomer && childCustomers.length > 0 && (
-            <Card>
-              <CardHeader className="flex flex-row items-center justify-between gap-2">
-                <CardTitle className="text-lg flex items-center gap-2">
-                  <GitBranch className="w-5 h-5" />
-                  {t("customerDetail.childProperties")} ({childCustomers.length})
-                </CardTitle>
-              </CardHeader>
-              <CardContent>
-                <div className="border rounded-lg">
-                  <Table>
-                    <TableHeader>
-                      <TableRow>
-                        <TableHead>{t("common.name")}</TableHead>
-                        <TableHead>{t("common.address")}</TableHead>
-                        <TableHead>{t("common.status")}</TableHead>
-                        <TableHead className="text-right">{t("common.actions")}</TableHead>
-                      </TableRow>
-                    </TableHeader>
-                    <TableBody>
-                      {childCustomers.map((child) => (
-                        <TableRow key={child.id} data-testid={`row-branch-${child.id}`}>
-                          <TableCell className="font-medium">
-                            <div className="flex items-center gap-1.5">
-                              <GitBranch className="w-3.5 h-3.5 text-muted-foreground" />
-                              {child.name}
-                            </div>
-                          </TableCell>
-                          <TableCell className="text-muted-foreground">
-                            <div className="flex items-center gap-1.5">
-                              <MapPin className="w-3.5 h-3.5" />
-                              {child.street}, {child.city}, {child.state}
-                            </div>
-                          </TableCell>
-                          <TableCell>
-                            <StatusBadge status={child.status} />
-                          </TableCell>
-                          <TableCell className="text-right">
-                            <Button variant="ghost" size="sm" asChild data-testid={`button-view-branch-${child.id}`}>
-                              <Link href={`/dashboard/customers/${child.id}`}>
-                                <Eye className="w-4 h-4 mr-2" />
-                                {t("common.view")}
-                              </Link>
-                            </Button>
-                          </TableCell>
-                        </TableRow>
-                      ))}
-                    </TableBody>
-                  </Table>
-                </div>
-              </CardContent>
-            </Card>
-          )}
+        <TabsContent value="overview">
+          <CustomerDashboard
+            customerId={id!}
+            customer={customer}
+            contacts={contacts}
+            contracts={contracts}
+            tickets={tickets}
+            notes={notes}
+            pmCompanies={pmCompanies}
+            pmManagers={pmManagers}
+            isParentCustomer={isParentCustomer}
+            childCustomers={childCustomers}
+            onTabChange={setActiveTab}
+          />
         </TabsContent>
 
         <TabsContent value="contacts" className="space-y-4">
