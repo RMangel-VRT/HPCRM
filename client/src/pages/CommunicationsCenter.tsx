@@ -9,6 +9,7 @@ import { queryClient, apiRequest } from "@/lib/queryClient";
 import { useAuth } from "@/hooks/use-auth";
 import { useToast } from "@/hooks/use-toast";
 import { useSetBreadcrumbs } from "@/hooks/use-breadcrumbs";
+import { DatePickerField } from "@/components/DatePickerField";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -897,7 +898,7 @@ function FollowUpBadge({ status, isOverdue }: { status: string; isOverdue?: bool
 
 function SnoozePopover({ commId, onSnooze }: { commId: string; onSnooze: (id: string, date: string) => void }) {
   const [open, setOpen] = useState(false);
-  const [customDate, setCustomDate] = useState("");
+  const [customDate, setCustomDate] = useState<Date | undefined>(undefined);
   const presets = [
     { label: "1 day", days: 1 },
     { label: "3 days", days: 3 },
@@ -909,6 +910,13 @@ function SnoozePopover({ commId, onSnooze }: { commId: string; onSnooze: (id: st
     onSnooze(commId, d.toISOString().split("T")[0]);
     setOpen(false);
   };
+  const handleCustomDate = (date: Date | undefined) => {
+    setCustomDate(date);
+    if (date) {
+      onSnooze(commId, format(date, "yyyy-MM-dd"));
+      setOpen(false);
+    }
+  };
   return (
     <Popover open={open} onOpenChange={setOpen}>
       <PopoverTrigger asChild>
@@ -917,23 +925,22 @@ function SnoozePopover({ commId, onSnooze }: { commId: string; onSnooze: (id: st
           Snooze
         </Button>
       </PopoverTrigger>
-      <PopoverContent className="w-52 p-2 space-y-1.5">
+      <PopoverContent className="w-56 p-2 space-y-1.5">
         <p className="text-xs font-semibold text-muted-foreground">Snooze until</p>
         {presets.map((p) => (
           <Button key={p.days} size="sm" variant="ghost" className="w-full justify-start" onClick={() => snoozeUntil(p.days)}>
             {p.label}
           </Button>
         ))}
-        <div className="pt-1 flex gap-1">
-          <input
-            type="date"
-            className="flex-1 text-xs border rounded px-1 py-0.5"
+        <div className="pt-1">
+          <p className="text-xs text-muted-foreground mb-1">Custom date</p>
+          <DatePickerField
             value={customDate}
-            onChange={(e) => setCustomDate(e.target.value)}
+            onChange={handleCustomDate}
+            placeholder="Pick a date"
+            compact
+            data-testid={`input-snooze-custom-date-${commId}`}
           />
-          <Button size="sm" disabled={!customDate} onClick={() => { onSnooze(commId, customDate); setOpen(false); }}>
-            Set
-          </Button>
         </div>
       </PopoverContent>
     </Popover>
@@ -979,8 +986,8 @@ function FollowUpPanel({
   onToggle: () => void;
   preset: string;
   onPresetChange: (v: string) => void;
-  customDate: string;
-  onCustomDate: (v: string) => void;
+  customDate: Date | undefined;
+  onCustomDate: (v: Date | undefined) => void;
 }) {
   return (
     <div>
@@ -1002,11 +1009,11 @@ function FollowUpPanel({
             </SelectContent>
           </Select>
           {preset === "custom" && (
-            <input
-              type="date"
-              className="text-xs border rounded px-2 py-1 w-full"
+            <DatePickerField
               value={customDate}
-              onChange={(e) => onCustomDate(e.target.value)}
+              onChange={onCustomDate}
+              placeholder="Pick a date"
+              compact
               data-testid="input-followup-custom-date"
             />
           )}
@@ -1026,7 +1033,7 @@ function DetailPanel({ id }: { id: string | null }) {
   const [scheduleFor, setScheduleFor] = useState<string>("");
   const [followUpEnabled, setFollowUpEnabled] = useState(false);
   const [followUpPreset, setFollowUpPreset] = useState<string>("1_week");
-  const [followUpCustomDate, setFollowUpCustomDate] = useState<string>("");
+  const [followUpCustomDate, setFollowUpCustomDate] = useState<Date | undefined>(undefined);
 
   const { data, isLoading } = useQuery<CommunicationWithDetails & { links?: unknown[] }>({
     queryKey: ["/api/communications", id],
@@ -1058,7 +1065,8 @@ function DetailPanel({ id }: { id: string | null }) {
     patchMutation.mutate({ commId, patch: { scheduledFor: scheduleFor, status: "scheduled" } });
   }
   function handleSaveFollowUp(commId: string) {
-    const dueDate = followUpPreset === "custom" ? followUpCustomDate
+    const customDateStr = followUpCustomDate ? format(followUpCustomDate, "yyyy-MM-dd") : undefined;
+    const dueDate = followUpPreset === "custom" ? customDateStr
       : followUpPreset === "2_weeks" ? new Date(Date.now() + 14 * 24 * 3600 * 1000).toISOString().split("T")[0]
       : followUpPreset === "1_month" ? new Date(Date.now() + 30 * 24 * 3600 * 1000).toISOString().split("T")[0]
       : new Date(Date.now() + 7 * 24 * 3600 * 1000).toISOString().split("T")[0];
@@ -1225,7 +1233,7 @@ function DetailPanel({ id }: { id: string | null }) {
                 size="sm"
                 variant="outline"
                 onClick={() => handleSaveFollowUp(data.id)}
-                disabled={patchMutation.isPending}
+                disabled={patchMutation.isPending || (followUpPreset === "custom" && !followUpCustomDate)}
                 data-testid="button-save-followup"
               >
                 <AlarmClock className="w-3.5 h-3.5 mr-1" />

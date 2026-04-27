@@ -15,6 +15,7 @@ interface DatePickerFieldProps {
   onChange: (date: Date | undefined) => void;
   placeholder?: string;
   disabled?: boolean;
+  compact?: boolean;
   "data-testid"?: string;
 }
 
@@ -23,6 +24,7 @@ export function DatePickerField({
   onChange,
   placeholder = "Pick a date",
   disabled,
+  compact,
   "data-testid": testId,
 }: DatePickerFieldProps) {
   const [open, setOpen] = useState(false);
@@ -47,15 +49,19 @@ export function DatePickerField({
       <PopoverTrigger asChild>
         <Button
           variant="outline"
+          size={compact ? "sm" : "default"}
           className={cn(
             "w-full justify-start text-left font-normal",
+            compact && "text-xs h-7",
             !value && "text-muted-foreground"
           )}
           disabled={disabled}
           data-testid={testId}
         >
-          <CalendarIcon className="mr-2 h-4 w-4 shrink-0" />
-          <span className="flex-1">{value ? format(value, "MMM d, yyyy") : placeholder}</span>
+          <CalendarIcon className={cn("mr-2 shrink-0", compact ? "h-3 w-3" : "h-4 w-4")} />
+          <span className="flex-1">
+            {value ? format(value, "MMM d, yyyy") : placeholder}
+          </span>
           {value && (
             <span
               role="button"
@@ -75,7 +81,7 @@ export function DatePickerField({
                 }
               }}
             >
-              <X className="h-4 w-4" />
+              <X className={cn(compact ? "h-3 w-3" : "h-4 w-4")} />
             </span>
           )}
         </Button>
