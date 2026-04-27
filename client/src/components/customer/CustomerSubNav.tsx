@@ -1,7 +1,8 @@
-import { useRef, useCallback } from "react";
+import { useRef, useCallback, useContext } from "react";
 import { useLocation } from "wouter";
 import { CustomersViewSwitcher } from "@/components/customer/CustomersViewSwitcher";
 import { Button } from "@/components/ui/button";
+import { SidebarContext } from "@/components/ui/sidebar";
 import {
   Select,
   SelectContent,
@@ -88,6 +89,8 @@ export function CustomerSubNav({
 }: CustomerSubNavProps) {
   const [, navigate] = useLocation();
   const navRef = useRef<HTMLElement>(null);
+  const sidebarCtx = useContext(SidebarContext);
+  const isCollapsed = sidebarCtx?.state === "collapsed";
 
   const isPrivileged = userRole === "admin" || userRole === "office";
   const isFieldManager = userRole === "field_manager";
@@ -140,7 +143,11 @@ export function CustomerSubNav({
 
   return (
     <div
-      className="flex-shrink-0 bg-sidebar-accent text-sidebar-foreground border border-l-0 border-sidebar-border rounded-r-lg flex flex-col overflow-hidden"
+      className={`flex-shrink-0 bg-sidebar-accent text-sidebar-foreground border border-sidebar-border flex flex-col overflow-hidden transition-[border-radius] duration-200 ${
+        isCollapsed
+          ? "rounded-lg border-l"
+          : "border-l-0 rounded-r-lg"
+      }`}
       style={{ width: 200 }}
       data-testid="customer-sub-nav"
     >

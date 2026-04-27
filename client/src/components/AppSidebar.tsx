@@ -8,6 +8,7 @@ import {
   SidebarMenuItem,
   SidebarHeader,
   SidebarFooter,
+  useSidebar,
 } from "@/components/ui/sidebar";
 import {
   LayoutDashboard,
@@ -75,6 +76,8 @@ export default function AppSidebar({
 }: AppSidebarProps) {
   const [location, navigate] = useLocation();
   const { t, i18n } = useTranslation();
+  const { state: sidebarState } = useSidebar();
+  const sidebarExpanded = sidebarState === "expanded";
 
   const canSeeRegularCustomers =
     !isSuperAdmin &&
@@ -248,7 +251,7 @@ export default function AppSidebar({
       variant="floating"
       data-testid="app-sidebar"
       className={
-        isCustomerDetail
+        isCustomerDetail && sidebarExpanded
           ? "md:pr-0 [&_[data-slot=sidebar-inner]]:rounded-r-none [&_[data-slot=sidebar-inner]]:border-r-0 [&_[data-slot=sidebar-inner]]:shadow-none"
           : undefined
       }
