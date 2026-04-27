@@ -1740,6 +1740,13 @@ export default function CustomerDetail() {
           >
             {coverage}
           </Badge>
+          {customer.ranking === "key_account" ? (
+            <Badge variant="default" data-testid="badge-ranking">Key Account</Badge>
+          ) : customer.ranking === "preferred" ? (
+            <Badge variant="secondary" data-testid="badge-ranking">Preferred</Badge>
+          ) : (
+            <Badge variant="outline" data-testid="badge-ranking">Standard</Badge>
+          )}
           {customer.includeInRoute && (
             <Badge variant="secondary" data-testid="badge-include-in-route">
               {t("customers.onRoute")}
