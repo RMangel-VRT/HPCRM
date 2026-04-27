@@ -35,6 +35,7 @@ import type {
   PropertyManagementCompany,
   PropertyManager,
   CommunicationWithDetails,
+  CustomerServicePlan,
 } from "@shared/schema";
 
 interface CustomerDashboardProps {
@@ -177,6 +178,7 @@ export default function CustomerDashboard({
         />
 
         <NextServiceCard
+          customerId={customerId}
           nextServiceTicket={nextServiceTicket}
           onTabChange={onTabChange}
         />
@@ -339,12 +341,22 @@ function OpenTicketsCard({
 }
 
 function NextServiceCard({
+  customerId,
   nextServiceTicket,
   onTabChange,
 }: {
+  customerId: string;
   nextServiceTicket: Ticket | null;
   onTabChange: (tab: string) => void;
 }) {
+  const currentYear = new Date().getFullYear();
+  const { data: allServicePlans = [], isLoading } = useQuery<CustomerServicePlan[]>({
+    queryKey: ["/api/customers", customerId, "service-plans"],
+  });
+  const servicePlans = allServicePlans.filter((p) => p.year === currentYear);
+
+  const hasPlans = servicePlans.length > 0;
+
   return (
     <Card
       className="cursor-pointer hover-elevate"
@@ -358,7 +370,23 @@ function NextServiceCard({
         </CardTitle>
       </CardHeader>
       <CardContent>
-        {!nextServiceTicket ? (
+        {isLoading ? (
+          <p className="text-sm text-muted-foreground">Loading…</p>
+        ) : hasPlans ? (
+          <div className="space-y-1" data-testid="service-plans-list">
+            {servicePlans.slice(0, 3).map((plan) => (
+              <div key={plan.id} className="flex items-center justify-between gap-2" data-testid={`service-plan-row-${plan.id}`}>
+                <p className="text-sm font-medium truncate">{plan.serviceCategory}</p>
+                <span className="text-xs text-muted-foreground shrink-0">×{plan.expectedQuantity}</span>
+              </div>
+            ))}
+            {servicePlans.length > 3 && (
+              <p className="text-xs text-muted-foreground" data-testid="text-more-plans">
+                +{servicePlans.length - 3} more
+              </p>
+            )}
+          </div>
+        ) : !nextServiceTicket ? (
           <p className="text-sm text-muted-foreground">No upcoming services</p>
         ) : (
           <>
