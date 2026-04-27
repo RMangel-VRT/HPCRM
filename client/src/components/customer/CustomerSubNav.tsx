@@ -5,6 +5,11 @@ import { CustomersViewSwitcher } from "@/components/customer/CustomersViewSwitch
 import { Button } from "@/components/ui/button";
 import { SidebarContext } from "@/components/ui/sidebar";
 import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
+import {
   Select,
   SelectContent,
   SelectItem,
@@ -161,48 +166,50 @@ export function CustomerSubNav({
           : "border-l-0 rounded-r-lg"
       }`}
       style={{
-        width: isMounted ? 200 : 0,
+        width: isCollapsed ? "3rem" : (isMounted ? 200 : 0),
         opacity: isMounted ? 1 : 0,
         transition: prefersReducedMotion ? undefined : "width 220ms ease-out, opacity 180ms ease-out, border-radius 200ms",
       }}
       data-testid="customer-sub-nav"
     >
-      <div className="p-3 border-b border-sidebar-border">
-        {customers.length > 1 ? (
-          <Select
-            value={customerId}
-            onValueChange={(val) => navigate(`/dashboard/customers/${val}`)}
-          >
-            <SelectTrigger
-              className="w-full border-0 bg-transparent p-0 h-auto shadow-none focus:ring-0 [&>svg]:hidden gap-1 text-sidebar-foreground hover:text-sidebar-foreground"
-              data-testid="select-subnav-customer-switcher"
+      {!isCollapsed && (
+        <div className="p-3 border-b border-sidebar-border">
+          {customers.length > 1 ? (
+            <Select
+              value={customerId}
+              onValueChange={(val) => navigate(`/dashboard/customers/${val}`)}
             >
-              <span className="font-semibold text-sm leading-snug truncate" data-testid="text-subnav-customer-name">
-                {customerName}
-              </span>
-              <ChevronDown className="w-3.5 h-3.5 text-sidebar-foreground/60 flex-shrink-0" />
-            </SelectTrigger>
-            <SelectContent>
-              {customers.map((c) => (
-                <SelectItem
-                  key={c.id}
-                  value={c.id}
-                  data-testid={`option-subnav-customer-${c.id}`}
-                >
-                  {c.name}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        ) : (
-          <span
-            className="font-semibold text-sm leading-snug block truncate"
-            data-testid="text-subnav-customer-name"
-          >
-            {customerName}
-          </span>
-        )}
-      </div>
+              <SelectTrigger
+                className="w-full border-0 bg-transparent p-0 h-auto shadow-none focus:ring-0 [&>svg]:hidden gap-1 text-sidebar-foreground hover:text-sidebar-foreground"
+                data-testid="select-subnav-customer-switcher"
+              >
+                <span className="font-semibold text-sm leading-snug truncate" data-testid="text-subnav-customer-name">
+                  {customerName}
+                </span>
+                <ChevronDown className="w-3.5 h-3.5 text-sidebar-foreground/60 flex-shrink-0" />
+              </SelectTrigger>
+              <SelectContent>
+                {customers.map((c) => (
+                  <SelectItem
+                    key={c.id}
+                    value={c.id}
+                    data-testid={`option-subnav-customer-${c.id}`}
+                  >
+                    {c.name}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          ) : (
+            <span
+              className="font-semibold text-sm leading-snug block truncate"
+              data-testid="text-subnav-customer-name"
+            >
+              {customerName}
+            </span>
+          )}
+        </div>
+      )}
 
       <nav
         ref={navRef}
@@ -210,54 +217,101 @@ export function CustomerSubNav({
         aria-label="Customer sections"
         onKeyDown={handleNavKeyDown}
       >
-        {sections.map((section) => (
-          <div key={section.heading} className="mb-3" role="group" aria-label={section.heading}>
-            <p
-              className="px-3 mb-1 text-[11px] uppercase tracking-wider text-sidebar-foreground/60 font-medium"
-              aria-hidden="true"
-            >
-              {section.heading}
-            </p>
-            {section.items.map((item) => {
+        {isCollapsed ? (
+          <div className="flex flex-col items-center gap-0.5 px-1">
+            {visibleItems.map((item) => {
               const Icon = item.icon;
               const isActive =
                 item.key === "billing"
                   ? BILLING_SUBTABS.has(activeTab)
                   : item.tabValue === activeTab;
               return (
-                <Button
-                  key={item.key}
-                  variant="ghost"
-                  className={`w-full justify-start h-8 px-3 text-sm rounded-none text-sidebar-foreground hover:text-sidebar-foreground${
-                    isActive
-                      ? " bg-sidebar text-sidebar-foreground font-medium border-l-[3px] border-l-sidebar-primary pl-[calc(0.75rem-3px)]"
-                      : " font-normal"
-                  }`}
-                  onClick={() => onTabChange(item.tabValue)}
-                  data-testid={`nav-item-${item.key}`}
-                  data-nav-item
-                  aria-current={isActive ? "page" : undefined}
-                >
-                  <Icon className="w-3.5 h-3.5 mr-2 flex-shrink-0" aria-hidden="true" />
-                  <span className="truncate flex-1">{item.label}</span>
-                  {item.badgeCount !== undefined && item.badgeCount > 0 && (
-                    <span
-                      className="ml-1.5 min-w-[18px] h-[18px] rounded-full bg-sidebar-primary/20 text-sidebar-foreground text-[10px] font-semibold flex items-center justify-center px-1 flex-shrink-0"
-                      data-testid={`badge-count-${item.key}`}
+                <Tooltip key={item.key} delayDuration={300}>
+                  <TooltipTrigger asChild>
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className={`text-sidebar-foreground hover:text-sidebar-foreground relative${
+                        isActive
+                          ? " bg-sidebar text-sidebar-foreground font-medium"
+                          : " font-normal"
+                      }`}
+                      onClick={() => onTabChange(item.tabValue)}
+                      data-testid={`nav-item-${item.key}`}
+                      data-nav-item
+                      aria-current={isActive ? "page" : undefined}
+                      aria-label={item.label}
                     >
-                      {item.badgeCount}
-                    </span>
-                  )}
-                </Button>
+                      <Icon className="w-4 h-4 flex-shrink-0" aria-hidden="true" />
+                      {item.badgeCount !== undefined && item.badgeCount > 0 && (
+                        <span
+                          className="absolute top-0.5 right-0.5 min-w-[14px] h-[14px] rounded-full bg-sidebar-primary/20 text-sidebar-foreground text-[9px] font-semibold flex items-center justify-center px-0.5"
+                          data-testid={`badge-count-${item.key}`}
+                        >
+                          {item.badgeCount}
+                        </span>
+                      )}
+                    </Button>
+                  </TooltipTrigger>
+                  <TooltipContent side="right" sideOffset={4}>
+                    {item.label}
+                  </TooltipContent>
+                </Tooltip>
               );
             })}
           </div>
-        ))}
+        ) : (
+          sections.map((section) => (
+            <div key={section.heading} className="mb-3" role="group" aria-label={section.heading}>
+              <p
+                className="px-3 mb-1 text-[11px] uppercase tracking-wider text-sidebar-foreground/60 font-medium"
+                aria-hidden="true"
+              >
+                {section.heading}
+              </p>
+              {section.items.map((item) => {
+                const Icon = item.icon;
+                const isActive =
+                  item.key === "billing"
+                    ? BILLING_SUBTABS.has(activeTab)
+                    : item.tabValue === activeTab;
+                return (
+                  <Button
+                    key={item.key}
+                    variant="ghost"
+                    className={`w-full justify-start h-8 px-3 text-sm rounded-none text-sidebar-foreground hover:text-sidebar-foreground${
+                      isActive
+                        ? " bg-sidebar text-sidebar-foreground font-medium border-l-[3px] border-l-sidebar-primary pl-[calc(0.75rem-3px)]"
+                        : " font-normal"
+                    }`}
+                    onClick={() => onTabChange(item.tabValue)}
+                    data-testid={`nav-item-${item.key}`}
+                    data-nav-item
+                    aria-current={isActive ? "page" : undefined}
+                  >
+                    <Icon className="w-3.5 h-3.5 mr-2 flex-shrink-0" aria-hidden="true" />
+                    <span className="truncate flex-1">{item.label}</span>
+                    {item.badgeCount !== undefined && item.badgeCount > 0 && (
+                      <span
+                        className="ml-1.5 min-w-[18px] h-[18px] rounded-full bg-sidebar-primary/20 text-sidebar-foreground text-[10px] font-semibold flex items-center justify-center px-1 flex-shrink-0"
+                        data-testid={`badge-count-${item.key}`}
+                      >
+                        {item.badgeCount}
+                      </span>
+                    )}
+                  </Button>
+                );
+              })}
+            </div>
+          ))
+        )}
       </nav>
 
-      <div className="p-3 border-t border-sidebar-border flex justify-center">
-        <CustomersViewSwitcher active="detail" className="bg-sidebar-accent border-sidebar-border" />
-      </div>
+      {!isCollapsed && (
+        <div className="p-3 border-t border-sidebar-border flex justify-center">
+          <CustomersViewSwitcher active="detail" className="bg-sidebar-accent border-sidebar-border" />
+        </div>
+      )}
     </div>
   );
 }
