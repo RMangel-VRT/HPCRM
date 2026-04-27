@@ -140,7 +140,7 @@ export function CustomerSubNav({
 
   return (
     <div
-      className="flex-shrink-0 bg-sidebar text-sidebar-foreground border-r border-sidebar-border flex flex-col"
+      className="flex-shrink-0 bg-sidebar-accent text-sidebar-foreground border border-l-0 border-sidebar-border rounded-r-lg flex flex-col overflow-hidden"
       style={{ width: 200 }}
       data-testid="customer-sub-nav"
     >
@@ -207,7 +207,7 @@ export function CustomerSubNav({
                   variant="ghost"
                   className={`w-full justify-start h-8 px-3 text-sm rounded-none text-sidebar-foreground hover:text-sidebar-foreground${
                     isActive
-                      ? " bg-sidebar-accent text-sidebar-accent-foreground font-medium border-l-[3px] border-l-sidebar-primary pl-[calc(0.75rem-3px)]"
+                      ? " bg-sidebar text-sidebar-foreground font-medium border-l-[3px] border-l-sidebar-primary pl-[calc(0.75rem-3px)]"
                       : " font-normal"
                   }`}
                   onClick={() => onTabChange(item.tabValue)}
