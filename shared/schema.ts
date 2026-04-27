@@ -2485,6 +2485,7 @@ export const customerServicePlans = pgTable("customer_service_plans", {
   expectedQuantity: integer("expected_quantity").notNull().default(1),
   notes: text("notes"),
   sourceContractRef: varchar("source_contract_ref").references(() => contracts.id, { onDelete: "set null" }),
+  sourceTemplateId: varchar("source_template_id").references(() => servicePlanTemplates.id, { onDelete: "set null" }),
   createdAt: timestamp("created_at").notNull().defaultNow(),
   updatedAt: timestamp("updated_at").notNull().defaultNow(),
 }, (table) => ({
@@ -2502,6 +2503,7 @@ export const insertCustomerServicePlanSchema = createInsertSchema(customerServic
   expectedQuantity: z.number().int().min(0),
   notes: z.string().nullable().optional(),
   sourceContractRef: z.string().nullable().optional(),
+  sourceTemplateId: z.string().nullable().optional(),
 });
 
 export type InsertCustomerServicePlan = z.infer<typeof insertCustomerServicePlanSchema>;
@@ -2518,6 +2520,7 @@ export type ServiceFulfillmentRow = {
 
 export type ServicePlanTemplateWithItems = ServicePlanTemplate & {
   items: ServicePlanTemplateItem[];
+  customerCount: number;
 };
 
 export type { AuditFlag, AuditStatus, ContractAuditRow, ContractAuditResponse } from "./auditTypes";

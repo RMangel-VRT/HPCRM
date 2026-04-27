@@ -1561,6 +1561,16 @@ export async function migrateContractAutoPopulateColumn(): Promise<void> {
   }
 }
 
+export async function migrateCustomerServicePlanTemplateOrigin(): Promise<void> {
+  console.log("Running startup migration: Ensuring source_template_id column exists on customer_service_plans...");
+  try {
+    await db.execute(sql`ALTER TABLE customer_service_plans ADD COLUMN IF NOT EXISTS source_template_id varchar REFERENCES service_plan_templates(id) ON DELETE SET NULL`);
+    console.log("customer_service_plans source_template_id column migration complete");
+  } catch (error) {
+    console.error("Error during customer_service_plans source_template_id migration:", error);
+  }
+}
+
 export async function backfillCustomerType(): Promise<void> {
   console.log("Running startup migration: Backfilling customer_type for existing customers...");
   try {
@@ -13267,6 +13277,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       ...req.body,
       customerId: req.params.id,
       companyId: user.activeCompanyId,
+      sourceTemplateId: null,
     });
     if (!parsed.success) return res.status(400).json({ error: parsed.error.errors });
     try {
@@ -13304,6 +13315,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
           expectedQuantity: item.defaultAnnualQuantity,
           notes: null,
           sourceContractRef: null,
+          sourceTemplateId: templateId,
         });
         results.push(plan);
       } catch (err: any) {

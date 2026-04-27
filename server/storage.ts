@@ -3888,9 +3888,23 @@ export class PgStorage implements IStorage {
       ? await db.select().from(servicePlanTemplateItems)
           .where(inArray(servicePlanTemplateItems.templateId, templates.map(t => t.id)))
       : [];
+    const customerCounts = templates.length > 0
+      ? await db.select({
+          templateId: customerServicePlans.sourceTemplateId,
+          count: sql<number>`cast(count(distinct ${customerServicePlans.customerId}) as integer)`,
+        })
+        .from(customerServicePlans)
+        .where(and(
+          eq(customerServicePlans.companyId, companyId),
+          inArray(customerServicePlans.sourceTemplateId, templates.map(t => t.id)),
+        ))
+        .groupBy(customerServicePlans.sourceTemplateId)
+      : [];
+    const countMap = new Map(customerCounts.map(r => [r.templateId, r.count]));
     return templates.map(t => ({
       ...t,
       items: allItems.filter(i => i.templateId === t.id),
+      customerCount: countMap.get(t.id) ?? 0,
     }));
   }
 
@@ -3900,7 +3914,15 @@ export class PgStorage implements IStorage {
     if (!template) return undefined;
     const items = await db.select().from(servicePlanTemplateItems)
       .where(eq(servicePlanTemplateItems.templateId, id));
-    return { ...template, items };
+    const [countRow] = await db.select({
+      count: sql<number>`cast(count(distinct ${customerServicePlans.customerId}) as integer)`,
+    })
+    .from(customerServicePlans)
+    .where(and(
+      eq(customerServicePlans.companyId, companyId),
+      eq(customerServicePlans.sourceTemplateId, id),
+    ));
+    return { ...template, items, customerCount: countRow?.count ?? 0 };
   }
 
   async createServicePlanTemplate(template: InsertServicePlanTemplate): Promise<ServicePlanTemplate> {

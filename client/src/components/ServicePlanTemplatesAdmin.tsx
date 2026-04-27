@@ -9,7 +9,7 @@ import { Badge } from "@/components/ui/badge";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
 import { Separator } from "@/components/ui/separator";
-import { Plus, Pencil, Trash2, X, Copy } from "lucide-react";
+import { Plus, Pencil, Trash2, X, Copy, Users } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { SERVICE_PLAN_CATEGORIES, SERVICE_PLAN_CATEGORY_LABELS } from "@shared/schema";
@@ -185,6 +185,10 @@ export default function ServicePlanTemplatesAdmin() {
                       <Badge variant={template.active === "true" ? "default" : "secondary"} data-testid={`badge-template-active-${template.id}`}>
                         {template.active === "true" ? "Active" : "Inactive"}
                       </Badge>
+                      <span className="flex items-center gap-1 text-xs text-muted-foreground" data-testid={`text-template-customer-count-${template.id}`}>
+                        <Users className="w-3 h-3" />
+                        {template.customerCount === 1 ? "1 customer" : `${template.customerCount} customers`}
+                      </span>
                     </div>
                     <div className="mt-2 flex flex-wrap gap-1">
                       {template.items.map(item => (
