@@ -47,6 +47,7 @@ import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import ContractServices from "@/components/ContractServices";
 import ScheduleSummary from "@/components/ScheduleSummary";
+import { CustomerSubNav } from "@/components/customer/CustomerSubNav";
 import LayerMapViewer from "@/components/LayerMapViewer";
 import CustomerSchedulingSection from "@/components/CustomerSchedulingSection";
 import ServiceFulfillmentPanel from "@/components/ServiceFulfillmentPanel";
@@ -1629,7 +1630,13 @@ export default function CustomerDetail() {
   const parentCustomer = customer.parentCustomer || null;
 
   return (
-    <div className="space-y-6">
+    <div className="flex min-h-full">
+      <CustomerSubNav
+        customerId={customer.id}
+        customerName={customer.name}
+        customers={activeCustomersForSwitcher}
+      />
+      <div className="flex-1 min-w-0 space-y-6 p-6">
       <div className="flex items-start justify-between gap-4">
       {/* Left column: breadcrumb, name/switcher, badges */}
       <div className="flex flex-col gap-1 min-w-0">
@@ -3404,6 +3411,7 @@ export default function CustomerDetail() {
           </Form>
         </DialogContent>
       </Dialog>
+      </div>
     </div>
   );
 }
