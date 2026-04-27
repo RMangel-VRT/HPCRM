@@ -1109,10 +1109,49 @@ export default function CustomerDetail() {
   const canUploadDocuments = user?.activeRole === "admin" || user?.activeRole === "office";
   const canEditContracts = user?.activeRole === "admin" || user?.activeRole === "office";
 
-  useSetBreadcrumbs([
+  const TAB_LABELS: Record<string, string> = {
+    overview: t("customerDetail.tabs.overview"),
+    contacts: t("customerDetail.tabs.contacts"),
+    notes: t("customerDetail.tabs.notes"),
+    tickets: t("customerDetail.tabs.tickets"),
+    proposals: t("customerDetail.tabs.proposals"),
+    "visual-scopes": t("customerDetail.tabs.visualScopes"),
+    snow: t("customerDetail.tabs.snow"),
+    maps: t("customerDetail.tabs.maps"),
+    settings: t("customerDetail.tabs.settings"),
+    contracts: t("customerDetail.billingTabs.contracts"),
+    "rate-sheet": t("customerDetail.billingTabs.rateSheet"),
+    revenue: t("customerDetail.billingTabs.revenue"),
+    "monthly-summary": t("customerDetail.billingTabs.monthlySummary"),
+    "annual-rollup": t("customerDetail.annualTotal"),
+    "service-checklist": t("customerDetail.tabs.scheduling"),
+    communications: t("customerDetail.tabs.operations"),
+    fulfillment: t("customerDetail.tabs.operations"),
+  };
+
+  const activeTabLabel = TAB_LABELS[activeTab] ?? activeTab;
+  const isOverview = activeTab === "overview";
+
+  useEffect(() => {
+    const customerName = customer?.name;
+    if (!customerName) return;
+    if (isOverview) {
+      document.title = `${customerName} | Greenfield`;
+    } else {
+      document.title = `${customerName} \u2014 ${activeTabLabel} | Greenfield`;
+    }
+    return () => {
+      document.title = "Greenfield";
+    };
+  }, [customer?.name, activeTab, activeTabLabel, isOverview]);
+
+  const breadcrumbItems: { label: string; href?: string }[] = [
     { label: t("customers.title"), href: "/dashboard/customers" },
-    { label: customer?.name || t("common.loading") },
-  ], [customer?.name]);
+    { label: customer?.name || t("common.loading"), href: customer ? `/dashboard/customers/${customer.id}?tab=overview` : undefined },
+    ...(!isOverview ? [{ label: activeTabLabel }] : []),
+  ];
+
+  useSetBreadcrumbs(breadcrumbItems, [customer?.name, customer?.id, activeTab, activeTabLabel]);
 
   const contractForm = useForm<Omit<InsertContract, "companyId" | "customerId">>({
     resolver: zodResolver(
@@ -1627,8 +1666,8 @@ export default function CustomerDetail() {
       {/* Left column: breadcrumb, name/switcher, badges */}
       <div className="flex flex-col gap-1 min-w-0">
         {/* Breadcrumb */}
-        <div className="flex items-center gap-1 text-xs text-muted-foreground">
-          <span>Customers</span>
+        <div className="flex items-center gap-1 text-xs text-muted-foreground" data-testid="breadcrumb-customer-detail">
+          <span>{t("customers.title")}</span>
           {isChildCustomer && parentCustomer && (
             <>
               <span>→</span>
@@ -1637,6 +1676,12 @@ export default function CustomerDetail() {
                   {parentCustomer.name}
                 </span>
               </Link>
+            </>
+          )}
+          {!isOverview && (
+            <>
+              <span>→</span>
+              <span data-testid="breadcrumb-active-tab">{activeTabLabel}</span>
             </>
           )}
         </div>
