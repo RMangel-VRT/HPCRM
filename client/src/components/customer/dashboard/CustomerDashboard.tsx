@@ -549,11 +549,53 @@ function PrimaryContactCard({
 }
 
 function activityTypeBadge(type: string) {
-  if (type === "email") return <Badge variant="secondary" className="text-xs shrink-0" data-testid="badge-type-email">Email</Badge>;
-  if (type === "sms") return <Badge variant="secondary" className="text-xs shrink-0" data-testid="badge-type-sms">SMS</Badge>;
-  if (type === "ticket") return <Badge variant="secondary" className="text-xs shrink-0" data-testid="badge-type-ticket">Ticket</Badge>;
-  if (type === "note") return <Badge variant="secondary" className="text-xs shrink-0" data-testid="badge-type-note">Note</Badge>;
+  if (type === "email") return (
+    <Badge
+      variant="secondary"
+      className="text-xs shrink-0"
+      style={{ backgroundColor: "hsl(var(--chart-5) / 0.15)", color: "hsl(var(--chart-5))" }}
+      data-testid="badge-type-email"
+    >
+      Email
+    </Badge>
+  );
+  if (type === "sms") return (
+    <Badge
+      variant="secondary"
+      className="text-xs shrink-0"
+      style={{ backgroundColor: "hsl(var(--chart-3) / 0.15)", color: "hsl(var(--chart-3))" }}
+      data-testid="badge-type-sms"
+    >
+      SMS
+    </Badge>
+  );
+  if (type === "ticket") return (
+    <Badge
+      variant="secondary"
+      className="text-xs shrink-0"
+      style={{ backgroundColor: "hsl(var(--chart-4) / 0.15)", color: "hsl(var(--chart-4))" }}
+      data-testid="badge-type-ticket"
+    >
+      Ticket
+    </Badge>
+  );
+  if (type === "note") return (
+    <Badge
+      variant="secondary"
+      className="text-xs shrink-0"
+      style={{ backgroundColor: "hsl(var(--primary) / 0.15)", color: "hsl(var(--primary))" }}
+      data-testid="badge-type-note"
+    >
+      Note
+    </Badge>
+  );
   return null;
+}
+
+function activityTab(type: string): string {
+  if (type === "ticket") return "tickets";
+  if (type === "note") return "notes";
+  return "communications";
 }
 
 function RecentActivityCard({
@@ -585,9 +627,17 @@ function RecentActivityCard({
         {activityItems.length === 0 ? (
           <p className="text-sm text-muted-foreground">No recent activity</p>
         ) : (
-          <div className="space-y-3">
+          <div className="space-y-1">
             {activityItems.map((item, idx) => (
-              <div key={idx} className="flex items-start justify-between gap-2" data-testid={`row-activity-${idx}`}>
+              <div
+                key={idx}
+                role="button"
+                tabIndex={0}
+                className="flex items-start justify-between gap-2 px-2 py-1.5 rounded-md cursor-pointer hover-elevate"
+                onClick={() => onTabChange(activityTab(item.type))}
+                onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); onTabChange(activityTab(item.type)); } }}
+                data-testid={`row-activity-${idx}`}
+              >
                 <div className="min-w-0 flex-1">
                   <div className="flex items-center gap-1.5 flex-wrap">
                     {activityTypeBadge(item.type)}
