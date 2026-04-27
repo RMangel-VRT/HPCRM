@@ -58,7 +58,6 @@ import CommunicationListTab from "@/components/CommunicationListTab";
 import CustomerServiceChecklist from "@/components/CustomerServiceChecklist";
 import AnnualServiceRollup from "@/components/AnnualServiceRollup";
 import CustomerDashboard from "@/components/customer/dashboard/CustomerDashboard";
-import { CustomersViewSwitcher } from "@/components/customer/CustomersViewSwitcher";
 import {
   setLastViewedCustomerId,
   clearLastViewedCustomerId,
@@ -1637,9 +1636,6 @@ export default function CustomerDetail() {
   if (isLoadingCustomer) {
     return (
       <div className="space-y-6">
-        <div>
-          <CustomersViewSwitcher active="detail" />
-        </div>
         <div className="space-y-3">
           <Skeleton className="h-10 w-2/3" />
           <Skeleton className="h-6 w-1/3" />
@@ -1652,9 +1648,6 @@ export default function CustomerDetail() {
   if (!customer) {
     return (
       <div className="space-y-6">
-        <div>
-          <CustomersViewSwitcher active="detail" />
-        </div>
         <div className="flex items-center justify-center h-96">
           <p className="text-muted-foreground">{t("customers.noCustomersFound")}</p>
         </div>
@@ -1720,9 +1713,6 @@ export default function CustomerDetail() {
         }}
       />
       <div className="flex-1 min-w-0 space-y-6 p-6 md:p-8">
-      <div className="flex justify-end">
-        <CustomersViewSwitcher active="detail" />
-      </div>
       <div className="flex items-start justify-between gap-4">
       {/* Left column: breadcrumb, name/switcher, badges */}
       <div className="flex flex-col gap-1 min-w-0">

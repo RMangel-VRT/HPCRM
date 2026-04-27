@@ -1,5 +1,6 @@
 import { useRef, useCallback } from "react";
 import { useLocation } from "wouter";
+import { CustomersViewSwitcher } from "@/components/customer/CustomersViewSwitcher";
 import { Button } from "@/components/ui/button";
 import {
   Select,
@@ -230,6 +231,10 @@ export function CustomerSubNav({
           </div>
         ))}
       </nav>
+
+      <div className="p-3 border-t border-sidebar-border flex justify-center">
+        <CustomersViewSwitcher active="detail" />
+      </div>
     </div>
   );
 }
