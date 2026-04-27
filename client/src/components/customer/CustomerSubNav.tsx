@@ -1,5 +1,6 @@
-import { useRef, useCallback, useContext } from "react";
+import { useRef, useCallback, useContext, useState, useEffect } from "react";
 import { useLocation } from "wouter";
+import { usePrefersReducedMotion } from "@/hooks/use-reduced-motion";
 import { CustomersViewSwitcher } from "@/components/customer/CustomersViewSwitcher";
 import { Button } from "@/components/ui/button";
 import { SidebarContext } from "@/components/ui/sidebar";
@@ -91,6 +92,17 @@ export function CustomerSubNav({
   const navRef = useRef<HTMLElement>(null);
   const sidebarCtx = useContext(SidebarContext);
   const isCollapsed = sidebarCtx?.state === "collapsed";
+  const [isMounted, setIsMounted] = useState(false);
+  const prefersReducedMotion = usePrefersReducedMotion();
+
+  useEffect(() => {
+    if (prefersReducedMotion) {
+      setIsMounted(true);
+      return;
+    }
+    const frame = requestAnimationFrame(() => setIsMounted(true));
+    return () => cancelAnimationFrame(frame);
+  }, [prefersReducedMotion]);
 
   const isPrivileged = userRole === "admin" || userRole === "office";
   const isFieldManager = userRole === "field_manager";
@@ -143,12 +155,16 @@ export function CustomerSubNav({
 
   return (
     <div
-      className={`flex-shrink-0 bg-sidebar-accent text-sidebar-foreground border border-sidebar-border flex flex-col overflow-hidden transition-[border-radius] duration-200 ${
+      className={`flex-shrink-0 bg-sidebar-accent text-sidebar-foreground border border-sidebar-border flex flex-col overflow-hidden ${
         isCollapsed
           ? "rounded-lg border-l"
           : "border-l-0 rounded-r-lg"
       }`}
-      style={{ width: 200 }}
+      style={{
+        width: isMounted ? 200 : 0,
+        opacity: isMounted ? 1 : 0,
+        transition: prefersReducedMotion ? undefined : "width 220ms ease-out, opacity 180ms ease-out, border-radius 200ms",
+      }}
       data-testid="customer-sub-nav"
     >
       <div className="p-3 border-b border-sidebar-border">

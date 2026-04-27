@@ -8,13 +8,14 @@ import { AuthProvider, useAuth } from "@/hooks/use-auth";
 import { BreadcrumbsProvider } from "@/hooks/use-breadcrumbs";
 import { ProtectedRoute } from "@/lib/protected-route";
 import { AlertTriangle } from "lucide-react";
-import { Component, useEffect, useState } from "react";
+import { Component, useEffect, useRef, useState } from "react";
 import type { ErrorInfo, ReactNode } from "react";
 import { useTranslation } from "react-i18next";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import "@/i18n";
 import AppSidebar from "@/components/AppSidebar";
+import { usePrefersReducedMotion } from "@/hooks/use-reduced-motion";
 import FieldAppLayout from "@/components/FieldAppLayout";
 import { LoadingScreen } from "@/components/LoadingScreen";
 import AppBreadcrumb from "@/components/AppBreadcrumb";
@@ -126,6 +127,29 @@ function Router() {
   const isCustomerDetail =
     /^\/dashboard\/customers\/[^/]+(\/|$)/.test(location) &&
     !/^\/dashboard\/customers\/map(\/|$)/.test(location);
+
+  const prefersReducedMotion = usePrefersReducedMotion();
+  const prevIsCustomerDetailRef = useRef(isCustomerDetail);
+  const [phantomRailVisible, setPhantomRailVisible] = useState(false);
+  const [phantomRailCollapsed, setPhantomRailCollapsed] = useState(false);
+
+  useEffect(() => {
+    const wasCustomerDetail = prevIsCustomerDetailRef.current;
+    prevIsCustomerDetailRef.current = isCustomerDetail;
+    if (wasCustomerDetail && !isCustomerDetail) {
+      if (prefersReducedMotion) return;
+      setPhantomRailCollapsed(false);
+      setPhantomRailVisible(true);
+      const collapseFrame = requestAnimationFrame(() => {
+        requestAnimationFrame(() => setPhantomRailCollapsed(true));
+      });
+      const hideTimer = setTimeout(() => setPhantomRailVisible(false), 280);
+      return () => {
+        cancelAnimationFrame(collapseFrame);
+        clearTimeout(hideTimer);
+      };
+    }
+  }, [isCustomerDetail, prefersReducedMotion]);
 
   useEffect(() => {
     if (user?.language) {
@@ -338,7 +362,18 @@ function Router() {
                 </div>
               </header>
               <AppBreadcrumb />
-              <main className={`flex-1 overflow-y-auto ${isVisualScopeDraft || isCustomerDetail ? "" : "p-6 md:p-8"}`}>
+              <main className={`flex-1 overflow-y-auto relative ${isVisualScopeDraft || isCustomerDetail ? "" : "p-6 md:p-8"}`}>
+                {phantomRailVisible && (
+                  <div
+                    aria-hidden="true"
+                    className="absolute inset-y-0 left-0 bg-sidebar border-r border-sidebar-border z-10 pointer-events-none"
+                    style={{
+                      width: phantomRailCollapsed ? 0 : 200,
+                      opacity: phantomRailCollapsed ? 0 : 1,
+                      transition: "width 220ms ease-in, opacity 180ms ease-in",
+                    }}
+                  />
+                )}
                 {renderRouteSwitch()}
               </main>
             </div>
