@@ -1212,6 +1212,7 @@ export default function CustomerDetail() {
       propertyManagementCompanyId: customer?.propertyManagementCompanyId || null,
       propertyManagerId: customer?.propertyManagerId || null,
       parentCustomerId: customer?.parentCustomerId || null,
+      ranking: customer?.ranking || "standard",
     },
   });
 
@@ -1236,6 +1237,7 @@ export default function CustomerDetail() {
         propertyManagementCompanyId: customer.propertyManagementCompanyId || null,
         propertyManagerId: customer.propertyManagerId || null,
         parentCustomerId: customer.parentCustomerId || null,
+        ranking: customer.ranking || "standard",
       });
     }
   }, [customer, customerForm, isEditCustomerDialogOpen]);
@@ -1304,23 +1306,6 @@ export default function CustomerDetail() {
           variant: "destructive",
         });
       }
-    },
-  });
-
-  const updateRankingMutation = useMutation({
-    mutationFn: async (ranking: "standard" | "preferred" | "key_account") => {
-      return apiRequest("PATCH", `/api/customers/${id}`, { ranking });
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/customers", id] });
-      queryClient.invalidateQueries({ queryKey: ["/api/customers"] });
-    },
-    onError: (error: Error) => {
-      toast({
-        title: t("common.error"),
-        description: error.message,
-        variant: "destructive",
-      });
     },
   });
 
@@ -1645,110 +1630,100 @@ export default function CustomerDetail() {
 
   return (
     <div className="space-y-6">
-      {/* Row 1: Customer name + switcher */}
-      <div className="flex items-center gap-3 flex-wrap">
-        {isChildCustomer && parentCustomer && (
-          <div className="flex items-center gap-2" data-testid="text-parent-link">
-            <Building2 className="w-4 h-4 text-muted-foreground" />
-            <Link href={`/dashboard/customers/${parentCustomer.id}`}>
-              <span className="text-sm text-muted-foreground hover:text-foreground cursor-pointer">
-                {parentCustomer.name}
-              </span>
-            </Link>
-            <span className="text-sm text-muted-foreground">/</span>
-          </div>
-        )}
-        {isParentCustomer && (
-          <Building2 className="w-6 h-6 text-primary" />
-        )}
-        {activeCustomersForSwitcher.length > 1 ? (
-          <Select value={customer.id} onValueChange={(val) => navigate(`/dashboard/customers/${val}`)}>
-            <SelectTrigger
-              className="w-auto border-0 bg-transparent p-0 h-auto shadow-none focus:ring-0 [&>svg]:hidden gap-1.5 hover:opacity-75 transition-opacity"
-              data-testid="select-customer-switcher"
-            >
-              <span className="text-3xl font-semibold tracking-tight" data-testid="text-customer-name">
-                {customer.name}
-              </span>
-              <span className="flex-shrink-0"><ChevronDown className="w-5 h-5 text-muted-foreground mt-1" /></span>
-            </SelectTrigger>
-            <SelectContent>
-              {activeCustomersForSwitcher.map((c) => (
-                <SelectItem key={c.id} value={c.id} data-testid={`option-customer-${c.id}`}>
-                  {c.name}
-                </SelectItem>
+      <div className="flex items-start justify-between gap-4">
+      {/* Left column: breadcrumb, name/switcher, badges */}
+      <div className="flex flex-col gap-1 min-w-0">
+        {/* Breadcrumb */}
+        <div className="flex items-center gap-1 text-xs text-muted-foreground">
+          <span>Customers</span>
+          {isChildCustomer && parentCustomer && (
+            <>
+              <span>→</span>
+              <Link href={`/dashboard/customers/${parentCustomer.id}`} data-testid="text-parent-link">
+                <span className="hover:text-foreground cursor-pointer">
+                  {parentCustomer.name}
+                </span>
+              </Link>
+            </>
+          )}
+        </div>
+
+        {/* Name / switcher */}
+        <div className="flex items-center gap-2">
+          {isParentCustomer && (
+            <Building2 className="w-6 h-6 text-primary flex-shrink-0" />
+          )}
+          {activeCustomersForSwitcher.length > 1 ? (
+            <Select value={customer.id} onValueChange={(val) => navigate(`/dashboard/customers/${val}`)}>
+              <SelectTrigger
+                className="w-auto border-0 bg-transparent p-0 h-auto shadow-none focus:ring-0 [&>svg]:hidden gap-1.5 hover:opacity-75 transition-opacity"
+                data-testid="select-customer-switcher"
+              >
+                <span className="text-3xl font-semibold tracking-tight" data-testid="text-customer-name">
+                  {customer.name}
+                </span>
+                <span className="flex-shrink-0"><ChevronDown className="w-5 h-5 text-muted-foreground mt-1" /></span>
+              </SelectTrigger>
+              <SelectContent>
+                {activeCustomersForSwitcher.map((c) => (
+                  <SelectItem key={c.id} value={c.id} data-testid={`option-customer-${c.id}`}>
+                    {c.name}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          ) : (
+            <h1 className="text-3xl font-semibold tracking-tight" data-testid="text-customer-name">
+              {customer.name}
+            </h1>
+          )}
+        </div>
+
+        {/* Badges */}
+        <div className="flex items-center gap-2 flex-wrap">
+          {customer.customerNumber && (
+            <span className="text-sm text-muted-foreground font-medium" data-testid="text-customer-number">
+              #{customer.customerNumber}
+            </span>
+          )}
+          <StatusBadge status={customer.status} />
+          {isParentCustomer && (
+            <Badge variant="secondary" data-testid="badge-parent-customer">
+              {t("customerDetail.parentAccount")}
+            </Badge>
+          )}
+          {isChildCustomer && (
+            <Badge variant="outline" data-testid="badge-branch-customer">
+              {t("customerDetail.branch")}
+            </Badge>
+          )}
+          <Badge 
+            variant={coverage === t("customerDetail.coverageMaintAndSnow") ? "default" : coverage === t("customerDetail.noCoverage") ? "outline" : "secondary"}
+            data-testid="badge-coverage-status"
+          >
+            {coverage}
+          </Badge>
+          {customer.includeInRoute && (
+            <Badge variant="secondary" data-testid="badge-include-in-route">
+              {t("customers.onRoute")}
+            </Badge>
+          )}
+          {customer.tags && customer.tags.length > 0 && (
+            <div className="flex gap-1.5 flex-wrap">
+              {customer.tags.map((tag) => (
+                <Badge key={tag} variant="outline" className="text-xs">
+                  {tag}
+                </Badge>
               ))}
-            </SelectContent>
-          </Select>
-        ) : (
-          <h1 className="text-3xl font-semibold tracking-tight" data-testid="text-customer-name">
-            {customer.name}
-          </h1>
-        )}
+            </div>
+          )}
+        </div>
       </div>
 
-      {/* Row 2: Customer number + badges */}
-      <div className="flex items-center gap-2 flex-wrap">
-        {customer.customerNumber && (
-          <span className="text-sm text-muted-foreground font-medium" data-testid="text-customer-number">
-            #{customer.customerNumber}
-          </span>
-        )}
-        <StatusBadge status={customer.status} />
-        {isParentCustomer && (
-          <Badge variant="secondary" data-testid="badge-parent-customer">
-            {t("customerDetail.parentAccount")}
-          </Badge>
-        )}
-        {isChildCustomer && (
-          <Badge variant="outline" data-testid="badge-branch-customer">
-            {t("customerDetail.branch")}
-          </Badge>
-        )}
-        <Badge 
-          variant={coverage === t("customerDetail.coverageMaintAndSnow") ? "default" : coverage === t("customerDetail.noCoverage") ? "outline" : "secondary"}
-          data-testid="badge-coverage-status"
-        >
-          {coverage}
-        </Badge>
-        {customer.includeInRoute && (
-          <Badge variant="secondary" data-testid="badge-include-in-route">
-            {t("customers.onRoute")}
-          </Badge>
-        )}
-        {customer.tags && customer.tags.length > 0 && (
-          <div className="flex gap-1.5 flex-wrap ml-2">
-            {customer.tags.map((tag) => (
-              <Badge key={tag} variant="outline" className="text-xs">
-                {tag}
-              </Badge>
-            ))}
-          </div>
-        )}
-      </div>
-
-      {/* Row 2.5: Ranking selector */}
-      <div className="flex items-center gap-2">
-        <span className="text-sm text-muted-foreground font-medium">Ranking:</span>
-        <Select
-          value={customer.ranking || "standard"}
-          onValueChange={(value) => updateRankingMutation.mutate(value as "standard" | "preferred" | "key_account")}
-          disabled={updateRankingMutation.isPending}
-        >
-          <SelectTrigger className="w-[160px]" data-testid="select-customer-ranking">
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="standard" data-testid="option-ranking-standard">Standard</SelectItem>
-            <SelectItem value="preferred" data-testid="option-ranking-preferred">Preferred</SelectItem>
-            <SelectItem value="key_account" data-testid="option-ranking-key-account">Key Account</SelectItem>
-          </SelectContent>
-        </Select>
-      </div>
-
-      {/* Row 3: Action buttons */}
-      <div className="flex gap-2 flex-wrap">
+      {/* Right column: action buttons */}
+      <div className="flex items-center gap-2 flex-shrink-0 flex-wrap">
         <Button 
+          size="sm"
           variant="outline" 
           data-testid="button-add-note"
           onClick={() => {
@@ -1763,6 +1738,7 @@ export default function CustomerDetail() {
         </Button>
         {(user?.activeRole === "admin" || user?.activeRole === "office") && (
           <Button 
+            size="sm"
             variant="outline"
             data-testid="button-add-ticket"
             onClick={() => navigate(`/dashboard/tickets/new?customerId=${customer.id}`)}
@@ -1772,12 +1748,15 @@ export default function CustomerDetail() {
           </Button>
         )}
         <Button 
+          size="sm"
+          variant="default"
           data-testid="button-edit-customer"
           onClick={() => setIsEditCustomerDialogOpen(true)}
         >
           <Edit className="w-4 h-4 mr-2" />
           {t("common.edit")}
         </Button>
+      </div>
       </div>
 
       <Tabs value={activeTab} onValueChange={setActiveTab}>
@@ -3226,27 +3205,51 @@ export default function CustomerDetail() {
                   </FormItem>
                 )}
               />
-              <FormField
-                control={customerForm.control}
-                name="customerType"
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>{t("campaigns.customerTypeLabel")}</FormLabel>
-                    <Select onValueChange={field.onChange} value={field.value || "commercial"}>
-                      <FormControl>
-                        <SelectTrigger data-testid="select-customer-type-edit">
-                          <SelectValue />
-                        </SelectTrigger>
-                      </FormControl>
-                      <SelectContent>
-                        <SelectItem value="commercial">{t("campaigns.customerTypeCommercial")}</SelectItem>
-                        <SelectItem value="hoa">{t("campaigns.customerTypeHoa")}</SelectItem>
-                      </SelectContent>
-                    </Select>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
+              <div className="grid grid-cols-2 gap-4">
+                <FormField
+                  control={customerForm.control}
+                  name="customerType"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>{t("campaigns.customerTypeLabel")}</FormLabel>
+                      <Select onValueChange={field.onChange} value={field.value || "commercial"}>
+                        <FormControl>
+                          <SelectTrigger data-testid="select-customer-type-edit">
+                            <SelectValue />
+                          </SelectTrigger>
+                        </FormControl>
+                        <SelectContent>
+                          <SelectItem value="commercial">{t("campaigns.customerTypeCommercial")}</SelectItem>
+                          <SelectItem value="hoa">{t("campaigns.customerTypeHoa")}</SelectItem>
+                        </SelectContent>
+                      </Select>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+                <FormField
+                  control={customerForm.control}
+                  name="ranking"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Ranking</FormLabel>
+                      <Select onValueChange={field.onChange} value={field.value || "standard"}>
+                        <FormControl>
+                          <SelectTrigger data-testid="select-customer-ranking">
+                            <SelectValue />
+                          </SelectTrigger>
+                        </FormControl>
+                        <SelectContent>
+                          <SelectItem value="standard" data-testid="option-ranking-standard">Standard</SelectItem>
+                          <SelectItem value="preferred" data-testid="option-ranking-preferred">Preferred</SelectItem>
+                          <SelectItem value="key_account" data-testid="option-ranking-key-account">Key Account</SelectItem>
+                        </SelectContent>
+                      </Select>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+              </div>
               <FormField
                 control={customerForm.control}
                 name="snowEnabled"
