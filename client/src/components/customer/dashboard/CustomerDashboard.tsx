@@ -34,6 +34,7 @@ import type {
   ContractMonthlyAmount,
   PropertyManagementCompany,
   PropertyManager,
+  CommunicationWithDetails,
 } from "@shared/schema";
 
 interface CustomerDashboardProps {
@@ -91,6 +92,10 @@ export default function CustomerDashboard({
     queryKey: ["/api/customers", customerId, "all-monthly-amounts", currentYear],
   });
 
+  const { data: communications = [] } = useQuery<CommunicationWithDetails[]>({
+    queryKey: ["/api/customers", customerId, "communications"],
+  });
+
   const activeContracts = contracts.filter((c) => c.status === "active");
   const openTickets = tickets.filter((t) => !t.completedAt);
   const highPriorityCount = openTickets.filter((t) => t.priority === "high" || t.priority === "urgent").length;
@@ -134,6 +139,14 @@ export default function CustomerDashboard({
         subtitle: t.completedAt ? "Ticket resolved" : "Ticket opened",
         timestamp: t.completedAt ? new Date(t.completedAt) : new Date(t.createdAt!),
         type: "ticket",
+      })),
+    ...communications
+      .filter((c) => c.status === "sent" && c.createdAt)
+      .map((c) => ({
+        title: c.subject || "(No subject)",
+        subtitle: c.type === "sms" ? "SMS" : c.type === "email" ? "Email" : c.type.charAt(0).toUpperCase() + c.type.slice(1),
+        timestamp: c.sentAt ? new Date(c.sentAt) : new Date(c.createdAt),
+        type: c.type,
       })),
   ]
     .sort((a, b) => b.timestamp.getTime() - a.timestamp.getTime())
@@ -507,6 +520,14 @@ function PrimaryContactCard({
   );
 }
 
+function activityTypeBadge(type: string) {
+  if (type === "email") return <Badge variant="secondary" className="text-xs shrink-0" data-testid="badge-type-email">Email</Badge>;
+  if (type === "sms") return <Badge variant="secondary" className="text-xs shrink-0" data-testid="badge-type-sms">SMS</Badge>;
+  if (type === "ticket") return <Badge variant="secondary" className="text-xs shrink-0" data-testid="badge-type-ticket">Ticket</Badge>;
+  if (type === "note") return <Badge variant="secondary" className="text-xs shrink-0" data-testid="badge-type-note">Note</Badge>;
+  return null;
+}
+
 function RecentActivityCard({
   activityItems,
   onTabChange,
@@ -524,7 +545,7 @@ function RecentActivityCard({
         <Button
           variant="ghost"
           size="sm"
-          onClick={() => onTabChange("notes")}
+          onClick={() => onTabChange("communications")}
           data-testid="button-view-all-activity"
           className="text-xs"
         >
@@ -540,7 +561,10 @@ function RecentActivityCard({
             {activityItems.map((item, idx) => (
               <div key={idx} className="flex items-start justify-between gap-2" data-testid={`row-activity-${idx}`}>
                 <div className="min-w-0 flex-1">
-                  <p className="text-sm font-medium truncate">{item.title}</p>
+                  <div className="flex items-center gap-1.5 flex-wrap">
+                    {activityTypeBadge(item.type)}
+                    <p className="text-sm font-medium truncate" data-testid={`text-activity-title-${idx}`}>{item.title}</p>
+                  </div>
                   {item.subtitle && (
                     <p className="text-xs text-muted-foreground truncate">{item.subtitle}</p>
                   )}
