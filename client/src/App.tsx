@@ -123,6 +123,9 @@ function Router() {
   const [showLoadingScreen, setShowLoadingScreen] = useState(true);
   const [location] = useLocation();
   const isVisualScopeDraft = /^\/dashboard\/tools\/visual-scope\/[^/]+/.test(location);
+  const isCustomerDetail =
+    /^\/dashboard\/customers\/[^/]+(\/|$)/.test(location) &&
+    !/^\/dashboard\/customers\/map(\/|$)/.test(location);
 
   useEffect(() => {
     if (user?.language) {
@@ -325,6 +328,7 @@ function Router() {
               isSuperAdmin={user.isSuperAdminBool}
               userName={user.name}
               onLogout={() => logoutMutation.mutate()}
+              isCustomerDetail={isCustomerDetail}
             />
             <div className="flex flex-col flex-1 overflow-hidden">
               <header className="flex items-center justify-between p-4 border-b bg-background">
@@ -334,7 +338,7 @@ function Router() {
                 </div>
               </header>
               <AppBreadcrumb />
-              <main className={`flex-1 overflow-y-auto ${isVisualScopeDraft ? "" : "p-6 md:p-8"}`}>
+              <main className={`flex-1 overflow-y-auto ${isVisualScopeDraft || isCustomerDetail ? "" : "p-6 md:p-8"}`}>
                 {renderRouteSwitch()}
               </main>
             </div>

@@ -55,6 +55,7 @@ interface AppSidebarProps {
   isSuperAdmin?: boolean;
   userName?: string;
   onLogout?: () => void;
+  isCustomerDetail?: boolean;
 }
 
 export default function AppSidebar({
@@ -62,6 +63,7 @@ export default function AppSidebar({
   isSuperAdmin = false,
   userName = "John Doe",
   onLogout,
+  isCustomerDetail = false,
 }: AppSidebarProps) {
   const [location] = useLocation();
   const { t, i18n } = useTranslation();
@@ -210,7 +212,15 @@ export default function AppSidebar({
   };
 
   return (
-    <Sidebar variant="floating" data-testid="app-sidebar">
+    <Sidebar
+      variant="floating"
+      data-testid="app-sidebar"
+      className={
+        isCustomerDetail
+          ? "md:pr-0 [&_[data-slot=sidebar-inner]]:rounded-r-none [&_[data-slot=sidebar-inner]]:border-r-0 [&_[data-slot=sidebar-inner]]:shadow-none"
+          : undefined
+      }
+    >
       <SidebarHeader className="p-4">
         <div className="flex items-center gap-3">
           <img src={logoImage} alt="High Plains Logo" className="h-12 w-12 object-cover rounded-full" />
@@ -262,16 +272,28 @@ export default function AppSidebar({
           <SidebarGroup>
             <SidebarGroupLabel>{t("sidebar.highPlainsCRM")}</SidebarGroupLabel>
             <SidebarMenu>
-              {crmItems.map((item) => (
-                <SidebarMenuItem key={item.title}>
-                  <SidebarMenuButton asChild isActive={isActive(item.url)}>
-                    <Link href={item.url} data-testid={`link-${item.title.toLowerCase().replace(/\s+/g, '-')}`}>
-                      <item.icon className="w-4 h-4" />
-                      <span>{item.title}</span>
-                    </Link>
-                  </SidebarMenuButton>
-                </SidebarMenuItem>
-              ))}
+              {crmItems.map((item) => {
+                const isCustomersAnchor =
+                  isCustomerDetail && item.url === "/dashboard/customers";
+                return (
+                  <SidebarMenuItem key={item.title}>
+                    <SidebarMenuButton
+                      asChild
+                      isActive={isActive(item.url)}
+                      className={
+                        isCustomersAnchor
+                          ? "relative data-[active=true]:after:absolute data-[active=true]:after:right-0 data-[active=true]:after:top-0 data-[active=true]:after:bottom-0 data-[active=true]:after:w-[3px] data-[active=true]:after:bg-sidebar-primary"
+                          : undefined
+                      }
+                    >
+                      <Link href={item.url} data-testid={`link-${item.title.toLowerCase().replace(/\s+/g, '-')}`}>
+                        <item.icon className="w-4 h-4" />
+                        <span>{item.title}</span>
+                      </Link>
+                    </SidebarMenuButton>
+                  </SidebarMenuItem>
+                );
+              })}
             </SidebarMenu>
           </SidebarGroup>
         )}
