@@ -1,0 +1,33 @@
+Slice 5: Promote Overview → Dashboard, rebuild as a card grid
+Scope. Current Overview is a static info block (address, acres, complexity, count widgets, child properties table). Replace with a card grid that pulls one widget from each rail section. The dashboard becomes the answer to "what's the state of this account."
+Files
+
+New: client/src/components/customer/dashboard/CustomerDashboard.tsx
+New: small card components under client/src/components/customer/dashboard/cards/ (one per card).
+Edit: customer detail page — render CustomerDashboard for the dashboard tab.
+Edit: CustomerSubNav — rename the rail label from Overview to Dashboard.
+
+Cards (3-column responsive grid, span 1 or 2 columns each)
+
+Annual contract value (1 col). Sum of active contracts. Subtitle: "X active contracts".
+Open tickets (1 col). Count colored amber if > 0. Subtitle: "X high priority · oldest Yd". Click → Tickets rail item.
+Next service (1 col). Service name, date, crew. Click → Service plan rail item.
+Active contracts (2 col). One row per active contract: name, date range, value, Active badge. "View all" → Contracts rail item.
+Primary contact (1 col). Name, role, email (copy button), phone (copy button). "View all" → Contacts rail item.
+Recent activity (2 col). Last 5 items combined across notes, communications, completed visits, opened tickets. Each row: title, subtitle, relative date. "View all" splits into per-section links or goes to a unified activity log if you want to add one later (not in scope).
+Property (1 col). Address, city/state, acres, complexity. PM company below.
+
+Implementation notes
+
+Reuse existing TanStack Query hooks. The dashboard is a read-only roll-up — don't add API endpoints. If a card needs data that isn't already fetched on the page, add the existing hook to the dashboard component's imports.
+For "Recent activity" you may need to merge results from a few queries client-side. Sort by timestamp desc, slice to 5.
+Empty states per card: "No active tickets", "No upcoming services", "No primary contact set" — keep the card visible so the layout is stable; just show a small muted message.
+Click handlers on cards / "View all" links should call onTabChange("contacts") etc., not navigate via URL (URL navigation comes in slice 8).
+
+Acceptance
+
+Clicking into a customer lands on the new Dashboard.
+Every card pulls real data and renders an empty state cleanly when data is missing.
+All "View all" / card-click navigations land on the correct rail item.
+The old Overview's address/acres/complexity content is still represented (in the Property card).
+The child properties table — if customer is a parent — appears below the dashboard grid (or as its own card spanning the full row). Don't lose this content.

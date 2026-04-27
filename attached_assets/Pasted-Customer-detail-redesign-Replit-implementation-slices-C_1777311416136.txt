@@ -1,0 +1,51 @@
+Customer detail redesign — Replit implementation slices
+Context for the agent
+The customer detail page currently uses a horizontal tab strip with 9 top-level tabs (Overview, Contacts, Notes, Operations, Maps, Service Checklist, Communications, Billing, Settings, Service Plan), with two of those (Operations, Billing) having their own inner sub-tab strips. We're moving that navigation to a vertical sub-rail that sits between the global left nav and the main content area, promoting Overview to a real Dashboard, and flattening every sub-tab into the rail.
+Stack: React 18 + TypeScript + Vite + Tailwind + shadcn/ui (Radix) + Wouter + TanStack Query. Don't add new dependencies.
+Goal
+Make every customer feel like its own dashboard for an account manager. The rail is the workspace navigation; the main area is fully focused on the active section.
+Non-goals
+
+No backend or schema changes. All data already exists.
+No new features. Every tab and sub-tab keeps its existing content.
+No mobile-specific redesign yet. Assume desktop; we'll add a collapsing rail for narrow screens later.
+No drag-to-reorder dashboard cards.
+No permissions/role logic changes. Wherever a tab is currently admin/office-only, the corresponding rail item is admin/office-only.
+
+Target information architecture
+The rail has a pinned customer block at the top, then five labelled sections. Customer name dropdown stays as the switcher.
+CUSTOMER
+  18 at Ute Creek ▾   ← dropdown switcher (existing component)
+  #10428 · Standard
+
+  Dashboard           ← landing item, replaces Overview
+
+  ACCOUNT
+    Contacts (4)
+    Notes (1)
+    Communications     (admin/office only)
+
+  PROPERTY
+    Maps
+    Service plan
+    Service checklist
+
+  OPERATIONS
+    Annual rollup
+    Tickets
+    Proposals
+    Visual scopes
+    Snow               (only when snow services active)
+
+  FINANCIAL            (admin/office only)
+    Contracts (2)
+    Rate sheet
+    Revenue
+    Monthly summary
+
+  ADMIN
+    Settings           (admin/office only)
+Every former tab/sub-tab maps 1:1 to a rail item. The Billing parent tab and Operations parent tab go away — their sub-tabs become first-class rail items.
+Slicing approach
+Each slice is meant to be one Replit Agent run that lands in a deployable state. Slices 1–3 do the structural move. 4–7 are the quality-of-life follow-ups. 8 is optional polish. Don't ship slice N+1 until slice N is reviewed.
+Before slice 1: confirm the exact file path of the customer detail page (search for TabsTrigger or <Tabs in client/src/pages/). The slices below assume it lives at something like client/src/pages/customer-detail.tsx — adjust as needed.
