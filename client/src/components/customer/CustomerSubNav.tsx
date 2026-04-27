@@ -10,7 +10,6 @@ import {
   LayoutDashboard,
   Users,
   MessageSquare,
-  Wrench,
   Map,
   CheckCircle2,
   CalendarCheck,
@@ -18,6 +17,11 @@ import {
   DollarSign,
   Settings,
   ChevronDown,
+  BarChart3,
+  Ticket as TicketIcon,
+  FileText,
+  Layers,
+  Snowflake,
 } from "lucide-react";
 
 interface CustomerSubNavCustomer {
@@ -33,6 +37,9 @@ export interface RailItem {
   badgeCount?: number;
   visible?: boolean;
   icon: React.ComponentType<{ className?: string }>;
+  adminOnly?: boolean;
+  fieldManagerVisible?: boolean;
+  snowRequired?: boolean;
 }
 
 interface CustomerSubNavProps {
@@ -42,26 +49,29 @@ interface CustomerSubNavProps {
   activeTab: string;
   onTabChange: (tab: string) => void;
   userRole?: string;
+  snowEnabled?: boolean;
 }
 
-const ALL_RAIL_ITEMS: Omit<RailItem, "visible">[] = [
+const BASE_RAIL_ITEMS: Omit<RailItem, "visible">[] = [
   { key: "overview", label: "Dashboard", section: "Overview", tabValue: "overview", icon: LayoutDashboard },
   { key: "contacts", label: "Contacts", section: "Overview", tabValue: "contacts", icon: Users },
   { key: "notes", label: "Notes", section: "Overview", tabValue: "notes", icon: MessageSquare },
-  { key: "operations", label: "Operations", section: "Operations", tabValue: "operations", icon: Wrench },
   { key: "maps", label: "Maps", section: "Operations", tabValue: "maps", icon: Map },
   { key: "service-checklist", label: "Service Checklist", section: "Operations", tabValue: "service-checklist", icon: CheckCircle2 },
   { key: "fulfillment", label: "Service Plan", section: "Operations", tabValue: "fulfillment", icon: CalendarCheck },
-  { key: "communications", label: "Communications", section: "Operations", tabValue: "communications", icon: Mail },
-  { key: "billing", label: "Billing", section: "Billing", tabValue: "contracts", icon: DollarSign },
-  { key: "settings", label: "Settings", section: "Settings", tabValue: "settings", icon: Settings },
+  { key: "annual-rollup", label: "Annual Rollup", section: "Operations", tabValue: "annual-rollup", icon: BarChart3, adminOnly: true },
+  { key: "tickets", label: "Tickets", section: "Operations", tabValue: "tickets", icon: TicketIcon },
+  { key: "proposals", label: "Proposals", section: "Operations", tabValue: "proposals", icon: FileText, adminOnly: true },
+  { key: "visual-scopes", label: "Visual Scopes", section: "Operations", tabValue: "visual-scopes", icon: Layers, adminOnly: true },
+  { key: "snow", label: "Snow", section: "Operations", tabValue: "snow", icon: Snowflake, snowRequired: true, fieldManagerVisible: true },
+  { key: "communications", label: "Communications", section: "Operations", tabValue: "communications", icon: Mail, adminOnly: true },
+  { key: "billing", label: "Billing", section: "Financial", tabValue: "contracts", icon: DollarSign, adminOnly: true },
+  { key: "settings", label: "Settings", section: "Settings", tabValue: "settings", icon: Settings, adminOnly: true },
 ];
-
-const PERMISSION_GATED = new Set(["communications", "billing", "settings"]);
 
 const BILLING_SUBTABS = new Set(["contracts", "rate-sheet", "revenue", "monthly-summary"]);
 
-const SECTION_ORDER = ["Overview", "Operations", "Billing", "Settings"];
+const SECTION_ORDER = ["Overview", "Operations", "Financial", "Settings"];
 
 export function CustomerSubNav({
   customerId,
@@ -70,15 +80,19 @@ export function CustomerSubNav({
   activeTab,
   onTabChange,
   userRole,
+  snowEnabled = false,
 }: CustomerSubNavProps) {
   const [, navigate] = useLocation();
 
   const isPrivileged = userRole === "admin" || userRole === "office";
+  const isFieldManager = userRole === "field_manager";
 
-  const visibleItems: RailItem[] = ALL_RAIL_ITEMS.map((item) => ({
-    ...item,
-    visible: PERMISSION_GATED.has(item.key) ? isPrivileged : true,
-  })).filter((item) => item.visible);
+  const visibleItems: RailItem[] = BASE_RAIL_ITEMS.map((item) => {
+    if (item.adminOnly && !isPrivileged) return { ...item, visible: false };
+    if (item.snowRequired && !snowEnabled) return { ...item, visible: false };
+    if (item.snowRequired && !isPrivileged && !isFieldManager) return { ...item, visible: false };
+    return { ...item, visible: true };
+  }).filter((item) => item.visible);
 
   const sections = SECTION_ORDER.map((heading) => ({
     heading,
@@ -95,9 +109,7 @@ export function CustomerSubNav({
         {customers.length > 1 ? (
           <Select
             value={customerId}
-            onValueChange={(val) =>
-              navigate(`/dashboard/customers/${val}`)
-            }
+            onValueChange={(val) => navigate(`/dashboard/customers/${val}`)}
           >
             <SelectTrigger
               className="w-full border-0 bg-transparent p-0 h-auto shadow-none focus:ring-0 [&>svg]:hidden gap-1"

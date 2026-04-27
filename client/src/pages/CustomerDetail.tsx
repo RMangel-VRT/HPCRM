@@ -1056,9 +1056,6 @@ export default function CustomerDetail() {
   };
 
   const [activeTab, setActiveTab] = useState(resolveTab(tabFromUrl, subTabFromUrl));
-  const [operationsSubTab, setOperationsSubTab] = useState(
-    tabFromUrl === "operations" ? (subTabFromUrl || "tickets") : "tickets"
-  );
 
   useEffect(() => {
     const params = new URLSearchParams(search);
@@ -1066,9 +1063,6 @@ export default function CustomerDetail() {
     const subtab = params.get("subtab");
     if (tab) {
       setActiveTab(resolveTab(tab, subtab));
-      if (tab === "operations" && subtab) {
-        setOperationsSubTab(subtab);
-      }
     }
   }, [search]);
 
@@ -1645,6 +1639,7 @@ export default function CustomerDetail() {
         activeTab={activeTab}
         onTabChange={setActiveTab}
         userRole={user?.activeRole}
+        snowEnabled={customer.snowEnabled ?? false}
       />
       <div className="flex-1 min-w-0 space-y-6 p-6">
       <div className="flex items-start justify-between gap-4">
@@ -1776,14 +1771,6 @@ export default function CustomerDetail() {
       </div>
       </div>
 
-      <div className="flex gap-6 items-start">
-        <CustomerSubNav
-          activeTab={activeTab}
-          onTabChange={setActiveTab}
-          contractsCount={isChildCustomer ? contracts.length + parentContracts.length : contracts.length}
-          isAdminOrOffice={user?.activeRole === "admin" || user?.activeRole === "office"}
-        />
-        <div className="flex-1 min-w-0">
       <Tabs value={activeTab} onValueChange={setActiveTab}>
 
         <TabsContent value="overview">
@@ -2052,78 +2039,31 @@ export default function CustomerDetail() {
           )}
         </TabsContent>
 
-        <TabsContent value="operations" className="space-y-4">
-          {(user?.activeRole === "admin" || user?.activeRole === "office") && (
+        {(user?.activeRole === "admin" || user?.activeRole === "office") && (
+          <TabsContent value="annual-rollup" className="space-y-4">
             <AnnualServiceRollup customerId={customer.id} />
-          )}
-          <Tabs value={operationsSubTab} onValueChange={setOperationsSubTab}>
-            <TabsList className="mb-4">
-              <TabsTrigger value="tickets" data-testid="subtab-tickets">
-                {t("customerDetail.tabs.tickets")} ({tickets.length})
-              </TabsTrigger>
-              {(user?.activeRole === "admin" || user?.activeRole === "office") && (
-                <>
-                  <TabsTrigger value="proposals" data-testid="subtab-proposals">
-                    {t("customerDetail.tabs.proposals")}
-                  </TabsTrigger>
-                  <TabsTrigger value="visual-scopes" data-testid="subtab-visual-scopes">
-                    {t("customerDetail.tabs.visualScopes")}
-                  </TabsTrigger>
-                </>
-              )}
-              {(user?.activeRole === "admin" || user?.activeRole === "office" || user?.activeRole === "field_manager" || user?.activeRole === "chemical_manager") && (
-                <TabsTrigger value="service-checklist" data-testid="subtab-service-checklist">
-                  <Wrench className="w-4 h-4 mr-1" />
-                  Service Checklist
-                </TabsTrigger>
-              )}
-              {customer.snowEnabled && (user?.activeRole === "admin" || user?.activeRole === "office" || user?.activeRole === "field_manager") && (
-                <TabsTrigger value="snow" data-testid="subtab-snow">
-                  <Snowflake className="w-4 h-4 mr-1" />
-                  {t("customerDetail.tabs.snow")}
-                </TabsTrigger>
-              )}
-            </TabsList>
+          </TabsContent>
+        )}
 
-            <TabsContent value="tickets" className="space-y-4">
-              <TicketListView 
-                customerId={customer.id}
-                showHeader={false}
-                showCustomerColumn={false}
-                showBatchActions={false}
-                showQuickAdd={false}
-                showNewTicketButton={true}
-              />
-            </TabsContent>
-
-            {(user?.activeRole === "admin" || user?.activeRole === "office") && (
-              <TabsContent value="proposals" className="space-y-4">
-                <CustomerProposalsSection customerId={params?.id!} />
-              </TabsContent>
-            )}
-
-            {(user?.activeRole === "admin" || user?.activeRole === "office") && (
-              <TabsContent value="visual-scopes" className="space-y-4">
-                <CustomerVisualScopesSection customerId={params?.id!} />
-              </TabsContent>
-            )}
-
-            {(user?.activeRole === "admin" || user?.activeRole === "office" || user?.activeRole === "field_manager" || user?.activeRole === "chemical_manager") && (
-              <TabsContent value="service-checklist">
-                <CustomerServiceChecklist customerId={customer.id} />
-              </TabsContent>
-            )}
-
-            {customer.snowEnabled && (user?.activeRole === "admin" || user?.activeRole === "office" || user?.activeRole === "field_manager") && (
-              <TabsContent value="snow" className="space-y-4">
-                <CustomerSnowHistory customerId={params?.id!} customerName={customer.name} />
-              </TabsContent>
-            )}
-          </Tabs>
+        <TabsContent value="tickets" className="space-y-4">
+          <TicketListView
+            customerId={customer.id}
+            showHeader={false}
+            showCustomerColumn={false}
+            showBatchActions={false}
+            showQuickAdd={false}
+            showNewTicketButton={true}
+          />
         </TabsContent>
 
         {(user?.activeRole === "admin" || user?.activeRole === "office") && (
           <>
+            <TabsContent value="proposals" className="space-y-4">
+              <CustomerProposalsSection customerId={params?.id!} />
+            </TabsContent>
+            <TabsContent value="visual-scopes" className="space-y-4">
+              <CustomerVisualScopesSection customerId={params?.id!} />
+            </TabsContent>
             <TabsContent value="contracts" className="space-y-4">
                 {isChildCustomer && parentCustomer ? (
                   <div className="space-y-4">
@@ -2306,6 +2246,12 @@ export default function CustomerDetail() {
           </>
         )}
 
+        {customer.snowEnabled && (user?.activeRole === "admin" || user?.activeRole === "office" || user?.activeRole === "field_manager") && (
+          <TabsContent value="snow" className="space-y-4">
+            <CustomerSnowHistory customerId={params?.id!} customerName={customer.name} />
+          </TabsContent>
+        )}
+
         <TabsContent value="maps" className="space-y-4">
           <CustomerMapsSection customerId={params?.id!} />
         </TabsContent>
@@ -2333,8 +2279,6 @@ export default function CustomerDetail() {
           <ServiceFulfillmentPanel customerId={params?.id!} />
         </TabsContent>
       </Tabs>
-        </div>
-      </div>
 
       <Dialog open={isAddContractDialogOpen} onOpenChange={setIsAddContractDialogOpen}>
         <DialogContent className="max-w-2xl">

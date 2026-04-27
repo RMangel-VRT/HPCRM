@@ -5,7 +5,6 @@ import {
   Eye,
   Users,
   MessageSquare,
-  Wrench,
   Map,
   CheckCircle2,
   Mail,
@@ -15,6 +14,10 @@ import {
   BarChart3,
   DollarSign,
   CalendarRange,
+  Wrench,
+  Ticket as TicketIcon,
+  Layers,
+  Snowflake,
 } from "lucide-react";
 
 interface NavItem {
@@ -36,6 +39,7 @@ interface CustomerSubNavProps {
   onTabChange: (tab: string) => void;
   contractsCount: number;
   isAdminOrOffice: boolean;
+  snowEnabled?: boolean;
   className?: string;
 }
 
@@ -77,6 +81,7 @@ export default function CustomerSubNav({
   onTabChange,
   contractsCount,
   isAdminOrOffice,
+  snowEnabled = false,
   className,
 }: CustomerSubNavProps) {
   const { t } = useTranslation();
@@ -103,12 +108,6 @@ export default function CustomerSubNav({
           testId: "rail-tab-notes",
         },
         {
-          value: "operations",
-          label: t("customerDetail.tabs.operations"),
-          icon: Wrench,
-          testId: "rail-tab-operations",
-        },
-        {
           value: "maps",
           label: t("customerDetail.tabs.maps"),
           icon: Map,
@@ -126,6 +125,42 @@ export default function CustomerSubNav({
           icon: Package,
           testId: "rail-tab-fulfillment",
         },
+      ],
+    },
+    {
+      heading: "OPERATIONS",
+      adminOnly: false,
+      items: [
+        ...(isAdminOrOffice ? [{
+          value: "annual-rollup",
+          label: "Annual Rollup",
+          icon: BarChart3,
+          testId: "rail-tab-annual-rollup",
+        }] : []),
+        {
+          value: "tickets",
+          label: "Tickets",
+          icon: TicketIcon,
+          testId: "rail-tab-tickets",
+        },
+        ...(isAdminOrOffice ? [{
+          value: "proposals",
+          label: "Proposals",
+          icon: FileText,
+          testId: "rail-tab-proposals",
+        }] : []),
+        ...(isAdminOrOffice ? [{
+          value: "visual-scopes",
+          label: "Visual Scopes",
+          icon: Layers,
+          testId: "rail-tab-visual-scopes",
+        }] : []),
+        ...(snowEnabled ? [{
+          value: "snow",
+          label: "Snow",
+          icon: Snowflake,
+          testId: "rail-tab-snow",
+        }] : []),
       ],
     },
     {
