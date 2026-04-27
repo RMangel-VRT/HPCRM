@@ -56,6 +56,7 @@ import CustomerLocationEditor from "@/components/CustomerLocationEditor";
 import CommunicationListTab from "@/components/CommunicationListTab";
 import CustomerServiceChecklist from "@/components/CustomerServiceChecklist";
 import AnnualServiceRollup from "@/components/AnnualServiceRollup";
+import CustomerSubNav from "@/components/CustomerSubNav";
 
 interface ContractCardProps {
   contract: Contract;
@@ -1047,8 +1048,13 @@ export default function CustomerDetail() {
   const tabFromUrl = searchParams.get("tab");
   const subTabFromUrl = searchParams.get("subtab");
 
-  const [activeTab, setActiveTab] = useState(tabFromUrl || "overview");
-  const [billingSubTab, setBillingSubTab] = useState("contracts");
+  const resolveTab = (tab: string | null, subtab: string | null) => {
+    if (!tab) return "overview";
+    if (tab === "billing") return subtab || "contracts";
+    return tab;
+  };
+
+  const [activeTab, setActiveTab] = useState(resolveTab(tabFromUrl, subTabFromUrl));
   const [operationsSubTab, setOperationsSubTab] = useState(
     tabFromUrl === "operations" ? (subTabFromUrl || "tickets") : "tickets"
   );
@@ -1058,7 +1064,7 @@ export default function CustomerDetail() {
     const tab = params.get("tab");
     const subtab = params.get("subtab");
     if (tab) {
-      setActiveTab(tab);
+      setActiveTab(resolveTab(tab, subtab));
       if (tab === "operations" && subtab) {
         setOperationsSubTab(subtab);
       }
@@ -1766,6 +1772,14 @@ export default function CustomerDetail() {
       </div>
       </div>
 
+      <div className="flex gap-6 items-start">
+        <CustomerSubNav
+          activeTab={activeTab}
+          onTabChange={setActiveTab}
+          contractsCount={isChildCustomer ? contracts.length + parentContracts.length : contracts.length}
+          isAdminOrOffice={user?.activeRole === "admin" || user?.activeRole === "office"}
+        />
+        <div className="flex-1 min-w-0">
       <Tabs value={activeTab} onValueChange={setActiveTab}>
         <TabsList>
           <TabsTrigger value="overview" data-testid="tab-overview">{t("customerDetail.tabs.overview")}</TabsTrigger>
@@ -1791,11 +1805,6 @@ export default function CustomerDetail() {
             <TabsTrigger value="communications" data-testid="tab-communications">
               <Mail className="w-4 h-4 mr-1" />
               Communications
-            </TabsTrigger>
-          )}
-          {(user?.activeRole === "admin" || user?.activeRole === "office") && (
-            <TabsTrigger value="billing" data-testid="tab-billing">
-              {t("customerDetail.tabs.billing")}
             </TabsTrigger>
           )}
           {(user?.activeRole === "admin" || user?.activeRole === "office") && (
@@ -2301,24 +2310,8 @@ export default function CustomerDetail() {
         </TabsContent>
 
         {(user?.activeRole === "admin" || user?.activeRole === "office") && (
-          <TabsContent value="billing" className="space-y-4">
-            <Tabs value={billingSubTab} onValueChange={setBillingSubTab}>
-              <TabsList className="mb-4">
-                <TabsTrigger value="contracts" data-testid="subtab-contracts">
-                  {t("customerDetail.billingTabs.contracts")} ({isChildCustomer ? (contracts.length + parentContracts.length) : contracts.length})
-                </TabsTrigger>
-                <TabsTrigger value="rate-sheet" data-testid="subtab-rate-sheet">
-                  {t("customerDetail.billingTabs.rateSheet")}
-                </TabsTrigger>
-                <TabsTrigger value="revenue" data-testid="subtab-revenue">
-                  {t("customerDetail.billingTabs.revenue")}
-                </TabsTrigger>
-                <TabsTrigger value="monthly-summary" data-testid="subtab-monthly-summary">
-                  {t("customerDetail.billingTabs.monthlySummary")}
-                </TabsTrigger>
-              </TabsList>
-
-              <TabsContent value="contracts" className="space-y-4">
+          <>
+            <TabsContent value="contracts" className="space-y-4">
                 {isChildCustomer && parentCustomer ? (
                   <div className="space-y-4">
                     <Card>
@@ -2486,19 +2479,18 @@ export default function CustomerDetail() {
                 )}
               </TabsContent>
 
-              <TabsContent value="rate-sheet" className="space-y-4">
-                <RateSheetSection customerId={params?.id!} />
-              </TabsContent>
+            <TabsContent value="rate-sheet" className="space-y-4">
+              <RateSheetSection customerId={params?.id!} />
+            </TabsContent>
 
-              <TabsContent value="revenue" className="space-y-4">
-                <RevenueSection customerId={params?.id!} />
-              </TabsContent>
+            <TabsContent value="revenue" className="space-y-4">
+              <RevenueSection customerId={params?.id!} />
+            </TabsContent>
 
-              <TabsContent value="monthly-summary" className="space-y-4">
-                <MonthlyBillingSummarySection customerId={params?.id!} contracts={contracts} />
-              </TabsContent>
-            </Tabs>
-          </TabsContent>
+            <TabsContent value="monthly-summary" className="space-y-4">
+              <MonthlyBillingSummarySection customerId={params?.id!} contracts={contracts} />
+            </TabsContent>
+          </>
         )}
 
         <TabsContent value="maps" className="space-y-4">
@@ -2528,6 +2520,8 @@ export default function CustomerDetail() {
           <ServiceFulfillmentPanel customerId={params?.id!} />
         </TabsContent>
       </Tabs>
+        </div>
+      </div>
 
       <Dialog open={isAddContractDialogOpen} onOpenChange={setIsAddContractDialogOpen}>
         <DialogContent className="max-w-2xl">
