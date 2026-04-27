@@ -37,6 +37,11 @@ export function DatePickerField({
     setOpen(false);
   };
 
+  const handleClear = () => {
+    onChange(undefined);
+    setOpen(false);
+  };
+
   return (
     <Popover open={open} onOpenChange={setOpen}>
       <PopoverTrigger asChild>
@@ -60,15 +65,24 @@ export function DatePickerField({
           onSelect={handleSelect}
           initialFocus
         />
-        <div className="border-t p-2">
+        <div className="border-t p-2 flex gap-2">
           <Button
             variant="ghost"
             size="sm"
-            className="w-full"
+            className="flex-1"
             onClick={handleToday}
             data-testid={testId ? `${testId}-today` : "button-date-today"}
           >
             Today
+          </Button>
+          <Button
+            variant="ghost"
+            size="sm"
+            className="flex-1"
+            onClick={handleClear}
+            data-testid={testId ? `${testId}-clear` : "button-date-clear"}
+          >
+            Clear
           </Button>
         </div>
       </PopoverContent>
