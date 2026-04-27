@@ -9,7 +9,7 @@ import { Badge } from "@/components/ui/badge";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
 import { Separator } from "@/components/ui/separator";
-import { Plus, Pencil, Trash2, X } from "lucide-react";
+import { Plus, Pencil, Trash2, X, Copy } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { SERVICE_PLAN_CATEGORIES, SERVICE_PLAN_CATEGORY_LABELS } from "@shared/schema";
@@ -72,6 +72,26 @@ export default function ServicePlanTemplatesAdmin() {
     },
     onError: () => {
       toast({ title: "Error", description: "Failed to delete template", variant: "destructive" });
+    },
+  });
+
+  const duplicateMutation = useMutation({
+    mutationFn: async (template: ServicePlanTemplateWithItems) => {
+      return apiRequest("POST", "/api/service-plan-templates", {
+        name: `${template.name} (Copy)`,
+        active: template.active,
+        items: template.items.map(i => ({
+          serviceCategory: i.serviceCategory,
+          defaultAnnualQuantity: i.defaultAnnualQuantity,
+        })),
+      });
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/service-plan-templates"] });
+      toast({ title: "Success", description: "Template duplicated" });
+    },
+    onError: () => {
+      toast({ title: "Error", description: "Failed to duplicate template", variant: "destructive" });
     },
   });
 
@@ -180,6 +200,9 @@ export default function ServicePlanTemplatesAdmin() {
                   <div className="flex gap-1 shrink-0">
                     <Button size="icon" variant="ghost" onClick={() => openEdit(template)} data-testid={`button-edit-template-${template.id}`}>
                       <Pencil className="w-3 h-3" />
+                    </Button>
+                    <Button size="icon" variant="ghost" onClick={() => duplicateMutation.mutate(template)} disabled={duplicateMutation.isPending} data-testid={`button-duplicate-template-${template.id}`}>
+                      <Copy className="w-3 h-3" />
                     </Button>
                     <Button size="icon" variant="ghost" onClick={() => setDeleteConfirmId(template.id)} data-testid={`button-delete-template-${template.id}`}>
                       <Trash2 className="w-3 h-3" />
