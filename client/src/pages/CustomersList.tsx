@@ -54,6 +54,7 @@ import {
 } from "@/components/ui/alert-dialog";
 import StatusBadge from "@/components/StatusBadge";
 import EmptyState from "@/components/EmptyState";
+import { CustomersViewSwitcher } from "@/components/customer/CustomersViewSwitcher";
 import emptyCustomersImage from "@assets/generated_images/Empty_customers_state_illustration_84171f59.png";
 import { Link } from "wouter";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -337,6 +338,9 @@ export default function CustomersList() {
 
   return (
     <div className="space-y-6">
+      <div className="flex justify-end">
+        <CustomersViewSwitcher active="list" />
+      </div>
       <div className="flex items-center justify-between gap-4 flex-wrap">
         <div>
           <h1 className="text-3xl font-semibold tracking-tight" data-testid="text-page-title">

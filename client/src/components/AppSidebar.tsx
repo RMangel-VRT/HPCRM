@@ -48,7 +48,15 @@ import ThemeToggle from "./ThemeToggle";
 import { Link, useLocation } from "wouter";
 import logoImage from "@assets/LOGO_-_SPREAD-06_1773353516653.png";
 import { useTranslation } from "react-i18next";
+import { useQuery } from "@tanstack/react-query";
+import type { Customer } from "@shared/schema";
 import { apiRequest, queryClient } from "@/lib/queryClient";
+import {
+  resolveCustomersRouteAsync,
+  resolveCustomersRouteSync,
+} from "@/lib/last-viewed-customer";
+
+const CUSTOMERS_LIST_PATH = "/dashboard/customers";
 
 interface AppSidebarProps {
   userRole?: "admin" | "office" | "field_manager" | "chemical_manager" | "field" | "irrigation_manager" | "shop_manager" | "mapping" | "landscape_supervisor";
@@ -65,8 +73,32 @@ export default function AppSidebar({
   onLogout,
   isCustomerDetail = false,
 }: AppSidebarProps) {
-  const [location] = useLocation();
+  const [location, navigate] = useLocation();
   const { t, i18n } = useTranslation();
+
+  const canSeeRegularCustomers =
+    !isSuperAdmin &&
+    (userRole === "admin" || userRole === "office" || userRole === "field_manager");
+
+  // Prefetch the customers list so the sync resolver can use the cache for
+  // the link's href. We don't read the data here; it just warms the cache.
+  useQuery<Customer[]>({
+    queryKey: ["/api/customers"],
+    enabled: canSeeRegularCustomers,
+  });
+
+  const customersHref = canSeeRegularCustomers
+    ? resolveCustomersRouteSync(queryClient)
+    : CUSTOMERS_LIST_PATH;
+
+  const handleCustomersClick = async (
+    e: React.MouseEvent<HTMLAnchorElement>
+  ) => {
+    if (e.metaKey || e.ctrlKey || e.shiftKey || e.button !== 0) return;
+    e.preventDefault();
+    const target = await resolveCustomersRouteAsync(queryClient);
+    navigate(target);
+  };
 
   const toggleLanguage = async () => {
     const newLang = i18n.language === "es" ? "en" : "es";
@@ -273,8 +305,8 @@ export default function AppSidebar({
             <SidebarGroupLabel>{t("sidebar.highPlainsCRM")}</SidebarGroupLabel>
             <SidebarMenu>
               {crmItems.map((item) => {
-                const isCustomersAnchor =
-                  isCustomerDetail && item.url === "/dashboard/customers";
+                const isCustomers = item.url === CUSTOMERS_LIST_PATH;
+                const isCustomersAnchor = isCustomerDetail && isCustomers;
                 return (
                   <SidebarMenuItem key={item.title}>
                     <SidebarMenuButton
@@ -286,7 +318,11 @@ export default function AppSidebar({
                           : undefined
                       }
                     >
-                      <Link href={item.url} data-testid={`link-${item.title.toLowerCase().replace(/\s+/g, '-')}`}>
+                      <Link
+                        href={isCustomers ? customersHref : item.url}
+                        onClick={isCustomers ? handleCustomersClick : undefined}
+                        data-testid={`link-${item.title.toLowerCase().replace(/\s+/g, '-')}`}
+                      >
                         <item.icon className="w-4 h-4" />
                         <span>{item.title}</span>
                       </Link>

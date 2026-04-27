@@ -58,6 +58,12 @@ import CommunicationListTab from "@/components/CommunicationListTab";
 import CustomerServiceChecklist from "@/components/CustomerServiceChecklist";
 import AnnualServiceRollup from "@/components/AnnualServiceRollup";
 import CustomerDashboard from "@/components/customer/dashboard/CustomerDashboard";
+import { CustomersViewSwitcher } from "@/components/customer/CustomersViewSwitcher";
+import {
+  setLastViewedCustomerId,
+  clearLastViewedCustomerId,
+  resolveCustomersRouteAsync,
+} from "@/lib/last-viewed-customer";
 
 interface ContractCardProps {
   contract: Contract;
@@ -1604,9 +1610,36 @@ export default function CustomerDetail() {
     setTimeout(() => fileInputRef.current?.click(), 0);
   };
 
+  useEffect(() => {
+    if (!id) return;
+    if (isLoadingCustomer) return;
+    if (!customer) {
+      clearLastViewedCustomerId(id);
+      // The remembered customer is gone (deleted or inaccessible). Redirect
+      // to the next-best customer so users aren't stuck on a dead detail
+      // route.
+      let cancelled = false;
+      void resolveCustomersRouteAsync(queryClient).then((next) => {
+        if (cancelled) return;
+        if (next !== `/dashboard/customers/${id}`) navigate(next);
+      });
+      return () => {
+        cancelled = true;
+      };
+    }
+    if (customer.active === "false") {
+      clearLastViewedCustomerId(customer.id);
+      return;
+    }
+    setLastViewedCustomerId(customer.id);
+  }, [id, customer, isLoadingCustomer, navigate]);
+
   if (isLoadingCustomer) {
     return (
       <div className="space-y-6">
+        <div>
+          <CustomersViewSwitcher active="detail" />
+        </div>
         <div className="space-y-3">
           <Skeleton className="h-10 w-2/3" />
           <Skeleton className="h-6 w-1/3" />
@@ -1618,8 +1651,13 @@ export default function CustomerDetail() {
 
   if (!customer) {
     return (
-      <div className="flex items-center justify-center h-96">
-        <p className="text-muted-foreground">{t("customers.noCustomersFound")}</p>
+      <div className="space-y-6">
+        <div>
+          <CustomersViewSwitcher active="detail" />
+        </div>
+        <div className="flex items-center justify-center h-96">
+          <p className="text-muted-foreground">{t("customers.noCustomersFound")}</p>
+        </div>
       </div>
     );
   }
@@ -1682,6 +1720,9 @@ export default function CustomerDetail() {
         }}
       />
       <div className="flex-1 min-w-0 space-y-6 p-6 md:p-8">
+      <div className="flex justify-end">
+        <CustomersViewSwitcher active="detail" />
+      </div>
       <div className="flex items-start justify-between gap-4">
       {/* Left column: breadcrumb, name/switcher, badges */}
       <div className="flex flex-col gap-1 min-w-0">
