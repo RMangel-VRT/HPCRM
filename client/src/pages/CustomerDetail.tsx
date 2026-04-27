@@ -4,7 +4,7 @@ import { useQuery, useMutation } from "@tanstack/react-query";
 import { useRoute, useLocation, Link } from "wouter";
 import { useTabParam } from "@/hooks/useTabParam";
 import { useSetBreadcrumbs } from "@/hooks/use-breadcrumbs";
-import type { Customer, Contact, Note, Contract, ContractDocument, ContractMonthlyAmount, CustomerRateSheet, InsertContract, InsertContact, InsertNote, InsertCustomer, CustomerMapLayer, PropertyManagementCompany, PropertyManager, Ticket, SnowEvent, SnowEventPropertyImpact, ProposalWithDetails } from "@shared/schema";
+import type { Customer, Contact, Note, Contract, ContractDocument, ContractMonthlyAmount, CustomerRateSheet, InsertContract, InsertContact, InsertNote, InsertCustomer, CustomerMapLayer, PropertyManagementCompany, PropertyManager, Ticket, SnowEvent, SnowEventPropertyImpact, ProposalWithDetails, CustomerServicePlan } from "@shared/schema";
 import { insertContractSchema, insertContactSchema, insertNoteSchema, insertCustomerSchema } from "@shared/schema";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -1081,6 +1081,17 @@ export default function CustomerDetail() {
     enabled: !!id,
   });
 
+  const currentYear = new Date().getFullYear();
+  const { data: currentYearServicePlans = [] } = useQuery<CustomerServicePlan[]>({
+    queryKey: ["/api/customers", id, "service-plans", currentYear],
+    queryFn: async () => {
+      const res = await fetch(`/api/customers/${id}/service-plans?year=${currentYear}`, { credentials: "include" });
+      if (!res.ok) throw new Error("Failed to fetch service plans");
+      return res.json();
+    },
+    enabled: !!id,
+  });
+
   const { data: tickets = [], isLoading: isLoadingTickets } = useQuery<Ticket[]>({
     queryKey: ["/api/customers", id, "tickets"],
     enabled: !!id,
@@ -1102,6 +1113,8 @@ export default function CustomerDetail() {
   const pendingProposalCount = customerProposals.filter(
     (p) => p.status !== "accepted" && p.status !== "rejected"
   ).length;
+  const activeContractCount = contracts.filter((c) => c.status === "active").length;
+  const servicePlanItemCount = currentYearServicePlans.length;
 
   // Property Management queries
   const { data: pmCompanies = [] } = useQuery<PropertyManagementCompany[]>({
@@ -1710,6 +1723,8 @@ export default function CustomerDetail() {
         badgeCounts={{
           tickets: openTicketCount,
           proposals: pendingProposalCount,
+          billing: activeContractCount,
+          fulfillment: servicePlanItemCount,
         }}
       />
       <div className="flex-1 min-w-0 overflow-y-auto space-y-6 p-6 md:p-8">
