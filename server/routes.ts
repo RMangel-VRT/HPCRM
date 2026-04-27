@@ -31,7 +31,7 @@ interface StatusDefinition {
 }
 
 // Seed sample communications for a company (used during server bootstrap and via API)
-async function seedCommunications(companyId: string, sentById: string, _sentByName: string): Promise<number> {
+async function seedCommunications(companyId: string, sentById: string, sentByName: string): Promise<number> {
   const companyCustomers = await storage.getCustomers(companyId);
   const seedData: InsertCommunication[] = [
     {
@@ -1391,6 +1391,51 @@ export async function migrateCampaignItemsNewColumns(): Promise<void> {
     console.log("Campaign items new columns migration complete");
   } catch (error) {
     console.error("Error during campaign_items new columns migration:", error);
+  }
+}
+
+export async function migrateServicePlanTables(): Promise<void> {
+  console.log("Running startup migration: Ensuring service plan tables exist...");
+  try {
+    await db.execute(sql`
+      CREATE TABLE IF NOT EXISTS service_plan_templates (
+        id varchar PRIMARY KEY DEFAULT gen_random_uuid(),
+        company_id varchar NOT NULL REFERENCES companies(id) ON DELETE CASCADE,
+        name text NOT NULL,
+        active text NOT NULL DEFAULT 'true',
+        created_at timestamp NOT NULL DEFAULT NOW(),
+        updated_at timestamp NOT NULL DEFAULT NOW()
+      )
+    `);
+    await db.execute(sql`
+      CREATE TABLE IF NOT EXISTS service_plan_template_items (
+        id varchar PRIMARY KEY DEFAULT gen_random_uuid(),
+        template_id varchar NOT NULL REFERENCES service_plan_templates(id) ON DELETE CASCADE,
+        service_category text NOT NULL,
+        default_annual_quantity integer NOT NULL DEFAULT 1,
+        created_at timestamp NOT NULL DEFAULT NOW()
+      )
+    `);
+    await db.execute(sql`
+      CREATE TABLE IF NOT EXISTS customer_service_plans (
+        id varchar PRIMARY KEY DEFAULT gen_random_uuid(),
+        company_id varchar NOT NULL REFERENCES companies(id) ON DELETE CASCADE,
+        customer_id varchar NOT NULL REFERENCES customers(id) ON DELETE CASCADE,
+        year integer NOT NULL,
+        service_category text NOT NULL,
+        expected_quantity integer NOT NULL DEFAULT 1,
+        notes text,
+        source_contract_ref varchar REFERENCES contracts(id) ON DELETE SET NULL,
+        created_at timestamp NOT NULL DEFAULT NOW(),
+        updated_at timestamp NOT NULL DEFAULT NOW(),
+        CONSTRAINT customer_service_plans_unique_key UNIQUE (customer_id, year, service_category)
+      )
+    `);
+    await db.execute(sql`CREATE INDEX IF NOT EXISTS customer_service_plans_customer_idx ON customer_service_plans(customer_id)`);
+    await db.execute(sql`CREATE INDEX IF NOT EXISTS customer_service_plans_company_idx ON customer_service_plans(company_id)`);
+    console.log("Service plan tables migration complete");
+  } catch (error) {
+    console.error("Error during service plan tables migration:", error);
   }
 }
 
