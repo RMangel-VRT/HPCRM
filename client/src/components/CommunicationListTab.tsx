@@ -30,6 +30,7 @@ import { Mail, Plus, Search, Filter, MessageSquare, Inbox } from "lucide-react";
 import { format } from "date-fns";
 import { useToast } from "@/hooks/use-toast";
 import type { CommunicationWithDetails } from "@shared/schema";
+import { DatePickerField } from "@/components/DatePickerField";
 
 interface CommunicationListTabProps {
   queryKey: string[];
@@ -54,8 +55,8 @@ export default function CommunicationListTab({ queryKey }: CommunicationListTabP
   const [search, setSearch] = useState("");
   const [typeFilter, setTypeFilter] = useState("all");
   const [statusFilter, setStatusFilter] = useState("all");
-  const [fromDate, setFromDate] = useState("");
-  const [toDate, setToDate] = useState("");
+  const [fromDate, setFromDate] = useState<Date | undefined>(undefined);
+  const [toDate, setToDate] = useState<Date | undefined>(undefined);
   const [selectedComm, setSelectedComm] = useState<CommunicationWithDetails | null>(null);
   const [showFilters, setShowFilters] = useState(false);
 
@@ -76,8 +77,8 @@ export default function CommunicationListTab({ queryKey }: CommunicationListTabP
         const matchesType = typeFilter === "all" || c.type === typeFilter;
         const matchesStatus = statusFilter === "all" || c.status === statusFilter;
         const createdAt = new Date(c.createdAt);
-        const matchesFrom = !fromDate || createdAt >= new Date(fromDate);
-        const matchesTo = !toDate || createdAt <= new Date(toDate + "T23:59:59");
+        const matchesFrom = !fromDate || createdAt >= new Date(fromDate.getFullYear(), fromDate.getMonth(), fromDate.getDate());
+        const matchesTo = !toDate || createdAt <= new Date(toDate.getFullYear(), toDate.getMonth(), toDate.getDate(), 23, 59, 59);
         return matchesSearch && matchesType && matchesStatus && matchesFrom && matchesTo;
       });
   }, [communications, search, typeFilter, statusFilter, fromDate, toDate]);
@@ -166,23 +167,23 @@ export default function CommunicationListTab({ queryKey }: CommunicationListTabP
             </SelectContent>
           </Select>
           <div className="flex items-center gap-2">
-            <Input
-              type="date"
-              value={fromDate}
-              onChange={(e) => setFromDate(e.target.value)}
-              className="w-[150px]"
-              data-testid="input-comm-from-date"
-              placeholder="From date"
-            />
+            <div className="w-[150px]">
+              <DatePickerField
+                value={fromDate}
+                onChange={setFromDate}
+                placeholder="From date"
+                data-testid="input-comm-from-date"
+              />
+            </div>
             <span className="text-muted-foreground text-sm">—</span>
-            <Input
-              type="date"
-              value={toDate}
-              onChange={(e) => setToDate(e.target.value)}
-              className="w-[150px]"
-              data-testid="input-comm-to-date"
-              placeholder="To date"
-            />
+            <div className="w-[150px]">
+              <DatePickerField
+                value={toDate}
+                onChange={setToDate}
+                placeholder="To date"
+                data-testid="input-comm-to-date"
+              />
+            </div>
           </div>
         </div>
       )}
