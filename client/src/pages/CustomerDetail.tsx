@@ -1,7 +1,8 @@
 import { useState, useRef, useMemo, useEffect } from "react";
 import { useTranslation } from "react-i18next";
 import { useQuery, useMutation } from "@tanstack/react-query";
-import { useRoute, useLocation, useSearch, Link } from "wouter";
+import { useRoute, useLocation, Link } from "wouter";
+import { useTabParam } from "@/hooks/useTabParam";
 import { useSetBreadcrumbs } from "@/hooks/use-breadcrumbs";
 import type { Customer, Contact, Note, Contract, ContractDocument, ContractMonthlyAmount, CustomerRateSheet, InsertContract, InsertContact, InsertNote, InsertCustomer, CustomerMapLayer, PropertyManagementCompany, PropertyManager, Ticket, SnowEvent, SnowEventPropertyImpact } from "@shared/schema";
 import { insertContractSchema, insertContactSchema, insertNoteSchema, insertCustomerSchema } from "@shared/schema";
@@ -1042,29 +1043,9 @@ export default function CustomerDetail() {
   const { t } = useTranslation();
   const [, params] = useRoute("/dashboard/customers/:id");
   const [, navigate] = useLocation();
-  const search = useSearch();
   const id = params?.id;
 
-  const searchParams = new URLSearchParams(search);
-  const tabFromUrl = searchParams.get("tab");
-  const subTabFromUrl = searchParams.get("subtab");
-
-  const resolveTab = (tab: string | null, subtab: string | null) => {
-    if (!tab) return "overview";
-    if (tab === "billing") return subtab || "contracts";
-    return tab;
-  };
-
-  const [activeTab, setActiveTab] = useState(resolveTab(tabFromUrl, subTabFromUrl));
-
-  useEffect(() => {
-    const params = new URLSearchParams(search);
-    const tab = params.get("tab");
-    const subtab = params.get("subtab");
-    if (tab) {
-      setActiveTab(resolveTab(tab, subtab));
-    }
-  }, [search]);
+  const [activeTab, setActiveTab] = useTabParam("overview");
 
   const [uploadingContractId, setUploadingContractId] = useState<string | null>(null);
   const [showVersionHistory, setShowVersionHistory] = useState<string | null>(null);
