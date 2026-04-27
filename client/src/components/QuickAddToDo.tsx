@@ -18,13 +18,8 @@ import {
   DialogTitle,
   DialogFooter,
 } from "@/components/ui/dialog";
-import {
-  Popover,
-  PopoverContent,
-  PopoverTrigger,
-} from "@/components/ui/popover";
-import { Calendar } from "@/components/ui/calendar";
-import { CheckSquare, Plus, Loader2, CalendarIcon } from "lucide-react";
+import { CheckSquare, Plus, Loader2 } from "lucide-react";
+import { DatePickerField } from "@/components/DatePickerField";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/hooks/use-auth";
 import { queryClient, apiRequest } from "@/lib/queryClient";
@@ -56,7 +51,6 @@ export default function QuickAddToDo({ variant = "ghost" }: QuickAddToDoProps) {
   const [description, setDescription] = useState("");
   const [assignedToId, setAssignedToId] = useState<string | null>(null);
   const [dueDate, setDueDate] = useState<Date | undefined>(undefined);
-  const [dueDateOpen, setDueDateOpen] = useState(false);
   const [isInitializing, setIsInitializing] = useState(false);
   
   const [cachedTodoTypeId, setCachedTodoTypeId] = useState<string | null>(null);
@@ -291,29 +285,12 @@ export default function QuickAddToDo({ variant = "ghost" }: QuickAddToDoProps) {
 
               <div className="space-y-2">
                 <Label>Due date</Label>
-                <Popover open={dueDateOpen} onOpenChange={setDueDateOpen}>
-                  <PopoverTrigger asChild>
-                    <Button
-                      variant="outline"
-                      className="w-full justify-start text-left font-normal"
-                      data-testid="button-todo-due-date"
-                    >
-                      <CalendarIcon className="mr-2 h-4 w-4" />
-                      {dueDate ? format(dueDate, "MMM d, yyyy") : "None"}
-                    </Button>
-                  </PopoverTrigger>
-                  <PopoverContent className="w-auto p-0" align="start">
-                    <Calendar
-                      mode="single"
-                      selected={dueDate}
-                      onSelect={(date) => {
-                        setDueDate(date);
-                        setDueDateOpen(false);
-                      }}
-                      initialFocus
-                    />
-                  </PopoverContent>
-                </Popover>
+                <DatePickerField
+                  value={dueDate}
+                  onChange={setDueDate}
+                  placeholder="None"
+                  data-testid="button-todo-due-date"
+                />
               </div>
             </div>
           </div>

@@ -19,17 +19,11 @@ import {
   DialogTitle,
   DialogFooter,
 } from "@/components/ui/dialog";
-import {
-  Popover,
-  PopoverContent,
-  PopoverTrigger,
-} from "@/components/ui/popover";
-import { Calendar } from "@/components/ui/calendar";
 import { ScrollArea } from "@/components/ui/scroll-area";
+import { DatePickerField } from "@/components/DatePickerField";
 import { Badge } from "@/components/ui/badge";
 import { 
   Loader2, 
-  CalendarIcon, 
   Search, 
   CheckSquare, 
   FileText,
@@ -82,10 +76,8 @@ export default function BatchTicketDialog({
   const [description, setDescription] = useState("");
   const [assignedToId, setAssignedToId] = useState<string | null>(null);
   const [dueDate, setDueDate] = useState<Date | undefined>(undefined);
-  const [dueDateOpen, setDueDateOpen] = useState(false);
   const [invoiceCategory, setInvoiceCategory] = useState<"general_maintenance" | "snow" | null>(null);
   const [workCompletedDate, setWorkCompletedDate] = useState<Date | undefined>(undefined);
-  const [workCompletedDateOpen, setWorkCompletedDateOpen] = useState(false);
   
   // Customer selection state
   const [selectedCustomerIds, setSelectedCustomerIds] = useState<Set<string>>(new Set());
@@ -207,7 +199,6 @@ export default function BatchTicketDialog({
     setDueDate(undefined);
     setInvoiceCategory(null);
     setWorkCompletedDate(undefined);
-    setWorkCompletedDateOpen(false);
     setSelectedCustomerIds(new Set());
     setCustomerSearch("");
     onOpenChange(false);
@@ -372,29 +363,12 @@ export default function BatchTicketDialog({
             {ticketTypeName === "Invoice" && (
               <div className="space-y-2">
                 <Label>Work Completed Date</Label>
-                <Popover open={workCompletedDateOpen} onOpenChange={setWorkCompletedDateOpen}>
-                  <PopoverTrigger asChild>
-                    <Button
-                      variant="outline"
-                      className="w-full justify-start text-left font-normal"
-                      data-testid="button-batch-work-completed-date"
-                    >
-                      <CalendarIcon className="mr-2 h-4 w-4" />
-                      {workCompletedDate ? format(workCompletedDate, "PPP") : "Select date"}
-                    </Button>
-                  </PopoverTrigger>
-                  <PopoverContent className="w-auto p-0" align="start">
-                    <Calendar
-                      mode="single"
-                      selected={workCompletedDate}
-                      onSelect={(date) => {
-                        setWorkCompletedDate(date);
-                        setWorkCompletedDateOpen(false);
-                      }}
-                      initialFocus
-                    />
-                  </PopoverContent>
-                </Popover>
+                <DatePickerField
+                  value={workCompletedDate}
+                  onChange={setWorkCompletedDate}
+                  placeholder="Select date"
+                  data-testid="button-batch-work-completed-date"
+                />
                 <p className="text-xs text-muted-foreground">
                   The date the work was completed for billing reference
                 </p>
@@ -424,29 +398,12 @@ export default function BatchTicketDialog({
 
               <div className="space-y-2">
                 <Label>Due Date (optional)</Label>
-                <Popover open={dueDateOpen} onOpenChange={setDueDateOpen}>
-                  <PopoverTrigger asChild>
-                    <Button
-                      variant="outline"
-                      className="w-full justify-start text-left font-normal"
-                      data-testid="button-batch-due-date"
-                    >
-                      <CalendarIcon className="mr-2 h-4 w-4" />
-                      {dueDate ? format(dueDate, "PPP") : "None"}
-                    </Button>
-                  </PopoverTrigger>
-                  <PopoverContent className="w-auto p-0" align="start">
-                    <Calendar
-                      mode="single"
-                      selected={dueDate}
-                      onSelect={(date) => {
-                        setDueDate(date);
-                        setDueDateOpen(false);
-                      }}
-                      initialFocus
-                    />
-                  </PopoverContent>
-                </Popover>
+                <DatePickerField
+                  value={dueDate}
+                  onChange={setDueDate}
+                  placeholder="None"
+                  data-testid="button-batch-due-date"
+                />
               </div>
             </div>
           </div>
