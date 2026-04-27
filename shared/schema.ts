@@ -189,6 +189,7 @@ export const contracts = pgTable("contracts", {
   notes: text("notes"),
   hasMobilizationFee: boolean("has_mobilization_fee").notNull().default(false),
   mobilizationFeeAmount: integer("mobilization_fee_amount").notNull().default(0),
+  autoPopulateServicePlans: boolean("auto_populate_service_plans").notNull().default(true),
   createdAt: timestamp("created_at").notNull().defaultNow(),
   updatedAt: timestamp("updated_at").notNull().defaultNow(),
 }, (table) => ({
@@ -206,6 +207,7 @@ export const insertContractSchema = createInsertSchema(contracts).omit({
   status: z.enum(["active", "paused", "ended"]).default("active"),
   hasMobilizationFee: z.boolean().default(false),
   mobilizationFeeAmount: z.number().int().min(0).default(0),
+  autoPopulateServicePlans: z.boolean().default(true),
 });
 
 export type InsertContract = z.infer<typeof insertContractSchema>;

@@ -9,7 +9,7 @@ import { storage } from "./storage";
 import { db } from "./db";
 import { eq, and, inArray, sql, gte, lte } from "drizzle-orm";
 import { insertCustomerSchema, insertContactSchema, insertCompanySchema, insertCompanyUserSchema, insertSettingsSchema, insertNoteSchema, insertContractSchema, insertContractDocumentSchema, insertContractBuilderDocumentSchema, insertContractBuilderSectionSchema, insertContractBuilderVariableSchema, insertTicketTypeSchema, insertTicketTypeStatusSchema, insertTicketTypeFieldSchema, insertTicketSchema, insertTicketFieldValueSchema, insertTicketStatusHistorySchema, insertTicketCommentSchema, insertTicketLinkSchema, insertCustomerMapLayerSchema, insertCustomerMapDocumentSchema, insertMaintenanceCrewSchema, insertMaintenanceVisitConfigSchema, insertWeeklyScheduleTemplateSchema, insertScheduleBlockSchema, insertEquipmentSchema, insertEquipmentFileSchema, insertEquipmentTicketSchema, insertEquipmentTicketStatusHistorySchema, insertSnowEventSchema, insertSnowEventPropertyImpactSchema, insertSnowEventAttachmentSchema, insertEmailTemplateSchema, insertEmailRuleSchema, insertCommunicationAutomationRuleSchema, SNOW_RANGES, tickets, ticketLinks, ticketTypes, ticketTypeStatuses, customers as customersTable, contacts as contactsTable, contracts as contractsTable, equipment as equipmentTable, users as usersTable, contractMonthlyAmounts, contractDocuments, contractServices, contractStatusHistory, companyUsers as companyUsersTable, insertCommunicationSchema, campaigns as campaignsTable, campaignItems as campaignItemsTable } from "@shared/schema";
-import type { Customer, CaptureParams, CampaignItem, Season, InsertCommunication, InsertCommunicationTemplate, InsertCommunicationAuditLog } from "@shared/schema";
+import type { Customer, CaptureParams, CampaignItem, Season, InsertCommunication, InsertCommunicationTemplate, InsertCommunicationAuditLog, ServicePlanCategory } from "@shared/schema";
 import { insertCommunicationTemplateSchema, insertServicePlanTemplateSchema, insertServicePlanTemplateItemSchema, insertCustomerServicePlanSchema } from "@shared/schema";
 import { runAutomationRule } from "./services/automationService";
 import { ObjectStorageService, ObjectNotFoundError, objectStorageClient, signObjectURL } from "./objectStorage";
@@ -1551,6 +1551,16 @@ export async function clearInvalidVisualScopeBaseImages(): Promise<void> {
   }
 }
 
+export async function migrateContractAutoPopulateColumn(): Promise<void> {
+  console.log("Running startup migration: Ensuring auto_populate_service_plans column exists on contracts table...");
+  try {
+    await db.execute(sql`ALTER TABLE contracts ADD COLUMN IF NOT EXISTS auto_populate_service_plans boolean NOT NULL DEFAULT true`);
+    console.log("Contract auto_populate_service_plans column migration complete");
+  } catch (error) {
+    console.error("Error during contracts auto_populate_service_plans column migration:", error);
+  }
+}
+
 export async function backfillCustomerType(): Promise<void> {
   console.log("Running startup migration: Backfilling customer_type for existing customers...");
   try {
@@ -2144,6 +2154,81 @@ export async function seedAutomationRulesBootstrap(): Promise<void> {
     console.log("Automation rules seed bootstrap complete");
   } catch (error) {
     console.error("Error seeding automation rules:", error);
+  }
+}
+
+const CONTRACT_SERVICE_TO_PLAN_CATEGORY: Partial<Record<string, ServicePlanCategory>> = {
+  mowing: "mowing",
+  pet_station: "pet_station",
+  chemical: "chemical",
+  shrub_trimming: "shrub_trimming",
+  ornamental_grass: "ornamental_grass",
+  aeration: "aeration",
+  cleanups: "cleanups",
+  tree_pruning: "tree_pruning",
+};
+
+const CONTRACT_TYPE_DEFAULT_CATEGORIES: Partial<Record<string, Array<{ category: ServicePlanCategory; quantity: number }>>> = {
+  Chemical: [{ category: "chemical", quantity: 1 }],
+  Snow: [{ category: "snow_removal", quantity: 1 }],
+  Irrigation: [
+    { category: "irrigation_open", quantity: 1 },
+    { category: "irrigation_close", quantity: 1 },
+  ],
+};
+
+async function autoPopulateServicePlansFromContract(contract: {
+  id: string;
+  companyId: string;
+  customerId: string;
+  serviceType: string;
+  startDate: Date | string;
+  autoPopulateServicePlans: boolean;
+}): Promise<void> {
+  if (!contract.autoPopulateServicePlans) return;
+
+  const year = new Date(contract.startDate).getUTCFullYear();
+
+  const contractServices = await storage.getContractServices(contract.id, contract.companyId);
+
+  const plansToCreate: Array<{ category: ServicePlanCategory; quantity: number }> = [];
+
+  if (contractServices.length > 0) {
+    for (const svc of contractServices) {
+      const category = CONTRACT_SERVICE_TO_PLAN_CATEGORY[svc.serviceType];
+      if (category) {
+        const existing = plansToCreate.find(p => p.category === category);
+        if (existing) {
+          existing.quantity += svc.annualCount;
+        } else {
+          plansToCreate.push({ category, quantity: svc.annualCount });
+        }
+      }
+    }
+  } else {
+    const defaults = CONTRACT_TYPE_DEFAULT_CATEGORIES[contract.serviceType];
+    if (defaults) {
+      plansToCreate.push(...defaults);
+    }
+  }
+
+  for (const plan of plansToCreate) {
+    try {
+      await storage.createCustomerServicePlan({
+        companyId: contract.companyId,
+        customerId: contract.customerId,
+        year,
+        serviceCategory: plan.category,
+        expectedQuantity: plan.quantity,
+        sourceContractRef: contract.id,
+      });
+    } catch (err: unknown) {
+      const pgErr = err as { code?: string };
+      if (pgErr?.code === "23505") {
+        continue;
+      }
+      throw err;
+    }
   }
 }
 
@@ -2857,6 +2942,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
       changedBy: user.id,
     });
 
+    if (contract.status === "active") {
+      await autoPopulateServicePlansFromContract(contract);
+    }
+
     res.json(contract);
   });
 
@@ -2903,6 +2992,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
       newStatus: contract.status,
       changedBy: user.id,
     });
+
+    if (contract.status === "active") {
+      await autoPopulateServicePlansFromContract(contract);
+    }
 
     res.json(contract);
   });
@@ -2962,6 +3055,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
         newStatus: req.body.status,
         changedBy: user.id,
       });
+
+      if (req.body.status === "active") {
+        await autoPopulateServicePlansFromContract(contract);
+      }
     }
 
     res.json(contract);
@@ -3137,6 +3234,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
 
       const service = await storage.createContractService(result.data);
+
+      const parentContract = await storage.getContractById(req.params.contractId, user.activeCompanyId);
+      if (parentContract && parentContract.status === "active") {
+        await autoPopulateServicePlansFromContract(parentContract);
+      }
+
       res.json(service);
     } catch (error) {
       console.error("Error creating contract service:", error);
@@ -4821,6 +4924,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
         newStatus: contract.status,
         changedBy: user.id,
       });
+
+      if (contract.status === "active") {
+        await autoPopulateServicePlansFromContract(contract);
+      }
 
       // Upload PDF as contract document
       const contractDoc = await storage.createContractDocument({

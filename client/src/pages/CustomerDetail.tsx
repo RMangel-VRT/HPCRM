@@ -1213,6 +1213,7 @@ export default function CustomerDetail() {
       notes: "",
       hasMobilizationFee: false,
       mobilizationFeeAmount: 0,
+      autoPopulateServicePlans: true,
     },
   });
 
@@ -2557,6 +2558,33 @@ export default function CustomerDetail() {
                       )}
                     />
                   )}
+                </div>
+              )}
+              {watchedServiceType !== "Other" && (
+                <div className="pt-2 border-t">
+                  <FormField
+                    control={contractForm.control}
+                    name="autoPopulateServicePlans"
+                    render={({ field }) => (
+                      <FormItem className="flex flex-row items-center gap-2 space-y-0">
+                        <FormControl>
+                          <Checkbox
+                            checked={field.value}
+                            onCheckedChange={field.onChange}
+                            data-testid="checkbox-auto-populate-service-plans"
+                          />
+                        </FormControl>
+                        <div>
+                          <FormLabel className="font-medium cursor-pointer">
+                            Auto-populate service plan
+                          </FormLabel>
+                          <p className="text-xs text-muted-foreground">
+                            Automatically create service plan entries for the contract's start year based on its services
+                          </p>
+                        </div>
+                      </FormItem>
+                    )}
+                  />
                 </div>
               )}
               <DialogFooter>
