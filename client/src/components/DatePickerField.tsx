@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { format } from "date-fns";
-import { CalendarIcon } from "lucide-react";
+import { CalendarIcon, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Calendar } from "@/components/ui/calendar";
 import {
@@ -54,8 +54,30 @@ export function DatePickerField({
           disabled={disabled}
           data-testid={testId}
         >
-          <CalendarIcon className="mr-2 h-4 w-4" />
-          {value ? format(value, "MMM d, yyyy") : placeholder}
+          <CalendarIcon className="mr-2 h-4 w-4 shrink-0" />
+          <span className="flex-1">{value ? format(value, "MMM d, yyyy") : placeholder}</span>
+          {value && (
+            <span
+              role="button"
+              tabIndex={0}
+              aria-label="Clear date"
+              className="ml-2 rounded-sm opacity-60 hover:opacity-100 focus:outline-none focus:opacity-100"
+              data-testid={testId ? `${testId}-inline-clear` : "button-date-inline-clear"}
+              onClick={(e) => {
+                e.stopPropagation();
+                handleClear();
+              }}
+              onKeyDown={(e) => {
+                if (e.key === "Enter" || e.key === " ") {
+                  e.preventDefault();
+                  e.stopPropagation();
+                  handleClear();
+                }
+              }}
+            >
+              <X className="h-4 w-4" />
+            </span>
+          )}
         </Button>
       </PopoverTrigger>
       <PopoverContent className="w-auto p-0" align="start">
