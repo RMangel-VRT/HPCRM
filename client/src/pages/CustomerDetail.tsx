@@ -1714,29 +1714,8 @@ export default function CustomerDetail() {
       />
       <div className="flex-1 min-w-0 overflow-y-auto space-y-6 p-6 md:p-8">
       <div className="flex items-start justify-between gap-4">
-      {/* Left column: breadcrumb, name/switcher, badges */}
+      {/* Left column: name/switcher, badges */}
       <div className="flex flex-col gap-1 min-w-0">
-        {/* Breadcrumb */}
-        <div className="flex items-center gap-1 text-xs text-muted-foreground" data-testid="breadcrumb-customer-detail">
-          <span>{t("customers.title")}</span>
-          {isChildCustomer && parentCustomer && (
-            <>
-              <span>→</span>
-              <Link href={`/dashboard/customers/${parentCustomer.id}`} data-testid="text-parent-link">
-                <span className="hover:text-foreground cursor-pointer">
-                  {parentCustomer.name}
-                </span>
-              </Link>
-            </>
-          )}
-          {!isOverview && (
-            <>
-              <span>→</span>
-              <span data-testid="breadcrumb-active-tab">{activeTabLabel}</span>
-            </>
-          )}
-        </div>
-
         {/* Name / switcher */}
         <div className="flex items-center gap-2">
           {isParentCustomer && (
