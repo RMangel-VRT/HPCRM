@@ -181,7 +181,7 @@ export default function ServiceFulfillmentPanel({ customerId }: Props) {
         </div>
         {isAdminOrOffice && (
           <div className="flex gap-2">
-            {activeTemplates.length > 0 && plans.length === 0 && (
+            {activeTemplates.length > 0 && (
               <Button size="sm" variant="outline" onClick={() => setFromTemplateOpen(true)} data-testid="button-from-template">
                 From Template
               </Button>
@@ -363,6 +363,11 @@ export default function ServiceFulfillmentPanel({ customerId }: Props) {
             <p className="text-sm text-muted-foreground">
               Select a service plan template to populate the {selectedYear} plan for this customer. Each template line will be added as an expected quantity.
             </p>
+            {plans.length > 0 && (
+              <p className="text-sm text-muted-foreground bg-muted/50 rounded-md px-3 py-2">
+                Services already configured for this customer will be skipped — only missing categories will be added.
+              </p>
+            )}
             <div className="space-y-2">
               <Label>Template</Label>
               <Select value={selectedTemplateId} onValueChange={setSelectedTemplateId}>
