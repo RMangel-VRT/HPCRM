@@ -57,7 +57,6 @@ import CustomerLocationEditor from "@/components/CustomerLocationEditor";
 import CommunicationListTab from "@/components/CommunicationListTab";
 import CustomerServiceChecklist from "@/components/CustomerServiceChecklist";
 import AnnualServiceRollup from "@/components/AnnualServiceRollup";
-import CustomerSubNav from "@/components/CustomerSubNav";
 import CustomerDashboard from "@/components/customer/dashboard/CustomerDashboard";
 
 interface ContractCardProps {
