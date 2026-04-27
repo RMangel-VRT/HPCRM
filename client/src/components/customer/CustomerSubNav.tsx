@@ -1,3 +1,4 @@
+import { useRef, useCallback } from "react";
 import { useLocation } from "wouter";
 import { Button } from "@/components/ui/button";
 import {
@@ -83,6 +84,7 @@ export function CustomerSubNav({
   snowEnabled = false,
 }: CustomerSubNavProps) {
   const [, navigate] = useLocation();
+  const navRef = useRef<HTMLElement>(null);
 
   const isPrivileged = userRole === "admin" || userRole === "office";
   const isFieldManager = userRole === "field_manager";
@@ -98,6 +100,39 @@ export function CustomerSubNav({
     heading,
     items: visibleItems.filter((item) => item.section === heading),
   })).filter((s) => s.items.length > 0);
+
+  const getAllNavButtons = useCallback((): HTMLButtonElement[] => {
+    if (!navRef.current) return [];
+    return Array.from(
+      navRef.current.querySelectorAll<HTMLButtonElement>("[data-nav-item]")
+    );
+  }, []);
+
+  const handleNavKeyDown = useCallback(
+    (e: React.KeyboardEvent<HTMLElement>) => {
+      if (e.key !== "ArrowDown" && e.key !== "ArrowUp") return;
+
+      e.preventDefault();
+
+      const buttons = getAllNavButtons();
+      if (buttons.length === 0) return;
+
+      const focused = document.activeElement as HTMLButtonElement;
+      const currentIndex = buttons.indexOf(focused);
+
+      let nextIndex: number;
+      if (e.key === "ArrowDown") {
+        nextIndex = currentIndex < buttons.length - 1 ? currentIndex + 1 : 0;
+      } else {
+        nextIndex = currentIndex > 0 ? currentIndex - 1 : buttons.length - 1;
+      }
+
+      const nextButton = buttons[nextIndex];
+      nextButton.focus();
+      nextButton.click();
+    },
+    [getAllNavButtons]
+  );
 
   return (
     <div
@@ -142,10 +177,18 @@ export function CustomerSubNav({
         )}
       </div>
 
-      <nav className="flex-1 overflow-y-auto py-2">
+      <nav
+        ref={navRef}
+        className="flex-1 overflow-y-auto py-2"
+        aria-label="Customer sections"
+        onKeyDown={handleNavKeyDown}
+      >
         {sections.map((section) => (
-          <div key={section.heading} className="mb-3">
-            <p className="px-3 mb-1 text-[11px] uppercase tracking-wider text-muted-foreground font-medium">
+          <div key={section.heading} className="mb-3" role="group" aria-label={section.heading}>
+            <p
+              className="px-3 mb-1 text-[11px] uppercase tracking-wider text-muted-foreground font-medium"
+              aria-hidden="true"
+            >
               {section.heading}
             </p>
             {section.items.map((item) => {
@@ -163,8 +206,10 @@ export function CustomerSubNav({
                   }`}
                   onClick={() => onTabChange(item.tabValue)}
                   data-testid={`nav-item-${item.key}`}
+                  data-nav-item
+                  aria-current={isActive ? "page" : undefined}
                 >
-                  <Icon className="w-3.5 h-3.5 mr-2 flex-shrink-0" />
+                  <Icon className="w-3.5 h-3.5 mr-2 flex-shrink-0" aria-hidden="true" />
                   <span className="truncate">{item.label}</span>
                 </Button>
               );
