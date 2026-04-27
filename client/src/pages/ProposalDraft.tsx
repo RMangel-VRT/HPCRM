@@ -2,9 +2,11 @@ import { useState, useRef, useCallback } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { Link, useLocation, useParams, useSearch } from "wouter";
 import { useTranslation } from "react-i18next";
+import { format } from "date-fns";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { DatePickerField } from "@/components/DatePickerField";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
@@ -528,13 +530,14 @@ export default function ProposalDraft() {
               />
             </div>
             <div className="space-y-1.5">
-              <Label htmlFor="field-date">{t("proposals.proposalDate")}</Label>
-              <Input
-                id="field-date"
-                type="date"
-                value={proposalDate}
-                onChange={(e) => setProposalDate(e.target.value)}
-                onBlur={(e) => handleBlur("proposalDate", e.target.value)}
+              <Label>{t("proposals.proposalDate")}</Label>
+              <DatePickerField
+                value={proposalDate ? new Date(proposalDate + 'T00:00:00') : undefined}
+                onChange={(date) => {
+                  const str = date ? format(date, 'yyyy-MM-dd') : '';
+                  setProposalDate(str);
+                  handleBlur("proposalDate", str);
+                }}
                 data-testid="input-proposal-date"
               />
             </div>

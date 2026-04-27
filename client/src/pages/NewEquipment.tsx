@@ -2,8 +2,10 @@ import { useMutation, useQuery } from "@tanstack/react-query";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
+import { format } from "date-fns";
 import { Link, useLocation } from "wouter";
 import { ArrowLeft, Save, Loader2, Plus, X } from "lucide-react";
+import { DatePickerField } from "@/components/DatePickerField";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -397,7 +399,11 @@ export default function NewEquipment() {
                     <FormItem>
                       <FormLabel>{t("equipment.registrationExpiration")}</FormLabel>
                       <FormControl>
-                        <Input type="date" {...field} data-testid="input-reg-exp" />
+                        <DatePickerField
+                          value={field.value ? new Date(field.value + 'T00:00:00') : undefined}
+                          onChange={(date) => field.onChange(date ? format(date, 'yyyy-MM-dd') : '')}
+                          data-testid="input-reg-exp"
+                        />
                       </FormControl>
                       <FormMessage />
                     </FormItem>
@@ -410,7 +416,11 @@ export default function NewEquipment() {
                     <FormItem>
                       <FormLabel>{t("equipment.insuranceExpiration")}</FormLabel>
                       <FormControl>
-                        <Input type="date" {...field} data-testid="input-ins-exp" />
+                        <DatePickerField
+                          value={field.value ? new Date(field.value + 'T00:00:00') : undefined}
+                          onChange={(date) => field.onChange(date ? format(date, 'yyyy-MM-dd') : '')}
+                          data-testid="input-ins-exp"
+                        />
                       </FormControl>
                       <FormMessage />
                     </FormItem>

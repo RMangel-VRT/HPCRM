@@ -8,6 +8,7 @@ import { format } from "date-fns";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { DatePickerField } from "@/components/DatePickerField";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import {
@@ -211,19 +212,17 @@ export default function SeasonsPage() {
             <div className="grid grid-cols-2 gap-3">
               <div className="space-y-1">
                 <Label>Start Date</Label>
-                <Input
-                  type="date"
-                  value={startDate}
-                  onChange={(e) => setStartDate(e.target.value)}
+                <DatePickerField
+                  value={startDate ? new Date(startDate + 'T00:00:00') : undefined}
+                  onChange={(date) => setStartDate(date ? format(date, 'yyyy-MM-dd') : '')}
                   data-testid="input-season-start"
                 />
               </div>
               <div className="space-y-1">
                 <Label>End Date</Label>
-                <Input
-                  type="date"
-                  value={endDate}
-                  onChange={(e) => setEndDate(e.target.value)}
+                <DatePickerField
+                  value={endDate ? new Date(endDate + 'T00:00:00') : undefined}
+                  onChange={(date) => setEndDate(date ? format(date, 'yyyy-MM-dd') : '')}
                   data-testid="input-season-end"
                 />
               </div>

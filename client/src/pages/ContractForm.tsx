@@ -2,6 +2,7 @@ import { useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { DatePickerField } from "@/components/DatePickerField";
 import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import {
@@ -28,6 +29,8 @@ const months = [
 
 export default function ContractForm() {
   const { t } = useTranslation();
+  const [startDate, setStartDate] = useState<Date | undefined>(undefined);
+  const [endDate, setEndDate] = useState<Date | undefined>(undefined);
   const [monthlyAmounts, setMonthlyAmounts] = useState<Record<number, string>>(
     Object.fromEntries(months.map((_, i) => [i + 1, "0.00"]))
   );
@@ -112,19 +115,19 @@ export default function ContractForm() {
             </div>
 
             <div className="space-y-2">
-              <Label htmlFor="startDate">{t("contracts.startDate")} *</Label>
-              <Input
-                id="startDate"
-                type="date"
+              <Label>{t("contracts.startDate")} *</Label>
+              <DatePickerField
+                value={startDate}
+                onChange={setStartDate}
                 data-testid="input-start-date"
               />
             </div>
 
             <div className="space-y-2">
-              <Label htmlFor="endDate">{t("contracts.endDate")} *</Label>
-              <Input
-                id="endDate"
-                type="date"
+              <Label>{t("contracts.endDate")} *</Label>
+              <DatePickerField
+                value={endDate}
+                onChange={setEndDate}
                 data-testid="input-end-date"
               />
             </div>

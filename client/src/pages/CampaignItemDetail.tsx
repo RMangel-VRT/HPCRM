@@ -6,6 +6,7 @@ import { useAuth } from "@/hooks/use-auth";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import { format } from "date-fns";
+import { DatePickerField } from "@/components/DatePickerField";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -1145,11 +1146,9 @@ export default function CampaignItemDetail() {
           </AlertDialogHeader>
           <div className="py-2">
             <Label className="text-xs text-muted-foreground">Completion Date *</Label>
-            <Input
-              type="date"
-              value={markCompleteDate}
-              onChange={(e) => setMarkCompleteDate(e.target.value)}
-              className="mt-1"
+            <DatePickerField
+              value={markCompleteDate ? new Date(markCompleteDate + 'T00:00:00') : undefined}
+              onChange={(date) => setMarkCompleteDate(date ? format(date, 'yyyy-MM-dd') : '')}
               data-testid="input-mark-complete-date"
             />
           </div>
@@ -1178,11 +1177,9 @@ export default function CampaignItemDetail() {
           </AlertDialogHeader>
           <div className="py-2">
             <Label className="text-xs text-muted-foreground">Work Completion Date *</Label>
-            <Input
-              type="date"
-              value={completeWorkDate}
-              onChange={(e) => setCompleteWorkDate(e.target.value)}
-              className="mt-1"
+            <DatePickerField
+              value={completeWorkDate ? new Date(completeWorkDate + 'T00:00:00') : undefined}
+              onChange={(date) => setCompleteWorkDate(date ? format(date, 'yyyy-MM-dd') : '')}
               data-testid="input-complete-work-date"
             />
           </div>
@@ -1211,11 +1208,9 @@ export default function CampaignItemDetail() {
           </AlertDialogHeader>
           <div className="py-2">
             <Label className="text-xs text-muted-foreground">Completion Date *</Label>
-            <Input
-              type="date"
-              value={irrigationCompleteDate}
-              onChange={(e) => setIrrigationCompleteDate(e.target.value)}
-              className="mt-1"
+            <DatePickerField
+              value={irrigationCompleteDate ? new Date(irrigationCompleteDate + 'T00:00:00') : undefined}
+              onChange={(date) => setIrrigationCompleteDate(date ? format(date, 'yyyy-MM-dd') : '')}
               data-testid="input-irrigation-complete-date"
             />
           </div>
@@ -1299,41 +1294,41 @@ export default function CampaignItemDetail() {
                   <div className="grid grid-cols-2 gap-2">
                     <div>
                       <Label className="text-xs text-muted-foreground">{t("campaigns.chemWindowStart")}</Label>
-                      <Input
-                        type="date"
-                        value={preNoticeWindowStart}
-                        onChange={async (e) => {
-                          const newStart = e.target.value;
+                      <DatePickerField
+                        value={preNoticeWindowStart ? new Date(preNoticeWindowStart + 'T00:00:00') : undefined}
+                        onChange={(date) => {
+                          const newStart = date ? format(date, 'yyyy-MM-dd') : '';
                           setPreNoticeWindowStart(newStart);
-                          try {
-                            const params = new URLSearchParams({ type: "pre" });
-                            if (newStart) params.set("windowStart", newStart);
-                            if (preNoticeWindowEnd) params.set("windowEnd", preNoticeWindowEnd);
-                            const res = await fetch(`/api/campaigns/${campaignId}/items/${itemId}/email-preview?${params}`, { credentials: "include" });
-                            if (res.ok) setEmailPreview(await res.json());
-                          } catch {}
+                          (async () => {
+                            try {
+                              const params = new URLSearchParams({ type: "pre" });
+                              if (newStart) params.set("windowStart", newStart);
+                              if (preNoticeWindowEnd) params.set("windowEnd", preNoticeWindowEnd);
+                              const res = await fetch(`/api/campaigns/${campaignId}/items/${itemId}/email-preview?${params}`, { credentials: "include" });
+                              if (res.ok) setEmailPreview(await res.json());
+                            } catch {}
+                          })();
                         }}
-                        className="mt-0.5"
                         data-testid="input-pre-notice-window-start"
                       />
                     </div>
                     <div>
                       <Label className="text-xs text-muted-foreground">{t("campaigns.chemWindowEnd")}</Label>
-                      <Input
-                        type="date"
-                        value={preNoticeWindowEnd}
-                        onChange={async (e) => {
-                          const newEnd = e.target.value;
+                      <DatePickerField
+                        value={preNoticeWindowEnd ? new Date(preNoticeWindowEnd + 'T00:00:00') : undefined}
+                        onChange={(date) => {
+                          const newEnd = date ? format(date, 'yyyy-MM-dd') : '';
                           setPreNoticeWindowEnd(newEnd);
-                          try {
-                            const params = new URLSearchParams({ type: "pre" });
-                            if (preNoticeWindowStart) params.set("windowStart", preNoticeWindowStart);
-                            if (newEnd) params.set("windowEnd", newEnd);
-                            const res = await fetch(`/api/campaigns/${campaignId}/items/${itemId}/email-preview?${params}`, { credentials: "include" });
-                            if (res.ok) setEmailPreview(await res.json());
-                          } catch {}
+                          (async () => {
+                            try {
+                              const params = new URLSearchParams({ type: "pre" });
+                              if (preNoticeWindowStart) params.set("windowStart", preNoticeWindowStart);
+                              if (newEnd) params.set("windowEnd", newEnd);
+                              const res = await fetch(`/api/campaigns/${campaignId}/items/${itemId}/email-preview?${params}`, { credentials: "include" });
+                              if (res.ok) setEmailPreview(await res.json());
+                            } catch {}
+                          })();
                         }}
-                        className="mt-0.5"
                         data-testid="input-pre-notice-window-end"
                       />
                     </div>
@@ -1343,11 +1338,9 @@ export default function CampaignItemDetail() {
               {showEmailConfirm === "post" && (
                 <div>
                   <Label className="text-xs text-muted-foreground">Completion Date *</Label>
-                  <Input
-                    type="date"
-                    value={postCommDate}
-                    onChange={(e) => setPostCommDate(e.target.value)}
-                    className="mt-0.5"
+                  <DatePickerField
+                    value={postCommDate ? new Date(postCommDate + 'T00:00:00') : undefined}
+                    onChange={(date) => setPostCommDate(date ? format(date, 'yyyy-MM-dd') : '')}
                     data-testid="input-post-comm-date"
                   />
                 </div>
@@ -1416,12 +1409,10 @@ export default function CampaignItemDetail() {
             <div className="space-y-3">
               <div>
                 <Label className="text-xs text-muted-foreground">{t("campaigns.chemCompletionDate")} *</Label>
-                <Input
-                  type="date"
-                  value={finishDate}
-                  onChange={(e) => setFinishDate(e.target.value)}
+                <DatePickerField
+                  value={finishDate ? new Date(finishDate + 'T00:00:00') : undefined}
+                  onChange={(date) => setFinishDate(date ? format(date, 'yyyy-MM-dd') : '')}
                   data-testid="input-finish-date"
-                  className="mt-1"
                 />
               </div>
               <Separator />

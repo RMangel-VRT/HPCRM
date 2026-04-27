@@ -33,6 +33,7 @@ import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import type { VisualScopeSheet } from "@shared/schema";
 import { format } from "date-fns";
+import { DatePickerField } from "@/components/DatePickerField";
 
 type VisualScopeWithCustomer = VisualScopeSheet & { customerName: string };
 
@@ -210,12 +211,10 @@ export default function VisualScopeList() {
             </div>
 
             <div className="space-y-2">
-              <Label htmlFor="vs-date">{t("common.date")}</Label>
-              <Input
-                id="vs-date"
-                type="date"
-                value={scopeDate}
-                onChange={e => setScopeDate(e.target.value)}
+              <Label>{t("common.date")}</Label>
+              <DatePickerField
+                value={scopeDate ? new Date(scopeDate + 'T00:00:00') : undefined}
+                onChange={(date) => setScopeDate(date ? format(date, 'yyyy-MM-dd') : '')}
                 data-testid="input-scope-date"
               />
             </div>

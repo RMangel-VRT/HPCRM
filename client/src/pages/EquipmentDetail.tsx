@@ -4,6 +4,7 @@ import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
 import { format } from "date-fns";
+import { DatePickerField } from "@/components/DatePickerField";
 import { ArrowLeft, Save, Edit2, X, CheckCircle, WrenchIcon, XCircle, Loader2, Upload, FileText, Trash2, Download, Plus, Clock, AlertTriangle, CircleDot, Truck, Scissors, Package, Hammer, Bike, Settings2, Car } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -812,7 +813,11 @@ export default function EquipmentDetail() {
                           <FormItem>
                             <FormLabel>{t("equipment.registrationExpiration")}</FormLabel>
                             <FormControl>
-                              <Input type="date" {...field} data-testid="input-reg-exp" />
+                              <DatePickerField
+                                value={field.value ? new Date(field.value + 'T00:00:00') : undefined}
+                                onChange={(date) => field.onChange(date ? format(date, 'yyyy-MM-dd') : '')}
+                                data-testid="input-reg-exp"
+                              />
                             </FormControl>
                             <FormMessage />
                           </FormItem>
@@ -825,7 +830,11 @@ export default function EquipmentDetail() {
                           <FormItem>
                             <FormLabel>{t("equipment.insuranceExpiration")}</FormLabel>
                             <FormControl>
-                              <Input type="date" {...field} data-testid="input-ins-exp" />
+                              <DatePickerField
+                                value={field.value ? new Date(field.value + 'T00:00:00') : undefined}
+                                onChange={(date) => field.onChange(date ? format(date, 'yyyy-MM-dd') : '')}
+                                data-testid="input-ins-exp"
+                              />
                             </FormControl>
                             <FormMessage />
                           </FormItem>
@@ -838,7 +847,11 @@ export default function EquipmentDetail() {
                           <FormItem>
                             <FormLabel>{t("equipment.purchaseDate")}</FormLabel>
                             <FormControl>
-                              <Input type="date" {...field} data-testid="input-purchase" />
+                              <DatePickerField
+                                value={field.value ? new Date(field.value + 'T00:00:00') : undefined}
+                                onChange={(date) => field.onChange(date ? format(date, 'yyyy-MM-dd') : '')}
+                                data-testid="input-purchase"
+                              />
                             </FormControl>
                             <FormMessage />
                           </FormItem>
@@ -851,7 +864,11 @@ export default function EquipmentDetail() {
                           <FormItem>
                             <FormLabel>{t("equipment.warrantyExpiration")}</FormLabel>
                             <FormControl>
-                              <Input type="date" {...field} data-testid="input-warranty" />
+                              <DatePickerField
+                                value={field.value ? new Date(field.value + 'T00:00:00') : undefined}
+                                onChange={(date) => field.onChange(date ? format(date, 'yyyy-MM-dd') : '')}
+                                data-testid="input-warranty"
+                              />
                             </FormControl>
                             <FormMessage />
                           </FormItem>
@@ -1723,7 +1740,11 @@ export default function EquipmentDetail() {
                         <FormItem>
                           <FormLabel>{t("ticketDetail.dueDate")}</FormLabel>
                           <FormControl>
-                            <Input type="date" {...field} data-testid="input-ticket-due" />
+                            <DatePickerField
+                              value={field.value ? new Date(field.value + 'T00:00:00') : undefined}
+                              onChange={(date) => field.onChange(date ? format(date, 'yyyy-MM-dd') : '')}
+                              data-testid="input-ticket-due"
+                            />
                           </FormControl>
                           <FormMessage />
                         </FormItem>

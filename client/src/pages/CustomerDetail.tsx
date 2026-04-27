@@ -41,6 +41,7 @@ import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
 import { format } from "date-fns";
+import { DatePickerField } from "@/components/DatePickerField";
 import { useToast } from "@/hooks/use-toast";
 import { queryClient, apiRequest } from "@/lib/queryClient";
 import { useAuth } from "@/hooks/use-auth";
@@ -864,19 +865,17 @@ function ContractCard({ contract, customerId, canUploadDocuments, onUploadClick,
             <div className="grid grid-cols-2 gap-4">
               <div>
                 <Label>{t("contracts.startDate")}</Label>
-                <Input
-                  type="date"
-                  value={editContractData.startDate}
-                  onChange={(e) => setEditContractData({...editContractData, startDate: e.target.value})}
+                <DatePickerField
+                  value={editContractData.startDate ? new Date(editContractData.startDate + 'T00:00:00') : undefined}
+                  onChange={(date) => setEditContractData({...editContractData, startDate: date ? format(date, 'yyyy-MM-dd') : ''})}
                   data-testid="edit-input-start-date"
                 />
               </div>
               <div>
                 <Label>{t("contracts.endDate")}</Label>
-                <Input
-                  type="date"
-                  value={editContractData.endDate}
-                  onChange={(e) => setEditContractData({...editContractData, endDate: e.target.value})}
+                <DatePickerField
+                  value={editContractData.endDate ? new Date(editContractData.endDate + 'T00:00:00') : undefined}
+                  onChange={(date) => setEditContractData({...editContractData, endDate: date ? format(date, 'yyyy-MM-dd') : ''})}
                   data-testid="edit-input-end-date"
                 />
               </div>
@@ -2420,62 +2419,36 @@ export default function CustomerDetail() {
                 <FormField
                   control={contractForm.control}
                   name="startDate"
-                  render={({ field }) => {
-                    const dateValue = field.value instanceof Date && !isNaN(field.value.getTime())
-                      ? field.value.toISOString().split('T')[0] 
-                      : '';
-                    return (
-                      <FormItem>
-                        <FormLabel>{t("contracts.startDate")} *</FormLabel>
-                        <FormControl>
-                          <Input
-                            type="date"
-                            data-testid="input-start-date"
-                            value={dateValue}
-                            onChange={(e) => {
-                              const dateStr = e.target.value;
-                              if (dateStr) {
-                                const date = new Date(dateStr + 'T00:00:00');
-                                field.onChange(date);
-                              }
-                            }}
-                          />
-                        </FormControl>
-                        <FormMessage />
-                      </FormItem>
-                    );
-                  }}
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>{t("contracts.startDate")} *</FormLabel>
+                      <FormControl>
+                        <DatePickerField
+                          value={field.value instanceof Date && !isNaN(field.value.getTime()) ? field.value : undefined}
+                          onChange={(date) => field.onChange(date ?? undefined)}
+                          data-testid="input-start-date"
+                        />
+                      </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )}
                 />
                 <FormField
                   control={contractForm.control}
                   name="endDate"
-                  render={({ field }) => {
-                    const dateValue = field.value instanceof Date && !isNaN(field.value.getTime())
-                      ? field.value.toISOString().split('T')[0] 
-                      : '';
-                    return (
-                      <FormItem>
-                        <FormLabel>{t("contracts.endDate")}</FormLabel>
-                        <FormControl>
-                          <Input
-                            type="date"
-                            data-testid="input-end-date"
-                            value={dateValue}
-                            onChange={(e) => {
-                              const dateStr = e.target.value;
-                              if (dateStr) {
-                                const date = new Date(dateStr + 'T00:00:00');
-                                field.onChange(date);
-                              } else {
-                                field.onChange(undefined);
-                              }
-                            }}
-                          />
-                        </FormControl>
-                        <FormMessage />
-                      </FormItem>
-                    );
-                  }}
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>{t("contracts.endDate")}</FormLabel>
+                      <FormControl>
+                        <DatePickerField
+                          value={field.value instanceof Date && !isNaN(field.value.getTime()) ? field.value : undefined}
+                          onChange={(date) => field.onChange(date ?? undefined)}
+                          data-testid="input-end-date"
+                        />
+                      </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )}
                 />
               </div>
               <FormField
