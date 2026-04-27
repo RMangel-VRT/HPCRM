@@ -51,6 +51,7 @@ interface CustomerSubNavProps {
   onTabChange: (tab: string) => void;
   userRole?: string;
   snowEnabled?: boolean;
+  badgeCounts?: Record<string, number>;
 }
 
 const BASE_RAIL_ITEMS: Omit<RailItem, "visible">[] = [
@@ -82,6 +83,7 @@ export function CustomerSubNav({
   onTabChange,
   userRole,
   snowEnabled = false,
+  badgeCounts = {},
 }: CustomerSubNavProps) {
   const [, navigate] = useLocation();
   const navRef = useRef<HTMLElement>(null);
@@ -93,7 +95,8 @@ export function CustomerSubNav({
     if (item.adminOnly && !isPrivileged) return { ...item, visible: false };
     if (item.snowRequired && !snowEnabled) return { ...item, visible: false };
     if (item.snowRequired && !isPrivileged && !isFieldManager) return { ...item, visible: false };
-    return { ...item, visible: true };
+    const count = badgeCounts[item.key];
+    return { ...item, visible: true, badgeCount: count && count > 0 ? count : undefined };
   }).filter((item) => item.visible);
 
   const sections = SECTION_ORDER.map((heading) => ({
@@ -210,7 +213,15 @@ export function CustomerSubNav({
                   aria-current={isActive ? "page" : undefined}
                 >
                   <Icon className="w-3.5 h-3.5 mr-2 flex-shrink-0" aria-hidden="true" />
-                  <span className="truncate">{item.label}</span>
+                  <span className="truncate flex-1">{item.label}</span>
+                  {item.badgeCount !== undefined && item.badgeCount > 0 && (
+                    <span
+                      className="ml-1.5 min-w-[18px] h-[18px] rounded-full bg-primary/15 text-primary text-[10px] font-semibold flex items-center justify-center px-1 flex-shrink-0"
+                      data-testid={`badge-count-${item.key}`}
+                    >
+                      {item.badgeCount}
+                    </span>
+                  )}
                 </Button>
               );
             })}

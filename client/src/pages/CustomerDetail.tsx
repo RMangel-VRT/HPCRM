@@ -4,7 +4,7 @@ import { useQuery, useMutation } from "@tanstack/react-query";
 import { useRoute, useLocation, Link } from "wouter";
 import { useTabParam } from "@/hooks/useTabParam";
 import { useSetBreadcrumbs } from "@/hooks/use-breadcrumbs";
-import type { Customer, Contact, Note, Contract, ContractDocument, ContractMonthlyAmount, CustomerRateSheet, InsertContract, InsertContact, InsertNote, InsertCustomer, CustomerMapLayer, PropertyManagementCompany, PropertyManager, Ticket, SnowEvent, SnowEventPropertyImpact } from "@shared/schema";
+import type { Customer, Contact, Note, Contract, ContractDocument, ContractMonthlyAmount, CustomerRateSheet, InsertContract, InsertContact, InsertNote, InsertCustomer, CustomerMapLayer, PropertyManagementCompany, PropertyManager, Ticket, SnowEvent, SnowEventPropertyImpact, ProposalWithDetails } from "@shared/schema";
 import { insertContractSchema, insertContactSchema, insertNoteSchema, insertCustomerSchema } from "@shared/schema";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -1080,7 +1080,24 @@ export default function CustomerDetail() {
     queryKey: ["/api/customers", id, "tickets"],
     enabled: !!id,
   });
-  
+
+  const isPrivilegedUser = user?.activeRole === "admin" || user?.activeRole === "office";
+
+  const { data: customerProposals = [] } = useQuery<ProposalWithDetails[]>({
+    queryKey: ["/api/customers", id, "proposals"],
+    queryFn: async () => {
+      const res = await fetch(`/api/customers/${id}/proposals`, { credentials: "include" });
+      if (!res.ok) throw new Error("Failed to fetch proposals");
+      return res.json();
+    },
+    enabled: !!id && isPrivilegedUser,
+  });
+
+  const openTicketCount = tickets.filter((t) => !t.completedAt).length;
+  const pendingProposalCount = customerProposals.filter(
+    (p) => p.status !== "accepted" && p.status !== "rejected"
+  ).length;
+
   // Property Management queries
   const { data: pmCompanies = [] } = useQuery<PropertyManagementCompany[]>({
     queryKey: ["/api/property-management-companies"],
@@ -1659,6 +1676,10 @@ export default function CustomerDetail() {
         onTabChange={setActiveTab}
         userRole={user?.activeRole}
         snowEnabled={customer.snowEnabled ?? false}
+        badgeCounts={{
+          tickets: openTicketCount,
+          proposals: pendingProposalCount,
+        }}
       />
       <div className="flex-1 min-w-0 space-y-6 p-6">
       <div className="flex items-start justify-between gap-4">
