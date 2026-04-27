@@ -65,6 +65,7 @@ import {
 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { queryClient, apiRequest } from "@/lib/queryClient";
+import { DatePickerField } from "@/components/DatePickerField";
 import type { Ticket, TicketType, TicketTypeStatus, TicketTypeField, TicketFieldValue, TicketComment, TicketCommentWithAuthor, TicketStatusHistory, Customer, Contact, Contract, ContractService, WorkType, TicketLink, User as UserType, CompanyUser, CustomerRateSheet, EmailLogWithDetails, ProposalWithDetails } from "@shared/schema";
 import { WORK_TYPE_CATALOG } from "@shared/workTypeCatalog";
 import { format, formatDistanceToNow } from "date-fns";
@@ -156,13 +157,20 @@ export default function TicketDetail() {
   
   // Edit ticket state
   const [showEditDialog, setShowEditDialog] = useState(false);
-  const [editForm, setEditForm] = useState({
+  const [editForm, setEditForm] = useState<{
+    title: string;
+    description: string;
+    priority: "low" | "normal" | "high" | "urgent";
+    dueDate: Date | undefined;
+    workCompletedDate: Date | undefined;
+    invoiceCategory: "general_maintenance" | "snow" | null;
+  }>({
     title: "",
     description: "",
-    priority: "normal" as "low" | "normal" | "high" | "urgent",
-    dueDate: "",
-    workCompletedDate: "",
-    invoiceCategory: null as "general_maintenance" | "snow" | null,
+    priority: "normal",
+    dueDate: undefined,
+    workCompletedDate: undefined,
+    invoiceCategory: null,
   });
   
   // Navigation for redirects
@@ -727,8 +735,8 @@ export default function TicketDetail() {
       title: ticket.title || "",
       description: ticket.description || "",
       priority: ticket.priority || "normal",
-      dueDate: ticket.dueDate ? format(new Date(ticket.dueDate), "yyyy-MM-dd") : "",
-      workCompletedDate: ticket.workCompletedDate ? format(new Date(ticket.workCompletedDate), "yyyy-MM-dd") : "",
+      dueDate: ticket.dueDate ? new Date(ticket.dueDate) : undefined,
+      workCompletedDate: ticket.workCompletedDate ? new Date(ticket.workCompletedDate) : undefined,
       invoiceCategory: ticket.invoiceCategory as "general_maintenance" | "snow" | null,
     });
     setShowEditDialog(true);
@@ -740,8 +748,8 @@ export default function TicketDetail() {
       title: editForm.title,
       description: editForm.description || null,
       priority: editForm.priority,
-      dueDate: editForm.dueDate ? new Date(editForm.dueDate + "T12:00:00") : null,
-      workCompletedDate: editForm.workCompletedDate ? new Date(editForm.workCompletedDate + "T12:00:00") : null,
+      dueDate: editForm.dueDate ? new Date(editForm.dueDate.getFullYear(), editForm.dueDate.getMonth(), editForm.dueDate.getDate(), 12, 0, 0) : null,
+      workCompletedDate: editForm.workCompletedDate ? new Date(editForm.workCompletedDate.getFullYear(), editForm.workCompletedDate.getMonth(), editForm.workCompletedDate.getDate(), 12, 0, 0) : null,
       invoiceCategory: editForm.invoiceCategory,
     };
     editTicketMutation.mutate(updates);
@@ -2557,24 +2565,20 @@ export default function TicketDetail() {
               </div>
               
               <div className="space-y-2">
-                <Label htmlFor="edit-dueDate">{t('ticketDetail.dueDate')}</Label>
-                <Input
-                  id="edit-dueDate"
-                  type="date"
+                <Label>{t('ticketDetail.dueDate')}</Label>
+                <DatePickerField
                   value={editForm.dueDate}
-                  onChange={(e) => setEditForm(prev => ({ ...prev, dueDate: e.target.value }))}
+                  onChange={(date) => setEditForm(prev => ({ ...prev, dueDate: date }))}
                   data-testid="input-edit-dueDate"
                 />
               </div>
             </div>
             
             <div className="space-y-2">
-              <Label htmlFor="edit-workCompletedDate">{t('ticketDetail.workCompletedDate')}</Label>
-              <Input
-                id="edit-workCompletedDate"
-                type="date"
+              <Label>{t('ticketDetail.workCompletedDate')}</Label>
+              <DatePickerField
                 value={editForm.workCompletedDate}
-                onChange={(e) => setEditForm(prev => ({ ...prev, workCompletedDate: e.target.value }))}
+                onChange={(date) => setEditForm(prev => ({ ...prev, workCompletedDate: date }))}
                 data-testid="input-edit-workCompletedDate"
               />
             </div>

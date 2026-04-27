@@ -50,6 +50,7 @@ import {
 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { queryClient, apiRequest } from "@/lib/queryClient";
+import { DatePickerField } from "@/components/DatePickerField";
 import type { Customer, TicketType, CompanyUser, User, WorkType } from "@shared/schema";
 import { WORK_TYPE_CATALOG } from "@shared/workTypeCatalog";
 import { MapContainer, TileLayer, Marker, useMapEvents, useMap } from "react-leaflet";
@@ -138,8 +139,8 @@ export default function NewTicket() {
   const [description, setDescription] = useState("");
   const [priority, setPriority] = useState("normal");
   const [assignedToId, setAssignedToId] = useState<string | null>(null);
-  const [dueDate, setDueDate] = useState("");
-  const [workCompletedDate, setWorkCompletedDate] = useState("");
+  const [dueDate, setDueDate] = useState<Date | undefined>(undefined);
+  const [workCompletedDate, setWorkCompletedDate] = useState<Date | undefined>(undefined);
   const [invoiceCategory, setInvoiceCategory] = useState<"general_maintenance" | "snow" | null>(null);
   
   const [photos, setPhotos] = useState<{ path: string; previewUrl: string }[]>([]);
@@ -354,7 +355,7 @@ export default function NewTicket() {
         description: description || null,
         priority,
         assignedToId: assignedToId,
-        dueDate: dueDate ? new Date(dueDate + "T12:00:00") : null,
+        dueDate: dueDate ? new Date(dueDate.getFullYear(), dueDate.getMonth(), dueDate.getDate(), 12, 0, 0) : null,
         locationLat: locationLat,
         locationLng: locationLng,
         locationLabel: locationLabel || null,
@@ -363,7 +364,7 @@ export default function NewTicket() {
         documents: selectedWorkType === "estimate_request" && documents.length > 0 ? documents.map(d => d.path) : null,
         documentNames: selectedWorkType === "estimate_request" && documents.length > 0 ? documents.map(d => d.fileName) : null,
         // Invoice-specific fields
-        workCompletedDate: isInvoice && workCompletedDate ? new Date(workCompletedDate + "T12:00:00") : null,
+        workCompletedDate: isInvoice && workCompletedDate ? new Date(workCompletedDate.getFullYear(), workCompletedDate.getMonth(), workCompletedDate.getDate(), 12, 0, 0) : null,
         invoiceCategory: isInvoice ? invoiceCategory : null,
         // RFP-specific fields to be saved after ticket creation
         initialFieldValues: isRFPRequest ? {
@@ -1435,13 +1436,11 @@ export default function NewTicket() {
               </div>
 
               <div className="space-y-2">
-                <Label htmlFor="dueDate">{t('newTicket.dueDate')}</Label>
-                <Input
-                  id="dueDate"
-                  type="date"
+                <Label>{t('newTicket.dueDate')}</Label>
+                <DatePickerField
                   value={dueDate}
-                  onChange={(e) => setDueDate(e.target.value)}
-                  className="h-10"
+                  onChange={setDueDate}
+                  placeholder={t('newTicket.dueDate')}
                   data-testid="input-due-date"
                 />
               </div>
@@ -1450,13 +1449,11 @@ export default function NewTicket() {
             {/* Work Completed Date - only for Invoice tickets */}
             {isInvoice && (
               <div className="space-y-2">
-                <Label htmlFor="workCompletedDate">{t('newTicket.workCompletedDate')}</Label>
-                <Input
-                  id="workCompletedDate"
-                  type="date"
+                <Label>{t('newTicket.workCompletedDate')}</Label>
+                <DatePickerField
                   value={workCompletedDate}
-                  onChange={(e) => setWorkCompletedDate(e.target.value)}
-                  className="h-10"
+                  onChange={setWorkCompletedDate}
+                  placeholder={t('newTicket.workCompletedDate')}
                   data-testid="input-work-completed-date"
                 />
                 <p className="text-xs text-muted-foreground">

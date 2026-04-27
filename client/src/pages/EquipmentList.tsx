@@ -54,6 +54,8 @@ import {
 import { Skeleton } from "@/components/ui/skeleton";
 import { useState } from "react";
 import { useAuth } from "@/hooks/use-auth";
+import { format } from "date-fns";
+import { DatePickerField } from "@/components/DatePickerField";
 import type { EquipmentWithTicketCount } from "@shared/schema";
 
 const newEquipTicketSchema = z.object({
@@ -579,7 +581,11 @@ export default function EquipmentList() {
                   <FormItem>
                     <FormLabel>{t("ticketDetail.dueDate")}</FormLabel>
                     <FormControl>
-                      <Input {...field} type="date" data-testid="input-equip-ticket-due" />
+                      <DatePickerField
+                        value={field.value ? new Date(field.value + "T12:00:00") : undefined}
+                        onChange={(date) => field.onChange(date ? format(date, "yyyy-MM-dd") : "")}
+                        data-testid="input-equip-ticket-due"
+                      />
                     </FormControl>
                     <FormMessage />
                   </FormItem>
