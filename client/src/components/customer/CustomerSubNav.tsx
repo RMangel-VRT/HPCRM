@@ -25,58 +25,65 @@ interface CustomerSubNavCustomer {
   name: string;
 }
 
+export interface RailItem {
+  key: string;
+  label: string;
+  section: string;
+  tabValue: string;
+  badgeCount?: number;
+  visible?: boolean;
+  icon: React.ComponentType<{ className?: string }>;
+}
+
 interface CustomerSubNavProps {
   customerId: string;
   customerName: string;
   customers: CustomerSubNavCustomer[];
+  activeTab: string;
+  onTabChange: (tab: string) => void;
+  userRole?: string;
 }
 
-interface NavItem {
-  label: string;
-  icon: React.ComponentType<{ className?: string }>;
-  active?: boolean;
-}
-
-interface NavSection {
-  heading: string;
-  items: NavItem[];
-}
-
-const sections: NavSection[] = [
-  {
-    heading: "Overview",
-    items: [
-      { label: "Dashboard", icon: LayoutDashboard, active: true },
-      { label: "Contacts", icon: Users },
-      { label: "Notes", icon: MessageSquare },
-    ],
-  },
-  {
-    heading: "Operations",
-    items: [
-      { label: "Operations", icon: Wrench },
-      { label: "Maps", icon: Map },
-      { label: "Service Checklist", icon: CheckCircle2 },
-      { label: "Service Plan", icon: CalendarCheck },
-      { label: "Communications", icon: Mail },
-    ],
-  },
-  {
-    heading: "Billing",
-    items: [{ label: "Billing", icon: DollarSign }],
-  },
-  {
-    heading: "Settings",
-    items: [{ label: "Settings", icon: Settings }],
-  },
+const ALL_RAIL_ITEMS: Omit<RailItem, "visible">[] = [
+  { key: "overview", label: "Dashboard", section: "Overview", tabValue: "overview", icon: LayoutDashboard },
+  { key: "contacts", label: "Contacts", section: "Overview", tabValue: "contacts", icon: Users },
+  { key: "notes", label: "Notes", section: "Overview", tabValue: "notes", icon: MessageSquare },
+  { key: "operations", label: "Operations", section: "Operations", tabValue: "operations", icon: Wrench },
+  { key: "maps", label: "Maps", section: "Operations", tabValue: "maps", icon: Map },
+  { key: "service-checklist", label: "Service Checklist", section: "Operations", tabValue: "service-checklist", icon: CheckCircle2 },
+  { key: "fulfillment", label: "Service Plan", section: "Operations", tabValue: "fulfillment", icon: CalendarCheck },
+  { key: "communications", label: "Communications", section: "Operations", tabValue: "communications", icon: Mail },
+  { key: "billing", label: "Billing", section: "Billing", tabValue: "contracts", icon: DollarSign },
+  { key: "settings", label: "Settings", section: "Settings", tabValue: "settings", icon: Settings },
 ];
+
+const PERMISSION_GATED = new Set(["communications", "billing", "settings"]);
+
+const BILLING_SUBTABS = new Set(["contracts", "rate-sheet", "revenue", "monthly-summary"]);
+
+const SECTION_ORDER = ["Overview", "Operations", "Billing", "Settings"];
 
 export function CustomerSubNav({
   customerId,
   customerName,
   customers,
+  activeTab,
+  onTabChange,
+  userRole,
 }: CustomerSubNavProps) {
   const [, navigate] = useLocation();
+
+  const isPrivileged = userRole === "admin" || userRole === "office";
+
+  const visibleItems: RailItem[] = ALL_RAIL_ITEMS.map((item) => ({
+    ...item,
+    visible: PERMISSION_GATED.has(item.key) ? isPrivileged : true,
+  })).filter((item) => item.visible);
+
+  const sections = SECTION_ORDER.map((heading) => ({
+    heading,
+    items: visibleItems.filter((item) => item.section === heading),
+  })).filter((s) => s.items.length > 0);
 
   return (
     <div
@@ -131,14 +138,19 @@ export function CustomerSubNav({
             </p>
             {section.items.map((item) => {
               const Icon = item.icon;
+              const isActive =
+                item.key === "billing"
+                  ? BILLING_SUBTABS.has(activeTab)
+                  : item.tabValue === activeTab;
               return (
                 <Button
-                  key={item.label}
+                  key={item.key}
                   variant="ghost"
-                  className={`w-full justify-start h-8 px-3 text-sm font-normal rounded-none${
-                    item.active ? " bg-accent text-accent-foreground" : ""
+                  className={`w-full justify-start h-8 px-3 text-sm rounded-none${
+                    isActive ? " bg-accent text-accent-foreground font-medium" : " font-normal"
                   }`}
-                  data-testid={`nav-item-${item.label.toLowerCase().replace(/\s+/g, "-")}`}
+                  onClick={() => onTabChange(item.tabValue)}
+                  data-testid={`nav-item-${item.key}`}
                 >
                   <Icon className="w-3.5 h-3.5 mr-2 flex-shrink-0" />
                   <span className="truncate">{item.label}</span>
