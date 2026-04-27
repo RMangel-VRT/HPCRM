@@ -29,6 +29,7 @@ import {
   TrendingUp,
   ArrowUpDown,
   ExternalLink,
+  Calendar,
 } from "lucide-react";
 import type { Contract } from "@shared/schema";
 
@@ -78,6 +79,8 @@ function getStatusVariant(status: string): "default" | "secondary" | "destructiv
 export default function ContractsOverview() {
   const { t } = useTranslation();
   const currentYear = new Date().getFullYear();
+  const [selectedYear, setSelectedYear] = useState(currentYear);
+  const yearOptions = Array.from({ length: 7 }, (_, i) => currentYear - 3 + i);
   const [searchQuery, setSearchQuery] = useState("");
   const [serviceTypeFilter, setServiceTypeFilter] = useState<string>("all");
   const [statusFilter, setStatusFilter] = useState<string>("all");
@@ -85,7 +88,8 @@ export default function ContractsOverview() {
   const [sortDirection, setSortDirection] = useState<SortDirection>("asc");
 
   const { data: contracts, isLoading } = useQuery<ContractWithDetails[]>({
-    queryKey: ["/api/contracts"],
+    queryKey: ["/api/contracts", selectedYear],
+    queryFn: () => fetch(`/api/contracts?year=${selectedYear}`, { credentials: "include" }).then(r => r.json()),
   });
 
   const handleSort = (field: SortField) => {
@@ -190,11 +194,31 @@ export default function ContractsOverview() {
 
   return (
     <div className="p-6 space-y-6 overflow-auto h-full">
-      <div>
-        <h1 className="text-2xl font-bold" data-testid="text-page-title">{t("contracts.contractsOverview")}</h1>
-        <p className="text-sm text-muted-foreground mt-1">
-          {t("contracts.viewAllContracts")}
-        </p>
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <h1 className="text-2xl font-bold" data-testid="text-page-title">{t("contracts.contractsOverview")}</h1>
+          <p className="text-sm text-muted-foreground mt-1">
+            {t("contracts.viewAllContracts")}
+          </p>
+        </div>
+        <div className="flex items-center gap-2">
+          <Calendar className="h-4 w-4 text-muted-foreground" />
+          <Select
+            value={String(selectedYear)}
+            onValueChange={(v) => setSelectedYear(parseInt(v))}
+          >
+            <SelectTrigger className="w-28" data-testid="select-year">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {yearOptions.map((y) => (
+                <SelectItem key={y} value={String(y)} data-testid={`option-year-${y}`}>
+                  {y}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
       </div>
 
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
@@ -224,7 +248,7 @@ export default function ContractsOverview() {
 
         <Card>
           <CardHeader className="flex flex-row items-center justify-between gap-2 space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">{t("contracts.totalAnnualValue")} {currentYear}</CardTitle>
+            <CardTitle className="text-sm font-medium">{t("contracts.totalAnnualValue")} {selectedYear}</CardTitle>
             <DollarSign className="h-4 w-4 text-muted-foreground" />
           </CardHeader>
           <CardContent>
@@ -298,7 +322,7 @@ export default function ContractsOverview() {
                   <SortButton field="billingPattern">{t("contracts.billingSchedule")}</SortButton>
                 </TableHead>
                 <TableHead className="text-right">
-                  <SortButton field="annualTotal">{t("contracts.totalAnnualValue")} {currentYear}</SortButton>
+                  <SortButton field="annualTotal">{t("contracts.totalAnnualValue")} {selectedYear}</SortButton>
                 </TableHead>
                 <TableHead>
                   <SortButton field="status">{t("common.status")}</SortButton>

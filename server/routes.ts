@@ -2725,7 +2725,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
       monthlyAmountsByContract.get(ma.contractId)!.push(ma);
     }
     
-    const currentYear = new Date().getFullYear();
+    const requestedYear = req.query.year ? parseInt(req.query.year as string) : null;
+    const currentYear = (requestedYear && !isNaN(requestedYear)) ? requestedYear : new Date().getFullYear();
 
     const contractsWithTotals = allContracts.map(contract => {
       if (contract.status === "paused" || contract.status === "ended") {
