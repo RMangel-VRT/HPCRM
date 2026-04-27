@@ -233,7 +233,7 @@ export function CustomerSubNav({
       </nav>
 
       <div className="p-3 border-t border-sidebar-border flex justify-center">
-        <CustomersViewSwitcher active="detail" />
+        <CustomersViewSwitcher active="detail" className="bg-sidebar-accent border-sidebar-border" />
       </div>
     </div>
   );

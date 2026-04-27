@@ -4,12 +4,14 @@ import { LayoutGrid, List as ListIcon } from "lucide-react";
 import type { Customer } from "@shared/schema";
 import { Button } from "@/components/ui/button";
 import { getDefaultCustomersRoute } from "@/lib/last-viewed-customer";
+import { cn } from "@/lib/utils";
 
 interface CustomersViewSwitcherProps {
   active: "detail" | "list";
+  className?: string;
 }
 
-export function CustomersViewSwitcher({ active }: CustomersViewSwitcherProps) {
+export function CustomersViewSwitcher({ active, className }: CustomersViewSwitcherProps) {
   const [, navigate] = useLocation();
   const { data: customers = [] } = useQuery<Customer[]>({
     queryKey: ["/api/customers"],
@@ -25,7 +27,7 @@ export function CustomersViewSwitcher({ active }: CustomersViewSwitcherProps) {
 
   return (
     <div
-      className="inline-flex items-center gap-0.5 rounded-md border bg-background p-0.5"
+      className={cn("inline-flex items-center gap-0.5 rounded-md border bg-background p-0.5", className)}
       role="tablist"
       aria-label="Customers view"
       data-testid="customers-view-switcher"
