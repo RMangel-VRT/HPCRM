@@ -6,6 +6,7 @@ import { useAuth } from "@/hooks/use-auth";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import { format } from "date-fns";
+import { DatePickerField } from "@/components/DatePickerField";
 import { Card, CardContent } from "@/components/ui/card";
 import EmptyState from "@/components/EmptyState";
 import { Button } from "@/components/ui/button";
@@ -30,12 +31,6 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import {
-  Popover,
-  PopoverContent,
-  PopoverTrigger,
-} from "@/components/ui/popover";
-import { Calendar } from "@/components/ui/calendar";
 import {
   Loader2,
   ArrowLeft,
@@ -63,7 +58,6 @@ import {
   Droplets,
   Leaf,
   Pencil,
-  CalendarIcon,
   X,
   Plus,
   List,
@@ -1137,8 +1131,6 @@ function EditCampaignDialog({
   const [windowEnd, setWindowEnd] = useState<Date | undefined>(
     campaign.windowEnd ? new Date(campaign.windowEnd + "T00:00:00") : undefined
   );
-  const [startOpen, setStartOpen] = useState(false);
-  const [endOpen, setEndOpen] = useState(false);
   const [propertySearch, setPropertySearch] = useState("");
   const [selectedNewCustomerIds, setSelectedNewCustomerIds] = useState<Set<string>>(new Set());
   const [itemsToRemove, setItemsToRemove] = useState<Set<string>>(new Set());
@@ -1320,41 +1312,21 @@ function EditCampaignDialog({
           <div className="grid grid-cols-2 gap-4">
             <div className="space-y-2">
               <Label>Window Start</Label>
-              <Popover open={startOpen} onOpenChange={setStartOpen}>
-                <PopoverTrigger asChild>
-                  <Button variant="outline" className="w-full justify-start text-left font-normal" data-testid="button-edit-start-date">
-                    <CalendarIcon className="mr-2 h-4 w-4" />
-                    {windowStart ? format(windowStart, "PPP") : "Select"}
-                  </Button>
-                </PopoverTrigger>
-                <PopoverContent className="w-auto p-0" align="start">
-                  <Calendar
-                    mode="single"
-                    selected={windowStart}
-                    onSelect={(d) => { setWindowStart(d); setStartOpen(false); }}
-                    initialFocus
-                  />
-                </PopoverContent>
-              </Popover>
+              <DatePickerField
+                value={windowStart}
+                onChange={setWindowStart}
+                placeholder="Select"
+                data-testid="button-edit-start-date"
+              />
             </div>
             <div className="space-y-2">
               <Label>Window End</Label>
-              <Popover open={endOpen} onOpenChange={setEndOpen}>
-                <PopoverTrigger asChild>
-                  <Button variant="outline" className="w-full justify-start text-left font-normal" data-testid="button-edit-end-date">
-                    <CalendarIcon className="mr-2 h-4 w-4" />
-                    {windowEnd ? format(windowEnd, "PPP") : "Select"}
-                  </Button>
-                </PopoverTrigger>
-                <PopoverContent className="w-auto p-0" align="start">
-                  <Calendar
-                    mode="single"
-                    selected={windowEnd}
-                    onSelect={(d) => { setWindowEnd(d); setEndOpen(false); }}
-                    initialFocus
-                  />
-                </PopoverContent>
-              </Popover>
+              <DatePickerField
+                value={windowEnd}
+                onChange={setWindowEnd}
+                placeholder="Select"
+                data-testid="button-edit-end-date"
+              />
             </div>
           </div>
 

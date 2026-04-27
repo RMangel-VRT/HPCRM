@@ -6,6 +6,7 @@ import { useAuth } from "@/hooks/use-auth";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import { format } from "date-fns";
+import { DatePickerField } from "@/components/DatePickerField";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -32,17 +33,10 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import {
-  Popover,
-  PopoverContent,
-  PopoverTrigger,
-} from "@/components/ui/popover";
-import { Calendar } from "@/components/ui/calendar";
-import {
   Loader2,
   Plus,
   Search,
   ClipboardCheck,
-  CalendarIcon,
   ArrowLeft,
   ArrowRight,
   CheckCircle2,
@@ -264,8 +258,6 @@ function CreateCampaignDialog({ open, onOpenChange }: { open: boolean; onOpenCha
   const [assignedToId2, setAssignedToId2] = useState<string>("");
   const [windowStart, setWindowStart] = useState<Date | undefined>(undefined);
   const [windowEnd, setWindowEnd] = useState<Date | undefined>(undefined);
-  const [startOpen, setStartOpen] = useState(false);
-  const [endOpen, setEndOpen] = useState(false);
   const [category, setCategory] = useState<"general" | "chemical" | "irrigation">("general");
   const [irrigationSubtype, setIrrigationSubtype] = useState<"spring_turn_on" | "winterization" | "custom">("spring_turn_on");
   const [checklistTasks, setChecklistTasks] = useState<{ label: string; order: number }[]>([]);
@@ -467,41 +459,21 @@ function CreateCampaignDialog({ open, onOpenChange }: { open: boolean; onOpenCha
             <div className="grid grid-cols-2 gap-4">
               <div className="space-y-2">
                 <Label>{t("campaigns.windowStart")}</Label>
-                <Popover open={startOpen} onOpenChange={setStartOpen}>
-                  <PopoverTrigger asChild>
-                    <Button variant="outline" className="w-full justify-start text-left font-normal" data-testid="button-campaign-start-date">
-                      <CalendarIcon className="mr-2 h-4 w-4" />
-                      {windowStart ? format(windowStart, "PPP") : t("common.select")}
-                    </Button>
-                  </PopoverTrigger>
-                  <PopoverContent className="w-auto p-0" align="start">
-                    <Calendar
-                      mode="single"
-                      selected={windowStart}
-                      onSelect={(d) => { setWindowStart(d); setStartOpen(false); }}
-                      initialFocus
-                    />
-                  </PopoverContent>
-                </Popover>
+                <DatePickerField
+                  value={windowStart}
+                  onChange={setWindowStart}
+                  placeholder={t("common.select")}
+                  data-testid="button-campaign-start-date"
+                />
               </div>
               <div className="space-y-2">
                 <Label>{t("campaigns.windowEnd")}</Label>
-                <Popover open={endOpen} onOpenChange={setEndOpen}>
-                  <PopoverTrigger asChild>
-                    <Button variant="outline" className="w-full justify-start text-left font-normal" data-testid="button-campaign-end-date">
-                      <CalendarIcon className="mr-2 h-4 w-4" />
-                      {windowEnd ? format(windowEnd, "PPP") : t("common.select")}
-                    </Button>
-                  </PopoverTrigger>
-                  <PopoverContent className="w-auto p-0" align="start">
-                    <Calendar
-                      mode="single"
-                      selected={windowEnd}
-                      onSelect={(d) => { setWindowEnd(d); setEndOpen(false); }}
-                      initialFocus
-                    />
-                  </PopoverContent>
-                </Popover>
+                <DatePickerField
+                  value={windowEnd}
+                  onChange={setWindowEnd}
+                  placeholder={t("common.select")}
+                  data-testid="button-campaign-end-date"
+                />
               </div>
             </div>
             <div className="space-y-2">
