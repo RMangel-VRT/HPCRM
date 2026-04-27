@@ -3246,8 +3246,6 @@ function MonthlyBillingSummarySection({ customerId, contracts }: MonthlyBillingS
   
   const monthNames = [t("months.jan"), t("months.feb"), t("months.mar"), t("months.apr"), t("months.may"), t("months.jun"), t("months.jul"), t("months.aug"), t("months.sep"), t("months.oct"), t("months.nov"), t("months.dec")];
   
-  const activeContracts = contracts.filter(c => c.status === "active" || c.status === "paused");
-  
   const monthlySummary = useMemo(() => {
     const summary: { month: number; total: number; byContract: { contractId: string; serviceType: string; amount: number }[] }[] = [];
     
@@ -3281,7 +3279,7 @@ function MonthlyBillingSummarySection({ customerId, contracts }: MonthlyBillingS
   }, [allMonthlyAmounts, contracts]);
   
   const totalAnnual = monthlySummary.reduce((sum, m) => sum + m.total, 0);
-  
+
   const maintenanceMonthly = monthlySummary.map(m => ({
     month: m.month,
     amount: m.byContract.filter(c => c.serviceType === "Maintenance").reduce((sum, c) => sum + c.amount, 0)
@@ -3296,20 +3294,9 @@ function MonthlyBillingSummarySection({ customerId, contracts }: MonthlyBillingS
     month: m.month,
     amount: m.byContract.filter(c => c.serviceType !== "Maintenance" && c.serviceType !== "Chemical").reduce((sum, c) => sum + c.amount, 0)
   }));
-  
-  // Mobilization fees are monthly recurring, so calculate monthly total
-  const monthlyMobilizationTotal = useMemo(() => {
-    return activeContracts
-      .filter(c => c.hasMobilizationFee && c.mobilizationFeeAmount && c.mobilizationFeeAmount > 0)
-      .reduce((sum, c) => sum + (c.mobilizationFeeAmount / 100), 0);
-  }, [activeContracts]);
-  
-  // Calculate annual mobilization (12 months * monthly mobilization)
-  const annualMobilization = monthlyMobilizationTotal * 12;
-  
-  // Add mobilization to each month's total for the real total billing
-  const totalAnnualWithMobilization = totalAnnual + annualMobilization;
-  
+
+  const activeContractCount = contracts.filter(c => c.status === "active" || c.status === "paused").length;
+
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between gap-4">
@@ -3345,13 +3332,8 @@ function MonthlyBillingSummarySection({ customerId, contracts }: MonthlyBillingS
           </CardHeader>
           <CardContent>
             <p className="text-2xl font-bold" data-testid="text-summary-annual-total">
-              ${totalAnnualWithMobilization.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+              ${totalAnnual.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
             </p>
-            {monthlyMobilizationTotal > 0 && (
-              <p className="text-xs text-muted-foreground mt-1">
-                {t("customerDetail.includesMobilizationFee")} ${annualMobilization.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-              </p>
-            )}
           </CardContent>
         </Card>
         <Card>
@@ -3360,25 +3342,10 @@ function MonthlyBillingSummarySection({ customerId, contracts }: MonthlyBillingS
           </CardHeader>
           <CardContent>
             <p className="text-2xl font-bold" data-testid="text-summary-active-contracts">
-              {activeContracts.length}
+              {activeContractCount}
             </p>
           </CardContent>
         </Card>
-        {monthlyMobilizationTotal > 0 && (
-          <Card>
-            <CardHeader className="pb-2">
-              <CardTitle className="text-sm font-medium text-muted-foreground">{t("customerDetail.mobilizationFeeAmount")}</CardTitle>
-            </CardHeader>
-            <CardContent>
-              <p className="text-2xl font-bold" data-testid="text-summary-mobilization">
-                ${monthlyMobilizationTotal.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}/mo
-              </p>
-              <p className="text-xs text-muted-foreground mt-1">
-                ${annualMobilization.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}/year
-              </p>
-            </CardContent>
-          </Card>
-        )}
       </div>
       
       <Card>
@@ -3393,16 +3360,11 @@ function MonthlyBillingSummarySection({ customerId, contracts }: MonthlyBillingS
                 <TableHead className="text-right">{t("serviceTypes.maintenance")}</TableHead>
                 <TableHead className="text-right">{t("serviceTypes.chemical")}</TableHead>
                 <TableHead className="text-right">{t("serviceTypes.other")}</TableHead>
-                {monthlyMobilizationTotal > 0 && (
-                  <TableHead className="text-right">{t("customerDetail.mobilizationFeeAmount")}</TableHead>
-                )}
                 <TableHead className="text-right">{t("common.total")}</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
-              {monthlySummary.map((month, idx) => {
-                const monthTotalWithMobilization = month.total + monthlyMobilizationTotal;
-                return (
+              {monthlySummary.map((month, idx) => (
                   <TableRow key={month.month} data-testid={`row-month-${month.month}`}>
                     <TableCell className="font-medium">{monthNames[idx]}</TableCell>
                     <TableCell className="text-right">
@@ -3423,20 +3385,14 @@ function MonthlyBillingSummarySection({ customerId, contracts }: MonthlyBillingS
                         : '-'
                       }
                     </TableCell>
-                    {monthlyMobilizationTotal > 0 && (
-                      <TableCell className="text-right">
-                        ${monthlyMobilizationTotal.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                      </TableCell>
-                    )}
                     <TableCell className="text-right font-semibold">
-                      {monthTotalWithMobilization > 0 
-                        ? `$${monthTotalWithMobilization.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
+                      {month.total > 0 
+                        ? `$${month.total.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
                         : '-'
                       }
                     </TableCell>
                   </TableRow>
-                );
-              })}
+              ))}
               <TableRow className="font-bold border-t-2">
                 <TableCell>{t("common.total")}</TableCell>
                 <TableCell className="text-right">
@@ -3448,13 +3404,8 @@ function MonthlyBillingSummarySection({ customerId, contracts }: MonthlyBillingS
                 <TableCell className="text-right">
                   ${otherMonthly.reduce((sum, m) => sum + m.amount, 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                 </TableCell>
-                {monthlyMobilizationTotal > 0 && (
-                  <TableCell className="text-right">
-                    ${annualMobilization.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                  </TableCell>
-                )}
                 <TableCell className="text-right">
-                  ${totalAnnualWithMobilization.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                  ${totalAnnual.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                 </TableCell>
               </TableRow>
             </TableBody>
