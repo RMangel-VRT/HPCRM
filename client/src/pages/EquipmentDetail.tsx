@@ -30,7 +30,7 @@ import {
 } from "@/components/ui/select";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest, queryClient } from "@/lib/queryClient";
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useAuth } from "@/hooks/use-auth";
 import { useTranslation } from "react-i18next";
 import type { Equipment, User, EquipmentFile, EquipmentTicket } from "@shared/schema";
@@ -229,6 +229,15 @@ export default function EquipmentDetail() {
   const { data: users } = useQuery<User[]>({
     queryKey: ["/api/users"],
   });
+
+  useEffect(() => {
+    const equipmentName = equipment?.name;
+    if (!equipmentName) return;
+    document.title = `${equipmentName} | Greenfield`;
+    return () => {
+      document.title = "Greenfield";
+    };
+  }, [equipment?.name]);
 
   const form = useForm<EquipmentFormData>({
     resolver: zodResolver(equipmentFormSchema),

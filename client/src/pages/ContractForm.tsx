@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useTranslation } from "react-i18next";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -29,6 +29,14 @@ const months = [
 
 export default function ContractForm() {
   const { t } = useTranslation();
+
+  useEffect(() => {
+    document.title = `New Contract | Greenfield`;
+    return () => {
+      document.title = "Greenfield";
+    };
+  }, []);
+
   const [startDate, setStartDate] = useState<Date | undefined>(undefined);
   const [endDate, setEndDate] = useState<Date | undefined>(undefined);
   const [monthlyAmounts, setMonthlyAmounts] = useState<Record<number, string>>(

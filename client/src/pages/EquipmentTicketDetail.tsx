@@ -1,5 +1,6 @@
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { useRoute, Link } from "wouter";
+import { useEffect } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
@@ -123,6 +124,20 @@ export default function EquipmentTicketDetail() {
     queryKey: ["/api/equipment", ticket?.equipmentId],
     enabled: !!ticket?.equipmentId,
   });
+
+  useEffect(() => {
+    const ticketTitle = ticket?.title;
+    if (!ticketTitle) return;
+    const equipmentName = equipment?.name;
+    if (equipmentName) {
+      document.title = `${ticketTitle} \u2014 ${equipmentName} | Greenfield`;
+    } else {
+      document.title = `${ticketTitle} | Greenfield`;
+    }
+    return () => {
+      document.title = "Greenfield";
+    };
+  }, [ticket?.title, equipment?.name]);
 
   const { data: users } = useQuery<UserType[]>({
     queryKey: ["/api/users"],

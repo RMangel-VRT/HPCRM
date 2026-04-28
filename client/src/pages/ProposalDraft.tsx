@@ -1,4 +1,4 @@
-import { useState, useRef, useCallback } from "react";
+import { useState, useRef, useCallback, useEffect } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { Link, useLocation, useParams, useSearch } from "wouter";
 import { useTranslation } from "react-i18next";
@@ -114,6 +114,15 @@ export default function ProposalDraft() {
     },
     enabled: !!linkedTicketId,
   });
+
+  useEffect(() => {
+    const proposalTitle = proposal?.title;
+    if (!proposalTitle) return;
+    document.title = `${proposalTitle} | Greenfield`;
+    return () => {
+      document.title = "Greenfield";
+    };
+  }, [proposal?.title]);
 
   const saveMutation = useMutation({
     mutationFn: async (updates: Record<string, string | boolean | null>) => {

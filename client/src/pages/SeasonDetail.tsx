@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { useLocation, useParams } from "wouter";
 import { useAuth } from "@/hooks/use-auth";
@@ -62,6 +62,15 @@ export default function SeasonDetail() {
       return res.json();
     },
   });
+
+  useEffect(() => {
+    const seasonName = report?.season?.name;
+    if (!seasonName) return;
+    document.title = `${seasonName} | Greenfield`;
+    return () => {
+      document.title = "Greenfield";
+    };
+  }, [report?.season?.name]);
 
   const handleExportCSV = () => {
     if (!report) return;

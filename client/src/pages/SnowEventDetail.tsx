@@ -1,6 +1,6 @@
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { useTranslation } from "react-i18next";
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useRoute, Link, useLocation } from "wouter";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -99,6 +99,17 @@ export default function SnowEventDetail() {
     queryKey: ["/api/snow-events", eventId],
     enabled: !!eventId,
   });
+
+  const loadedEventId = event?.id ?? null;
+  const loadedEventName = event?.eventName ?? null;
+  useEffect(() => {
+    if (!loadedEventId) return;
+    const displayName = loadedEventName || t("snow.untitledStorm");
+    document.title = `${displayName} | Greenfield`;
+    return () => {
+      document.title = "Greenfield";
+    };
+  }, [loadedEventId, loadedEventName, t]);
 
   const { data: impacts, isLoading: impactsLoading } = useQuery<SnowEventPropertyImpactWithCustomer[]>({
     queryKey: ["/api/snow-events", eventId, "impacts"],

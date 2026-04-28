@@ -506,6 +506,15 @@ export default function VisualScopeDraft() {
     },
   });
 
+  useEffect(() => {
+    const sheetTitle = sheet?.title || sheet?.customerName;
+    if (!sheetTitle) return;
+    document.title = `${sheetTitle} | Greenfield`;
+    return () => {
+      document.title = "Greenfield";
+    };
+  }, [sheet?.title, sheet?.customerName]);
+
   const { data: mapboxConfig } = useQuery<{ token: string | null }>({
     queryKey: ["/api/config/mapbox-token"],
   });

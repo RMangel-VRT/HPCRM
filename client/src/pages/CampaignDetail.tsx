@@ -138,6 +138,15 @@ export default function CampaignDetail() {
     queryKey: ["/api/campaigns", id],
   });
 
+  useEffect(() => {
+    const campaignTitle = campaign?.title;
+    if (!campaignTitle) return;
+    document.title = `${campaignTitle} | Greenfield`;
+    return () => {
+      document.title = "Greenfield";
+    };
+  }, [campaign?.title]);
+
   const canManage = user?.activeRole === "admin" || user?.activeRole === "office";
   const isAdmin = user?.activeRole === "admin";
   const canManageSeasons = ["admin", "office", "chemical_manager"].includes(user?.activeRole || "");

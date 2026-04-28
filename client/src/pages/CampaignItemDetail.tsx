@@ -182,6 +182,20 @@ export default function CampaignItemDetail() {
   const recipientEmail = primaryContact?.emails?.[0] || contacts?.find(c => c.emails && c.emails.length > 0)?.emails?.[0] || null;
 
   useEffect(() => {
+    const customerName = item?.customerName;
+    if (!customerName) return;
+    const campaignTitle = campaign?.title;
+    if (campaignTitle) {
+      document.title = `${customerName} \u2014 ${campaignTitle} | Greenfield`;
+    } else {
+      document.title = `${customerName} | Greenfield`;
+    }
+    return () => {
+      document.title = "Greenfield";
+    };
+  }, [item?.customerName, campaign?.title]);
+
+  useEffect(() => {
     if (item) {
       setNotes(item.notes || "");
       setSkipReason(item.skipReason || "");
