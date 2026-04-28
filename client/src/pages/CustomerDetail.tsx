@@ -1179,13 +1179,19 @@ export default function CustomerDetail() {
     };
   }, [customer?.name, activeTab, activeTabLabel, isOverview]);
 
+  const breadcrumbParent = customer?.parentCustomer ?? null;
+  const breadcrumbIsChild = !!customer?.parentCustomerId;
+
   const breadcrumbItems: { label: string; href?: string }[] = [
     { label: t("customers.title"), href: "/dashboard/customers" },
+    ...(breadcrumbIsChild && breadcrumbParent
+      ? [{ label: breadcrumbParent.name, href: `/dashboard/customers/${breadcrumbParent.id}?tab=overview` }]
+      : []),
     { label: customer?.name || t("common.loading"), href: customer ? `/dashboard/customers/${customer.id}?tab=overview` : undefined },
     ...(!isOverview ? [{ label: activeTabLabel }] : []),
   ];
 
-  useSetBreadcrumbs(breadcrumbItems, [customer?.name, customer?.id, activeTab, activeTabLabel]);
+  useSetBreadcrumbs(breadcrumbItems, [customer?.name, customer?.id, activeTab, activeTabLabel, breadcrumbIsChild, breadcrumbParent?.id, breadcrumbParent?.name]);
 
   const contractForm = useForm<Omit<InsertContract, "companyId" | "customerId">>({
     resolver: zodResolver(
