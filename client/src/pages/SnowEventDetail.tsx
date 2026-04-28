@@ -481,7 +481,7 @@ export default function SnowEventDetail() {
 
       {/* Add Properties Dialog */}
       <Dialog open={showAddProperties} onOpenChange={setShowAddProperties}>
-        <DialogContent className="max-w-2xl max-h-[80vh] overflow-y-auto">
+        <DialogContent className="max-w-2xl max-h-[90vh] flex flex-col">
           <DialogHeader>
             <DialogTitle>{t("snow.addProperties")}</DialogTitle>
             <DialogDescription>
@@ -489,7 +489,7 @@ export default function SnowEventDetail() {
             </DialogDescription>
           </DialogHeader>
 
-          <div className="space-y-4">
+          <div className="overflow-y-auto flex-1 space-y-4 pr-1">
             <div>
               <Label>{t("snow.applyServicesToAll")}</Label>
               <div className="flex flex-wrap gap-2 mt-2">
@@ -564,7 +564,7 @@ export default function SnowEventDetail() {
             )}
           </div>
 
-          <DialogFooter>
+          <DialogFooter className="pt-4">
             <Button variant="outline" onClick={() => setShowAddProperties(false)}>
               {t("common.cancel")}
             </Button>

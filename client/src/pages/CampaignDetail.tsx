@@ -1281,7 +1281,7 @@ function EditCampaignDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-2xl max-h-[90vh] overflow-y-auto">
+      <DialogContent className="sm:max-w-2xl max-h-[90vh] flex flex-col">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             <Pencil className="w-5 h-5 text-primary" />
@@ -1289,7 +1289,7 @@ function EditCampaignDialog({
           </DialogTitle>
         </DialogHeader>
 
-        <div className="space-y-5 py-2">
+        <div className="overflow-y-auto flex-1 space-y-5 py-2 pr-1">
           <div className="space-y-2">
             <Label>Title</Label>
             <Input
@@ -1449,7 +1449,7 @@ function EditCampaignDialog({
           </div>
         </div>
 
-        <DialogFooter>
+        <DialogFooter className="pt-4">
           <Button variant="outline" onClick={() => onOpenChange(false)} disabled={isPending}>Cancel</Button>
           <Button onClick={handleSave} disabled={isPending} data-testid="button-save-edit-campaign">
             {isPending && <Loader2 className="w-4 h-4 mr-2 animate-spin" />}

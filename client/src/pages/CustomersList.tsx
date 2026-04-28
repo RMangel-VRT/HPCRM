@@ -558,7 +558,7 @@ export default function CustomersList() {
       </AlertDialog>
 
       <Dialog open={isAddDialogOpen} onOpenChange={setIsAddDialogOpen}>
-        <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
+        <DialogContent className="max-w-2xl max-h-[90vh] flex flex-col">
           <DialogHeader>
             <DialogTitle>{t("customers.addCustomer")}</DialogTitle>
             <DialogDescription>
@@ -567,7 +567,8 @@ export default function CustomersList() {
           </DialogHeader>
 
           <Form {...form}>
-            <form onSubmit={form.handleSubmit((data) => createMutation.mutate(data))} className="space-y-4">
+            <form onSubmit={form.handleSubmit((data) => createMutation.mutate(data))} className="flex flex-col flex-1 min-h-0">
+              <div className="overflow-y-auto flex-1 space-y-4 pr-1">
               <FormField
                 control={form.control}
                 name="name"
@@ -758,7 +759,8 @@ export default function CustomersList() {
                 />
               </div>
 
-              <DialogFooter>
+              </div>
+              <DialogFooter className="pt-4">
                 <Button
                   type="button"
                   variant="outline"

@@ -294,7 +294,7 @@ function PropertyDialog({ property, onClose }: { property: Property | null; onCl
   const isPending = createMutation.isPending || updateMutation.isPending;
 
   return (
-    <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
+    <DialogContent className="max-w-2xl max-h-[90vh] flex flex-col">
       <DialogHeader>
         <DialogTitle>{isEditing ? t("propertiesPage.editProperty") : t("propertiesPage.addProperty")}</DialogTitle>
         <DialogDescription>
@@ -303,7 +303,8 @@ function PropertyDialog({ property, onClose }: { property: Property | null; onCl
       </DialogHeader>
 
       <Form {...form}>
-        <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-6">
+        <form onSubmit={form.handleSubmit(onSubmit)} className="flex flex-col flex-1 min-h-0">
+          <div className="overflow-y-auto flex-1 space-y-6 pr-1">
           <div className="space-y-4">
             <FormField
               control={form.control}
@@ -442,8 +443,9 @@ function PropertyDialog({ property, onClose }: { property: Property | null; onCl
               )}
             />
           </div>
+          </div>
 
-          <div className="flex justify-end gap-3">
+          <div className="flex justify-end gap-3 pt-4">
             <Button type="button" variant="outline" onClick={onClose} data-testid="button-cancel">
               {t("common.cancel")}
             </Button>

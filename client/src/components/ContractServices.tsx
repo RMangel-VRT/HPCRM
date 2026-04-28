@@ -281,7 +281,7 @@ export default function ContractServices({ contractId, canEdit }: ContractServic
       )}
 
       <Dialog open={isAddDialogOpen} onOpenChange={setIsAddDialogOpen}>
-        <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto">
+        <DialogContent className="max-w-4xl max-h-[90vh] flex flex-col">
           <DialogHeader>
             <DialogTitle>{editingService ? "Edit Service" : "Add Service"}</DialogTitle>
             <DialogDescription>
@@ -290,7 +290,8 @@ export default function ContractServices({ contractId, canEdit }: ContractServic
           </DialogHeader>
 
           <Form {...form}>
-            <form onSubmit={form.handleSubmit(handleSubmit)} className="space-y-4">
+            <form onSubmit={form.handleSubmit(handleSubmit)} className="flex flex-col flex-1 min-h-0">
+              <div className="overflow-y-auto flex-1 space-y-4 pr-1">
               <FormField
                 control={form.control}
                 name="serviceType"
@@ -465,7 +466,8 @@ export default function ContractServices({ contractId, canEdit }: ContractServic
                 )}
               />
 
-              <DialogFooter>
+              </div>
+              <DialogFooter className="pt-4">
                 <Button
                   type="button"
                   variant="outline"
