@@ -2890,7 +2890,7 @@ export default function CustomerDetail() {
       </Dialog>
 
       <Dialog open={isEditCustomerDialogOpen} onOpenChange={setIsEditCustomerDialogOpen}>
-        <DialogContent className="max-w-2xl">
+        <DialogContent className="max-w-2xl max-h-[90vh] flex flex-col">
           <DialogHeader>
             <DialogTitle>{t("customerDetail.editCustomer")}</DialogTitle>
             <DialogDescription>
@@ -2898,7 +2898,8 @@ export default function CustomerDetail() {
             </DialogDescription>
           </DialogHeader>
           <Form {...customerForm}>
-            <form onSubmit={customerForm.handleSubmit((data) => updateCustomerMutation.mutate(data))} className="space-y-4">
+            <form onSubmit={customerForm.handleSubmit((data) => updateCustomerMutation.mutate(data))} className="flex flex-col flex-1 min-h-0">
+              <div className="overflow-y-auto flex-1 space-y-4 pr-1">
               <div className="grid grid-cols-2 gap-4">
                 <FormField
                   control={customerForm.control}
@@ -3221,7 +3222,8 @@ export default function CustomerDetail() {
                   }}
                 />
               </div>
-              <DialogFooter>
+              </div>
+              <DialogFooter className="pt-4">
                 <Button 
                   type="button" 
                   variant="outline" 
