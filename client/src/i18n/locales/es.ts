@@ -1388,6 +1388,53 @@ const es = {
     sortCityZA: "Ciudad Z–A",
     sortCompletedNewest: "Completado: Mas reciente",
     sortCompletedOldest: "Completado: Mas antiguo",
+    chemVisitDetails: "Detalles de Visita Quimica", // TODO: human-review translation
+    chemTargetDate: "Fecha Objetivo", // TODO: human-review translation
+    chemBackupDate: "Fecha de Respaldo", // TODO: human-review translation
+    chemTimeWindowStart: "Inicio de Ventana de Servicio", // TODO: human-review translation
+    chemTimeWindowEnd: "Fin de Ventana de Servicio", // TODO: human-review translation
+    chemProduct: "Producto Quimico", // TODO: human-review translation
+    chemSelectProduct: "Seleccionar un producto...", // TODO: human-review translation
+    chemApplicator: "Aplicador", // TODO: human-review translation
+    chemSelectApplicator: "Seleccionar un aplicador...", // TODO: human-review translation
+    chemOverrides: "Ajustes por Visita", // TODO: human-review translation
+    chemPurposeOverride: "Proposito (ajuste)", // TODO: human-review translation
+    chemReentryOverride: "Horas de Re-entrada (ajuste)", // TODO: human-review translation
+    chemWateringOverride: "Instrucciones de Riego (ajuste)", // TODO: human-review translation
+    chemMowingOverride: "Instrucciones de Corte (ajuste)", // TODO: human-review translation
+    chemOverridePlaceholder: "Dejar en blanco para usar el valor del producto", // TODO: human-review translation
+    chemSaveVisitDetails: "Guardar Detalles de Visita", // TODO: human-review translation
+    chemVisitSaved: "Detalles de visita guardados", // TODO: human-review translation
+    chemPreviewNotifEmail: "Vista Previa de Email de Notificacion", // TODO: human-review translation
+    chemSendNotification: "Enviar Notificacion", // TODO: human-review translation
+    chemNotifSent: "Email de notificacion enviado", // TODO: human-review translation
+    chemNotifSendFailed: "Error al enviar email de notificacion", // TODO: human-review translation
+    chemNoNotifTemplate: "No hay plantilla de email de notificacion configurada para este evento.", // TODO: human-review translation
+    emailSubject: "Asunto", // TODO: human-review translation
+    emailTemplate: "Plantilla", // TODO: human-review translation
+    previewFailed: "Error al cargar vista previa", // TODO: human-review translation
+    chemBackupAutoHint: "(auto configurado a +2 dias habiles)", // TODO: human-review translation
+    chemManufacturer: "Fabricante", // TODO: human-review translation
+    chemCategory: "Categoria", // TODO: human-review translation
+    chemReentryInterval: "Intervalo de Reingreso", // TODO: human-review translation
+    chemLicense: "Licencia", // TODO: human-review translation
+    chemNoLicenseWarning: "Este miembro del equipo no tiene licencia de aplicador registrada", // TODO: human-review translation
+    chemNoLicensedApplicators: "No se encontraron aplicadores con licencia. Agregue una licencia de aplicador en Configuracion del Equipo.", // TODO: human-review translation
+    chemLabelOverride: "Etiqueta de Visita (PDF)", // TODO: human-review translation
+    chemUploadLabelOverride: "Subir Etiqueta", // TODO: human-review translation
+    chemLabelOverrideHint: "Reemplaza la etiqueta del producto solo para esta visita. Solo archivos PDF.", // TODO: human-review translation
+    chemLabelUploaded: "Etiqueta de visita subida", // TODO: human-review translation
+    chemLabelRemoved: "Etiqueta de visita eliminada", // TODO: human-review translation
+    chemLabelRemoveFailed: "Error al eliminar etiqueta de visita", // TODO: human-review translation
+    chemLabelPdfOnly: "Solo se permiten archivos PDF para etiquetas", // TODO: human-review translation
+    chemSearchProduct: "Buscar productos quimicos...", // TODO: human-review translation
+    chemNoProductFound: "No se encontraron productos quimicos", // TODO: human-review translation
+    chemAddNewProduct: "Agregar nuevo producto", // TODO: human-review translation
+    chemAddProductDesc: "Agrega rapidamente un nuevo producto quimico. Puedes completar los detalles adicionales desde la pagina de administracion de Productos Quimicos.", // TODO: human-review translation
+    chemProductName: "Nombre del Producto", // TODO: human-review translation
+    chemProductNamePlaceholder: "ej. Roundup Pro", // TODO: human-review translation
+    chemManufacturerPlaceholder: "ej. Bayer", // TODO: human-review translation
+    chemProductSaved: "Producto agregado exitosamente", // TODO: human-review translation
   },
   operations: {
     title: "Lista de Verificacion Operativa",
@@ -1698,6 +1745,40 @@ const es = {
     mailboxDeactivateError_review_es: "needs human review",
     nMailboxSelected: "{{count}} seleccionado(s)",
     nMailboxSelected_review_es: "needs human review",
+  },
+  chemicalProducts: {
+    title: "Productos Quimicos",
+    addProduct: "Agregar Producto",
+    editProduct: "Editar Producto",
+    noProducts: "No se han agregado productos quimicos todavia.",
+    created: "Producto creado",
+    updated: "Producto actualizado",
+    deleted: "Producto eliminado",
+    confirmDelete: "Eliminar este producto?",
+    confirmDeleteDesc: "Este producto sera eliminado del catalogo. Los registros de visitas existentes no se veran afectados.",
+    manufacturer: "Fabricante",
+    category: "Categoria",
+    epaRegNumber: "No. de Reg. EPA",
+    signalWord: "Palabra de Senal",
+    activeIngredient: "Ingrediente Activo",
+    reentryInterval: "Intervalo de Re-entrada (hrs)",
+    purpose: "Proposito",
+    wateringInstructions: "Instrucciones de Riego",
+    mowingInstructions: "Instrucciones de Corte",
+    notes: "Notas Internas",
+    label: "Etiqueta",
+    viewLabel: "Ver Etiqueta",
+    uploadLabel: "Subir Etiqueta",
+    labelUploaded: "Etiqueta subida",
+    labelRemoved: "Etiqueta eliminada",
+    labelTooLarge: "El archivo supera el limite de 10 MB",
+    removeLabel: "Eliminar etiqueta",
+    activeProduct: "Activo",
+  },
+  userProfile: {
+    applicatorLicenseNumber: "Numero de Licencia de Aplicador",
+    applicatorLicenseState: "Estado de Licencia",
+    applicatorLicenseSaved: "Licencia de aplicador guardada",
   },
 };
 

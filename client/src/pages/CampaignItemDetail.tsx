@@ -15,6 +15,10 @@ import { Textarea } from "@/components/ui/textarea";
 import {
   Dialog,
   DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogFooter,
+  DialogDescription,
 } from "@/components/ui/dialog";
 import {
   Select,
@@ -23,6 +27,19 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover";
+import {
+  Command,
+  CommandEmpty,
+  CommandGroup,
+  CommandInput,
+  CommandItem,
+  CommandList,
+} from "@/components/ui/command";
 import {
   Loader2,
   ArrowLeft,
@@ -48,6 +65,13 @@ import {
   ChevronRight,
   Archive,
   ClipboardList,
+  FlaskConical,
+  Eye,
+  FileText,
+  Upload,
+  Plus,
+  Check,
+  ChevronsUpDown,
 } from "lucide-react";
 import type { CampaignChecklistAuditLogWithUser } from "@shared/schema";
 import {
@@ -178,8 +202,65 @@ export default function CampaignItemDetail() {
   const isChemicalCampaign = campaign?.category === "chemical";
   const isIrrigationCampaign = campaign?.category === "irrigation";
   const [showChemReset, setShowChemReset] = useState(false);
+  const [chemVisitExpanded, setChemVisitExpanded] = useState(false);
+  const [chemTargetDate, setChemTargetDate] = useState("");
+  const [chemBackupDate, setChemBackupDate] = useState("");
+  const [chemTimeWindowStart, setChemTimeWindowStart] = useState("");
+  const [chemTimeWindowEnd, setChemTimeWindowEnd] = useState("");
+  const [chemProductId, setChemProductId] = useState<string>("");
+  const [chemApplicatorId, setChemApplicatorId] = useState<string>("");
+  const [chemWateringOverride, setChemWateringOverride] = useState("");
+  const [chemMowingOverride, setChemMowingOverride] = useState("");
+  const [chemReentryOverride, setChemReentryOverride] = useState("");
+  const [chemPurposeOverride, setChemPurposeOverride] = useState("");
+  const [showNotifPreview, setShowNotifPreview] = useState(false);
+  const [notifPreviewData, setNotifPreviewData] = useState<{ subject: string; htmlBody: string; templateName: string; recipientEmail: string | null; contactName: string | null } | null>(null);
+  const [loadingNotifPreview, setLoadingNotifPreview] = useState(false);
+  const [sendingNotification, setSendingNotification] = useState(false);
+  const [uploadingVisitLabel, setUploadingVisitLabel] = useState(false);
+  const [productSearchOpen, setProductSearchOpen] = useState(false);
+  const [showAddProductDialog, setShowAddProductDialog] = useState(false);
+  const [newProductName, setNewProductName] = useState("");
+  const [newProductManufacturer, setNewProductManufacturer] = useState("");
+  const [savingNewProduct, setSavingNewProduct] = useState(false);
   const primaryContact = contacts?.find(c => c.isPrimary === "true") || contacts?.[0];
   const recipientEmail = primaryContact?.emails?.[0] || contacts?.find(c => c.emails && c.emails.length > 0)?.emails?.[0] || null;
+
+  const { data: chemicalProducts = [] } = useQuery<{ id: string; name: string; manufacturer: string | null; category: string | null; reentryIntervalHours: number | null; wateringInstructions: string | null; mowingInstructions: string | null; purposeDescription: string | null }[]>({
+    queryKey: ["/api/chemical-products"],
+    enabled: isChemicalCampaign && canManage,
+  });
+
+  type TeamMemberWithLicense = { id: string; userId: string; role: string; status: string; user: { id: string; firstName: string; lastName: string; email: string; applicatorLicenseNumber: string | null; applicatorLicenseState: string | null } };
+  const { data: teamMembers = [] } = useQuery<TeamMemberWithLicense[]>({
+    queryKey: ["/api/company-users"],
+    enabled: isChemicalCampaign && canManage,
+  });
+  const licensedApplicators = teamMembers.filter(m => m.status === "active" && m.user.applicatorLicenseNumber);
+
+  const saveChemVisitMutation = useMutation({
+    mutationFn: async () => {
+      return apiRequest("PATCH", `/api/campaigns/${campaignId}/items/${itemId}`, {
+        targetDate: chemTargetDate || null,
+        backupDate: chemBackupDate || null,
+        timeWindowStart: chemTimeWindowStart || null,
+        timeWindowEnd: chemTimeWindowEnd || null,
+        chemicalProductId: (chemProductId && chemProductId !== "none") ? chemProductId : null,
+        applicatorUserId: (chemApplicatorId && chemApplicatorId !== "none") ? chemApplicatorId : null,
+        wateringInstructionsOverride: chemWateringOverride || null,
+        mowingInstructionsOverride: chemMowingOverride || null,
+        reentryIntervalOverride: chemReentryOverride ? parseFloat(chemReentryOverride) : null,
+        purposeOverride: chemPurposeOverride || null,
+      });
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/campaigns", campaignId] });
+      toast({ title: t("campaigns.chemVisitSaved") });
+    },
+    onError: () => {
+      toast({ title: t("campaigns.updateFailed"), variant: "destructive" });
+    },
+  });
 
   useEffect(() => {
     const customerName = item?.customerName;
@@ -204,6 +285,21 @@ export default function CampaignItemDetail() {
       setShowSkip(false);
     }
   }, [item?.id, item?.notes, item?.skipReason, item?.photos, item?.exceptionType]);
+
+  useEffect(() => {
+    if (item && isChemicalCampaign) {
+      setChemTargetDate(item.targetDate || "");
+      setChemBackupDate(item.backupDate || "");
+      setChemTimeWindowStart(item.timeWindowStart || "");
+      setChemTimeWindowEnd(item.timeWindowEnd || "");
+      setChemProductId(item.chemicalProductId || "");
+      setChemApplicatorId(item.applicatorUserId || "");
+      setChemWateringOverride(item.wateringInstructionsOverride || "");
+      setChemMowingOverride(item.mowingInstructionsOverride || "");
+      setChemReentryOverride(item.reentryIntervalOverride != null ? String(item.reentryIntervalOverride) : "");
+      setChemPurposeOverride(item.purposeOverride || "");
+    }
+  }, [item?.id, isChemicalCampaign]);
 
   const updateItemMutation = useMutation({
     mutationFn: async (data: { status?: string; notes?: string; skipReason?: string; exceptionType?: string | null; photos?: string[]; chemAction?: string; overrideEmail?: string; completionDate?: string; weatherTemp?: number; weatherWindSpeed?: number; weatherWindDirection?: string; weatherHumidity?: number; weatherConditions?: string; customWindowStart?: string; customWindowEnd?: string; completedAt?: string; workCompletedAt?: string }) => {
@@ -496,6 +592,377 @@ export default function CampaignItemDetail() {
         />
       )}
 
+      {isChemicalCampaign && canManage && item && (
+        <Card data-testid="card-chem-visit-details">
+          <CardHeader
+            className="pb-3 cursor-pointer select-none"
+            onClick={() => setChemVisitExpanded(!chemVisitExpanded)}
+          >
+            <CardTitle className="text-sm flex items-center justify-between gap-2">
+              <div className="flex items-center gap-2">
+                <FlaskConical className="w-4 h-4 text-primary" />
+                {t("campaigns.chemVisitDetails")}
+              </div>
+              {chemVisitExpanded ? <ChevronDown className="w-4 h-4 text-muted-foreground" /> : <ChevronRight className="w-4 h-4 text-muted-foreground" />}
+            </CardTitle>
+          </CardHeader>
+          {chemVisitExpanded && (
+            <CardContent className="pt-0 space-y-4">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div className="space-y-1.5">
+                  <Label className="text-xs text-muted-foreground">{t("campaigns.chemTargetDate")}</Label>
+                  <Input
+                    type="date"
+                    value={chemTargetDate}
+                    onChange={(e) => {
+                      const newTarget = e.target.value;
+                      setChemTargetDate(newTarget);
+                      if (newTarget && !chemBackupDate) {
+                        const d = new Date(newTarget + "T12:00:00");
+                        let added = 0;
+                        while (added < 2) {
+                          d.setDate(d.getDate() + 1);
+                          const day = d.getDay();
+                          if (day !== 0 && day !== 6) added++;
+                        }
+                        setChemBackupDate(d.toISOString().slice(0, 10));
+                      }
+                    }}
+                    data-testid="input-chem-target-date"
+                  />
+                </div>
+                <div className="space-y-1.5">
+                  <Label className="text-xs text-muted-foreground">
+                    {t("campaigns.chemBackupDate")}
+                    {chemTargetDate && !chemBackupDate && <span className="ml-1 text-muted-foreground/70 text-xs">{t("campaigns.chemBackupAutoHint")}</span>}
+                  </Label>
+                  <Input
+                    type="date"
+                    value={chemBackupDate}
+                    onChange={(e) => setChemBackupDate(e.target.value)}
+                    data-testid="input-chem-backup-date"
+                  />
+                </div>
+                <div className="space-y-1.5">
+                  <Label className="text-xs text-muted-foreground">{t("campaigns.chemTimeWindowStart")}</Label>
+                  <Input
+                    type="time"
+                    value={chemTimeWindowStart}
+                    onChange={(e) => setChemTimeWindowStart(e.target.value)}
+                    data-testid="input-chem-time-start"
+                  />
+                </div>
+                <div className="space-y-1.5">
+                  <Label className="text-xs text-muted-foreground">{t("campaigns.chemTimeWindowEnd")}</Label>
+                  <Input
+                    type="time"
+                    value={chemTimeWindowEnd}
+                    onChange={(e) => setChemTimeWindowEnd(e.target.value)}
+                    data-testid="input-chem-time-end"
+                  />
+                </div>
+              </div>
+
+              <Separator />
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div className="space-y-1.5">
+                  <Label className="text-xs text-muted-foreground">{t("campaigns.chemProduct")}</Label>
+                  <Popover open={productSearchOpen} onOpenChange={setProductSearchOpen}>
+                    <PopoverTrigger asChild>
+                      <Button
+                        variant="outline"
+                        role="combobox"
+                        aria-expanded={productSearchOpen}
+                        className="w-full justify-between font-normal"
+                        data-testid="select-chem-product"
+                      >
+                        <span className="truncate">
+                          {chemProductId && chemProductId !== "none"
+                            ? (chemicalProducts.find(p => p.id === chemProductId)?.name || t("campaigns.chemSelectProduct"))
+                            : t("campaigns.chemSelectProduct")}
+                        </span>
+                        <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+                      </Button>
+                    </PopoverTrigger>
+                    <PopoverContent className="w-[300px] p-0" align="start">
+                      <Command>
+                        <CommandInput placeholder={t("campaigns.chemSearchProduct")} />
+                        <CommandList>
+                          <CommandEmpty>{t("campaigns.chemNoProductFound")}</CommandEmpty>
+                          <CommandGroup>
+                            <CommandItem
+                              value="none"
+                              onSelect={() => { setChemProductId(""); setProductSearchOpen(false); }}
+                            >
+                              <Check className={`mr-2 h-4 w-4 ${(!chemProductId || chemProductId === "none") ? "opacity-100" : "opacity-0"}`} />
+                              {t("common.none")}
+                            </CommandItem>
+                            {chemicalProducts.map((p) => (
+                              <CommandItem
+                                key={p.id}
+                                value={`${p.name} ${p.manufacturer || ""}`}
+                                onSelect={() => { setChemProductId(p.id); setProductSearchOpen(false); }}
+                              >
+                                <Check className={`mr-2 h-4 w-4 ${chemProductId === p.id ? "opacity-100" : "opacity-0"}`} />
+                                <div className="flex flex-col">
+                                  <span>{p.name}</span>
+                                  {p.manufacturer && <span className="text-xs text-muted-foreground">{p.manufacturer}</span>}
+                                </div>
+                              </CommandItem>
+                            ))}
+                          </CommandGroup>
+                          <CommandGroup>
+                            <CommandItem
+                              onSelect={() => { setProductSearchOpen(false); setShowAddProductDialog(true); }}
+                              className="text-primary"
+                            >
+                              <Plus className="mr-2 h-4 w-4" />
+                              {t("campaigns.chemAddNewProduct")}
+                            </CommandItem>
+                          </CommandGroup>
+                        </CommandList>
+                      </Command>
+                    </PopoverContent>
+                  </Popover>
+                  {chemProductId && chemProductId !== "none" && (() => {
+                    const prod = chemicalProducts.find(p => p.id === chemProductId);
+                    if (!prod) return null;
+                    return (
+                      <div className="mt-1 p-2 border rounded-md bg-muted/30 space-y-0.5">
+                        {prod.manufacturer && <p className="text-xs text-muted-foreground">{t("campaigns.chemManufacturer")}: {prod.manufacturer}</p>}
+                        {prod.category && <p className="text-xs text-muted-foreground">{t("campaigns.chemCategory")}: {prod.category}</p>}
+                        {prod.reentryIntervalHours != null && <p className="text-xs text-muted-foreground">{t("campaigns.chemReentryInterval")}: {prod.reentryIntervalHours}h</p>}
+                      </div>
+                    );
+                  })()}
+                </div>
+                <div className="space-y-1.5">
+                  <Label className="text-xs text-muted-foreground">{t("campaigns.chemApplicator")}</Label>
+                  <Select value={chemApplicatorId} onValueChange={setChemApplicatorId}>
+                    <SelectTrigger data-testid="select-chem-applicator">
+                      <SelectValue placeholder={t("campaigns.chemSelectApplicator")} />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="none">{t("common.none")}</SelectItem>
+                      {licensedApplicators.length === 0 && (
+                        <div className="px-2 py-3 text-xs text-muted-foreground text-center">
+                          {t("campaigns.chemNoLicensedApplicators")}
+                        </div>
+                      )}
+                      {licensedApplicators.map((m) => (
+                        <SelectItem key={m.userId} value={m.userId}>
+                          {m.user.firstName} {m.user.lastName} — {m.user.applicatorLicenseNumber}{m.user.applicatorLicenseState ? ` (${m.user.applicatorLicenseState})` : ""}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  {chemApplicatorId && chemApplicatorId !== "none" && (() => {
+                    const appl = licensedApplicators.find(m => m.userId === chemApplicatorId);
+                    if (!appl) return null;
+                    return (
+                      <p className="text-xs text-muted-foreground mt-1">
+                        {t("campaigns.chemLicense")}: {appl.user.applicatorLicenseNumber}{appl.user.applicatorLicenseState ? ` (${appl.user.applicatorLicenseState})` : ""}
+                      </p>
+                    );
+                  })()}
+                </div>
+              </div>
+
+              <Separator />
+
+              <div className="space-y-3">
+                <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">{t("campaigns.chemOverrides")}</p>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <div className="space-y-1.5">
+                    <Label className="text-xs text-muted-foreground">{t("campaigns.chemPurposeOverride")}</Label>
+                    <Input
+                      value={chemPurposeOverride}
+                      onChange={(e) => setChemPurposeOverride(e.target.value)}
+                      placeholder={t("campaigns.chemOverridePlaceholder")}
+                      data-testid="input-chem-purpose-override"
+                    />
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label className="text-xs text-muted-foreground">{t("campaigns.chemReentryOverride")}</Label>
+                    <Input
+                      type="number"
+                      min={0}
+                      step={0.5}
+                      value={chemReentryOverride}
+                      onChange={(e) => setChemReentryOverride(e.target.value)}
+                      placeholder={t("campaigns.chemOverridePlaceholder")}
+                      data-testid="input-chem-reentry-override"
+                    />
+                  </div>
+                </div>
+                <div className="space-y-1.5">
+                  <Label className="text-xs text-muted-foreground">{t("campaigns.chemWateringOverride")}</Label>
+                  <Textarea
+                    value={chemWateringOverride}
+                    onChange={(e) => setChemWateringOverride(e.target.value)}
+                    rows={2}
+                    placeholder={t("campaigns.chemOverridePlaceholder")}
+                    data-testid="textarea-chem-watering-override"
+                  />
+                </div>
+                <div className="space-y-1.5">
+                  <Label className="text-xs text-muted-foreground">{t("campaigns.chemMowingOverride")}</Label>
+                  <Textarea
+                    value={chemMowingOverride}
+                    onChange={(e) => setChemMowingOverride(e.target.value)}
+                    rows={2}
+                    placeholder={t("campaigns.chemOverridePlaceholder")}
+                    data-testid="textarea-chem-mowing-override"
+                  />
+                </div>
+              </div>
+
+              {/* Visit-level label override */}
+              <div className="space-y-1.5">
+                <Label className="text-xs text-muted-foreground">{t("campaigns.chemLabelOverride")}</Label>
+                {item.labelOverrideFilename ? (
+                  <div className="flex items-center gap-2 p-2 border rounded-md bg-muted/30">
+                    <FileText className="w-4 h-4 text-muted-foreground flex-shrink-0" />
+                    <span className="text-xs flex-1 truncate">{item.labelOverrideFilename}</span>
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      disabled={uploadingVisitLabel}
+                      onClick={async () => {
+                        setUploadingVisitLabel(true);
+                        try {
+                          await apiRequest("DELETE", `/api/campaigns/${campaignId}/items/${itemId}/label`);
+                          queryClient.invalidateQueries({ queryKey: ["/api/campaigns", campaignId, "items", itemId] });
+                          toast({ title: t("campaigns.chemLabelRemoved") });
+                        } catch {
+                          toast({ title: t("campaigns.chemLabelRemoveFailed"), variant: "destructive" });
+                        } finally {
+                          setUploadingVisitLabel(false);
+                        }
+                      }}
+                      data-testid="button-remove-visit-label"
+                    >
+                      <X className="w-4 h-4" />
+                    </Button>
+                  </div>
+                ) : (
+                  <div>
+                    <input
+                      type="file"
+                      accept=".pdf"
+                      style={{ display: "none" }}
+                      id="visit-label-upload-input"
+                      data-testid="input-visit-label-upload"
+                      onChange={async (e) => {
+                        const file = e.target.files?.[0];
+                        if (!file) return;
+                        if (file.type !== "application/pdf") {
+                          toast({ title: t("campaigns.chemLabelPdfOnly"), variant: "destructive" });
+                          return;
+                        }
+                        setUploadingVisitLabel(true);
+                        try {
+                          const arrayBuffer = await file.arrayBuffer();
+                          const res = await fetch(`/api/campaigns/${campaignId}/items/${itemId}/label?filename=${encodeURIComponent(file.name)}`, {
+                            method: "POST",
+                            headers: { "Content-Type": "application/pdf" },
+                            body: arrayBuffer,
+                            credentials: "include",
+                          });
+                          if (!res.ok) {
+                            const err = await res.json().catch(() => ({}));
+                            throw new Error(err.error || "Upload failed");
+                          }
+                          queryClient.invalidateQueries({ queryKey: ["/api/campaigns", campaignId, "items", itemId] });
+                          toast({ title: t("campaigns.chemLabelUploaded") });
+                        } catch (err: unknown) {
+                          const message = err instanceof Error ? err.message : "Upload failed";
+                          toast({ title: message, variant: "destructive" });
+                        } finally {
+                          setUploadingVisitLabel(false);
+                          e.target.value = "";
+                        }
+                      }}
+                    />
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      disabled={uploadingVisitLabel}
+                      onClick={() => document.getElementById("visit-label-upload-input")?.click()}
+                      data-testid="button-upload-visit-label"
+                    >
+                      {uploadingVisitLabel ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <Upload className="w-4 h-4 mr-2" />}
+                      {t("campaigns.chemUploadLabelOverride")}
+                    </Button>
+                    <p className="text-xs text-muted-foreground mt-1">{t("campaigns.chemLabelOverrideHint")}</p>
+                  </div>
+                )}
+              </div>
+
+              <div className="flex flex-wrap gap-2 pt-1">
+                <Button
+                  onClick={() => saveChemVisitMutation.mutate()}
+                  disabled={saveChemVisitMutation.isPending}
+                  data-testid="button-save-chem-visit"
+                >
+                  {saveChemVisitMutation.isPending ? t("common.saving") : t("campaigns.chemSaveVisitDetails")}
+                </Button>
+                {canSendChemEmails && (
+                  <>
+                    <Button
+                      variant="outline"
+                      onClick={async () => {
+                        setLoadingNotifPreview(true);
+                        try {
+                          const res = await fetch(`/api/campaigns/${campaignId}/items/${itemId}/preview-email?type=notification`, { credentials: "include" });
+                          if (res.ok) {
+                            const data = await res.json();
+                            setNotifPreviewData(data);
+                            setShowNotifPreview(true);
+                          } else {
+                            toast({ title: t("campaigns.previewFailed"), variant: "destructive" });
+                          }
+                        } catch {
+                          toast({ title: t("campaigns.previewFailed"), variant: "destructive" });
+                        } finally {
+                          setLoadingNotifPreview(false);
+                        }
+                      }}
+                      disabled={loadingNotifPreview}
+                      data-testid="button-preview-notification-email"
+                    >
+                      {loadingNotifPreview ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <Eye className="w-4 h-4 mr-2" />}
+                      {t("campaigns.chemPreviewNotifEmail")}
+                    </Button>
+                    <Button
+                      variant="outline"
+                      onClick={async () => {
+                        setSendingNotification(true);
+                        try {
+                          await apiRequest("PATCH", `/api/campaigns/${campaignId}/items/${itemId}`, { chemAction: "send_notification" });
+                          toast({ title: t("campaigns.chemNotifSent") });
+                        } catch (err: unknown) {
+                          const message = err instanceof Error ? err.message : t("campaigns.chemNotifSendFailed");
+                          toast({ title: message, variant: "destructive" });
+                        } finally {
+                          setSendingNotification(false);
+                        }
+                      }}
+                      disabled={sendingNotification || !recipientEmail}
+                      data-testid="button-send-notification-email"
+                    >
+                      {sendingNotification ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <Send className="w-4 h-4 mr-2" />}
+                      {t("campaigns.chemSendNotification")}
+                    </Button>
+                  </>
+                )}
+              </div>
+            </CardContent>
+          )}
+        </Card>
+      )}
+
       <Card>
         <CardHeader className="pb-3">
           <CardTitle className="text-sm flex items-center gap-2">
@@ -747,7 +1214,7 @@ export default function CampaignItemDetail() {
                         const params = new URLSearchParams({ type: "pre" });
                         if (initStart) params.set("windowStart", initStart);
                         if (initEnd) params.set("windowEnd", initEnd);
-                        const res = await fetch(`/api/campaigns/${campaignId}/items/${itemId}/email-preview?${params}`, { credentials: "include" });
+                        const res = await fetch(`/api/campaigns/${campaignId}/items/${itemId}/preview-email?${params}`, { credentials: "include" });
                         if (res.ok) setEmailPreview(await res.json());
                       } catch {}
                       setLoadingPreview(false);
@@ -784,7 +1251,7 @@ export default function CampaignItemDetail() {
                       setManualEmail("");
                       setPostCommDate(todayDateString());
                       try {
-                        const res = await fetch(`/api/campaigns/${campaignId}/items/${itemId}/email-preview?type=post`, { credentials: "include" });
+                        const res = await fetch(`/api/campaigns/${campaignId}/items/${itemId}/preview-email?type=post`, { credentials: "include" });
                         if (res.ok) setEmailPreview(await res.json());
                       } catch {}
                       setLoadingPreview(false);
@@ -1269,6 +1736,109 @@ export default function CampaignItemDetail() {
         </AlertDialogContent>
       </AlertDialog>
 
+      {/* Inline Add Product Dialog */}
+      <Dialog open={showAddProductDialog} onOpenChange={(open) => { if (!open) { setShowAddProductDialog(false); setNewProductName(""); setNewProductManufacturer(""); } }}>
+        <DialogContent className="max-w-sm" data-testid="dialog-add-product">
+          <DialogHeader>
+            <DialogTitle>{t("campaigns.chemAddNewProduct")}</DialogTitle>
+            <DialogDescription>{t("campaigns.chemAddProductDesc")}</DialogDescription>
+          </DialogHeader>
+          <div className="space-y-3">
+            <div className="space-y-1.5">
+              <Label className="text-xs text-muted-foreground">{t("campaigns.chemProductName")} *</Label>
+              <Input
+                value={newProductName}
+                onChange={(e) => setNewProductName(e.target.value)}
+                placeholder={t("campaigns.chemProductNamePlaceholder")}
+                data-testid="input-new-product-name"
+              />
+            </div>
+            <div className="space-y-1.5">
+              <Label className="text-xs text-muted-foreground">{t("campaigns.chemManufacturer")}</Label>
+              <Input
+                value={newProductManufacturer}
+                onChange={(e) => setNewProductManufacturer(e.target.value)}
+                placeholder={t("campaigns.chemManufacturerPlaceholder")}
+                data-testid="input-new-product-manufacturer"
+              />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={() => { setShowAddProductDialog(false); setNewProductName(""); setNewProductManufacturer(""); }}
+            >
+              {t("common.cancel")}
+            </Button>
+            <Button
+              disabled={!newProductName.trim() || savingNewProduct}
+              onClick={async () => {
+                setSavingNewProduct(true);
+                try {
+                  const res = await apiRequest("POST", "/api/chemical-products", {
+                    name: newProductName.trim(),
+                    manufacturer: newProductManufacturer.trim() || null,
+                  });
+                  const created = await res.json();
+                  await queryClient.invalidateQueries({ queryKey: ["/api/chemical-products"] });
+                  if (created?.id) setChemProductId(created.id);
+                  setShowAddProductDialog(false);
+                  setNewProductName("");
+                  setNewProductManufacturer("");
+                  toast({ title: t("campaigns.chemProductSaved") });
+                } catch (err: unknown) {
+                  const message = err instanceof Error ? err.message : t("common.error");
+                  toast({ title: message, variant: "destructive" });
+                } finally {
+                  setSavingNewProduct(false);
+                }
+              }}
+              data-testid="button-save-new-product"
+            >
+              {savingNewProduct ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : null}
+              {t("common.save")}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={showNotifPreview} onOpenChange={(open) => { if (!open) { setShowNotifPreview(false); setNotifPreviewData(null); } }}>
+        <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto" data-testid="dialog-notif-preview">
+          <div className="space-y-4">
+            <div className="flex items-center gap-2 flex-wrap">
+              <FlaskConical className="w-5 h-5 text-primary" />
+              <h3 className="text-lg font-semibold">{t("campaigns.chemPreviewNotifEmail")}</h3>
+              <Badge variant="secondary" className="text-xs">{t("common.preview")}</Badge>
+            </div>
+            {notifPreviewData && (
+              <>
+                <div className="space-y-1">
+                  <p className="text-xs text-muted-foreground uppercase tracking-wide">{t("campaigns.emailSubject")}</p>
+                  <p className="text-sm font-medium">{notifPreviewData.subject}</p>
+                </div>
+                {notifPreviewData.templateName && (
+                  <p className="text-xs text-muted-foreground">{t("campaigns.emailTemplate")}: {notifPreviewData.templateName}</p>
+                )}
+                {!notifPreviewData.templateName && (
+                  <p className="text-xs text-amber-600 dark:text-amber-400">{t("campaigns.chemNoNotifTemplate")}</p>
+                )}
+                {notifPreviewData.htmlBody && (
+                  <div className="border rounded-md overflow-hidden">
+                    <iframe
+                      srcDoc={notifPreviewData.htmlBody}
+                      title="Email Preview"
+                      className="w-full"
+                      style={{ height: "400px", border: "none" }}
+                      sandbox="allow-same-origin"
+                    />
+                  </div>
+                )}
+              </>
+            )}
+          </div>
+        </DialogContent>
+      </Dialog>
+
       <Dialog open={!!showEmailConfirm} onOpenChange={() => { setShowEmailConfirm(null); setEmailPreview(null); setManualEmail(""); setPreNoticeWindowStart(""); setPreNoticeWindowEnd(""); setPostCommDate(""); }}>
         <DialogContent className="max-w-lg" data-testid="dialog-chem-email-compose">
           <div className="space-y-4">
@@ -1318,7 +1888,7 @@ export default function CampaignItemDetail() {
                               const params = new URLSearchParams({ type: "pre" });
                               if (newStart) params.set("windowStart", newStart);
                               if (preNoticeWindowEnd) params.set("windowEnd", preNoticeWindowEnd);
-                              const res = await fetch(`/api/campaigns/${campaignId}/items/${itemId}/email-preview?${params}`, { credentials: "include" });
+                              const res = await fetch(`/api/campaigns/${campaignId}/items/${itemId}/preview-email?${params}`, { credentials: "include" });
                               if (res.ok) setEmailPreview(await res.json());
                             } catch {}
                           })();
@@ -1338,7 +1908,7 @@ export default function CampaignItemDetail() {
                               const params = new URLSearchParams({ type: "pre" });
                               if (preNoticeWindowStart) params.set("windowStart", preNoticeWindowStart);
                               if (newEnd) params.set("windowEnd", newEnd);
-                              const res = await fetch(`/api/campaigns/${campaignId}/items/${itemId}/email-preview?${params}`, { credentials: "include" });
+                              const res = await fetch(`/api/campaigns/${campaignId}/items/${itemId}/preview-email?${params}`, { credentials: "include" });
                               if (res.ok) setEmailPreview(await res.json());
                             } catch {}
                           })();

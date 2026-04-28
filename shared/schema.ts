@@ -1,5 +1,5 @@
 import { sql } from "drizzle-orm";
-import { pgTable, text, varchar, timestamp, unique, integer, jsonb, real, boolean, date, index, AnyPgColumn } from "drizzle-orm/pg-core";
+import { pgTable, text, varchar, timestamp, unique, integer, jsonb, real, boolean, date, index, uniqueIndex, AnyPgColumn } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
 
@@ -35,6 +35,8 @@ export const users = pgTable("users", {
   isSuperAdmin: text("is_super_admin").notNull().default("false").$type<"true" | "false">(),
   defaultCompanyId: varchar("default_company_id").references(() => companies.id, { onDelete: "set null" }),
   language: text("language").notNull().default("en").$type<"en" | "es">(),
+  applicatorLicenseNumber: text("applicator_license_number"),
+  applicatorLicenseState: text("applicator_license_state"),
   createdAt: timestamp("created_at").notNull().defaultNow(),
 });
 
@@ -47,6 +49,8 @@ export const insertUserSchema = createInsertSchema(users).omit({
   language: z.enum(["en", "es"]).default("en"),
   email: z.string().email().optional().nullable(),
   phone: z.string().optional().nullable(),
+  applicatorLicenseNumber: z.string().nullable().optional(),
+  applicatorLicenseState: z.string().nullable().optional(),
 });
 
 export type InsertUser = z.infer<typeof insertUserSchema>;
@@ -1671,6 +1675,60 @@ export const insertSeasonSchema = createInsertSchema(seasons).omit({
 export type InsertSeason = z.infer<typeof insertSeasonSchema>;
 export type Season = typeof seasons.$inferSelect;
 
+// ─────────────────────────────────────────────────────────────────────────────
+// Chemical Products Catalog
+// ─────────────────────────────────────────────────────────────────────────────
+
+export const chemicalProducts = pgTable("chemical_products", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  companyId: varchar("company_id").notNull().references(() => companies.id, { onDelete: "cascade" }),
+  name: text("name").notNull(),
+  manufacturer: text("manufacturer"),
+  category: text("category").$type<"herbicide" | "insecticide" | "fungicide" | "fertilizer" | "other">().default("other"),
+  epaRegistrationNumber: text("epa_registration_number"),
+  activeIngredient: text("active_ingredient"),
+  signalWord: text("signal_word").$type<"caution" | "warning" | "danger" | "danger_poison">(),
+  reentryIntervalHours: real("reentry_interval_hours"),
+  wateringInstructions: text("watering_instructions"),
+  mowingInstructions: text("mowing_instructions"),
+  purposeDescription: text("purpose_description"),
+  notes: text("notes"),
+  labelStorageKey: text("label_storage_key"),
+  labelFilename: text("label_filename"),
+  isActive: boolean("is_active").notNull().default(true),
+  deletedAt: timestamp("deleted_at"),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  updatedAt: timestamp("updated_at").notNull().defaultNow(),
+}, (table) => ({
+  chemicalProductsCompanyIdIdx: index("chemical_products_company_id_idx").on(table.companyId),
+  chemicalProductsCompanyNameUniq: uniqueIndex("chemical_products_company_name_uniq").on(table.companyId, table.name),
+}));
+
+export const insertChemicalProductSchema = createInsertSchema(chemicalProducts).omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+  deletedAt: true,
+}).extend({
+  name: z.string().min(1).max(200),
+  manufacturer: z.string().max(200).nullable().optional(),
+  category: z.enum(["herbicide", "insecticide", "fungicide", "fertilizer", "other"]).nullable().optional(),
+  epaRegistrationNumber: z.string().nullable().optional(),
+  activeIngredient: z.string().nullable().optional(),
+  signalWord: z.enum(["caution", "warning", "danger", "danger_poison"]).nullable().optional(),
+  reentryIntervalHours: z.number().min(0).nullable().optional(),
+  wateringInstructions: z.string().nullable().optional(),
+  mowingInstructions: z.string().nullable().optional(),
+  purposeDescription: z.string().nullable().optional(),
+  notes: z.string().nullable().optional(),
+  labelStorageKey: z.string().nullable().optional(),
+  labelFilename: z.string().nullable().optional(),
+  isActive: z.boolean().default(true),
+});
+
+export type InsertChemicalProduct = z.infer<typeof insertChemicalProductSchema>;
+export type ChemicalProduct = typeof chemicalProducts.$inferSelect;
+
 export const campaigns = pgTable("campaigns", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
   companyId: varchar("company_id").notNull().references(() => companies.id, { onDelete: "cascade" }),
@@ -1734,6 +1792,22 @@ export const campaignItems = pgTable("campaign_items", {
   finishedWithoutComms: text("finished_without_comms").$type<"true" | "false">().default("false"),
   exceptionType: text("exception_type").$type<"weather_delayed" | "customer_declined" | "inaccessible_area" | "moved_to_next_visit" | "partial_completion" | "waiting_on_approval">(),
   servicePlanCategory: text("service_plan_category"),
+  // Chemical visit scheduling fields
+  targetDate: date("target_date"),
+  backupDate: date("backup_date"),
+  timeWindowStart: text("time_window_start"),
+  timeWindowEnd: text("time_window_end"),
+  wasBumpedToBackup: text("was_bumped_to_backup").$type<"true" | "false">().default("false"),
+  // Chemical product assignment
+  chemicalProductId: varchar("chemical_product_id").references(() => chemicalProducts.id, { onDelete: "set null" }),
+  applicatorUserId: varchar("applicator_user_id").references(() => users.id, { onDelete: "set null" }),
+  // Per-visit label overrides
+  labelOverrideStorageKey: text("label_override_storage_key"),
+  labelOverrideFilename: text("label_override_filename"),
+  purposeOverride: text("purpose_override"),
+  reentryIntervalOverride: real("reentry_interval_override"),
+  wateringInstructionsOverride: text("watering_instructions_override"),
+  mowingInstructionsOverride: text("mowing_instructions_override"),
   createdAt: timestamp("created_at").notNull().defaultNow(),
   updatedAt: timestamp("updated_at").notNull().defaultNow(),
 });
@@ -1750,6 +1824,19 @@ export const insertCampaignItemSchema = createInsertSchema(campaignItems).omit({
   weatherConditions: z.string().nullable().optional(),
   weatherRecordedAt: z.coerce.date().nullable().optional(),
   exceptionType: z.enum(["weather_delayed", "customer_declined", "inaccessible_area", "moved_to_next_visit", "partial_completion", "waiting_on_approval"]).nullable().optional(),
+  targetDate: z.string().nullable().optional(),
+  backupDate: z.string().nullable().optional(),
+  timeWindowStart: z.string().nullable().optional(),
+  timeWindowEnd: z.string().nullable().optional(),
+  wasBumpedToBackup: z.enum(["true", "false"]).default("false"),
+  chemicalProductId: z.string().nullable().optional(),
+  applicatorUserId: z.string().nullable().optional(),
+  labelOverrideStorageKey: z.string().nullable().optional(),
+  labelOverrideFilename: z.string().nullable().optional(),
+  purposeOverride: z.string().nullable().optional(),
+  reentryIntervalOverride: z.number().nullable().optional(),
+  wateringInstructionsOverride: z.string().nullable().optional(),
+  mowingInstructionsOverride: z.string().nullable().optional(),
 });
 
 export type InsertCampaignItem = z.infer<typeof insertCampaignItemSchema>;

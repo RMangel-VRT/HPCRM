@@ -25,6 +25,7 @@ import { useToast } from "@/hooks/use-toast";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import type { Settings, PropertyManagementCompany, PropertyManager, PropertyManagerEmail, PropertyManagerPhone, PropertyManagerWithContacts } from "@shared/schema";
 import ServicePlanTemplatesAdmin from "@/components/ServicePlanTemplatesAdmin";
+import ChemicalProductsAdmin from "@/components/ChemicalProductsAdmin";
 
 interface ManagerEmailInput {
   email: string;
@@ -77,11 +78,25 @@ export default function SettingsPage() {
   const { t } = useTranslation();
   const { toast } = useToast();
   const { user: currentUser } = useAuth();
-  const [, setLocation] = useLocation();
+  const [location, navigate] = useLocation();
   
   // Check if user is admin (can see all tabs) vs office (can only see Property Management)
   const isAdmin = currentUser?.activeRole === "admin" || currentUser?.isSuperAdminBool;
-  const [activeTab, setActiveTab] = useState(isAdmin ? "company" : "property-management");
+  const validTabs = [
+    'company', 'seasons', 'benchmarks', 'property-management', 'features',
+    'email-templates', 'billing', 'service-plans', 'chemical-products',
+  ];
+  const getDefaultTab = () => {
+    const pathSegments = location.split('?')[0].split('/').filter(Boolean);
+    const lastSegment = pathSegments[pathSegments.length - 1];
+    if (lastSegment && validTabs.includes(lastSegment)) return lastSegment;
+    return isAdmin ? "company" : "property-management";
+  };
+  const [activeTab, setActiveTab] = useState(getDefaultTab);
+  const handleTabChange = (tab: string) => {
+    setActiveTab(tab);
+    navigate(`/dashboard/settings/${tab}`, { replace: true });
+  };
 
   useSetBreadcrumbs([
     { label: t("settings.title") },
@@ -474,13 +489,7 @@ export default function SettingsPage() {
         </p>
       </div>
 
-      <Tabs value={activeTab} onValueChange={(v) => {
-        if (v === "mailbox-accounts") {
-          setLocation("/dashboard/settings/mailbox-accounts");
-        } else {
-          setActiveTab(v);
-        }
-      }}>
+      <Tabs value={activeTab} onValueChange={handleTabChange}>
         <TabsList className="flex-wrap h-auto gap-1">
           {isAdmin && (
             <>
@@ -506,6 +515,9 @@ export default function SettingsPage() {
           )}
           {isAdmin && (
             <TabsTrigger value="mailbox-accounts" data-testid="tab-mailbox-accounts">{t("nav.mailboxAccounts")}</TabsTrigger>
+          )}
+        {isAdmin && (
+            <TabsTrigger value="chemical-products" data-testid="tab-chemical-products">{t("chemicalProducts.title")}</TabsTrigger>
           )}
         </TabsList>
 
@@ -1088,6 +1100,10 @@ export default function SettingsPage() {
 
         <TabsContent value="service-plans" className="space-y-6">
           <ServicePlanTemplatesAdmin />
+        </TabsContent>
+
+        <TabsContent value="chemical-products" className="space-y-6">
+          <ChemicalProductsAdmin />
         </TabsContent>
 
       </Tabs>

@@ -1,6 +1,13 @@
 import sgMail from '@sendgrid/mail';
+import { readFileSync } from 'fs';
+import { join } from 'path';
 import { storage } from '../storage';
-import type { EmailLog, InsertEmailLog, EmailRule } from '@shared/schema';
+import type { EmailLog, InsertEmailLog, EmailRule, CampaignItem, ChemicalProduct } from '@shared/schema';
+import { getEmailFallbacks, formatTimeWindowWithFallback } from '../i18n/emailFallbacks';
+
+function loadTemplateFile(filename: string): string {
+  return readFileSync(join(__dirname, '../templates', filename), 'utf-8');
+}
 
 let connectionSettings: any;
 
@@ -381,5 +388,80 @@ export function getDefaultChemicalPostNoticeTemplate() {
     textBody: `Chemical Treatment Completed: {{customerName}}\n\nA chemical treatment has been completed at your property.\n\nProperty: {{customerName}}\nCampaign: {{campaignTitle}}\nCompleted On: {{completionDate}}\n\nPlease allow treated areas to dry before resuming normal use. If you have any questions about the treatment, please contact us.\n\n{{companyName}} - Property Maintenance Services`,
     category: 'transactional' as const,
     isActive: true,
+  };
+}
+
+export function getDefaultChemicalTreatmentNotificationTemplate() {
+  return {
+    name: 'Chemical Treatment Notification',
+    subject: 'Scheduled Chemical Treatment \u2014 {{customerName}}',
+    htmlBody: loadTemplateFile('chemical-treatment-notification.html'),
+    textBody: `Scheduled Chemical Treatment: {{customerName}}\n\nThis is to notify you of an upcoming chemical treatment at your property.\n\nProperty: {{customerName}}\nCampaign: {{campaignTitle}}\nScheduled Date: {{targetDate}}\nBackup Date: {{backupDate}}\nService Window: {{timeWindow}}\nProduct: {{productName}}\nManufacturer: {{productManufacturer}}\nActive Ingredient: {{productActiveIngredient}}\nPurpose: {{productPurpose}}\nRe-entry Interval: {{reentryInterval}}\nWatering: {{wateringInstructions}}\nMowing: {{mowingInstructions}}\nApplicator: {{applicatorName}} ({{applicatorLicense}})\n\nPlease keep pets and children off treated areas until dry.\n\n{{companyName}} \u2014 Property Maintenance Services`,
+    category: 'transactional' as const,
+    isActive: true,
+  };
+}
+
+/**
+ * Formats a time window string from start and end values.
+ * e.g. "08:00" and "12:00" → "8:00 AM – 12:00 PM"
+ * Delegates to the locale-aware formatTimeWindowWithFallback (defaults to English).
+ */
+export function formatTimeWindow(start: string | null | undefined, end: string | null | undefined): string {
+  return formatTimeWindowWithFallback(start, end, 'en');
+}
+
+/**
+ * Builds the merge variables for a chemical treatment notification email.
+ * Priority model:
+ *   1. Per-visit override fields from campaign item (highest priority)
+ *   2. Product catalog defaults
+ *   3. Locale-aware fallback strings via server/i18n/emailFallbacks.ts
+ *
+ * @param locale - BCP-47 locale code (e.g. "en", "es") to select fallback language.
+ *   Defaults to "en". Pass the customer/company preferred language where available.
+ */
+export function buildChemicalNotificationVariables(
+  item: Partial<CampaignItem>,
+  product: ChemicalProduct | null | undefined,
+  campaign: { title: string; windowStart: string; windowEnd: string },
+  company: { name: string; phone?: string | null; email?: string | null },
+  customerName: string,
+  applicatorName?: string | null,
+  applicatorLicense?: string | null,
+  labelAttachmentUrl?: string | null,
+  locale?: string | null,
+): Record<string, string> {
+  const fb = getEmailFallbacks(locale);
+  // Per-visit override → product default → locale-aware i18n fallback string
+  const purpose = item.purposeOverride ?? product?.purposeDescription ?? fb.generalPurpose;
+  const reentry = item.reentryIntervalOverride ?? product?.reentryIntervalHours;
+  const watering = item.wateringInstructionsOverride ?? product?.wateringInstructions ?? fb.wateringInstructions;
+  const mowing = item.mowingInstructionsOverride ?? product?.mowingInstructions ?? fb.mowingInstructions;
+  const timeWindow = formatTimeWindowWithFallback(item.timeWindowStart, item.timeWindowEnd, locale);
+  return {
+    companyName: company.name || '',
+    companyPhone: company.phone || fb.seeCompanyContact,
+    companyEmail: company.email || '',
+    customerName: customerName || '',
+    campaignTitle: campaign.title || '',
+    targetDate: item.targetDate || campaign.windowStart || fb.toBeScheduled,
+    backupDate: item.backupDate || fb.toBeDetermined,
+    timeWindow,
+    windowStart: campaign.windowStart || '',
+    windowEnd: campaign.windowEnd || '',
+    productName: product?.name || fb.seeTreatmentDocumentation,
+    productManufacturer: product?.manufacturer || '',
+    productCategory: product?.category || '',
+    productEpaRegNumber: product?.epaRegistrationNumber || '',
+    productSignalWord: product?.signalWord || '',
+    productActiveIngredient: product?.activeIngredient || '',
+    productPurpose: purpose,
+    reentryInterval: reentry != null ? `${reentry} hours` : fb.seeProductLabel,
+    wateringInstructions: watering,
+    mowingInstructions: mowing,
+    applicatorName: applicatorName || fb.licensedApplicator,
+    applicatorLicense: applicatorLicense || '',
+    labelAttachmentUrl: labelAttachmentUrl || '',
   };
 }

@@ -321,6 +321,7 @@ function Router() {
         <ProtectedRoute path="/dashboard/reports" component={ReportsPage} allowedRoles={["admin", "office"]} />
         <ProtectedRoute path="/dashboard/users" component={UsersPage} allowedRoles={["admin"]} />
         <ProtectedRoute path="/dashboard/settings" component={SettingsPage} allowedRoles={["admin", "office"]} />
+        <ProtectedRoute path="/dashboard/settings/:tab" component={SettingsPage} allowedRoles={["admin", "office"]} />
         <Route path="/access-denied" component={AccessDenied} />
         <Route path="/">
           <Redirect to={getDefaultRedirect()} />

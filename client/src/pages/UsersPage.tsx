@@ -31,6 +31,8 @@ type CompanyUserWithDetails = {
     email: string | null;
     phone?: string | null;
     name: string;
+    applicatorLicenseNumber?: string | null;
+    applicatorLicenseState?: string | null;
   } | null;
   isSuperAdmin: boolean;
 };
@@ -61,6 +63,15 @@ export default function UsersPage() {
   const [addDialogOpen, setAddDialogOpen] = useState(false);
   const [editDialogOpen, setEditDialogOpen] = useState(false);
   const [selectedUser, setSelectedUser] = useState<CompanyUserWithDetails | null>(null);
+  const [applicatorLicenseNumber, setApplicatorLicenseNumber] = useState("");
+  const [applicatorLicenseState, setApplicatorLicenseState] = useState("");
+
+  const US_STATES = [
+    "AL","AK","AZ","AR","CA","CO","CT","DE","FL","GA","HI","ID","IL","IN","IA",
+    "KS","KY","LA","ME","MD","MA","MI","MN","MS","MO","MT","NE","NV","NH","NJ",
+    "NM","NY","NC","ND","OH","OK","OR","PA","RI","SC","SD","TN","TX","UT","VT",
+    "VA","WA","WV","WI","WY","DC",
+  ];
 
   const { data: users = [], isLoading } = useQuery<CompanyUserWithDetails[]>({
     queryKey: ["/api/companies/users"],
@@ -148,12 +159,30 @@ export default function UsersPage() {
     },
   });
 
+  const saveApplicatorLicenseMutation = useMutation({
+    mutationFn: async ({ userId, licenseNumber, licenseState }: { userId: string; licenseNumber: string; licenseState: string }) => {
+      return apiRequest("PATCH", `/api/users/${userId}/applicator-license`, {
+        applicatorLicenseNumber: licenseNumber || null,
+        applicatorLicenseState: licenseState || null,
+      });
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/companies/users"] });
+      toast({ title: t("userProfile.applicatorLicenseSaved") });
+    },
+    onError: () => {
+      toast({ title: t("common.error"), variant: "destructive" });
+    },
+  });
+
   const handleEdit = (user: CompanyUserWithDetails) => {
     setSelectedUser(user);
     editUserForm.reset({
       role: user.companyUser.role as "admin" | "office" | "field_manager" | "chemical_manager" | "field" | "irrigation_manager" | "shop_manager" | "mapping" | "landscape_supervisor",
       status: user.companyUser.status as "active" | "invited" | "suspended",
     });
+    setApplicatorLicenseNumber(user.user?.applicatorLicenseNumber || "");
+    setApplicatorLicenseState(user.user?.applicatorLicenseState || "");
     setEditDialogOpen(true);
   };
 
@@ -463,6 +492,51 @@ export default function UsersPage() {
                 </DialogFooter>
               </form>
             </Form>
+
+            <div className="mt-4 pt-4 border-t space-y-3">
+              <p className="text-sm font-medium">{t("userProfile.applicatorLicenseNumber")}</p>
+              <div className="grid grid-cols-2 gap-3">
+                <div className="space-y-1.5">
+                  <label className="text-xs text-muted-foreground">{t("userProfile.applicatorLicenseNumber")}</label>
+                  <Input
+                    value={applicatorLicenseNumber}
+                    onChange={(e) => setApplicatorLicenseNumber(e.target.value)}
+                    placeholder="e.g. LIC-123456"
+                    data-testid="input-applicator-license-number"
+                  />
+                </div>
+                <div className="space-y-1.5">
+                  <label className="text-xs text-muted-foreground">{t("userProfile.applicatorLicenseState")}</label>
+                  <Select
+                    value={applicatorLicenseState || ""}
+                    onValueChange={(v) => setApplicatorLicenseState(v === "__none" ? "" : v)}
+                  >
+                    <SelectTrigger data-testid="select-applicator-license-state">
+                      <SelectValue placeholder="Select state" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="__none">— None —</SelectItem>
+                      {US_STATES.map((s) => (
+                        <SelectItem key={s} value={s}>{s}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+              </div>
+              <Button
+                variant="outline"
+                size="sm"
+                disabled={saveApplicatorLicenseMutation.isPending}
+                onClick={() => selectedUser?.user?.id && saveApplicatorLicenseMutation.mutate({
+                  userId: selectedUser.user.id,
+                  licenseNumber: applicatorLicenseNumber,
+                  licenseState: applicatorLicenseState,
+                })}
+                data-testid="button-save-applicator-license"
+              >
+                {saveApplicatorLicenseMutation.isPending ? t("common.saving") : t("common.save")}
+              </Button>
+            </div>
           </DialogContent>
         </Dialog>
       )}

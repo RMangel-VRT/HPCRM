@@ -338,6 +338,7 @@ export interface IStorage {
   updateCampaign(id: string, companyId: string, updates: Partial<InsertCampaign>): Promise<Campaign | undefined>;
   deleteCampaign(id: string, companyId: string): Promise<void>;
   getCampaignItems(campaignId: string, companyId: string): Promise<CampaignItem[]>;
+  getCampaignItemById(itemId: string, companyId: string): Promise<CampaignItem | undefined>;
   getCampaignItemsByCustomer(customerId: string, companyId: string): Promise<(CampaignItem & { campaignTitle: string; campaignCategory: string; campaignSubtype: string | null; campaignStatus: string; campaignWindowStart: string; campaignWindowEnd: string; seasonId: string | null })[]>;
   getCampaignItemsByProperty(propertyId: string, companyId: string): Promise<(CampaignItem & { campaignTitle: string; campaignCategory: string; campaignSubtype: string | null; campaignStatus: string; campaignWindowStart: string; campaignWindowEnd: string; seasonId: string | null })[]>;
   getCampaignItemsByCustomerId(customerId: string, companyId: string): Promise<(CampaignItem & { campaign: Campaign })[]>;
@@ -3141,6 +3142,11 @@ export class PgStorage implements IStorage {
 
   async getCampaignItems(campaignId: string, companyId: string): Promise<CampaignItem[]> {
     return db.select().from(campaignItems).where(and(eq(campaignItems.campaignId, campaignId), eq(campaignItems.companyId, companyId)));
+  }
+
+  async getCampaignItemById(itemId: string, companyId: string): Promise<CampaignItem | undefined> {
+    const rows = await db.select().from(campaignItems).where(and(eq(campaignItems.id, itemId), eq(campaignItems.companyId, companyId)));
+    return rows[0];
   }
 
   async getCampaignItemsByCustomer(customerId: string, companyId: string): Promise<(CampaignItem & { campaignTitle: string; campaignCategory: string; campaignSubtype: string | null; campaignStatus: string; campaignWindowStart: string; campaignWindowEnd: string; seasonId: string | null })[]> {

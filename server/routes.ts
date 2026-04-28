@@ -3,22 +3,31 @@ import type { Express } from "express";
 import { createServer, type Server } from "http";
 import path from "path";
 import { promises as fs } from "fs";
+import { randomUUID } from "crypto";
 import { z } from "zod";
 import { setupAuth, type UserWithContext } from "./auth";
 import { storage } from "./storage";
 import { db } from "./db";
-import { eq, and, inArray, sql, gte, lte } from "drizzle-orm";
-import { insertCustomerSchema, insertContactSchema, insertCompanySchema, insertCompanyUserSchema, insertSettingsSchema, insertNoteSchema, insertContractSchema, insertContractDocumentSchema, insertContractBuilderDocumentSchema, insertContractBuilderSectionSchema, insertContractBuilderVariableSchema, insertTicketTypeSchema, insertTicketTypeStatusSchema, insertTicketTypeFieldSchema, insertTicketSchema, insertTicketFieldValueSchema, insertTicketStatusHistorySchema, insertTicketCommentSchema, insertTicketLinkSchema, insertCustomerMapLayerSchema, insertCustomerMapDocumentSchema, insertMaintenanceCrewSchema, insertMaintenanceVisitConfigSchema, insertWeeklyScheduleTemplateSchema, insertScheduleBlockSchema, insertEquipmentSchema, insertEquipmentFileSchema, insertEquipmentTicketSchema, insertEquipmentTicketStatusHistorySchema, insertSnowEventSchema, insertSnowEventPropertyImpactSchema, insertSnowEventAttachmentSchema, insertEmailTemplateSchema, insertEmailRuleSchema, insertCommunicationAutomationRuleSchema, SNOW_RANGES, tickets, ticketLinks, ticketTypes, ticketTypeStatuses, customers as customersTable, contacts as contactsTable, contracts as contractsTable, equipment as equipmentTable, users as usersTable, contractMonthlyAmounts, contractDocuments, contractServices, contractStatusHistory, companyUsers as companyUsersTable, insertCommunicationSchema, campaigns as campaignsTable, campaignItems as campaignItemsTable } from "@shared/schema";
-import type { Customer, CaptureParams, CampaignItem, Season, InsertCommunication, InsertCommunicationTemplate, InsertCommunicationAuditLog, ServicePlanCategory } from "@shared/schema";
+import { eq, and, inArray, sql, gte, lte, isNull, ne } from "drizzle-orm";
+import { insertCustomerSchema, insertContactSchema, insertCompanySchema, insertCompanyUserSchema, insertSettingsSchema, insertNoteSchema, insertContractSchema, insertContractDocumentSchema, insertContractBuilderDocumentSchema, insertContractBuilderSectionSchema, insertContractBuilderVariableSchema, insertTicketTypeSchema, insertTicketTypeStatusSchema, insertTicketTypeFieldSchema, insertTicketSchema, insertTicketFieldValueSchema, insertTicketStatusHistorySchema, insertTicketCommentSchema, insertTicketLinkSchema, insertCustomerMapLayerSchema, insertCustomerMapDocumentSchema, insertMaintenanceCrewSchema, insertMaintenanceVisitConfigSchema, insertWeeklyScheduleTemplateSchema, insertScheduleBlockSchema, insertEquipmentSchema, insertEquipmentFileSchema, insertEquipmentTicketSchema, insertEquipmentTicketStatusHistorySchema, insertSnowEventSchema, insertSnowEventPropertyImpactSchema, insertSnowEventAttachmentSchema, insertEmailTemplateSchema, insertEmailRuleSchema, insertCommunicationAutomationRuleSchema, SNOW_RANGES, tickets, ticketLinks, ticketTypes, ticketTypeStatuses, customers as customersTable, contacts as contactsTable, contracts as contractsTable, equipment as equipmentTable, users as usersTable, contractMonthlyAmounts, contractDocuments, contractServices, contractStatusHistory, companyUsers as companyUsersTable, insertCommunicationSchema, campaigns as campaignsTable, campaignItems as campaignItemsTable, chemicalProducts as chemicalProductsTable, insertChemicalProductSchema } from "@shared/schema";
+import type { Customer, CaptureParams, CampaignItem, Season, InsertCommunication, InsertCommunicationTemplate, InsertCommunicationAuditLog, ServicePlanCategory, ChemicalProduct } from "@shared/schema";
 import { insertCommunicationTemplateSchema, insertServicePlanTemplateSchema, insertServicePlanTemplateItemSchema, insertCustomerServicePlanSchema } from "@shared/schema";
 import { runAutomationRule } from "./services/automationService";
 import { ObjectStorageService, ObjectNotFoundError, objectStorageClient, signObjectURL } from "./objectStorage";
 import { ObjectPermission, ObjectAccessGroupType, setObjectAclPolicy } from "./objectAcl";
-import { processEmailEvent, resendEmail, sendEmail, getDefaultWorkCompletedTemplate, getDefaultChemicalPreNoticeTemplate, getDefaultChemicalPostNoticeTemplate } from './services/emailService';
+import { processEmailEvent, resendEmail, sendEmail, getDefaultWorkCompletedTemplate, getDefaultChemicalPreNoticeTemplate, getDefaultChemicalPostNoticeTemplate, getDefaultChemicalTreatmentNotificationTemplate, buildChemicalNotificationVariables, formatTimeWindow } from './services/emailService';
 import heicConvert from 'heic-convert';
 import { renderVisualScope, renderVisualScopeExport, type ExportType, type ExportPreset } from "./visualScopeRenderer";
 import { ROLLUP_SERVICE_LABELS, campaignToRollupServiceType } from "../shared/serviceCatalog";
 import { buildContractAuditRows } from "./auditEngine";
+import { seedChemicalEmailTemplates } from "./templates/seed";
+
+/**
+ * Signed URL TTL for chemical product label attachments (in seconds).
+ * Currently set to 1 hour (3600 s) due to platform signing constraints.
+ * Target is 7 days (604800 s); increase when the signing service supports longer durations.
+ */
+const LABEL_URL_TTL_SEC = 3600;
 
 interface StatusDefinition {
   name: string;
@@ -1571,6 +1580,77 @@ export async function migrateCustomerServicePlanTemplateOrigin(): Promise<void> 
   }
 }
 
+export async function migrateUserApplicatorLicenseColumns(): Promise<void> {
+  console.log("Running startup migration: Ensuring applicator license columns exist on users table...");
+  try {
+    await db.execute(sql`ALTER TABLE users ADD COLUMN IF NOT EXISTS applicator_license_number text`);
+    await db.execute(sql`ALTER TABLE users ADD COLUMN IF NOT EXISTS applicator_license_state text`);
+    console.log("User applicator license columns migration complete");
+  } catch (error) {
+    console.error("Error during user applicator license columns migration:", error);
+  }
+}
+
+export async function migrateChemicalProductsTable(): Promise<void> {
+  console.log("Running startup migration: Ensuring chemical_products table exists...");
+  try {
+    await db.execute(sql`
+      CREATE TABLE IF NOT EXISTS chemical_products (
+        id varchar PRIMARY KEY DEFAULT gen_random_uuid(),
+        company_id varchar NOT NULL REFERENCES companies(id) ON DELETE CASCADE,
+        name text NOT NULL,
+        manufacturer text,
+        category text DEFAULT 'other',
+        epa_registration_number text,
+        active_ingredient text,
+        signal_word text,
+        reentry_interval_hours real,
+        watering_instructions text,
+        mowing_instructions text,
+        purpose_description text,
+        notes text,
+        label_storage_key text,
+        label_filename text,
+        is_active boolean NOT NULL DEFAULT true,
+        deleted_at timestamp,
+        created_at timestamp NOT NULL DEFAULT NOW(),
+        updated_at timestamp NOT NULL DEFAULT NOW()
+      )
+    `);
+    await db.execute(sql`CREATE INDEX IF NOT EXISTS chemical_products_company_id_idx ON chemical_products(company_id)`);
+    await db.execute(sql`CREATE UNIQUE INDEX IF NOT EXISTS chemical_products_company_name_uniq ON chemical_products(company_id, name)`);
+    await db.execute(sql`ALTER TABLE chemical_products ADD COLUMN IF NOT EXISTS manufacturer text`);
+    await db.execute(sql`ALTER TABLE chemical_products ADD COLUMN IF NOT EXISTS category text DEFAULT 'other'`);
+    await db.execute(sql`ALTER TABLE chemical_products ADD COLUMN IF NOT EXISTS notes text`);
+    await db.execute(sql`ALTER TABLE chemical_products ADD COLUMN IF NOT EXISTS deleted_at timestamp`);
+    console.log("chemical_products table migration complete");
+  } catch (error) {
+    console.error("Error during chemical_products table migration:", error);
+  }
+}
+
+export async function migrateCampaignItemsChemicalColumns(): Promise<void> {
+  console.log("Running startup migration: Ensuring chemical columns exist on campaign_items table...");
+  try {
+    await db.execute(sql`ALTER TABLE campaign_items ADD COLUMN IF NOT EXISTS target_date date`);
+    await db.execute(sql`ALTER TABLE campaign_items ADD COLUMN IF NOT EXISTS backup_date date`);
+    await db.execute(sql`ALTER TABLE campaign_items ADD COLUMN IF NOT EXISTS time_window_start text`);
+    await db.execute(sql`ALTER TABLE campaign_items ADD COLUMN IF NOT EXISTS time_window_end text`);
+    await db.execute(sql`ALTER TABLE campaign_items ADD COLUMN IF NOT EXISTS was_bumped_to_backup text DEFAULT 'false'`);
+    await db.execute(sql`ALTER TABLE campaign_items ADD COLUMN IF NOT EXISTS chemical_product_id varchar REFERENCES chemical_products(id) ON DELETE SET NULL`);
+    await db.execute(sql`ALTER TABLE campaign_items ADD COLUMN IF NOT EXISTS applicator_user_id varchar REFERENCES users(id) ON DELETE SET NULL`);
+    await db.execute(sql`ALTER TABLE campaign_items ADD COLUMN IF NOT EXISTS label_override_storage_key text`);
+    await db.execute(sql`ALTER TABLE campaign_items ADD COLUMN IF NOT EXISTS label_override_filename text`);
+    await db.execute(sql`ALTER TABLE campaign_items ADD COLUMN IF NOT EXISTS purpose_override text`);
+    await db.execute(sql`ALTER TABLE campaign_items ADD COLUMN IF NOT EXISTS reentry_interval_override real`);
+    await db.execute(sql`ALTER TABLE campaign_items ADD COLUMN IF NOT EXISTS watering_instructions_override text`);
+    await db.execute(sql`ALTER TABLE campaign_items ADD COLUMN IF NOT EXISTS mowing_instructions_override text`);
+    console.log("campaign_items chemical columns migration complete");
+  } catch (error) {
+    console.error("Error during campaign_items chemical columns migration:", error);
+  }
+}
+
 export async function backfillCustomerType(): Promise<void> {
   console.log("Running startup migration: Backfilling customer_type for existing customers...");
   try {
@@ -1985,6 +2065,22 @@ export async function seedCommunicationTemplatesBootstrap(): Promise<void> {
     console.log("Communication templates seed bootstrap complete");
   } catch (error) {
     console.error("Error during communication templates seed bootstrap:", error);
+  }
+}
+
+// Startup bootstrap: seed chemical email templates for every company (idempotent).
+// Uses the file-backed HTML template in server/templates/chemical-treatment-notification.html
+// and checks by template name to avoid duplicate inserts (upsert-by-name semantics).
+export async function seedChemicalEmailTemplatesBootstrap(): Promise<void> {
+  console.log("Running startup bootstrap: Seeding chemical email templates...");
+  try {
+    const companies = await storage.getCompanies();
+    for (const company of companies) {
+      await seedChemicalEmailTemplates(company.id);
+    }
+    console.log("Chemical email templates seed bootstrap complete");
+  } catch (error) {
+    console.error("Error during chemical email templates seed bootstrap:", error);
   }
 }
 
@@ -3615,24 +3711,29 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
     const user = req.user as UserWithContext;
     const companyUsersList = await storage.getCompanyUsersByCompanyId(user.activeCompanyId);
-    const result = await Promise.all(
-      companyUsersList.map(async (cu) => {
-        const userDetails = await storage.getUserById(cu.userId);
-        return {
-          id: cu.id,
-          userId: cu.userId,
-          role: cu.role,
-          status: cu.status,
-          tags: cu.tags || [],
-          user: {
-            id: userDetails?.id || cu.userId,
-            firstName: userDetails?.name?.split(" ")[0] || "",
-            lastName: userDetails?.name?.split(" ").slice(1).join(" ") || "",
-            email: userDetails?.email || "",
-          },
-        };
-      })
-    );
+    const userIds = companyUsersList.map(cu => cu.userId);
+    const allUsers = userIds.length > 0
+      ? await db.select().from(usersTable).where(inArray(usersTable.id, userIds))
+      : [];
+    const userMap = new Map(allUsers.map(u => [u.id, u]));
+    const result = companyUsersList.map((cu) => {
+      const userDetails = userMap.get(cu.userId);
+      return {
+        id: cu.id,
+        userId: cu.userId,
+        role: cu.role,
+        status: cu.status,
+        tags: cu.tags || [],
+        user: {
+          id: userDetails?.id || cu.userId,
+          firstName: userDetails?.name?.split(" ")[0] || "",
+          lastName: userDetails?.name?.split(" ").slice(1).join(" ") || "",
+          email: userDetails?.email || "",
+          applicatorLicenseNumber: userDetails?.applicatorLicenseNumber || null,
+          applicatorLicenseState: userDetails?.applicatorLicenseState || null,
+        },
+      };
+    });
     res.json(result);
   });
 
@@ -9352,6 +9453,23 @@ export async function registerRoutes(app: Express): Promise<Server> {
         });
         console.log(`Seeded Chemical Treatment Completion template for company ${companyId}`);
       }
+
+      const existingChemNotif = await storage.getEmailTemplateByName('Chemical Treatment Notification', companyId);
+      if (!existingChemNotif) {
+        const chemNotifTemplate = getDefaultChemicalTreatmentNotificationTemplate();
+        const notifTemplate = await storage.createEmailTemplate({
+          ...chemNotifTemplate,
+          companyId,
+        });
+        await storage.createEmailRule({
+          companyId,
+          eventKey: 'campaign.chemical_notification',
+          templateId: notifTemplate.id,
+          conditionsJson: null,
+          isEnabled: true,
+        });
+        console.log(`Seeded Chemical Treatment Notification template for company ${companyId}`);
+      }
     } catch (err) {
       console.error("Failed to seed email templates:", err);
     }
@@ -11362,7 +11480,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       if (type !== "post" && customWindowStart && customWindowEnd && customWindowStart > customWindowEnd) {
         return res.status(400).json({ error: "Window start date must be before or equal to window end date" });
       }
-      const eventKey = type === "post" ? "campaign.chemical_post_notice" : "campaign.chemical_pre_notice";
+      const eventKey = type === "post" ? "campaign.chemical_post_notice" : type === "notification" ? "campaign.chemical_notification" : "campaign.chemical_pre_notice";
       const campaign = await storage.getCampaignById(req.params.id, user.activeCompanyId);
       if (!campaign) return res.status(404).json({ error: "Campaign not found" });
       const targetItem = (await storage.getCampaignItems(req.params.id, user.activeCompanyId))
@@ -11374,33 +11492,92 @@ export async function registerRoutes(app: Express): Promise<Server> {
       let subject = "";
       let htmlBody = "";
       let templateName = "";
+
+      // Resolve chemical product and applicator for enriched previews
+      let product: ChemicalProduct | null = null;
+      if (targetItem.chemicalProductId) {
+        const [prod] = await db.select().from(chemicalProductsTable)
+          .where(and(eq(chemicalProductsTable.id, targetItem.chemicalProductId), eq(chemicalProductsTable.companyId, user.activeCompanyId), isNull(chemicalProductsTable.deletedAt)));
+        if (prod) product = prod;
+      }
+      let applicatorName: string | null = null;
+      let applicatorLicense: string | null = null;
+      if (targetItem.applicatorUserId) {
+        const [appl] = await db.select({ name: usersTable.name, applicatorLicenseNumber: usersTable.applicatorLicenseNumber, applicatorLicenseState: usersTable.applicatorLicenseState }).from(usersTable)
+          .where(eq(usersTable.id, targetItem.applicatorUserId));
+        if (appl) {
+          applicatorName = appl.name;
+          const licNum = appl.applicatorLicenseNumber;
+          const licState = appl.applicatorLicenseState;
+          if (licNum) applicatorLicense = licState ? `${licNum} (${licState})` : licNum;
+        }
+      }
+
+      // Resolve label URL: visit override → product default (priority model)
+      let labelAttachmentUrl: string | null = null;
+      try {
+        const labelStorageKey = targetItem.labelOverrideStorageKey || product?.labelStorageKey || null;
+        if (labelStorageKey) {
+          const { bucketName, objectName } = (function parseGcsPath(path: string) {
+            const parts = path.replace(/^\//, "").split("/");
+            return { bucketName: parts[0], objectName: parts.slice(1).join("/") };
+          })(labelStorageKey);
+          labelAttachmentUrl = await signObjectURL({ bucketName, objectName, method: "GET", ttlSec: LABEL_URL_TTL_SEC });
+        }
+      } catch {
+        // Non-fatal: preview still renders without label URL
+      }
+
       if (rules.length > 0) {
         const template = await storage.getEmailTemplateById(rules[0].templateId, user.activeCompanyId);
         if (template) {
           templateName = template.name;
-          const variables: Record<string, string> = {
-            companyName: company?.name || '',
-            customerName: targetItem.customerName,
-            campaignTitle: campaign.title,
-            windowStart: (type !== "post" && customWindowStart) ? customWindowStart : campaign.windowStart,
-            windowEnd: (type !== "post" && customWindowEnd) ? customWindowEnd : campaign.windowEnd,
-            ...(type === "post" ? { completionDate: resolveChemCompletionDate(targetItem) } : {}),
-            notes: '',
-          };
+          const baseVars: Record<string, string> = type === "notification"
+            ? buildChemicalNotificationVariables(
+                targetItem,
+                product,
+                campaign,
+                { name: company?.name || '', phone: company?.phone, email: company?.email },
+                targetItem.customerName,
+                applicatorName,
+                applicatorLicense,
+                labelAttachmentUrl,
+                user.language ?? 'en',
+              )
+            : {
+                companyName: company?.name || '',
+                companyPhone: company?.phone || '',
+                companyEmail: company?.email || '',
+                customerName: targetItem.customerName,
+                campaignTitle: campaign.title,
+                windowStart: (type !== "post" && customWindowStart) ? customWindowStart : campaign.windowStart,
+                windowEnd: (type !== "post" && customWindowEnd) ? customWindowEnd : campaign.windowEnd,
+                ...(type === "post" ? { completionDate: resolveChemCompletionDate(targetItem) } : {}),
+                notes: '',
+                labelAttachmentUrl: labelAttachmentUrl || '',
+              };
           subject = template.subject;
           htmlBody = template.htmlBody;
-          for (const [key, val] of Object.entries(variables)) {
+          for (const [key, val] of Object.entries(baseVars)) {
             const regex = new RegExp(`\\{\\{${key}\\}\\}`, 'g');
             subject = subject.replace(regex, val);
             htmlBody = htmlBody.replace(regex, val);
           }
         }
       }
-      res.json({ recipientEmail: recipientEmail || null, subject, htmlBody, templateName, contactName: contactName || null });
+      res.json({ recipientEmail: recipientEmail || null, subject, htmlBody, templateName, contactName: contactName || null, labelAttachmentUrl });
     } catch (error) {
       console.error("Error fetching email preview:", error);
       res.status(500).json({ error: "Internal server error" });
     }
+  });
+
+  // Alias for email-preview with task-specified URL pattern (preserves query params)
+  app.get("/api/campaigns/:id/items/:itemId/preview-email", (req, res) => {
+    const qs = Object.keys(req.query).length > 0
+      ? "?" + new URLSearchParams(req.query as Record<string, string>).toString()
+      : "";
+    res.redirect(307, `/api/campaigns/${req.params.id}/items/${req.params.itemId}/email-preview${qs}`);
   });
 
   app.patch("/api/campaigns/:id", async (req, res) => {
@@ -11786,7 +11963,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
     if (!targetItem) {
       return res.status(404).json({ error: "Item not found in this campaign" });
     }
-    const { status, notes, skipReason, photos, chemAction, overrideEmail, exceptionType, completedAt: completedAtStr, workCompletedAt: workCompletedAtStr } = req.body as {
+    const { status, notes, skipReason, photos, chemAction, overrideEmail, exceptionType, completedAt: completedAtStr, workCompletedAt: workCompletedAtStr,
+      targetDate, backupDate, timeWindowStart, timeWindowEnd, wasBumpedToBackup,
+      chemicalProductId, applicatorUserId,
+      purposeOverride, reentryIntervalOverride, wateringInstructionsOverride, mowingInstructionsOverride,
+    } = req.body as {
       status?: string;
       notes?: string;
       skipReason?: string;
@@ -11796,6 +11977,17 @@ export async function registerRoutes(app: Express): Promise<Server> {
       exceptionType?: string | null;
       completedAt?: string;
       workCompletedAt?: string;
+      targetDate?: string | null;
+      backupDate?: string | null;
+      timeWindowStart?: string | null;
+      timeWindowEnd?: string | null;
+      wasBumpedToBackup?: "true" | "false";
+      chemicalProductId?: string | null;
+      applicatorUserId?: string | null;
+      purposeOverride?: string | null;
+      reentryIntervalOverride?: number | null;
+      wateringInstructionsOverride?: string | null;
+      mowingInstructionsOverride?: string | null;
     };
 
     // Handle chemical workflow step advancement
@@ -11903,6 +12095,85 @@ export async function registerRoutes(app: Express): Promise<Server> {
           console.error("Failed to send chemical post-notice email:", emailErr);
           return res.status(500).json({ error: "Failed to send post-completion notification email" });
         }
+      } else if (chemAction === "send_notification") {
+        if (!chemEmailRoles.includes(user.activeRole)) {
+          return res.status(403).send("Only admin, office, or chemical manager can send notifications");
+        }
+        // Validate required chemical fields before sending notification
+        const notifProductId = targetItem.chemicalProductId;
+        const notifApplicatorId = targetItem.applicatorUserId;
+        if (!targetItem.targetDate) {
+          return res.status(400).json({ error: "Target date must be set before sending a chemical notification" });
+        }
+        if (!notifProductId) {
+          return res.status(400).json({ error: "Chemical product must be selected before sending a notification" });
+        }
+        if (!notifApplicatorId) {
+          return res.status(400).json({ error: "Licensed applicator must be assigned before sending a notification" });
+        }
+        const company = await storage.getCompanyById(user.activeCompanyId);
+        const { email: resolvedEmail } = await resolveChemRecipientEmail(targetItem.customerId, user.activeCompanyId);
+        const recipientEmail = (overrideEmail && overrideEmail.trim()) ? overrideEmail.trim() : resolvedEmail;
+        if (!recipientEmail) {
+          return res.status(400).json({ error: "No recipient email available." });
+        }
+        // Resolve product and applicator for full hydration
+        let notifProduct: ChemicalProduct | null = null;
+        if (targetItem.chemicalProductId) {
+          const [prod] = await db.select().from(chemicalProductsTable)
+            .where(and(eq(chemicalProductsTable.id, targetItem.chemicalProductId), eq(chemicalProductsTable.companyId, user.activeCompanyId), isNull(chemicalProductsTable.deletedAt)));
+          if (prod) notifProduct = prod;
+        }
+        let notifApplicatorName: string | null = null;
+        let notifApplicatorLicense: string | null = null;
+        if (targetItem.applicatorUserId) {
+          const [appl] = await db.select({ name: usersTable.name, applicatorLicenseNumber: usersTable.applicatorLicenseNumber, applicatorLicenseState: usersTable.applicatorLicenseState }).from(usersTable)
+            .where(eq(usersTable.id, targetItem.applicatorUserId));
+          if (appl) {
+            notifApplicatorName = appl.name;
+            const licNum = appl.applicatorLicenseNumber;
+            const licState = appl.applicatorLicenseState;
+            if (licNum) notifApplicatorLicense = licState ? `${licNum} (${licState})` : licNum;
+          }
+        }
+        // Resolve label URL: visit override → product default
+        let notifLabelUrl: string | null = null;
+        try {
+          const labelStorageKey = targetItem.labelOverrideStorageKey || notifProduct?.labelStorageKey || null;
+          if (labelStorageKey) {
+            const { bucketName, objectName } = (function parseGcsPath(path: string) {
+              const parts = path.replace(/^\//, "").split("/");
+              return { bucketName: parts[0], objectName: parts.slice(1).join("/") };
+            })(labelStorageKey);
+            notifLabelUrl = await signObjectURL({ bucketName, objectName, method: "GET", ttlSec: LABEL_URL_TTL_SEC });
+          }
+        } catch { /* non-fatal */ }
+        const notifVars = buildChemicalNotificationVariables(
+          targetItem,
+          notifProduct,
+          campaign,
+          { name: company?.name || '', phone: company?.phone, email: company?.email },
+          targetItem.customerName,
+          notifApplicatorName,
+          notifApplicatorLicense,
+          notifLabelUrl,
+          user.language ?? 'en',
+        );
+        try {
+          const emailResults = await processEmailEvent('campaign.chemical_notification', user.activeCompanyId, notifVars, {
+            customerId: targetItem.customerId,
+            toEmail: recipientEmail,
+            sentById: user.id,
+          });
+          const sentLog = emailResults.find(l => l.status === "sent");
+          if (!sentLog) {
+            return res.status(502).json({ error: "Notification email delivery failed. Please try again." });
+          }
+          // Record that notification was sent (reuse preCommSentAt fields if not yet set; otherwise noop)
+        } catch (emailErr) {
+          console.error("Failed to send chemical notification email:", emailErr);
+          return res.status(500).json({ error: "Failed to send notification email" });
+        }
       } else if (chemAction === "finish_without_comms") {
         const finishRoles = ["admin", "office", "chemical_manager"];
         if (!finishRoles.includes(user.activeRole)) {
@@ -12006,12 +12277,75 @@ export async function registerRoutes(app: Express): Promise<Server> {
     if (exceptionType !== undefined && exceptionType !== null && !validExceptionTypes.includes(exceptionType)) {
       return res.status(400).json({ error: "Invalid exception type" });
     }
-    const updates: Partial<{ status: "pending" | "completed" | "skipped"; notes: string | null; skipReason: string | null; photos: string[]; completedById: string | null; completedAt: Date | null; updatedAt: Date; exceptionType: string | null }> = {};
+    const updates: Partial<CampaignItem> = {};
     if (status !== undefined) updates.status = status as "pending" | "completed" | "skipped";
     if (notes !== undefined) updates.notes = notes;
     if (skipReason !== undefined) updates.skipReason = skipReason;
     if (photos !== undefined) updates.photos = photos;
     if (exceptionType !== undefined) updates.exceptionType = exceptionType;
+    // Chemical scheduling field validation
+    if (campaign.category === "chemical") {
+      const resolvedTargetDate = targetDate !== undefined ? (targetDate || null) : (targetItem.targetDate ?? null);
+      const resolvedBackupDate = backupDate !== undefined ? (backupDate || null) : (targetItem.backupDate ?? null);
+      const resolvedTimeStart = timeWindowStart !== undefined ? (timeWindowStart || null) : (targetItem.timeWindowStart ?? null);
+      const resolvedTimeEnd = timeWindowEnd !== undefined ? (timeWindowEnd || null) : (targetItem.timeWindowEnd ?? null);
+      const resolvedProductId = chemicalProductId !== undefined ? (chemicalProductId || null) : (targetItem.chemicalProductId ?? null);
+      const resolvedApplicatorId = applicatorUserId !== undefined ? (applicatorUserId || null) : (targetItem.applicatorUserId ?? null);
+
+      // Date/time ordering invariants (apply on every PATCH that touches these fields)
+      if (resolvedBackupDate && resolvedTargetDate && resolvedBackupDate < resolvedTargetDate) {
+        return res.status(400).json({ error: "Backup date must not be before target date" });
+      }
+      if (resolvedTimeStart && resolvedTimeEnd && resolvedTimeEnd < resolvedTimeStart) {
+        return res.status(400).json({ error: "Time window end must not be before start" });
+      }
+
+      // Required-field enforcement: when any chemical scheduling/assignment field is explicitly
+      // included in the PATCH body, all three core required fields must be non-null.
+      const chemFieldsInPatch = (
+        targetDate !== undefined ||
+        backupDate !== undefined ||
+        timeWindowStart !== undefined ||
+        timeWindowEnd !== undefined ||
+        chemicalProductId !== undefined ||
+        applicatorUserId !== undefined
+      );
+      if (chemFieldsInPatch) {
+        if (!resolvedTargetDate) {
+          return res.status(400).json({ error: "Target date is required when saving chemical visit details" });
+        }
+        if (!resolvedProductId) {
+          return res.status(400).json({ error: "Chemical product is required when saving chemical visit details" });
+        }
+        if (!resolvedApplicatorId) {
+          return res.status(400).json({ error: "Applicator is required when saving chemical visit details" });
+        }
+      }
+      // Hard requirement check for status completion (always enforced regardless of chemFieldsInPatch)
+      if (status === "completed") {
+        if (!resolvedTargetDate) {
+          return res.status(400).json({ error: "Target date is required before completing a chemical visit" });
+        }
+        if (!resolvedProductId) {
+          return res.status(400).json({ error: "Chemical product must be selected before completing a chemical visit" });
+        }
+        if (!resolvedApplicatorId) {
+          return res.status(400).json({ error: "Applicator must be assigned before completing a chemical visit" });
+        }
+      }
+    }
+    // Chemical scheduling fields
+    if (targetDate !== undefined) updates.targetDate = targetDate || null;
+    if (backupDate !== undefined) updates.backupDate = backupDate || null;
+    if (timeWindowStart !== undefined) updates.timeWindowStart = timeWindowStart || null;
+    if (timeWindowEnd !== undefined) updates.timeWindowEnd = timeWindowEnd || null;
+    if (wasBumpedToBackup !== undefined) updates.wasBumpedToBackup = wasBumpedToBackup;
+    if (chemicalProductId !== undefined) updates.chemicalProductId = chemicalProductId || null;
+    if (applicatorUserId !== undefined) updates.applicatorUserId = applicatorUserId || null;
+    if (purposeOverride !== undefined) updates.purposeOverride = purposeOverride || null;
+    if (reentryIntervalOverride !== undefined) updates.reentryIntervalOverride = reentryIntervalOverride;
+    if (wateringInstructionsOverride !== undefined) updates.wateringInstructionsOverride = wateringInstructionsOverride || null;
+    if (mowingInstructionsOverride !== undefined) updates.mowingInstructionsOverride = mowingInstructionsOverride || null;
     if (status === "completed" || status === "skipped") {
       updates.completedById = user.id;
       let completedAtDate = new Date();
@@ -12353,6 +12687,128 @@ export async function registerRoutes(app: Express): Promise<Server> {
     });
     if (!updated) return res.status(404).json({ error: "Campaign item not found" });
     res.json(updated);
+  });
+
+  // Per-visit label override upload (PDF, up to 10 MB)
+  app.post("/api/campaigns/:id/items/:itemId/label",
+    express.raw({ type: "*/*", limit: "11mb" }),
+    async (req, res) => {
+    if (!req.isAuthenticated()) return res.status(401).send("Not authenticated");
+    const user = req.user as UserWithContext;
+    if (!["admin", "office"].includes(user.activeRole) && !user.isSuperAdminBool) {
+      return res.status(403).send("Only admin or office can upload visit label overrides");
+    }
+    try {
+      const campaign = await storage.getCampaignById(req.params.id, user.activeCompanyId);
+      if (!campaign) return res.status(404).json({ error: "Campaign not found" });
+      const items = await storage.getCampaignItems(req.params.id, user.activeCompanyId);
+      const item = items.find(i => i.id === req.params.itemId);
+      if (!item) return res.status(404).json({ error: "Campaign item not found" });
+      const fileBuffer: Buffer = Buffer.isBuffer(req.body) ? req.body : Buffer.from(req.body as Uint8Array);
+      if (!fileBuffer.length) return res.status(400).json({ error: "Missing file data" });
+      if (fileBuffer.length > 10 * 1024 * 1024) return res.status(400).json({ error: "File exceeds 10 MB limit" });
+      const mimeType = detectLabelMimeType(fileBuffer);
+      if (!mimeType) return res.status(400).json({ error: "Only PDF files are allowed for visit label overrides." });
+      const ext = LABEL_ALLOWED_MIME_TYPES[mimeType];
+      const uuid = randomUUID();
+      const relativePath = `visit-labels/${user.activeCompanyId}/${uuid}.${ext}`;
+      const objectStorageService = new ObjectStorageService();
+      const fullPath = await objectStorageService.saveBufferToPrivatePath(relativePath, fileBuffer, mimeType);
+      const rawFilename = typeof req.query.filename === "string" ? req.query.filename : `label.${ext}`;
+      const safeFilename = rawFilename.replace(/[^a-zA-Z0-9._-]/g, "_");
+      const updated = await storage.updateCampaignItem(req.params.itemId, user.activeCompanyId, {
+        labelOverrideStorageKey: fullPath,
+        labelOverrideFilename: safeFilename,
+        updatedAt: new Date(),
+      });
+      if (!updated) return res.status(404).json({ error: "Campaign item not found" });
+      res.json({ success: true, labelOverrideFilename: safeFilename, labelOverrideStorageKey: fullPath });
+    } catch (error) {
+      console.error("Error uploading visit label override:", error);
+      res.status(500).json({ error: "Internal server error" });
+    }
+  });
+
+  // Per-visit label override delete
+  app.delete("/api/campaigns/:id/items/:itemId/label", async (req, res) => {
+    if (!req.isAuthenticated()) return res.status(401).send("Not authenticated");
+    const user = req.user as UserWithContext;
+    if (!["admin", "office"].includes(user.activeRole) && !user.isSuperAdminBool) {
+      return res.status(403).send("Only admin or office can remove visit label overrides");
+    }
+    try {
+      const campaign = await storage.getCampaignById(req.params.id, user.activeCompanyId);
+      if (!campaign) return res.status(404).json({ error: "Campaign not found" });
+      const updated = await storage.updateCampaignItem(req.params.itemId, user.activeCompanyId, {
+        labelOverrideStorageKey: null,
+        labelOverrideFilename: null,
+        updatedAt: new Date(),
+      });
+      if (!updated) return res.status(404).json({ error: "Campaign item not found" });
+      res.json({ success: true });
+    } catch (error) {
+      console.error("Error removing visit label override:", error);
+      res.status(500).json({ error: "Internal server error" });
+    }
+  });
+
+  // Compatibility aliases: /api/campaign-visits/:id/label
+  // These accept just the campaign-item ID (no separate campaignId) to match the
+  // originally specified endpoint contract. They look up the parent campaign automatically.
+  app.post("/api/campaign-visits/:id/label",
+    express.raw({ type: "*/*", limit: "11mb" }),
+    async (req, res) => {
+    if (!req.isAuthenticated()) return res.status(401).send("Not authenticated");
+    const user = req.user as UserWithContext;
+    if (!["admin", "office"].includes(user.activeRole) && !user.isSuperAdminBool) {
+      return res.status(403).send("Only admin or office can upload visit label overrides");
+    }
+    try {
+      const item = await storage.getCampaignItemById(req.params.id, user.activeCompanyId);
+      if (!item) return res.status(404).json({ error: "Campaign visit not found" });
+      const fileBuffer: Buffer = Buffer.isBuffer(req.body) ? req.body : Buffer.from(req.body as Uint8Array);
+      if (!fileBuffer.length) return res.status(400).json({ error: "Missing file data" });
+      if (fileBuffer.length > 10 * 1024 * 1024) return res.status(400).json({ error: "File exceeds 10 MB limit" });
+      const mimeType = detectLabelMimeType(fileBuffer);
+      if (!mimeType) return res.status(400).json({ error: "Only PDF files are allowed for visit label overrides." });
+      const ext = LABEL_ALLOWED_MIME_TYPES[mimeType];
+      const uuid = randomUUID();
+      const relativePath = `visit-labels/${user.activeCompanyId}/${uuid}.${ext}`;
+      const objectStorageService = new ObjectStorageService();
+      const fullPath = await objectStorageService.saveBufferToPrivatePath(relativePath, fileBuffer, mimeType);
+      const rawFilename = typeof req.query.filename === "string" ? req.query.filename : `label.${ext}`;
+      const safeFilename = rawFilename.replace(/[^a-zA-Z0-9._-]/g, "_");
+      const updated = await storage.updateCampaignItem(req.params.id, user.activeCompanyId, {
+        labelOverrideStorageKey: fullPath,
+        labelOverrideFilename: safeFilename,
+        updatedAt: new Date(),
+      });
+      if (!updated) return res.status(404).json({ error: "Campaign visit not found" });
+      res.json({ success: true, labelOverrideFilename: safeFilename, labelOverrideStorageKey: fullPath });
+    } catch (error) {
+      console.error("Error uploading visit label override (alias route):", error);
+      res.status(500).json({ error: "Internal server error" });
+    }
+  });
+
+  app.delete("/api/campaign-visits/:id/label", async (req, res) => {
+    if (!req.isAuthenticated()) return res.status(401).send("Not authenticated");
+    const user = req.user as UserWithContext;
+    if (!["admin", "office"].includes(user.activeRole) && !user.isSuperAdminBool) {
+      return res.status(403).send("Only admin or office can remove visit label overrides");
+    }
+    try {
+      const updated = await storage.updateCampaignItem(req.params.id, user.activeCompanyId, {
+        labelOverrideStorageKey: null,
+        labelOverrideFilename: null,
+        updatedAt: new Date(),
+      });
+      if (!updated) return res.status(404).json({ error: "Campaign visit not found" });
+      res.json({ success: true });
+    } catch (error) {
+      console.error("Error removing visit label override (alias route):", error);
+      res.status(500).json({ error: "Internal server error" });
+    }
   });
 
   // ==================== SEASONS API ====================
@@ -13450,6 +13906,46 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // ==================== CHEMICAL PRODUCTS ====================
+
+  // Helper: validate and parse magic bytes for allowed label file types
+  function detectLabelMimeType(buf: Buffer): string | null {
+    if (buf.length < 4) return null;
+    // PDF only: %PDF-
+    if (buf[0] === 0x25 && buf[1] === 0x50 && buf[2] === 0x44 && buf[3] === 0x46) return "application/pdf";
+    return null;
+  }
+
+  const LABEL_ALLOWED_MIME_TYPES: Record<string, string> = {
+    "application/pdf": "pdf",
+  };
+
+  app.get("/api/chemical-products", async (req, res) => {
+    if (!req.isAuthenticated()) return res.status(401).send("Not authenticated");
+    const user = req.user as UserWithContext;
+    if (user.activeRole !== "admin" && user.activeRole !== "office" && !user.isSuperAdminBool) return res.status(403).send("Only admin or office can access chemical products");
+    try {
+      const filters = [
+        eq(chemicalProductsTable.companyId, user.activeCompanyId),
+        isNull(chemicalProductsTable.deletedAt),
+      ];
+      if (req.query.category && typeof req.query.category === "string") {
+        filters.push(eq(chemicalProductsTable.category, req.query.category as "herbicide" | "insecticide" | "fungicide" | "fertilizer" | "other"));
+      }
+      if (req.query.isActive !== undefined) {
+        const active = req.query.isActive === "true";
+        filters.push(eq(chemicalProductsTable.isActive, active));
+      }
+      const products = await db.select().from(chemicalProductsTable)
+        .where(and(...filters))
+        .orderBy(chemicalProductsTable.name);
+      res.json(products);
+    } catch (error) {
+      console.error("Error fetching chemical products:", error);
+      res.status(500).json({ error: "Internal server error" });
+    }
+  });
+
   app.get("/api/customers/:customerId/communications/recent", async (req, res) => {
     try {
       const user = req.user as UserWithContext;
@@ -13467,6 +13963,25 @@ export async function registerRoutes(app: Express): Promise<Server> {
       res.json(sorted.slice(0, 10));
     } catch (err) {
       console.error("GET /api/customers/:customerId/communications/recent error:", err);
+      res.status(500).json({ error: "Internal server error" });
+    }
+  });
+
+  app.get("/api/chemical-products/:id", async (req, res) => {
+    if (!req.isAuthenticated()) return res.status(401).send("Not authenticated");
+    const user = req.user as UserWithContext;
+    if (user.activeRole !== "admin" && user.activeRole !== "office" && !user.isSuperAdminBool) return res.status(403).send("Only admin or office can access chemical products");
+    try {
+      const [product] = await db.select().from(chemicalProductsTable)
+        .where(and(
+          eq(chemicalProductsTable.id, req.params.id),
+          eq(chemicalProductsTable.companyId, user.activeCompanyId),
+          isNull(chemicalProductsTable.deletedAt),
+        ));
+      if (!product) return res.status(404).json({ error: "Not found" });
+      res.json(product);
+    } catch (error) {
+      console.error("Error fetching chemical product:", error);
       res.status(500).json({ error: "Internal server error" });
     }
   });
@@ -13507,11 +14022,238 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  app.post("/api/chemical-products", async (req, res) => {
+    if (!req.isAuthenticated()) return res.status(401).send("Not authenticated");
+    const user = req.user as UserWithContext;
+    if (user.activeRole !== "admin" && user.activeRole !== "office" && !user.isSuperAdminBool) {
+      return res.status(403).send("Only admin or office can create chemical products");
+    }
+    const parsed = insertChemicalProductSchema.safeParse({ ...req.body, companyId: user.activeCompanyId });
+    if (!parsed.success) return res.status(400).json({ error: parsed.error.errors });
+    try {
+      const [product] = await db.insert(chemicalProductsTable).values(parsed.data).returning();
+      res.status(201).json(product);
+    } catch (error) {
+      console.error("Error creating chemical product:", error);
+      res.status(500).json({ error: "Internal server error" });
+    }
+  });
+
   // Mailbox accounts and unsorted emails routers
   const mailboxAccountsRouter = (await import("./routes/mailboxAccounts")).default;
   const unsortedEmailsRouter = (await import("./routes/unsortedEmails")).default;
   app.use("/api/mailbox-accounts", mailboxAccountsRouter);
   app.use("/api/unsorted-emails", unsortedEmailsRouter);
+
+  app.patch("/api/chemical-products/:id", async (req, res) => {
+    if (!req.isAuthenticated()) return res.status(401).send("Not authenticated");
+    const user = req.user as UserWithContext;
+    if (user.activeRole !== "admin" && user.activeRole !== "office" && !user.isSuperAdminBool) {
+      return res.status(403).send("Only admin or office can update chemical products");
+    }
+    try {
+      const [existing] = await db.select().from(chemicalProductsTable)
+        .where(and(
+          eq(chemicalProductsTable.id, req.params.id),
+          eq(chemicalProductsTable.companyId, user.activeCompanyId),
+          isNull(chemicalProductsTable.deletedAt),
+        ));
+      if (!existing) return res.status(404).json({ error: "Not found" });
+      const updateSchema = insertChemicalProductSchema.omit({
+        companyId: true,
+        labelStorageKey: true,
+        labelFilename: true,
+      }).partial();
+      const parsed = updateSchema.safeParse(req.body);
+      if (!parsed.success) return res.status(400).json({ error: parsed.error.errors });
+      const [updated] = await db.update(chemicalProductsTable)
+        .set({ ...parsed.data, updatedAt: new Date() })
+        .where(and(
+          eq(chemicalProductsTable.id, req.params.id),
+          eq(chemicalProductsTable.companyId, user.activeCompanyId),
+        ))
+        .returning();
+      res.json(updated);
+    } catch (error) {
+      console.error("Error updating chemical product:", error);
+      res.status(500).json({ error: "Internal server error" });
+    }
+  });
+
+  // Soft-delete chemical product
+  app.delete("/api/chemical-products/:id", async (req, res) => {
+    if (!req.isAuthenticated()) return res.status(401).send("Not authenticated");
+    const user = req.user as UserWithContext;
+    if (user.activeRole !== "admin" && user.activeRole !== "office" && !user.isSuperAdminBool) {
+      return res.status(403).send("Only admin or office can delete chemical products");
+    }
+    try {
+      const [existing] = await db.select().from(chemicalProductsTable)
+        .where(and(
+          eq(chemicalProductsTable.id, req.params.id),
+          eq(chemicalProductsTable.companyId, user.activeCompanyId),
+          isNull(chemicalProductsTable.deletedAt),
+        ));
+      if (!existing) return res.status(404).json({ error: "Not found" });
+      await db.update(chemicalProductsTable)
+        .set({ deletedAt: new Date(), updatedAt: new Date() })
+        .where(and(
+          eq(chemicalProductsTable.id, req.params.id),
+          eq(chemicalProductsTable.companyId, user.activeCompanyId),
+        ));
+      res.json({ success: true });
+    } catch (error) {
+      console.error("Error deleting chemical product:", error);
+      res.status(500).json({ error: "Internal server error" });
+    }
+  });
+
+  // Chemical product label upload — server-side with validation (magic-bytes, 10 MB limit)
+  app.post("/api/chemical-products/:id/label",
+    express.raw({ type: "*/*", limit: "11mb" }),
+    async (req, res) => {
+    if (!req.isAuthenticated()) return res.status(401).send("Not authenticated");
+    const user = req.user as UserWithContext;
+    if (user.activeRole !== "admin" && user.activeRole !== "office" && !user.isSuperAdminBool) {
+      return res.status(403).send("Only admin or office can upload labels");
+    }
+    try {
+      const [existing] = await db.select().from(chemicalProductsTable)
+        .where(and(
+          eq(chemicalProductsTable.id, req.params.id),
+          eq(chemicalProductsTable.companyId, user.activeCompanyId),
+          isNull(chemicalProductsTable.deletedAt),
+        ));
+      if (!existing) return res.status(404).json({ error: "Not found" });
+      const fileBuffer: Buffer = Buffer.isBuffer(req.body) ? req.body : Buffer.from(req.body as Uint8Array);
+      if (!fileBuffer.length) {
+        return res.status(400).json({ error: "Missing file data" });
+      }
+      const MAX_LABEL_BYTES = 10 * 1024 * 1024;
+      if (fileBuffer.length > MAX_LABEL_BYTES) {
+        return res.status(400).json({ error: "File exceeds 10 MB limit" });
+      }
+      const mimeType = detectLabelMimeType(fileBuffer);
+      if (!mimeType) {
+        return res.status(400).json({ error: "Only PDF files are allowed for product labels." });
+      }
+      const ext = LABEL_ALLOWED_MIME_TYPES[mimeType];
+      const uuid = randomUUID();
+      const relativePath = `chemical-labels/${user.activeCompanyId}/${uuid}.${ext}`;
+      const objectStorageService = new ObjectStorageService();
+      const fullPath = await objectStorageService.saveBufferToPrivatePath(relativePath, fileBuffer, mimeType);
+      const rawFilename = typeof req.query.filename === "string" ? req.query.filename : `label.${ext}`;
+      const safeFilename = rawFilename.replace(/[^a-zA-Z0-9._-]/g, "_");
+      await db.update(chemicalProductsTable)
+        .set({ labelStorageKey: fullPath, labelFilename: safeFilename, updatedAt: new Date() })
+        .where(and(
+          eq(chemicalProductsTable.id, req.params.id),
+          eq(chemicalProductsTable.companyId, user.activeCompanyId),
+        ));
+      res.json({ success: true, labelFilename: safeFilename, labelStorageKey: fullPath });
+    } catch (error) {
+      console.error("Error uploading chemical product label:", error);
+      res.status(500).json({ error: "Internal server error" });
+    }
+  });
+
+  // Delete chemical product label
+  app.delete("/api/chemical-products/:id/label", async (req, res) => {
+    if (!req.isAuthenticated()) return res.status(401).send("Not authenticated");
+    const user = req.user as UserWithContext;
+    if (user.activeRole !== "admin" && user.activeRole !== "office" && !user.isSuperAdminBool) {
+      return res.status(403).send("Only admin or office can remove labels");
+    }
+    try {
+      const [existing] = await db.select().from(chemicalProductsTable)
+        .where(and(
+          eq(chemicalProductsTable.id, req.params.id),
+          eq(chemicalProductsTable.companyId, user.activeCompanyId),
+          isNull(chemicalProductsTable.deletedAt),
+        ));
+      if (!existing) return res.status(404).json({ error: "Not found" });
+      await db.update(chemicalProductsTable)
+        .set({ labelStorageKey: null, labelFilename: null, updatedAt: new Date() })
+        .where(and(
+          eq(chemicalProductsTable.id, req.params.id),
+          eq(chemicalProductsTable.companyId, user.activeCompanyId),
+        ));
+      res.json({ success: true });
+    } catch (error) {
+      console.error("Error removing chemical product label:", error);
+      res.status(500).json({ error: "Internal server error" });
+    }
+  });
+
+  // Chemical product label signed download URL
+  app.get("/api/chemical-products/:id/label-url", async (req, res) => {
+    if (!req.isAuthenticated()) return res.status(401).send("Not authenticated");
+    const user = req.user as UserWithContext;
+    if (user.activeRole !== "admin" && user.activeRole !== "office" && !user.isSuperAdminBool) return res.status(403).send("Only admin or office can access chemical products");
+    try {
+      const [product] = await db.select().from(chemicalProductsTable)
+        .where(and(
+          eq(chemicalProductsTable.id, req.params.id),
+          eq(chemicalProductsTable.companyId, user.activeCompanyId),
+          isNull(chemicalProductsTable.deletedAt),
+        ));
+      if (!product || !product.labelStorageKey) return res.status(404).json({ error: "No label on file" });
+      const { bucketName, objectName } = (function parseGcsPath(path: string) {
+        const parts = path.replace(/^\//, "").split("/");
+        return { bucketName: parts[0], objectName: parts.slice(1).join("/") };
+      })(product.labelStorageKey);
+      const signedUrl = await signObjectURL({ bucketName, objectName, method: "GET", ttlSec: LABEL_URL_TTL_SEC });
+      res.json({ url: signedUrl, filename: product.labelFilename });
+    } catch (error) {
+      console.error("Error getting chemical product label URL:", error);
+      res.status(500).json({ error: "Internal server error" });
+    }
+  });
+
+  // ==================== USER APPLICATOR LICENSE ====================
+
+  app.patch("/api/users/me/applicator-license", async (req, res) => {
+    if (!req.isAuthenticated()) return res.status(401).send("Not authenticated");
+    const user = req.user as UserWithContext;
+    const patchSchema = z.object({
+      applicatorLicenseNumber: z.string().nullable().optional(),
+      applicatorLicenseState: z.string().nullable().optional(),
+    });
+    const parsed = patchSchema.safeParse(req.body);
+    if (!parsed.success) return res.status(400).json({ error: parsed.error.errors });
+    try {
+      await db.update(usersTable)
+        .set(parsed.data)
+        .where(eq(usersTable.id, user.id));
+      res.json({ success: true, ...parsed.data });
+    } catch (error) {
+      console.error("Error updating applicator license:", error);
+      res.status(500).json({ error: "Internal server error" });
+    }
+  });
+
+  app.patch("/api/users/:userId/applicator-license", async (req, res) => {
+    if (!req.isAuthenticated()) return res.status(401).send("Not authenticated");
+    const user = req.user as UserWithContext;
+    if (user.activeRole !== "admin" && !user.isSuperAdminBool) return res.status(403).send("Admin only");
+    const patchSchema = z.object({
+      applicatorLicenseNumber: z.string().nullable().optional(),
+      applicatorLicenseState: z.string().nullable().optional(),
+    });
+    const parsed = patchSchema.safeParse(req.body);
+    if (!parsed.success) return res.status(400).json({ error: parsed.error.errors });
+    try {
+      // Verify user belongs to this company
+      const [cu] = await db.select().from(companyUsersTable)
+        .where(and(eq(companyUsersTable.userId, req.params.userId), eq(companyUsersTable.companyId, user.activeCompanyId)));
+      if (!cu) return res.status(404).json({ error: "User not found in this company" });
+      await db.update(usersTable).set(parsed.data).where(eq(usersTable.id, req.params.userId));
+      res.json({ success: true, ...parsed.data });
+    } catch (error) {
+      console.error("Error updating applicator license:", error);
+      res.status(500).json({ error: "Internal server error" });
+    }
+  });
 
   const httpServer = createServer(app);
 
