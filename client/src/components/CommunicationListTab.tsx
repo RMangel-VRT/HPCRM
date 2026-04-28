@@ -1,4 +1,5 @@
 import { useState, useMemo } from "react";
+import { useTranslation } from "react-i18next";
 import { useQuery } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -26,14 +27,33 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { Mail, Plus, Search, Filter, MessageSquare, Inbox } from "lucide-react";
+import {
+  Mail,
+  Plus,
+  Search,
+  Filter,
+  MessageSquare,
+  Inbox,
+  ArrowDownLeft,
+  ArrowUpRight,
+  ChevronRight,
+  ChevronDown,
+  Check,
+} from "lucide-react";
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover";
+import { Checkbox } from "@/components/ui/checkbox";
 import { format } from "date-fns";
-import { useToast } from "@/hooks/use-toast";
-import type { CommunicationWithDetails } from "@shared/schema";
+import type { CommunicationWithDetails, MailboxAccount } from "@shared/schema";
 import { DatePickerField } from "@/components/DatePickerField";
+import LogCommunicationForm from "@/components/customer/communications/LogCommunicationForm";
 
 interface CommunicationListTabProps {
   queryKey: string[];
+  customerId?: string;
 }
 
 const STATUS_COLORS: Record<string, string> = {
@@ -50,64 +70,289 @@ const TYPE_COLORS: Record<string, string> = {
   letter: "bg-amber-100 text-amber-800 dark:bg-amber-900/30 dark:text-amber-400",
 };
 
-export default function CommunicationListTab({ queryKey }: CommunicationListTabProps) {
-  const { toast } = useToast();
+const PAGE_LIMIT = 50;
+
+interface PaginatedResponse {
+  data: CommunicationWithDetails[];
+  total: number;
+  page: number;
+  limit: number;
+}
+
+interface ThreadGroup {
+  threadId: string;
+  messages: CommunicationWithDetails[];
+  latestMessage: CommunicationWithDetails;
+}
+
+function DirectionIcon({ direction }: { direction: string | null }) {
+  if (direction === "inbound") return <ArrowDownLeft className="w-3.5 h-3.5 text-blue-500 shrink-0" />;
+  if (direction === "outbound") return <ArrowUpRight className="w-3.5 h-3.5 text-green-600 shrink-0" />;
+  return <Mail className="w-3.5 h-3.5 text-muted-foreground shrink-0" />;
+}
+
+interface CommRowProps {
+  comm: CommunicationWithDetails;
+  onClick: () => void;
+  indent?: boolean;
+}
+
+function CommRow({ comm, onClick, indent }: CommRowProps) {
+  const timestamp = comm.receivedAt ?? comm.sentAt ?? comm.createdAt;
+  const fromAddr = comm.fromAddress ?? comm.sentByName;
+  return (
+    <TableRow
+      className={`cursor-pointer hover-elevate ${indent ? "bg-muted/20" : ""}`}
+      onClick={onClick}
+      data-testid={`row-comm-${comm.id}`}
+    >
+      <TableCell className={`${indent ? "pl-8" : "pl-3"} pr-0`}>
+        <DirectionIcon direction={comm.direction} />
+      </TableCell>
+      <TableCell>
+        <div className="flex items-center gap-2">
+          <Mail className="w-4 h-4 text-muted-foreground shrink-0" />
+          <span className="font-medium text-sm truncate max-w-[200px]" data-testid={`text-comm-subject-${comm.id}`}>
+            {comm.subject}
+          </span>
+        </div>
+      </TableCell>
+      <TableCell className="hidden sm:table-cell">
+        <Badge variant="secondary" className={`text-xs ${TYPE_COLORS[comm.type] || ""}`} data-testid={`badge-type-${comm.id}`}>
+          {comm.type}
+        </Badge>
+      </TableCell>
+      <TableCell className="hidden md:table-cell text-sm text-muted-foreground">
+        <span data-testid={`text-sender-${comm.id}`}>{fromAddr || "—"}</span>
+      </TableCell>
+      <TableCell>
+        <Badge variant="secondary" className={`text-xs ${STATUS_COLORS[comm.status] || ""}`} data-testid={`badge-status-${comm.id}`}>
+          {comm.status}
+        </Badge>
+      </TableCell>
+      <TableCell className="hidden lg:table-cell text-sm text-muted-foreground" data-testid={`text-comm-date-${comm.id}`}>
+        {format(new Date(timestamp || comm.createdAt), "MMM d, yyyy h:mm a")}
+      </TableCell>
+    </TableRow>
+  );
+}
+
+interface ThreadGroupRowProps {
+  group: ThreadGroup;
+  onSelectComm: (c: CommunicationWithDetails) => void;
+}
+
+function ThreadGroupRow({ group, onSelectComm }: ThreadGroupRowProps) {
+  const [expanded, setExpanded] = useState(false);
+  const { latestMessage, messages } = group;
+  const timestamp = latestMessage.receivedAt ?? latestMessage.sentAt ?? latestMessage.createdAt;
+
+  // Unique participant addresses (from all messages in the thread)
+  const participantAddresses = Array.from(
+    new Set(
+      messages.flatMap(m => [
+        m.fromAddress,
+        ...(Array.isArray(m.toAddresses) ? (m.toAddresses as string[]) : []),
+      ]).filter(Boolean)
+    )
+  ) as string[];
+
+  const participantSummary = participantAddresses.slice(0, 2).join(", ") +
+    (participantAddresses.length > 2 ? ` +${participantAddresses.length - 2}` : "");
+
+  const bodyPreview = latestMessage.bodyText
+    ? latestMessage.bodyText.slice(0, 60) + (latestMessage.bodyText.length > 60 ? "…" : "")
+    : latestMessage.body
+      ? latestMessage.body.slice(0, 60) + (latestMessage.body.length > 60 ? "…" : "")
+      : "";
+
+  return (
+    <>
+      <TableRow
+        className="cursor-pointer hover-elevate"
+        onClick={() => setExpanded(!expanded)}
+        data-testid={`row-thread-${group.threadId}`}
+      >
+        <TableCell className="pl-3 pr-0">
+          {expanded
+            ? <ChevronDown className="w-3.5 h-3.5 text-muted-foreground" />
+            : <ChevronRight className="w-3.5 h-3.5 text-muted-foreground" />}
+        </TableCell>
+        <TableCell>
+          <div className="flex flex-col gap-0.5">
+            <div className="flex items-center gap-2">
+              <MessageSquare className="w-4 h-4 text-muted-foreground shrink-0" />
+              <span className="font-medium text-sm truncate max-w-[180px]">
+                {latestMessage.subject}
+              </span>
+              <Badge variant="secondary" className="text-xs shrink-0" data-testid={`badge-thread-count-${group.threadId}`}>
+                {messages.length}
+              </Badge>
+            </div>
+            {bodyPreview && (
+              <p className="text-xs text-muted-foreground truncate max-w-[240px] pl-6">{bodyPreview}</p>
+            )}
+          </div>
+        </TableCell>
+        <TableCell className="hidden sm:table-cell">
+          <Badge variant="secondary" className={`text-xs ${TYPE_COLORS[latestMessage.type] || ""}`}>
+            {latestMessage.type}
+          </Badge>
+        </TableCell>
+        <TableCell className="hidden md:table-cell text-xs text-muted-foreground max-w-[160px]">
+          <span className="truncate block" title={participantAddresses.join(", ")} data-testid={`text-participants-${group.threadId}`}>
+            {participantSummary || "—"}
+          </span>
+        </TableCell>
+        <TableCell>
+          <Badge variant="secondary" className={`text-xs ${STATUS_COLORS[latestMessage.status] || ""}`}>
+            {latestMessage.status}
+          </Badge>
+        </TableCell>
+        <TableCell className="hidden lg:table-cell text-sm text-muted-foreground">
+          {format(new Date(timestamp || latestMessage.createdAt), "MMM d, yyyy h:mm a")}
+        </TableCell>
+      </TableRow>
+      {expanded && messages.map(msg => (
+        <CommRow
+          key={msg.id}
+          comm={msg}
+          onClick={() => onSelectComm(msg)}
+          indent
+        />
+      ))}
+    </>
+  );
+}
+
+export default function CommunicationListTab({ queryKey, customerId }: CommunicationListTabProps) {
+  const { t } = useTranslation();
   const [search, setSearch] = useState("");
   const [typeFilter, setTypeFilter] = useState("all");
   const [statusFilter, setStatusFilter] = useState("all");
+  const [directionFilter, setDirectionFilter] = useState("all");
+  const [selectedMailboxIds, setSelectedMailboxIds] = useState<Set<string>>(new Set());
   const [fromDate, setFromDate] = useState<Date | undefined>(undefined);
   const [toDate, setToDate] = useState<Date | undefined>(undefined);
   const [selectedComm, setSelectedComm] = useState<CommunicationWithDetails | null>(null);
   const [showFilters, setShowFilters] = useState(false);
+  const [showLogForm, setShowLogForm] = useState(false);
+  const [page, setPage] = useState(1);
 
-  const { data: communications = [], isLoading } = useQuery<CommunicationWithDetails[]>({
-    queryKey,
+  // Build API URL with pagination and server-side filters
+  const buildUrl = () => {
+    const base = queryKey.join("/");
+    const params = new URLSearchParams({ page: String(page), limit: String(PAGE_LIMIT) });
+    if (search) params.set("search", search);
+    if (directionFilter !== "all") params.set("direction", directionFilter);
+    if (typeFilter !== "all") params.set("type", typeFilter);
+    if (statusFilter !== "all") params.set("status", statusFilter);
+    if (fromDate) params.set("fromDate", fromDate.toISOString().split("T")[0]);
+    if (toDate) params.set("toDate", toDate.toISOString().split("T")[0]);
+    if (selectedMailboxIds.size > 0) params.set("mailboxIds", Array.from(selectedMailboxIds).sort().join(","));
+    return `${base}?${params}`;
+  };
+
+  const mailboxIdsKey = Array.from(selectedMailboxIds).sort().join(",");
+
+  const { data: response, isLoading } = useQuery<PaginatedResponse>({
+    queryKey: [...queryKey, page, search, directionFilter, mailboxIdsKey, typeFilter, statusFilter, fromDate?.toISOString(), toDate?.toISOString()],
+    queryFn: async () => {
+      const res = await fetch(buildUrl(), { credentials: "include" });
+      if (!res.ok) throw new Error("Failed to fetch communications");
+      return res.json();
+    },
+    staleTime: 30_000,
   });
 
-  const filtered = useMemo(() => {
-    return communications
-      .slice()
-      .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
-      .filter((c) => {
-        const matchesSearch =
-          !search ||
-          c.subject.toLowerCase().includes(search.toLowerCase()) ||
-          (c.customerName && c.customerName.toLowerCase().includes(search.toLowerCase())) ||
-          (c.sentByName && c.sentByName.toLowerCase().includes(search.toLowerCase()));
-        const matchesType = typeFilter === "all" || c.type === typeFilter;
-        const matchesStatus = statusFilter === "all" || c.status === statusFilter;
-        const createdAt = new Date(c.createdAt);
-        const matchesFrom = !fromDate || createdAt >= new Date(fromDate.getFullYear(), fromDate.getMonth(), fromDate.getDate());
-        const matchesTo = !toDate || createdAt <= new Date(toDate.getFullYear(), toDate.getMonth(), toDate.getDate(), 23, 59, 59);
-        return matchesSearch && matchesType && matchesStatus && matchesFrom && matchesTo;
-      });
-  }, [communications, search, typeFilter, statusFilter, fromDate, toDate]);
+  const { data: mailboxAccounts = [] } = useQuery<MailboxAccount[]>({
+    queryKey: ["/api/mailbox-accounts"],
+    retry: false,
+  });
+
+  const rawCommunications = response?.data ?? [];
+  const total = response?.total ?? 0;
+  const totalPages = Math.ceil(total / PAGE_LIMIT);
+
+  const communications = rawCommunications;
+
+  // Group communications by threadId or providerThreadId for thread view
+  const { threads, standalone } = useMemo(() => {
+    const threadMap = new Map<string, CommunicationWithDetails[]>();
+    const standalone: CommunicationWithDetails[] = [];
+
+    for (const c of communications) {
+      const key = c.threadId ?? c.providerThreadId ?? null;
+      if (key) {
+        const existing = threadMap.get(key) ?? [];
+        existing.push(c);
+        threadMap.set(key, existing);
+      } else {
+        standalone.push(c);
+      }
+    }
+
+    // Only create thread groups when there are multiple messages in a thread
+    const threads: ThreadGroup[] = [];
+    for (const [threadId, messages] of Array.from(threadMap.entries())) {
+      if (messages.length > 1) {
+        const getTs = (c: CommunicationWithDetails) =>
+          new Date(c.sentAt ?? c.receivedAt ?? c.createdAt).getTime();
+        const sorted = [...messages].sort((a, b) => getTs(a) - getTs(b));
+        threads.push({ threadId, messages: sorted, latestMessage: sorted[sorted.length - 1] });
+      } else {
+        // Single message threads treated as standalone
+        standalone.push(messages[0]);
+      }
+    }
+
+    const getTs = (c: CommunicationWithDetails) =>
+      new Date(c.sentAt ?? c.receivedAt ?? c.createdAt).getTime();
+
+    // Sort threads by latest message activity (newest first)
+    threads.sort((a, b) => getTs(b.latestMessage) - getTs(a.latestMessage));
+    standalone.sort((a, b) => getTs(b) - getTs(a));
+
+    return { threads, standalone };
+  }, [communications]);
+
+  const hasResults = threads.length > 0 || standalone.length > 0;
 
   const activeFilterCount = [
     search,
     typeFilter !== "all" ? typeFilter : "",
     statusFilter !== "all" ? statusFilter : "",
+    directionFilter !== "all" ? directionFilter : "",
+    selectedMailboxIds.size > 0 ? "mailbox" : "",
     fromDate,
     toDate,
   ].filter(Boolean).length;
 
-  function handleNewMessage() {
-    toast({
-      title: "Coming soon",
-      description: "Message composition will be available in a future update.",
+  const handleFilterChange = (setter: (v: string) => void) => (v: string) => {
+    setter(v);
+    setPage(1);
+  };
+
+  const toggleMailbox = (id: string) => {
+    setSelectedMailboxIds(prev => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
     });
-  }
+    setPage(1);
+  };
 
   return (
     <div className="space-y-4">
-      <div className="flex items-center justify-between gap-3">
+      <div className="flex items-center justify-between gap-3 flex-wrap">
         <div className="flex items-center gap-2 flex-1">
           <div className="relative flex-1 max-w-sm">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
             <Input
-              placeholder="Search communications..."
+              placeholder={t("emailTracking.searchEmails")}
               value={search}
-              onChange={(e) => setSearch(e.target.value)}
+              onChange={(e) => { setSearch(e.target.value); setPage(1); }}
               className="pl-9"
               data-testid="input-comm-search"
             />
@@ -120,7 +365,7 @@ export default function CommunicationListTab({ queryKey }: CommunicationListTabP
             className="gap-2"
           >
             <Filter className="w-4 h-4" />
-            Filters
+            {t("common.filter")}
             {activeFilterCount > 0 && (
               <Badge variant="secondary" className="bg-primary text-primary-foreground">
                 {activeFilterCount}
@@ -128,50 +373,125 @@ export default function CommunicationListTab({ queryKey }: CommunicationListTabP
             )}
           </Button>
         </div>
-        <Button
-          variant="outline"
-          size="default"
-          onClick={handleNewMessage}
-          data-testid="button-new-message"
-          className="gap-2"
-        >
-          <Plus className="w-4 h-4" />
-          New Message
-        </Button>
+        {customerId && (
+          <Button
+            size="default"
+            onClick={() => setShowLogForm(true)}
+            data-testid="button-log-new-comm"
+            className="gap-2"
+          >
+            <Plus className="w-4 h-4" />
+            {t("emailTracking.logCommunication")}
+          </Button>
+        )}
       </div>
+
+      {showLogForm && customerId && (
+        <Card>
+          <CardContent className="pt-4">
+            <LogCommunicationForm
+              customerId={customerId}
+              onSuccess={() => { setShowLogForm(false); setPage(1); }}
+              onCancel={() => setShowLogForm(false)}
+            />
+          </CardContent>
+        </Card>
+      )}
 
       {showFilters && (
         <div className="flex gap-2 flex-wrap animate-in slide-in-from-top-2 duration-200">
-          <Select value={typeFilter} onValueChange={setTypeFilter}>
+          <Select value={directionFilter} onValueChange={handleFilterChange(setDirectionFilter)}>
+            <SelectTrigger className="w-[140px]" data-testid="select-comm-direction">
+              <SelectValue placeholder={t("emailTracking.filterDirection")} />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">{t("emailTracking.allDirections")}</SelectItem>
+              <SelectItem value="inbound">{t("emailTracking.directionInbound")}</SelectItem>
+              <SelectItem value="outbound">{t("emailTracking.directionOutbound")}</SelectItem>
+            </SelectContent>
+          </Select>
+          <Select value={typeFilter} onValueChange={handleFilterChange(setTypeFilter)}>
             <SelectTrigger className="w-[130px]" data-testid="select-comm-type">
-              <SelectValue placeholder="Type" />
+              <SelectValue placeholder={t("emailTracking.filterType")} />
             </SelectTrigger>
             <SelectContent>
-              <SelectItem value="all">All Types</SelectItem>
-              <SelectItem value="email">Email</SelectItem>
-              <SelectItem value="sms">SMS</SelectItem>
-              <SelectItem value="note">Note</SelectItem>
-              <SelectItem value="letter">Letter</SelectItem>
+              <SelectItem value="all">{t("emailTracking.allTypes")}</SelectItem>
+              <SelectItem value="email">{t("emailTracking.typeEmail")}</SelectItem>
+              <SelectItem value="sms">{t("emailTracking.typeSms")}</SelectItem>
+              <SelectItem value="note">{t("emailTracking.typeNote")}</SelectItem>
+              <SelectItem value="letter">{t("emailTracking.typeLetter")}</SelectItem>
             </SelectContent>
           </Select>
-          <Select value={statusFilter} onValueChange={setStatusFilter}>
+          <Select value={statusFilter} onValueChange={handleFilterChange(setStatusFilter)}>
             <SelectTrigger className="w-[140px]" data-testid="select-comm-status">
-              <SelectValue placeholder="Status" />
+              <SelectValue placeholder={t("common.status")} />
             </SelectTrigger>
             <SelectContent>
-              <SelectItem value="all">All Statuses</SelectItem>
-              <SelectItem value="sent">Sent</SelectItem>
-              <SelectItem value="scheduled">Scheduled</SelectItem>
-              <SelectItem value="draft">Draft</SelectItem>
-              <SelectItem value="failed">Failed</SelectItem>
+              <SelectItem value="all">{t("emailTracking.allStatuses")}</SelectItem>
+              <SelectItem value="sent">{t("emailTracking.commStatusSent")}</SelectItem>
+              <SelectItem value="scheduled">{t("emailTracking.commStatusScheduled")}</SelectItem>
+              <SelectItem value="draft">{t("emailTracking.commStatusDraft")}</SelectItem>
+              <SelectItem value="failed">{t("emailTracking.commStatusFailed")}</SelectItem>
             </SelectContent>
           </Select>
+          {mailboxAccounts.length > 0 && (
+            <Popover>
+              <PopoverTrigger asChild>
+                <Button
+                  variant="outline"
+                  size="default"
+                  data-testid="popover-comm-mailbox"
+                  className="gap-2 w-[160px] justify-start"
+                >
+                  <Mail className="w-4 h-4 shrink-0" />
+                  <span className="truncate">
+                    {selectedMailboxIds.size === 0
+                      ? t("emailTracking.allMailboxes")
+                      : selectedMailboxIds.size === 1
+                        ? mailboxAccounts.find(m => selectedMailboxIds.has(m.id))?.displayName ?? t("emailTracking.nMailboxSelected", { count: 1 })
+                        : t("emailTracking.nMailboxSelected", { count: selectedMailboxIds.size })}
+                  </span>
+                  {selectedMailboxIds.size > 0 && (
+                    <Badge variant="secondary" className="ml-auto shrink-0">{selectedMailboxIds.size}</Badge>
+                  )}
+                </Button>
+              </PopoverTrigger>
+              <PopoverContent className="w-56 p-2" align="start">
+                <div className="space-y-1">
+                  <button
+                    className="flex items-center gap-2 w-full text-sm px-2 py-1.5 rounded hover-elevate text-left"
+                    onClick={() => { setSelectedMailboxIds(new Set()); setPage(1); }}
+                  >
+                    <Check className={`w-4 h-4 ${selectedMailboxIds.size === 0 ? "opacity-100" : "opacity-0"}`} />
+                    {t("emailTracking.allMailboxes")}
+                  </button>
+                  {mailboxAccounts.filter(m => m.isActive).map(m => (
+                    <div
+                      key={m.id}
+                      className="flex items-center gap-2 px-2 py-1.5 rounded hover-elevate cursor-pointer"
+                      onClick={() => toggleMailbox(m.id)}
+                      data-testid={`checkbox-mailbox-${m.id}`}
+                    >
+                      <Checkbox
+                        checked={selectedMailboxIds.has(m.id)}
+                        onCheckedChange={() => toggleMailbox(m.id)}
+                        id={`mailbox-${m.id}`}
+                      />
+                      <label htmlFor={`mailbox-${m.id}`} className="text-sm cursor-pointer truncate flex-1">
+                        {m.displayName}
+                      </label>
+                    </div>
+                  ))}
+                </div>
+              </PopoverContent>
+            </Popover>
+          )}
           <div className="flex items-center gap-2">
             <div className="w-[150px]">
               <DatePickerField
                 value={fromDate}
-                onChange={setFromDate}
-                placeholder="From date"
+                onChange={(d) => { setFromDate(d); setPage(1); }}
+                placeholder={t("emailTracking.dateFrom")}
                 data-testid="input-comm-from-date"
               />
             </div>
@@ -179,8 +499,8 @@ export default function CommunicationListTab({ queryKey }: CommunicationListTabP
             <div className="w-[150px]">
               <DatePickerField
                 value={toDate}
-                onChange={setToDate}
-                placeholder="To date"
+                onChange={(d) => { setToDate(d); setPage(1); }}
+                placeholder={t("emailTracking.dateTo")}
                 data-testid="input-comm-to-date"
               />
             </div>
@@ -194,79 +514,82 @@ export default function CommunicationListTab({ queryKey }: CommunicationListTabP
             <div key={i} className="h-14 bg-muted animate-pulse rounded-md" />
           ))}
         </div>
-      ) : filtered.length === 0 ? (
+      ) : !hasResults ? (
         <Card>
           <CardContent className="flex flex-col items-center justify-center py-12 text-center">
             <div className="w-16 h-16 rounded-full bg-muted flex items-center justify-center mb-4">
               <Inbox className="w-8 h-8 text-muted-foreground" />
             </div>
-            <h3 className="text-lg font-medium mb-1">No communications found</h3>
+            <h3 className="text-lg font-medium mb-1">{t("emailTracking.noCommFound")}</h3>
             <p className="text-sm text-muted-foreground max-w-sm">
-              {search || typeFilter !== "all" || statusFilter !== "all" || fromDate || toDate
-                ? "Try adjusting your search or filters."
-                : "No messages have been sent for this record yet."}
+              {activeFilterCount > 0
+                ? t("emailTracking.noCommFiltered")
+                : t("emailTracking.communicationsNone")}
             </p>
           </CardContent>
         </Card>
       ) : (
-        <div className="rounded-md border">
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead>Subject</TableHead>
-                <TableHead className="hidden sm:table-cell">Type</TableHead>
-                <TableHead className="hidden md:table-cell">Sender</TableHead>
-                <TableHead>Status</TableHead>
-                <TableHead className="hidden lg:table-cell">Date</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {filtered.map((comm) => (
-                <TableRow
-                  key={comm.id}
-                  className="cursor-pointer hover-elevate"
-                  onClick={() => setSelectedComm(comm)}
-                  data-testid={`row-comm-${comm.id}`}
-                >
-                  <TableCell>
-                    <div className="flex items-center gap-2">
-                      <Mail className="w-4 h-4 text-muted-foreground shrink-0" />
-                      <span className="font-medium text-sm truncate max-w-[200px]" data-testid={`text-comm-subject-${comm.id}`}>
-                        {comm.subject}
-                      </span>
-                    </div>
-                  </TableCell>
-                  <TableCell className="hidden sm:table-cell">
-                    <Badge
-                      variant="secondary"
-                      className={`text-xs ${TYPE_COLORS[comm.type] || ""}`}
-                      data-testid={`badge-type-${comm.id}`}
-                    >
-                      {comm.type}
-                    </Badge>
-                  </TableCell>
-                  <TableCell className="hidden md:table-cell text-sm text-muted-foreground">
-                    <span data-testid={`text-sender-${comm.id}`}>
-                      {comm.sentByName || "—"}
-                    </span>
-                  </TableCell>
-                  <TableCell>
-                    <Badge
-                      variant="secondary"
-                      className={`text-xs ${STATUS_COLORS[comm.status] || ""}`}
-                      data-testid={`badge-status-${comm.id}`}
-                    >
-                      {comm.status}
-                    </Badge>
-                  </TableCell>
-                  <TableCell className="hidden lg:table-cell text-sm text-muted-foreground" data-testid={`text-comm-date-${comm.id}`}>
-                    {format(new Date(comm.createdAt), "MMM d, yyyy h:mm a")}
-                  </TableCell>
+        <>
+          <div className="rounded-md border">
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead className="w-6"></TableHead>
+                  <TableHead>{t("emailTracking.colSubject")}</TableHead>
+                  <TableHead className="hidden sm:table-cell">{t("emailTracking.colType")}</TableHead>
+                  <TableHead className="hidden md:table-cell">{t("emailTracking.colFromCount")}</TableHead>
+                  <TableHead>{t("common.status")}</TableHead>
+                  <TableHead className="hidden lg:table-cell">{t("emailTracking.colDate")}</TableHead>
                 </TableRow>
-              ))}
-            </TableBody>
-          </Table>
-        </div>
+              </TableHeader>
+              <TableBody>
+                {threads.map(group => (
+                  <ThreadGroupRow
+                    key={group.threadId}
+                    group={group}
+                    onSelectComm={setSelectedComm}
+                  />
+                ))}
+                {standalone.map(comm => (
+                  <CommRow
+                    key={comm.id}
+                    comm={comm}
+                    onClick={() => setSelectedComm(comm)}
+                  />
+                ))}
+              </TableBody>
+            </Table>
+          </div>
+
+          {totalPages > 1 && (
+            <div className="flex items-center justify-between text-sm text-muted-foreground">
+              <span>
+                {t("emailTracking.showing", { from: (page - 1) * PAGE_LIMIT + 1, to: Math.min(page * PAGE_LIMIT, total), total })}
+              </span>
+              <div className="flex items-center gap-2">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  disabled={page <= 1}
+                  onClick={() => setPage(p => p - 1)}
+                  data-testid="button-comm-prev-page"
+                >
+                  {t("common.previous")}
+                </Button>
+                <span className="text-xs">{t("emailTracking.pageOf", { page, total: totalPages })}</span>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  disabled={page >= totalPages}
+                  onClick={() => setPage(p => p + 1)}
+                  data-testid="button-comm-next-page"
+                >
+                  {t("common.next")}
+                </Button>
+              </div>
+            </div>
+          )}
+        </>
       )}
 
       <Dialog open={!!selectedComm} onOpenChange={(open) => { if (!open) setSelectedComm(null); }}>
@@ -274,79 +597,90 @@ export default function CommunicationListTab({ queryKey }: CommunicationListTabP
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
               <MessageSquare className="w-5 h-5" />
-              Communication Detail
+              {t("emailTracking.commDetail")}
             </DialogTitle>
             <DialogDescription>
-              Read-only view of this communication record.
+              {t("emailTracking.commDetailDesc")}
             </DialogDescription>
           </DialogHeader>
           {selectedComm && (
             <div className="overflow-y-auto flex-1 space-y-4 pr-1">
               <div className="grid grid-cols-2 gap-4 text-sm">
                 <div>
-                  <p className="text-muted-foreground font-medium mb-1">Subject</p>
+                  <p className="text-muted-foreground font-medium mb-1">{t("emailTracking.fieldDirection")}</p>
+                  <div className="flex items-center gap-1.5" data-testid="text-detail-direction">
+                    <DirectionIcon direction={selectedComm.direction} />
+                    <span className="capitalize">{selectedComm.direction ?? "—"}</span>
+                  </div>
+                </div>
+                <div>
+                  <p className="text-muted-foreground font-medium mb-1">{t("emailTracking.subjectLabel")}</p>
                   <p data-testid="text-detail-subject">{selectedComm.subject}</p>
                 </div>
                 <div>
-                  <p className="text-muted-foreground font-medium mb-1">Type</p>
-                  <Badge
-                    variant="secondary"
-                    className={TYPE_COLORS[selectedComm.type] || ""}
-                    data-testid="badge-detail-type"
-                  >
+                  <p className="text-muted-foreground font-medium mb-1">{t("emailTracking.colType")}</p>
+                  <Badge variant="secondary" className={TYPE_COLORS[selectedComm.type] || ""} data-testid="badge-detail-type">
                     {selectedComm.type}
                   </Badge>
                 </div>
                 <div>
-                  <p className="text-muted-foreground font-medium mb-1">Status</p>
-                  <Badge
-                    variant="secondary"
-                    className={STATUS_COLORS[selectedComm.status] || ""}
-                    data-testid="badge-detail-status"
-                  >
+                  <p className="text-muted-foreground font-medium mb-1">{t("common.status")}</p>
+                  <Badge variant="secondary" className={STATUS_COLORS[selectedComm.status] || ""} data-testid="badge-detail-status">
                     {selectedComm.status}
                   </Badge>
                 </div>
+                {selectedComm.fromAddress && (
+                  <div>
+                    <p className="text-muted-foreground font-medium mb-1">{t("emailTracking.fromLabel")}</p>
+                    <p data-testid="text-detail-from">{selectedComm.fromAddress}</p>
+                  </div>
+                )}
                 <div>
-                  <p className="text-muted-foreground font-medium mb-1">Sender</p>
+                  <p className="text-muted-foreground font-medium mb-1">{t("emailTracking.fieldSender")}</p>
                   <p data-testid="text-detail-sender">{selectedComm.sentByName || "—"}</p>
                 </div>
                 <div>
-                  <p className="text-muted-foreground font-medium mb-1">Date</p>
+                  <p className="text-muted-foreground font-medium mb-1">{t("emailTracking.colDate")}</p>
                   <p data-testid="text-detail-date">
                     {format(new Date(selectedComm.createdAt), "MMM d, yyyy h:mm a")}
                   </p>
                 </div>
                 {selectedComm.sentAt && (
                   <div>
-                    <p className="text-muted-foreground font-medium mb-1">Sent At</p>
+                    <p className="text-muted-foreground font-medium mb-1">{t("emailTracking.fieldSentAt")}</p>
                     <p>{format(new Date(selectedComm.sentAt), "MMM d, yyyy h:mm a")}</p>
+                  </div>
+                )}
+                {selectedComm.receivedAt && (
+                  <div>
+                    <p className="text-muted-foreground font-medium mb-1">{t("emailTracking.receivedLabel")}</p>
+                    <p>{format(new Date(selectedComm.receivedAt), "MMM d, yyyy h:mm a")}</p>
                   </div>
                 )}
                 {selectedComm.customerName && (
                   <div>
-                    <p className="text-muted-foreground font-medium mb-1">Customer</p>
+                    <p className="text-muted-foreground font-medium mb-1">{t("emailTracking.fieldCustomer")}</p>
                     <p data-testid="text-detail-customer">{selectedComm.customerName}</p>
                   </div>
                 )}
                 {selectedComm.contactName && (
                   <div>
-                    <p className="text-muted-foreground font-medium mb-1">Contact</p>
+                    <p className="text-muted-foreground font-medium mb-1">{t("emailTracking.fieldContact")}</p>
                     <p data-testid="text-detail-contact">{selectedComm.contactName}</p>
                   </div>
                 )}
                 {selectedComm.templateName && (
                   <div>
-                    <p className="text-muted-foreground font-medium mb-1">Template</p>
+                    <p className="text-muted-foreground font-medium mb-1">{t("emailTracking.fieldTemplate")}</p>
                     <p data-testid="text-detail-template">{selectedComm.templateName}</p>
                   </div>
                 )}
               </div>
-              {selectedComm.body && (
+              {(selectedComm.bodyText || selectedComm.body) && (
                 <div>
-                  <p className="text-muted-foreground font-medium mb-2 text-sm">Message Body</p>
+                  <p className="text-muted-foreground font-medium mb-2 text-sm">{t("emailTracking.bodyLabel")}</p>
                   <div className="border rounded-md p-4 bg-muted/30 text-sm max-h-64 overflow-y-auto whitespace-pre-wrap" data-testid="text-detail-body">
-                    {selectedComm.body}
+                    {selectedComm.bodyText || selectedComm.body}
                   </div>
                 </div>
               )}

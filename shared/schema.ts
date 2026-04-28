@@ -2263,6 +2263,87 @@ export function getDefaultLayerForType(type: MarkupObjectType): string {
   }
 }
 // ─────────────────────────────────────────────────────────────────────────────
+// Email Tracking Tables (Slice 1)
+// ─────────────────────────────────────────────────────────────────────────────
+
+export const mailboxAccounts = pgTable("mailbox_accounts", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  companyId: varchar("company_id").notNull().references(() => companies.id, { onDelete: "cascade" }),
+  emailAddress: text("email_address").notNull(),
+  displayName: text("display_name").notNull(),
+  accountType: text("account_type").notNull().$type<"personal" | "shared">().default("personal"),
+  ownerUserId: varchar("owner_user_id").references(() => users.id, { onDelete: "set null" }),
+  description: text("description"),
+  isActive: boolean("is_active").notNull().default(true),
+  syncStatus: text("sync_status").notNull().$type<"not_connected" | "connected" | "error">().default("not_connected"),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  updatedAt: timestamp("updated_at").notNull().defaultNow(),
+}, (table) => ({
+  mailboxAccountsCompanyEmailUnique: unique().on(table.companyId, table.emailAddress),
+}));
+
+export const insertMailboxAccountSchema = createInsertSchema(mailboxAccounts).omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+}).extend({
+  accountType: z.enum(["personal", "shared"]).default("personal"),
+  syncStatus: z.enum(["not_connected", "connected", "error"]).default("not_connected"),
+  ownerUserId: z.string().nullable().optional(),
+  description: z.string().nullable().optional(),
+});
+
+export type InsertMailboxAccount = z.infer<typeof insertMailboxAccountSchema>;
+export type MailboxAccount = typeof mailboxAccounts.$inferSelect;
+
+export const unsortedEmails = pgTable("unsorted_emails", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  companyId: varchar("company_id").notNull().references(() => companies.id, { onDelete: "cascade" }),
+  mailboxAccountId: varchar("mailbox_account_id").references(() => mailboxAccounts.id, { onDelete: "set null" }),
+  fromAddress: text("from_address").notNull(),
+  fromName: text("from_name"),
+  toAddresses: text("to_addresses").array().default(sql`ARRAY[]::text[]`),
+  subject: text("subject").notNull(),
+  bodyText: text("body_text"),
+  bodyHtml: text("body_html"),
+  receivedAt: timestamp("received_at").notNull(),
+  providerMessageId: text("provider_message_id"),
+  providerThreadId: text("provider_thread_id"),
+  status: text("status").notNull().$type<"pending" | "routed" | "archived" | "spam">().default("pending"),
+  assignedToUserId: varchar("assigned_to_user_id").references(() => users.id, { onDelete: "set null" }),
+  resolvedToCommunicationId: varchar("resolved_to_communication_id"),
+  resolvedByUserId: varchar("resolved_by_user_id").references(() => users.id, { onDelete: "set null" }),
+  resolvedAt: timestamp("resolved_at"),
+  candidateCustomerIds: text("candidate_customer_ids").array().default(sql`ARRAY[]::text[]`),
+  attachmentsJson: jsonb("attachments_json").default(sql`'[]'::jsonb`),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+}, (table) => ({
+  unsortedEmailsCompanyIdIdx: index("unsorted_emails_company_id_idx").on(table.companyId),
+}));
+
+export const insertUnsortedEmailSchema = createInsertSchema(unsortedEmails).omit({
+  id: true,
+  createdAt: true,
+}).extend({
+  status: z.enum(["pending", "routed", "archived", "spam"]).default("pending"),
+  toAddresses: z.array(z.string()).default([]),
+  candidateCustomerIds: z.array(z.string()).default([]),
+  mailboxAccountId: z.string().nullable().optional(),
+  fromName: z.string().nullable().optional(),
+  bodyText: z.string().nullable().optional(),
+  bodyHtml: z.string().nullable().optional(),
+  providerMessageId: z.string().nullable().optional(),
+  providerThreadId: z.string().nullable().optional(),
+  assignedToUserId: z.string().nullable().optional(),
+  resolvedToCommunicationId: z.string().nullable().optional(),
+  resolvedByUserId: z.string().nullable().optional(),
+  resolvedAt: z.coerce.date().nullable().optional(),
+});
+
+export type InsertUnsortedEmail = z.infer<typeof insertUnsortedEmailSchema>;
+export type UnsortedEmail = typeof unsortedEmails.$inferSelect;
+
+// ─────────────────────────────────────────────────────────────────────────────
 // Communication Center Tables
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -2311,6 +2392,20 @@ export const communications = pgTable("communications", {
   failureReason: text("failure_reason"),
   recipientEmail: text("recipient_email"),
   parentCommunicationId: varchar("parent_communication_id").references((): AnyPgColumn => communications.id, { onDelete: "set null" }),
+  mailboxAccountId: varchar("mailbox_account_id").references(() => mailboxAccounts.id, { onDelete: "set null" }),
+  bodyText: text("body_text"),
+  bodyHtml: text("body_html"),
+  fromAddress: text("from_address"),
+  fromName: text("from_name"),
+  toAddresses: text("to_addresses").array().default(sql`ARRAY[]::text[]`),
+  ccAddresses: text("cc_addresses").array().default(sql`ARRAY[]::text[]`),
+  bccAddresses: text("bcc_addresses").array().default(sql`ARRAY[]::text[]`),
+  receivedAt: timestamp("received_at"),
+  providerThreadId: text("provider_thread_id"),
+  inReplyToMessageId: text("in_reply_to_message_id"),
+  routingMethod: text("routing_method").$type<"manual" | "email_match" | "thread_match" | "content_match" | "llm">(),
+  routingConfidence: real("routing_confidence"),
+  attachmentsJson: jsonb("attachments_json").default(sql`'[]'::jsonb`),
   createdAt: timestamp("created_at").notNull().defaultNow(),
   updatedAt: timestamp("updated_at").notNull().defaultNow(),
 }, (table) => ({
@@ -2345,6 +2440,20 @@ export const insertCommunicationSchema = createInsertSchema(communications).omit
   deliveryStatus: z.enum(["pending", "sent", "failed"]).nullable().optional(),
   failureReason: z.string().nullable().optional(),
   recipientEmail: z.string().nullable().optional(),
+  mailboxAccountId: z.string().nullable().optional(),
+  bodyText: z.string().nullable().optional(),
+  bodyHtml: z.string().nullable().optional(),
+  fromAddress: z.string().nullable().optional(),
+  fromName: z.string().nullable().optional(),
+  toAddresses: z.array(z.string()).default([]),
+  ccAddresses: z.array(z.string()).default([]),
+  bccAddresses: z.array(z.string()).default([]),
+  receivedAt: z.coerce.date().nullable().optional(),
+  providerThreadId: z.string().nullable().optional(),
+  inReplyToMessageId: z.string().nullable().optional(),
+  routingMethod: z.enum(["manual", "email_match", "thread_match", "content_match", "llm"]).nullable().optional(),
+  routingConfidence: z.number().min(0).max(1).nullable().optional(),
+  attachmentsJson: z.any().optional(),
 });
 
 export type InsertCommunication = z.infer<typeof insertCommunicationSchema>;

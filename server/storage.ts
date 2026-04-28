@@ -3424,7 +3424,7 @@ export class PgStorage implements IStorage {
         filters?.customerId ? eq(communications.customerId, filters.customerId) : undefined,
         filters?.threadId ? eq(communications.threadId, filters.threadId) : undefined,
       ))
-      .orderBy(desc(communications.createdAt));
+      .orderBy(desc(sql`COALESCE(${communications.sentAt}, ${communications.receivedAt}, ${communications.createdAt})`));
 
     const threadIds = [...new Set(rows.map(r => r.comm.threadId).filter(Boolean))];
     const replyCounts = new Map<string, number>();
@@ -3465,19 +3465,21 @@ export class PgStorage implements IStorage {
       result = result.filter(r =>
         (r.subject?.toLowerCase().includes(s)) ||
         (r.body?.toLowerCase().includes(s)) ||
+        (r.bodyText?.toLowerCase().includes(s)) ||
+        (r.fromAddress?.toLowerCase().includes(s)) ||
         (r.customerName?.toLowerCase().includes(s))
       );
     }
-    if (filters?.startDate) result = result.filter(r => (r.sentAt ?? r.createdAt) >= filters.startDate!);
-    if (filters?.endDate) result = result.filter(r => (r.sentAt ?? r.createdAt) <= filters.endDate!);
+    if (filters?.startDate) result = result.filter(r => (r.sentAt ?? r.receivedAt ?? r.createdAt) >= filters.startDate!);
+    if (filters?.endDate) result = result.filter(r => (r.sentAt ?? r.receivedAt ?? r.createdAt) <= filters.endDate!);
     if (filters?.fromDate) {
       const from = new Date(filters.fromDate);
-      result = result.filter(r => (r.sentAt ?? r.createdAt) >= from);
+      result = result.filter(r => (r.sentAt ?? r.receivedAt ?? r.createdAt) >= from);
     }
     if (filters?.toDate) {
       const to = new Date(filters.toDate);
       to.setHours(23, 59, 59, 999);
-      result = result.filter(r => (r.sentAt ?? r.createdAt) <= to);
+      result = result.filter(r => (r.sentAt ?? r.receivedAt ?? r.createdAt) <= to);
     }
 
     // Scheduled view: only show future-dated items

@@ -9005,6 +9005,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // GET /api/customers/:id/communications — list communications for a specific customer
+  // Supports pagination via ?page=1&limit=50 (returns { data, total, page, limit })
+  // Without page param returns flat array for backward compat
   app.get("/api/customers/:id/communications", async (req, res) => {
     if (!req.isAuthenticated()) return res.status(401).send("Not authenticated");
     const user = req.user as UserWithContext;
@@ -9018,7 +9020,36 @@ export async function registerRoutes(app: Express): Promise<Server> {
     if (req.query.status) filters.status = req.query.status as string;
     if (req.query.fromDate) filters.fromDate = req.query.fromDate as string;
     if (req.query.toDate) filters.toDate = req.query.toDate as string;
-    const items = await storage.getCommunications(user.activeCompanyId, filters);
+    let items = await storage.getCommunications(user.activeCompanyId, filters);
+    if (req.query.direction && req.query.direction !== "all") {
+      items = items.filter(c => c.direction === req.query.direction);
+    }
+    if (req.query.mailboxAccountId) {
+      items = items.filter(c => c.mailboxAccountId === req.query.mailboxAccountId);
+    }
+    if (req.query.mailboxIds) {
+      const ids = new Set((req.query.mailboxIds as string).split(",").filter(Boolean));
+      items = items.filter(c => c.mailboxAccountId && ids.has(c.mailboxAccountId));
+    }
+    if (req.query.search) {
+      const q = (req.query.search as string).toLowerCase();
+      items = items.filter(c =>
+        c.subject.toLowerCase().includes(q) ||
+        (c.body && c.body.toLowerCase().includes(q)) ||
+        (c.bodyText && c.bodyText.toLowerCase().includes(q)) ||
+        (c.fromAddress && c.fromAddress.toLowerCase().includes(q)) ||
+        (c.customerName && c.customerName.toLowerCase().includes(q)) ||
+        (c.sentByName && c.sentByName.toLowerCase().includes(q))
+      );
+    }
+    // Server-side pagination: when ?page is provided return paginated envelope
+    if (req.query.page !== undefined) {
+      const page = Math.max(1, parseInt(req.query.page as string) || 1);
+      const limit = Math.min(Math.max(1, parseInt(req.query.limit as string) || 50), 200);
+      const total = items.length;
+      const data = items.slice((page - 1) * limit, page * limit);
+      return res.json({ data, total, page, limit });
+    }
     res.json(items);
   });
 
@@ -12505,12 +12536,37 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // GET /api/communications
   app.get("/api/communications", requireCommPermission("view"), async (req, res) => {
     const user = req.user as UserWithContext;
-    const { type, status, customerId } = req.query as Record<string, string>;
-    const items = await storage.getCommunications(user.activeCompanyId, {
+    const { type, status, customerId, direction, search, fromDate, toDate } = req.query as Record<string, string>;
+    let items = await storage.getCommunications(user.activeCompanyId, {
       type: type || undefined,
       status: status || undefined,
       customerId: customerId || undefined,
+      fromDate: fromDate || undefined,
+      toDate: toDate || undefined,
     });
+    if (direction && direction !== "all") items = items.filter(c => c.direction === direction);
+    if (search) {
+      const q = search.toLowerCase();
+      items = items.filter(c =>
+        c.subject.toLowerCase().includes(q) ||
+        (c.body && c.body.toLowerCase().includes(q)) ||
+        (c.bodyText && c.bodyText.toLowerCase().includes(q)) ||
+        (c.fromAddress && c.fromAddress.toLowerCase().includes(q)) ||
+        (c.customerName && c.customerName.toLowerCase().includes(q)) ||
+        (c.sentByName && c.sentByName.toLowerCase().includes(q))
+      );
+    }
+    if (req.query.mailboxIds) {
+      const ids = new Set((req.query.mailboxIds as string).split(",").filter(Boolean));
+      items = items.filter(c => c.mailboxAccountId && ids.has(c.mailboxAccountId));
+    }
+    if (req.query.page !== undefined) {
+      const page = Math.max(1, parseInt(req.query.page as string) || 1);
+      const limit = Math.min(Math.max(1, parseInt(req.query.limit as string) || 50), 200);
+      const total = items.length;
+      const data = items.slice((page - 1) * limit, page * limit);
+      return res.json({ data, total, page, limit });
+    }
     res.json(items);
   });
 
@@ -13357,7 +13413,177 @@ export async function registerRoutes(app: Express): Promise<Server> {
     res.json(rows);
   });
 
+  // Customer-scoped communications sub-endpoints (list handled by existing route at /api/customers/:id/communications)
+
+  app.get("/api/customers/:customerId/communications/summary", async (req, res) => {
+    try {
+      const user = req.user as UserWithContext;
+      if (!user?.activeCompanyId) return res.status(401).json({ error: "Unauthorized" });
+      if (user.activeRole !== "admin" && user.activeRole !== "office" && !user.isSuperAdminBool) {
+        return res.status(403).json({ error: "Admin or office role required" });
+      }
+      const { customerId } = req.params;
+      const comms = await storage.getCommunications(user.activeCompanyId, { customerId });
+      const sentComms = comms.filter(c => c.status === "sent");
+      const now = new Date();
+      const thirtyDaysAgo = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
+      const recentCount30d = sentComms.filter(c => {
+        const d = c.sentAt ?? c.receivedAt ?? c.createdAt;
+        return d && new Date(d) >= thirtyDaysAgo;
+      }).length;
+      const sorted = [...sentComms].sort((a, b) => {
+        const da = a.sentAt ?? a.receivedAt ?? a.createdAt;
+        const db2 = b.sentAt ?? b.receivedAt ?? b.createdAt;
+        return new Date(db2).getTime() - new Date(da).getTime();
+      });
+      const last = sorted[0];
+      res.json({
+        totalCount: comms.length,
+        lastContactAt: last ? (last.sentAt ?? last.receivedAt ?? last.createdAt) : null,
+        lastContactDirection: last ? last.direction : null,
+        lastContactAddress: last ? (last.fromAddress ?? last.recipientEmail ?? null) : null,
+        recentCount30d,
+      });
+    } catch (err) {
+      console.error("GET /api/customers/:customerId/communications/summary error:", err);
+      res.status(500).json({ error: "Internal server error" });
+    }
+  });
+
+  app.get("/api/customers/:customerId/communications/recent", async (req, res) => {
+    try {
+      const user = req.user as UserWithContext;
+      if (!user?.activeCompanyId) return res.status(401).json({ error: "Unauthorized" });
+      if (user.activeRole !== "admin" && user.activeRole !== "office" && !user.isSuperAdminBool) {
+        return res.status(403).json({ error: "Admin or office role required" });
+      }
+      const { customerId } = req.params;
+      const comms = await storage.getCommunications(user.activeCompanyId, { customerId });
+      const sorted = [...comms].sort((a, b) => {
+        const da = a.sentAt ?? a.receivedAt ?? a.createdAt;
+        const db2 = b.sentAt ?? b.receivedAt ?? b.createdAt;
+        return new Date(db2).getTime() - new Date(da).getTime();
+      });
+      res.json(sorted.slice(0, 10));
+    } catch (err) {
+      console.error("GET /api/customers/:customerId/communications/recent error:", err);
+      res.status(500).json({ error: "Internal server error" });
+    }
+  });
+
+  app.post("/api/customers/:customerId/communications", async (req, res) => {
+    try {
+      const user = req.user as UserWithContext;
+      if (!user?.activeCompanyId) return res.status(401).json({ error: "Unauthorized" });
+      if (user.activeRole !== "admin" && user.activeRole !== "office" && !user.isSuperAdminBool) {
+        return res.status(403).json({ error: "Admin or office role required" });
+      }
+      const { customerId } = req.params;
+      const customer = await storage.getCustomerById(customerId, user.activeCompanyId);
+      if (!customer) return res.status(404).json({ error: "Customer not found" });
+      const payload = {
+        ...req.body,
+        companyId: user.activeCompanyId,
+        customerId,
+        sentById: user.id,
+        sentByName: user.name,
+        routingMethod: "manual",
+        status: req.body.status ?? "sent",
+        type: req.body.type ?? "email",
+      };
+      if (!payload.subject) payload.subject = "(No subject)";
+      if (!payload.body) payload.body = payload.bodyText ?? "";
+      if (!payload.sentAt && !payload.receivedAt) {
+        if (payload.direction === "inbound") payload.receivedAt = new Date();
+        else payload.sentAt = new Date();
+      }
+      const parsed = insertCommunicationSchema.safeParse(payload);
+      if (!parsed.success) return res.status(400).json({ error: parsed.error.flatten() });
+      const comm = await storage.createCommunication(parsed.data);
+      res.status(201).json(comm);
+    } catch (err) {
+      console.error("POST /api/customers/:customerId/communications error:", err);
+      res.status(500).json({ error: "Internal server error" });
+    }
+  });
+
+  // Mailbox accounts and unsorted emails routers
+  const mailboxAccountsRouter = (await import("./routes/mailboxAccounts")).default;
+  const unsortedEmailsRouter = (await import("./routes/unsortedEmails")).default;
+  app.use("/api/mailbox-accounts", mailboxAccountsRouter);
+  app.use("/api/unsorted-emails", unsortedEmailsRouter);
+
   const httpServer = createServer(app);
 
   return httpServer;
+}
+
+export async function migrateEmailTrackingTables(): Promise<void> {
+  console.log("Migrating email tracking tables (Slice 1)...");
+  try {
+    await db.execute(sql`
+      CREATE TABLE IF NOT EXISTS mailbox_accounts (
+        id VARCHAR PRIMARY KEY DEFAULT gen_random_uuid(),
+        company_id VARCHAR NOT NULL REFERENCES companies(id) ON DELETE CASCADE,
+        email_address TEXT NOT NULL,
+        display_name TEXT NOT NULL,
+        account_type TEXT NOT NULL DEFAULT 'personal',
+        owner_user_id VARCHAR REFERENCES users(id) ON DELETE SET NULL,
+        description TEXT,
+        is_active BOOLEAN NOT NULL DEFAULT true,
+        sync_status TEXT NOT NULL DEFAULT 'not_connected',
+        created_at TIMESTAMP NOT NULL DEFAULT NOW(),
+        updated_at TIMESTAMP NOT NULL DEFAULT NOW(),
+        UNIQUE(company_id, email_address)
+      )
+    `);
+
+    await db.execute(sql`
+      CREATE TABLE IF NOT EXISTS unsorted_emails (
+        id VARCHAR PRIMARY KEY DEFAULT gen_random_uuid(),
+        company_id VARCHAR NOT NULL REFERENCES companies(id) ON DELETE CASCADE,
+        mailbox_account_id VARCHAR REFERENCES mailbox_accounts(id) ON DELETE SET NULL,
+        from_address TEXT NOT NULL,
+        from_name TEXT,
+        to_addresses TEXT[] DEFAULT ARRAY[]::TEXT[],
+        subject TEXT NOT NULL,
+        body_text TEXT,
+        body_html TEXT,
+        received_at TIMESTAMP NOT NULL,
+        provider_message_id TEXT,
+        provider_thread_id TEXT,
+        status TEXT NOT NULL DEFAULT 'pending',
+        assigned_to_user_id VARCHAR REFERENCES users(id) ON DELETE SET NULL,
+        resolved_to_communication_id VARCHAR,
+        resolved_by_user_id VARCHAR REFERENCES users(id) ON DELETE SET NULL,
+        resolved_at TIMESTAMP,
+        candidate_customer_ids TEXT[] DEFAULT ARRAY[]::TEXT[],
+        attachments_json JSONB DEFAULT '[]'::jsonb,
+        created_at TIMESTAMP NOT NULL DEFAULT NOW()
+      )
+    `);
+
+    await db.execute(sql`
+      CREATE INDEX IF NOT EXISTS unsorted_emails_company_id_idx ON unsorted_emails(company_id)
+    `);
+
+    await db.execute(sql`ALTER TABLE communications ADD COLUMN IF NOT EXISTS mailbox_account_id VARCHAR REFERENCES mailbox_accounts(id) ON DELETE SET NULL`);
+    await db.execute(sql`ALTER TABLE communications ADD COLUMN IF NOT EXISTS body_text TEXT`);
+    await db.execute(sql`ALTER TABLE communications ADD COLUMN IF NOT EXISTS body_html TEXT`);
+    await db.execute(sql`ALTER TABLE communications ADD COLUMN IF NOT EXISTS from_address TEXT`);
+    await db.execute(sql`ALTER TABLE communications ADD COLUMN IF NOT EXISTS from_name TEXT`);
+    await db.execute(sql`ALTER TABLE communications ADD COLUMN IF NOT EXISTS to_addresses TEXT[] DEFAULT ARRAY[]::TEXT[]`);
+    await db.execute(sql`ALTER TABLE communications ADD COLUMN IF NOT EXISTS cc_addresses TEXT[] DEFAULT ARRAY[]::TEXT[]`);
+    await db.execute(sql`ALTER TABLE communications ADD COLUMN IF NOT EXISTS bcc_addresses TEXT[] DEFAULT ARRAY[]::TEXT[]`);
+    await db.execute(sql`ALTER TABLE communications ADD COLUMN IF NOT EXISTS received_at TIMESTAMP`);
+    await db.execute(sql`ALTER TABLE communications ADD COLUMN IF NOT EXISTS provider_thread_id TEXT`);
+    await db.execute(sql`ALTER TABLE communications ADD COLUMN IF NOT EXISTS in_reply_to_message_id TEXT`);
+    await db.execute(sql`ALTER TABLE communications ADD COLUMN IF NOT EXISTS routing_method TEXT`);
+    await db.execute(sql`ALTER TABLE communications ADD COLUMN IF NOT EXISTS routing_confidence REAL`);
+    await db.execute(sql`ALTER TABLE communications ADD COLUMN IF NOT EXISTS attachments_json JSONB DEFAULT '[]'::jsonb`);
+
+    console.log("Email tracking tables migration complete");
+  } catch (error) {
+    console.error("Error migrating email tracking tables:", error);
+  }
 }

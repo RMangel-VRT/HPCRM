@@ -63,6 +63,8 @@ import SeasonDetail from "@/pages/SeasonDetail";
 import CommunicationsCenter from "@/pages/CommunicationsCenter";
 import GlobalOperationsPage from "@/pages/GlobalOperationsPage";
 import PropertyDetail from "@/pages/PropertyDetail";
+import UnsortedInboxPage from "@/pages/UnsortedInboxPage";
+import MailboxAccountsSettingsPage from "@/pages/MailboxAccountsSettingsPage";
 import NotFound from "@/pages/not-found";
 
 interface ErrorBoundaryProps {
@@ -314,6 +316,8 @@ function Router() {
           allowedRoles={["admin", "office", "field_manager", "field", "chemical_manager"]}
         />
         <ProtectedRoute path="/dashboard/communications" component={CommunicationsCenter} allowedRoles={["admin", "office"]} />
+        <ProtectedRoute path="/dashboard/communications/unsorted" component={UnsortedInboxPage} allowedRoles={["admin", "office"]} />
+        <ProtectedRoute path="/dashboard/settings/mailbox-accounts" component={MailboxAccountsSettingsPage} allowedRoles={["admin"]} />
         <ProtectedRoute path="/dashboard/reports" component={ReportsPage} allowedRoles={["admin", "office"]} />
         <ProtectedRoute path="/dashboard/users" component={UsersPage} allowedRoles={["admin"]} />
         <ProtectedRoute path="/dashboard/settings" component={SettingsPage} allowedRoles={["admin", "office"]} />

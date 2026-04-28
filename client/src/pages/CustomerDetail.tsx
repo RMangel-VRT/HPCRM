@@ -2349,6 +2349,7 @@ export default function CustomerDetail() {
           <TabsContent value="communications" className="space-y-4">
             <CommunicationListTab
               queryKey={["/api/customers", params?.id!, "communications"]}
+              customerId={params?.id}
             />
           </TabsContent>
         )}

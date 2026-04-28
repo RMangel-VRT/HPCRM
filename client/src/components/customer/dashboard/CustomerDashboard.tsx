@@ -1,9 +1,12 @@
+import { useState } from "react";
+import { useTranslation } from "react-i18next";
 import { useQuery } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Separator } from "@/components/ui/separator";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Link } from "wouter";
 import {
   DollarSign,
@@ -21,7 +24,13 @@ import {
   ArrowRight,
   Phone,
   Mail,
+  MessagesSquare,
+  ArrowDownLeft,
+  ArrowUpRight,
+  Plus,
 } from "lucide-react";
+import CommunicationsQuickViewModal from "@/components/customer/communications/CommunicationsQuickViewModal";
+import LogCommunicationForm from "@/components/customer/communications/LogCommunicationForm";
 import { formatDistanceToNow, format, isFuture } from "date-fns";
 import { useToast } from "@/hooks/use-toast";
 import StatusBadge from "@/components/StatusBadge";
@@ -87,6 +96,7 @@ export default function CustomerDashboard({
   childCustomers,
   onTabChange,
 }: CustomerDashboardProps) {
+  const { t } = useTranslation();
   const currentYear = new Date().getFullYear();
 
   const { data: allMonthlyAmounts = [] } = useQuery<{ contractId: string; amounts: ContractMonthlyAmount[] }[]>({
@@ -96,6 +106,19 @@ export default function CustomerDashboard({
   const { data: communications = [] } = useQuery<CommunicationWithDetails[]>({
     queryKey: ["/api/customers", customerId, "communications"],
   });
+
+  const { data: commsSummary } = useQuery<{
+    totalCount: number;
+    lastContactAt: string | null;
+    lastContactDirection: string | null;
+    lastContactAddress: string | null;
+    recentCount30d: number;
+  }>({
+    queryKey: ["/api/customers", customerId, "communications", "summary"],
+  });
+
+  const [showCommsModal, setShowCommsModal] = useState(false);
+  const [showLogCommDialog, setShowLogCommDialog] = useState(false);
 
   const activeContracts = contracts.filter((c) => c.status === "active");
   const openTickets = tickets.filter((t) => !t.completedAt);
@@ -208,7 +231,39 @@ export default function CustomerDashboard({
           pmCompany={pmCompany ?? null}
           pmManager={pmManager ?? null}
         />
+
+        <CommunicationsCard
+          totalCount={commsSummary?.totalCount ?? 0}
+          lastContactAt={commsSummary?.lastContactAt ?? null}
+          lastContactDirection={commsSummary?.lastContactDirection ?? null}
+          lastContactAddress={commsSummary?.lastContactAddress ?? null}
+          recentCount30d={commsSummary?.recentCount30d ?? 0}
+          onViewAll={() => setShowCommsModal(true)}
+          onLogNew={() => setShowLogCommDialog(true)}
+        />
       </div>
+
+      <CommunicationsQuickViewModal
+        open={showCommsModal}
+        onOpenChange={setShowCommsModal}
+        customerId={customerId}
+        customerName={customer.name}
+        totalCount={commsSummary?.totalCount ?? 0}
+        onOpenFullTab={() => { setShowCommsModal(false); onTabChange("communications"); }}
+      />
+
+      <Dialog open={showLogCommDialog} onOpenChange={setShowLogCommDialog}>
+        <DialogContent className="max-w-xl" data-testid="dialog-log-comm">
+          <DialogHeader>
+            <DialogTitle>{t("emailTracking.logCommunicationBtn")}</DialogTitle>
+          </DialogHeader>
+          <LogCommunicationForm
+            customerId={customerId}
+            onSuccess={() => setShowLogCommDialog(false)}
+            onCancel={() => setShowLogCommDialog(false)}
+          />
+        </DialogContent>
+      </Dialog>
 
       {isParentCustomer && childCustomers.length > 0 && (
         <Card>
@@ -723,6 +778,94 @@ function PropertyCard({
             </div>
           </>
         )}
+      </CardContent>
+    </Card>
+  );
+}
+
+function CommunicationsCard({
+  totalCount,
+  lastContactAt,
+  lastContactDirection,
+  lastContactAddress,
+  recentCount30d,
+  onViewAll,
+  onLogNew,
+}: {
+  totalCount: number;
+  lastContactAt: string | null;
+  lastContactDirection: string | null;
+  lastContactAddress: string | null;
+  recentCount30d: number;
+  onViewAll: () => void;
+  onLogNew: () => void;
+}) {
+  const { t } = useTranslation();
+  return (
+    <Card data-testid="card-communications">
+      <CardHeader className="flex flex-row items-center justify-between gap-2 pb-2">
+        <CardTitle className="text-sm font-medium text-muted-foreground flex items-center gap-2">
+          <MessagesSquare className="w-4 h-4" />
+          {t("emailTracking.communicationsTitle")}
+        </CardTitle>
+        <Button
+          variant="ghost"
+          size="sm"
+          onClick={onViewAll}
+          data-testid="button-view-all-comms"
+          className="text-xs"
+        >
+          {t("emailTracking.viewAllComms")}
+          <ArrowRight className="w-3 h-3 ml-1" />
+        </Button>
+      </CardHeader>
+      <CardContent className="space-y-3">
+        {totalCount === 0 ? (
+          <div className="flex flex-col items-center justify-center py-4 gap-2 text-center" data-testid="empty-state-communications">
+            <MessagesSquare className="w-8 h-8 text-muted-foreground/50" />
+            <p className="text-sm text-muted-foreground">{t("emailTracking.communicationsEmptyState")}</p>
+          </div>
+        ) : (
+          <>
+            <div className="flex items-center justify-between gap-2">
+              <div>
+                <p className="text-2xl font-semibold" data-testid="text-comm-total-count">{totalCount}</p>
+                <p className="text-xs text-muted-foreground">{t("emailTracking.communicationsTotal")}</p>
+              </div>
+              <div className="text-right">
+                <p className="text-lg font-medium" data-testid="text-comm-recent-count">{recentCount30d}</p>
+                <p className="text-xs text-muted-foreground">{t("emailTracking.communicationsLast30")}</p>
+              </div>
+            </div>
+            {lastContactAt && (
+              <div className="flex flex-col gap-0.5">
+                <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                  {lastContactDirection === "inbound"
+                    ? <ArrowDownLeft className="w-3.5 h-3.5 text-blue-500 shrink-0" />
+                    : <ArrowUpRight className="w-3.5 h-3.5 text-green-600 shrink-0" />}
+                  <span data-testid="text-last-contact">
+                    {t("emailTracking.communicationsLastContact")} {formatDistanceToNow(new Date(lastContactAt), { addSuffix: true })}
+                  </span>
+                </div>
+                {lastContactAddress && (
+                  <p className="text-xs text-muted-foreground pl-5 truncate" data-testid="text-last-contact-address">
+                    {lastContactAddress}
+                  </p>
+                )}
+              </div>
+            )}
+          </>
+        )}
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={onLogNew}
+          data-testid="button-log-comm-from-dashboard"
+          className="w-full gap-1"
+        >
+          <Plus className="w-3 h-3" />
+          {t("emailTracking.logCommunicationBtn")}
+        </Button>
       </CardContent>
     </Card>
   );

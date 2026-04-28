@@ -474,7 +474,13 @@ export default function SettingsPage() {
         </p>
       </div>
 
-      <Tabs value={activeTab} onValueChange={setActiveTab}>
+      <Tabs value={activeTab} onValueChange={(v) => {
+        if (v === "mailbox-accounts") {
+          setLocation("/dashboard/settings/mailbox-accounts");
+        } else {
+          setActiveTab(v);
+        }
+      }}>
         <TabsList className="flex-wrap h-auto gap-1">
           {isAdmin && (
             <>
@@ -497,6 +503,9 @@ export default function SettingsPage() {
           )}
           {isAdmin && (
             <TabsTrigger value="service-plans" data-testid="tab-service-plans">Service Plans</TabsTrigger>
+          )}
+          {isAdmin && (
+            <TabsTrigger value="mailbox-accounts" data-testid="tab-mailbox-accounts">{t("nav.mailboxAccounts")}</TabsTrigger>
           )}
         </TabsList>
 

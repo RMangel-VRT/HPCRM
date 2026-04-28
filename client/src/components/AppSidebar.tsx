@@ -209,7 +209,8 @@ export default function AppSidebar({
     }
 
     if (userRole === "admin" || userRole === "office") {
-      items.push({ title: "Communications", url: "/dashboard/communications", icon: MessagesSquare });
+      items.push({ title: t("emailTracking.communicationsTitle"), url: "/dashboard/communications", icon: MessagesSquare });
+      items.push({ title: t("nav.inbox"), url: "/dashboard/communications/unsorted", icon: Mail });
     }
 
     if (userRole === "admin" || userRole === "office" || userRole === "field_manager" || userRole === "chemical_manager") {
@@ -232,6 +233,9 @@ export default function AppSidebar({
     const items: NavItem[] = [];
     if (userRole === "admin" || userRole === "office") {
       items.push({ title: t("nav.settings"), url: "/dashboard/settings", icon: Settings });
+    }
+    if (userRole === "admin") {
+      items.push({ title: t("nav.mailboxAccounts"), url: "/dashboard/settings/mailbox-accounts", icon: Mail });
     }
     if (userRole === "admin") {
       items.push({ title: t("nav.team"), url: "/dashboard/users", icon: Users });
