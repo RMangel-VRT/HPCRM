@@ -287,11 +287,11 @@ export default function ServiceFulfillmentPanel({ customerId }: Props) {
       )}
 
       <Dialog open={addDialogOpen} onOpenChange={setAddDialogOpen}>
-        <DialogContent>
+        <DialogContent className="max-h-[90vh] flex flex-col">
           <DialogHeader>
             <DialogTitle>{editingPlan ? "Edit Service Plan Entry" : "Add Service to Plan"}</DialogTitle>
           </DialogHeader>
-          <div className="space-y-4">
+          <div className="overflow-y-auto flex-1 space-y-4 pr-1">
             {!editingPlan && (
               <div className="space-y-2">
                 <Label>Service Category</Label>
@@ -341,7 +341,7 @@ export default function ServiceFulfillmentPanel({ customerId }: Props) {
               />
             </div>
           </div>
-          <DialogFooter>
+          <DialogFooter className="pt-4">
             <Button variant="outline" onClick={() => setAddDialogOpen(false)} data-testid="button-cancel-plan">Cancel</Button>
             <Button
               onClick={handleSubmit}
@@ -355,11 +355,11 @@ export default function ServiceFulfillmentPanel({ customerId }: Props) {
       </Dialog>
 
       <Dialog open={fromTemplateOpen} onOpenChange={setFromTemplateOpen}>
-        <DialogContent>
+        <DialogContent className="max-h-[90vh] flex flex-col">
           <DialogHeader>
             <DialogTitle>Populate from Template</DialogTitle>
           </DialogHeader>
-          <div className="space-y-4">
+          <div className="overflow-y-auto flex-1 space-y-4 pr-1">
             <p className="text-sm text-muted-foreground">
               Select a service plan template to populate the {selectedYear} plan for this customer. Each template line will be added as an expected quantity.
             </p>
@@ -394,7 +394,7 @@ export default function ServiceFulfillmentPanel({ customerId }: Props) {
               </div>
             )}
           </div>
-          <DialogFooter>
+          <DialogFooter className="pt-4">
             <Button variant="outline" onClick={() => setFromTemplateOpen(false)} data-testid="button-cancel-template-populate">Cancel</Button>
             <Button
               disabled={!selectedTemplateId || fromTemplateMutation.isPending}

@@ -190,7 +190,7 @@ export default function UsersPage() {
                 {t("users.addUser")}
               </Button>
             </DialogTrigger>
-            <DialogContent>
+            <DialogContent className="max-h-[90vh] flex flex-col">
               <DialogHeader>
                 <DialogTitle>{t("users.createNewUser")}</DialogTitle>
                 <DialogDescription>
@@ -198,7 +198,8 @@ export default function UsersPage() {
                 </DialogDescription>
               </DialogHeader>
               <Form {...createUserForm}>
-                <form onSubmit={createUserForm.handleSubmit((data) => createUserMutation.mutate(data))} className="space-y-4">
+                <form onSubmit={createUserForm.handleSubmit((data) => createUserMutation.mutate(data))} className="flex flex-col flex-1 min-h-0">
+                  <div className="overflow-y-auto flex-1 space-y-4 pr-1">
                   <FormField
                     control={createUserForm.control}
                     name="phone"
@@ -300,6 +301,7 @@ export default function UsersPage() {
                       </FormItem>
                     )}
                   />
+                  </div>
                   <DialogFooter>
                     <Button type="submit" disabled={createUserMutation.isPending} data-testid="button-submit-create-user">
                       {createUserMutation.isPending ? t("common.creating") : t("users.createUser")}
@@ -368,7 +370,7 @@ export default function UsersPage() {
 
       {selectedUser && (
         <Dialog open={editDialogOpen} onOpenChange={setEditDialogOpen}>
-          <DialogContent>
+          <DialogContent className="max-h-[90vh] flex flex-col">
             <DialogHeader>
               <DialogTitle>{t("users.editUser")}</DialogTitle>
               <DialogDescription>
@@ -376,7 +378,8 @@ export default function UsersPage() {
               </DialogDescription>
             </DialogHeader>
             <Form {...editUserForm}>
-              <form onSubmit={editUserForm.handleSubmit((data) => updateUserMutation.mutate({ id: selectedUser.companyUser.id, updates: data }))} className="space-y-4">
+              <form onSubmit={editUserForm.handleSubmit((data) => updateUserMutation.mutate({ id: selectedUser.companyUser.id, updates: data }))} className="flex flex-col flex-1 min-h-0">
+                <div className="overflow-y-auto flex-1 space-y-4 pr-1">
                 {selectedUser.isSuperAdmin ? (
                   <div className="space-y-2">
                     <div className="flex items-center justify-between">
@@ -452,6 +455,7 @@ export default function UsersPage() {
                     </FormItem>
                   )}
                 />
+                </div>
                 <DialogFooter>
                   <Button type="submit" disabled={updateUserMutation.isPending} data-testid="button-submit-edit-user">
                     {updateUserMutation.isPending ? t("common.updating") : t("users.updateUser")}

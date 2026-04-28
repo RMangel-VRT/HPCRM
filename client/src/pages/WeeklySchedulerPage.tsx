@@ -680,11 +680,11 @@ export default function WeeklySchedulerPage() {
         </Card>
 
         <Dialog open={showCrewManager} onOpenChange={setShowCrewManager}>
-          <DialogContent className="sm:max-w-lg">
+          <DialogContent className="sm:max-w-lg max-h-[90vh] flex flex-col">
             <DialogHeader>
               <DialogTitle>{t("schedule.crewManager")}</DialogTitle>
             </DialogHeader>
-            <div className="space-y-4">
+            <div className="overflow-y-auto flex-1 space-y-4 pr-1">
               <div className="space-y-3 border rounded-md p-3">
                 <div className="text-sm font-medium">{editingCrew ? t("common.edit") : t("schedule.addCrew")}</div>
                 <div className="grid grid-cols-[1fr,100px] gap-2">
@@ -794,7 +794,7 @@ export default function WeeklySchedulerPage() {
                 </div>
               )}
             </div>
-            <DialogFooter>
+            <DialogFooter className="pt-4">
               <Button variant="outline" onClick={() => setShowCrewManager(false)}>
                 {t("common.close")}
               </Button>
@@ -1064,11 +1064,11 @@ export default function WeeklySchedulerPage() {
           setDeleteConfirmId(null);
         }
       }}>
-        <DialogContent className="sm:max-w-lg">
+        <DialogContent className="sm:max-w-lg max-h-[90vh] flex flex-col">
           <DialogHeader>
             <DialogTitle>{t("schedule.templateManager")}</DialogTitle>
           </DialogHeader>
-          <div className="space-y-4">
+          <div className="overflow-y-auto flex-1 space-y-4 pr-1">
             <div className="space-y-2">
               {templates.map((tmpl) => {
                 const blockCount = tmpl.id === activeTemplate?.id ? blocks.length : 0;
@@ -1246,7 +1246,7 @@ export default function WeeklySchedulerPage() {
               {t("schedule.createTemplate")}
             </Button>
           </div>
-          <DialogFooter>
+          <DialogFooter className="pt-4">
             <Button variant="outline" onClick={() => setShowTemplateManager(false)}>
               {t("common.close")}
             </Button>
@@ -1255,11 +1255,11 @@ export default function WeeklySchedulerPage() {
       </Dialog>
 
       <Dialog open={showTemplateSettings} onOpenChange={setShowTemplateSettings}>
-        <DialogContent>
+        <DialogContent className="max-h-[90vh] flex flex-col">
           <DialogHeader>
             <DialogTitle>{t("schedule.templateSettings")} - {activeTemplate?.name}</DialogTitle>
           </DialogHeader>
-          <div className="space-y-4">
+          <div className="overflow-y-auto flex-1 space-y-4 pr-1">
             <div className="grid grid-cols-2 gap-4">
               <div className="space-y-2">
                 <Label>{t("schedule.seasonStart")}</Label>
@@ -1299,7 +1299,7 @@ export default function WeeklySchedulerPage() {
               </div>
             </div>
           </div>
-          <DialogFooter>
+          <DialogFooter className="pt-4">
             <Button variant="outline" onClick={() => setShowTemplateSettings(false)}>
               {t("common.cancel")}
             </Button>
@@ -1315,11 +1315,11 @@ export default function WeeklySchedulerPage() {
       </Dialog>
 
       <Dialog open={showCrewManager} onOpenChange={setShowCrewManager}>
-        <DialogContent className="sm:max-w-lg">
+        <DialogContent className="sm:max-w-lg max-h-[90vh] flex flex-col">
           <DialogHeader>
             <DialogTitle>{t("schedule.crewManager")}</DialogTitle>
           </DialogHeader>
-          <div className="space-y-4">
+          <div className="overflow-y-auto flex-1 space-y-4 pr-1">
             <div className="space-y-3 border rounded-md p-3">
               <div className="text-sm font-medium">{editingCrew ? t("common.edit") : t("schedule.addCrew")}</div>
               <div className="grid grid-cols-[1fr,100px] gap-2">
@@ -1435,7 +1435,7 @@ export default function WeeklySchedulerPage() {
               </div>
             )}
           </div>
-          <DialogFooter>
+          <DialogFooter className="pt-4">
             <Button variant="outline" onClick={() => setShowCrewManager(false)}>
               {t("common.close")}
             </Button>

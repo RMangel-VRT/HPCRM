@@ -818,14 +818,14 @@ function ContractCard({ contract, customerId, canUploadDocuments, onUploadClick,
       </AlertDialog>
 
       <Dialog open={isEditContractOpen} onOpenChange={setIsEditContractOpen}>
-        <DialogContent className="max-w-xl">
+        <DialogContent className="max-w-xl max-h-[90vh] flex flex-col">
           <DialogHeader>
             <DialogTitle>{t("customerDetail.editContractDetails")}</DialogTitle>
             <DialogDescription>
               {t("customerDetail.updateContractInfo")}
             </DialogDescription>
           </DialogHeader>
-          <div className="space-y-4">
+          <div className="overflow-y-auto flex-1 space-y-4 pr-1">
             <div className="grid grid-cols-2 gap-4">
               <div>
                 <Label>{t("contracts.serviceType")}</Label>
@@ -937,7 +937,7 @@ function ContractCard({ contract, customerId, canUploadDocuments, onUploadClick,
               </div>
             )}
           </div>
-          <DialogFooter>
+          <DialogFooter className="pt-4">
             <Button variant="outline" onClick={() => setIsEditContractOpen(false)} data-testid="edit-button-cancel">
               {t("common.cancel")}
             </Button>
@@ -970,14 +970,14 @@ function VersionHistoryDialog({ contractId, onClose, formatFileSize }: VersionHi
 
   return (
     <Dialog open={!!contractId} onOpenChange={(open) => !open && onClose()}>
-      <DialogContent className="max-w-3xl">
+      <DialogContent className="max-w-3xl max-h-[90vh] flex flex-col">
         <DialogHeader>
           <DialogTitle>{t("contracts.versionHistory")}</DialogTitle>
           <DialogDescription>
             {t("customerDetail.signedAgreement")}
           </DialogDescription>
         </DialogHeader>
-        
+        <div className="overflow-y-auto flex-1">
         {isLoading ? (
           <div className="space-y-2">
             <Skeleton className="h-12 w-full" />
@@ -1037,6 +1037,7 @@ function VersionHistoryDialog({ contractId, onClose, formatFileSize }: VersionHi
             </Table>
           </div>
         )}
+        </div>
       </DialogContent>
     </Dialog>
   );
@@ -2359,7 +2360,7 @@ export default function CustomerDetail() {
       </Tabs>
 
       <Dialog open={isAddContractDialogOpen} onOpenChange={setIsAddContractDialogOpen}>
-        <DialogContent className="max-w-2xl">
+        <DialogContent className="max-w-2xl max-h-[90vh] flex flex-col">
           <DialogHeader>
             <DialogTitle>{t("customerDetail.addContractTitle")}</DialogTitle>
             <DialogDescription>
@@ -2367,7 +2368,8 @@ export default function CustomerDetail() {
             </DialogDescription>
           </DialogHeader>
           <Form {...contractForm}>
-            <form onSubmit={contractForm.handleSubmit((data) => createContractMutation.mutate(data))} className="space-y-4">
+            <form onSubmit={contractForm.handleSubmit((data) => createContractMutation.mutate(data))} className="flex flex-col flex-1 min-h-0">
+              <div className="overflow-y-auto flex-1 space-y-4 pr-1">
               <div className="grid grid-cols-2 gap-4">
                 <FormField
                   control={contractForm.control}
@@ -2587,6 +2589,7 @@ export default function CustomerDetail() {
                   />
                 </div>
               )}
+              </div>
               <DialogFooter>
                 <Button type="button" variant="outline" onClick={() => setIsAddContractDialogOpen(false)} data-testid="button-cancel">
                   {t("common.cancel")}
@@ -2608,7 +2611,7 @@ export default function CustomerDetail() {
           contactForm.reset();
         }
       }}>
-        <DialogContent>
+        <DialogContent className="max-h-[90vh] flex flex-col">
           <DialogHeader>
             <DialogTitle>{editingContact ? t("customerDetail.editContact") : t("customerDetail.addContact")}</DialogTitle>
             <DialogDescription>
@@ -2626,7 +2629,8 @@ export default function CustomerDetail() {
               } else {
                 createContactMutation.mutate(payload);
               }
-            })} className="space-y-4">
+            })} className="flex flex-col flex-1 min-h-0">
+              <div className="overflow-y-auto flex-1 space-y-4 pr-1">
               <FormField
                 control={contactForm.control}
                 name="name"
@@ -2813,6 +2817,7 @@ export default function CustomerDetail() {
                   </FormItem>
                 )}
               />
+              </div>
               <DialogFooter>
                 <Button type="button" variant="outline" onClick={() => {
                   setIsAddContactDialogOpen(false);
@@ -4440,14 +4445,14 @@ function CustomerMapsSection({ customerId }: { customerId: string }) {
 
       {/* Upload Dialog */}
       <Dialog open={showUploadDialog} onOpenChange={setShowUploadDialog}>
-        <DialogContent className="max-w-md">
+        <DialogContent className="max-w-md max-h-[90vh] flex flex-col">
           <DialogHeader>
             <DialogTitle>{t("propertyMaps.addMapLayer")}</DialogTitle>
             <DialogDescription>
               {t("propertyMaps.description")}
             </DialogDescription>
           </DialogHeader>
-          <div className="space-y-4">
+          <div className="overflow-y-auto flex-1 space-y-4 pr-1">
             <div className="space-y-2">
               <Label>{t("propertyMaps.layerCategory")}</Label>
               <Select
@@ -4588,7 +4593,7 @@ function CustomerMapsSection({ customerId }: { customerId: string }) {
               </p>
             </div>
           </div>
-          <DialogFooter>
+          <DialogFooter className="pt-4">
             <Button
               variant="outline"
               onClick={() => {

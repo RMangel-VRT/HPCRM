@@ -435,14 +435,14 @@ function CustomerMapManager({ customerId, customerName, onClose }: { customerId:
 
 
       <Dialog open={showUploadDialog} onOpenChange={setShowUploadDialog}>
-        <DialogContent className="max-w-md">
+        <DialogContent className="max-w-md max-h-[90vh] flex flex-col">
           <DialogHeader>
             <DialogTitle>{t("propertyMaps.addMapLayer")}</DialogTitle>
             <DialogDescription>
               Upload a KML file to define a service zone or route
             </DialogDescription>
           </DialogHeader>
-          <div className="space-y-4">
+          <div className="overflow-y-auto flex-1 space-y-4 pr-1">
             <div className="space-y-2">
               <Label>{t("propertyMaps.layerCategory")}</Label>
               <Select
@@ -581,7 +581,7 @@ function CustomerMapManager({ customerId, customerName, onClose }: { customerId:
               </p>
             </div>
           </div>
-          <DialogFooter>
+          <DialogFooter className="pt-4">
             <Button
               variant="outline"
               onClick={() => {

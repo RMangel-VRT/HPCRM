@@ -584,11 +584,11 @@ export default function SnowEventDetail() {
 
       {/* Edit Event Dialog */}
       <Dialog open={showEditEvent} onOpenChange={setShowEditEvent}>
-        <DialogContent className="max-w-lg">
+        <DialogContent className="max-w-lg max-h-[90vh] flex flex-col">
           <DialogHeader>
             <DialogTitle>{t("snow.editEvent")}</DialogTitle>
           </DialogHeader>
-          <div className="space-y-4">
+          <div className="overflow-y-auto flex-1 space-y-4 pr-1">
             <div>
               <Label>{t("snow.eventName")}</Label>
               <Input value={editName} onChange={(e) => setEditName(e.target.value)} data-testid="input-edit-name" />
@@ -629,7 +629,7 @@ export default function SnowEventDetail() {
               <Textarea value={editEventNotes} onChange={(e) => setEditEventNotes(e.target.value)} data-testid="input-edit-event-notes" />
             </div>
           </div>
-          <DialogFooter>
+          <DialogFooter className="pt-4">
             <Button variant="outline" onClick={() => setShowEditEvent(false)}>{t("common.cancel")}</Button>
             <Button onClick={handleUpdateEvent} disabled={updateEventMutation.isPending} data-testid="button-save-edit">
               {updateEventMutation.isPending ? t("common.saving") : t("settings.saveChanges")}

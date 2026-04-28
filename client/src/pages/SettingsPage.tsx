@@ -1085,14 +1085,14 @@ export default function SettingsPage() {
 
       {/* Edit Email Template Dialog */}
       <Dialog open={!!editingTemplate} onOpenChange={(open) => { if (!open) setEditingTemplate(null); }}>
-        <DialogContent className="max-w-2xl">
+        <DialogContent className="max-w-2xl max-h-[90vh] flex flex-col">
           <DialogHeader>
             <DialogTitle>{t("common.edit")} {t("settings.tabs.emailTemplates")}</DialogTitle>
             <DialogDescription>
               Modify the subject and body of this template. Use {"{{variableName}}"} for dynamic content.
             </DialogDescription>
           </DialogHeader>
-          <div className="space-y-4">
+          <div className="overflow-y-auto flex-1 space-y-4 pr-1">
             <div className="space-y-2">
               <Label>{t("schedule.templateName")}</Label>
               <p className="text-sm text-muted-foreground">{editingTemplate?.name}</p>
@@ -1148,7 +1148,7 @@ export default function SettingsPage() {
               <Label>{t("common.active")}</Label>
             </div>
           </div>
-          <DialogFooter>
+          <DialogFooter className="pt-4">
             <Button variant="outline" onClick={() => setEditingTemplate(null)}>{t("common.cancel")}</Button>
             <Button
               onClick={() => {
@@ -1174,7 +1174,7 @@ export default function SettingsPage() {
 
       {/* Property Management Company Dialog */}
       <Dialog open={pmCompanyDialogOpen} onOpenChange={setPmCompanyDialogOpen}>
-        <DialogContent>
+        <DialogContent className="max-h-[90vh] flex flex-col">
           <DialogHeader>
             <DialogTitle>{editingPmCompany ? t("common.edit") : t("common.add")}</DialogTitle>
             <DialogDescription>
@@ -1182,7 +1182,8 @@ export default function SettingsPage() {
             </DialogDescription>
           </DialogHeader>
           <Form {...pmCompanyForm}>
-            <form onSubmit={handlePmCompanySubmit} className="space-y-4">
+            <form onSubmit={handlePmCompanySubmit} className="flex flex-col flex-1 min-h-0">
+              <div className="overflow-y-auto flex-1 space-y-4 pr-1">
               <FormField
                 control={pmCompanyForm.control}
                 name="name"
@@ -1291,6 +1292,7 @@ export default function SettingsPage() {
                   </FormItem>
                 )}
               />
+              </div>
               <DialogFooter>
                 <Button type="button" variant="outline" onClick={() => setPmCompanyDialogOpen(false)}>{t("common.cancel")}</Button>
                 <Button type="submit" disabled={createPmCompanyMutation.isPending || updatePmCompanyMutation.isPending} data-testid="button-save-pm-company">
@@ -1304,7 +1306,7 @@ export default function SettingsPage() {
 
       {/* Property Manager Dialog */}
       <Dialog open={pmManagerDialogOpen} onOpenChange={setPmManagerDialogOpen}>
-        <DialogContent>
+        <DialogContent className="max-h-[90vh] flex flex-col">
           <DialogHeader>
             <DialogTitle>{editingPmManager ? t("common.edit") : t("common.add")}</DialogTitle>
             <DialogDescription>
@@ -1312,7 +1314,8 @@ export default function SettingsPage() {
             </DialogDescription>
           </DialogHeader>
           <Form {...pmManagerForm}>
-            <form onSubmit={handlePmManagerSubmit} className="space-y-4">
+            <form onSubmit={handlePmManagerSubmit} className="flex flex-col flex-1 min-h-0">
+              <div className="overflow-y-auto flex-1 space-y-4 pr-1">
               <FormField
                 control={pmManagerForm.control}
                 name="name"
@@ -1469,6 +1472,7 @@ export default function SettingsPage() {
                   </FormItem>
                 )}
               />
+              </div>
               <DialogFooter>
                 <Button type="button" variant="outline" onClick={() => setPmManagerDialogOpen(false)}>{t("common.cancel")}</Button>
                 <Button type="submit" disabled={createPmManagerMutation.isPending || updatePmManagerMutation.isPending} data-testid="button-save-pm-manager">

@@ -185,11 +185,11 @@ export default function SeasonsPage() {
       </div>
 
       <Dialog open={dialogOpen} onOpenChange={() => closeDialog()}>
-        <DialogContent>
+        <DialogContent className="max-h-[90vh] flex flex-col">
           <DialogHeader>
             <DialogTitle>{editingSeason ? "Edit Season" : "New Season"}</DialogTitle>
           </DialogHeader>
-          <div className="space-y-4">
+          <div className="overflow-y-auto flex-1 space-y-4 pr-1">
             <div className="space-y-1">
               <Label>Name</Label>
               <Input
@@ -228,7 +228,7 @@ export default function SeasonsPage() {
               </div>
             </div>
           </div>
-          <DialogFooter>
+          <DialogFooter className="pt-4">
             <Button variant="outline" onClick={closeDialog}>Cancel</Button>
             <Button
               onClick={() => createMutation.mutate()}

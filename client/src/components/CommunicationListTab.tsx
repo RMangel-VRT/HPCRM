@@ -270,7 +270,7 @@ export default function CommunicationListTab({ queryKey }: CommunicationListTabP
       )}
 
       <Dialog open={!!selectedComm} onOpenChange={(open) => { if (!open) setSelectedComm(null); }}>
-        <DialogContent className="max-w-2xl">
+        <DialogContent className="max-w-2xl max-h-[90vh] flex flex-col">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
               <MessageSquare className="w-5 h-5" />
@@ -281,7 +281,7 @@ export default function CommunicationListTab({ queryKey }: CommunicationListTabP
             </DialogDescription>
           </DialogHeader>
           {selectedComm && (
-            <div className="space-y-4">
+            <div className="overflow-y-auto flex-1 space-y-4 pr-1">
               <div className="grid grid-cols-2 gap-4 text-sm">
                 <div>
                   <p className="text-muted-foreground font-medium mb-1">Subject</p>

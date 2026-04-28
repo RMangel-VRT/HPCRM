@@ -472,12 +472,13 @@ export default function EquipmentList() {
       </AlertDialog>
 
       <Dialog open={newTicketOpen} onOpenChange={setNewTicketOpen}>
-        <DialogContent className="max-w-lg">
+        <DialogContent className="max-w-lg max-h-[90vh] flex flex-col">
           <DialogHeader>
             <DialogTitle>{t("equipment.newTicket")}</DialogTitle>
           </DialogHeader>
           <Form {...newTicketForm}>
-            <form onSubmit={newTicketForm.handleSubmit((data) => createTicketMutation.mutate(data))} className="space-y-4">
+            <form onSubmit={newTicketForm.handleSubmit((data) => createTicketMutation.mutate(data))} className="flex flex-col flex-1 min-h-0">
+              <div className="overflow-y-auto flex-1 space-y-4 pr-1">
               <FormField
                 control={newTicketForm.control}
                 name="equipmentId"
@@ -591,7 +592,8 @@ export default function EquipmentList() {
                   </FormItem>
                 )}
               />
-              <div className="flex justify-end gap-2 pt-2">
+              </div>
+              <div className="flex justify-end gap-2 pt-4">
                 <Button type="button" variant="outline" onClick={() => setNewTicketOpen(false)} data-testid="button-cancel-equip-ticket">
                   {t("common.cancel")}
                 </Button>
