@@ -87,10 +87,32 @@ import {
 import { Separator } from "@/components/ui/separator";
 import type { Campaign, CampaignItem, CampaignChecklistTask, Contact } from "@shared/schema";
 import LayerMapViewer from "@/components/LayerMapViewer";
-import WeatherCapturePanel from "@/components/WeatherCapturePanel";
+import WeatherCapturePanel, { type WeatherCapturableItem } from "@/components/WeatherCapturePanel";
 import { Label } from "@/components/ui/label";
 
-interface CampaignItemWithUser extends CampaignItem {
+interface CampaignItemWithUser extends Omit<CampaignItem,
+  | 'completionEmailSentAt'
+  | 'workCompletedAt'
+  | 'completionPhotoStorageKeys'
+  | 'weatherTemp'
+  | 'weatherWindSpeed'
+  | 'weatherWindDirection'
+  | 'weatherHumidity'
+  | 'weatherConditions'
+  | 'weatherRecordedAt'
+  | 'finishedWithoutComms'
+  | 'actualAreasTreated'
+  | 'actualConditions'
+  | 'completionNotes'
+  | 'postApplicationExpectationOverride'
+  | 'postApplicationWateringOverride'
+  | 'reEntryIntervalOverride'
+  | 'mowingRestrictionOverride'
+  | 'labelPdfOverrideKey'
+  | 'chemicalProductId'
+  | 'applicatorUserId'
+  | 'workCompletedById'
+> {
   completedByName?: string | null;
   preCommSentByName?: string | null;
   workCompletedByName?: string | null;
@@ -106,6 +128,20 @@ interface CampaignItemWithUser extends CampaignItem {
   weatherHumidity?: number | null;
   weatherConditions?: string | null;
   weatherRecordedAt?: string | null;
+  actualAreasTreated?: string | null;
+  actualConditions?: string | null;
+  completionNotes?: string | null;
+  completionPhotoStorageKeys?: string[] | null;
+  postApplicationExpectationOverride?: string | null;
+  postApplicationWateringOverride?: string | null;
+  reEntryIntervalOverride?: string | null;
+  mowingRestrictionOverride?: string | null;
+  labelPdfOverrideKey?: string | null;
+  completionEmailSentAt?: string | null;
+  workCompletedAt?: string | null;
+  workCompletedById?: string | null;
+  chemicalProductId?: string | null;
+  applicatorUserId?: string | null;
 }
 
 interface CampaignDetailData extends Campaign {
@@ -147,6 +183,30 @@ export default function CampaignItemDetail() {
   const [markCompleteDate, setMarkCompleteDate] = useState("");
   const [showCompleteWorkDialog, setShowCompleteWorkDialog] = useState(false);
   const [completeWorkDate, setCompleteWorkDate] = useState("");
+  const [chemCompletionAreas, setChemCompletionAreas] = useState("");
+  const [chemCompletionConditions, setChemCompletionConditions] = useState("");
+  const [chemCompletionNotes, setChemCompletionNotes] = useState("");
+  const [chemPostExpectationOverride, setChemPostExpectationOverride] = useState("");
+  const [chemPostWateringOverride, setChemPostWateringOverride] = useState("");
+  const [chemReEntryIntervalOverride, setChemReEntryIntervalOverride] = useState("");
+  const [chemMowingRestrictionOverride, setChemMowingRestrictionOverride] = useState("");
+  const [showChemCustomize, setShowChemCustomize] = useState(false);
+  const [labelPdfOverrideKey, setLabelPdfOverrideKey] = useState<string | null>(null);
+  const [labelPdfUploading, setLabelPdfUploading] = useState(false);
+  const [labelPdfFileName, setLabelPdfFileName] = useState<string | null>(null);
+  const [completionPhotoUploads, setCompletionPhotoUploads] = useState<Array<{
+    id: string;
+    fileName: string;
+    progress: number;
+    done: boolean;
+    error: string | null;
+  }>>([]);
+  const [isDraggingOver, setIsDraggingOver] = useState(false);
+  const [showCompletionEmailPreview, setShowCompletionEmailPreview] = useState(false);
+  const [completionEmailPreview, setCompletionEmailPreview] = useState<{ recipientEmail: string | null; subject: string; htmlBody: string; templateName: string; contactName: string | null } | null>(null);
+  const [loadingCompletionEmailPreview, setLoadingCompletionEmailPreview] = useState(false);
+  const [sendingCompletionEmail, setSendingCompletionEmail] = useState(false);
+  const [emailDebounceTick, setEmailDebounceTick] = useState(0);
   const [postCommDate, setPostCommDate] = useState("");
   const [showIrrigationCompleteDialog, setShowIrrigationCompleteDialog] = useState(false);
   const [irrigationCompleteDate, setIrrigationCompleteDate] = useState("");
@@ -189,6 +249,20 @@ export default function CampaignItemDetail() {
       return res.json();
     },
     enabled: !!campaignId && !!itemId && activityExpanded,
+  });
+
+  const hasCompletionPhotos = (item?.completionPhotoStorageKeys?.length ?? 0) > 0;
+
+  const { data: completionPhotoUrls = [] } = useQuery<string[]>({
+    queryKey: ["/api/campaigns", campaignId, "items", itemId, "completion-photo-urls"],
+    queryFn: async () => {
+      const res = await fetch(`/api/campaigns/${campaignId}/items/${itemId}/completion-photo-urls`, { credentials: "include" });
+      if (!res.ok) return [];
+      const data: Array<{ storageKey: string; signedUrl: string | null; expiresAt: string | null }> = await res.json();
+      return data.map((item) => item.signedUrl).filter((url): url is string => !!url);
+    },
+    enabled: !!campaignId && !!itemId && hasCompletionPhotos,
+    staleTime: 5 * 60 * 1000,
   });
 
   const isArchivedCampaign = campaign?.status === "archived";
@@ -301,6 +375,16 @@ export default function CampaignItemDetail() {
     }
   }, [item?.id, isChemicalCampaign]);
 
+  // Force a re-render while within the 60s debounce window so the send button re-enables automatically
+  useEffect(() => {
+    if (!item?.completionEmailSentAt) return;
+    const elapsed = Date.now() - new Date(item.completionEmailSentAt).getTime();
+    const remaining = 60_000 - elapsed;
+    if (remaining <= 0) return;
+    const timer = setTimeout(() => setEmailDebounceTick(t => t + 1), remaining + 500);
+    return () => clearTimeout(timer);
+  }, [item?.completionEmailSentAt, emailDebounceTick]);
+
   const updateItemMutation = useMutation({
     mutationFn: async (data: { status?: string; notes?: string; skipReason?: string; exceptionType?: string | null; photos?: string[]; chemAction?: string; overrideEmail?: string; completionDate?: string; weatherTemp?: number; weatherWindSpeed?: number; weatherWindDirection?: string; weatherHumidity?: number; weatherConditions?: string; customWindowStart?: string; customWindowEnd?: string; completedAt?: string; workCompletedAt?: string }) => {
       if (data.chemAction && data.chemAction !== "reset" && data.chemAction !== "finish_without_comms") {
@@ -344,6 +428,67 @@ export default function CampaignItemDetail() {
     },
   });
 
+  const completeWorkV2Mutation = useMutation({
+    mutationFn: async (data: {
+      workCompletedAt: string;
+      notes?: string;
+      actualAreasTreated?: string;
+      actualConditions?: string;
+      completionNotes?: string;
+      postApplicationExpectationOverride?: string;
+      postApplicationWateringOverride?: string;
+      reEntryIntervalOverride?: string;
+      mowingRestrictionOverride?: string;
+      labelPdfOverrideKey?: string | null;
+    }) => {
+      const res = await apiRequest("POST", `/api/campaigns/${campaignId}/items/${itemId}/complete-work-v2`, data);
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/campaigns", campaignId] });
+      queryClient.invalidateQueries({ queryKey: ["/api/campaigns"] });
+      toast({ title: t("campaigns.chemStepAdvanced") });
+      setShowCompleteWorkDialog(false);
+      setLabelPdfOverrideKey(null);
+      setLabelPdfFileName(null);
+    },
+    onError: () => {
+      toast({ title: t("campaigns.updateFailed"), variant: "destructive" });
+    },
+  });
+
+  const handleSendCompletionEmail = async (resend = false) => {
+    setSendingCompletionEmail(true);
+    try {
+      const res = await apiRequest("POST", `/api/campaigns/${campaignId}/items/${itemId}/send-completion-email`, { resend });
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        if (res.status === 409) {
+          toast({ title: t("campaigns.chemCompletionEmailDebounce"), variant: "destructive" });
+        } else {
+          toast({ title: data.error || t("campaigns.chemCompletionEmailError"), variant: "destructive" });
+        }
+        return;
+      }
+      queryClient.invalidateQueries({ queryKey: ["/api/campaigns", campaignId] });
+      toast({ title: t("campaigns.chemCompletionEmailSent") });
+    } catch {
+      toast({ title: t("campaigns.chemCompletionEmailError"), variant: "destructive" });
+    } finally {
+      setSendingCompletionEmail(false);
+    }
+  };
+
+  const handleLoadCompletionEmailPreview = async () => {
+    setLoadingCompletionEmailPreview(true);
+    try {
+      const res = await fetch(`/api/campaigns/${campaignId}/items/${itemId}/preview-completion-email`, { credentials: "include" });
+      if (res.ok) setCompletionEmailPreview(await res.json());
+    } catch {}
+    setLoadingCompletionEmailPreview(false);
+    setShowCompletionEmailPreview(true);
+  };
+
   const handlePhotoUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -371,6 +516,71 @@ export default function CampaignItemDetail() {
     const newPhotos = photos.filter((_, i) => i !== idx);
     setPhotos(newPhotos);
     updateItemMutation.mutate({ photos: newPhotos });
+  };
+
+  const handleCompletionPhotoFiles = async (files: File[]) => {
+    for (const file of files) {
+      const uid = `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+      setCompletionPhotoUploads((prev) => [
+        ...prev,
+        { id: uid, fileName: file.name, progress: 0, done: false, error: null },
+      ]);
+      try {
+        // Server-side validated upload: magic bytes checked, 8MB limit enforced
+        await new Promise<void>((resolve, reject) => {
+          const xhr = new XMLHttpRequest();
+          xhr.upload.addEventListener("progress", (e) => {
+            if (e.lengthComputable) {
+              const pct = Math.round((e.loaded / e.total) * 90);
+              setCompletionPhotoUploads((prev) =>
+                prev.map((u) => (u.id === uid ? { ...u, progress: pct } : u)),
+              );
+            }
+          });
+          xhr.addEventListener("load", () => {
+            if (xhr.status >= 200 && xhr.status < 300) resolve();
+            else {
+              let errorMsg = t("campaigns.photoUploadFailed");
+              try {
+                const data = JSON.parse(xhr.responseText);
+                if (data.error) errorMsg = data.error;
+              } catch {}
+              reject(new Error(errorMsg));
+            }
+          });
+          xhr.addEventListener("error", () => reject(new Error(t("campaigns.photoUploadFailed"))));
+          xhr.open("POST", `/api/campaigns/${campaignId}/items/${itemId}/completion-photos/upload`);
+          xhr.setRequestHeader("Content-Type", file.type || "application/octet-stream");
+          xhr.withCredentials = true;
+          xhr.send(file);
+        });
+        setCompletionPhotoUploads((prev) =>
+          prev.map((u) => (u.id === uid ? { ...u, progress: 100, done: true } : u)),
+        );
+        queryClient.invalidateQueries({ queryKey: ["/api/campaigns", campaignId] });
+        queryClient.invalidateQueries({ queryKey: ["/api/campaigns", campaignId, "items", itemId, "completion-photo-urls"] });
+        setTimeout(() => {
+          setCompletionPhotoUploads((prev) => prev.filter((u) => u.id !== uid));
+        }, 1500);
+      } catch (err) {
+        const errorMsg = err instanceof Error ? err.message : t("campaigns.photoUploadFailed");
+        setCompletionPhotoUploads((prev) =>
+          prev.map((u) =>
+            u.id === uid ? { ...u, progress: 0, done: false, error: errorMsg } : u,
+          ),
+        );
+      }
+    }
+  };
+
+  const removeCompletionPhoto = async (storageKey: string) => {
+    try {
+      await apiRequest("DELETE", `/api/campaigns/${campaignId}/items/${itemId}/completion-photos`, { storageKey });
+      queryClient.invalidateQueries({ queryKey: ["/api/campaigns", campaignId] });
+      queryClient.invalidateQueries({ queryKey: ["/api/campaigns", campaignId, "items", itemId, "completion-photo-urls"] });
+    } catch {
+      toast({ title: t("campaigns.photoUploadFailed"), variant: "destructive" });
+    }
   };
 
   const toggleChecklistTaskMutation = useMutation({
@@ -584,7 +794,7 @@ export default function CampaignItemDetail() {
 
       {isChemicalCampaign && item && (
         <WeatherCapturePanel
-          item={item}
+          item={item as WeatherCapturableItem}
           campaignId={campaignId!}
           customerLat={item.customerLat}
           customerLng={item.customerLng}
@@ -1080,6 +1290,100 @@ export default function CampaignItemDetail() {
         </CardContent>
       </Card>
 
+      {isChemicalCampaign && item.workflowStep === "work_in_progress" && canComplete && (
+        <Card data-testid="card-completion-photos">
+          <CardHeader className="pb-3">
+            <CardTitle className="text-sm flex items-center gap-2">
+              <Camera className="w-4 h-4" />
+              {t("campaigns.chemCompletionPhotosTitle")}
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="pt-0 space-y-3">
+            {(item.completionPhotoStorageKeys || []).length > 0 && (
+              <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-5 gap-2">
+                {(item.completionPhotoStorageKeys || []).map((storageKey, idx) => (
+                  <div key={storageKey} className="relative aspect-square rounded-md overflow-hidden border group">
+                    {completionPhotoUrls[idx] ? (
+                      <img
+                        src={completionPhotoUrls[idx]}
+                        alt=""
+                        className="w-full h-full object-cover cursor-pointer"
+                        onClick={() => setPreviewPhoto(completionPhotoUrls[idx])}
+                        data-testid={`img-completion-photo-${idx}`}
+                      />
+                    ) : (
+                      <div className="w-full h-full bg-muted flex items-center justify-center">
+                        <ImageIcon className="w-5 h-5 text-muted-foreground" />
+                      </div>
+                    )}
+                    <button
+                      className="absolute top-1 right-1 bg-black/60 text-white rounded-md p-1 invisible group-hover:visible"
+                      onClick={() => removeCompletionPhoto(storageKey)}
+                      data-testid={`button-remove-completion-photo-${idx}`}
+                    >
+                      <X className="w-3 h-3" />
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
+            {completionPhotoUploads.length > 0 && (
+              <div className="space-y-2">
+                {completionPhotoUploads.map((u) => (
+                  <div key={u.id} className="space-y-1">
+                    <div className="flex items-center justify-between text-xs text-muted-foreground">
+                      <span className="truncate max-w-[200px]">{u.fileName}</span>
+                      <span>{u.done ? t("campaigns.chemPhotoUploaded") : u.error ? t("campaigns.photoUploadFailed") : `${u.progress}%`}</span>
+                    </div>
+                    <div className="w-full bg-muted rounded-full h-1.5">
+                      <div
+                        className={`h-1.5 rounded-full transition-all ${u.error ? "bg-destructive" : u.done ? "bg-green-500" : "bg-primary"}`}
+                        style={{ width: `${u.done ? 100 : u.progress}%` }}
+                      />
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+            <div
+              className={`border-2 border-dashed rounded-md p-6 text-center transition-colors ${isDraggingOver ? "border-primary bg-primary/5" : "border-muted-foreground/25"}`}
+              onDragOver={(e) => { e.preventDefault(); setIsDraggingOver(true); }}
+              onDragLeave={() => setIsDraggingOver(false)}
+              onDrop={(e) => {
+                e.preventDefault();
+                setIsDraggingOver(false);
+                const files = Array.from(e.dataTransfer.files).filter((f) => f.type.startsWith("image/"));
+                if (files.length > 0) handleCompletionPhotoFiles(files);
+              }}
+              data-testid="dropzone-completion-photos"
+            >
+              <Camera className="w-6 h-6 mx-auto mb-2 text-muted-foreground" />
+              <p className="text-sm text-muted-foreground mb-2">{t("campaigns.chemDropPhotosHere")}</p>
+              <label className="cursor-pointer">
+                <Button size="sm" variant="outline" asChild>
+                  <span>
+                    <Camera className="w-3 h-3 mr-1" />
+                    {t("campaigns.chemBrowsePhotos")}
+                  </span>
+                </Button>
+                <input
+                  type="file"
+                  accept="image/*"
+                  multiple
+                  className="hidden"
+                  onChange={(e) => {
+                    const files = Array.from(e.target.files || []);
+                    if (files.length > 0) handleCompletionPhotoFiles(files);
+                    e.target.value = "";
+                  }}
+                  data-testid="input-completion-photo-upload"
+                />
+              </label>
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
       <Card>
         <CardHeader className="pb-3">
           <CardTitle className="text-sm">{t("campaigns.itemCustomerLinks")}</CardTitle>
@@ -1276,7 +1580,7 @@ export default function CampaignItemDetail() {
                     {t("campaigns.chemCompletedWithoutComms")}
                   </Badge>
                 )}
-                {!isArchivedCampaign && canFinishWithoutComms && item.status !== "completed" && item.status !== "skipped" && (
+                {!isArchivedCampaign && canFinishWithoutComms && item.status !== "completed" && (item.status as string) !== "skipped" && (
                   <Button
                     variant="outline"
                     onClick={() => {
@@ -1354,6 +1658,136 @@ export default function CampaignItemDetail() {
                 <RotateCcw className="w-4 h-4 mr-1" />
                 {t("campaigns.reopen")}
               </Button>
+            )}
+          </CardContent>
+        </Card>
+      )}
+
+      {isChemicalCampaign && item && (item.workflowStep === "work_completed" || item.workflowStep === "post_communication") && (
+        <Card data-testid="card-completion-details">
+          <CardHeader className="pb-3">
+            <CardTitle className="text-sm flex items-center gap-2 flex-wrap">
+              <CheckCircle2 className="w-4 h-4 text-green-600" />
+              {t("campaigns.chemCompletedBannerTitle")}
+              {item.workCompletedAt && (
+                <span className="text-muted-foreground font-normal">
+                  {" — "}{format(new Date(item.workCompletedAt), "MMM d, yyyy")}
+                </span>
+              )}
+              {item.workCompletedByName && (
+                <span className="text-muted-foreground font-normal text-xs" data-testid="text-applicator-name">
+                  {t("campaigns.chemApplicatorLabel")}: {item.workCompletedByName}
+                </span>
+              )}
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="pt-0 space-y-4">
+            {(item.actualAreasTreated || item.actualConditions || item.completionNotes) && (
+              <div className="space-y-2 text-sm">
+                {item.actualAreasTreated && (
+                  <div>
+                    <span className="text-muted-foreground">{t("campaigns.chemAreasLabel")}: </span>
+                    <span data-testid="text-completion-areas">{item.actualAreasTreated}</span>
+                  </div>
+                )}
+                {item.actualConditions && (
+                  <div>
+                    <span className="text-muted-foreground">{t("campaigns.chemConditionsLabel")}: </span>
+                    <span data-testid="text-completion-conditions">{item.actualConditions}</span>
+                  </div>
+                )}
+                {item.completionNotes && (
+                  <div>
+                    <span className="text-muted-foreground">{t("campaigns.chemCompletionNotesLabel")}: </span>
+                    <span data-testid="text-completion-notes">{item.completionNotes}</span>
+                  </div>
+                )}
+              </div>
+            )}
+            {hasCompletionPhotos && completionPhotoUrls.length > 0 && (
+              <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-5 gap-2">
+                {completionPhotoUrls.map((url, idx) => (
+                  <div key={idx} className="relative aspect-square rounded-md overflow-hidden border">
+                    <img
+                      src={url}
+                      alt=""
+                      className="w-full h-full object-cover cursor-pointer"
+                      onClick={() => setPreviewPhoto(url)}
+                      data-testid={`img-banner-completion-photo-${idx}`}
+                    />
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {canSendChemEmails && item.workflowStep === "work_completed" && (
+              <div className="border rounded-md p-3 space-y-2" data-testid="panel-completion-email">
+                <div className="flex items-center gap-2 text-sm font-medium">
+                  <Mail className="w-4 h-4" />
+                  {t("campaigns.chemCompletionEmailPanel")}
+                </div>
+                {item.completionEmailSentAt ? (
+                  <div className="text-xs text-muted-foreground" data-testid="text-completion-email-sent">
+                    {t("campaigns.chemCompletionEmailSentAt", {
+                      time: format(new Date(item.completionEmailSentAt), "MMM d, h:mm a"),
+                      recipient: recipientEmail || "—",
+                    })}
+                  </div>
+                ) : (
+                  <div className="text-xs text-muted-foreground" data-testid="text-completion-email-not-sent">
+                    {t("campaigns.chemCompletionEmailNotSent")}
+                  </div>
+                )}
+                {item.completionEmailSentAt === null && item.workCompletedAt && (() => {
+                  const completedAt = new Date(item.workCompletedAt);
+                  const hoursSince = (Date.now() - completedAt.getTime()) / 1000 / 3600;
+                  return hoursSince > 24;
+                })() && (
+                  <div className="text-xs text-amber-600 dark:text-amber-400 flex items-center gap-1" data-testid="text-completion-email-overdue">
+                    <AlertCircle className="w-3 h-3" />
+                    {t("campaigns.chemCompletionUnsent24h")}
+                  </div>
+                )}
+                <div className="flex flex-wrap gap-2 pt-1">
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={handleLoadCompletionEmailPreview}
+                    disabled={loadingCompletionEmailPreview}
+                    data-testid="button-preview-completion-email"
+                  >
+                    {loadingCompletionEmailPreview ? <Loader2 className="w-4 h-4 mr-1 animate-spin" /> : <Mail className="w-4 h-4 mr-1" />}
+                    {t("campaigns.chemCompletionEmailPreview")}
+                  </Button>
+                  {(() => {
+                    const isWithinDebounce = !!item.completionEmailSentAt &&
+                      (Date.now() - new Date(item.completionEmailSentAt).getTime()) < 60_000;
+                    return !item.completionEmailSentAt ? (
+                      <Button
+                        size="sm"
+                        onClick={() => handleSendCompletionEmail(false)}
+                        disabled={sendingCompletionEmail || isWithinDebounce}
+                        data-testid="button-send-completion-email"
+                      >
+                        {sendingCompletionEmail ? <Loader2 className="w-4 h-4 mr-1 animate-spin" /> : <Send className="w-4 h-4 mr-1" />}
+                        {sendingCompletionEmail ? t("campaigns.chemCompletionEmailSending") : t("campaigns.chemCompletionEmailSend")}
+                      </Button>
+                    ) : (
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        onClick={() => handleSendCompletionEmail(true)}
+                        disabled={sendingCompletionEmail || isWithinDebounce}
+                        title={isWithinDebounce ? t("campaigns.chemEmailDebouncePending") : undefined}
+                        data-testid="button-resend-completion-email"
+                      >
+                        {sendingCompletionEmail ? <Loader2 className="w-4 h-4 mr-1 animate-spin" /> : <Send className="w-4 h-4 mr-1" />}
+                        {t("campaigns.chemCompletionEmailResend")}
+                      </Button>
+                    );
+                  })()}
+                </div>
+              </div>
             )}
           </CardContent>
         </Card>
@@ -1650,36 +2084,207 @@ export default function CampaignItemDetail() {
         </AlertDialogContent>
       </AlertDialog>
 
-      <AlertDialog open={showCompleteWorkDialog} onOpenChange={setShowCompleteWorkDialog}>
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>{t("campaigns.chemMarkWorkDone")}</AlertDialogTitle>
-            <AlertDialogDescription>Choose the date when the work was completed.</AlertDialogDescription>
-          </AlertDialogHeader>
-          <div className="py-2">
-            <Label className="text-xs text-muted-foreground">Work Completion Date *</Label>
-            <DatePickerField
-              value={completeWorkDate ? new Date(completeWorkDate + 'T00:00:00') : undefined}
-              onChange={(date) => setCompleteWorkDate(date ? format(date, 'yyyy-MM-dd') : '')}
-              data-testid="input-complete-work-date"
-            />
+      <Dialog open={showCompleteWorkDialog} onOpenChange={(open) => { if (!open) setShowCompleteWorkDialog(false); }}>
+        <DialogContent className="max-w-xl max-h-[90vh] overflow-y-auto">
+          <div className="font-semibold text-lg mb-1">{t("campaigns.chemMarkWorkDoneTitle")}</div>
+          <div className="space-y-4">
+            <div className="space-y-1">
+              <Label className="text-xs text-muted-foreground">{t("campaigns.chemCompletionDate")} *</Label>
+              <DatePickerField
+                value={completeWorkDate ? new Date(completeWorkDate + 'T00:00:00') : undefined}
+                onChange={(date) => setCompleteWorkDate(date ? format(date, 'yyyy-MM-dd') : '')}
+                data-testid="input-complete-work-date"
+              />
+            </div>
+            {isChemicalCampaign && (
+              <>
+                <div className="space-y-1">
+                  <Label>{t("campaigns.chemAreasLabel")}</Label>
+                  <Textarea
+                    placeholder={t("campaigns.chemAreasPlaceholder")}
+                    value={chemCompletionAreas}
+                    onChange={(e) => setChemCompletionAreas(e.target.value)}
+                    rows={2}
+                    data-testid="textarea-completion-areas"
+                  />
+                </div>
+                <div className="space-y-1">
+                  <Label>{t("campaigns.chemConditionsLabel")}</Label>
+                  <Textarea
+                    placeholder={t("campaigns.chemConditionsPlaceholder")}
+                    value={chemCompletionConditions}
+                    onChange={(e) => setChemCompletionConditions(e.target.value)}
+                    rows={2}
+                    data-testid="textarea-completion-conditions"
+                  />
+                </div>
+                <div className="space-y-1">
+                  <Label>{t("campaigns.chemCompletionNotesLabel")}</Label>
+                  <Textarea
+                    placeholder={t("campaigns.chemCompletionNotesPlaceholder")}
+                    value={chemCompletionNotes}
+                    onChange={(e) => setChemCompletionNotes(e.target.value)}
+                    rows={2}
+                    data-testid="textarea-completion-notes"
+                  />
+                </div>
+                <div className="space-y-1">
+                  <button
+                    type="button"
+                    className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground transition-colors w-full text-left"
+                    onClick={() => setShowChemCustomize(v => !v)}
+                    data-testid="button-toggle-chem-customize"
+                  >
+                    {showChemCustomize ? <ChevronDown className="w-3 h-3" /> : <ChevronRight className="w-3 h-3" />}
+                    {t("campaigns.chemCustomizeGroup")}
+                  </button>
+                  {showChemCustomize && <div className="space-y-3 mt-1">
+                    <div className="space-y-1">
+                      <Label className="text-xs">{t("campaigns.chemPostExpectationLabel")}</Label>
+                      <Textarea
+                        placeholder={t("campaigns.chemPostExpectationPlaceholder")}
+                        value={chemPostExpectationOverride}
+                        onChange={(e) => setChemPostExpectationOverride(e.target.value)}
+                        rows={2}
+                        data-testid="textarea-completion-expectation"
+                      />
+                    </div>
+                    <div className="space-y-1">
+                      <Label className="text-xs">{t("campaigns.chemPostWateringLabel")}</Label>
+                      <Textarea
+                        placeholder={t("campaigns.chemPostWateringPlaceholder")}
+                        value={chemPostWateringOverride}
+                        onChange={(e) => setChemPostWateringOverride(e.target.value)}
+                        rows={2}
+                        data-testid="textarea-completion-watering"
+                      />
+                    </div>
+                    <div className="space-y-1">
+                      <Label className="text-xs">{t("campaigns.chemReEntryIntervalLabel")}</Label>
+                      <Textarea
+                        placeholder={t("campaigns.chemReEntryIntervalPlaceholder")}
+                        value={chemReEntryIntervalOverride}
+                        onChange={(e) => setChemReEntryIntervalOverride(e.target.value)}
+                        rows={1}
+                        data-testid="textarea-completion-reentry"
+                      />
+                    </div>
+                    <div className="space-y-1">
+                      <Label className="text-xs">{t("campaigns.chemMowingRestrictionLabel")}</Label>
+                      <Textarea
+                        placeholder={t("campaigns.chemMowingRestrictionPlaceholder")}
+                        value={chemMowingRestrictionOverride}
+                        onChange={(e) => setChemMowingRestrictionOverride(e.target.value)}
+                        rows={1}
+                        data-testid="textarea-completion-mowing"
+                      />
+                    </div>
+                    <div className="space-y-1">
+                      <Label className="text-xs">{t("campaigns.chemLabelPdfLabel")}</Label>
+                      <div className="flex items-center gap-2">
+                        <label
+                          className="flex items-center gap-2 cursor-pointer px-3 py-2 rounded-md border text-sm text-muted-foreground hover-elevate"
+                          data-testid="label-pdf-upload-trigger"
+                        >
+                          <FileText className="w-4 h-4" />
+                          {labelPdfUploading
+                            ? t("campaigns.chemLabelPdfUploading")
+                            : labelPdfFileName
+                              ? labelPdfFileName
+                              : t("campaigns.chemLabelPdfPlaceholder")}
+                          <input
+                            type="file"
+                            accept="application/pdf,.pdf"
+                            className="hidden"
+                            disabled={labelPdfUploading}
+                            data-testid="input-label-pdf-override"
+                            onChange={async (e) => {
+                              const file = e.target.files?.[0];
+                              if (!file) return;
+                              setLabelPdfUploading(true);
+                              try {
+                                await new Promise<void>((resolve, reject) => {
+                                  const xhr = new XMLHttpRequest();
+                                  xhr.addEventListener("load", () => {
+                                    if (xhr.status >= 200 && xhr.status < 300) {
+                                      const data = JSON.parse(xhr.responseText);
+                                      setLabelPdfOverrideKey(data.storageKey);
+                                      setLabelPdfFileName(file.name);
+                                      resolve();
+                                    } else {
+                                      let msg = t("campaigns.chemLabelPdfUploadError");
+                                      try { const d = JSON.parse(xhr.responseText); if (d.error) msg = d.error; } catch {}
+                                      reject(new Error(msg));
+                                    }
+                                  });
+                                  xhr.addEventListener("error", () => reject(new Error(t("campaigns.chemLabelPdfUploadError"))));
+                                  xhr.open("POST", `/api/campaigns/${campaignId}/items/${itemId}/label-pdf/upload`);
+                                  xhr.setRequestHeader("Content-Type", "application/pdf");
+                                  xhr.withCredentials = true;
+                                  xhr.send(file);
+                                });
+                                toast({ title: t("campaigns.chemLabelPdfUploaded") });
+                              } catch (err) {
+                                toast({ title: err instanceof Error ? err.message : t("campaigns.chemLabelPdfUploadError"), variant: "destructive" });
+                              } finally {
+                                setLabelPdfUploading(false);
+                                e.target.value = "";
+                              }
+                            }}
+                          />
+                        </label>
+                        {labelPdfFileName && (
+                          <Button
+                            size="icon"
+                            variant="ghost"
+                            type="button"
+                            onClick={() => { setLabelPdfOverrideKey(null); setLabelPdfFileName(null); }}
+                            data-testid="button-remove-label-pdf"
+                          >
+                            <X className="w-4 h-4" />
+                          </Button>
+                        )}
+                      </div>
+                    </div>
+                  </div>}
+                </div>
+              </>
+            )}
           </div>
-          <AlertDialogFooter>
-            <AlertDialogCancel>{t("common.cancel")}</AlertDialogCancel>
-            <AlertDialogAction
+          <div className="flex justify-end gap-2 mt-4">
+            <Button variant="outline" onClick={() => setShowCompleteWorkDialog(false)} data-testid="button-cancel-complete-work">
+              {t("common.cancel")}
+            </Button>
+            <Button
               onClick={() => {
-                updateItemMutation.mutate({ chemAction: "complete_work", notes, workCompletedAt: completeWorkDate });
-                setShowCompleteWorkDialog(false);
+                if (isChemicalCampaign) {
+                  completeWorkV2Mutation.mutate({
+                    workCompletedAt: completeWorkDate,
+                    notes,
+                    actualAreasTreated: chemCompletionAreas,
+                    actualConditions: chemCompletionConditions,
+                    completionNotes: chemCompletionNotes,
+                    postApplicationExpectationOverride: chemPostExpectationOverride,
+                    postApplicationWateringOverride: chemPostWateringOverride,
+                    reEntryIntervalOverride: chemReEntryIntervalOverride,
+                    mowingRestrictionOverride: chemMowingRestrictionOverride,
+                    labelPdfOverrideKey,
+                  });
+                } else {
+                  updateItemMutation.mutate({ chemAction: "complete_work", notes, workCompletedAt: completeWorkDate });
+                  setShowCompleteWorkDialog(false);
+                }
               }}
-              disabled={!completeWorkDate}
+              disabled={!completeWorkDate || completeWorkV2Mutation.isPending || updateItemMutation.isPending}
               data-testid="button-confirm-complete-work"
             >
+              {(completeWorkV2Mutation.isPending || updateItemMutation.isPending) && <Loader2 className="w-4 h-4 mr-1 animate-spin" />}
               <Wrench className="w-4 h-4 mr-1" />
               {t("campaigns.chemMarkWorkDone")}
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
 
       <AlertDialog open={showIrrigationCompleteDialog} onOpenChange={(open) => { if (!open) { setShowIrrigationCompleteDialog(false); setPendingIrrigationTaskId(null); } }}>
         <AlertDialogContent>
@@ -2001,7 +2606,7 @@ export default function CampaignItemDetail() {
               </div>
               <Separator />
               <WeatherCapturePanel
-                item={item}
+                item={item as WeatherCapturableItem}
                 campaignId={campaignId!}
                 customerLat={item.customerLat}
                 customerLng={item.customerLng}
@@ -2055,6 +2660,47 @@ export default function CampaignItemDetail() {
           onClose={() => setShowPropertyMaps(false)}
         />
       )}
+
+      <Dialog open={showCompletionEmailPreview} onOpenChange={(open) => { if (!open) { setShowCompletionEmailPreview(false); setCompletionEmailPreview(null); } }}>
+        <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
+          <div className="font-semibold text-lg mb-3">{t("campaigns.chemCompletionEmailPreviewTitle")}</div>
+          {completionEmailPreview ? (
+            <div className="space-y-3">
+              <div>
+                <Label className="text-xs text-muted-foreground">{t("campaigns.chemEmailTo")}</Label>
+                <div className="text-sm mt-0.5" data-testid="text-completion-preview-recipient">
+                  {completionEmailPreview.contactName && <span className="font-medium">{completionEmailPreview.contactName} — </span>}
+                  {completionEmailPreview.recipientEmail || t("campaigns.chemEmailNoEmail")}
+                </div>
+              </div>
+              <div>
+                <Label className="text-xs text-muted-foreground">{t("campaigns.chemEmailSubject")}</Label>
+                <div className="text-sm mt-0.5 p-2 rounded-md border bg-muted/30" data-testid="text-completion-preview-subject">
+                  {completionEmailPreview.subject || "—"}
+                </div>
+              </div>
+              <div>
+                <Label className="text-xs text-muted-foreground">{t("campaigns.chemEmailBody")}</Label>
+                <iframe
+                  sandbox=""
+                  srcDoc={completionEmailPreview.htmlBody || "<p>—</p>"}
+                  title={t("chemicalProducts.emailPreviewTitle")}
+                  className="w-full border rounded-md bg-white mt-0.5"
+                  style={{ height: "260px" }}
+                  data-testid="iframe-completion-preview-body"
+                />
+              </div>
+            </div>
+          ) : (
+            <p className="text-sm text-muted-foreground">{t("campaigns.chemEmailLoadingPreview")}</p>
+          )}
+          <div className="flex justify-end gap-2 mt-4">
+            <Button variant="outline" onClick={() => setShowCompletionEmailPreview(false)} data-testid="button-close-completion-preview">
+              {t("common.cancel")}
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
 
       <Dialog open={!!previewPhoto} onOpenChange={() => setPreviewPhoto(null)}>
         <DialogContent className="max-w-3xl p-0 overflow-hidden">

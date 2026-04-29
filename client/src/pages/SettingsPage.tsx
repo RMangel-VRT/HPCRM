@@ -516,7 +516,7 @@ export default function SettingsPage() {
           {isAdmin && (
             <TabsTrigger value="mailbox-accounts" data-testid="tab-mailbox-accounts">{t("nav.mailboxAccounts")}</TabsTrigger>
           )}
-        {isAdmin && (
+          {isAdmin && (
             <TabsTrigger value="chemical-products" data-testid="tab-chemical-products">{t("chemicalProducts.title")}</TabsTrigger>
           )}
         </TabsList>

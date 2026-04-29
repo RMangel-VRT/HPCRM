@@ -18,12 +18,15 @@ import {
 import type { CampaignItem } from "@shared/schema";
 import { format } from "date-fns";
 
-export interface ChecklistItemWithCampaign extends CampaignItem {
+export interface ChecklistItemWithCampaign extends Omit<CampaignItem, 'completionEmailSentAt' | 'workCompletedAt' | 'completionPhotoStorageKeys' | 'propertyId'> {
   campaignTitle: string;
   campaignWindowStart: string;
   campaignWindowEnd: string;
   campaignCategory: string;
   propertyId?: string | null;
+  completionEmailSentAt?: string | null;
+  workCompletedAt?: string | null;
+  completionPhotoStorageKeys?: string[] | null;
 }
 
 interface ChecklistItemDetailPanelProps {

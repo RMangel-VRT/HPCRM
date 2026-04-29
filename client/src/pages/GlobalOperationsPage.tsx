@@ -38,6 +38,7 @@ import SchedulePage from "@/pages/SchedulePage";
 import SnowEventsList from "@/pages/SnowEventsList";
 import PropertyMapsPage from "@/pages/PropertyMapsPage";
 import CustomerRouteMap from "@/pages/CustomerRouteMap";
+import type { ChecklistItemWithCampaign } from "@/components/ChecklistItemDetailPanel";
 
 type UserRole =
   | "admin"

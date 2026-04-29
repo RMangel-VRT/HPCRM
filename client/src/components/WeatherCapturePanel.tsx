@@ -18,7 +18,6 @@ import {
   Clock,
   CheckCircle2,
 } from "lucide-react";
-import type { CampaignItem } from "@shared/schema";
 
 interface WeatherData {
   temperature: number | null;
@@ -29,8 +28,18 @@ interface WeatherData {
   recordedAt: string;
 }
 
+export interface WeatherCapturableItem {
+  id: string;
+  weatherTemp?: number | null;
+  weatherWindSpeed?: number | null;
+  weatherWindDirection?: string | null;
+  weatherHumidity?: number | null;
+  weatherConditions?: string | null;
+  weatherRecordedAt?: Date | string | null;
+}
+
 interface WeatherCapturePanelProps {
-  item: CampaignItem;
+  item: WeatherCapturableItem;
   campaignId: string;
   customerLat?: number | null;
   customerLng?: number | null;

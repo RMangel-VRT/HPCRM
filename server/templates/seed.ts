@@ -1,108 +1,101 @@
-import { readFileSync } from 'fs';
-import { join, resolve } from 'path';
-import { storage } from '../storage';
-import { getDefaultChemicalPreNoticeTemplate, getDefaultChemicalPostNoticeTemplate } from '../services/emailService';
+/**
+ * Chemical email template seed registry.
+ *
+ * Each entry in CHEMICAL_TEMPLATE_REGISTRY describes one email template that
+ * should exist for every company.  On startup the seeder calls
+ * `seedChemicalEmailTemplates(companyId, storage)` for every company.
+ *
+ * The seeder is idempotent:
+ *  - If the template does not exist in the DB it is created together with the
+ *    matching automation rule.
+ *  - If the template already exists but the HTML on disk has changed, only the
+ *    htmlBody column is updated (subject / text are NOT overwritten so that
+ *    company-level customisations survive restarts).
+ */
 
-// __dirname may not be defined in all tsx/esm contexts; resolve relative to cwd instead
-const TEMPLATES_DIR = resolve(process.cwd(), 'server', 'templates');
+import path from 'path';
+import fs from 'fs';
+import type { IStorage } from '../storage';
 
-function readTemplate(filename: string): string {
-  return readFileSync(join(TEMPLATES_DIR, filename), 'utf-8');
-}
-
-interface TemplateDefinition {
+export interface TemplateRegistryEntry {
+  /** Human-readable name stored in the DB */
   name: string;
+  /** Automation event key that triggers this template */
+  eventKey: string;
+  /** Disk file inside server/templates/ */
+  htmlFile: string;
   subject: string;
-  htmlBody: string;
-  textBody?: string;
-  category: 'transactional' | 'marketing' | 'system';
-  isActive: boolean;
+  textBody: string;
+  /** Inline HTML fallback when the disk file cannot be read */
+  htmlFallback: string;
 }
 
-const CHEMICAL_NOTIFICATION_TEXT = `Scheduled Chemical Treatment: {{customerName}}
+export const CHEMICAL_TEMPLATE_REGISTRY: TemplateRegistryEntry[] = [
+  {
+    name: 'Chemical Treatment Notice',
+    eventKey: 'campaign.chemical_pre_notice',
+    htmlFile: 'chemical-treatment-notification.html',
+    subject: 'Upcoming Chemical Treatment: {{customerName}}',
+    textBody: `Upcoming Chemical Treatment: {{customerName}}\n\nThis is to inform you that a chemical treatment application is scheduled for your property.\n\nProperty: {{customerName}}\nCampaign: {{campaignTitle}}\nScheduled Window: {{windowStart}} - {{windowEnd}}\n\nPlease ensure that pets, children, and sensitive items are kept away from treated areas during and after application.\n\nIf you have any questions, please contact us.\n\n{{companyName}} - Property Maintenance Services`,
+    htmlFallback: `<!DOCTYPE html><html><body><p>{{companyName}} — Upcoming Chemical Treatment for {{customerName}}. Scheduled: {{windowStart}} - {{windowEnd}}.</p><p>{{companyName}} - Property Maintenance Services</p></body></html>`,
+  },
+  {
+    name: 'Chemical Treatment Completion',
+    eventKey: 'campaign.chemical_post_notice',
+    htmlFile: 'chemical-treatment-completion.html',
+    subject: 'Chemical Treatment Completed: {{customerName}}',
+    textBody: `Chemical Treatment Completed: {{customerName}}\n\nA chemical treatment has been completed at your property.\n\nProperty: {{customerName}}\nCampaign: {{campaignTitle}}\nCompleted On: {{completionDate}}\n\n{{textSections}}\n\nIf you have any questions about this treatment, please contact us directly.\n\n{{companyName}} - Property Maintenance Services`,
+    htmlFallback: `<!DOCTYPE html><html><body><p>{{companyName}} — Chemical Treatment Completed for {{customerName}} on {{completionDate}}.</p><p>{{companyName}} - Property Maintenance Services</p></body></html>`,
+  },
+];
 
-This is to notify you of an upcoming chemical treatment at your property.
-
-Property: {{customerName}}
-Campaign: {{campaignTitle}}
-Scheduled Date: {{targetDate}}
-Backup Date: {{backupDate}}
-Service Window: {{timeWindow}}
-Product: {{productName}}
-Manufacturer: {{productManufacturer}}
-Active Ingredient: {{productActiveIngredient}}
-Purpose: {{productPurpose}}
-Re-entry Interval: {{reentryInterval}}
-Watering: {{wateringInstructions}}
-Mowing: {{mowingInstructions}}
-Applicator: {{applicatorName}} ({{applicatorLicense}})
-
-Please keep pets and children off treated areas until dry.
-
-{{companyName}} \u2014 Property Maintenance Services`;
-
-function getTemplateDefinitions(): TemplateDefinition[] {
-  const chemPreTemplate = getDefaultChemicalPreNoticeTemplate();
-  const chemPostTemplate = getDefaultChemicalPostNoticeTemplate();
-
-  return [
-    {
-      name: chemPreTemplate.name,
-      subject: chemPreTemplate.subject,
-      htmlBody: chemPreTemplate.htmlBody,
-      textBody: chemPreTemplate.textBody,
-      category: chemPreTemplate.category,
-      isActive: chemPreTemplate.isActive,
-    },
-    {
-      name: chemPostTemplate.name,
-      subject: chemPostTemplate.subject,
-      htmlBody: chemPostTemplate.htmlBody,
-      textBody: chemPostTemplate.textBody,
-      category: chemPostTemplate.category,
-      isActive: chemPostTemplate.isActive,
-    },
-    {
-      name: 'Chemical Treatment Notification',
-      subject: 'Scheduled Chemical Treatment \u2014 {{customerName}}',
-      htmlBody: readTemplate('chemical-treatment-notification.html'),
-      textBody: CHEMICAL_NOTIFICATION_TEXT,
-      category: 'transactional',
-      isActive: true,
-    },
-  ];
+function loadHtmlFile(fileName: string): string | null {
+  try {
+    const filePath = path.resolve(process.cwd(), 'server', 'templates', fileName);
+    return fs.readFileSync(filePath, 'utf-8');
+  } catch {
+    return null;
+  }
 }
 
 /**
- * Idempotently seeds chemical email templates for a company.
- * Safe to call on every startup — only inserts if a template with that
- * name does not already exist for the company. The notification template
- * is loaded from the file-backed source at
- * server/templates/chemical-treatment-notification.html.
+ * Idempotent upsert: create the template + automation rule if absent,
+ * otherwise sync the htmlBody if the disk file has changed.
  */
-export async function seedChemicalEmailTemplates(companyId: string): Promise<void> {
-  const definitions = getTemplateDefinitions();
+export async function seedChemicalEmailTemplates(
+  companyId: string,
+  storage: IStorage,
+): Promise<void> {
+  for (const entry of CHEMICAL_TEMPLATE_REGISTRY) {
+    const htmlBody = loadHtmlFile(entry.htmlFile) || entry.htmlFallback;
 
-  for (const def of definitions) {
-    const existingByName = await storage.getEmailTemplateByName(def.name, companyId);
-    if (!existingByName) {
-      await storage.createEmailTemplate({
+    const existing = await storage.getEmailTemplateByName(entry.name, companyId);
+    if (!existing) {
+      const template = await storage.createEmailTemplate({
+        name: entry.name,
+        subject: entry.subject,
+        htmlBody,
+        textBody: entry.textBody,
+        category: 'transactional' as const,
+        isActive: true,
         companyId,
-        name: def.name,
-        subject: def.subject,
-        htmlBody: def.htmlBody,
-        textBody: def.textBody || null,
-        category: def.category,
-        isActive: def.isActive,
       });
-    } else {
-      // Upsert: update subject/body from source file so stale templates get corrected on startup
-      await storage.updateEmailTemplate(existingByName.id, companyId, {
-        subject: def.subject,
-        htmlBody: def.htmlBody,
-        textBody: def.textBody || null,
-        category: def.category,
+      await storage.createEmailRule({
+        companyId,
+        eventKey: entry.eventKey,
+        templateId: template.id,
+        conditionsJson: null,
+        isEnabled: true,
       });
+      console.log(`Seeded email template "${entry.name}" for company ${companyId}`);
+    } else if (existing.htmlBody !== htmlBody) {
+      await storage.updateEmailTemplate(existing.id, companyId, { htmlBody });
+      console.log(`Updated email template "${entry.name}" for company ${companyId} (disk content changed)`);
     }
   }
+}
+
+/** Convenience accessor — returns the pre-built template object for a given eventKey. */
+export function getRegistryTemplate(eventKey: string): TemplateRegistryEntry | undefined {
+  return CHEMICAL_TEMPLATE_REGISTRY.find(e => e.eventKey === eventKey);
 }

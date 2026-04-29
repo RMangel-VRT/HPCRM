@@ -1370,6 +1370,10 @@ const es = {
     chemNoRecipient: "No se encontro correo de contacto",
     chemNoRecipientWarning: "No se encontro un contacto con correo electronico para este cliente. Agregue un correo de contacto antes de enviar.",
     chemEmailTemplate: "Plantilla de Correo",
+    chemEmailTo: "Para", // TODO: human-review translation
+    chemEmailNoEmail: "Sin correo registrado", // TODO: human-review translation
+    chemEmailLoadingPreview: "Cargando vista previa…", // TODO: human-review translation
+    chemEmailDebouncePending: "Espere 60 segundos antes de reenviar", // TODO: human-review translation
     chemEmailSubject: "Asunto",
     chemEmailBody: "Cuerpo del Correo",
     chemTemplatePreName: "Aviso de Tratamiento Quimico",
@@ -1435,6 +1439,86 @@ const es = {
     chemProductNamePlaceholder: "ej. Roundup Pro", // TODO: human-review translation
     chemManufacturerPlaceholder: "ej. Bayer", // TODO: human-review translation
     chemProductSaved: "Producto agregado exitosamente", // TODO: human-review translation
+    chemMarkWorkDoneTitle: "Marcar Trabajo Completo", // TODO: human-review translation
+    chemAreasLabel: "Areas Tratadas", // TODO: human-review translation
+    chemAreasPlaceholder: "p.ej. Cesped frontal, bordes de estacionamiento", // TODO: human-review translation
+    chemConditionsLabel: "Condiciones en la Aplicacion", // TODO: human-review translation
+    chemConditionsPlaceholder: "p.ej. Seco, 22°C, brisa suave", // TODO: human-review translation
+    chemCompletionNotesLabel: "Notas de Completado", // TODO: human-review translation
+    chemCompletionNotesPlaceholder: "Notas adicionales para esta visita...", // TODO: human-review translation
+    chemPhotosLabel: "Fotos (hasta 6)", // TODO: human-review translation
+    chemPhotosHint: "Arrastre o haga clic para subir. Los archivos se suben inmediatamente.", // TODO: human-review translation
+    chemCustomizeGroup: "Personalizar Este Completado", // TODO: human-review translation
+    chemPostExpectationLabel: "Sobreescribir expectativa post-aplicacion", // TODO: human-review translation
+    chemPostExpectationPlaceholder: "Que debe esperar el administrador en las proximas 1-2 semanas...", // TODO: human-review translation
+    chemPostWateringLabel: "Sobreescribir instrucciones de riego post-aplicacion", // TODO: human-review translation
+    chemPostWateringPlaceholder: "Instrucciones de riego...", // TODO: human-review translation
+    chemReEntryIntervalLabel: "Sobreescribir intervalo de reingreso", // TODO: human-review translation
+    chemReEntryIntervalPlaceholder: "ej. No ingresar al area tratada por 4 horas", // TODO: human-review translation
+    chemMowingRestrictionLabel: "Sobreescribir restriccion de corte de cesped", // TODO: human-review translation
+    chemMowingRestrictionPlaceholder: "ej. No cortar el cesped por 24 horas", // TODO: human-review translation
+    chemLabelPdfLabel: "PDF de etiqueta (sobreescribir)", // TODO: human-review translation
+    chemLabelPdfPlaceholder: "Clic para adjuntar PDF de etiqueta", // TODO: human-review translation
+    chemLabelPdfUploading: "Subiendo...", // TODO: human-review translation
+    chemLabelPdfUploaded: "PDF de etiqueta subido", // TODO: human-review translation
+    chemLabelPdfUploadError: "Error al subir el PDF de etiqueta", // TODO: human-review translation
+    chemCompletionPhotosTitle: "Fotos de Completacion", // TODO: human-review translation
+    chemDropPhotosHere: "Arrastra y suelta fotos aqui o", // TODO: human-review translation
+    chemBrowsePhotos: "Buscar archivos", // TODO: human-review translation
+    chemPhotoUploaded: "Subido", // TODO: human-review translation
+    chemApplicatorLabel: "Aplicador", // TODO: human-review translation
+    chemCompletedBannerTitle: "Trabajo Completado", // TODO: human-review translation
+    chemCompletedBannerBy: "por", // TODO: human-review translation
+    chemCompletedBannerPhotos: "Ver Fotos", // TODO: human-review translation
+    chemCompletionEmailPanel: "Correo de Completado", // TODO: human-review translation
+    chemCompletionEmailNotSent: "Aun no enviado", // TODO: human-review translation
+    chemCompletionEmailSentAt: "Enviado {{time}} a {{recipient}}", // TODO: human-review translation
+    chemCompletionEmailPreview: "Vista Previa del Correo", // TODO: human-review translation
+    chemCompletionEmailSend: "Enviar Correo de Completado", // TODO: human-review translation
+    chemCompletionEmailResend: "Reenviar", // TODO: human-review translation
+    chemCompletionEmailSending: "Enviando...", // TODO: human-review translation
+    chemCompletionEmailSent: "Correo de completado enviado", // TODO: human-review translation
+    chemCompletionEmailError: "Error al enviar correo de completado", // TODO: human-review translation
+    chemCompletionEmailDebounce: "Correo enviado recientemente — espere 60 segundos o use Reenviar", // TODO: human-review translation
+    chemCompletionUnsent24h: "Esta visita fue completada hace mas de 24 horas y no se ha enviado correo de completado.", // TODO: human-review translation
+    chemCompletionEmailPreviewTitle: "Vista Previa del Correo de Completado", // TODO: human-review translation
+  },
+  chemicalProducts: {
+    title: "Productos Quimicos", // TODO: human-review translation
+    description: "Gestionar productos usados en campanas de tratamiento quimico", // TODO: human-review translation
+    addProduct: "Agregar Producto", // TODO: human-review translation
+    editProduct: "Editar Producto", // TODO: human-review translation
+    noProducts: "No hay productos quimicos aun", // TODO: human-review translation
+    nameRequired: "El nombre del producto es obligatorio", // TODO: human-review translation
+    emailPreviewTitle: "Vista previa del correo", // TODO: human-review translation
+    name: "Nombre del Producto", // TODO: human-review translation
+    namePlaceholder: "p.ej. Roundup Pro", // TODO: human-review translation
+    epaReg: "# de Registro EPA", // TODO: human-review translation
+    epaRegPlaceholder: "p.ej. 524-343", // TODO: human-review translation
+    activeIngredient: "Ingrediente Activo", // TODO: human-review translation
+    targetPest: "Plaga Objetivo / Uso", // TODO: human-review translation
+    applicationRate: "Tasa de Aplicacion", // TODO: human-review translation
+    reEntryInterval: "Intervalo de Reingreso", // TODO: human-review translation
+    mowingRestriction: "Restriccion de Corte", // TODO: human-review translation
+    signalWord: "Palabra de Senal", // TODO: human-review translation
+    signalWordCaution: "Precaucion", // TODO: human-review translation
+    signalWordWarning: "Advertencia", // TODO: human-review translation
+    signalWordDanger: "Peligro", // TODO: human-review translation
+    signalWordNone: "Ninguna", // TODO: human-review translation
+    isOrganic: "Organico", // TODO: human-review translation
+    isActive: "Activo", // TODO: human-review translation
+    notes: "Notas", // TODO: human-review translation
+    completionEmailDefaults: "Valores Predeterminados del Correo de Completado", // TODO: human-review translation
+    defaultPostExpectation: "Expectativa post-aplicacion predeterminada", // TODO: human-review translation
+    defaultPostExpectationHint: "Lo que el administrador debe esperar en las proximas 1-2 semanas", // TODO: human-review translation
+    defaultPostWatering: "Instrucciones de riego post-aplicacion predeterminadas", // TODO: human-review translation
+    defaultPostWateringHint: "Restricciones o recomendaciones de riego despues de la aplicacion", // TODO: human-review translation
+    deleteConfirm: "Eliminar este producto?", // TODO: human-review translation
+    deleteMsg: "Esto eliminara permanentemente el producto. Esta accion no se puede deshacer.", // TODO: human-review translation
+    deleted: "Producto eliminado", // TODO: human-review translation
+    deleteFailed: "Error al eliminar producto", // TODO: human-review translation
+    saved: "Producto guardado", // TODO: human-review translation
+    saveFailed: "Error al guardar producto", // TODO: human-review translation
   },
   operations: {
     title: "Lista de Verificacion Operativa",

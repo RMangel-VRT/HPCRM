@@ -1,0 +1,112 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <style>
+    body { font-family: Arial, sans-serif; margin: 0; padding: 0; background-color: #f4f4f4; }
+    .container { max-width: 600px; margin: 0 auto; background: #ffffff; }
+    .header { background-color: #1a5632; padding: 24px; text-align: center; }
+    .header h1 { color: #ffffff; margin: 0; font-size: 22px; }
+    .content { padding: 32px 24px; }
+    .content h2 { color: #1a5632; margin-top: 0; }
+    .section-heading { color: #1a5632; font-size: 14px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em; margin: 24px 0 8px; }
+    .detail-row { padding: 8px 0; border-bottom: 1px solid #e5e7eb; }
+    .detail-label { color: #6b7280; font-size: 13px; text-transform: uppercase; }
+    .detail-value { color: #111827; font-size: 15px; margin-top: 2px; white-space: pre-wrap; }
+    .photos-grid { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px; }
+    .photo-thumb { width: 120px; height: 90px; object-fit: cover; border-radius: 4px; border: 1px solid #e5e7eb; }
+    .notice-box { background-color: #f0fdf4; border: 1px solid #86efac; border-radius: 6px; padding: 14px 16px; margin-top: 24px; }
+    .notice-box p { margin: 0; color: #166534; font-size: 14px; line-height: 1.5; }
+    .footer { padding: 16px 24px; background-color: #f9fafb; text-align: center; font-size: 12px; color: #9ca3af; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <div class="header">
+      <h1>{{companyName}}</h1>
+    </div>
+    <div class="content">
+      <h2>Chemical Treatment Completed</h2>
+      <p>A chemical treatment has been completed at your property.</p>
+
+      <div class="detail-row">
+        <div class="detail-label">Property</div>
+        <div class="detail-value">{{customerName}}</div>
+      </div>
+      <div class="detail-row">
+        <div class="detail-label">Campaign</div>
+        <div class="detail-value">{{campaignTitle}}</div>
+      </div>
+      <div class="detail-row">
+        <div class="detail-label">Completed On</div>
+        <div class="detail-value">{{completionDate}}{{#if completionTime}} at {{completionTime}}{{/if}}</div>
+      </div>
+      {{#if applicatorName}}
+      <div class="detail-row">
+        <div class="detail-label">Completed By</div>
+        <div class="detail-value">{{applicatorName}}</div>
+      </div>
+      {{/if}}
+      {{#if areasTreated}}
+      <div class="detail-row">
+        <div class="detail-label">Areas Treated</div>
+        <div class="detail-value">{{areasTreated}}</div>
+      </div>
+      {{/if}}
+      {{#if applicationConditions}}
+      <div class="detail-row">
+        <div class="detail-label">Application Conditions</div>
+        <div class="detail-value">{{applicationConditions}}</div>
+      </div>
+      {{/if}}
+      {{#if notes}}
+      <div class="detail-row">
+        <div class="detail-label">Technician Notes</div>
+        <div class="detail-value">{{notes}}</div>
+      </div>
+      {{/if}}
+      {{#if nextVisitDate}}
+      <div class="detail-row">
+        <div class="detail-label">{{nextVisitTitle}}</div>
+        <div class="detail-value">{{nextVisitDate}}</div>
+      </div>
+      {{/if}}
+      {{#if postApplicationExpectation}}
+      <div class="section-heading">What to Expect</div>
+      <div class="detail-row">
+        <div class="detail-value">{{postApplicationExpectation}}</div>
+      </div>
+      {{/if}}
+      {{#if reEntryInterval}}
+      <div class="detail-row">
+        <div class="detail-label">Re-Entry Interval</div>
+        <div class="detail-value">{{reEntryInterval}}</div>
+      </div>
+      {{/if}}
+      {{#if mowingRestriction}}
+      <div class="detail-row">
+        <div class="detail-label">Mowing Restriction</div>
+        <div class="detail-value">{{mowingRestriction}}</div>
+      </div>
+      {{/if}}
+      {{#if wateringInstructions}}
+      <div class="section-heading">Watering Instructions</div>
+      <div class="detail-row">
+        <div class="detail-value">{{wateringInstructions}}</div>
+      </div>
+      {{/if}}
+      {{#if photoHtmlThumbs}}
+      <div class="section-heading">Site Photos</div>
+      <div class="photos-grid">{{photoHtmlThumbs}}</div>
+      {{/if}}
+
+      <div class="notice-box">
+        <p>If you have any questions about this treatment, please contact us directly. Thank you for your continued trust in our services.</p>
+      </div>
+    </div>
+    <div class="footer">
+      <p>{{companyName}} - Property Maintenance Services</p>
+    </div>
+  </div>
+</body>
+</html>

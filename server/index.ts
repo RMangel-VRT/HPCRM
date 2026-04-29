@@ -1,5 +1,5 @@
 import express, { type Request, Response, NextFunction } from "express";
-import { registerRoutes, migrateProjectSchedulingStatus, migrateFirstBankHierarchy, migrateExtraBillableTicketType, removeProjectInvoicingFields, fixExtraBillableDoneOrder, fixEstimateRequestBillingBehavior, fixProjectDisplayOrders, migrateEstimateSentToProposalWorkflow, migrateProjectNoEstimateTicketType, migrateUserLanguageColumn, migrateUserPhoneColumn, backfillCustomerType, migrateEquipmentProfilePhotoColumn, migrateProposalNumbers, migrateCommunicationTemplatesSchema, migrateCommunicationsTable, seedCommunicationsBootstrap, seedCommunicationTemplatesBootstrap, migrateAutomationRulesTable, seedAutomationRulesBootstrap, migrateCampaignItemExceptionType, migrateCampaignItemsNewColumns, migrateServicePlanTables, migrateCampaignAssignedToId2, migrateCustomerRankingColumn, migrateTicketTypeStatusActionType, backfillStatusActionTypes, migrateVisualScopeSheetColumns, migrateVisualScopeScaleColumns, clearInvalidVisualScopeBaseImages, migrateContractAutoPopulateColumn, migrateCustomerServicePlanTemplateOrigin, migrateEmailTrackingTables, migrateUserApplicatorLicenseColumns, migrateChemicalProductsTable, migrateCampaignItemsChemicalColumns, seedChemicalEmailTemplatesBootstrap } from "./routes";
+import { registerRoutes, migrateProjectSchedulingStatus, migrateFirstBankHierarchy, migrateExtraBillableTicketType, removeProjectInvoicingFields, fixExtraBillableDoneOrder, fixEstimateRequestBillingBehavior, fixProjectDisplayOrders, migrateEstimateSentToProposalWorkflow, migrateProjectNoEstimateTicketType, migrateUserLanguageColumn, migrateUserPhoneColumn, backfillCustomerType, migrateEquipmentProfilePhotoColumn, migrateProposalNumbers, migrateCommunicationTemplatesSchema, migrateCommunicationsTable, seedCommunicationsBootstrap, seedCommunicationTemplatesBootstrap, migrateAutomationRulesTable, seedAutomationRulesBootstrap, migrateCampaignItemExceptionType, migrateCampaignItemsNewColumns, migrateServicePlanTables, migrateCampaignAssignedToId2, migrateCustomerRankingColumn, migrateTicketTypeStatusActionType, backfillStatusActionTypes, migrateVisualScopeSheetColumns, migrateVisualScopeScaleColumns, clearInvalidVisualScopeBaseImages, migrateContractAutoPopulateColumn, migrateCustomerServicePlanTemplateOrigin, migrateEmailTrackingTables, migrateUserApplicatorLicenseColumns, migrateChemicalProductsTable, migrateCampaignItemsCompletionColumns, migrateUserApplicatorFields } from "./routes";
 import { setupVite, serveStatic, log } from "./vite";
 import { runDueDateNotifications } from "./due-date-notifications";
 import { runAllAutomationRules } from "./services/automationService";
@@ -84,10 +84,9 @@ app.use((req, res, next) => {
   await migrateContractAutoPopulateColumn(); // Ensure auto_populate_service_plans column exists on contracts table
   await migrateCustomerServicePlanTemplateOrigin(); // Ensure source_template_id column exists on customer_service_plans
   await migrateEmailTrackingTables(); // Create mailbox_accounts, unsorted_emails tables and extend communications
-  await migrateUserApplicatorLicenseColumns(); // Ensure applicator_license_number and applicator_license_state columns exist on users
   await migrateChemicalProductsTable(); // Ensure chemical_products table exists
-  await migrateCampaignItemsChemicalColumns(); // Ensure chemical scheduling/product columns exist on campaign_items
-  await seedChemicalEmailTemplatesBootstrap(); // Idempotently seed chemical notification email templates for all companies
+  await migrateCampaignItemsCompletionColumns(); // Ensure completion columns exist on campaign_items
+  await migrateUserApplicatorFields(); // Ensure applicator license fields exist on users
 
   app.use((err: any, _req: Request, res: Response, _next: NextFunction) => {
     const status = err.status || err.statusCode || 500;

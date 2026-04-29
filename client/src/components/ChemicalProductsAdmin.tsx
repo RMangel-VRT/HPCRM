@@ -4,440 +4,253 @@ import { useQuery, useMutation } from "@tanstack/react-query";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage, FormDescription } from "@/components/ui/form";
 import { Textarea } from "@/components/ui/textarea";
-import { Badge } from "@/components/ui/badge";
 import { Switch } from "@/components/ui/switch";
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
-import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { Badge } from "@/components/ui/badge";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
-import { Plus, Pencil, Trash2, FlaskConical, FileText, Upload, X } from "lucide-react";
+import { Plus, Pencil, Trash2, Leaf } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import type { ChemicalProduct } from "@shared/schema";
 
-const SIGNAL_WORD_OPTIONS = [
-  { value: "caution", label: "Caution" },
-  { value: "warning", label: "Warning" },
-  { value: "danger", label: "Danger" },
-  { value: "danger_poison", label: "Danger/Poison" },
-];
-
-const CATEGORY_OPTIONS = [
-  { value: "herbicide", label: "Herbicide" },
-  { value: "insecticide", label: "Insecticide" },
-  { value: "fungicide", label: "Fungicide" },
-  { value: "fertilizer", label: "Fertilizer" },
-  { value: "other", label: "Other" },
-];
-
-const MAX_LABEL_BYTES = 10 * 1024 * 1024;
-
-const productFormSchema = z.object({
-  name: z.string().min(1, "Name is required").max(200),
-  manufacturer: z.string().max(200).optional().or(z.literal("")),
-  category: z.enum(["herbicide", "insecticide", "fungicide", "fertilizer", "other"]).nullable().optional(),
-  epaRegistrationNumber: z.string().optional().or(z.literal("")),
-  activeIngredient: z.string().optional().or(z.literal("")),
-  signalWord: z.enum(["caution", "warning", "danger", "danger_poison"]).nullable().optional(),
-  reentryIntervalHours: z.coerce.number().min(0).nullable().optional(),
-  wateringInstructions: z.string().optional().or(z.literal("")),
-  mowingInstructions: z.string().optional().or(z.literal("")),
-  purposeDescription: z.string().optional().or(z.literal("")),
-  notes: z.string().optional().or(z.literal("")),
-  isActive: z.boolean().default(true),
-});
-
-type ProductFormValues = z.infer<typeof productFormSchema>;
+type ProductFormValues = {
+  name: string;
+  epaRegistrationNumber: string;
+  activeIngredient: string;
+  targetPest: string;
+  applicationRate: string;
+  reEntryInterval: string;
+  mowingRestriction: string;
+  signalWord: "none" | "caution" | "warning" | "danger";
+  isOrganic: boolean;
+  isActive: boolean;
+  notes: string;
+  defaultPostApplicationExpectation: string;
+  defaultPostApplicationWatering: string;
+};
 
 export default function ChemicalProductsAdmin() {
   const { t } = useTranslation();
+
+  const productFormSchema = z.object({
+    name: z.string().min(1, t("chemicalProducts.nameRequired")),
+    epaRegistrationNumber: z.string().optional().default(""),
+    activeIngredient: z.string().optional().default(""),
+    targetPest: z.string().optional().default(""),
+    applicationRate: z.string().optional().default(""),
+    reEntryInterval: z.string().optional().default(""),
+    mowingRestriction: z.string().optional().default(""),
+    signalWord: z.enum(["none", "caution", "warning", "danger"]).default("none"),
+    isOrganic: z.boolean().default(false),
+    isActive: z.boolean().default(true),
+    notes: z.string().optional().default(""),
+    defaultPostApplicationExpectation: z.string().optional().default(""),
+    defaultPostApplicationWatering: z.string().optional().default(""),
+  });
   const { toast } = useToast();
-  const [showForm, setShowForm] = useState(false);
+  const [dialogOpen, setDialogOpen] = useState(false);
   const [editingProduct, setEditingProduct] = useState<ChemicalProduct | null>(null);
-  const [deleteTarget, setDeleteTarget] = useState<ChemicalProduct | null>(null);
-  const [uploadingLabel, setUploadingLabel] = useState<string | null>(null);
+  const [deletingProduct, setDeletingProduct] = useState<ChemicalProduct | null>(null);
 
   const { data: products = [], isLoading } = useQuery<ChemicalProduct[]>({
     queryKey: ["/api/chemical-products"],
   });
 
-  const emptyForm: ProductFormValues = {
-    name: "",
-    manufacturer: "",
-    category: undefined,
-    epaRegistrationNumber: "",
-    activeIngredient: "",
-    signalWord: undefined,
-    reentryIntervalHours: undefined,
-    wateringInstructions: "",
-    mowingInstructions: "",
-    purposeDescription: "",
-    notes: "",
-    isActive: true,
-  };
-
   const form = useForm<ProductFormValues>({
     resolver: zodResolver(productFormSchema),
-    defaultValues: emptyForm,
+    defaultValues: {
+      name: "",
+      epaRegistrationNumber: "",
+      activeIngredient: "",
+      targetPest: "",
+      applicationRate: "",
+      reEntryInterval: "",
+      mowingRestriction: "",
+      signalWord: "none",
+      isOrganic: false,
+      isActive: true,
+      notes: "",
+      defaultPostApplicationExpectation: "",
+      defaultPostApplicationWatering: "",
+    },
   });
 
-  function openCreate() {
+  const saveMutation = useMutation({
+    mutationFn: async (data: ProductFormValues) => {
+      if (editingProduct) {
+        return apiRequest("PATCH", `/api/chemical-products/${editingProduct.id}`, data);
+      }
+      return apiRequest("POST", "/api/chemical-products", data);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/chemical-products"] });
+      toast({ title: t("chemicalProducts.saved") });
+      setDialogOpen(false);
+      setEditingProduct(null);
+      form.reset();
+    },
+    onError: () => {
+      toast({ title: t("chemicalProducts.saveFailed"), variant: "destructive" });
+    },
+  });
+
+  const deleteMutation = useMutation({
+    mutationFn: async (id: string) => {
+      return apiRequest("DELETE", `/api/chemical-products/${id}`);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/chemical-products"] });
+      toast({ title: t("chemicalProducts.deleted") });
+      setDeletingProduct(null);
+    },
+    onError: () => {
+      toast({ title: t("chemicalProducts.deleteFailed"), variant: "destructive" });
+    },
+  });
+
+  function openAdd() {
     setEditingProduct(null);
-    form.reset(emptyForm);
-    setShowForm(true);
+    form.reset({
+      name: "",
+      epaRegistrationNumber: "",
+      activeIngredient: "",
+      targetPest: "",
+      applicationRate: "",
+      reEntryInterval: "",
+      mowingRestriction: "",
+      signalWord: "none",
+      isOrganic: false,
+      isActive: true,
+      notes: "",
+      defaultPostApplicationExpectation: "",
+      defaultPostApplicationWatering: "",
+    });
+    setDialogOpen(true);
   }
 
   function openEdit(product: ChemicalProduct) {
     setEditingProduct(product);
     form.reset({
       name: product.name,
-      manufacturer: product.manufacturer || "",
-      category: (product.category as ProductFormValues["category"]) ?? undefined,
-      epaRegistrationNumber: product.epaRegistrationNumber || "",
-      activeIngredient: product.activeIngredient || "",
-      signalWord: (product.signalWord as ProductFormValues["signalWord"]) ?? undefined,
-      reentryIntervalHours: product.reentryIntervalHours ?? undefined,
-      wateringInstructions: product.wateringInstructions || "",
-      mowingInstructions: product.mowingInstructions || "",
-      purposeDescription: product.purposeDescription || "",
-      notes: product.notes || "",
-      isActive: product.isActive,
+      epaRegistrationNumber: product.epaRegistrationNumber ?? "",
+      activeIngredient: product.activeIngredient ?? "",
+      targetPest: product.targetPest ?? "",
+      applicationRate: product.applicationRate ?? "",
+      reEntryInterval: product.reEntryInterval ?? "",
+      mowingRestriction: product.mowingRestriction ?? "",
+      signalWord: (product.signalWord ?? "none") as "caution" | "warning" | "danger" | "none",
+      isOrganic: product.isOrganic ?? false,
+      isActive: product.isActive ?? true,
+      notes: product.notes ?? "",
+      defaultPostApplicationExpectation: product.defaultPostApplicationExpectation ?? "",
+      defaultPostApplicationWatering: product.defaultPostApplicationWatering ?? "",
     });
-    setShowForm(true);
+    setDialogOpen(true);
   }
 
-  const saveMutation = useMutation({
-    mutationFn: async (values: ProductFormValues) => {
-      const payload = {
-        ...values,
-        manufacturer: values.manufacturer || null,
-        category: values.category || null,
-        epaRegistrationNumber: values.epaRegistrationNumber || null,
-        activeIngredient: values.activeIngredient || null,
-        signalWord: values.signalWord || null,
-        reentryIntervalHours: values.reentryIntervalHours ?? null,
-        wateringInstructions: values.wateringInstructions || null,
-        mowingInstructions: values.mowingInstructions || null,
-        purposeDescription: values.purposeDescription || null,
-        notes: values.notes || null,
-      };
-      if (editingProduct) {
-        return apiRequest("PATCH", `/api/chemical-products/${editingProduct.id}`, payload);
-      } else {
-        return apiRequest("POST", "/api/chemical-products", payload);
-      }
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/chemical-products"] });
-      toast({ title: editingProduct ? t("chemicalProducts.updated") : t("chemicalProducts.created") });
-      setShowForm(false);
-    },
-    onError: () => {
-      toast({ title: t("common.error"), variant: "destructive" });
-    },
-  });
-
-  const deleteMutation = useMutation({
-    mutationFn: async (id: string) => apiRequest("DELETE", `/api/chemical-products/${id}`),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/chemical-products"] });
-      toast({ title: t("chemicalProducts.deleted") });
-      setDeleteTarget(null);
-    },
-    onError: () => {
-      toast({ title: t("common.error"), variant: "destructive" });
-    },
-  });
-
-  const toggleActiveMutation = useMutation({
-    mutationFn: async ({ id, isActive }: { id: string; isActive: boolean }) =>
-      apiRequest("PATCH", `/api/chemical-products/${id}`, { isActive }),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/chemical-products"] });
-    },
-  });
-
-  const deleteLabelMutation = useMutation({
-    mutationFn: async (id: string) => apiRequest("DELETE", `/api/chemical-products/${id}/label`),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/chemical-products"] });
-      toast({ title: t("chemicalProducts.labelRemoved") });
-    },
-    onError: () => {
-      toast({ title: t("common.error"), variant: "destructive" });
-    },
-  });
-
-  async function handleLabelUpload(product: ChemicalProduct, file: File) {
-    if (!file) return;
-    if (file.size > MAX_LABEL_BYTES) {
-      toast({ title: t("chemicalProducts.labelTooLarge"), variant: "destructive" });
-      return;
-    }
-    setUploadingLabel(product.id);
-    try {
-      const encodedFilename = encodeURIComponent(file.name);
-      const res = await fetch(`/api/chemical-products/${product.id}/label?filename=${encodedFilename}`, {
-        method: "POST",
-        headers: { "Content-Type": "application/octet-stream" },
-        body: file,
-        credentials: "include",
-      });
-      if (!res.ok) {
-        const body = await res.json().catch(() => ({ error: "Upload failed" }));
-        throw new Error(body.error ?? "Upload failed");
-      }
-      queryClient.invalidateQueries({ queryKey: ["/api/chemical-products"] });
-      toast({ title: t("chemicalProducts.labelUploaded") });
-    } catch (err: unknown) {
-      const msg = err instanceof Error ? err.message : t("common.error");
-      toast({ title: msg, variant: "destructive" });
-    } finally {
-      setUploadingLabel(null);
-    }
+  function onSubmit(data: ProductFormValues) {
+    saveMutation.mutate(data);
   }
-
-  async function handleViewLabel(product: ChemicalProduct) {
-    try {
-      const res = await apiRequest("GET", `/api/chemical-products/${product.id}/label-url`);
-      const { url } = await res.json();
-      window.open(url, "_blank", "noopener,noreferrer");
-    } catch {
-      toast({ title: t("common.error"), variant: "destructive" });
-    }
-  }
-
-  const signalWordBadge = (sw: string | null | undefined) => {
-    if (!sw) return null;
-    const colors: Record<string, string> = {
-      caution: "bg-yellow-100 text-yellow-800 dark:bg-yellow-900/30 dark:text-yellow-300",
-      warning: "bg-orange-100 text-orange-800 dark:bg-orange-900/30 dark:text-orange-300",
-      danger: "bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-300",
-      danger_poison: "bg-red-200 text-red-900 dark:bg-red-900/50 dark:text-red-200",
-    };
-    const labels: Record<string, string> = {
-      caution: "Caution",
-      warning: "Warning",
-      danger: "Danger",
-      danger_poison: "Danger/Poison",
-    };
-    return (
-      <span className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium ${colors[sw] || ""}`}>
-        {labels[sw] || sw}
-      </span>
-    );
-  };
-
-  const categoryLabel = (cat: string | null | undefined) => {
-    if (!cat) return null;
-    const opt = CATEGORY_OPTIONS.find((o) => o.value === cat);
-    return opt ? opt.label : cat;
-  };
 
   return (
-    <div className="space-y-4">
+    <>
       <Card>
         <CardHeader className="flex flex-row items-center justify-between gap-2 flex-wrap">
           <div>
-            <CardTitle className="flex items-center gap-2">
-              <FlaskConical className="w-5 h-5" />
-              {t("chemicalProducts.title")}
-            </CardTitle>
+            <CardTitle>{t("chemicalProducts.title")}</CardTitle>
+            <CardDescription>{t("chemicalProducts.description")}</CardDescription>
           </div>
-          <Button onClick={openCreate} data-testid="button-create-chemical-product" size="default">
+          <Button onClick={openAdd} data-testid="button-add-chemical-product">
             <Plus className="w-4 h-4 mr-2" />
             {t("chemicalProducts.addProduct")}
           </Button>
         </CardHeader>
         <CardContent>
           {isLoading ? (
-            <p className="text-sm text-muted-foreground">{t("common.loading")}</p>
+            <p className="text-sm text-muted-foreground py-4 text-center">{t("common.loading")}</p>
           ) : products.length === 0 ? (
-            <p className="text-sm text-muted-foreground py-4 text-center">{t("chemicalProducts.noProducts")}</p>
+            <p className="text-sm text-muted-foreground py-6 text-center">{t("chemicalProducts.noProducts")}</p>
           ) : (
-            <>
-              <div className="hidden md:block">
-                <Table>
-                  <TableHeader>
-                    <TableRow>
-                      <TableHead>{t("common.name")}</TableHead>
-                      <TableHead>{t("chemicalProducts.category")}</TableHead>
-                      <TableHead>{t("chemicalProducts.epaRegNumber")}</TableHead>
-                      <TableHead>{t("chemicalProducts.signalWord")}</TableHead>
-                      <TableHead>{t("chemicalProducts.reentryInterval")}</TableHead>
-                      <TableHead>{t("chemicalProducts.label")}</TableHead>
-                      <TableHead>{t("common.status")}</TableHead>
-                      <TableHead className="text-right">{t("common.actions")}</TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {products.map((product) => (
-                      <TableRow key={product.id} data-testid={`row-product-${product.id}`}>
-                        <TableCell className="font-medium">
-                          <div>{product.name}</div>
-                          {product.manufacturer && (
-                            <div className="text-xs text-muted-foreground">{product.manufacturer}</div>
-                          )}
-                          {product.activeIngredient && (
-                            <div className="text-xs text-muted-foreground">{product.activeIngredient}</div>
-                          )}
-                        </TableCell>
-                        <TableCell className="text-sm text-muted-foreground">{categoryLabel(product.category) || "—"}</TableCell>
-                        <TableCell className="text-sm text-muted-foreground">{product.epaRegistrationNumber || "—"}</TableCell>
-                        <TableCell>{signalWordBadge(product.signalWord)}</TableCell>
-                        <TableCell className="text-sm">
-                          {product.reentryIntervalHours != null ? `${product.reentryIntervalHours}h` : "—"}
-                        </TableCell>
-                        <TableCell>
-                          {product.labelStorageKey ? (
-                            <div className="flex items-center gap-1">
-                              <Button variant="ghost" size="sm" onClick={() => handleViewLabel(product)} data-testid={`button-view-label-${product.id}`}>
-                                <FileText className="w-3.5 h-3.5 mr-1" />
-                                {t("chemicalProducts.viewLabel")}
-                              </Button>
-                              <Button
-                                variant="ghost"
-                                size="icon"
-                                onClick={() => deleteLabelMutation.mutate(product.id)}
-                                data-testid={`button-remove-label-${product.id}`}
-                                title={t("chemicalProducts.removeLabel")}
-                              >
-                                <X className="w-3.5 h-3.5 text-destructive" />
-                              </Button>
-                            </div>
-                          ) : (
-                            <label className="cursor-pointer">
-                              <input
-                                type="file"
-                                accept=".pdf"
-                                className="hidden"
-                                onChange={(e) => e.target.files?.[0] && handleLabelUpload(product, e.target.files[0])}
-                                data-testid={`input-label-upload-${product.id}`}
-                              />
-                              <Button variant="outline" size="sm" asChild disabled={uploadingLabel === product.id}>
-                                <span>
-                                  <Upload className="w-3.5 h-3.5 mr-1" />
-                                  {uploadingLabel === product.id ? t("common.saving") : t("chemicalProducts.uploadLabel")}
-                                </span>
-                              </Button>
-                            </label>
-                          )}
-                        </TableCell>
-                        <TableCell>
-                          <Switch
-                            checked={product.isActive}
-                            onCheckedChange={(checked) => toggleActiveMutation.mutate({ id: product.id, isActive: checked })}
-                            data-testid={`toggle-active-${product.id}`}
-                          />
-                        </TableCell>
-                        <TableCell className="text-right">
-                          <div className="flex items-center justify-end gap-2">
-                            <Button variant="ghost" size="icon" onClick={() => openEdit(product)} data-testid={`button-edit-product-${product.id}`}>
-                              <Pencil className="w-4 h-4" />
-                            </Button>
-                            <Button variant="ghost" size="icon" onClick={() => setDeleteTarget(product)} data-testid={`button-delete-product-${product.id}`}>
-                              <Trash2 className="w-4 h-4 text-destructive" />
-                            </Button>
-                          </div>
-                        </TableCell>
-                      </TableRow>
-                    ))}
-                  </TableBody>
-                </Table>
-              </div>
-              <div className="md:hidden space-y-3">
-                {products.map((product) => (
-                  <Card key={product.id} data-testid={`card-product-${product.id}`}>
-                    <CardContent className="p-3 space-y-2">
-                      <div className="flex items-start justify-between gap-2">
-                        <div>
-                          <p className="font-medium text-sm">{product.name}</p>
-                          {product.manufacturer && (
-                            <p className="text-xs text-muted-foreground">{product.manufacturer}</p>
-                          )}
-                          {product.activeIngredient && (
-                            <p className="text-xs text-muted-foreground">{product.activeIngredient}</p>
-                          )}
-                        </div>
-                        <div className="flex items-center gap-1 shrink-0">
-                          <Button variant="ghost" size="icon" onClick={() => openEdit(product)}>
-                            <Pencil className="w-4 h-4" />
-                          </Button>
-                          <Button variant="ghost" size="icon" onClick={() => setDeleteTarget(product)}>
-                            <Trash2 className="w-4 h-4 text-destructive" />
-                          </Button>
-                        </div>
-                      </div>
-                      <div className="flex flex-wrap gap-2 items-center">
-                        {product.category && (
-                          <Badge variant="outline">{categoryLabel(product.category)}</Badge>
+            <div className="space-y-2">
+              {products.map((product) => (
+                <div
+                  key={product.id}
+                  className="flex items-center justify-between gap-4 p-3 rounded-md border bg-card"
+                  data-testid={`row-chemical-product-${product.id}`}
+                >
+                  <div className="flex items-center gap-3 min-w-0">
+                    {product.isOrganic && (
+                      <Leaf className="w-4 h-4 text-green-600 flex-shrink-0" />
+                    )}
+                    <div className="min-w-0">
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <span className="font-medium text-sm" data-testid={`text-product-name-${product.id}`}>{product.name}</span>
+                        {!product.isActive && (
+                          <Badge variant="secondary" className="text-xs">{t("common.inactive")}</Badge>
                         )}
-                        {signalWordBadge(product.signalWord)}
-                        {product.reentryIntervalHours != null && (
-                          <Badge variant="outline">{product.reentryIntervalHours}h re-entry</Badge>
+                        {product.signalWord && product.signalWord !== "none" && (
+                          <Badge
+                            variant={product.signalWord === "danger" ? "destructive" : "outline"}
+                            className="text-xs capitalize"
+                          >
+                            {t(`chemicalProducts.signalWord${product.signalWord.charAt(0).toUpperCase() + product.signalWord.slice(1)}`)}
+                          </Badge>
                         )}
-                        <Switch
-                          checked={product.isActive}
-                          onCheckedChange={(checked) => toggleActiveMutation.mutate({ id: product.id, isActive: checked })}
-                          data-testid={`toggle-active-mobile-${product.id}`}
-                        />
                       </div>
-                      {product.labelStorageKey && (
-                        <div className="flex items-center gap-1">
-                          <Button variant="ghost" size="sm" onClick={() => handleViewLabel(product)}>
-                            <FileText className="w-3.5 h-3.5 mr-1" />
-                            {t("chemicalProducts.viewLabel")}
-                          </Button>
-                          <Button variant="ghost" size="icon" onClick={() => deleteLabelMutation.mutate(product.id)}>
-                            <X className="w-3.5 h-3.5 text-destructive" />
-                          </Button>
-                        </div>
+                      {product.activeIngredient && (
+                        <p className="text-xs text-muted-foreground truncate">{product.activeIngredient}</p>
                       )}
-                    </CardContent>
-                  </Card>
-                ))}
-              </div>
-            </>
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-2 flex-shrink-0">
+                    <Button
+                      size="icon"
+                      variant="ghost"
+                      onClick={() => openEdit(product)}
+                      data-testid={`button-edit-product-${product.id}`}
+                    >
+                      <Pencil className="w-4 h-4" />
+                    </Button>
+                    <Button
+                      size="icon"
+                      variant="ghost"
+                      onClick={() => setDeletingProduct(product)}
+                      data-testid={`button-delete-product-${product.id}`}
+                    >
+                      <Trash2 className="w-4 h-4" />
+                    </Button>
+                  </div>
+                </div>
+              ))}
+            </div>
           )}
         </CardContent>
       </Card>
 
-      <Dialog open={showForm} onOpenChange={setShowForm}>
-        <DialogContent className="max-w-lg max-h-[90vh] overflow-y-auto">
+      <Dialog open={dialogOpen} onOpenChange={(open) => { if (!open) { setDialogOpen(false); setEditingProduct(null); } }}>
+        <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle>
               {editingProduct ? t("chemicalProducts.editProduct") : t("chemicalProducts.addProduct")}
             </DialogTitle>
           </DialogHeader>
           <Form {...form}>
-            <form onSubmit={form.handleSubmit((v) => saveMutation.mutate(v))} className="space-y-4">
-              <FormField
-                control={form.control}
-                name="name"
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>{t("common.name")} *</FormLabel>
-                    <FormControl>
-                      <Input {...field} data-testid="input-product-name" placeholder="e.g. Roundup Pro" />
-                    </FormControl>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
-              <div className="grid grid-cols-2 gap-3">
+            <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <FormField
                   control={form.control}
-                  name="manufacturer"
+                  name="name"
                   render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>{t("chemicalProducts.manufacturer")}</FormLabel>
+                    <FormItem className="md:col-span-2">
+                      <FormLabel>{t("chemicalProducts.name")}</FormLabel>
                       <FormControl>
-                        <Input {...field} data-testid="input-manufacturer" placeholder="e.g. Bayer" />
+                        <Input placeholder={t("chemicalProducts.namePlaceholder")} {...field} data-testid="input-product-name" />
                       </FormControl>
                       <FormMessage />
                     </FormItem>
@@ -445,39 +258,12 @@ export default function ChemicalProductsAdmin() {
                 />
                 <FormField
                   control={form.control}
-                  name="category"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>{t("chemicalProducts.category")}</FormLabel>
-                      <Select
-                        value={field.value || ""}
-                        onValueChange={(v) => field.onChange(v || null)}
-                      >
-                        <FormControl>
-                          <SelectTrigger data-testid="select-category">
-                            <SelectValue placeholder={t("common.select")} />
-                          </SelectTrigger>
-                        </FormControl>
-                        <SelectContent>
-                          {CATEGORY_OPTIONS.map((opt) => (
-                            <SelectItem key={opt.value} value={opt.value}>{opt.label}</SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
-              </div>
-              <div className="grid grid-cols-2 gap-3">
-                <FormField
-                  control={form.control}
                   name="epaRegistrationNumber"
                   render={({ field }) => (
                     <FormItem>
-                      <FormLabel>{t("chemicalProducts.epaRegNumber")}</FormLabel>
+                      <FormLabel>{t("chemicalProducts.epaReg")}</FormLabel>
                       <FormControl>
-                        <Input {...field} data-testid="input-epa-reg-number" placeholder="000000-000" />
+                        <Input placeholder={t("chemicalProducts.epaRegPlaceholder")} {...field} data-testid="input-product-epa" />
                       </FormControl>
                       <FormMessage />
                     </FormItem>
@@ -489,130 +275,167 @@ export default function ChemicalProductsAdmin() {
                   render={({ field }) => (
                     <FormItem>
                       <FormLabel>{t("chemicalProducts.signalWord")}</FormLabel>
-                      <Select
-                        value={field.value || ""}
-                        onValueChange={(v) => field.onChange(v || null)}
-                      >
+                      <Select onValueChange={field.onChange} value={field.value}>
                         <FormControl>
                           <SelectTrigger data-testid="select-signal-word">
-                            <SelectValue placeholder={t("common.select")} />
+                            <SelectValue />
                           </SelectTrigger>
                         </FormControl>
                         <SelectContent>
-                          {SIGNAL_WORD_OPTIONS.map((opt) => (
-                            <SelectItem key={opt.value} value={opt.value}>{opt.label}</SelectItem>
-                          ))}
+                          <SelectItem value="none">{t("chemicalProducts.signalWordNone")}</SelectItem>
+                          <SelectItem value="caution">{t("chemicalProducts.signalWordCaution")}</SelectItem>
+                          <SelectItem value="warning">{t("chemicalProducts.signalWordWarning")}</SelectItem>
+                          <SelectItem value="danger">{t("chemicalProducts.signalWordDanger")}</SelectItem>
                         </SelectContent>
                       </Select>
                       <FormMessage />
                     </FormItem>
                   )}
                 />
+                <FormField
+                  control={form.control}
+                  name="activeIngredient"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>{t("chemicalProducts.activeIngredient")}</FormLabel>
+                      <FormControl>
+                        <Input {...field} data-testid="input-product-active-ingredient" />
+                      </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+                <FormField
+                  control={form.control}
+                  name="targetPest"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>{t("chemicalProducts.targetPest")}</FormLabel>
+                      <FormControl>
+                        <Input {...field} data-testid="input-product-target-pest" />
+                      </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+                <FormField
+                  control={form.control}
+                  name="applicationRate"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>{t("chemicalProducts.applicationRate")}</FormLabel>
+                      <FormControl>
+                        <Input {...field} data-testid="input-product-app-rate" />
+                      </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+                <FormField
+                  control={form.control}
+                  name="reEntryInterval"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>{t("chemicalProducts.reEntryInterval")}</FormLabel>
+                      <FormControl>
+                        <Input {...field} data-testid="input-product-rei" />
+                      </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+                <FormField
+                  control={form.control}
+                  name="mowingRestriction"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>{t("chemicalProducts.mowingRestriction")}</FormLabel>
+                      <FormControl>
+                        <Input {...field} data-testid="input-product-mowing" />
+                      </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+                <div className="md:col-span-2 flex items-center gap-6">
+                  <FormField
+                    control={form.control}
+                    name="isOrganic"
+                    render={({ field }) => (
+                      <FormItem className="flex items-center gap-2 space-y-0">
+                        <FormControl>
+                          <Switch checked={field.value} onCheckedChange={field.onChange} data-testid="switch-product-organic" />
+                        </FormControl>
+                        <FormLabel className="cursor-pointer">{t("chemicalProducts.isOrganic")}</FormLabel>
+                      </FormItem>
+                    )}
+                  />
+                  <FormField
+                    control={form.control}
+                    name="isActive"
+                    render={({ field }) => (
+                      <FormItem className="flex items-center gap-2 space-y-0">
+                        <FormControl>
+                          <Switch checked={field.value} onCheckedChange={field.onChange} data-testid="switch-product-active" />
+                        </FormControl>
+                        <FormLabel className="cursor-pointer">{t("chemicalProducts.isActive")}</FormLabel>
+                      </FormItem>
+                    )}
+                  />
+                </div>
+                <FormField
+                  control={form.control}
+                  name="notes"
+                  render={({ field }) => (
+                    <FormItem className="md:col-span-2">
+                      <FormLabel>{t("chemicalProducts.notes")}</FormLabel>
+                      <FormControl>
+                        <Textarea rows={2} {...field} data-testid="textarea-product-notes" />
+                      </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
               </div>
-              <FormField
-                control={form.control}
-                name="activeIngredient"
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>{t("chemicalProducts.activeIngredient")}</FormLabel>
-                    <FormControl>
-                      <Input {...field} data-testid="input-active-ingredient" />
-                    </FormControl>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
-              <FormField
-                control={form.control}
-                name="reentryIntervalHours"
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>{t("chemicalProducts.reentryInterval")}</FormLabel>
-                    <FormControl>
-                      <Input
-                        {...field}
-                        type="number"
-                        min={0}
-                        step={0.5}
-                        value={field.value ?? ""}
-                        onChange={(e) => field.onChange(e.target.value === "" ? undefined : parseFloat(e.target.value))}
-                        data-testid="input-reentry-interval"
-                      />
-                    </FormControl>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
-              <FormField
-                control={form.control}
-                name="purposeDescription"
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>{t("chemicalProducts.purpose")}</FormLabel>
-                    <FormControl>
-                      <Input {...field} data-testid="input-purpose" />
-                    </FormControl>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
-              <FormField
-                control={form.control}
-                name="wateringInstructions"
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>{t("chemicalProducts.wateringInstructions")}</FormLabel>
-                    <FormControl>
-                      <Textarea {...field} rows={2} data-testid="textarea-watering-instructions" />
-                    </FormControl>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
-              <FormField
-                control={form.control}
-                name="mowingInstructions"
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>{t("chemicalProducts.mowingInstructions")}</FormLabel>
-                    <FormControl>
-                      <Textarea {...field} rows={2} data-testid="textarea-mowing-instructions" />
-                    </FormControl>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
-              <FormField
-                control={form.control}
-                name="notes"
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>{t("chemicalProducts.notes")}</FormLabel>
-                    <FormControl>
-                      <Textarea {...field} rows={2} data-testid="textarea-product-notes" />
-                    </FormControl>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
-              <FormField
-                control={form.control}
-                name="isActive"
-                render={({ field }) => (
-                  <FormItem className="flex items-center gap-3">
-                    <FormControl>
-                      <Switch checked={field.value} onCheckedChange={field.onChange} data-testid="switch-is-active" />
-                    </FormControl>
-                    <FormLabel className="mb-0">{t("chemicalProducts.activeProduct")}</FormLabel>
-                  </FormItem>
-                )}
-              />
+
+              <div className="space-y-3 pt-2">
+                <p className="text-sm font-medium">{t("chemicalProducts.completionEmailDefaults")}</p>
+                <FormField
+                  control={form.control}
+                  name="defaultPostApplicationExpectation"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>{t("chemicalProducts.defaultPostExpectation")}</FormLabel>
+                      <FormDescription>{t("chemicalProducts.defaultPostExpectationHint")}</FormDescription>
+                      <FormControl>
+                        <Textarea rows={3} {...field} data-testid="textarea-product-post-expectation" />
+                      </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+                <FormField
+                  control={form.control}
+                  name="defaultPostApplicationWatering"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>{t("chemicalProducts.defaultPostWatering")}</FormLabel>
+                      <FormDescription>{t("chemicalProducts.defaultPostWateringHint")}</FormDescription>
+                      <FormControl>
+                        <Textarea rows={3} {...field} data-testid="textarea-product-post-watering" />
+                      </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+              </div>
+
               <DialogFooter>
-                <Button type="button" variant="outline" onClick={() => setShowForm(false)}>
+                <Button type="button" variant="outline" onClick={() => setDialogOpen(false)} data-testid="button-cancel-product">
                   {t("common.cancel")}
                 </Button>
                 <Button type="submit" disabled={saveMutation.isPending} data-testid="button-save-product">
-                  {saveMutation.isPending ? t("common.saving") : t("common.save")}
+                  {t(saveMutation.isPending ? "common.saving" : "common.save")}
                 </Button>
               </DialogFooter>
             </form>
@@ -620,19 +443,16 @@ export default function ChemicalProductsAdmin() {
         </DialogContent>
       </Dialog>
 
-      <AlertDialog open={!!deleteTarget} onOpenChange={(open) => !open && setDeleteTarget(null)}>
+      <AlertDialog open={!!deletingProduct} onOpenChange={(open) => { if (!open) setDeletingProduct(null); }}>
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>{t("chemicalProducts.confirmDelete")}</AlertDialogTitle>
-            <AlertDialogDescription>
-              {t("chemicalProducts.confirmDeleteDesc")}
-            </AlertDialogDescription>
+            <AlertDialogTitle>{t("chemicalProducts.deleteConfirm")}</AlertDialogTitle>
+            <AlertDialogDescription>{t("chemicalProducts.deleteMsg")}</AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
-            <AlertDialogCancel>{t("common.cancel")}</AlertDialogCancel>
+            <AlertDialogCancel data-testid="button-cancel-delete-product">{t("common.cancel")}</AlertDialogCancel>
             <AlertDialogAction
-              onClick={() => deleteTarget && deleteMutation.mutate(deleteTarget.id)}
-              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              onClick={() => deletingProduct && deleteMutation.mutate(deletingProduct.id)}
               data-testid="button-confirm-delete-product"
             >
               {t("common.delete")}
@@ -640,6 +460,6 @@ export default function ChemicalProductsAdmin() {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
-    </div>
+    </>
   );
 }
