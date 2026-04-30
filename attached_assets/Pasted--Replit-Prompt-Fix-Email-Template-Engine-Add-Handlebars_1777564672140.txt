@@ -1,0 +1,139 @@
+# Replit Prompt — Fix Email Template Engine (Add Handlebars)
+
+## Context
+
+Bug: the email template engine in `server/services/emailService.ts` uses a regex (`/\{\{(\w+)\}\}/g`) that only matches simple variable substitutions. The `\w+` token doesn't match `#` or `/`, so `{{#if foo}}...{{/if}}` blocks are NOT processed. They're left as literal text in the rendered HTML and shipped to SendGrid as-is.
+
+This affects all three default templates today:
+
+- `getDefaultWorkCompletedTemplate()` uses `{{#if ticketDescription}}`
+- `getDefaultChemicalPreNoticeTemplate()` uses `{{#if notes}}`
+- `getDefaultChemicalPostNoticeTemplate()` uses `{{#if notes}}`
+
+Property managers have been receiving emails with literal `{{#if ticketDescription}}` text in them, OR the conditional sections render even when the variable is empty. Either way, the templates are not behaving as they look like they should.
+
+This is a tiny, surgical fix: swap the homegrown substitution for `handlebars`. Existing `{{var}}` syntax keeps working unchanged, and `{{#if}}` starts working.
+
+**This slice does not conflict with the in-flight slices 2 and 3** (chemical completion notice and work completion notice). Those slices are adding new templates that already assume Handlebars-style conditionals — this fix is what makes those conditionals actually work.
+
+## Existing context (do not duplicate or replace)
+
+- The substitution function lives at `server/services/emailService.ts` line 53 (`function substituteVariables`).
+- It is called in three places in the same file: lines 64, 65, 66 (subject, htmlBody, textBody).
+- The three default template functions live in the same file at lines 198, 261, 324. **Do not modify their HTML bodies in this slice** — slices 2 and 3 (in progress) are responsible for content updates. We're only changing the engine.
+- The signature of `substituteVariables(template: string, variables: Record<string, string>): string` must be preserved so existing callers don't change.
+
+## Changes
+
+### 1. Add the dependency
+
+Run:
+
+```
+npm install handlebars
+```
+
+If the project uses a lockfile (it does — Replit projects use `package-lock.json` by default), commit the updated lockfile.
+
+### 2. Replace `substituteVariables` in `server/services/emailService.ts`
+
+Find the existing function (around line 53):
+
+```ts
+function substituteVariables(template: string, variables: Record<string, string>): string {
+  return template.replace(/\{\{(\w+)\}\}/g, (_, key) => variables[key] || '');
+}
+```
+
+Replace it with a Handlebars-backed version that caches compiled templates per source string for performance:
+
+```ts
+import Handlebars from 'handlebars';
+
+const compiledTemplateCache = new Map<string, HandlebarsTemplateDelegate>();
+
+function getCompiledTemplate(source: string): HandlebarsTemplateDelegate {
+  let compiled = compiledTemplateCache.get(source);
+  if (!compiled) {
+    compiled = Handlebars.compile(source, { noEscape: false });
+    compiledTemplateCache.set(source, compiled);
+  }
+  return compiled;
+}
+
+function substituteVariables(template: string, variables: Record<string, string>): string {
+  if (!template) return '';
+  try {
+    const compiled = getCompiledTemplate(template);
+    return compiled(variables);
+  } catch (err) {
+    console.error('Failed to render email template, falling back to raw substitution:', err);
+    return template.replace(/\{\{(\w+)\}\}/g, (_, key) => variables[key] || '');
+  }
+}
+```
+
+The `import Handlebars from 'handlebars';` line goes at the top of the file with the other imports.
+
+The fallback path inside the catch preserves today's behavior in the unlikely event a template has a Handlebars syntax error — we'd rather ship a slightly-broken email than no email.
+
+### 3. HTML-escaping note (important — read before continuing)
+
+Handlebars escapes HTML by default in `{{variable}}` substitutions. This is the right behavior for normal text fields like `{{customerName}}`, `{{companyName}}`, `{{ticketTitle}}`, etc. — it prevents an apostrophe in a customer name from breaking the email or, worse, allowing HTML injection.
+
+However, slices 2 and 3 introduce variables that intentionally contain pre-rendered HTML and must NOT be escaped:
+
+- `completionPhotosHtml` (string of `<img>` tags)
+- `scopeItemsHtml` (string of scope-item rows)
+
+For these, the templates must use the **triple-stash** form: `{{{completionPhotosHtml}}}` and `{{{scopeItemsHtml}}}`. Triple-stash tells Handlebars to render the value as raw HTML.
+
+Action item for this slice: search the three template functions in `emailService.ts` for any merge variable that is supposed to contain raw HTML, and switch its braces to triple-stash. Today there are no such variables in the existing three templates, so this slice does not need to modify the existing template bodies. **But add a one-line comment at the top of each `getDefault*Template()` function reminding future authors:**
+
+```ts
+// NOTE: Use {{{tripleStash}}} for variables that contain raw HTML (photos, etc.).
+// Plain {{var}} HTML-escapes its value (correct for plain text like names).
+```
+
+This will save the slice 2 / 3 implementations from a footgun.
+
+### 4. Verification
+
+Add or extend a server-side test (or a one-off script under `scripts/` if no test harness exists for this) that exercises the three known scenarios:
+
+1. **Plain substitution still works.** Template `Hello {{name}}!` with `{ name: 'Acme HOA' }` → `Hello Acme HOA!`
+2. **Conditional with truthy value renders.** Template `{{#if notes}}Notes: {{notes}}{{/if}}` with `{ notes: 'Gate code 1234' }` → `Notes: Gate code 1234`
+3. **Conditional with empty value collapses.** Template `{{#if notes}}Notes: {{notes}}{{/if}}` with `{ notes: '' }` → empty string (no literal `{{#if}}` text)
+4. **HTML escaping default.** Template `Hello {{name}}` with `{ name: '<script>x</script>' }` → `Hello &lt;script&gt;x&lt;/script&gt;`
+5. **Triple-stash bypasses escaping.** Template `Photos: {{{photos}}}` with `{ photos: '<img src="x">' }` → `Photos: <img src="x">`
+
+If a test runner is already wired up, add these as proper tests in the closest existing test file. Otherwise drop a `scripts/test-template-engine.ts` that runs the five cases and prints PASS/FAIL.
+
+### 5. Spot-check the live templates
+
+Render each of the three current templates with realistic variables and inspect the output for any remaining `{{#if}}` literal text. Specifically:
+
+- `getDefaultWorkCompletedTemplate()` with both a populated `ticketDescription` and an empty one
+- `getDefaultChemicalPreNoticeTemplate()` with both populated and empty `notes`
+- `getDefaultChemicalPostNoticeTemplate()` with both populated and empty `notes`
+
+If any literal Handlebars syntax appears in the output, the template has a syntax error — fix it.
+
+## Out of scope
+
+- Don't touch the HTML content of the existing default templates (slices 2 and 3 own that)
+- Don't add Handlebars helpers (e.g., `{{formatDate}}`) — keep this slice tight; helpers can come later
+- Don't change `processEmailEvent`, `sendEmail`, or `resendEmail` flow
+- Don't add new event keys, templates, or rules
+- Don't migrate templates from inline TypeScript to file-on-disk (separate cleanup)
+
+## Deliverables
+
+When you finish, report back with:
+
+1. The exact diff applied to `server/services/emailService.ts`
+2. The `package.json` and `package-lock.json` change (handlebars version installed)
+3. Output of the five verification cases (PASS/FAIL each)
+4. Output of the spot-check of the three live templates with both populated and empty conditional fields — paste the rendered HTML for the empty-conditional cases so we can confirm no literal `{{#if}}` text remains
+5. Any decisions you made where this prompt was ambiguous, and what you chose
+6. Confirmation that you did NOT modify the bodies of the three default template functions
