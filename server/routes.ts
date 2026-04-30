@@ -14886,37 +14886,6 @@ export async function registerRoutes(app: Express): Promise<Server> {
   return httpServer;
 }
 
-export async function migrateChemicalProductsTable(): Promise<void> {
-  console.log("Running startup migration: Ensuring chemical_products table exists...");
-  try {
-    await db.execute(sql`
-      CREATE TABLE IF NOT EXISTS chemical_products (
-        id varchar PRIMARY KEY DEFAULT gen_random_uuid(),
-        company_id varchar NOT NULL REFERENCES companies(id) ON DELETE CASCADE,
-        name text NOT NULL,
-        epa_registration_number text,
-        active_ingredient text,
-        target_pest text,
-        application_rate text,
-        re_entry_interval text,
-        mowing_restriction text,
-        label_pdf_storage_key text,
-        signal_word text,
-        is_organic boolean NOT NULL DEFAULT false,
-        is_active boolean NOT NULL DEFAULT true,
-        default_post_application_expectation text,
-        default_post_application_watering text,
-        notes text,
-        created_at timestamp NOT NULL DEFAULT NOW(),
-        updated_at timestamp NOT NULL DEFAULT NOW()
-      )
-    `);
-    console.log("chemical_products table migration complete");
-  } catch (error) {
-    console.error("Error during chemical_products table migration:", error);
-  }
-}
-
 export async function migrateCampaignItemsCompletionColumns(): Promise<void> {
   console.log("Running startup migration: Ensuring completion columns exist on campaign_items...");
   try {

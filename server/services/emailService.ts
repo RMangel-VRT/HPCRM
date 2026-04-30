@@ -1,13 +1,10 @@
 import sgMail from '@sendgrid/mail';
 import { readFileSync } from 'fs';
 import { join } from 'path';
+import Handlebars from 'handlebars';
 import { storage } from '../storage';
 import type { EmailLog, InsertEmailLog, EmailRule, CampaignItem, ChemicalProduct } from '@shared/schema';
 import { getEmailFallbacks, formatTimeWindowWithFallback } from '../i18n/emailFallbacks';
-
-function loadTemplateFile(filename: string): string {
-  return readFileSync(join(__dirname, '../templates', filename), 'utf-8');
-}
 
 let connectionSettings: any;
 
@@ -57,30 +54,49 @@ export interface EmailContext {
   variables: Record<string, string>;
 }
 
+// Compiled template cache — keyed by template source string
+const compiledTemplateCache = new Map<string, HandlebarsTemplateDelegate>();
+
+function getCompiledTemplate(template: string): HandlebarsTemplateDelegate {
+  let compiled = compiledTemplateCache.get(template);
+  if (!compiled) {
+    compiled = Handlebars.compile(template, { noEscape: false });
+    compiledTemplateCache.set(template, compiled);
+  }
+  return compiled;
+}
+
 export function renderTemplate(template: string, variables: Record<string, string>): string {
-  // First process {{#if var}}...{{/if}} conditional blocks (supports optional sections in disk-based templates)
-  let result = template.replace(/\{\{#if\s+(\w+)\}\}([\s\S]*?)\{\{\/if\}\}/g, (_, varName, content) => {
-    return variables[varName]?.trim() ? content : '';
-  });
-  // Then substitute remaining {{var}} placeholders
-  return result.replace(/\{\{(\w+)\}\}/g, (_, key) => variables[key] || '');
+  try {
+    const compiled = getCompiledTemplate(template);
+    return compiled(variables);
+  } catch {
+    // Fallback: regex-based substitution so a syntax error never blocks an email send
+    let result = template.replace(/\{\{#if\s+(\w+)\}\}([\s\S]*?)\{\{\/if\}\}/g, (_, varName, content) => {
+      return variables[varName]?.trim() ? content : '';
+    });
+    return result.replace(/\{\{(\w+)\}\}/g, (_, key) => variables[key] || '');
+  }
 }
 
 export function substituteVariables(template: string, variables: Record<string, string>): string {
-  let result = template;
-  // Iteratively resolve {{#if varName}}...{{/if}} blocks from innermost out.
-  // Each pass resolves the deepest remaining blocks; repeat until stable.
-  let prev: string;
-  do {
-    prev = result;
-    result = result.replace(/\{\{#if (\w+)\}\}([\s\S]*?)\{\{\/if\}\}/g, (_, key, inner) => {
-      const val = variables[key];
-      return (val && val.trim()) ? inner : '';
-    });
-  } while (result !== prev);
-  // Then substitute simple {{variable}} tokens
-  result = result.replace(/\{\{(\w+)\}\}/g, (_, key) => variables[key] || '');
-  return result;
+  try {
+    const compiled = getCompiledTemplate(template);
+    return compiled(variables);
+  } catch {
+    // Fallback: regex-based substitution so a syntax error never blocks an email send
+    let result = template;
+    let prev: string;
+    do {
+      prev = result;
+      result = result.replace(/\{\{#if (\w+)\}\}([\s\S]*?)\{\{\/if\}\}/g, (_, key, inner) => {
+        const val = variables[key];
+        return (val && val.trim()) ? inner : '';
+      });
+    } while (result !== prev);
+    result = result.replace(/\{\{(\w+)\}\}/g, (_, key) => variables[key] || '');
+    return result;
+  }
 }
 
 export async function sendEmail(
@@ -225,6 +241,7 @@ export async function resendEmail(emailLogId: string, companyId: string, sentByI
 }
 
 export function getDefaultWorkCompletedTemplate() {
+  // NOTE: Use {{{tripleStash}}} for variables containing raw HTML (photos, HTML fragments, etc.). Plain {{var}} HTML-escapes its value.
   return {
     name: 'Work Completed Notification',
     subject: 'Work Completed: {{ticketTitle}}',
@@ -277,7 +294,7 @@ export function getDefaultWorkCompletedTemplate() {
 
       {{#if scopeItemsHtml}}
       <div class="section-label">Scope of Work</div>
-      <div class="section-value">{{scopeItemsHtml}}</div>
+      <div class="section-value">{{{scopeItemsHtml}}}</div>
       <hr class="divider">
       {{/if}}
 
@@ -295,7 +312,7 @@ export function getDefaultWorkCompletedTemplate() {
 
       {{#if completionPhotosHtml}}
       <div class="section-label">Site Photos</div>
-      <div class="photos-grid">{{completionPhotosHtml}}</div>
+      <div class="photos-grid">{{{completionPhotosHtml}}}</div>
       <hr class="divider">
       {{/if}}
 
@@ -352,6 +369,7 @@ export function getDefaultWorkCompletedTemplate() {
 }
 
 export function getDefaultChemicalPreNoticeTemplate() {
+  // NOTE: Use {{{tripleStash}}} for variables containing raw HTML (photos, HTML fragments, etc.). Plain {{var}} HTML-escapes its value.
   const htmlBody =
     loadTemplateFile('chemical-treatment-notification.html') ||
     `<!DOCTYPE html><html><body><p>{{companyName}} — Upcoming Chemical Treatment for {{customerName}}. Scheduled: {{windowStart}} - {{windowEnd}}.</p><p>{{companyName}} - Property Maintenance Services</p></body></html>`;
@@ -368,14 +386,15 @@ export function getDefaultChemicalPreNoticeTemplate() {
 
 function loadTemplateFile(fileName: string): string | null {
   try {
-    const templatePath = path.resolve(process.cwd(), 'server', 'templates', fileName);
-    return fs.readFileSync(templatePath, 'utf-8');
+    const templatePath = join(process.cwd(), 'server', 'templates', fileName);
+    return readFileSync(templatePath, 'utf-8');
   } catch {
     return null;
   }
 }
 
 export function getDefaultChemicalPostNoticeTemplate() {
+  // NOTE: Use {{{tripleStash}}} for variables containing raw HTML (photos, HTML fragments, etc.). Plain {{var}} HTML-escapes its value.
   const htmlBody =
     loadTemplateFile('chemical-treatment-completion.html') ||
     `<!DOCTYPE html><html><body><p>{{companyName}} — Chemical Treatment Completed for {{customerName}} on {{completionDate}}.</p><p>{{companyName}} - Property Maintenance Services</p></body></html>`;
@@ -545,10 +564,10 @@ export function renderChemicalEmail(
     'completion': 'chemical-treatment-completion.html',
   };
   const fileName = fileMap[context];
-  const templatePath = path.resolve(process.cwd(), 'server', 'templates', fileName);
+  const templatePath = join(process.cwd(), 'server', 'templates', fileName);
   let template: string;
   try {
-    template = fs.readFileSync(templatePath, 'utf-8');
+    template = readFileSync(templatePath, 'utf-8');
   } catch {
     // Inline fallback if disk file is missing
     template = context === 'pre-visit'
