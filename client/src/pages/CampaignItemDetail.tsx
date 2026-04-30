@@ -368,10 +368,10 @@ export default function CampaignItemDetail() {
       setChemTimeWindowEnd(item.timeWindowEnd || "");
       setChemProductId(item.chemicalProductId || "");
       setChemApplicatorId(item.applicatorUserId || "");
-      setChemWateringOverride(item.wateringInstructionsOverride || "");
-      setChemMowingOverride(item.mowingInstructionsOverride || "");
-      setChemReentryOverride(item.reentryIntervalOverride != null ? String(item.reentryIntervalOverride) : "");
-      setChemPurposeOverride(item.purposeOverride || "");
+      setChemWateringOverride(item.postApplicationWateringOverride || "");
+      setChemMowingOverride(item.mowingRestrictionOverride || "");
+      setChemReentryOverride(item.reEntryIntervalOverride != null ? String(item.reEntryIntervalOverride) : "");
+      setChemPurposeOverride(item.postApplicationExpectationOverride || "");
     }
   }, [item?.id, isChemicalCampaign]);
 
@@ -1031,10 +1031,10 @@ export default function CampaignItemDetail() {
               {/* Visit-level label override */}
               <div className="space-y-1.5">
                 <Label className="text-xs text-muted-foreground">{t("campaigns.chemLabelOverride")}</Label>
-                {item.labelOverrideFilename ? (
+                {item.labelPdfOverrideKey ? (
                   <div className="flex items-center gap-2 p-2 border rounded-md bg-muted/30">
                     <FileText className="w-4 h-4 text-muted-foreground flex-shrink-0" />
-                    <span className="text-xs flex-1 truncate">{item.labelOverrideFilename}</span>
+                    <span className="text-xs flex-1 truncate">{item.labelPdfOverrideKey}</span>
                     <Button
                       variant="ghost"
                       size="icon"

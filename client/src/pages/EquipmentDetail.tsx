@@ -5,7 +5,7 @@ import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
 import { format } from "date-fns";
 import { DatePickerField } from "@/components/DatePickerField";
-import { ArrowLeft, Save, Edit2, X, CheckCircle, WrenchIcon, XCircle, Loader2, Upload, FileText, Trash2, Download, Plus, Clock, AlertTriangle, CircleDot, Truck, Scissors, Package, Hammer, Bike, Settings2, Car } from "lucide-react";
+import { ArrowLeft, Save, Edit2, X, CheckCircle, WrenchIcon, XCircle, Loader2, Upload, FileText, Trash2, Download, Plus, Clock, AlertTriangle, CircleDot, Truck, Scissors, Package, Hammer, Bike, Settings2, Car, Image as ImageIcon } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";

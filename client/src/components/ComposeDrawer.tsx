@@ -113,7 +113,7 @@ export default function ComposeDrawer({ open, onClose, defaultCustomerId, replyT
 
   const mutation = useMutation({
     mutationFn: async (data: ComposeFormValues & { status: "draft" | "sent" }) => {
-      const created = await apiRequest("POST", "/api/communications", {
+      const created: CommunicationWithDetails = await apiRequest("POST", "/api/communications", {
         ...data,
         customerId: data.customerId || undefined,
         contactId: data.contactId || undefined,
@@ -122,12 +122,12 @@ export default function ComposeDrawer({ open, onClose, defaultCustomerId, replyT
         inReplyTo: data.inReplyTo || undefined,
         recipientEmail: data.recipientEmail || undefined,
         status: "draft",
-      });
+      }).then(r => r.json());
 
       if (data.status === "sent" && data.type === "email") {
-        const result = await apiRequest("POST", `/api/communications/${created.id}/send`, {
+        const result: CommunicationWithDetails = await apiRequest("POST", `/api/communications/${created.id}/send`, {
           recipientEmail: data.recipientEmail || undefined,
-        });
+        }).then(r => r.json());
         return result;
       }
 

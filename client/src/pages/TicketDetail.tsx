@@ -2346,7 +2346,7 @@ export default function TicketDetail() {
                           ? `Sent ${formatDistanceToNow(new Date(log.sentAt), { addSuffix: true })}`
                           : `Created ${formatDistanceToNow(new Date(log.createdAt), { addSuffix: true })}`}
                       </p>
-                      {log.errorJson && (
+                      {!!log.errorJson && (
                         <p className="text-xs text-destructive mt-1">
                           Error: {typeof log.errorJson === 'object' && log.errorJson !== null && 'message' in log.errorJson ? String((log.errorJson as any).message) : 'Unknown error'}
                         </p>

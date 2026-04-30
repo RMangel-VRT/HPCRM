@@ -1531,6 +1531,7 @@ interface MigrationPreviewTicket {
 }
 
 function BillingSettings() {
+  const { t } = useTranslation();
   const { toast } = useToast();
   const [migrationPreview, setMigrationPreview] = useState<MigrationPreviewTicket[] | null>(null);
   const [migrationRunning, setMigrationRunning] = useState(false);

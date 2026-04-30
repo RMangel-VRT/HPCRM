@@ -517,11 +517,9 @@ function drawLegendEntry(
   const iconCy = y + iconSize * 0.5;
 
   if (entry.kind === "symbol") {
-    const def = entry.symbolTypeId
-      ? SYMBOL_MAP.get(entry.symbolTypeId)
-      : entry.symbolType
-        ? SYMBOL_MAP.get(LEGACY_SYMBOL_MAP[entry.symbolType] ?? "")
-        : undefined;
+    const def = entry.symbolType
+      ? (SYMBOL_MAP.get(entry.symbolType) ?? SYMBOL_MAP.get(LEGACY_SYMBOL_MAP[entry.symbolType] ?? ""))
+      : undefined;
     if (def) {
       drawSymbolPrimitives(ctx, def, iconCx, iconCy, iconSize * 0.5, entry.color || def.defaultColor, 0);
     } else {

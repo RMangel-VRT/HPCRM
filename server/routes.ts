@@ -10,7 +10,7 @@ import { storage } from "./storage";
 import { db } from "./db";
 import { eq, and, inArray, sql, gte, lte, isNull, ne } from "drizzle-orm";
 import { insertCustomerSchema, insertContactSchema, insertCompanySchema, insertCompanyUserSchema, insertSettingsSchema, insertNoteSchema, insertContractSchema, insertContractDocumentSchema, insertContractBuilderDocumentSchema, insertContractBuilderSectionSchema, insertContractBuilderVariableSchema, insertTicketTypeSchema, insertTicketTypeStatusSchema, insertTicketTypeFieldSchema, insertTicketSchema, insertTicketFieldValueSchema, insertTicketStatusHistorySchema, insertTicketCommentSchema, insertTicketLinkSchema, insertCustomerMapLayerSchema, insertCustomerMapDocumentSchema, insertMaintenanceCrewSchema, insertMaintenanceVisitConfigSchema, insertWeeklyScheduleTemplateSchema, insertScheduleBlockSchema, insertEquipmentSchema, insertEquipmentFileSchema, insertEquipmentTicketSchema, insertEquipmentTicketStatusHistorySchema, insertSnowEventSchema, insertSnowEventPropertyImpactSchema, insertSnowEventAttachmentSchema, insertEmailTemplateSchema, insertEmailRuleSchema, insertCommunicationAutomationRuleSchema, SNOW_RANGES, tickets, ticketLinks, ticketTypes, ticketTypeStatuses, customers as customersTable, contacts as contactsTable, contracts as contractsTable, equipment as equipmentTable, users as usersTable, contractMonthlyAmounts, contractDocuments, contractServices, contractStatusHistory, companyUsers as companyUsersTable, insertCommunicationSchema, campaigns as campaignsTable, campaignItems as campaignItemsTable, chemicalProducts as chemicalProductsTable, insertChemicalProductSchema } from "@shared/schema";
-import type { Customer, CaptureParams, CampaignItem, InsertCampaignItem, Season, InsertCommunication, InsertCommunicationTemplate, InsertCommunicationAuditLog, ServicePlanCategory, ChemicalProduct } from "@shared/schema";
+import type { Customer, CaptureParams, CampaignItem, InsertCampaignItem, Season, InsertCommunication, InsertCommunicationTemplate, InsertCommunicationAuditLog, ServicePlanCategory, ChemicalProduct, InsertVisualScopeSheet } from "@shared/schema";
 import { insertCommunicationTemplateSchema, insertServicePlanTemplateSchema, insertServicePlanTemplateItemSchema, insertCustomerServicePlanSchema } from "@shared/schema";
 import { runAutomationRule, runAllAutomationRules } from "./services/automationService";
 import { ObjectStorageService, ObjectNotFoundError, objectStorageClient, signObjectURL } from "./objectStorage";
@@ -29,6 +29,17 @@ import { seedChemicalEmailTemplates } from "./templates/seed";
  * Target is 7 days (604800 s); increase when the signing service supports longer durations.
  */
 const LABEL_URL_TTL_SEC = 3600;
+
+const LABEL_ALLOWED_MIME_TYPES: Record<string, string> = {
+  "application/pdf": "pdf",
+};
+
+function detectLabelMimeType(buf: Buffer): string | null {
+  if (buf.length >= 4 && buf[0] === 0x25 && buf[1] === 0x50 && buf[2] === 0x44 && buf[3] === 0x46) {
+    return "application/pdf";
+  }
+  return null;
+}
 
 interface StatusDefinition {
   name: string;
@@ -50,6 +61,11 @@ async function seedCommunications(companyId: string, sentById: string, sentByNam
       sentById,
       type: "email",
       status: "sent",
+      direction: "outbound",
+      followUpStatus: "none",
+      toAddresses: [],
+      ccAddresses: [],
+      bccAddresses: [],
       subject: "Spring Service Schedule Confirmation",
       body: "Dear valued customer,\n\nWe are pleased to confirm your spring maintenance schedule starting April 1st. Our crew will arrive between 8am-10am on your designated service day.\n\nPlease let us know if you have any questions.\n\nBest regards,\nHigh Plains Property Maintenance",
       sentAt: new Date("2026-03-15T10:00:00Z"),
@@ -60,6 +76,11 @@ async function seedCommunications(companyId: string, sentById: string, sentByNam
       sentById,
       type: "sms",
       status: "sent",
+      direction: "outbound",
+      followUpStatus: "none",
+      toAddresses: [],
+      ccAddresses: [],
+      bccAddresses: [],
       subject: "Crew arriving today",
       body: "Hi! Your maintenance crew will arrive in about 30 minutes. Please ensure gate access is available.",
       sentAt: new Date("2026-03-18T08:30:00Z"),
@@ -70,6 +91,11 @@ async function seedCommunications(companyId: string, sentById: string, sentByNam
       sentById,
       type: "note",
       status: "sent",
+      direction: "outbound",
+      followUpStatus: "none",
+      toAddresses: [],
+      ccAddresses: [],
+      bccAddresses: [],
       subject: "Customer Meeting Notes",
       body: "Met with property manager to discuss irrigation concerns on the east lawn. They want to upgrade sprinkler heads in sections 3-5 before summer. Will follow up with proposal next week.",
       sentAt: new Date("2026-03-20T14:00:00Z"),
@@ -80,6 +106,11 @@ async function seedCommunications(companyId: string, sentById: string, sentByNam
       sentById,
       type: "email",
       status: "draft",
+      direction: "outbound",
+      followUpStatus: "none",
+      toAddresses: [],
+      ccAddresses: [],
+      bccAddresses: [],
       subject: "Summer Services Proposal Follow-Up",
       body: "Hi,\n\nI wanted to follow up on our conversation about adding summer fertilization to your service package. I've attached our updated pricing for your review.\n\nLooking forward to your feedback!\n\nBest,\nHigh Plains Property Maintenance",
       sentAt: null,
@@ -90,6 +121,11 @@ async function seedCommunications(companyId: string, sentById: string, sentByNam
       sentById,
       type: "letter",
       status: "sent",
+      direction: "outbound",
+      followUpStatus: "none",
+      toAddresses: [],
+      ccAddresses: [],
+      bccAddresses: [],
       subject: "Annual Contract Renewal Notice",
       body: "Dear Property Owner,\n\nYour current maintenance contract is scheduled to expire on June 30, 2026. We would like to invite you to renew for another year at your current service level.\n\nEnclosed please find the renewal agreement for your signature. Please return by May 15, 2026 to ensure uninterrupted service.\n\nSincerely,\nHigh Plains Property Maintenance",
       sentAt: new Date("2026-03-10T09:00:00Z"),
@@ -100,6 +136,11 @@ async function seedCommunications(companyId: string, sentById: string, sentByNam
       sentById,
       type: "email",
       status: "scheduled",
+      direction: "outbound",
+      followUpStatus: "none",
+      toAddresses: [],
+      ccAddresses: [],
+      bccAddresses: [],
       subject: "Monthly Service Report - March 2026",
       body: "Please find attached your monthly service report for March 2026. This includes a summary of all maintenance activities performed, chemical applications, and upcoming scheduled work.\n\nHave a great day!",
       sentAt: null,
@@ -111,6 +152,11 @@ async function seedCommunications(companyId: string, sentById: string, sentByNam
       sentById,
       type: "sms",
       status: "sent",
+      direction: "outbound",
+      followUpStatus: "none",
+      toAddresses: [],
+      ccAddresses: [],
+      bccAddresses: [],
       subject: "Service cancellation notice",
       body: "Hi! Due to incoming weather, today's scheduled service has been postponed to Thursday. We apologize for any inconvenience.",
       sentAt: new Date("2026-03-22T07:00:00Z"),
@@ -121,6 +167,11 @@ async function seedCommunications(companyId: string, sentById: string, sentByNam
       sentById,
       type: "note",
       status: "draft",
+      direction: "outbound",
+      followUpStatus: "none",
+      toAddresses: [],
+      ccAddresses: [],
+      bccAddresses: [],
       subject: "Follow-up on irrigation proposal",
       body: "Need to call back property manager about the irrigation upgrade proposal sent last week. They had questions about the warranty on the new heads.",
       sentAt: null,
@@ -131,10 +182,12 @@ async function seedCommunications(companyId: string, sentById: string, sentByNam
       sentById,
       type: "email",
       status: "sent",
+      direction: "outbound",
+      toAddresses: [],
+      ccAddresses: [],
+      bccAddresses: [],
       subject: "Proposal Sent - Irrigation Upgrade",
       body: "Hi,\n\nPlease find attached our proposal for the irrigation system upgrade discussed during our site visit. The proposal covers new heads for sections 3-5 with a 2-year warranty.\n\nWe look forward to your feedback!\n\nBest,\nHigh Plains Property Maintenance",
-      customerName: companyCustomers[0]?.name ?? null,
-      sentByName,
       sentAt: new Date("2026-03-25T09:00:00Z"),
       followUpDueAt: new Date("2026-03-28T09:00:00Z"),
       followUpStatus: "open" as const,
@@ -145,10 +198,12 @@ async function seedCommunications(companyId: string, sentById: string, sentByNam
       sentById,
       type: "email",
       status: "sent",
+      direction: "outbound",
+      toAddresses: [],
+      ccAddresses: [],
+      bccAddresses: [],
       subject: "Contract Renewal - Awaiting Signature",
       body: "Dear Property Owner,\n\nFollowing our earlier communication, we wanted to remind you that we have not yet received your signed renewal agreement. The deadline to ensure uninterrupted service is May 15, 2026.\n\nPlease don't hesitate to reach out with any questions.\n\nSincerely,\nHigh Plains Property Maintenance",
-      customerName: companyCustomers[3]?.name ?? null,
-      sentByName,
       sentAt: new Date("2026-03-20T11:00:00Z"),
       followUpDueAt: new Date("2026-03-25T09:00:00Z"),
       followUpStatus: "open" as const,
@@ -737,7 +792,7 @@ async function ensureExtraBillableTicketType(companyId: string): Promise<{
           statusId: workCompletedStatusId,
           fieldKey: fieldDef.fieldKey,
           fieldLabel: fieldDef.fieldLabel,
-          fieldType: fieldDef.fieldType,
+          fieldType: fieldDef.fieldType as "number" | "date" | "select" | "textarea" | "text" | "currency",
           isRequired: fieldDef.isRequired as "true" | "false",
           options: [],
           displayOrder: fieldDef.displayOrder,
@@ -919,6 +974,9 @@ async function ensureToDoTicketType(companyId: string): Promise<{
       zip: "00000",
       status: "active",
       active: "true",
+      isParent: "false",
+      snowEnabled: false,
+      ranking: "standard",
       tags: [],
     });
     console.log(`Created "Internal Tasks" customer for company ${companyId}`);
@@ -971,6 +1029,9 @@ export async function migrateFirstBankHierarchy(): Promise<void> {
           status: "active",
           isParent: "true",
           active: "true",
+          snowEnabled: false,
+          ranking: "standard",
+          tags: [],
         });
         console.log(`Created parent "1st Bank" customer: ${parentBank.id}`);
       }
@@ -1197,7 +1258,6 @@ export async function migrateEstimateSentToProposalWorkflow(): Promise<void> {
       if (!createProposalStatus) {
         createProposalStatus = await storage.createTicketTypeStatus({
           ticketTypeId: projectType.id,
-          companyId: company.id,
           name: "Create Proposal",
           description: "Build the proposal document in this system",
           color: "#8b5cf6",
@@ -1213,7 +1273,6 @@ export async function migrateEstimateSentToProposalWorkflow(): Promise<void> {
       if (!proposalSentStatus) {
         proposalSentStatus = await storage.createTicketTypeStatus({
           ticketTypeId: projectType.id,
-          companyId: company.id,
           name: "Proposal Sent",
           description: "Proposal delivered to customer, awaiting decision",
           color: "#f59e0b",
@@ -1232,23 +1291,21 @@ export async function migrateEstimateSentToProposalWorkflow(): Promise<void> {
         await storage.createTicketTypeField({
           ticketTypeId: projectType.id,
           statusId: proposalSentStatus.id,
-          companyId: company.id,
           fieldKey: "proposal_sent_date",
           fieldLabel: "Date Proposal Sent",
           fieldType: "date",
           isRequired: "true",
-          fieldOptions: null,
+          options: [],
           displayOrder: 0,
         });
         await storage.createTicketTypeField({
           ticketTypeId: projectType.id,
           statusId: proposalSentStatus.id,
-          companyId: company.id,
           fieldKey: "proposal_delivery_method",
           fieldLabel: "Delivery Method",
           fieldType: "select",
           isRequired: "true",
-          fieldOptions: JSON.stringify(["Email", "QBO Portal", "Hard Copy", "Other"]),
+          options: ["Email", "QBO Portal", "Hard Copy", "Other"],
           displayOrder: 1,
         });
         console.log(`Added fields for "Proposal Sent" status for company ${company.id}`);
@@ -1968,6 +2025,7 @@ async function seedCommunicationTemplates(companyId: string): Promise<number> {
       body: "Dear {{customer_name}},\n\nI wanted to follow up on the proposal we sent over for {{property_name}}. We understand you may have questions, and we're happy to walk you through any details.\n\nProposal Total: {{proposal_total}}\n\nPlease don't hesitate to reach out — we'd love to move forward when you're ready.\n\nBest regards,\n{{pm_name}}\n{{company_name}}",
       description: "Standard follow-up email after a proposal is sent. Use within 5–7 business days of delivery.",
       isActive: true,
+      isArchived: false,
       defaultCommunicationType: "email" as const,
     },
     {
@@ -1979,6 +2037,7 @@ async function seedCommunicationTemplates(companyId: string): Promise<number> {
       body: "Dear {{contact_name}},\n\nWe are scheduling irrigation system startups for the upcoming season at {{property_name}} and need your approval to proceed.\n\nPlanned Service Date: {{service_date}}\n\nPlease reply to confirm or suggest an alternate date. Our crew will be ready to begin as soon as we receive your authorization.\n\nThank you,\n{{pm_name}}\n{{company_name}}",
       description: "Sent to property contacts requesting approval before irrigation startup visits.",
       isActive: true,
+      isArchived: false,
       defaultCommunicationType: "email" as const,
     },
     {
@@ -1990,6 +2049,7 @@ async function seedCommunicationTemplates(companyId: string): Promise<number> {
       body: "Dear {{customer_name}},\n\nThis is an advance notice that a chemical application is scheduled at {{property_name}} on {{service_date}}.\n\nPlease ensure that children and pets are kept off treated areas for 24 hours following application. Our technicians will post temporary signage at the time of service.\n\nIf you have any questions or concerns, please contact us before the scheduled date.\n\n{{pm_name}}\n{{company_name}}",
       description: "Pre-notification for chemical/fertilizer applications. Send 2–3 days before service.",
       isActive: true,
+      isArchived: false,
       defaultCommunicationType: "email" as const,
     },
     {
@@ -2001,6 +2061,7 @@ async function seedCommunicationTemplates(companyId: string): Promise<number> {
       body: "Hi {{contact_name}}, this is {{company_name}}. Snow removal crews are currently servicing {{property_name}}. Please allow extra time and keep walkways clear while work is in progress. Reply STOP to opt out.",
       description: "Quick SMS notice sent to property contacts during active snow events.",
       isActive: true,
+      isArchived: false,
       defaultCommunicationType: "sms" as const,
     },
     {
@@ -2012,6 +2073,7 @@ async function seedCommunicationTemplates(companyId: string): Promise<number> {
       body: "Dear {{customer_name}},\n\nThis is a friendly reminder that there is an outstanding balance on your account for services at {{property_name}}.\n\nPlease contact our office at your earliest convenience to make arrangements. We appreciate your prompt attention to this matter.\n\nThank you for your continued partnership,\n{{pm_name}}\n{{company_name}}",
       description: "Polite billing reminder for past-due accounts. Adjust tone as needed for the relationship.",
       isActive: true,
+      isArchived: false,
       defaultCommunicationType: "email" as const,
     },
     {
@@ -2023,6 +2085,7 @@ async function seedCommunicationTemplates(companyId: string): Promise<number> {
       body: "Dear {{customer_name}},\n\nAs temperatures fluctuate this winter, we want to remind you about best practices for winter watering at {{property_name}}.\n\nWater during the warmest part of the day (10am–2pm) when temperatures are above 40°F. Avoid watering if snow or ice is expected within 24 hours. Trees and shrubs benefit from deep monthly watering throughout winter.\n\nOur team is available to assist with any questions.\n\n{{pm_name}}\n{{company_name}}",
       description: "Educational reminder for clients about proper winter irrigation practices.",
       isActive: true,
+      isArchived: false,
       defaultCommunicationType: "email" as const,
     },
     {
@@ -2034,6 +2097,7 @@ async function seedCommunicationTemplates(companyId: string): Promise<number> {
       body: "Hi {{contact_name}}, {{company_name}} here. Due to weather or crew availability, your scheduled service at {{property_name}} on {{service_date}} has been delayed. We'll be in touch with a rescheduled date soon. Sorry for the inconvenience!",
       description: "Short SMS notice to let contacts know about a service delay.",
       isActive: true,
+      isArchived: false,
       defaultCommunicationType: "sms" as const,
     },
     {
@@ -2045,6 +2109,7 @@ async function seedCommunicationTemplates(companyId: string): Promise<number> {
       body: "Dear {{customer_name}},\n\nI hope this message finds you well. I wanted to take a moment to check in and see how things are going at {{property_name}}.\n\nIf you have any questions about your services, upcoming schedules, or anything else, please feel free to reach out. We appreciate your business and look forward to another great season together.\n\nBest,\n{{pm_name}}\n{{company_name}}",
       description: "A friendly general check-in note. Useful for relationship maintenance.",
       isActive: true,
+      isArchived: false,
       defaultCommunicationType: "email" as const,
     },
   ];
@@ -2099,7 +2164,7 @@ export async function seedChemicalEmailTemplatesBootstrap(): Promise<void> {
   try {
     const companies = await storage.getCompanies();
     for (const company of companies) {
-      await seedChemicalEmailTemplates(company.id);
+      await seedChemicalEmailTemplates(company.id, storage);
     }
     console.log("Chemical email templates seed bootstrap complete");
   } catch (error) {
@@ -3688,11 +3753,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
     let normalizedPhone: string | null = null;
     if (phone) {
-      normalizedPhone = phone.replace(/\D/g, "");
-      if (normalizedPhone.length < 10) {
+      const stripped = phone.replace(/\D/g, "");
+      if (stripped.length < 10) {
         return res.status(400).json({ message: "Phone number must be at least 10 digits" });
       }
-      const existingByPhone = await storage.getUserByPhone(normalizedPhone);
+      normalizedPhone = stripped;
+      const existingByPhone = await storage.getUserByPhone(stripped);
       if (existingByPhone) {
         return res.status(400).json({ message: "User with this phone number already exists" });
       }
@@ -4423,7 +4489,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     const headers = ["Property", ...MONTHS_SHORT_EXPORT, "Annual Total"];
     const dataRows: string[][] = [];
 
-    for (const entry of matrixData.values()) {
+    for (const entry of Array.from(matrixData.values())) {
       dataRows.push([
         entry.propertyName,
         ...entry.months.map((v) => (v === null ? "" : String(v.toFixed(2)))),
@@ -5049,7 +5115,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
         status: "active" as const,
         notes: `Created from Contract Builder document: ${document.documentTitle}`,
         hasMobilizationFee: false,
-        mobilizationFeeAmount: 0
+        mobilizationFeeAmount: 0,
+        autoPopulateServicePlans: false,
       };
 
       const contract = await storage.createContract(contractData);
@@ -5405,7 +5472,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       return res.status(403).send("Insufficient permissions - admin role required");
     }
 
-    const result = insertTicketTypeStatusSchema.partial().omit({ ticketTypeId: true }).safeParse(req.body);
+    const result = insertTicketTypeStatusSchema.innerType().partial().omit({ ticketTypeId: true }).safeParse(req.body);
     if (!result.success) {
       return res.status(400).send(result.error.message);
     }
@@ -6234,7 +6301,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
               companyId: user.activeCompanyId,
               recipientId: existingTicket.delegatedById,
               ticketId: existingTicket.id,
-              type: "assignment",
+              type: "assigned",
               message: `Work completed, ticket returned to you: ${existingTicket.title}${customerText}`,
               isRead: false,
             });
@@ -6995,7 +7062,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     ]);
 
     const customerMap = new Map(allCustomers.map(c => [c.id, c]));
-    const linksByTarget = new Map<string, typeof allLinks>();
+    const linksByTarget = new Map<string, (typeof allLinks)[number][]>();
     for (const link of allLinks) {
       if (!linksByTarget.has(link.targetTicketId)) linksByTarget.set(link.targetTicketId, []);
       linksByTarget.get(link.targetTicketId)!.push(link);
@@ -9045,12 +9112,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
         ticketTypeId: invoiceType.id,
         currentStatusId: initialStatus.id,
         title,
-        description,
+        description: description ?? "",
         customerId: impact.customerId,
         assignedToId: user.id,
         createdById: user.id,
-        workType: "contract_work",
-        invoiceCategory: "snow",
+        priority: "normal" as const,
+        workType: "contract" as const,
+        invoiceCategory: "snow" as const,
+        billingBehavior: "no_invoice" as const,
       });
       
       await storage.updateSnowEventPropertyImpact(impact.id, user.activeCompanyId, {
@@ -9384,7 +9453,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       const ticketType = await storage.getTicketTypeById(ticket.ticketTypeId, user.activeCompanyId);
       if (ticketType) {
-        const statuses = await storage.getTicketTypeStatuses(ticketType.id, user.activeCompanyId);
+        const statuses = await storage.getTicketTypeStatuses(ticketType.id);
         const currentStatus = statuses.find(s => s.id === ticket.currentStatusId);
         if (!currentStatus || currentStatus.isFinal !== "true") {
           return res.status(400).send("Ticket must be in a final/completed status before sending completion email");
@@ -9423,11 +9492,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
       let leadTechName = '';
       if (ticket.leadTechUserId) {
         const leadTech = await storage.getUserById(ticket.leadTechUserId);
-        if (leadTech) leadTechName = `${leadTech.firstName || ''} ${leadTech.lastName || ''}`.trim();
+        if (leadTech) leadTechName = (leadTech.name || '').trim();
       }
       if (!leadTechName && ticket.assignedToId) {
         const assignee = await storage.getUserById(ticket.assignedToId);
-        if (assignee) leadTechName = `${assignee.firstName || ''} ${assignee.lastName || ''}`.trim();
+        if (assignee) leadTechName = (assignee.name || '').trim();
       }
 
       // Resolve crew member names with natural-language formatting
@@ -9437,7 +9506,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         const crewNames: string[] = [];
         for (const uid of crewIds) {
           const u = await storage.getUserById(uid);
-          if (u) crewNames.push(`${u.firstName || ''} ${u.lastName || ''}`.trim());
+          if (u) crewNames.push((u.name || '').trim());
         }
         const validNames = crewNames.filter(Boolean);
         if (validNames.length === 1) crewSummary = `With ${validNames[0]}`;
@@ -9511,7 +9580,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const contacts = await storage.getContactsByCustomerId(ticket.customerId!, user.activeCompanyId);
       const primaryContact = contacts.find(c => c.isPrimary === "true") || contacts[0];
       const contactEmail = primaryContact?.emails?.[0] || '';
-      const contactPhone = primaryContact?.phone || '';
+      const contactPhone = primaryContact?.phones?.[0] || '';
 
       const workSummaryForCustomer = (ticket.workSummaryForCustomer as string | null) || ticket.description || ticket.title;
 
@@ -9718,11 +9787,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
       let leadTechName = '';
       if (ticket.leadTechUserId) {
         const u = await storage.getUserById(ticket.leadTechUserId as string);
-        if (u) leadTechName = `${u.firstName || ''} ${u.lastName || ''}`.trim();
+        if (u) leadTechName = (u.name || '').trim();
       }
       if (!leadTechName && ticket.assignedToId) {
         const u = await storage.getUserById(ticket.assignedToId);
-        if (u) leadTechName = `${u.firstName || ''} ${u.lastName || ''}`.trim();
+        if (u) leadTechName = (u.name || '').trim();
       }
 
       const crewIds: string[] = (ticket.crewMemberUserIds as string[] | null) || [];
@@ -9731,7 +9800,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         const names: string[] = [];
         for (const uid of crewIds) {
           const u = await storage.getUserById(uid);
-          if (u) names.push(`${u.firstName || ''} ${u.lastName || ''}`.trim());
+          if (u) names.push((u.name || '').trim());
         }
         const validNames = names.filter(Boolean);
         if (validNames.length === 1) crewSummary = `With ${validNames[0]}`;
@@ -9816,7 +9885,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         ticketNumber: `#${ticket.id.slice(0, 6).toUpperCase()}`,
         serviceCategory,
         contactEmail: primaryContact?.emails?.[0] || '',
-        contactPhone: primaryContact?.phone || '',
+        contactPhone: primaryContact?.phones?.[0] || '',
       };
       const html = substituteVariables(htmlBody, variables);
       res.set('Content-Type', 'text/html');
@@ -9981,7 +10050,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
           const userMapEquip = new Map<string, string>();
           for (const cu of companyUsersForEquip) {
             const u = await storage.getUserById(cu.userId);
-            if (u) userMapEquip.set(u.id, u.name || u.email);
+            if (u) userMapEquip.set(u.id, u.name || u.email || "");
           }
 
           const rows = allEquipment.map(e => ({
@@ -10063,13 +10132,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
           const userMapTickets = new Map<string, string>();
           for (const cu of companyUsersForTickets) {
             const u = await storage.getUserById(cu.userId);
-            if (u) userMapTickets.set(u.id, u.name || u.email);
+            if (u) userMapTickets.set(u.id, u.name || u.email || "");
           }
           const typeMap = new Map(allTicketTypes.map(tt => [tt.id, tt.name]));
 
           const allStatusesForReport: Array<{ id: string; name: string; ticketTypeId: string }> = [];
           for (const tt of allTicketTypes) {
-            const statuses = await storage.getTicketTypeStatuses(tt.id, companyId);
+            const statuses = await storage.getTicketTypeStatuses(tt.id);
             statuses.forEach(s => allStatusesForReport.push({ id: s.id, name: s.name, ticketTypeId: s.ticketTypeId }));
           }
           const statusMap = new Map(allStatusesForReport.map(s => [s.id, s.name]));
@@ -10673,7 +10742,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       let appendixPageCounter = 0;
       const appendixGuard = { active: false };
-      function drawAppendixDecorations(d: InstanceType<typeof PDFDocumentKit>, num: number) {
+      const drawAppendixDecorations = (d: InstanceType<typeof PDFDocumentKit>, num: number) => {
         if (appendixGuard.active) return;
         appendixGuard.active = true;
         const savedY = d.y;
@@ -10684,7 +10753,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
           d.y = savedY;
           appendixGuard.active = false;
         }
-      }
+      };
       appendixPageCounter = 1;
       drawAppendixDecorations(appendixDoc, appendixPageCounter);
       appendixDoc.on('pageAdded', () => {
@@ -10797,13 +10866,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       let vsPageCounter = 0;
       const vsGuard = { active: false };
-      function drawVsDecorations(d: InstanceType<typeof PDFDocumentKit>, num: number) {
+      const drawVsDecorations = (d: InstanceType<typeof PDFDocumentKit>, num: number) => {
         if (vsGuard.active) return;
         vsGuard.active = true;
         const savedY = d.y;
         try { drawWatermark(d); drawFooter(d, num, companyName); }
         finally { d.y = savedY; vsGuard.active = false; }
-      }
+      };
       vsPageCounter = 1;
       drawVsDecorations(vsDoc, vsPageCounter);
       vsDoc.on("pageAdded", () => { vsPageCounter++; drawVsDecorations(vsDoc, vsPageCounter); });
@@ -10853,14 +10922,18 @@ export async function registerRoutes(app: Express): Promise<Server> {
     // --- Merge all sections with pdf-lib ---
     const { PDFDocument, PDFName } = await import('pdf-lib');
 
-    function isEstimatePageBlank(pdfDoc: InstanceType<typeof PDFDocument>, pageIdx: number): boolean {
+    interface PDFDocLike {
+      getPage(idx: number): { node: { get(name: unknown): unknown } };
+      context: { lookup(ref: unknown): unknown };
+    }
+    const isEstimatePageBlank = (pdfDoc: PDFDocLike, pageIdx: number): boolean => {
       try {
         const page = pdfDoc.getPage(pageIdx);
         const resourcesRef = page.node.get(PDFName.of('Resources'));
         if (!resourcesRef) return true;
-        const resources = (pdfDoc as any).context.lookup(resourcesRef) ?? resourcesRef;
-        const fonts = resources.get?.(PDFName.of('Font'));
-        const xObjects = resources.get?.(PDFName.of('XObject'));
+        const resources = pdfDoc.context.lookup(resourcesRef) ?? resourcesRef;
+        const fonts = (resources as { get?: (k: unknown) => unknown }).get?.(PDFName.of('Font'));
+        const xObjects = (resources as { get?: (k: unknown) => unknown }).get?.(PDFName.of('XObject'));
         return !fonts && !xObjects;
       } catch { return false; }
     }
@@ -11239,12 +11312,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
     if (!req.isAuthenticated()) return res.status(401).send("Not authenticated");
     const user = req.user as UserWithContext;
     if (!canAccessVisualScope(user.activeRole)) return res.status(403).send("Insufficient permissions");
-    const allowed = ["title", "scopeDate", "baseImagePath", "baseImageFilename", "baseImageMimeType", "baseImageSize", "markupData", "layerDefs", "captureParams", "legendState"];
-    const updates: Record<string, unknown> = {};
+    const allowed: Array<keyof InsertVisualScopeSheet> = ["title", "scopeDate", "baseImagePath", "baseImageFilename", "baseImageMimeType", "baseImageSize", "markupData", "layerDefs", "captureParams"];
+    const updates: Partial<InsertVisualScopeSheet> = {};
     for (const key of allowed) {
-      if (key in req.body) updates[key] = req.body[key];
+      if (key in req.body) (updates as Record<string, unknown>)[key] = req.body[key];
     }
-    const sheet = await storage.updateVisualScopeSheet(req.params.id, user.activeCompanyId, updates as any);
+    const sheet = await storage.updateVisualScopeSheet(req.params.id, user.activeCompanyId, updates);
     res.json(sheet);
   });
 
@@ -11255,7 +11328,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     const sheet = await storage.getVisualScopeSheet(req.params.id, user.activeCompanyId);
     if (!sheet) return res.status(404).json({ error: "Not found" });
     if (sheet.baseImagePath) {
-      try { await objectStorageClient.deleteObject(sheet.baseImagePath.replace(/^\/objects\//, "")); } catch {}
+      try { const rawPath = sheet.baseImagePath!.replace(/^\/objects\//, ""); const [bucketName, ...rest] = rawPath.split("/"); await objectStorageClient.bucket(bucketName).file(rest.join("/")).delete(); } catch {}
     }
     await storage.deleteVisualScopeSheet(req.params.id, user.activeCompanyId);
     res.json({ ok: true });
@@ -11288,14 +11361,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
     const { newObjectPath, newFilename, newMimeType, newSize } = req.body;
     if (!newObjectPath) return res.status(400).json({ error: "newObjectPath required" });
     if (sheet.baseImagePath) {
-      try { await objectStorageClient.deleteObject(sheet.baseImagePath.replace(/^\/objects\//, "")); } catch {}
+      try { const rawPath = sheet.baseImagePath!.replace(/^\/objects\//, ""); const [bucketName, ...rest] = rawPath.split("/"); await objectStorageClient.bucket(bucketName).file(rest.join("/")).delete(); } catch {}
     }
     const updated = await storage.updateVisualScopeSheet(req.params.id, user.activeCompanyId, {
       baseImagePath: newObjectPath,
       baseImageFilename: newFilename ?? null,
       baseImageMimeType: newMimeType ?? null,
       baseImageSize: newSize ?? null,
-    } as any);
+    });
     res.json(updated);
   });
 
@@ -11382,7 +11455,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     // Delete old base image only after new one is saved successfully
     if (sheet.baseImagePath) {
       try {
-        await objectStorageClient.deleteObject(sheet.baseImagePath.replace(/^\/objects\//, ""));
+        const rawPath = sheet.baseImagePath!.replace(/^\/objects\//, ""); const [bucketName, ...rest] = rawPath.split("/"); await objectStorageClient.bucket(bucketName).file(rest.join("/")).delete();
       } catch {}
     }
 
@@ -11402,7 +11475,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       baseImageMimeType: "image/png",
       baseImageSize: finalBuffer.length,
       captureParams,
-    } as any);
+    });
 
     res.json(updated);
   });
@@ -11705,13 +11778,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
           photos: [] as string[],
           completedById: null,
           completedAt: null,
-          workflowStep: campaignCategory === "chemical" ? "pre_communication" : null,
+          workflowStep: campaignCategory === "chemical" ? "pre_communication" as const : null,
           preCommSentAt: null,
           preCommSentById: null,
           workCompletedAt: null,
           workCompletedById: null,
           postCommSentAt: null,
           postCommSentById: null,
+          wasBumpedToBackup: false,
         };
       });
     if (itemsData.length === 0) {
@@ -11779,7 +11853,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       if (i.postCommSentById) userIdSet.add(i.postCommSentById);
     });
     const userNameMap = new Map<string, string>();
-    for (const uid of userIdSet) {
+    for (const uid of Array.from(userIdSet)) {
       const u = await storage.getUserById(uid);
       if (u) userNameMap.set(uid, u.name);
     }
@@ -11787,7 +11861,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     items.forEach(i => { if (i.customerId) customerIdSet.add(i.customerId); });
     const customerTypeMap = new Map<string, string>();
     const customerCoordsMap = new Map<string, { lat: number | null; lng: number | null; address: string }>();
-    for (const cid of customerIdSet) {
+    for (const cid of Array.from(customerIdSet)) {
       const cust = await storage.getCustomerById(cid, user.activeCompanyId);
       if (cust) {
         customerTypeMap.set(cid, cust.customerType || "commercial");
@@ -11903,7 +11977,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       let product: ChemicalProduct | null = null;
       if (targetItem.chemicalProductId) {
         const [prod] = await db.select().from(chemicalProductsTable)
-          .where(and(eq(chemicalProductsTable.id, targetItem.chemicalProductId), eq(chemicalProductsTable.companyId, user.activeCompanyId), isNull(chemicalProductsTable.deletedAt)));
+          .where(and(eq(chemicalProductsTable.id, targetItem.chemicalProductId), eq(chemicalProductsTable.companyId, user.activeCompanyId)));
         if (prod) product = prod;
       }
       let applicatorName: string | null = null;
@@ -11922,7 +11996,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       // Resolve label URL: visit override → product default (priority model)
       let labelAttachmentUrl: string | null = null;
       try {
-        const labelStorageKey = targetItem.labelOverrideStorageKey || product?.labelStorageKey || null;
+        const labelStorageKey = targetItem.labelPdfOverrideKey || product?.labelPdfStorageKey || null;
         if (labelStorageKey) {
           const { bucketName, objectName } = (function parseGcsPath(path: string) {
             const parts = path.replace(/^\//, "").split("/");
@@ -11943,7 +12017,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
                 targetItem,
                 product,
                 campaign,
-                { name: company?.name || '', phone: company?.phone, email: company?.email },
+                { name: company?.name || '', phone: null, email: company?.billingEmail ?? null },
                 targetItem.customerName,
                 applicatorName,
                 applicatorLicense,
@@ -11952,8 +12026,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
               )
             : {
                 companyName: company?.name || '',
-                companyPhone: company?.phone || '',
-                companyEmail: company?.email || '',
+                companyPhone: '',
+                companyEmail: company?.billingEmail || '',
                 customerName: targetItem.customerName,
                 campaignTitle: campaign.title,
                 windowStart: (type !== "post" && customWindowStart) ? customWindowStart : campaign.windowStart,
@@ -12082,6 +12156,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         notes: null,
         skipReason: null,
         photos: [],
+        wasBumpedToBackup: false,
         completedById: null,
         completedAt: null,
         workflowStep: campaign.category === "chemical" ? "pre_communication" : null,
@@ -12203,7 +12278,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       let totalScheduled = 0;
       let totalCompleted = 0;
 
-      for (const svcType of allServiceTypes) {
+      for (const svcType of Array.from(allServiceTypes)) {
         const campaigns = campaignsByServiceType.get(svcType) || { completed: 0, total: 0 };
         const scheduledFromContract = contractServicesMap.get(svcType) ?? null;
         const scheduled = scheduledFromContract !== null ? scheduledFromContract : campaigns.total;
@@ -12387,7 +12462,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       backupDate?: string | null;
       timeWindowStart?: string | null;
       timeWindowEnd?: string | null;
-      wasBumpedToBackup?: "true" | "false";
+      wasBumpedToBackup?: boolean;
       chemicalProductId?: string | null;
       applicatorUserId?: string | null;
       purposeOverride?: string | null;
@@ -12401,7 +12476,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const chemEmailRoles = ["admin", "office", "chemical_manager"];
       const chemWorkRoles = ["admin", "office", "field_manager", "field", "chemical_manager"];
 
-      const chemUpdates: Partial<CampaignItem> = { updatedAt: new Date() };
+      const chemUpdates: Partial<InsertCampaignItem & { updatedAt: Date }> = { updatedAt: new Date() };
 
       if (chemAction === "send_pre_communication") {
         if (!chemEmailRoles.includes(user.activeRole)) {
@@ -12527,7 +12602,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         let notifProduct: ChemicalProduct | null = null;
         if (targetItem.chemicalProductId) {
           const [prod] = await db.select().from(chemicalProductsTable)
-            .where(and(eq(chemicalProductsTable.id, targetItem.chemicalProductId), eq(chemicalProductsTable.companyId, user.activeCompanyId), isNull(chemicalProductsTable.deletedAt)));
+            .where(and(eq(chemicalProductsTable.id, targetItem.chemicalProductId), eq(chemicalProductsTable.companyId, user.activeCompanyId)));
           if (prod) notifProduct = prod;
         }
         let notifApplicatorName: string | null = null;
@@ -12545,7 +12620,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         // Resolve label URL: visit override → product default
         let notifLabelUrl: string | null = null;
         try {
-          const labelStorageKey = targetItem.labelOverrideStorageKey || notifProduct?.labelStorageKey || null;
+          const labelStorageKey = targetItem.labelPdfOverrideKey || notifProduct?.labelPdfStorageKey || null;
           if (labelStorageKey) {
             const { bucketName, objectName } = (function parseGcsPath(path: string) {
               const parts = path.replace(/^\//, "").split("/");
@@ -12558,7 +12633,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
           targetItem,
           notifProduct,
           campaign,
-          { name: company?.name || '', phone: company?.phone, email: company?.email },
+          { name: company?.name || '', phone: null, email: company?.billingEmail ?? null },
           targetItem.customerName,
           notifApplicatorName,
           notifApplicatorLicense,
@@ -12614,12 +12689,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
         chemUpdates.completedAt = completionDateObj;
         chemUpdates.weatherTemp = weatherTemp;
         chemUpdates.weatherWindSpeed = weatherWindSpeed;
-        chemUpdates.weatherWindDirection = weatherWindDirection || null;
+        chemUpdates.weatherWindDirection = weatherWindDirection != null ? Number(weatherWindDirection) : null;
         chemUpdates.weatherHumidity = weatherHumidity ?? null;
         chemUpdates.weatherConditions = weatherConditions;
         chemUpdates.weatherRecordedAt = completionDateObj;
         chemUpdates.finishedWithoutComms = "true";
-        if (notes !== undefined) chemUpdates.notes = (notes || "") + "\n[Completed without communications by " + (user as any).name + "]";
+        if (notes !== undefined) chemUpdates.notes = (notes || "") + "\n[Completed without communications by " + user.name + "]";
       } else if (chemAction === "reset") {
         const resetRoles = ["admin", "office", "chemical_manager"];
         if (!resetRoles.includes(user.activeRole)) {
@@ -12683,12 +12758,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
     if (exceptionType !== undefined && exceptionType !== null && !validExceptionTypes.includes(exceptionType)) {
       return res.status(400).json({ error: "Invalid exception type" });
     }
-    const updates: Partial<CampaignItem> = {};
+    const updates: Partial<InsertCampaignItem & { updatedAt: Date }> = {};
     if (status !== undefined) updates.status = status as "pending" | "completed" | "skipped";
     if (notes !== undefined) updates.notes = notes;
     if (skipReason !== undefined) updates.skipReason = skipReason;
     if (photos !== undefined) updates.photos = photos;
-    if (exceptionType !== undefined) updates.exceptionType = exceptionType;
+    if (exceptionType !== undefined) updates.exceptionType = exceptionType as InsertCampaignItem["exceptionType"];
     // Chemical scheduling field validation
     if (campaign.category === "chemical") {
       const resolvedTargetDate = targetDate !== undefined ? (targetDate || null) : (targetItem.targetDate ?? null);
@@ -12748,10 +12823,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
     if (wasBumpedToBackup !== undefined) updates.wasBumpedToBackup = wasBumpedToBackup;
     if (chemicalProductId !== undefined) updates.chemicalProductId = chemicalProductId || null;
     if (applicatorUserId !== undefined) updates.applicatorUserId = applicatorUserId || null;
-    if (purposeOverride !== undefined) updates.purposeOverride = purposeOverride || null;
-    if (reentryIntervalOverride !== undefined) updates.reentryIntervalOverride = reentryIntervalOverride;
-    if (wateringInstructionsOverride !== undefined) updates.wateringInstructionsOverride = wateringInstructionsOverride || null;
-    if (mowingInstructionsOverride !== undefined) updates.mowingInstructionsOverride = mowingInstructionsOverride || null;
+    if (purposeOverride !== undefined) updates.postApplicationExpectationOverride = purposeOverride || null;
+    if (reentryIntervalOverride !== undefined) updates.reEntryIntervalOverride = reentryIntervalOverride != null ? String(reentryIntervalOverride) : null;
+    if (wateringInstructionsOverride !== undefined) updates.postApplicationWateringOverride = wateringInstructionsOverride || null;
+    if (mowingInstructionsOverride !== undefined) updates.mowingRestrictionOverride = mowingInstructionsOverride || null;
     if (status === "completed" || status === "skipped") {
       updates.completedById = user.id;
       let completedAtDate = new Date();
@@ -12802,7 +12877,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       if (customWindowStart && customWindowEnd && customWindowStart.trim() > customWindowEnd.trim()) {
         return res.status(400).json({ error: "Window start date must be before or equal to window end date" });
       }
-      const chemUpdates: Partial<CampaignItem> = { updatedAt: new Date() };
+      const chemUpdates: Partial<InsertCampaignItem & { updatedAt: Date }> = { updatedAt: new Date() };
       const company = await storage.getCompanyById(user.activeCompanyId);
       const { email: resolvedEmail } = await resolveChemRecipientEmail(targetItem.customerId, user.activeCompanyId);
       const recipientEmail = overrideEmail?.trim() || resolvedEmail;
@@ -12864,7 +12939,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(400).json({ error: "Item is not in work-in-progress step" });
       }
       const { notes, workCompletedAt: workCompletedAtStr } = req.body || {};
-      const chemUpdates: Partial<CampaignItem> = { updatedAt: new Date() };
+      const chemUpdates: Partial<InsertCampaignItem & { updatedAt: Date }> = { updatedAt: new Date() };
       let workCompletedAtDate = new Date();
       if (workCompletedAtStr) {
         const parsed = new Date(workCompletedAtStr + "T12:00:00");
@@ -12903,7 +12978,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(400).json({ error: "Item is not in work-completed step" });
       }
       const { notes, overrideEmail, completedAt: completedAtStr } = req.body || {};
-      const chemUpdates: Partial<CampaignItem> = { updatedAt: new Date() };
+      const chemUpdates: Partial<InsertCampaignItem & { updatedAt: Date }> = { updatedAt: new Date() };
       const company = await storage.getCompanyById(user.activeCompanyId);
       const { email: resolvedEmail } = await resolveChemRecipientEmail(targetItem.customerId, user.activeCompanyId);
       const recipientEmail = overrideEmail?.trim() || resolvedEmail;
@@ -13123,12 +13198,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const rawFilename = typeof req.query.filename === "string" ? req.query.filename : `label.${ext}`;
       const safeFilename = rawFilename.replace(/[^a-zA-Z0-9._-]/g, "_");
       const updated = await storage.updateCampaignItem(req.params.itemId, user.activeCompanyId, {
-        labelOverrideStorageKey: fullPath,
+        labelPdfOverrideKey: fullPath,
         labelOverrideFilename: safeFilename,
         updatedAt: new Date(),
       });
       if (!updated) return res.status(404).json({ error: "Campaign item not found" });
-      res.json({ success: true, labelOverrideFilename: safeFilename, labelOverrideStorageKey: fullPath });
+      res.json({ success: true, labelOverrideFilename: safeFilename, labelPdfOverrideKey: fullPath });
     } catch (error) {
       console.error("Error uploading visit label override:", error);
       res.status(500).json({ error: "Internal server error" });
@@ -13146,7 +13221,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const campaign = await storage.getCampaignById(req.params.id, user.activeCompanyId);
       if (!campaign) return res.status(404).json({ error: "Campaign not found" });
       const updated = await storage.updateCampaignItem(req.params.itemId, user.activeCompanyId, {
-        labelOverrideStorageKey: null,
+        labelPdfOverrideKey: null,
         labelOverrideFilename: null,
         updatedAt: new Date(),
       });
@@ -13185,12 +13260,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const rawFilename = typeof req.query.filename === "string" ? req.query.filename : `label.${ext}`;
       const safeFilename = rawFilename.replace(/[^a-zA-Z0-9._-]/g, "_");
       const updated = await storage.updateCampaignItem(req.params.id, user.activeCompanyId, {
-        labelOverrideStorageKey: fullPath,
+        labelPdfOverrideKey: fullPath,
         labelOverrideFilename: safeFilename,
         updatedAt: new Date(),
       });
       if (!updated) return res.status(404).json({ error: "Campaign visit not found" });
-      res.json({ success: true, labelOverrideFilename: safeFilename, labelOverrideStorageKey: fullPath });
+      res.json({ success: true, labelOverrideFilename: safeFilename, labelPdfOverrideKey: fullPath });
     } catch (error) {
       console.error("Error uploading visit label override (alias route):", error);
       res.status(500).json({ error: "Internal server error" });
@@ -13205,7 +13280,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
     try {
       const updated = await storage.updateCampaignItem(req.params.id, user.activeCompanyId, {
-        labelOverrideStorageKey: null,
+        labelPdfOverrideKey: null,
         labelOverrideFilename: null,
         updatedAt: new Date(),
       });
@@ -13327,7 +13402,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
             photoCount: item.photos?.length || 0,
             weatherTemp: item.weatherTemp,
             weatherWindSpeed: item.weatherWindSpeed,
-            weatherWindDirection: item.weatherWindDirection,
+            weatherWindDirection: typeof item.weatherWindDirection === "string" ? parseFloat(item.weatherWindDirection) : item.weatherWindDirection,
             weatherHumidity: item.weatherHumidity,
             weatherConditions: item.weatherConditions,
             weatherRecordedAt: item.weatherRecordedAt?.toISOString() || null,
@@ -13380,9 +13455,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
     if (templateIsArchived) {
       errors.push("This template has been archived and cannot be used for sending.");
     }
-    const unresolvedTokens = [...body.matchAll(/\{\{([^}]+)\}\}/g)].map((m) => `{{${m[1]}}}`);
+    const unresolvedTokens = Array.from(body.matchAll(/\{\{([^}]+)\}\}/g)).map((m) => `{{${m[1]}}}`);
     if (unresolvedTokens.length > 0) {
-      const unique = [...new Set(unresolvedTokens)];
+      const unique = Array.from(new Set(unresolvedTokens));
       errors.push(`${unique.length} merge token${unique.length > 1 ? "s are" : " is"} unresolved: ${unique.join(", ")}`);
     }
     return errors;
@@ -13524,7 +13599,6 @@ export async function registerRoutes(app: Express): Promise<Server> {
       threadId: threadId ?? null,
       companyId: user.activeCompanyId,
       sentById: user.id,
-      sentByName: user.name,
     });
 
     if (comm.status === "sent" || comm.status === "scheduled") {
@@ -13534,7 +13608,6 @@ export async function registerRoutes(app: Express): Promise<Server> {
           subject: comm.subject,
           type: comm.type,
           status: comm.status,
-          customerName: comm.customerName,
         },
       });
     }

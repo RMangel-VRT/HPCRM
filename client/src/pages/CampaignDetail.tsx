@@ -104,7 +104,7 @@ function generateCampaignReportCSV(items: CampaignItemWithUser[], campaignTitle:
     i.completedAt ? format(new Date(i.completedAt), "yyyy-MM-dd HH:mm") : "",
     i.weatherTemp != null ? String(Math.round(i.weatherTemp)) : "",
     i.weatherWindSpeed != null ? String(Math.round(i.weatherWindSpeed)) : "",
-    i.weatherWindDirection != null ? windDirectionLabel(i.weatherWindDirection) : "",
+    i.weatherWindDirection != null ? windDirectionLabel(Number(i.weatherWindDirection)) : "",
     i.weatherHumidity != null ? String(Math.round(i.weatherHumidity)) : "",
     i.weatherConditions || "",
     i.weatherRecordedAt ? format(new Date(i.weatherRecordedAt), "yyyy-MM-dd HH:mm") : "",
@@ -218,7 +218,7 @@ export default function CampaignDetail() {
             <td>${i.completedAt ? format(new Date(i.completedAt), "MM/dd/yy HH:mm") : ""}</td>
             <td>${i.weatherTemp != null ? Math.round(i.weatherTemp) : ""}</td>
             <td>${i.weatherWindSpeed != null ? Math.round(i.weatherWindSpeed) : ""}</td>
-            <td>${windDirectionLabel(i.weatherWindDirection)}</td>
+            <td>${windDirectionLabel(Number(i.weatherWindDirection ?? 0))}</td>
             <td>${i.weatherHumidity != null ? Math.round(i.weatherHumidity) + "%" : ""}</td>
             <td>${escapeHtml(i.weatherConditions || "")}</td>
             <td>${escapeHtml((i.notes || "").substring(0, 100))}</td>
@@ -568,7 +568,7 @@ export default function CampaignDetail() {
                     <td className="p-2 text-muted-foreground">{item.customerAddress || item.customerCity}</td>
                     <td className="p-2">{item.completedAt ? format(new Date(item.completedAt), "MM/dd/yy HH:mm") : ""}</td>
                     <td className="p-2">{item.weatherTemp != null ? `${Math.round(item.weatherTemp)}°F` : <span className="text-muted-foreground">--</span>}</td>
-                    <td className="p-2">{item.weatherWindSpeed != null ? `${Math.round(item.weatherWindSpeed)} mph ${windDirectionLabel(item.weatherWindDirection)}` : <span className="text-muted-foreground">--</span>}</td>
+                    <td className="p-2">{item.weatherWindSpeed != null ? `${Math.round(item.weatherWindSpeed)} mph ${windDirectionLabel(Number(item.weatherWindDirection ?? 0))}` : <span className="text-muted-foreground">--</span>}</td>
                     <td className="p-2">{item.weatherHumidity != null ? `${Math.round(item.weatherHumidity)}%` : <span className="text-muted-foreground">--</span>}</td>
                     <td className="p-2">{item.weatherConditions || <span className="text-muted-foreground">--</span>}</td>
                     <td className="p-2 max-w-[200px] truncate">{item.notes || ""}</td>
@@ -1251,7 +1251,7 @@ function EditCampaignDialog({
       });
 
       if (itemsToRemove.size > 0) {
-        for (const itemId of itemsToRemove) {
+        for (const itemId of Array.from(itemsToRemove)) {
           await removeItemMutation.mutateAsync(itemId);
         }
       }

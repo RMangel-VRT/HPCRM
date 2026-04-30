@@ -1,8 +1,9 @@
 import { type User, type InsertUser, type Customer, type InsertCustomer, type Contact, type InsertContact, type Company, type InsertCompany, type CompanyUser, type InsertCompanyUser, type Settings, type InsertSettings, type Note, type InsertNote, type Contract, type InsertContract, type ContractStatusHistory, type InsertContractStatusHistory, type ContractDocument, type InsertContractDocument, type ContractMonthlyAmount, type InsertContractMonthlyAmount, type CustomerRateSheet, type InsertCustomerRateSheet, type ContractService, type InsertContractService, type ContractTemplate, type InsertContractTemplate, type ContractBuilderDocument, type InsertContractBuilderDocument, type ContractBuilderSection, type InsertContractBuilderSection, type ContractBuilderVariable, type InsertContractBuilderVariable, type TicketType, type InsertTicketType, type TicketTypeStatus, type InsertTicketTypeStatus, type TicketTypeField, type InsertTicketTypeField, type Ticket, type InsertTicket, type TicketFieldValue, type InsertTicketFieldValue, type TicketStatusHistory, type InsertTicketStatusHistory, type TicketComment, type TicketCommentWithAuthor, type InsertTicketComment, type TicketCommentMention, type InsertTicketCommentMention, type TicketSource, type InsertTicketSource, type TicketLink, type InsertTicketLink, type TicketTypeCategory, type CustomerMapLayer, type InsertCustomerMapLayer, type CustomerMapDocument, type InsertCustomerMapDocument, type MaintenanceCrew, type InsertMaintenanceCrew, type MaintenanceVisitConfig, type InsertMaintenanceVisitConfig, type WeeklyScheduleTemplate, type InsertWeeklyScheduleTemplate, type ScheduleBlock, type InsertScheduleBlock, type TicketNotification, type InsertTicketNotification, type NotificationType, type PropertyManagementCompany, type InsertPropertyManagementCompany, type PropertyManager, type InsertPropertyManager, type PropertyManagerEmail, type InsertPropertyManagerEmail, type PropertyManagerPhone, type InsertPropertyManagerPhone, type PropertyManagerWithContacts, type Equipment, type InsertEquipment, type EquipmentFile, type InsertEquipmentFile, type EquipmentTicket, type InsertEquipmentTicket, type EquipmentTicketStatusHistory, type InsertEquipmentTicketStatusHistory, type EquipmentWithTicketCount, type SnowEvent, type InsertSnowEvent, type SnowEventAttachment, type InsertSnowEventAttachment, type SnowEventPropertyImpact, type InsertSnowEventPropertyImpact, type SnowEventWithDetails, type SnowEventPropertyImpactWithCustomer, type EmailTemplate, type InsertEmailTemplate, type EmailRule, type InsertEmailRule, type EmailLog, type InsertEmailLog, type EmailLogWithDetails, type Proposal, type InsertProposal, type ProposalFile, type InsertProposalFile, type ProposalWithDetails, type ProposalVersion, type InsertProposalVersion, type ProposalVersionWithUser, type VisualScopeSheet, type InsertVisualScopeSheet, type VisualScopeSheetWithCustomer, type Campaign, type InsertCampaign, type CampaignItem, type InsertCampaignItem, type CampaignWithProgress, type Season, type InsertSeason, type CampaignChecklistTask, type InsertCampaignChecklistTask, type CampaignItemTaskCompletion, type InsertCampaignItemTaskCompletion, type CampaignChecklistAuditLog, type InsertCampaignChecklistAuditLog, type CampaignChecklistAuditLogWithUser, type Communication, type InsertCommunication, type CommunicationTemplate, type InsertCommunicationTemplate, type CommunicationThread, type InsertCommunicationThread, type CommunicationLink, type InsertCommunicationLink, type CommunicationWithDetails, type CommunicationAnalytics, type InsertCommunicationAuditLog, type CommunicationAuditLog, type CommunicationAuditLogWithUser, type ChemicalProduct, type InsertChemicalProduct } from "@shared/schema";
 import { db } from "./db";
 import { users, customers, contacts, companies, companyUsers, settings, notes, contracts, contractStatusHistory, contractDocuments, contractMonthlyAmounts, customerRateSheets, contractServices, contractTemplates, contractBuilderDocuments, contractBuilderSections, contractBuilderVariables, ticketTypes, ticketTypeStatuses, ticketTypeFields, tickets, ticketFieldValues, ticketStatusHistory, ticketComments, ticketCommentMentions, ticketSources, ticketLinks, customerMapLayers, customerMapDocuments, maintenanceCrews, maintenanceVisitConfigs, weeklyScheduleTemplates, scheduleBlocks, ticketNotifications, propertyManagementCompanies, propertyManagers, propertyManagerEmails, propertyManagerPhones, equipment, equipmentFiles, equipmentTickets, equipmentTicketStatusHistory, snowEvents, snowEventAttachments, snowEventPropertyImpacts, emailTemplates, emailRules, emailLogs, proposals, proposalFiles, proposalVersions, visualScopeSheets, campaigns, campaignItems, campaignChecklistTasks, campaignItemTaskCompletions, campaignChecklistAuditLog as campaignChecklistAuditLogTable, seasons, communications, communicationTemplates, communicationThreads, communicationLinks, communicationAuditLog, communicationAutomationRules, servicePlanTemplates, servicePlanTemplateItems, customerServicePlans, stylePresets, sheetTemplates, chemicalProducts } from "@shared/schema";
-import type { StylePreset, InsertStylePreset, SheetTemplate, InsertSheetTemplate } from "@shared/schema";
-import { eq, and, or, sql, desc, asc, inArray, max, type SQL } from "drizzle-orm";
+import type { StylePreset, InsertStylePreset, SheetTemplate, InsertSheetTemplate, StylePresetType, StylePresetConfig } from "@shared/schema";
+import type { CommunicationAutomationRule, InsertCommunicationAutomationRule, ServicePlanTemplateWithItems, ServicePlanTemplate, InsertServicePlanTemplate, ServicePlanTemplateItem, ServicePlanCategory, CustomerServicePlan, InsertCustomerServicePlan, ServiceFulfillmentRow } from "@shared/schema";
+import { eq, and, or, sql, desc, asc, inArray, max, type SQL, getTableColumns } from "drizzle-orm";
 import session from "express-session";
 import connectPg from "connect-pg-simple";
 import { pool } from "./db";
@@ -728,7 +729,7 @@ export class PgStorage implements IStorage {
   }
 
   async createCustomer(insertCustomer: InsertCustomer): Promise<Customer> {
-    const result = await db.insert(customers).values([insertCustomer]).returning();
+    const result = await db.insert(customers).values([insertCustomer] as (typeof customers.$inferInsert)[]).returning();
     return result[0];
   }
 
@@ -752,7 +753,7 @@ export class PgStorage implements IStorage {
     }
     
     const result = await db.update(customers)
-      .set({ ...updates, updatedAt: new Date() })
+      .set({ ...updates, updatedAt: new Date() } as Partial<typeof customers.$inferInsert>)
       .where(and(eq(customers.id, id), eq(customers.companyId, companyId)))
       .returning();
     return result[0];
@@ -1985,13 +1986,13 @@ export class PgStorage implements IStorage {
   }
 
   async createCustomerMapLayer(insertLayer: InsertCustomerMapLayer): Promise<CustomerMapLayer> {
-    const result = await db.insert(customerMapLayers).values([insertLayer]).returning();
+    const result = await db.insert(customerMapLayers).values([insertLayer] as (typeof customerMapLayers.$inferInsert)[]).returning();
     return result[0];
   }
 
   async updateCustomerMapLayer(id: string, companyId: string, updates: Partial<InsertCustomerMapLayer>): Promise<CustomerMapLayer | undefined> {
     const result = await db.update(customerMapLayers)
-      .set({ ...updates, updatedAt: new Date() })
+      .set({ ...updates, updatedAt: new Date() } as Partial<typeof customerMapLayers.$inferInsert>)
       .where(and(eq(customerMapLayers.id, id), eq(customerMapLayers.companyId, companyId)))
       .returning();
     return result[0];
@@ -2522,7 +2523,7 @@ export class PgStorage implements IStorage {
         conditions.push(or(
           eq(equipmentTickets.assignedToId, filters.operatorUserId),
           inArray(equipmentTickets.equipmentId, operatedEquipmentIds)
-        ));
+        )!);
       } else {
         conditions.push(eq(equipmentTickets.assignedToId, filters.operatorUserId));
       }
@@ -2601,14 +2602,14 @@ export class PgStorage implements IStorage {
 
     // PERF: bulk-fetch impacts and creators in parallel instead of N×2 per-event queries
     const eventIds = events.map(e => e.id);
-    const userIds = [...new Set(events.map(e => e.createdByUserId).filter(Boolean) as string[])];
+    const userIds = Array.from(new Set(events.map(e => e.createdByUserId).filter(Boolean) as string[]));
 
     const [allImpacts, allCreators] = await Promise.all([
       db.select({ snowEventId: snowEventPropertyImpacts.snowEventId, ticketId: snowEventPropertyImpacts.ticketId })
         .from(snowEventPropertyImpacts)
         .where(and(inArray(snowEventPropertyImpacts.snowEventId, eventIds), eq(snowEventPropertyImpacts.companyId, companyId))),
       userIds.length > 0
-        ? db.select({ id: users.id, firstName: users.firstName, lastName: users.lastName }).from(users).where(inArray(users.id, userIds))
+        ? db.select({ id: users.id, name: users.name }).from(users).where(inArray(users.id, userIds))
         : Promise.resolve([]),
     ]);
 
@@ -2626,7 +2627,7 @@ export class PgStorage implements IStorage {
         ...event,
         propertyCount: impacts.length,
         ticketCount: impacts.filter(i => i.ticketId).length,
-        createdByName: creator?.firstName ? `${creator.firstName} ${creator.lastName || ''}`.trim() : 'Unknown',
+        createdByName: creator?.name ?? 'Unknown',
       };
     });
   }
@@ -2687,7 +2688,7 @@ export class PgStorage implements IStorage {
     if (impacts.length === 0) return [];
 
     // PERF: bulk-fetch customer names with one query instead of N per-impact queries
-    const customerIds = [...new Set(impacts.map(i => i.customerId))];
+    const customerIds = Array.from(new Set(impacts.map(i => i.customerId)));
     const allCustomerRows = await db.select({ id: customers.id, name: customers.name })
       .from(customers)
       .where(inArray(customers.id, customerIds));
@@ -2710,7 +2711,7 @@ export class PgStorage implements IStorage {
     if (impacts.length === 0) return [];
 
     // PERF: bulk-fetch snow events with one query instead of N per-impact queries
-    const eventIds = [...new Set(impacts.map(i => i.snowEventId))];
+    const eventIds = Array.from(new Set(impacts.map(i => i.snowEventId)));
     const allEventRows = await db.select().from(snowEvents).where(inArray(snowEvents.id, eventIds));
     const eventById = new Map<string, SnowEvent>(allEventRows.map(e => [e.id, e]));
 
@@ -2766,13 +2767,13 @@ export class PgStorage implements IStorage {
   }
 
   async createEmailTemplate(template: InsertEmailTemplate): Promise<EmailTemplate> {
-    const result = await db.insert(emailTemplates).values([template]).returning();
+    const result = await db.insert(emailTemplates).values([template] as (typeof emailTemplates.$inferInsert)[]).returning();
     return result[0];
   }
 
   async updateEmailTemplate(id: string, companyId: string, updates: Partial<InsertEmailTemplate>): Promise<EmailTemplate | undefined> {
     const result = await db.update(emailTemplates)
-      .set({ ...updates, updatedAt: new Date() })
+      .set({ ...updates, updatedAt: new Date() } as Partial<typeof emailTemplates.$inferInsert>)
       .where(and(eq(emailTemplates.id, id), eq(emailTemplates.companyId, companyId)))
       .returning();
     return result[0];
@@ -2848,13 +2849,13 @@ export class PgStorage implements IStorage {
   }
 
   async createEmailLog(log: InsertEmailLog): Promise<EmailLog> {
-    const result = await db.insert(emailLogs).values([log]).returning();
+    const result = await db.insert(emailLogs).values([log] as (typeof emailLogs.$inferInsert)[]).returning();
     return result[0];
   }
 
   async updateEmailLog(id: string, updates: Partial<InsertEmailLog>): Promise<EmailLog | undefined> {
     const result = await db.update(emailLogs)
-      .set(updates)
+      .set(updates as Partial<typeof emailLogs.$inferInsert>)
       .where(eq(emailLogs.id, id))
       .returning();
     return result[0];
@@ -3007,7 +3008,7 @@ export class PgStorage implements IStorage {
   }
 
   async createProposal(proposal: InsertProposal): Promise<Proposal> {
-    const result = await db.insert(proposals).values([proposal]).returning();
+    const result = await db.insert(proposals).values([proposal] as (typeof proposals.$inferInsert)[]).returning();
     return result[0];
   }
 
@@ -3139,14 +3140,14 @@ export class PgStorage implements IStorage {
   }
 
   async createVisualScopeSheet(data: InsertVisualScopeSheet): Promise<VisualScopeSheet> {
-    const [row] = await db.insert(visualScopeSheets).values(data).returning();
+    const [row] = await db.insert(visualScopeSheets).values(data as typeof visualScopeSheets.$inferInsert).returning();
     return row;
   }
 
   async updateVisualScopeSheet(id: string, companyId: string, data: Partial<InsertVisualScopeSheet>): Promise<VisualScopeSheet> {
     const [row] = await db
       .update(visualScopeSheets)
-      .set({ ...data, updatedAt: new Date() })
+      .set({ ...data, updatedAt: new Date() } as Partial<typeof visualScopeSheets.$inferInsert>)
       .where(and(eq(visualScopeSheets.id, id), eq(visualScopeSheets.companyId, companyId)))
       .returning();
     return row;
@@ -3166,12 +3167,12 @@ export class PgStorage implements IStorage {
 
     // PERF: bulk-fetch all related data in 3 parallel queries instead of N×4 per-campaign queries
     const campaignIds = rows.map(c => c.id);
-    const userIds = [...new Set([
+    const userIds = Array.from(new Set([
       ...rows.map(c => c.assignedToId).filter(Boolean),
       ...rows.map(c => c.assignedToId2).filter(Boolean),
       ...rows.map(c => c.createdById).filter(Boolean),
-    ] as string[])];
-    const seasonIds = [...new Set(rows.map(c => c.seasonId).filter(Boolean) as string[])];
+    ] as string[]));
+    const seasonIds = Array.from(new Set(rows.map(c => c.seasonId).filter(Boolean) as string[]));
 
     const [allItems, allUsers, allSeasons] = await Promise.all([
       db.select().from(campaignItems).where(inArray(campaignItems.campaignId, campaignIds)),
@@ -3208,12 +3209,12 @@ export class PgStorage implements IStorage {
   }
 
   async createCampaign(campaign: InsertCampaign): Promise<Campaign> {
-    const [row] = await db.insert(campaigns).values(campaign).returning();
+    const [row] = await db.insert(campaigns).values(campaign as typeof campaigns.$inferInsert).returning();
     return row;
   }
 
   async updateCampaign(id: string, companyId: string, updates: Partial<InsertCampaign>): Promise<Campaign | undefined> {
-    const [row] = await db.update(campaigns).set({ ...updates, updatedAt: new Date() }).where(and(eq(campaigns.id, id), eq(campaigns.companyId, companyId))).returning();
+    const [row] = await db.update(campaigns).set({ ...updates, updatedAt: new Date() } as Partial<typeof campaigns.$inferInsert>).where(and(eq(campaigns.id, id), eq(campaigns.companyId, companyId))).returning();
     return row;
   }
 
@@ -3346,7 +3347,7 @@ export class PgStorage implements IStorage {
   async getCampaignItemsGlobal(companyId: string): Promise<(CampaignItem & { campaignTitle: string; campaignWindowStart: string; campaignWindowEnd: string; campaignCategory: string })[]> {
     const rows = await db
       .select({
-        ...campaignItems,
+        ...getTableColumns(campaignItems),
         campaignTitle: campaigns.title,
         campaignWindowStart: campaigns.windowStart,
         campaignWindowEnd: campaigns.windowEnd,
@@ -3356,11 +3357,18 @@ export class PgStorage implements IStorage {
       .innerJoin(campaigns, eq(campaignItems.campaignId, campaigns.id))
       .where(and(eq(campaignItems.companyId, companyId), eq(campaigns.status, "active")))
       .orderBy(desc(campaigns.windowStart), asc(campaignItems.customerName));
-    return rows as (CampaignItem & { campaignTitle: string; campaignWindowStart: string; campaignWindowEnd: string; campaignCategory: string })[];
+    return rows;
   }
 
   async createCampaignItem(item: InsertCampaignItem): Promise<CampaignItem> {
-    const [row] = await db.insert(campaignItems).values(item as typeof campaignItems.$inferInsert).returning();
+    const dbItem: typeof campaignItems.$inferInsert = {
+      ...item,
+      status: item.status ?? "pending",
+      workflowStep: item.workflowStep ?? null,
+      wasBumpedToBackup: item.wasBumpedToBackup ?? false,
+      weatherWindDirection: item.weatherWindDirection != null ? String(item.weatherWindDirection) : null,
+    };
+    const [row] = await db.insert(campaignItems).values(dbItem).returning();
     return row;
   }
 
@@ -3377,7 +3385,15 @@ export class PgStorage implements IStorage {
     return db.transaction(async (tx) => {
       const [campaign] = await tx.insert(campaigns).values(campaignData as typeof campaigns.$inferInsert).returning();
       for (const item of itemsData) {
-        await tx.insert(campaignItems).values({ ...item, campaignId: campaign.id } as typeof campaignItems.$inferInsert);
+        const dbItem: typeof campaignItems.$inferInsert = {
+          ...item,
+          campaignId: campaign.id,
+          status: item.status ?? "pending",
+          workflowStep: item.workflowStep ?? null,
+          wasBumpedToBackup: item.wasBumpedToBackup ?? false,
+          weatherWindDirection: item.weatherWindDirection != null ? String(item.weatherWindDirection) : null,
+        };
+        await tx.insert(campaignItems).values(dbItem);
       }
       return campaign;
     });
@@ -3579,7 +3595,7 @@ export class PgStorage implements IStorage {
       .orderBy(desc(sql`COALESCE(${communications.sentAt}, ${communications.receivedAt}, ${communications.createdAt})`))
       .limit(500); // PERF: hard cap to prevent unbounded payload
 
-    const threadIds = [...new Set(rows.map(r => r.comm.threadId).filter(Boolean))];
+    const threadIds = Array.from(new Set(rows.map(r => r.comm.threadId).filter(Boolean)));
     const replyCounts = new Map<string, number>();
     if (threadIds.length > 0) {
       const allThreadComms = await db.select({ threadId: communications.threadId, count: sql<number>`count(*)` })
@@ -3854,16 +3870,15 @@ export class PgStorage implements IStorage {
       .limit(5);
 
     return {
-      totalSent: allSent[0].count,
-      sentThisWeek: sentThisWeek[0].count,
-      sentThisMonth: sentThisMonth[0].count,
-      scheduledCount: scheduled[0].count,
-      openFollowUpsCount: openFollowUps[0].count,
-      followUpsDueThisWeekCount: followUpsDueThisWeek[0].count,
-      byType: byType.map(r => ({ type: r.type || "unknown", count: r.count })),
-      byStaff: byStaff.map(r => ({ userId: r.userId || "unknown", userName: r.userName || "Unknown", count: r.count })),
-      byCustomer: byCustomer.map(r => ({ customerId: r.customerId || "unknown", customerName: r.customerName || "Unknown", count: r.count })),
-      byTemplate: byTemplate.map(r => ({ templateId: r.templateId || "unknown", templateName: r.templateName || "Unknown", count: r.count })),
+      totalSentPeriod: allSent[0].count,
+      totalSentThisWeek: sentThisWeek[0].count,
+      totalSentThisMonth: sentThisMonth[0].count,
+      draftsCount: scheduled[0].count,
+      overdueFollowUpsCount: openFollowUps[0].count,
+      sentByType: byType.map(r => ({ type: r.type || "unknown", count: r.count })),
+      sentByStaff: byStaff.map(r => ({ userId: r.userId || "unknown", userName: r.userName || "Unknown", count: r.count })),
+      topCustomers: byCustomer.map(r => ({ customerId: r.customerId || "unknown", customerName: r.customerName || "Unknown", count: r.count })),
+      topTemplates: byTemplate.map(r => ({ templateId: r.templateId || "unknown", templateName: r.templateName || "Unknown", count: r.count })),
     };
   }
 
@@ -3872,9 +3887,9 @@ export class PgStorage implements IStorage {
     if (templates.length === 0) return;
 
     const templateData = [
-      { companyId, name: "Welcome Email", type: "email" as const, subject: "Welcome to High Plains Property Maintenance", body: "Dear valued customer,\n\nWelcome to High Plains! We are thrilled to have you as a client..." },
-      { companyId, name: "Service Reminder SMS", type: "sms" as const, subject: null, body: "Hi! Your scheduled service is coming up this week. We'll be there bright and early!" },
-      { companyId, name: "Seasonal Check-In", type: "email" as const, subject: "Seasonal Service Update", body: "As we head into the new season, we wanted to reach out about your property..." },
+      { companyId, name: "Welcome Email", type: "email" as const, category: "general_outreach" as const, isActive: true, isArchived: false, defaultCommunicationType: "email" as const, subject: "Welcome to High Plains Property Maintenance", body: "Dear valued customer,\n\nWelcome to High Plains! We are thrilled to have you as a client..." },
+      { companyId, name: "Service Reminder SMS", type: "sms" as const, category: "general_outreach" as const, isActive: true, isArchived: false, defaultCommunicationType: "sms" as const, subject: null, body: "Hi! Your scheduled service is coming up this week. We'll be there bright and early!" },
+      { companyId, name: "Seasonal Check-In", type: "email" as const, category: "general_outreach" as const, isActive: true, isArchived: false, defaultCommunicationType: "email" as const, subject: "Seasonal Service Update", body: "As we head into the new season, we wanted to reach out about your property..." },
     ];
 
     const insertedTemplates: CommunicationTemplate[] = [];
@@ -4235,14 +4250,14 @@ export class PgStorage implements IStorage {
   }
 
   async createStylePreset(data: InsertStylePreset): Promise<StylePreset> {
-    const [row] = await db.insert(stylePresets).values(data as any).returning();
+    const [row] = await db.insert(stylePresets).values(data as typeof stylePresets.$inferInsert).returning();
     return row;
   }
 
   async updateStylePreset(id: string, companyId: string, data: Partial<InsertStylePreset>): Promise<StylePreset | undefined> {
     const [row] = await db
       .update(stylePresets)
-      .set(data as any)
+      .set(data as Partial<typeof stylePresets.$inferInsert>)
       .where(and(eq(stylePresets.id, id), eq(stylePresets.companyId, companyId)))
       .returning();
     return row;
@@ -4286,10 +4301,10 @@ export class PgStorage implements IStorage {
     await db.insert(stylePresets).values(
       HIGH_PLAINS_PRESETS.map(p => ({
         companyId,
-        type: p.type as any,
+        type: p.type as StylePresetType,
         name: p.name,
         category: p.category,
-        styleConfig: p.styleConfig as any,
+        styleConfig: p.styleConfig as StylePresetConfig,
         isDefault: true,
       }))
     );
@@ -4306,14 +4321,14 @@ export class PgStorage implements IStorage {
   }
 
   async createSheetTemplate(data: InsertSheetTemplate): Promise<SheetTemplate> {
-    const [row] = await db.insert(sheetTemplates).values(data as any).returning();
+    const [row] = await db.insert(sheetTemplates).values(data as typeof sheetTemplates.$inferInsert).returning();
     return row;
   }
 
   async updateSheetTemplate(id: string, companyId: string, data: Partial<InsertSheetTemplate>): Promise<SheetTemplate | undefined> {
     const [row] = await db
       .update(sheetTemplates)
-      .set(data as any)
+      .set(data as Partial<typeof sheetTemplates.$inferInsert>)
       .where(and(eq(sheetTemplates.id, id), eq(sheetTemplates.companyId, companyId)))
       .returning();
     return row;

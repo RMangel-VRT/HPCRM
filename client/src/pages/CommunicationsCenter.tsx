@@ -102,7 +102,7 @@ function resolveViewParam(raw: string | undefined): SectionFilter {
     audit_log: "audit_log",
     all: "all",
   };
-  return (raw && MAP[raw]) ?? "all";
+  return (raw && MAP[raw]) || "all";
 }
 
 const TYPE_ICONS: Record<string, React.ElementType> = {
@@ -2036,7 +2036,7 @@ export default function CommunicationsCenter() {
 
   useSetBreadcrumbs([{ label: "Communications" }], []);
 
-  const { data: communications = [], isLoading } = useQuery<Communication[]>({
+  const { data: communications = [], isLoading } = useQuery<CommunicationWithDetails[]>({
     queryKey: ["/api/communications"],
     enabled: permissions.canView,
   });

@@ -43,6 +43,9 @@ interface RevenueMatrixPanelProps {
   year: number;
   month: number;
   searchQuery: string;
+  serviceType?: string;
+  activeOnly?: boolean;
+  showIssuesOnly?: boolean;
 }
 
 export function RevenueMatrixPanel({ year, month, searchQuery }: RevenueMatrixPanelProps) {

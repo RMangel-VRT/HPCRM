@@ -187,10 +187,10 @@ export default function WeatherCapturePanel({ item, campaignId, customerLat, cus
         <CardContent className="pt-0 space-y-3">
           <WeatherPreviewCard
             weather={{
-              temperature: item.weatherTemp,
-              windSpeed: item.weatherWindSpeed,
-              windDirection: item.weatherWindDirection,
-              humidity: item.weatherHumidity,
+              temperature: item.weatherTemp ?? null,
+              windSpeed: item.weatherWindSpeed ?? null,
+              windDirection: item.weatherWindDirection != null ? Number(item.weatherWindDirection) : null,
+              humidity: item.weatherHumidity ?? null,
               conditions: item.weatherConditions || "Unknown",
               recordedAt: item.weatherRecordedAt?.toString() || "",
             }}

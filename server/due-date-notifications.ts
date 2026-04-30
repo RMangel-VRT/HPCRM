@@ -81,6 +81,7 @@ async function checkAndCreateDueDateNotifications() {
         ticketId: ticket.id,
         type: notificationType,
         message,
+        isRead: false,
       });
 
       console.log(`Created ${notificationType} notification for ticket ${ticket.id} to user ${ticket.assignedToId}`);

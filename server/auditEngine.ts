@@ -94,7 +94,7 @@ export async function buildContractAuditRows(
   }
 
   const duplicateServiceLineIds = new Set<string>();
-  for (const ids of serviceLineContractIds.values()) {
+  for (const ids of Array.from(serviceLineContractIds.values())) {
     if (ids.length > 1) {
       for (const id of ids) duplicateServiceLineIds.add(id);
     }
@@ -217,7 +217,7 @@ export async function buildContractAuditRows(
       missingMonthCount,
       unexpectedPopulatedMonthCount,
       auditStatus,
-      auditFlags: [...new Set(flags)],
+      auditFlags: Array.from(new Set(flags)),
     });
   }
 

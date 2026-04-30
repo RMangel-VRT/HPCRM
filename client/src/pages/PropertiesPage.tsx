@@ -22,7 +22,22 @@ import { Badge } from "@/components/ui/badge";
 import { useToast } from "@/hooks/use-toast";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
-import { insertPropertySchema, type Property, type Contact, type InsertProperty } from "@shared/schema";
+import { z } from "zod";
+
+const insertPropertySchema = z.object({
+  name: z.string().min(1),
+  street: z.string().default(""),
+  city: z.string().default(""),
+  state: z.string().default(""),
+  zip: z.string().default(""),
+  propertyManagerName: z.string().optional(),
+  propertyManagerPhone: z.string().optional(),
+  propertyManagerEmail: z.string().optional(),
+  notes: z.string().optional(),
+});
+
+type InsertProperty = z.infer<typeof insertPropertySchema>;
+type Property = InsertProperty & { id: string; companyId: string; createdAt: string; updatedAt: string };
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { Plus, MapPin, User, Phone, Mail, Building, Trash2, Pencil } from "lucide-react";
 

@@ -416,7 +416,7 @@ function ContractAuditTab({ year }: { year: number }) {
                           <td className="p-3 pl-6">
                             <span className="text-sm">{row.serviceType}</span>
                             <span className="text-xs text-muted-foreground block">
-                              {new Date(row.contractTermStart).toLocaleDateString("en-US", { month: "short", year: "numeric" })}
+                              {new Date(row.contractTermStart!).toLocaleDateString("en-US", { month: "short", year: "numeric" })}
                               {row.contractTermEnd ? ` → ${new Date(row.contractTermEnd).toLocaleDateString("en-US", { month: "short", year: "numeric" })}` : " → ongoing"}
                             </span>
                           </td>

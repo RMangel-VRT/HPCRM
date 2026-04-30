@@ -111,7 +111,7 @@ export default function SeasonDetail() {
     if (!printWindow) return;
 
     let tableHTML = "";
-    for (const [campName, items] of campaignGroups) {
+    for (const [campName, items] of Array.from(campaignGroups)) {
       tableHTML += `<h3 style="margin-top:20px;font-size:13px;">${escapeHtml(campName)} (${items.length} items)</h3>`;
       tableHTML += `<table><thead><tr>
         <th>Property</th><th>Address</th><th>Completed</th>
