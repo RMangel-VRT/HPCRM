@@ -85,8 +85,8 @@ export default function AppSidebar({
 
   // Prefetch the customers list so the sync resolver can use the cache for
   // the link's href. We don't read the data here; it just warms the cache.
-  useQuery<Customer[]>({
-    queryKey: ["/api/customers"],
+  useQuery<{ customers: Customer[]; total: number }>({
+    queryKey: ["/api/customers?page=1&limit=200"],
     enabled: canSeeRegularCustomers,
   });
 

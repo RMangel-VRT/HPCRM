@@ -278,9 +278,10 @@ export default function WeeklySchedulerPage() {
     queryKey: ["/api/maintenance-visit-configs"],
   });
 
-  const { data: customers = [] } = useQuery<Customer[]>({
+  const { data: customersResp } = useQuery<{ customers: Customer[]; total: number }>({
     queryKey: ["/api/customers"],
   });
+  const customers = customersResp?.customers ?? [];
 
   const activeTemplate = templates.find((t) => t.id === selectedTemplateId) || templates.find((t) => t.isActive) || templates[0];
 

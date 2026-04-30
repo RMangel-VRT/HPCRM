@@ -59,9 +59,10 @@ export default function ComposeDrawer({ open, onClose, defaultCustomerId, replyT
     queryKey: ["/api/communication-templates"],
   });
 
-  const { data: customers = [] } = useQuery<Customer[]>({
-    queryKey: ["/api/customers"],
+  const { data: customersData } = useQuery<{ customers: Customer[]; total: number }>({
+    queryKey: ["/api/customers?page=1&limit=500"],
   });
+  const customers = customersData?.customers ?? [];
 
   const form = useForm<ComposeFormValues>({
     resolver: zodResolver(composeSchema),

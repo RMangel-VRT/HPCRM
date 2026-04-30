@@ -35,6 +35,7 @@ export interface IStorage {
   
   getCustomers(companyId: string): Promise<Customer[]>;
   getCustomersPaginated(companyId: string, opts: { page: number; limit: number; search?: string }): Promise<{ customers: Customer[]; total: number }>;
+  getCustomerSearch(companyId: string, query: string): Promise<Customer[]>;
   getCustomerById(id: string, companyId: string): Promise<Customer | undefined>;
   getCustomersByIds(ids: string[], companyId: string): Promise<Map<string, Customer>>;
   getChildCustomers(parentId: string, companyId: string): Promise<Customer[]>;
@@ -687,6 +688,21 @@ export class PgStorage implements IStorage {
     return { customers: rows, total: countRows[0]?.count ?? 0 };
   }
 
+  async getCustomerSearch(companyId: string, query: string): Promise<Customer[]> {
+    const q = query.toLowerCase().trim();
+    if (q.length < 2) return [];
+    return await db.select().from(customers)
+      .where(and(
+        eq(customers.companyId, companyId),
+        or(
+          sql`lower(${customers.name}) like ${'%' + q + '%'}`,
+          sql`lower(COALESCE(${customers.street}, '')) like ${'%' + q + '%'}`
+        )
+      ))
+      .orderBy(customers.name)
+      .limit(20);
+  }
+
   async getCustomerById(id: string, companyId: string): Promise<Customer | undefined> {
     const result = await db.select().from(customers)
       .where(and(eq(customers.id, id), eq(customers.companyId, companyId)))
@@ -825,7 +841,8 @@ export class PgStorage implements IStorage {
       .from(contracts)
       .innerJoin(customers, eq(contracts.customerId, customers.id))
       .where(eq(contracts.companyId, companyId))
-      .orderBy(desc(contracts.createdAt));
+      .orderBy(desc(contracts.createdAt))
+      .limit(500); // PERF: hard cap to prevent unbounded payload
     return result as (Contract & { customerName: string })[];
   }
 
@@ -1454,26 +1471,39 @@ export class PgStorage implements IStorage {
   }
 
   async getMonthlyRevenueData(companyId: string, year: number): Promise<MonthlyRevenueData[]> {
-    // Use the same calculation logic as getCustomerRevenue to ensure consistency
-    // This includes mobilization fees, proper date filtering, and status handling
-    const allCustomers = await this.getCustomers(companyId);
-    
-    // Initialize monthly totals (month 1-12)
-    const monthlyTotals: Record<number, number> = {};
-    for (let m = 1; m <= 12; m++) {
-      monthlyTotals[m] = 0;
+    // PERF: replace per-customer N+1 loop with 2 bulk queries — mirrors getRevenueOverview pattern
+    const [allContracts, allAmounts] = await Promise.all([
+      db.select().from(contracts).where(eq(contracts.companyId, companyId)),
+      db.select().from(contractMonthlyAmounts).where(eq(contractMonthlyAmounts.companyId, companyId)),
+    ]);
+
+    const amountsByContractId = new Map<string, typeof allAmounts>();
+    for (const amt of allAmounts) {
+      if (!amountsByContractId.has(amt.contractId)) amountsByContractId.set(amt.contractId, []);
+      amountsByContractId.get(amt.contractId)!.push(amt);
     }
-    
-    // Aggregate monthly revenue from all customers using the single source of truth
-    for (const customer of allCustomers) {
-      const revenueData = await this.getCustomerRevenue(customer.id, companyId, year);
-      for (const monthData of revenueData.monthlyBreakdown) {
-        monthlyTotals[monthData.month] += monthData.total;
+
+    const monthlyTotals: Record<number, number> = {};
+    for (let m = 1; m <= 12; m++) monthlyTotals[m] = 0;
+
+    for (const contract of allContracts) {
+      if (contract.status === "paused" || contract.status === "ended") continue;
+      const amounts = amountsByContractId.get(contract.id) ?? [];
+      const startYear = contract.startDate ? new Date(contract.startDate).getUTCFullYear() : year;
+      const startMonth = contract.startDate ? new Date(contract.startDate).getUTCMonth() + 1 : 1;
+      const endYear = contract.endDate ? new Date(contract.endDate).getUTCFullYear() : null;
+      const endMonth = contract.endDate ? new Date(contract.endDate).getUTCMonth() + 1 : null;
+      const startMonthYear = startYear * 100 + startMonth;
+      const endMonthYear = endYear && endMonth ? endYear * 100 + endMonth : null;
+
+      for (const amt of amounts) {
+        const monthYear = year * 100 + amt.month;
+        const inRange = monthYear >= startMonthYear && (!endMonthYear || monthYear <= endMonthYear);
+        if (inRange) monthlyTotals[amt.month] += amt.amount / 100;
       }
     }
-    
+
     const monthNames = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
-    
     return monthNames.map((name, index) => ({
       month: name,
       revenue: monthlyTotals[index + 1] || 0,
@@ -1781,7 +1811,8 @@ export class PgStorage implements IStorage {
     
     return await db.select().from(tickets)
       .where(and(...conditions))
-      .orderBy(desc(tickets.createdAt));
+      .orderBy(desc(tickets.createdAt))
+      .limit(500); // PERF: hard cap to prevent unbounded payload
   }
 
   async getTicketById(id: string, companyId: string): Promise<Ticket | undefined> {
@@ -2565,23 +2596,39 @@ export class PgStorage implements IStorage {
     const events = await db.select().from(snowEvents)
       .where(eq(snowEvents.companyId, companyId))
       .orderBy(desc(snowEvents.eventStartDateTime));
-    
-    const result: SnowEventWithDetails[] = [];
-    for (const event of events) {
-      const impacts = await db.select().from(snowEventPropertyImpacts)
-        .where(and(
-          eq(snowEventPropertyImpacts.snowEventId, event.id),
-          eq(snowEventPropertyImpacts.companyId, companyId)
-        ));
-      const creator = await db.select().from(users).where(eq(users.id, event.createdByUserId));
-      result.push({
+
+    if (events.length === 0) return [];
+
+    // PERF: bulk-fetch impacts and creators in parallel instead of N×2 per-event queries
+    const eventIds = events.map(e => e.id);
+    const userIds = [...new Set(events.map(e => e.createdByUserId).filter(Boolean) as string[])];
+
+    const [allImpacts, allCreators] = await Promise.all([
+      db.select({ snowEventId: snowEventPropertyImpacts.snowEventId, ticketId: snowEventPropertyImpacts.ticketId })
+        .from(snowEventPropertyImpacts)
+        .where(and(inArray(snowEventPropertyImpacts.snowEventId, eventIds), eq(snowEventPropertyImpacts.companyId, companyId))),
+      userIds.length > 0
+        ? db.select({ id: users.id, firstName: users.firstName, lastName: users.lastName }).from(users).where(inArray(users.id, userIds))
+        : Promise.resolve([]),
+    ]);
+
+    const impactsByEventId = new Map<string, typeof allImpacts>();
+    for (const imp of allImpacts) {
+      if (!impactsByEventId.has(imp.snowEventId)) impactsByEventId.set(imp.snowEventId, []);
+      impactsByEventId.get(imp.snowEventId)!.push(imp);
+    }
+    const creatorById = new Map(allCreators.map(u => [u.id, u]));
+
+    return events.map(event => {
+      const impacts = impactsByEventId.get(event.id) ?? [];
+      const creator = creatorById.get(event.createdByUserId);
+      return {
         ...event,
         propertyCount: impacts.length,
         ticketCount: impacts.filter(i => i.ticketId).length,
-        createdByName: creator[0]?.firstName ? `${creator[0].firstName} ${creator[0].lastName || ''}`.trim() : 'Unknown',
-      });
-    }
-    return result;
+        createdByName: creator?.firstName ? `${creator.firstName} ${creator.lastName || ''}`.trim() : 'Unknown',
+      };
+    });
   }
 
   async getSnowEventById(id: string, companyId: string): Promise<SnowEvent | undefined> {
@@ -2636,16 +2683,20 @@ export class PgStorage implements IStorage {
         eq(snowEventPropertyImpacts.companyId, companyId)
       ))
       .orderBy(desc(snowEventPropertyImpacts.createdAt));
-    
-    const result: SnowEventPropertyImpactWithCustomer[] = [];
-    for (const impact of impacts) {
-      const customer = await db.select().from(customers).where(eq(customers.id, impact.customerId));
-      result.push({
-        ...impact,
-        customerName: customer[0]?.name || 'Unknown',
-      });
-    }
-    return result;
+
+    if (impacts.length === 0) return [];
+
+    // PERF: bulk-fetch customer names with one query instead of N per-impact queries
+    const customerIds = [...new Set(impacts.map(i => i.customerId))];
+    const allCustomerRows = await db.select({ id: customers.id, name: customers.name })
+      .from(customers)
+      .where(inArray(customers.id, customerIds));
+    const customerNameById = new Map<string, string>(allCustomerRows.map(c => [c.id, c.name]));
+
+    return impacts.map(impact => ({
+      ...impact,
+      customerName: customerNameById.get(impact.customerId) ?? 'Unknown',
+    }));
   }
 
   async getSnowEventPropertyImpactsByCustomer(customerId: string, companyId: string): Promise<(SnowEventPropertyImpact & { snowEvent: SnowEvent })[]> {
@@ -2655,15 +2706,17 @@ export class PgStorage implements IStorage {
         eq(snowEventPropertyImpacts.companyId, companyId)
       ))
       .orderBy(desc(snowEventPropertyImpacts.createdAt));
-    
-    const result: (SnowEventPropertyImpact & { snowEvent: SnowEvent })[] = [];
-    for (const impact of impacts) {
-      const event = await db.select().from(snowEvents).where(eq(snowEvents.id, impact.snowEventId));
-      if (event[0]) {
-        result.push({ ...impact, snowEvent: event[0] });
-      }
-    }
-    return result;
+
+    if (impacts.length === 0) return [];
+
+    // PERF: bulk-fetch snow events with one query instead of N per-impact queries
+    const eventIds = [...new Set(impacts.map(i => i.snowEventId))];
+    const allEventRows = await db.select().from(snowEvents).where(inArray(snowEvents.id, eventIds));
+    const eventById = new Map<string, SnowEvent>(allEventRows.map(e => [e.id, e]));
+
+    return impacts
+      .filter(impact => eventById.has(impact.snowEventId))
+      .map(impact => ({ ...impact, snowEvent: eventById.get(impact.snowEventId)! }));
   }
 
   async createSnowEventPropertyImpact(impact: InsertSnowEventPropertyImpact): Promise<SnowEventPropertyImpact> {
@@ -2756,7 +2809,7 @@ export class PgStorage implements IStorage {
     const conditions = [eq(emailLogs.companyId, companyId)];
     if (filters?.ticketId) conditions.push(eq(emailLogs.ticketId, filters.ticketId));
     if (filters?.customerId) conditions.push(eq(emailLogs.customerId, filters.customerId));
-    if (filters?.status) conditions.push(eq(emailLogs.status, filters.status as any));
+    if (filters?.status) conditions.push(eq(emailLogs.status, filters.status as "pending" | "sent" | "delivered" | "bounced" | "failed" | "dropped"));
 
     const result = await db.select({
       id: emailLogs.id,
@@ -2766,7 +2819,7 @@ export class PgStorage implements IStorage {
       templateId: emailLogs.templateId,
       toEmail: emailLogs.toEmail,
       subject: emailLogs.subject,
-      htmlBody: emailLogs.htmlBody,
+      // htmlBody omitted from list — fetch via getEmailLogById for the full body
       status: emailLogs.status,
       providerMessageId: emailLogs.providerMessageId,
       errorJson: emailLogs.errorJson,
@@ -2781,7 +2834,8 @@ export class PgStorage implements IStorage {
       .leftJoin(tickets, eq(emailLogs.ticketId, tickets.id))
       .leftJoin(emailTemplates, eq(emailLogs.templateId, emailTemplates.id))
       .where(and(...conditions))
-      .orderBy(desc(emailLogs.createdAt));
+      .orderBy(desc(emailLogs.createdAt))
+      .limit(500); // PERF: hard cap to prevent unbounded payload
 
     return result as EmailLogWithDetails[];
   }
@@ -2847,7 +2901,8 @@ export class PgStorage implements IStorage {
       .from(proposals)
       .leftJoin(customers, eq(proposals.customerId, customers.id))
       .where(eq(proposals.companyId, companyId))
-      .orderBy(desc(proposals.createdAt));
+      .orderBy(desc(proposals.createdAt))
+      .limit(500); // PERF: hard cap to prevent unbounded payload
 
     const proposalIds = rows.map(r => r.proposal.id);
     const files = proposalIds.length > 0
@@ -3106,25 +3161,45 @@ export class PgStorage implements IStorage {
       ? and(eq(campaigns.companyId, companyId), or(eq(campaigns.assignedToId, assignedToId), eq(campaigns.assignedToId2, assignedToId)))
       : eq(campaigns.companyId, companyId);
     const rows = await db.select().from(campaigns).where(whereClause).orderBy(desc(campaigns.createdAt));
-    const result: CampaignWithProgress[] = [];
-    for (const c of rows) {
-      const items = await db.select().from(campaignItems).where(eq(campaignItems.campaignId, c.id));
-      const assignedUser = c.assignedToId ? await db.select().from(users).where(eq(users.id, c.assignedToId)) : [];
-      const assignedUser2 = c.assignedToId2 ? await db.select().from(users).where(eq(users.id, c.assignedToId2)) : [];
-      const createdUser = c.createdById ? await db.select().from(users).where(eq(users.id, c.createdById)) : [];
-      const seasonRow = c.seasonId ? await db.select().from(seasons).where(eq(seasons.id, c.seasonId)) : [];
-      result.push({
+
+    if (rows.length === 0) return [];
+
+    // PERF: bulk-fetch all related data in 3 parallel queries instead of N×4 per-campaign queries
+    const campaignIds = rows.map(c => c.id);
+    const userIds = [...new Set([
+      ...rows.map(c => c.assignedToId).filter(Boolean),
+      ...rows.map(c => c.assignedToId2).filter(Boolean),
+      ...rows.map(c => c.createdById).filter(Boolean),
+    ] as string[])];
+    const seasonIds = [...new Set(rows.map(c => c.seasonId).filter(Boolean) as string[])];
+
+    const [allItems, allUsers, allSeasons] = await Promise.all([
+      db.select().from(campaignItems).where(inArray(campaignItems.campaignId, campaignIds)),
+      userIds.length > 0 ? db.select({ id: users.id, name: users.name }).from(users).where(inArray(users.id, userIds)) : Promise.resolve([]),
+      seasonIds.length > 0 ? db.select({ id: seasons.id, name: seasons.name }).from(seasons).where(inArray(seasons.id, seasonIds)) : Promise.resolve([]),
+    ]);
+
+    const itemsByCampaignId = new Map<string, typeof allItems>();
+    for (const item of allItems) {
+      if (!itemsByCampaignId.has(item.campaignId)) itemsByCampaignId.set(item.campaignId, []);
+      itemsByCampaignId.get(item.campaignId)!.push(item);
+    }
+    const userNameById = new Map<string, string>(allUsers.map(u => [u.id, u.name]));
+    const seasonNameById = new Map<string, string>(allSeasons.map(s => [s.id, s.name]));
+
+    return rows.map(c => {
+      const items = itemsByCampaignId.get(c.id) ?? [];
+      return {
         ...c,
         totalItems: items.length,
         completedItems: items.filter(i => i.status === "completed").length,
         skippedItems: items.filter(i => i.status === "skipped").length,
-        assignedToName: assignedUser[0]?.name,
-        assignedToName2: assignedUser2[0]?.name,
-        createdByName: createdUser[0]?.name,
-        seasonName: seasonRow[0]?.name,
-      });
-    }
-    return result;
+        assignedToName: c.assignedToId ? userNameById.get(c.assignedToId) : undefined,
+        assignedToName2: c.assignedToId2 ? userNameById.get(c.assignedToId2) : undefined,
+        createdByName: c.createdById ? userNameById.get(c.createdById) : undefined,
+        seasonName: c.seasonId ? seasonNameById.get(c.seasonId) : undefined,
+      };
+    });
   }
 
   async getCampaignById(id: string, companyId: string): Promise<Campaign | undefined> {
@@ -3417,6 +3492,77 @@ export class PgStorage implements IStorage {
   }
 
   async getCommunications(companyId: string, filters?: { view?: string; customerId?: string; type?: string; sentById?: string; search?: string; startDate?: Date; endDate?: Date; status?: string; fromDate?: string; toDate?: string; threadId?: string }): Promise<CommunicationWithDetails[]> {
+    // Build SQL WHERE conditions — push as many filters to the DB as possible
+    const conditions: (ReturnType<typeof eq> | ReturnType<typeof and> | ReturnType<typeof or> | ReturnType<typeof sql> | undefined)[] = [
+      eq(communications.companyId, companyId),
+    ];
+
+    if (filters?.status) {
+      conditions.push(eq(communications.status, filters.status as "draft" | "sent" | "failed" | "scheduled"));
+    }
+    if (filters?.type) {
+      conditions.push(eq(communications.type, filters.type as "email" | "note" | "sms" | "letter"));
+    }
+    if (filters?.customerId) {
+      conditions.push(eq(communications.customerId, filters.customerId));
+    }
+    if (filters?.threadId) {
+      conditions.push(eq(communications.threadId, filters.threadId));
+    }
+
+    // Push view filter to SQL
+    if (filters?.view === "drafts") {
+      conditions.push(eq(communications.status, "draft"));
+    } else if (filters?.view === "sent") {
+      conditions.push(eq(communications.status, "sent"));
+    } else if (filters?.view === "scheduled") {
+      conditions.push(
+        and(
+          eq(communications.status, "scheduled"),
+          sql`(${communications.scheduledFor} IS NULL OR ${communications.scheduledFor} > NOW())`
+        )
+      );
+    } else if (filters?.view === "followups") {
+      conditions.push(
+        or(eq(communications.followUpStatus, "open"), eq(communications.followUpStatus, "snoozed"))
+      );
+    }
+
+    // Push sentById filter to SQL
+    if (filters?.sentById) {
+      conditions.push(eq(communications.sentById, filters.sentById));
+    }
+
+    // Push date range filters to SQL
+    if (filters?.startDate) {
+      conditions.push(sql`COALESCE(${communications.sentAt}, ${communications.receivedAt}, ${communications.createdAt}) >= ${filters.startDate}`);
+    }
+    if (filters?.endDate) {
+      conditions.push(sql`COALESCE(${communications.sentAt}, ${communications.receivedAt}, ${communications.createdAt}) <= ${filters.endDate}`);
+    }
+    if (filters?.fromDate) {
+      const from = new Date(filters.fromDate);
+      conditions.push(sql`COALESCE(${communications.sentAt}, ${communications.receivedAt}, ${communications.createdAt}) >= ${from}`);
+    }
+    if (filters?.toDate) {
+      const to = new Date(filters.toDate);
+      to.setHours(23, 59, 59, 999);
+      conditions.push(sql`COALESCE(${communications.sentAt}, ${communications.receivedAt}, ${communications.createdAt}) <= ${to}`);
+    }
+
+    // Push content search to SQL (subject, body, address); customer-name search stays in JS post-fetch
+    if (filters?.search) {
+      const s = '%' + filters.search.toLowerCase() + '%';
+      conditions.push(
+        or(
+          sql`lower(${communications.subject}) like ${s}`,
+          sql`lower(${communications.body}) like ${s}`,
+          sql`lower(COALESCE(${communications.bodyText}, '')) like ${s}`,
+          sql`lower(COALESCE(${communications.fromAddress}, '')) like ${s}`
+        )
+      );
+    }
+
     const rows = await db.select({
       comm: communications,
       customerName: customers.name,
@@ -3429,14 +3575,9 @@ export class PgStorage implements IStorage {
       .leftJoin(contacts, eq(communications.contactId, contacts.id))
       .leftJoin(users, eq(communications.sentById, users.id))
       .leftJoin(communicationTemplates, eq(communications.templateId, communicationTemplates.id))
-      .where(and(
-        eq(communications.companyId, companyId),
-        filters?.status ? eq(communications.status, filters.status as any) : undefined,
-        filters?.type ? eq(communications.type, filters.type as any) : undefined,
-        filters?.customerId ? eq(communications.customerId, filters.customerId) : undefined,
-        filters?.threadId ? eq(communications.threadId, filters.threadId) : undefined,
-      ))
-      .orderBy(desc(sql`COALESCE(${communications.sentAt}, ${communications.receivedAt}, ${communications.createdAt})`));
+      .where(and(...conditions.filter((c): c is Exclude<typeof c, undefined> => c !== undefined)))
+      .orderBy(desc(sql`COALESCE(${communications.sentAt}, ${communications.receivedAt}, ${communications.createdAt})`))
+      .limit(500); // PERF: hard cap to prevent unbounded payload
 
     const threadIds = [...new Set(rows.map(r => r.comm.threadId).filter(Boolean))];
     const replyCounts = new Map<string, number>();
@@ -3461,42 +3602,16 @@ export class PgStorage implements IStorage {
       isOverdue: r.comm.followUpStatus === "open" && r.comm.followUpDueAt != null && r.comm.followUpDueAt < now,
     })) as CommunicationWithDetails[];
 
-    if (filters?.view === "drafts") {
-      result = result.filter(r => r.status === "draft");
-    } else if (filters?.view === "sent") {
-      result = result.filter(r => r.status === "sent");
-    } else if (filters?.view === "scheduled") {
-      result = result.filter(r => r.status === "scheduled" && (!r.scheduledFor || new Date(r.scheduledFor) > new Date()));
-    } else if (filters?.view === "followups") {
-      result = result.filter(r => r.followUpStatus === "open" || r.followUpStatus === "snoozed");
-    }
-
-    if (filters?.sentById) result = result.filter(r => r.sentById === filters.sentById);
+    // Customer-name search stays in JS (not pushed to SQL) per phase-3 spec
     if (filters?.search) {
       const s = filters.search.toLowerCase();
-      result = result.filter(r =>
-        (r.subject?.toLowerCase().includes(s)) ||
-        (r.body?.toLowerCase().includes(s)) ||
-        (r.bodyText?.toLowerCase().includes(s)) ||
-        (r.fromAddress?.toLowerCase().includes(s)) ||
-        (r.customerName?.toLowerCase().includes(s))
+      result = result.filter(c =>
+        c.customerName?.toLowerCase().includes(s) ||
+        c.subject?.toLowerCase().includes(s) ||
+        c.body?.toLowerCase().includes(s) ||
+        c.bodyText?.toLowerCase().includes(s) ||
+        c.fromAddress?.toLowerCase().includes(s)
       );
-    }
-    if (filters?.startDate) result = result.filter(r => (r.sentAt ?? r.receivedAt ?? r.createdAt) >= filters.startDate!);
-    if (filters?.endDate) result = result.filter(r => (r.sentAt ?? r.receivedAt ?? r.createdAt) <= filters.endDate!);
-    if (filters?.fromDate) {
-      const from = new Date(filters.fromDate);
-      result = result.filter(r => (r.sentAt ?? r.receivedAt ?? r.createdAt) >= from);
-    }
-    if (filters?.toDate) {
-      const to = new Date(filters.toDate);
-      to.setHours(23, 59, 59, 999);
-      result = result.filter(r => (r.sentAt ?? r.receivedAt ?? r.createdAt) <= to);
-    }
-
-    // Scheduled view: only show future-dated items
-    if (filters?.view === "scheduled") {
-      result = result.filter(r => r.scheduledFor == null || r.scheduledFor > now);
     }
 
     return result;

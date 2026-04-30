@@ -22,9 +22,10 @@ export default function FieldCustomerList() {
   const { t } = useTranslation();
   const [searchTerm, setSearchTerm] = useState("");
 
-  const { data: customers = [], isLoading } = useQuery<Customer[]>({
+  const { data: customersResp, isLoading } = useQuery<{ customers: Customer[]; total: number }>({
     queryKey: ["/api/customers"],
   });
+  const customers = customersResp?.customers ?? [];
 
   const activeCustomers = customers
     .filter((c) => c.active === "true")

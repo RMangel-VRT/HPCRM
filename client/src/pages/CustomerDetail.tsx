@@ -1,4 +1,5 @@
 import { useState, useRef, useMemo, useEffect } from "react";
+import CustomerSearchInput from "@/components/CustomerSearchInput";
 import { useTranslation } from "react-i18next";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { useRoute, useLocation, Link } from "wouter";
@@ -1068,12 +1069,12 @@ export default function CustomerDetail() {
 
   const { data: contacts = [], isLoading: isLoadingContacts } = useQuery<Contact[]>({
     queryKey: ["/api/customers", id, "contacts"],
-    enabled: !!id,
+    enabled: !!id && (activeTab === "contacts" || activeTab === "overview"),
   });
 
   const { data: notes = [], isLoading: isLoadingNotes } = useQuery<Note[]>({
     queryKey: ["/api/customers", id, "notes"],
-    enabled: !!id,
+    enabled: !!id && (activeTab === "notes" || activeTab === "overview"),
   });
 
   const { data: contracts = [], isLoading: isLoadingContracts } = useQuery<Contract[]>({
@@ -1119,18 +1120,18 @@ export default function CustomerDetail() {
   // Property Management queries
   const { data: pmCompanies = [] } = useQuery<PropertyManagementCompany[]>({
     queryKey: ["/api/property-management-companies"],
+    enabled: activeTab === "settings",
   });
   
   const { data: pmManagers = [] } = useQuery<PropertyManager[]>({
     queryKey: ["/api/property-managers"],
+    enabled: activeTab === "settings",
   });
 
-  const { data: allCustomers = [] } = useQuery<Customer[]>({
-    queryKey: ["/api/customers"],
+  const { data: customersResult } = useQuery<{ customers: Customer[]; total: number }>({
+    queryKey: ["/api/customers?page=1&limit=200"],
   });
-  const availableParentCustomers = allCustomers.filter(
-    (c) => (c.isParent === "true" || !c.parentCustomerId) && c.id !== id
-  );
+  const allCustomers = customersResult?.customers ?? [];
   const activeCustomersForSwitcher = allCustomers
     .filter((c) => c.active === "true")
     .sort((a, b) => (a.name || "").localeCompare(b.name || ""));
@@ -3148,24 +3149,19 @@ export default function CustomerDetail() {
                 render={({ field }) => (
                   <FormItem>
                     <FormLabel>{t("customerDetail.parentAccount")}</FormLabel>
-                    <Select 
-                      onValueChange={(value) => field.onChange(value === "_none" ? null : value)} 
-                      value={field.value || "_none"}
-                    >
-                      <FormControl>
-                        <SelectTrigger data-testid="select-customer-parent">
-                          <SelectValue placeholder={t("customerDetail.parentAccount")} />
-                        </SelectTrigger>
-                      </FormControl>
-                      <SelectContent>
-                        <SelectItem value="_none">{t("common.none")}</SelectItem>
-                        {availableParentCustomers.map((p) => (
-                          <SelectItem key={p.id} value={p.id}>
-                            {p.name}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
+                    <FormControl>
+                      <CustomerSearchInput
+                        selectedId={field.value || undefined}
+                        selectedCustomerName={field.value ? (customer?.parentCustomer?.name ?? "") : ""}
+                        onSelect={(c) => field.onChange(c.id || null)}
+                        placeholder={t("customerDetail.parentAccount")}
+                        testId="input-customer-parent"
+                        excludeIds={[
+                          customer.id,
+                          ...(customer.childCustomers?.map(c => c.id) ?? []),
+                        ]}
+                      />
+                    </FormControl>
                     <FormMessage />
                   </FormItem>
                 )}

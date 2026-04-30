@@ -1,5 +1,4 @@
 import { useState, useRef, useEffect } from "react";
-import { useQuery } from "@tanstack/react-query";
 import { useTranslation } from "react-i18next";
 import { Input } from "@/components/ui/input";
 import { Search, X } from "lucide-react";
@@ -8,34 +7,40 @@ import type { Customer } from "@shared/schema";
 interface CustomerSearchInputProps {
   onSelect: (customer: { id: string; name: string }) => void;
   selectedId?: string;
+  selectedCustomerName?: string;
   placeholder?: string;
   testId?: string;
+  excludeIds?: string[];
 }
 
 export default function CustomerSearchInput({
   onSelect,
   selectedId,
+  selectedCustomerName,
   placeholder,
   testId,
+  excludeIds,
 }: CustomerSearchInputProps) {
   const { t } = useTranslation();
   const [search, setSearch] = useState("");
   const [open, setOpen] = useState(false);
-  const [selectedName, setSelectedName] = useState("");
+  const [selectedName, setSelectedName] = useState(selectedCustomerName || "");
+  const [results, setResults] = useState<Customer[]>([]);
+  const [isSearching, setIsSearching] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
-
-  const { data: customers = [] } = useQuery<Customer[]>({
-    queryKey: ["/api/customers"],
-  });
+  const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
-    if (selectedId) {
-      const found = customers.find(c => c.id === selectedId);
-      if (found) setSelectedName(found.name);
-    } else {
+    if (selectedCustomerName !== undefined) {
+      setSelectedName(selectedCustomerName);
+    }
+  }, [selectedCustomerName]);
+
+  useEffect(() => {
+    if (!selectedId) {
       setSelectedName("");
     }
-  }, [selectedId, customers]);
+  }, [selectedId]);
 
   useEffect(() => {
     function handleClickOutside(e: MouseEvent) {
@@ -47,67 +52,92 @@ export default function CustomerSearchInput({
     return () => document.removeEventListener("mousedown", handleClickOutside);
   }, []);
 
-  const filtered = search.length >= 2
-    ? customers
-        .filter(c => c.name.toLowerCase().includes(search.toLowerCase()) ||
-          (c.street ?? "").toLowerCase().includes(search.toLowerCase()))
-        .slice(0, 10)
-    : [];
+  useEffect(() => {
+    if (debounceRef.current) clearTimeout(debounceRef.current);
+    if (search.trim().length < 2) {
+      setResults([]);
+      setOpen(false);
+      return;
+    }
+    debounceRef.current = setTimeout(async () => {
+      setIsSearching(true);
+      try {
+        const res = await fetch(`/api/customers/search?q=${encodeURIComponent(search.trim())}`, { credentials: "include" });
+        if (res.ok) {
+          const data: Customer[] = await res.json();
+          const filtered = excludeIds && excludeIds.length > 0
+            ? data.filter(c => !excludeIds.includes(c.id))
+            : data;
+          setResults(filtered);
+          setOpen(filtered.length > 0);
+        }
+      } finally {
+        setIsSearching(false);
+      }
+    }, 200);
+    return () => { if (debounceRef.current) clearTimeout(debounceRef.current); };
+  }, [search, excludeIds]);
 
   const handleSelect = (c: Customer) => {
     setSelectedName(c.name);
     setSearch("");
     setOpen(false);
+    setResults([]);
     onSelect({ id: c.id, name: c.name });
   };
 
-  const handleClear = () => {
-    setSelectedName("");
-    setSearch("");
-    onSelect({ id: "", name: "" });
-  };
+  const displayValue = selectedId && !search ? selectedName : search;
 
   return (
     <div ref={containerRef} className="relative">
-      {selectedName ? (
-        <div className="flex items-center gap-2 border rounded-md px-3 h-9 bg-background">
-          <span className="text-sm flex-1 truncate" data-testid={`${testId}-selected`}>{selectedName}</span>
-          <button type="button" onClick={handleClear} className="shrink-0 text-muted-foreground hover:text-foreground">
-            <X className="w-4 h-4" />
+      <div className="relative">
+        <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground pointer-events-none" />
+        <Input
+          data-testid={testId || "input-customer-search"}
+          value={displayValue}
+          onChange={(e) => {
+            setSearch(e.target.value);
+            if (e.target.value === "") setSelectedName("");
+          }}
+          onFocus={() => { if (results.length > 0) setOpen(true); }}
+          placeholder={placeholder || t("common.searchCustomers", "Search customers…")}
+          className="pl-8 pr-8"
+        />
+        {(selectedId || search) && (
+          <button
+            type="button"
+            className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+            onClick={() => {
+              setSearch("");
+              setSelectedName("");
+              setResults([]);
+              setOpen(false);
+              onSelect({ id: "", name: "" });
+            }}
+            data-testid="button-customer-search-clear"
+          >
+            <X className="h-4 w-4" />
           </button>
-        </div>
-      ) : (
-        <div className="relative">
-          <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-muted-foreground pointer-events-none" />
-          <Input
-            className="pl-8"
-            placeholder={placeholder ?? t("emailTracking.searchCustomersPlaceholder")}
-            value={search}
-            onChange={e => { setSearch(e.target.value); setOpen(true); }}
-            onFocus={() => setOpen(true)}
-            data-testid={testId}
-          />
-        </div>
-      )}
-      {open && filtered.length > 0 && !selectedName && (
-        <div className="absolute z-50 top-full mt-1 w-full bg-background border rounded-md shadow-md max-h-48 overflow-y-auto">
-          {filtered.map(c => (
-            <button
-              type="button"
+        )}
+      </div>
+      {open && results.length > 0 && (
+        <div className="absolute z-50 w-full mt-1 rounded-md border bg-popover shadow-md max-h-60 overflow-y-auto">
+          {results.map((c) => (
+            <div
               key={c.id}
-              className="w-full text-left px-3 py-2 text-sm hover:bg-muted flex flex-col"
-              onClick={() => handleSelect(c)}
+              className="px-3 py-2 text-sm cursor-pointer hover-elevate"
+              onMouseDown={() => handleSelect(c)}
               data-testid={`option-customer-${c.id}`}
             >
-              <span className="font-medium">{c.name}</span>
-              {c.street && <span className="text-xs text-muted-foreground">{c.street}</span>}
-            </button>
+              <div className="font-medium">{c.name}</div>
+              {c.street && <div className="text-xs text-muted-foreground">{c.street}</div>}
+            </div>
           ))}
         </div>
       )}
-      {open && search.length >= 2 && filtered.length === 0 && !selectedName && (
-        <div className="absolute z-50 top-full mt-1 w-full bg-background border rounded-md shadow-md px-3 py-2">
-          <p className="text-sm text-muted-foreground">{t("emailTracking.noCustomersFound")}</p>
+      {isSearching && (
+        <div className="absolute z-50 w-full mt-1 rounded-md border bg-popover shadow-md px-3 py-2 text-sm text-muted-foreground">
+          {t("common.searching", "Searching…")}
         </div>
       )}
     </div>

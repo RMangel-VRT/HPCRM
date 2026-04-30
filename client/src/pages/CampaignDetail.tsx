@@ -1158,10 +1158,11 @@ function EditCampaignDialog({
     }
   }, [open, campaign]);
 
-  const { data: customers = [] } = useQuery<Customer[]>({
+  const { data: customersResp } = useQuery<{ customers: Customer[]; total: number }>({
     queryKey: ["/api/customers"],
     enabled: open,
   });
+  const customers = customersResp?.customers ?? [];
 
   const { data: companyUsersData = [] } = useQuery<CompanyUserWithDetails[]>({
     queryKey: ["/api/companies/users"],

@@ -2041,10 +2041,11 @@ export default function CommunicationsCenter() {
     enabled: permissions.canView,
   });
 
-  const { data: customers = [] } = useQuery<Customer[]>({
+  const { data: customersResp } = useQuery<{ customers: Customer[]; total: number }>({
     queryKey: ["/api/customers"],
     enabled: permissions.canView,
   });
+  const customers = customersResp?.customers ?? [];
 
   // Cancel-schedule mutation
   const cancelScheduleMutation = useMutation({

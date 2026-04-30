@@ -168,9 +168,10 @@ export default function NewTicket() {
     enabled: selectedWorkType === "shop_todo",
   });
 
-  const { data: customers = [] } = useQuery<Customer[]>({
+  const { data: customersResp } = useQuery<{ customers: Customer[]; total: number }>({
     queryKey: ["/api/customers"],
   });
+  const customers = customersResp?.customers ?? [];
 
   useSetBreadcrumbs([
     { label: t('tickets.title'), href: "/dashboard/tickets" },

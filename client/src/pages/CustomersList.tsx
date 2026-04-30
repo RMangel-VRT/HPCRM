@@ -118,9 +118,10 @@ export default function CustomersList() {
     { label: t("customers.title") },
   ], []);
 
-  const { data: customers = [], isLoading } = useQuery<Customer[]>({
-    queryKey: ["/api/customers"],
+  const { data: customersResult, isLoading } = useQuery<{ customers: Customer[]; total: number }>({
+    queryKey: ["/api/customers?page=1&limit=200"],
   });
+  const customers = customersResult?.customers ?? [];
 
   const form = useForm<InsertCustomer>({
     resolver: zodResolver(insertCustomerSchema.omit({ companyId: true })),

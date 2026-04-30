@@ -113,6 +113,8 @@ export const customers = pgTable("customers", {
   updatedAt: timestamp("updated_at").notNull().defaultNow(),
 }, (table) => ({
   customersCompanyIdIdx: index("customers_company_id_idx").on(table.companyId),
+  // Trigram index for fast customer-name substring search (requires pg_trgm extension)
+  customersNameTrgmIdx: index("customers_name_trgm_idx").using("gin", sql`lower(name) gin_trgm_ops`),
 }));
 
 export const insertCustomerSchema = createInsertSchema(customers).omit({
@@ -147,7 +149,10 @@ export const contacts = pgTable("contacts", {
   isPrimary: text("is_primary").notNull().default("false").$type<"true" | "false">(),
   notes: text("notes"),
   createdAt: timestamp("created_at").notNull().defaultNow(),
-});
+}, (table) => ({
+  contactsCompanyIdIdx: index("contacts_company_id_idx").on(table.companyId),
+  contactsCustomerIdIdx: index("contacts_customer_id_idx").on(table.customerId),
+}));
 
 export const insertContactSchema = createInsertSchema(contacts).omit({
   id: true,
@@ -168,7 +173,10 @@ export const notes = pgTable("notes", {
   body: text("body").notNull(),
   authorId: varchar("author_id").notNull().references(() => users.id, { onDelete: "cascade" }),
   createdAt: timestamp("created_at").notNull().defaultNow(),
-});
+}, (table) => ({
+  notesCompanyIdIdx: index("notes_company_id_idx").on(table.companyId),
+  notesCustomerIdIdx: index("notes_customer_id_idx").on(table.customerId),
+}));
 
 export const insertNoteSchema = createInsertSchema(notes).omit({
   id: true,
@@ -224,7 +232,9 @@ export const contractStatusHistory = pgTable("contract_status_history", {
   newStatus: text("new_status").notNull().$type<"active" | "paused" | "ended">(),
   changedBy: varchar("changed_by").notNull().references(() => users.id, { onDelete: "cascade" }),
   createdAt: timestamp("created_at").notNull().defaultNow(),
-});
+}, (table) => ({
+  contractStatusHistoryContractIdIdx: index("contract_status_history_contract_id_idx").on(table.contractId),
+}));
 
 export const insertContractStatusHistorySchema = createInsertSchema(contractStatusHistory).omit({
   id: true,
@@ -672,6 +682,9 @@ export const tickets = pgTable("tickets", {
   ticketsCompanyIdIdx: index("tickets_company_id_idx").on(table.companyId),
   ticketsCustomerIdIdx: index("tickets_customer_id_idx").on(table.customerId),
   ticketsAssignedToIdIdx: index("tickets_assigned_to_id_idx").on(table.assignedToId),
+  ticketsContractIdIdx: index("tickets_contract_id_idx").on(table.contractId),
+  ticketsCompanyCreatedAtIdx: index("tickets_company_created_at_idx").on(table.companyId, table.createdAt),
+  ticketsEquipmentIdIdx: index("tickets_equipment_id_idx").on(table.equipmentId),
 }));
 
 export const insertTicketSchema = createInsertSchema(tickets).omit({
@@ -792,7 +805,9 @@ export const ticketCommentMentions = pgTable("ticket_comment_mentions", {
   commentId: varchar("comment_id").notNull().references(() => ticketComments.id, { onDelete: "cascade" }),
   mentionedUserId: varchar("mentioned_user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
   createdAt: timestamp("created_at").notNull().defaultNow(),
-});
+}, (table) => ({
+  ticketCommentMentionsCommentIdIdx: index("ticket_comment_mentions_comment_id_idx").on(table.commentId),
+}));
 
 export const insertTicketCommentMentionSchema = createInsertSchema(ticketCommentMentions).omit({
   id: true,
@@ -1318,7 +1333,10 @@ export const equipmentTickets = pgTable("equipment_tickets", {
   closedAt: timestamp("closed_at"),
   createdAt: timestamp("created_at").notNull().defaultNow(),
   updatedAt: timestamp("updated_at").notNull().defaultNow(),
-});
+}, (table) => ({
+  equipmentTicketsCompanyIdIdx: index("equipment_tickets_company_id_idx").on(table.companyId),
+  equipmentTicketsEquipmentIdIdx: index("equipment_tickets_equipment_id_idx").on(table.equipmentId),
+}));
 
 export const insertEquipmentTicketSchema = createInsertSchema(equipmentTickets).omit({
   id: true,
@@ -1517,7 +1535,12 @@ export const emailLogs = pgTable("email_logs", {
   sentById: varchar("sent_by_id").references(() => users.id, { onDelete: "set null" }),
   sentAt: timestamp("sent_at"),
   createdAt: timestamp("created_at").notNull().defaultNow(),
-});
+}, (table) => ({
+  emailLogsCompanyIdIdx: index("email_logs_company_id_idx").on(table.companyId),
+  emailLogsCustomerIdIdx: index("email_logs_customer_id_idx").on(table.customerId),
+  emailLogsTicketIdIdx: index("email_logs_ticket_id_idx").on(table.ticketId),
+  emailLogsCompanyCreatedAtIdx: index("email_logs_company_created_at_idx").on(table.companyId, table.createdAt),
+}));
 
 export const insertEmailLogSchema = createInsertSchema(emailLogs).omit({
   id: true,
@@ -1527,7 +1550,8 @@ export const insertEmailLogSchema = createInsertSchema(emailLogs).omit({
 export type InsertEmailLog = z.infer<typeof insertEmailLogSchema>;
 export type EmailLog = typeof emailLogs.$inferSelect;
 
-export type EmailLogWithDetails = EmailLog & {
+export type EmailLogWithDetails = Omit<EmailLog, "htmlBody"> & {
+  htmlBody?: string | null;
   customerName?: string;
   ticketTitle?: string;
   templateName?: string;
@@ -1551,7 +1575,10 @@ export const proposals = pgTable("proposals", {
   vsIncludeBase: boolean("vs_include_base").notNull().default(false),
   vsIncludeOverlay: boolean("vs_include_overlay").notNull().default(false),
   createdAt: timestamp("created_at").notNull().defaultNow(),
-});
+}, (table) => ({
+  proposalsCompanyIdIdx: index("proposals_company_id_idx").on(table.companyId),
+  proposalsCustomerIdIdx: index("proposals_customer_id_idx").on(table.customerId),
+}));
 
 export const insertProposalSchema = createInsertSchema(proposals).omit({
   id: true,
@@ -1833,7 +1860,12 @@ export const campaignItems = pgTable("campaign_items", {
   completionEmailSentAt: timestamp("completion_email_sent_at"),
   createdAt: timestamp("created_at").notNull().defaultNow(),
   updatedAt: timestamp("updated_at").notNull().defaultNow(),
-});
+}, (table) => ({
+  campaignItemsCampaignIdIdx: index("campaign_items_campaign_id_idx").on(table.campaignId),
+  campaignItemsCompanyIdIdx: index("campaign_items_company_id_idx").on(table.companyId),
+  campaignItemsCustomerIdIdx: index("campaign_items_customer_id_idx").on(table.customerId),
+  campaignItemsPropertyIdIdx: index("campaign_items_property_id_idx").on(table.propertyId),
+}));
 
 export const insertCampaignItemSchema = createInsertSchema(campaignItems).omit({
   id: true,
@@ -2521,6 +2553,10 @@ export const communications = pgTable("communications", {
 }, (table) => ({
   communicationsCompanyIdIdx: index("communications_company_id_idx").on(table.companyId),
   communicationsCustomerIdIdx: index("communications_customer_id_idx").on(table.customerId),
+  communicationsStatusIdx: index("communications_status_idx").on(table.status),
+  communicationsSentByIdIdx: index("communications_sent_by_id_idx").on(table.sentById),
+  communicationsFollowUpStatusIdx: index("communications_follow_up_status_idx").on(table.followUpStatus),
+  communicationsCompanyCreatedAtIdx: index("communications_company_created_at_idx").on(table.companyId, table.createdAt),
 }));
 
 export const insertCommunicationSchema = createInsertSchema(communications).omit({

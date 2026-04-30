@@ -30,6 +30,53 @@ export default defineConfig({
   build: {
     outDir: path.resolve(import.meta.dirname, "dist/public"),
     emptyOutDir: true,
+    chunkSizeWarningLimit: 1500,
+    rollupOptions: {
+      output: {
+        manualChunks(id) {
+          if (id.includes("node_modules/mapbox-gl") || id.includes("node_modules/@mapbox")) {
+            return "vendor-mapbox";
+          }
+          if (id.includes("node_modules/recharts") || id.includes("node_modules/d3-") || id.includes("node_modules/victory")) {
+            return "vendor-charts";
+          }
+          if (id.includes("node_modules/pdf-lib") || id.includes("node_modules/pdfkit") || id.includes("node_modules/@pdf-lib")) {
+            return "vendor-pdf";
+          }
+          if (id.includes("node_modules/@radix-ui")) {
+            return "vendor-radix";
+          }
+          if (
+            id.includes("node_modules/react-quill") ||
+            id.includes("node_modules/quill") ||
+            id.includes("node_modules/@tiptap") ||
+            id.includes("node_modules/prosemirror")
+          ) {
+            return "vendor-editor";
+          }
+          if (
+            id.includes("node_modules/leaflet") ||
+            id.includes("node_modules/react-leaflet") ||
+            id.includes("node_modules/leaflet-omnivore")
+          ) {
+            return "vendor-leaflet";
+          }
+          if (
+            id.includes("node_modules/jspdf") ||
+            id.includes("node_modules/jspdf-autotable")
+          ) {
+            return "vendor-jspdf";
+          }
+          if (
+            id.includes("node_modules/react") ||
+            id.includes("node_modules/react-dom") ||
+            id.includes("node_modules/scheduler")
+          ) {
+            return "vendor-react";
+          }
+        },
+      },
+    },
   },
   server: {
     fs: {

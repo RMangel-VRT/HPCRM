@@ -65,9 +65,10 @@ export default function QuickAddToDo({ variant = "ghost" }: QuickAddToDoProps) {
     queryKey: ["/api/companies/users"],
   });
 
-  const { data: customers = [] } = useQuery<Customer[]>({
-    queryKey: ["/api/customers"],
+  const { data: customersData } = useQuery<{ customers: Customer[]; total: number }>({
+    queryKey: ["/api/customers?page=1&limit=500"],
   });
+  const customers = customersData?.customers ?? [];
 
   const todoType = ticketTypes.find(tt => tt.name === "To-Do");
   const internalCustomer = customers.find(c => c.name === "Internal Tasks");

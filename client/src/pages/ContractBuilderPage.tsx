@@ -122,9 +122,10 @@ export default function ContractBuilderPage() {
     queryKey: ["/api/contract-templates"],
   });
 
-  const { data: customers, isLoading: customersLoading } = useQuery<Customer[]>({
+  const { data: customersResp, isLoading: customersLoading } = useQuery<{ customers: Customer[]; total: number }>({
     queryKey: ["/api/customers"],
   });
+  const customers = customersResp?.customers ?? [];
 
   const { data: selectedCustomerDetails } = useQuery<Customer>({
     queryKey: ["/api/customers", selectedCustomer?.id],

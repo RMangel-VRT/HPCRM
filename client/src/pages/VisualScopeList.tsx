@@ -56,9 +56,10 @@ export default function VisualScopeList() {
     queryKey: ["/api/visual-scope-sheets"],
   });
 
-  const { data: customers } = useQuery<{ id: string; name: string }[]>({
+  const { data: customersResp } = useQuery<{ customers: { id: string; name: string }[]; total: number }>({
     queryKey: ["/api/customers"],
   });
+  const customers = customersResp?.customers;
 
   const createMutation = useMutation({
     mutationFn: async () => {

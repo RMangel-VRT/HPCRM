@@ -123,10 +123,11 @@ export default function TicketListView({
     queryKey: ["/api/ticket-types"],
   });
 
-  const { data: customers = [], isLoading: customersLoading } = useQuery<Customer[]>({
-    queryKey: ["/api/customers"],
+  const { data: customersData, isLoading: customersLoading } = useQuery<{ customers: Customer[]; total: number }>({
+    queryKey: ["/api/customers?page=1&limit=500"],
     enabled: showCustomerColumn,
   });
+  const customers = customersData?.customers ?? [];
 
   const { data: companyUsersData = [] } = useQuery<CompanyUserWithDetails[]>({
     queryKey: ["/api/companies/users"],

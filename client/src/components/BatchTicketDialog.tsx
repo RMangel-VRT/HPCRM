@@ -92,9 +92,10 @@ export default function BatchTicketDialog({
     queryKey: ["/api/companies/users"],
   });
 
-  const { data: customers = [] } = useQuery<Customer[]>({
-    queryKey: ["/api/customers"],
+  const { data: customersData } = useQuery<{ customers: Customer[]; total: number }>({
+    queryKey: ["/api/customers?page=1&limit=500"],
   });
+  const customers = customersData?.customers ?? [];
 
   const ticketType = ticketTypes.find(tt => tt.name === ticketTypeName);
 

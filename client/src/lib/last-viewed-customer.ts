@@ -2,7 +2,7 @@ import type { QueryClient } from "@tanstack/react-query";
 import type { Customer } from "@shared/schema";
 
 const STORAGE_KEY = "lastViewedCustomerId";
-const CUSTOMERS_QUERY_KEY = ["/api/customers"] as const;
+export const CUSTOMERS_QUERY_KEY = ["/api/customers?page=1&limit=200"] as const;
 const CUSTOMERS_LIST_PATH = "/dashboard/customers";
 
 export function getLastViewedCustomerId(): string | null {
@@ -78,8 +78,8 @@ export function getDefaultCustomersRoute(customers: Customer[]): string {
  * common case (returning user with a remembered customer).
  */
 export function resolveCustomersRouteSync(queryClient: QueryClient): string {
-  const cached = queryClient.getQueryData<Customer[]>(CUSTOMERS_QUERY_KEY);
-  if (cached) return getDefaultCustomersRoute(cached);
+  const cached = queryClient.getQueryData<{ customers: Customer[]; total: number }>(CUSTOMERS_QUERY_KEY);
+  if (cached) return getDefaultCustomersRoute(cached.customers);
 
   const lastId = getLastViewedCustomerId();
   if (lastId) return `/dashboard/customers/${lastId}`;
@@ -100,14 +100,14 @@ export function resolveCustomersRouteSync(queryClient: QueryClient): string {
 export async function resolveCustomersRouteAsync(
   queryClient: QueryClient
 ): Promise<string> {
-  const cached = queryClient.getQueryData<Customer[]>(CUSTOMERS_QUERY_KEY);
-  if (cached) return getDefaultCustomersRoute(cached);
+  const cached = queryClient.getQueryData<{ customers: Customer[]; total: number }>(CUSTOMERS_QUERY_KEY);
+  if (cached) return getDefaultCustomersRoute(cached.customers);
 
   try {
-    const list = await queryClient.fetchQuery<Customer[]>({
+    const result = await queryClient.fetchQuery<{ customers: Customer[]; total: number }>({
       queryKey: [...CUSTOMERS_QUERY_KEY],
     });
-    return getDefaultCustomersRoute(list);
+    return getDefaultCustomersRoute(result.customers);
   } catch {
     return CUSTOMERS_LIST_PATH;
   }

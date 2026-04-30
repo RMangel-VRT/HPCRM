@@ -604,9 +604,10 @@ export default function PropertyMapsPage() {
   const searchString = useSearch();
   const autoSelectDone = useRef(false);
 
-  const { data: customers = [], isLoading } = useQuery<CustomerWithLayers[]>({
+  const { data: customersResp, isLoading } = useQuery<{ customers: CustomerWithLayers[]; total: number }>({
     queryKey: ["/api/customers"],
   });
+  const customers = customersResp?.customers ?? [];
 
   useEffect(() => {
     if (autoSelectDone.current || isLoading || customers.length === 0) return;

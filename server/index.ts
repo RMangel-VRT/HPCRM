@@ -1,8 +1,7 @@
 import express, { type Request, Response, NextFunction } from "express";
-import { registerRoutes, migrateProjectSchedulingStatus, migrateFirstBankHierarchy, migrateExtraBillableTicketType, removeProjectInvoicingFields, fixExtraBillableDoneOrder, fixEstimateRequestBillingBehavior, fixProjectDisplayOrders, migrateEstimateSentToProposalWorkflow, migrateProjectNoEstimateTicketType, migrateUserLanguageColumn, migrateUserPhoneColumn, backfillCustomerType, migrateEquipmentProfilePhotoColumn, migrateProposalNumbers, migrateCommunicationTemplatesSchema, migrateCommunicationsTable, seedCommunicationsBootstrap, seedCommunicationTemplatesBootstrap, migrateAutomationRulesTable, seedAutomationRulesBootstrap, migrateCampaignItemExceptionType, migrateCampaignItemsNewColumns, migrateServicePlanTables, migrateCampaignAssignedToId2, migrateCustomerRankingColumn, migrateTicketTypeStatusActionType, backfillStatusActionTypes, migrateVisualScopeSheetColumns, migrateVisualScopeScaleColumns, clearInvalidVisualScopeBaseImages, migrateContractAutoPopulateColumn, migrateCustomerServicePlanTemplateOrigin, migrateEmailTrackingTables, migrateUserApplicatorLicenseColumns, migrateChemicalProductsTable, migrateCampaignItemsCompletionColumns, migrateUserApplicatorFields, migrateTicketCompletionFields } from "./routes";
+import { registerRoutes, runStartupMigrations } from "./routes";
 import { setupVite, serveStatic, log } from "./vite";
 import { runDueDateNotifications } from "./due-date-notifications";
-import { runAllAutomationRules } from "./services/automationService";
 
 const app = express();
 
@@ -21,27 +20,25 @@ app.use(express.urlencoded({ extended: false }));
 app.use((req, res, next) => {
   const start = Date.now();
   const path = req.path;
-  let capturedJsonResponse: Record<string, any> | undefined = undefined;
+  let capturedJson = "";
 
-  const originalResJson = res.json;
-  res.json = function (bodyJson, ...args) {
-    capturedJsonResponse = bodyJson;
-    return originalResJson.apply(res, [bodyJson, ...args]);
-  };
+  if (app.get("env") !== "production") {
+    const originalJson = res.json.bind(res);
+    res.json = (body: unknown) => {
+      try {
+        capturedJson = JSON.stringify(body).slice(0, 200);
+      } catch {
+        capturedJson = "";
+      }
+      return originalJson(body);
+    };
+  }
 
   res.on("finish", () => {
     const duration = Date.now() - start;
     if (path.startsWith("/api")) {
-      let logLine = `${req.method} ${path} ${res.statusCode} in ${duration}ms`;
-      if (capturedJsonResponse) {
-        logLine += ` :: ${JSON.stringify(capturedJsonResponse)}`;
-      }
-
-      if (logLine.length > 80) {
-        logLine = logLine.slice(0, 79) + "…";
-      }
-
-      log(logLine);
+      const preview = capturedJson ? ` :: ${capturedJson}` : "";
+      log(`${req.method} ${path} ${res.statusCode} in ${duration}ms${preview}`);
     }
   });
 
@@ -50,44 +47,13 @@ app.use((req, res, next) => {
 
 (async () => {
   const server = await registerRoutes(app);
-  
-  // Run startup migrations
-  await migrateProjectSchedulingStatus(); // Ensure Ready to Schedule status exists
-  await migrateFirstBankHierarchy(); // Link 1st Bank branches to parent account
-  await migrateExtraBillableTicketType(); // Ensure Extra Billable ticket type exists and migrate old tickets
-  await removeProjectInvoicingFields(); // Remove duplicate invoice data fields from Project Invoicing status
-  await fixExtraBillableDoneOrder(); // Fix Extra Billable Done status order after Ready for Billing insertion
-  await fixProjectDisplayOrders(); // Fix Project ticket type display orders (Ready to Schedule / Work Completed collision)
-  await fixEstimateRequestBillingBehavior(); // Fix billing_behavior for Project tickets from estimate_requests
-  await migrateEstimateSentToProposalWorkflow(); // Replace Estimate Sent with Create Proposal + Proposal Sent
-  await migrateProjectNoEstimateTicketType(); // Ensure Project (No Estimate) ticket type exists for all companies
-  await migrateUserLanguageColumn(); // Ensure language column exists on users table
-  await migrateUserPhoneColumn(); // Ensure phone column exists and email is nullable on users table
-  await backfillCustomerType(); // Backfill customer_type for existing customers
-  await migrateEquipmentProfilePhotoColumn(); // Ensure profile_photo_path column exists on equipment table
-  await migrateProposalNumbers(); // Add proposal_number column and backfill existing proposals
-  await migrateCommunicationTemplatesSchema(); // Create communications tables and extend communication_templates schema with slice-6 columns
-  await seedCommunicationsBootstrap(); // Seed sample communications for companies with none
-  await seedCommunicationTemplatesBootstrap(); // Seed sample communication templates for companies with none
-  await migrateAutomationRulesTable(); // Create automation rules table
-  await seedAutomationRulesBootstrap(); // Seed five High Plains automation rules for companies with none
-  await migrateCampaignItemExceptionType(); // Ensure exception_type column exists on campaign_items table
-  await migrateCampaignItemsNewColumns(); // Ensure property_id and service_plan_category columns exist on campaign_items table
-  await migrateServicePlanTables(); // Ensure service_plan_templates, service_plan_template_items, customer_service_plans tables exist
-  await migrateCampaignAssignedToId2(); // Ensure assigned_to_id2 column exists on campaigns table
-  await migrateCustomerRankingColumn(); // Ensure ranking column exists on customers table
-  await migrateTicketTypeStatusActionType(); // Ensure action_type and waiting_category columns exist on ticket_type_statuses
-  await backfillStatusActionTypes(); // Backfill correct action_type/waiting_category for existing default statuses
-  await migrateVisualScopeSheetColumns(); // Ensure layer_defs and capture_params columns exist on visual_scope_sheets
-  await migrateVisualScopeScaleColumns(); // Ensure is_scaled and scale_source columns exist on visual_scope_sheets
-  await clearInvalidVisualScopeBaseImages(); // Clear invalid/test base image paths so the capture UI is shown instead
-  await migrateContractAutoPopulateColumn(); // Ensure auto_populate_service_plans column exists on contracts table
-  await migrateCustomerServicePlanTemplateOrigin(); // Ensure source_template_id column exists on customer_service_plans
-  await migrateEmailTrackingTables(); // Create mailbox_accounts, unsorted_emails tables and extend communications
-  await migrateChemicalProductsTable(); // Ensure chemical_products table exists
-  await migrateCampaignItemsCompletionColumns(); // Ensure completion columns exist on campaign_items
-  await migrateUserApplicatorFields(); // Ensure applicator license fields exist on users
-  await migrateTicketCompletionFields(); // Ensure ticket completion fields exist on tickets table
+
+  // Startup migrations are gated behind RUN_STARTUP_MIGRATIONS=true.
+  // In production, run `RUN_STARTUP_MIGRATIONS=true node dist/index.js` once
+  // after each deployment, or use `npx tsx scripts/run-migrations.ts` for SQL migrations.
+  if (process.env.RUN_STARTUP_MIGRATIONS === "true") {
+    await runStartupMigrations();
+  }
 
   app.use((err: any, _req: Request, res: Response, _next: NextFunction) => {
     const status = err.status || err.statusCode || 500;
@@ -117,7 +83,7 @@ app.use((req, res, next) => {
     reusePort: true,
   }, () => {
     log(`serving on port ${port}`);
-    
+
     // Start the due date notification service only in development
     // Autoscale deployments cannot run background tasks
     if (app.get("env") === "development") {
@@ -125,10 +91,11 @@ app.use((req, res, next) => {
     } else {
       log("Due date notification service disabled in production (Autoscale)");
     }
-    // Run automation rules evaluator hourly in all environments
-    setInterval(() => {
-      runAllAutomationRules().catch((err: Error) => log(`Automation rules error: ${err?.message}`));
-    }, 60 * 60 * 1000);
-    log("Automation rules evaluator started (hourly interval)");
+
+    // PERF: automation rules are no longer evaluated on a setInterval.
+    // Trigger evaluation by calling POST /api/_internal/run-automation-rules
+    // with the x-cron-token header (set CRON_SECRET env var) from an external
+    // scheduler (e.g., a cron job or Replit Scheduled Deployments).
+    log("Automation rules evaluator: use POST /api/_internal/run-automation-rules from a scheduler");
   });
 })();

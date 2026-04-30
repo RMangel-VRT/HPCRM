@@ -12,7 +12,7 @@ import { eq, and, inArray, sql, gte, lte, isNull, ne } from "drizzle-orm";
 import { insertCustomerSchema, insertContactSchema, insertCompanySchema, insertCompanyUserSchema, insertSettingsSchema, insertNoteSchema, insertContractSchema, insertContractDocumentSchema, insertContractBuilderDocumentSchema, insertContractBuilderSectionSchema, insertContractBuilderVariableSchema, insertTicketTypeSchema, insertTicketTypeStatusSchema, insertTicketTypeFieldSchema, insertTicketSchema, insertTicketFieldValueSchema, insertTicketStatusHistorySchema, insertTicketCommentSchema, insertTicketLinkSchema, insertCustomerMapLayerSchema, insertCustomerMapDocumentSchema, insertMaintenanceCrewSchema, insertMaintenanceVisitConfigSchema, insertWeeklyScheduleTemplateSchema, insertScheduleBlockSchema, insertEquipmentSchema, insertEquipmentFileSchema, insertEquipmentTicketSchema, insertEquipmentTicketStatusHistorySchema, insertSnowEventSchema, insertSnowEventPropertyImpactSchema, insertSnowEventAttachmentSchema, insertEmailTemplateSchema, insertEmailRuleSchema, insertCommunicationAutomationRuleSchema, SNOW_RANGES, tickets, ticketLinks, ticketTypes, ticketTypeStatuses, customers as customersTable, contacts as contactsTable, contracts as contractsTable, equipment as equipmentTable, users as usersTable, contractMonthlyAmounts, contractDocuments, contractServices, contractStatusHistory, companyUsers as companyUsersTable, insertCommunicationSchema, campaigns as campaignsTable, campaignItems as campaignItemsTable, chemicalProducts as chemicalProductsTable, insertChemicalProductSchema } from "@shared/schema";
 import type { Customer, CaptureParams, CampaignItem, InsertCampaignItem, Season, InsertCommunication, InsertCommunicationTemplate, InsertCommunicationAuditLog, ServicePlanCategory, ChemicalProduct } from "@shared/schema";
 import { insertCommunicationTemplateSchema, insertServicePlanTemplateSchema, insertServicePlanTemplateItemSchema, insertCustomerServicePlanSchema } from "@shared/schema";
-import { runAutomationRule } from "./services/automationService";
+import { runAutomationRule, runAllAutomationRules } from "./services/automationService";
 import { ObjectStorageService, ObjectNotFoundError, objectStorageClient, signObjectURL } from "./objectStorage";
 import { ObjectPermission, ObjectAccessGroupType, setObjectAclPolicy } from "./objectAcl";
 import { processEmailEvent, resendEmail, sendEmail, getDefaultWorkCompletedTemplate, getDefaultChemicalPreNoticeTemplate, getDefaultChemicalPostNoticeTemplate, getDefaultChemicalTreatmentNotificationTemplate, buildChemicalNotificationVariables, formatTimeWindow, buildChemicalCompletionEmailVars, renderTemplate, renderChemicalEmail } from './services/emailService';
@@ -2419,19 +2419,21 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
 
     const user = req.user as UserWithContext;
+    // Always-paginated — callers must handle { customers, total }
+    const page = Math.max(1, parseInt(req.query.page as string) || 1);
+    const limit = Math.min(200, Math.max(1, parseInt(req.query.limit as string) || 50));
+    const search = (req.query.search as string) || undefined;
+    const result = await storage.getCustomersPaginated(user.activeCompanyId, { page, limit, search });
+    return res.json(result);
+  });
 
-    // Optional server-side pagination: ?page=1&limit=50&search=foo
-    // Without page/limit params, returns the full list (backward compat)
-    if (req.query.page || req.query.limit) {
-      const page = Math.max(1, parseInt(req.query.page as string) || 1);
-      const limit = Math.min(200, Math.max(1, parseInt(req.query.limit as string) || 50));
-      const search = (req.query.search as string) || undefined;
-      const result = await storage.getCustomersPaginated(user.activeCompanyId, { page, limit, search });
-      return res.json(result);
-    }
-
-    const customers = await storage.getCustomers(user.activeCompanyId);
-    res.json(customers);
+  // Search endpoint — returns up to 20 matching customers for typeahead pickers
+  app.get("/api/customers/search", async (req, res) => {
+    if (!req.isAuthenticated()) return res.status(401).send("Not authenticated");
+    const user = req.user as UserWithContext;
+    const q = (req.query.q as string) || "";
+    const results = await storage.getCustomerSearch(user.activeCompanyId, q);
+    return res.json(results);
   });
 
   // Dedicated route-map endpoint — returns only customers with includeInRoute=true and active="true"
@@ -14881,6 +14883,24 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // Internal cron endpoint — replaces the removed setInterval in server/index.ts
+  // Call via a cron job: POST /api/_internal/run-automation-rules
+  // Requires x-cron-token header matching the CRON_SECRET environment variable.
+  app.post("/api/_internal/run-automation-rules", async (req, res) => {
+    const cronSecret = process.env.CRON_SECRET;
+    if (!cronSecret || req.headers["x-cron-token"] !== cronSecret) {
+      res.status(401).json({ error: "Unauthorized" });
+      return;
+    }
+    try {
+      await runAllAutomationRules();
+      res.json({ ok: true });
+    } catch (err) {
+      console.error("Automation rules run failed:", err);
+      res.status(500).json({ error: "Failed to run automation rules" });
+    }
+  });
+
   const httpServer = createServer(app);
 
   return httpServer;
@@ -14989,4 +15009,49 @@ export async function migrateEmailTrackingTables(): Promise<void> {
   } catch (error) {
     console.error("Error migrating email tracking tables:", error);
   }
+}
+
+/**
+ * Runs all in-process startup migrations in the correct order.
+ * Gate with the RUN_STARTUP_MIGRATIONS env var in server/index.ts, or call
+ * directly from scripts/run-migrations.ts for one-off deployment runs.
+ */
+export async function runStartupMigrations(): Promise<void> {
+  await migrateProjectSchedulingStatus();
+  await migrateFirstBankHierarchy();
+  await migrateExtraBillableTicketType();
+  await removeProjectInvoicingFields();
+  await fixExtraBillableDoneOrder();
+  await fixProjectDisplayOrders();
+  await fixEstimateRequestBillingBehavior();
+  await migrateEstimateSentToProposalWorkflow();
+  await migrateProjectNoEstimateTicketType();
+  await migrateUserLanguageColumn();
+  await migrateUserPhoneColumn();
+  await backfillCustomerType();
+  await migrateEquipmentProfilePhotoColumn();
+  await migrateProposalNumbers();
+  await migrateCommunicationTemplatesSchema();
+  await migrateCommunicationsTable();
+  await seedCommunicationsBootstrap();
+  await seedCommunicationTemplatesBootstrap();
+  await migrateAutomationRulesTable();
+  await seedAutomationRulesBootstrap();
+  await migrateCampaignItemExceptionType();
+  await migrateCampaignItemsNewColumns();
+  await migrateServicePlanTables();
+  await migrateCampaignAssignedToId2();
+  await migrateCustomerRankingColumn();
+  await migrateTicketTypeStatusActionType();
+  await backfillStatusActionTypes();
+  await migrateVisualScopeSheetColumns();
+  await migrateVisualScopeScaleColumns();
+  await clearInvalidVisualScopeBaseImages();
+  await migrateContractAutoPopulateColumn();
+  await migrateCustomerServicePlanTemplateOrigin();
+  await migrateEmailTrackingTables();
+  await migrateChemicalProductsTable();
+  await migrateCampaignItemsCompletionColumns();
+  await migrateUserApplicatorFields();
+  await migrateTicketCompletionFields();
 }

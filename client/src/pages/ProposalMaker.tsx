@@ -42,9 +42,10 @@ export default function ProposalMaker() {
     queryKey: ["/api/proposals"],
   });
 
-  const { data: customers = [] } = useQuery<Customer[]>({
+  const { data: customersResp } = useQuery<{ customers: Customer[]; total: number }>({
     queryKey: ["/api/customers"],
   });
+  const customers = customersResp?.customers ?? [];
 
   const createMutation = useMutation({
     mutationFn: async () => {

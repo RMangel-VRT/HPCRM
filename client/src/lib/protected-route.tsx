@@ -1,10 +1,10 @@
 import { useAuth } from "@/hooks/use-auth";
 import { Loader2 } from "lucide-react";
-import { Redirect, Route, RouteProps } from "wouter";
+import { Redirect, Route } from "wouter";
 
-interface ProtectedRouteProps extends RouteProps {
+interface ProtectedRouteProps {
   path: string;
-  component: () => React.JSX.Element;
+  component: React.ComponentType;
   allowedRoles?: Array<"admin" | "office" | "field_manager" | "chemical_manager" | "field" | "irrigation_manager" | "shop_manager" | "mapping" | "landscape_supervisor">;
   superAdminOnly?: boolean;
 }
@@ -20,9 +20,11 @@ export function ProtectedRoute({
   if (isLoading) {
     return (
       <Route path={path}>
-        <div className="flex items-center justify-center min-h-screen">
-          <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
-        </div>
+        {() => (
+          <div className="flex items-center justify-center min-h-screen">
+            <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
+          </div>
+        )}
       </Route>
     );
   }
@@ -30,28 +32,30 @@ export function ProtectedRoute({
   if (!user) {
     return (
       <Route path={path}>
-        <Redirect to="/login" />
+        {() => <Redirect to="/login" />}
       </Route>
     );
   }
 
-  // Super admin only routes
   if (superAdminOnly && !user.isSuperAdminBool) {
     return (
       <Route path={path}>
-        <Redirect to="/access-denied" />
+        {() => <Redirect to="/access-denied" />}
       </Route>
     );
   }
 
-  // Role-based access control
   if (allowedRoles && !user.isSuperAdminBool && !allowedRoles.includes(user.activeRole)) {
     return (
       <Route path={path}>
-        <Redirect to="/access-denied" />
+        {() => <Redirect to="/access-denied" />}
       </Route>
     );
   }
 
-  return <Route path={path} component={Component} />;
+  return (
+    <Route path={path}>
+      {() => <Component />}
+    </Route>
+  );
 }

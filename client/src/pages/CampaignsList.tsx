@@ -264,9 +264,10 @@ function CreateCampaignDialog({ open, onOpenChange }: { open: boolean; onOpenCha
   const [selectedCustomerIds, setSelectedCustomerIds] = useState<Set<string>>(new Set());
   const [customerSearch, setCustomerSearch] = useState("");
 
-  const { data: customers = [] } = useQuery<Customer[]>({
+  const { data: customersResp } = useQuery<{ customers: Customer[]; total: number }>({
     queryKey: ["/api/customers"],
   });
+  const customers = customersResp?.customers ?? [];
 
   const { data: companyUsersData = [] } = useQuery<CompanyUserWithDetails[]>({
     queryKey: ["/api/companies/users"],

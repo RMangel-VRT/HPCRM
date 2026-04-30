@@ -40,6 +40,26 @@ The backend uses Express.js and TypeScript. Authentication is handled by Passpor
 #### Communication Center
 A comprehensive communication lifecycle management system accessible to admin and office roles. It features a three-panel layout for navigation (All, Drafts, Scheduled, Follow-Ups), a filterable list of communications, and a detail panel for content and actions. Functionality includes message threading, reply actions, a compose drawer, schedule-send for admins, follow-up creation and management, and dashboard widgets for quick access to communication states.
 
+## Running Migrations
+
+### SQL Migrations (structural — indexes, new columns)
+
+```bash
+npx tsx scripts/run-migrations.ts
+```
+
+Runs every `.sql` file in `migrations/` in alphabetical order. Safe to run multiple times (all statements use `IF NOT EXISTS` / `IF EXISTS`).
+
+### In-Process Data Migrations (TypeScript — backfills, schema normalisations)
+
+Set the environment variable `RUN_STARTUP_MIGRATIONS=true` before starting the server, or call `runStartupMigrations()` from `server/routes.ts` directly from a one-off script.
+
+```bash
+RUN_STARTUP_MIGRATIONS=true npx tsx server/index.ts
+```
+
+After each deployment, run both migration types once in the order above.
+
 ## External Dependencies
 
 -   **UI Component Libraries:** Radix UI, Shadcn/ui, Lucide React, CMDK

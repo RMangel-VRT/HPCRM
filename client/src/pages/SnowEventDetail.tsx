@@ -116,9 +116,10 @@ export default function SnowEventDetail() {
     enabled: !!eventId,
   });
 
-  const { data: allCustomers } = useQuery<Customer[]>({
+  const { data: allCustomersResp } = useQuery<{ customers: Customer[]; total: number }>({
     queryKey: ["/api/customers"],
   });
+  const allCustomers = allCustomersResp?.customers;
 
   const updateEventMutation = useMutation({
     mutationFn: async (data: Record<string, unknown>) => {

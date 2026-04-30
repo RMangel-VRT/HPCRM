@@ -8,7 +8,7 @@ import { AuthProvider, useAuth } from "@/hooks/use-auth";
 import { BreadcrumbsProvider } from "@/hooks/use-breadcrumbs";
 import { ProtectedRoute } from "@/lib/protected-route";
 import { AlertTriangle } from "lucide-react";
-import { Component, useEffect, useRef, useState } from "react";
+import { Component, lazy, Suspense, useEffect, useRef, useState } from "react";
 import type { ErrorInfo, ReactNode } from "react";
 import { useTranslation } from "react-i18next";
 import { Button } from "@/components/ui/button";
@@ -22,50 +22,52 @@ import AppBreadcrumb from "@/components/AppBreadcrumb";
 import NotificationsDropdown from "@/components/NotificationsDropdown";
 import LoginPage from "@/pages/LoginPage";
 import SetupPage from "@/pages/SetupPage";
-import AccessDenied from "@/pages/AccessDenied";
-import Dashboard from "@/pages/Dashboard";
-import CustomersList from "@/pages/CustomersList";
-import CustomerDetail from "@/pages/CustomerDetail";
-import RevenueOverview from "@/pages/RevenueOverview";
-import ToolsPage from "@/pages/ToolsPage";
-import ContractBuilderPage from "@/pages/ContractBuilderPage";
-import TicketsList from "@/pages/TicketsList";
-import TicketDetail from "@/pages/TicketDetail";
-import NewTicket from "@/pages/NewTicket";
-import MyTickets from "@/pages/MyTickets";
-import UsersPage from "@/pages/UsersPage";
-import SettingsPage from "@/pages/SettingsPage";
-import SuperAdminHome from "@/pages/SuperAdminHome";
-import PropertyMapsPage from "@/pages/PropertyMapsPage";
-import SchedulePage from "@/pages/SchedulePage";
-import EquipmentList from "@/pages/EquipmentList";
-import EquipmentDetail from "@/pages/EquipmentDetail";
-import NewEquipment from "@/pages/NewEquipment";
-import EquipmentTicketDetail from "@/pages/EquipmentTicketDetail";
-import ContractsOverview from "@/pages/ContractsOverview";
-import SnowEventsList from "@/pages/SnowEventsList";
-import SnowEventDetail from "@/pages/SnowEventDetail";
-import NewSnowEvent from "@/pages/NewSnowEvent";
-import ReportsPage from "@/pages/ReportsPage";
-import ProposalMaker from "@/pages/ProposalMaker";
-import ProposalDraft from "@/pages/ProposalDraft";
-import ProposalVersion from "@/pages/ProposalVersion";
-import NotificationsPage from "@/pages/NotificationsPage";
-import VisualScopeList from "@/pages/VisualScopeList";
-import VisualScopeDraft from "@/pages/VisualScopeDraft";
-import CustomerRouteMap from "@/pages/CustomerRouteMap";
-import FieldCustomerList from "@/pages/FieldCustomerList";
-import CampaignsList from "@/pages/CampaignsList";
-import CampaignDetail from "@/pages/CampaignDetail";
-import CampaignItemDetail from "@/pages/CampaignItemDetail";
-import SeasonsPage from "@/pages/SeasonsPage";
-import SeasonDetail from "@/pages/SeasonDetail";
-import CommunicationsCenter from "@/pages/CommunicationsCenter";
-import GlobalOperationsPage from "@/pages/GlobalOperationsPage";
-import PropertyDetail from "@/pages/PropertyDetail";
-import UnsortedInboxPage from "@/pages/UnsortedInboxPage";
-import MailboxAccountsSettingsPage from "@/pages/MailboxAccountsSettingsPage";
-import NotFound from "@/pages/not-found";
+
+const AccessDenied = lazy(() => import("@/pages/AccessDenied"));
+const Dashboard = lazy(() => import("@/pages/Dashboard"));
+const NotFound = lazy(() => import("@/pages/not-found"));
+const SuperAdminHome = lazy(() => import("@/pages/SuperAdminHome"));
+
+const CustomersList = lazy(() => import("@/pages/CustomersList"));
+const CustomerDetail = lazy(() => import("@/pages/CustomerDetail"));
+const RevenueOverview = lazy(() => import("@/pages/RevenueOverview"));
+const ToolsPage = lazy(() => import("@/pages/ToolsPage"));
+const ContractBuilderPage = lazy(() => import("@/pages/ContractBuilderPage"));
+const TicketsList = lazy(() => import("@/pages/TicketsList"));
+const TicketDetail = lazy(() => import("@/pages/TicketDetail"));
+const NewTicket = lazy(() => import("@/pages/NewTicket"));
+const MyTickets = lazy(() => import("@/pages/MyTickets"));
+const UsersPage = lazy(() => import("@/pages/UsersPage"));
+const SettingsPage = lazy(() => import("@/pages/SettingsPage"));
+const PropertyMapsPage = lazy(() => import("@/pages/PropertyMapsPage"));
+const SchedulePage = lazy(() => import("@/pages/SchedulePage"));
+const EquipmentList = lazy(() => import("@/pages/EquipmentList"));
+const EquipmentDetail = lazy(() => import("@/pages/EquipmentDetail"));
+const NewEquipment = lazy(() => import("@/pages/NewEquipment"));
+const EquipmentTicketDetail = lazy(() => import("@/pages/EquipmentTicketDetail"));
+const ContractsOverview = lazy(() => import("@/pages/ContractsOverview"));
+const SnowEventsList = lazy(() => import("@/pages/SnowEventsList"));
+const SnowEventDetail = lazy(() => import("@/pages/SnowEventDetail"));
+const NewSnowEvent = lazy(() => import("@/pages/NewSnowEvent"));
+const ReportsPage = lazy(() => import("@/pages/ReportsPage"));
+const ProposalMaker = lazy(() => import("@/pages/ProposalMaker"));
+const ProposalDraft = lazy(() => import("@/pages/ProposalDraft"));
+const ProposalVersion = lazy(() => import("@/pages/ProposalVersion"));
+const NotificationsPage = lazy(() => import("@/pages/NotificationsPage"));
+const VisualScopeList = lazy(() => import("@/pages/VisualScopeList"));
+const VisualScopeDraft = lazy(() => import("@/pages/VisualScopeDraft"));
+const CustomerRouteMap = lazy(() => import("@/pages/CustomerRouteMap"));
+const FieldCustomerList = lazy(() => import("@/pages/FieldCustomerList"));
+const CampaignsList = lazy(() => import("@/pages/CampaignsList"));
+const CampaignDetail = lazy(() => import("@/pages/CampaignDetail"));
+const CampaignItemDetail = lazy(() => import("@/pages/CampaignItemDetail"));
+const SeasonsPage = lazy(() => import("@/pages/SeasonsPage"));
+const SeasonDetail = lazy(() => import("@/pages/SeasonDetail"));
+const CommunicationsCenter = lazy(() => import("@/pages/CommunicationsCenter"));
+const GlobalOperationsPage = lazy(() => import("@/pages/GlobalOperationsPage"));
+const PropertyDetail = lazy(() => import("@/pages/PropertyDetail"));
+const UnsortedInboxPage = lazy(() => import("@/pages/UnsortedInboxPage"));
+const MailboxAccountsSettingsPage = lazy(() => import("@/pages/MailboxAccountsSettingsPage"));
 
 interface ErrorBoundaryProps {
   children: ReactNode;
@@ -181,7 +183,7 @@ function Router() {
     return FIELD_APP_ROLES.includes(role as FieldAppRole);
   }
 
-  const allFieldRoles = ["field_manager", "chemical_manager", "field", "irrigation_manager", "shop_manager", "landscape_supervisor"];
+  const allFieldRoles = ["field_manager", "chemical_manager", "field", "irrigation_manager", "shop_manager", "landscape_supervisor"] as const;
 
   function getDefaultRedirect() {
     if (!user) return "/login";
@@ -342,7 +344,9 @@ function Router() {
           user={user}
           onLogout={() => logoutMutation.mutate()}
         >
-          {renderRouteSwitch()}
+          <Suspense fallback={<LoadingScreen visible={true} />}>
+            {renderRouteSwitch()}
+          </Suspense>
         </FieldAppLayout>
       );
     }
@@ -379,7 +383,9 @@ function Router() {
                     }}
                   />
                 )}
-                {renderRouteSwitch()}
+                <Suspense fallback={<LoadingScreen visible={true} />}>
+                  {renderRouteSwitch()}
+                </Suspense>
               </main>
             </div>
           </div>
