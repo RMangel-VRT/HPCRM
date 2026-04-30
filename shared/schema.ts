@@ -651,6 +651,20 @@ export const tickets = pgTable("tickets", {
   workCompletedDate: timestamp("work_completed_date"), // Date work was completed (for billing reference)
   invoiceCategory: text("invoice_category").$type<"general_maintenance" | "snow">(), // Category for invoice tickets to determine which rates to display
   equipmentId: varchar("equipment_id"), // Optional link to equipment for Shop to-do tickets (FK added via migration)
+  // Work completion fields (added via migration)
+  completedByUserId: varchar("completed_by_id").references(() => users.id, { onDelete: "set null" }),
+  actualStartTime: timestamp("actual_start_time"),
+  actualEndTime: timestamp("actual_end_time"),
+  leadTechUserId: varchar("lead_tech_user_id").references(() => users.id, { onDelete: "set null" }),
+  crewMemberUserIds: text("crew_member_user_ids").array().default(sql`ARRAY[]::text[]`),
+  workSummaryForCustomer: text("work_summary_for_customer"),
+  materialsUsed: text("materials_used"),
+  areasWorked: text("areas_worked"),
+  recommendations: text("recommendations"),
+  internalCompletionNotes: text("internal_completion_notes"),
+  completionPhotoStorageKeys: text("completion_photo_storage_keys").array().default(sql`ARRAY[]::text[]`),
+  completionEmailSentAt: timestamp("completion_email_sent_at"),
+  followUpTicketId: varchar("follow_up_ticket_id").references((): AnyPgColumn => tickets.id, { onDelete: "set null" }),
   createdById: varchar("created_by_id").notNull().references(() => users.id, { onDelete: "cascade" }),
   createdAt: timestamp("created_at").notNull().defaultNow(),
   updatedAt: timestamp("updated_at").notNull().defaultNow(),
@@ -687,6 +701,20 @@ export const insertTicketSchema = createInsertSchema(tickets).omit({
   workCompletedDate: z.coerce.date().nullable().optional(), // Date work was completed (for billing reference)
   invoiceCategory: z.enum(["general_maintenance", "snow"]).nullable().optional(), // Category for invoice tickets
   equipmentId: z.string().nullable().optional(), // Optional link to equipment for Shop to-do tickets
+  // Work completion fields
+  completedByUserId: z.string().nullable().optional(),
+  actualStartTime: z.coerce.date().nullable().optional(),
+  actualEndTime: z.coerce.date().nullable().optional(),
+  leadTechUserId: z.string().nullable().optional(),
+  crewMemberUserIds: z.array(z.string()).nullable().optional(),
+  workSummaryForCustomer: z.string().nullable().optional(),
+  materialsUsed: z.string().nullable().optional(),
+  areasWorked: z.string().nullable().optional(),
+  recommendations: z.string().nullable().optional(),
+  internalCompletionNotes: z.string().nullable().optional(),
+  completionPhotoStorageKeys: z.array(z.string()).nullable().optional(),
+  completionEmailSentAt: z.coerce.date().nullable().optional(),
+  followUpTicketId: z.string().nullable().optional(),
 });
 
 export type InsertTicket = z.infer<typeof insertTicketSchema>;

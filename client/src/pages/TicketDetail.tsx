@@ -1,4 +1,4 @@
-import { useState, useMemo, useEffect } from "react";
+import { useState, useMemo, useEffect, useRef } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { useRoute, Link, useLocation } from "wouter";
 import { useSetBreadcrumbs } from "@/hooks/use-breadcrumbs";
@@ -12,6 +12,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { Checkbox } from "@/components/ui/checkbox";
 import { useAuth } from "@/hooks/use-auth";
 import {
@@ -62,6 +63,8 @@ import {
   Plus,
   Clock,
   AlertCircle,
+  Eye,
+  Camera,
 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { queryClient, apiRequest } from "@/lib/queryClient";
@@ -152,6 +155,28 @@ export default function TicketDetail() {
   // Completion email recipient state (multi-select)
   const [selectedRecipientEmails, setSelectedRecipientEmails] = useState<Set<string>>(new Set());
 
+  // Completion form dialog state
+  const [showCompletionFormDialog, setShowCompletionFormDialog] = useState(false);
+  const [completionForm, setCompletionForm] = useState({
+    workSummaryForCustomer: '',
+    materialsUsed: '',
+    areasWorked: '',
+    recommendations: '',
+    internalCompletionNotes: '',
+    actualStartTime: '',
+    actualEndTime: '',
+    leadTechUserId: '',
+    crewMemberUserIds: [] as string[],
+    completionPhotoStorageKeys: [] as string[],
+    followUpTicketId: '',
+  });
+  const [uploadingFileNames, setUploadingFileNames] = useState<string[]>([]);
+  const newlyUploadedKeysRef = useRef<string[]>([]);
+
+  // Preview email dialog state
+  const [showPreviewDialog, setShowPreviewDialog] = useState(false);
+  const [previewHtml, setPreviewHtml] = useState('');
+
   // Delete ticket state
   const [showDeleteDialog, setShowDeleteDialog] = useState(false);
   
@@ -227,10 +252,31 @@ export default function TicketDetail() {
     };
   }, [details?.ticket?.title, details?.ticket?.id, details?.customer?.name]);
 
-  // Fetch company users for reassignment/delegation dropdown
+  // Pre-populate completion form from ticket data when dialog opens
+  useEffect(() => {
+    if (!showCompletionFormDialog || !details?.ticket) return;
+    const tk = details.ticket;
+    newlyUploadedKeysRef.current = [];
+    setUploadingFileNames([]);
+    setCompletionForm({
+      workSummaryForCustomer: (tk.workSummaryForCustomer as string | null) || `${tk.title}${tk.description ? '\n\n' + tk.description : ''}`,
+      materialsUsed: (tk.materialsUsed as string | null) || '',
+      areasWorked: (tk.areasWorked as string | null) || '',
+      recommendations: (tk.recommendations as string | null) || '',
+      internalCompletionNotes: (tk.internalCompletionNotes as string | null) || '',
+      actualStartTime: tk.actualStartTime ? new Date(tk.actualStartTime as unknown as string).toISOString().slice(0, 16) : '',
+      actualEndTime: tk.actualEndTime ? new Date(tk.actualEndTime as unknown as string).toISOString().slice(0, 16) : '',
+      leadTechUserId: (tk.leadTechUserId as string | null) || (tk.assignedToId as string | null) || '',
+      crewMemberUserIds: (tk.crewMemberUserIds as string[] | null) || [],
+      completionPhotoStorageKeys: (tk.completionPhotoStorageKeys as string[] | null) || [],
+      followUpTicketId: (tk.followUpTicketId as string | null) || '',
+    });
+  }, [showCompletionFormDialog, details?.ticket]);
+
+  // Fetch company users for reassignment/delegation/completion-form dropdowns
   const { data: companyUsersData = [] } = useQuery<CompanyUserWithDetails[]>({
     queryKey: ["/api/companies/users"],
-    enabled: canReassign || canDelegate,
+    enabled: canReassign || canDelegate || isAdminOrOffice,
   });
 
   // Build team members list for assignment dropdown - include all users
@@ -480,16 +526,80 @@ export default function TicketDetail() {
   }, [contactEmailOptions]);
 
   const sendCompletionEmailMutation = useMutation({
-    mutationFn: async (toEmails: string[]) => {
-      return apiRequest("POST", `/api/tickets/${ticketId}/send-completion-email`, { toEmails });
+    mutationFn: async ({ toEmails, resend }: { toEmails: string[]; resend?: boolean }) => {
+      return apiRequest("POST", `/api/tickets/${ticketId}/send-completion-email`, { toEmails, resend });
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/email-logs", { ticketId }] });
+      queryClient.invalidateQueries({ queryKey: ["/api/tickets", ticketId, "details"] });
       toast({ title: t('ticketDetail.completionEmailSent') });
     },
     onError: (err: any) => {
-      toast({ title: err?.message || t('ticketDetail.completionEmailSent'), variant: "destructive" });
+      const raw: string = err?.message || '';
+      let displayMsg = t('ticketDetail.completionEmailFailed');
+      const jsonMatch = raw.match(/\d+: (.+)/);
+      if (jsonMatch) {
+        try {
+          const parsed = JSON.parse(jsonMatch[1]);
+          if (parsed?.error) displayMsg = parsed.error;
+        } catch {
+          displayMsg = jsonMatch[1];
+        }
+      }
+      toast({ title: displayMsg, variant: "destructive" });
     },
+  });
+
+  const saveCompletionDataMutation = useMutation({
+    mutationFn: async (data: Record<string, unknown>) => {
+      return apiRequest("PATCH", `/api/tickets/${ticketId}`, data);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/tickets", ticketId, "details"] });
+      setShowCompletionFormDialog(false);
+      toast({ title: t('ticketDetail.completionDataSaved') });
+    },
+    onError: (err: any) => {
+      toast({ title: err?.message || t('ticketDetail.completionDataSaveFailed'), variant: "destructive" });
+    },
+  });
+
+  const previewEmailMutation = useMutation({
+    mutationFn: async () => {
+      const res = await fetch(`/api/tickets/${ticketId}/preview-completion-email`, {
+        method: 'POST',
+        credentials: 'include',
+      });
+      if (!res.ok) throw new Error(await res.text());
+      return res.text();
+    },
+    onSuccess: (html) => {
+      setPreviewHtml(html);
+      setShowPreviewDialog(true);
+    },
+    onError: (err: any) => {
+      toast({ title: err?.message || t('ticketDetail.previewFailed'), variant: "destructive" });
+    },
+  });
+
+  const { data: completionPhotoUrls = [] } = useQuery<{ key: string; url: string }[]>({
+    queryKey: ["/api/tickets", ticketId, "photo-urls"],
+    queryFn: async () => {
+      const res = await fetch(`/api/tickets/${ticketId}/photo-urls`, { credentials: "include" });
+      if (!res.ok) return [];
+      return res.json();
+    },
+    enabled: !!ticketId,
+  });
+
+  const { data: allTickets = [] } = useQuery<{ id: string; title: string }[]>({
+    queryKey: ["/api/tickets"],
+    select: (data: any[]) => data
+      .filter((t: any) => t.id !== ticketId)
+      .map((t: any) => ({ id: t.id, title: t.title || t.id }))
+      .slice(0, 200),
+    enabled: isAdminOrOffice,
+    staleTime: 60000,
   });
 
   if (isLoading || !details) {
@@ -1604,6 +1714,100 @@ export default function TicketDetail() {
             </Card>
           )}
 
+          {/* Job Recap Card — always shown for completed tickets; also shown when any completion data exists */}
+          {(isComplete || ticket.workSummaryForCustomer) && (
+            <Card data-testid="card-job-recap" className="overflow-hidden">
+              {/* Green Completed Banner */}
+              <div className="bg-green-600 dark:bg-green-700 px-4 py-3 flex flex-wrap items-center justify-between gap-2" data-testid="banner-completed">
+                <div className="flex flex-wrap items-center gap-3 text-white">
+                  <span className="flex items-center gap-1.5 font-semibold text-sm">
+                    <Check className="w-4 h-4" />
+                    {t('ticketDetail.jobRecapTitle')}
+                  </span>
+                  {ticket.leadTechUserId && teamMembers.find(m => m.id === ticket.leadTechUserId) && (
+                    <span className="flex items-center gap-1 text-green-100 text-xs" data-testid="banner-lead-tech">
+                      <User className="w-3.5 h-3.5" />
+                      {teamMembers.find(m => m.id === ticket.leadTechUserId)?.name}
+                    </span>
+                  )}
+                  {(() => {
+                    const start = ticket.actualStartTime ? new Date(ticket.actualStartTime as unknown as string) : null;
+                    const end = ticket.actualEndTime ? new Date(ticket.actualEndTime as unknown as string) : null;
+                    const done = ticket.completedAt ? new Date(ticket.completedAt as unknown as string) : null;
+                    const fmt = (d: Date) => d.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true });
+                    const dur = (mins: number) => mins >= 60 ? `${Math.floor(mins / 60)}h${mins % 60 > 0 ? ` ${mins % 60}m` : ''}` : `${mins}m`;
+                    let label = '';
+                    if (start && end) {
+                      const diffMins = Math.round((end.getTime() - start.getTime()) / 60000);
+                      label = `${fmt(start)} – ${fmt(end)} (${dur(diffMins)})`;
+                    } else if (done) {
+                      label = format(done, "MMM d, yyyy");
+                    }
+                    return label ? (
+                      <span className="flex items-center gap-1 text-green-100 text-xs" data-testid="banner-time-on-site">
+                        <Clock className="w-3.5 h-3.5" />
+                        {label}
+                      </span>
+                    ) : null;
+                  })()}
+                  {completionPhotoUrls.length > 0 && (
+                    <span className="flex items-center gap-1 text-green-100 text-xs" data-testid="banner-photo-count">
+                      <Camera className="w-3.5 h-3.5" />
+                      {completionPhotoUrls.length} {completionPhotoUrls.length === 1 ? t('ticketDetail.photo') : t('ticketDetail.photos')}
+                    </span>
+                  )}
+                </div>
+                {isAdminOrOffice && (
+                  <Button variant="ghost" size="sm" onClick={() => setShowCompletionFormDialog(true)} data-testid="button-edit-job-recap" className="text-white hover:text-white">
+                    <Pencil className="w-3.5 h-3.5 mr-1" />
+                    {t('common.edit')}
+                  </Button>
+                )}
+              </div>
+              <CardContent className="pt-3 space-y-3">
+                {ticket.workSummaryForCustomer && (
+                  <div>
+                    <p className="text-xs text-muted-foreground uppercase tracking-wide mb-1">{t('ticketDetail.workSummaryForCustomer')}</p>
+                    <p className="text-sm whitespace-pre-wrap">{ticket.workSummaryForCustomer as string}</p>
+                  </div>
+                )}
+                {ticket.materialsUsed && (
+                  <div>
+                    <p className="text-xs text-muted-foreground uppercase tracking-wide mb-1">{t('ticketDetail.materialsUsed')}</p>
+                    <p className="text-sm whitespace-pre-wrap">{ticket.materialsUsed as string}</p>
+                  </div>
+                )}
+                {ticket.areasWorked && (
+                  <div>
+                    <p className="text-xs text-muted-foreground uppercase tracking-wide mb-1">{t('ticketDetail.areasWorked')}</p>
+                    <p className="text-sm whitespace-pre-wrap">{ticket.areasWorked as string}</p>
+                  </div>
+                )}
+                {ticket.recommendations && (
+                  <div>
+                    <p className="text-xs text-muted-foreground uppercase tracking-wide mb-1">{t('ticketDetail.recommendations')}</p>
+                    <p className="text-sm whitespace-pre-wrap">{ticket.recommendations as string}</p>
+                  </div>
+                )}
+                {completionPhotoUrls.length > 0 && (
+                  <div>
+                    <p className="text-xs text-muted-foreground uppercase tracking-wide mb-1">{t('ticketDetail.completionPhotos')}</p>
+                    <div className="grid grid-cols-3 gap-1.5">
+                      {completionPhotoUrls.slice(0, 6).map(p => (
+                        <a key={p.key} href={p.url} target="_blank" rel="noopener noreferrer" data-testid={`completion-photo-${p.key}`}>
+                          <img src={p.url} alt="Site photo" className="w-full h-20 object-cover rounded-md border" />
+                        </a>
+                      ))}
+                    </div>
+                  </div>
+                )}
+                {!ticket.workSummaryForCustomer && isAdminOrOffice && (
+                  <p className="text-xs text-muted-foreground italic">{t('ticketDetail.noRecapYet')}</p>
+                )}
+              </CardContent>
+            </Card>
+          )}
+
           {comments.length > 0 && (
             <Card data-testid="card-recent-comments">
               <CardHeader className="pb-2 flex flex-row items-center justify-between">
@@ -1633,19 +1837,31 @@ export default function TicketDetail() {
           {isAdminOrOffice && (isComplete || currentStatus?.isFinal === "true") && ticket.customerId && (
             <Card data-testid="card-overview-send-email">
               <CardContent className="p-4 space-y-3">
-                <div className="flex items-center gap-2">
-                  <Mail className="w-4 h-4 text-muted-foreground" />
-                  <div>
-                    <p className="text-sm font-medium">{t('ticketDetail.sendCompletionEmail')}</p>
-                    <p className="text-xs text-muted-foreground">
-                      {t('ticketDetail.sendCompletionEmail')}
-                    </p>
+                <div className="flex items-start justify-between gap-2">
+                  <div className="flex items-center gap-2">
+                    <Mail className="w-4 h-4 text-muted-foreground shrink-0" />
+                    <div>
+                      <p className="text-sm font-medium">{t('ticketDetail.workCompletedEmailTitle')}</p>
+                      <p className="text-xs text-muted-foreground mt-0.5">{t('ticketDetail.workCompletedEmailHint')}</p>
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-1.5 shrink-0">
+                    <Button variant="ghost" size="sm" onClick={() => setShowCompletionFormDialog(true)} data-testid="button-overview-edit-recap">
+                      <Pencil className="w-3.5 h-3.5 mr-1" />
+                      {t('ticketDetail.editRecap')}
+                    </Button>
                   </div>
                 </div>
+                {!ticket.workSummaryForCustomer && (
+                  <div className="flex items-center gap-2 p-2 rounded-md bg-amber-50 dark:bg-amber-950/20 border border-amber-200 dark:border-amber-800">
+                    <AlertCircle className="w-3.5 h-3.5 text-amber-600 dark:text-amber-400 shrink-0" />
+                    <p className="text-xs text-amber-700 dark:text-amber-300">{t('ticketDetail.missingWorkSummary')}</p>
+                  </div>
+                )}
                 {contactEmailOptions.length > 0 ? (
                   <div className="space-y-2">
                     <div className="flex items-center justify-between">
-                      <Label className="text-xs text-muted-foreground">{t('ticketDetail.sendCompletionEmail')}</Label>
+                      <Label className="text-xs text-muted-foreground">{t('ticketDetail.selectRecipients')}</Label>
                       <button
                         type="button"
                         className="text-xs text-muted-foreground hover:underline"
@@ -1685,22 +1901,39 @@ export default function TicketDetail() {
                         </label>
                       ))}
                     </div>
-                    <Button
-                      variant="default"
-                      onClick={() => {
-                        const emails = Array.from(selectedRecipientEmails);
-                        if (emails.length > 0) sendCompletionEmailMutation.mutate(emails);
-                      }}
-                      disabled={sendCompletionEmailMutation.isPending || selectedRecipientEmails.size === 0}
-                      data-testid="button-overview-send-completion-email"
-                    >
-                      {sendCompletionEmailMutation.isPending ? (
-                        <Loader2 className="w-4 h-4 animate-spin mr-2" />
-                      ) : (
-                        <Send className="w-4 h-4 mr-2" />
+                    {ticket.completionEmailSentAt && (
+                      <p className="text-xs text-muted-foreground">
+                        {t('ticketDetail.lastSent')}: {formatDistanceToNow(new Date(ticket.completionEmailSentAt as unknown as string), { addSuffix: true })}
+                      </p>
+                    )}
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <span className="inline-block">
+                          <Button
+                            variant="default"
+                            onClick={() => {
+                              const emails = Array.from(selectedRecipientEmails);
+                              if (emails.length > 0) {
+                                const resend = !!(ticket.completionEmailSentAt);
+                                sendCompletionEmailMutation.mutate({ toEmails: emails, resend });
+                              }
+                            }}
+                            disabled={sendCompletionEmailMutation.isPending || selectedRecipientEmails.size === 0 || !ticket.workSummaryForCustomer}
+                            data-testid="button-overview-send-completion-email"
+                          >
+                            {sendCompletionEmailMutation.isPending ? (
+                              <Loader2 className="w-4 h-4 animate-spin mr-2" />
+                            ) : (
+                              <Send className="w-4 h-4 mr-2" />
+                            )}
+                            {ticket.completionEmailSentAt ? t('ticketDetail.resendEmail') : t('ticketDetail.sendCompletionEmail')} ({selectedRecipientEmails.size})
+                          </Button>
+                        </span>
+                      </TooltipTrigger>
+                      {!ticket.workSummaryForCustomer && (
+                        <TooltipContent>{t('ticketDetail.noRecapYet')}</TooltipContent>
                       )}
-                      {t('ticketDetail.sendCompletionEmail')} ({selectedRecipientEmails.size})
-                    </Button>
+                    </Tooltip>
                   </div>
                 ) : (
                   <p className="text-xs text-muted-foreground">
@@ -1951,16 +2184,47 @@ export default function TicketDetail() {
           {(isComplete || currentStatus?.isFinal === "true") && ticket.customerId && (
             <Card>
               <CardContent className="p-4 space-y-3">
-                <div>
-                  <p className="text-sm font-medium">{t('ticketDetail.sendCompletionEmail')}</p>
-                  <p className="text-xs text-muted-foreground">
-                    {t('ticketDetail.sendCompletionEmail')}
-                  </p>
+                <div className="flex items-start justify-between gap-2">
+                  <div>
+                    <p className="text-sm font-medium">{t('ticketDetail.workCompletedEmailTitle')}</p>
+                    <p className="text-xs text-muted-foreground mt-0.5">{t('ticketDetail.workCompletedEmailHint')}</p>
+                  </div>
+                  <div className="flex items-center gap-1.5 shrink-0">
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => setShowCompletionFormDialog(true)}
+                      data-testid="button-edit-completion-data"
+                    >
+                      <Pencil className="w-3.5 h-3.5 mr-1" />
+                      {t('ticketDetail.editRecap')}
+                    </Button>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => previewEmailMutation.mutate()}
+                      disabled={previewEmailMutation.isPending}
+                      data-testid="button-preview-completion-email"
+                    >
+                      {previewEmailMutation.isPending ? (
+                        <Loader2 className="w-3.5 h-3.5 animate-spin mr-1" />
+                      ) : (
+                        <Eye className="w-3.5 h-3.5 mr-1" />
+                      )}
+                      {t('ticketDetail.previewEmail')}
+                    </Button>
+                  </div>
                 </div>
+                {!ticket.workSummaryForCustomer && (
+                  <div className="flex items-center gap-2 p-2.5 rounded-md bg-amber-50 dark:bg-amber-950/20 border border-amber-200 dark:border-amber-800">
+                    <AlertCircle className="w-4 h-4 text-amber-600 dark:text-amber-400 shrink-0" />
+                    <p className="text-xs text-amber-700 dark:text-amber-300">{t('ticketDetail.missingWorkSummary')}</p>
+                  </div>
+                )}
                 {contactEmailOptions.length > 0 ? (
                   <div className="space-y-2">
                     <div className="flex items-center justify-between">
-                      <Label className="text-xs text-muted-foreground">{t('ticketDetail.sendCompletionEmail')}</Label>
+                      <Label className="text-xs text-muted-foreground">{t('ticketDetail.selectRecipients')}</Label>
                       <button
                         type="button"
                         className="text-xs text-muted-foreground hover:underline"
@@ -2000,22 +2264,39 @@ export default function TicketDetail() {
                         </label>
                       ))}
                     </div>
-                    <Button
-                      variant="default"
-                      onClick={() => {
-                        const emails = Array.from(selectedRecipientEmails);
-                        if (emails.length > 0) sendCompletionEmailMutation.mutate(emails);
-                      }}
-                      disabled={sendCompletionEmailMutation.isPending || selectedRecipientEmails.size === 0}
-                      data-testid="button-send-completion-email"
-                    >
-                      {sendCompletionEmailMutation.isPending ? (
-                        <Loader2 className="w-4 h-4 animate-spin mr-2" />
-                      ) : (
-                        <Send className="w-4 h-4 mr-2" />
+                    {ticket.completionEmailSentAt && (
+                      <p className="text-xs text-muted-foreground">
+                        {t('ticketDetail.lastSent')}: {formatDistanceToNow(new Date(ticket.completionEmailSentAt as unknown as string), { addSuffix: true })}
+                      </p>
+                    )}
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <span className="inline-block">
+                          <Button
+                            variant="default"
+                            onClick={() => {
+                              const emails = Array.from(selectedRecipientEmails);
+                              if (emails.length > 0) {
+                                const resend = !!(ticket.completionEmailSentAt);
+                                sendCompletionEmailMutation.mutate({ toEmails: emails, resend });
+                              }
+                            }}
+                            disabled={sendCompletionEmailMutation.isPending || selectedRecipientEmails.size === 0 || !ticket.workSummaryForCustomer}
+                            data-testid="button-send-completion-email"
+                          >
+                            {sendCompletionEmailMutation.isPending ? (
+                              <Loader2 className="w-4 h-4 animate-spin mr-2" />
+                            ) : (
+                              <Send className="w-4 h-4 mr-2" />
+                            )}
+                            {ticket.completionEmailSentAt ? t('ticketDetail.resendEmail') : t('ticketDetail.sendCompletionEmail')} ({selectedRecipientEmails.size})
+                          </Button>
+                        </span>
+                      </TooltipTrigger>
+                      {!ticket.workSummaryForCustomer && (
+                        <TooltipContent>{t('ticketDetail.noRecapYet')}</TooltipContent>
                       )}
-                      {t('ticketDetail.sendCompletionEmail')} ({selectedRecipientEmails.size})
-                    </Button>
+                    </Tooltip>
                   </div>
                 ) : (
                   <p className="text-xs text-muted-foreground">
@@ -2635,6 +2916,342 @@ export default function TicketDetail() {
               ) : null}
               {t('common.save')}
             </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Completion Form Dialog */}
+      <Dialog open={showCompletionFormDialog} onOpenChange={setShowCompletionFormDialog}>
+        <DialogContent className="sm:max-w-2xl max-h-[90vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>{t('ticketDetail.completionFormTitle')}</DialogTitle>
+            <DialogDescription>{t('ticketDetail.completionFormDescription')}</DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4 py-2">
+            <div className="space-y-1.5">
+              <Label htmlFor="cf-summary" className="text-sm font-medium">{t('ticketDetail.workSummaryForCustomer')} <span className="text-destructive">*</span></Label>
+              <Textarea
+                id="cf-summary"
+                rows={4}
+                placeholder={t('ticketDetail.workSummaryPlaceholder')}
+                value={completionForm.workSummaryForCustomer}
+                onChange={e => setCompletionForm(prev => ({ ...prev, workSummaryForCustomer: e.target.value }))}
+                data-testid="input-completion-summary"
+              />
+              <p className="text-xs text-muted-foreground">{t('ticketDetail.workSummaryHint')}</p>
+            </div>
+
+            <div className="grid grid-cols-2 gap-3">
+              <div className="space-y-1.5">
+                <Label htmlFor="cf-lead-tech" className="text-sm font-medium">{t('ticketDetail.leadTech')}</Label>
+                <Select value={completionForm.leadTechUserId} onValueChange={v => setCompletionForm(prev => ({ ...prev, leadTechUserId: v }))}>
+                  <SelectTrigger id="cf-lead-tech" data-testid="select-lead-tech">
+                    <SelectValue placeholder={t('ticketDetail.selectLeadTech')} />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {teamMembers.map(m => (
+                      <SelectItem key={m.id} value={m.id}>{m.name}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-1.5">
+                <Label className="text-sm font-medium">{t('ticketDetail.additionalCrew')}</Label>
+                <div className="border rounded-md p-2 max-h-32 overflow-y-auto space-y-1">
+                  {teamMembers
+                    .filter(m => m.id !== completionForm.leadTechUserId)
+                    .map(m => (
+                      <label key={m.id} className="flex items-center gap-2 text-sm cursor-pointer">
+                        <Checkbox
+                          checked={completionForm.crewMemberUserIds.includes(m.id)}
+                          onCheckedChange={checked => {
+                            setCompletionForm(prev => ({
+                              ...prev,
+                              crewMemberUserIds: checked
+                                ? [...prev.crewMemberUserIds, m.id]
+                                : prev.crewMemberUserIds.filter(id => id !== m.id),
+                            }));
+                          }}
+                          data-testid={`checkbox-crew-${m.id}`}
+                        />
+                        <span>{m.name}</span>
+                      </label>
+                    ))}
+                </div>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-2 gap-3">
+              <div className="space-y-1.5">
+                <Label htmlFor="cf-start" className="text-sm font-medium">{t('ticketDetail.actualStartTime')}</Label>
+                <Input
+                  id="cf-start"
+                  type="datetime-local"
+                  value={completionForm.actualStartTime}
+                  onChange={e => setCompletionForm(prev => ({ ...prev, actualStartTime: e.target.value }))}
+                  data-testid="input-actual-start-time"
+                />
+              </div>
+              <div className="space-y-1.5">
+                <Label htmlFor="cf-end" className="text-sm font-medium">{t('ticketDetail.actualEndTime')}</Label>
+                <Input
+                  id="cf-end"
+                  type="datetime-local"
+                  value={completionForm.actualEndTime}
+                  onChange={e => setCompletionForm(prev => ({ ...prev, actualEndTime: e.target.value }))}
+                  data-testid="input-actual-end-time"
+                />
+              </div>
+            </div>
+
+            <div className="space-y-1.5">
+              <Label htmlFor="cf-materials" className="text-sm font-medium">{t('ticketDetail.materialsUsed')}</Label>
+              <Textarea
+                id="cf-materials"
+                rows={2}
+                placeholder={t('ticketDetail.materialsPlaceholder')}
+                value={completionForm.materialsUsed}
+                onChange={e => setCompletionForm(prev => ({ ...prev, materialsUsed: e.target.value }))}
+                data-testid="input-materials-used"
+              />
+            </div>
+
+            <div className="space-y-1.5">
+              <Label htmlFor="cf-areas" className="text-sm font-medium">{t('ticketDetail.areasWorked')}</Label>
+              <Textarea
+                id="cf-areas"
+                rows={2}
+                placeholder={t('ticketDetail.areasPlaceholder')}
+                value={completionForm.areasWorked}
+                onChange={e => setCompletionForm(prev => ({ ...prev, areasWorked: e.target.value }))}
+                data-testid="input-areas-worked"
+              />
+            </div>
+
+            <div className="space-y-1.5">
+              <Label htmlFor="cf-recs" className="text-sm font-medium">{t('ticketDetail.recommendations')}</Label>
+              <Textarea
+                id="cf-recs"
+                rows={2}
+                placeholder={t('ticketDetail.recommendationsPlaceholder')}
+                value={completionForm.recommendations}
+                onChange={e => setCompletionForm(prev => ({ ...prev, recommendations: e.target.value }))}
+                data-testid="input-recommendations"
+              />
+            </div>
+
+            <div className="space-y-1.5">
+              <Label className="text-sm font-medium">{t('ticketDetail.completionPhotos')}</Label>
+              <div className="space-y-2">
+                {completionForm.completionPhotoStorageKeys.length > 0 && (
+                  <div className="grid grid-cols-3 gap-2">
+                    {completionPhotoUrls
+                      .filter(p => completionForm.completionPhotoStorageKeys.includes(p.key))
+                      .map(photo => (
+                        <div key={photo.key} className="relative">
+                          <img src={photo.url} alt="Completion photo" className="w-full h-24 object-cover rounded-md border" />
+                          <button
+                            type="button"
+                            className="absolute top-1 right-1 bg-background/80 rounded-full p-0.5"
+                            onClick={async () => {
+                              try {
+                                const encodedKey = encodeURIComponent(photo.key).replace(/%2F/g, '/');
+                                await fetch(`/api/tickets/${ticketId}/photos/${encodedKey}`, {
+                                  method: 'DELETE',
+                                  credentials: 'include',
+                                });
+                              } catch { }
+                              newlyUploadedKeysRef.current = newlyUploadedKeysRef.current.filter(k => k !== photo.key);
+                              setCompletionForm(prev => ({
+                                ...prev,
+                                completionPhotoStorageKeys: prev.completionPhotoStorageKeys.filter(k => k !== photo.key),
+                              }));
+                            }}
+                            data-testid={`button-remove-photo-${photo.key}`}
+                          >
+                            <Trash2 className="w-3 h-3 text-destructive" />
+                          </button>
+                        </div>
+                      ))}
+                  </div>
+                )}
+                {completionForm.completionPhotoStorageKeys.length < 6 && (
+                  <div>
+                    <label
+                      htmlFor="cf-photo-upload"
+                      className="flex items-center gap-2 border border-dashed rounded-md p-3 cursor-pointer hover-elevate text-sm text-muted-foreground"
+                    >
+                      {uploadingFileNames.length > 0 ? (
+                        <Loader2 className="w-4 h-4 animate-spin" />
+                      ) : (
+                        <ImageIcon className="w-4 h-4" />
+                      )}
+                      {t('ticketDetail.addPhotos')} ({completionForm.completionPhotoStorageKeys.length}/6)
+                    </label>
+                    {uploadingFileNames.length > 0 && (
+                      <div className="mt-1 space-y-1">
+                        {uploadingFileNames.map(name => (
+                          <div key={name} className="flex items-center gap-2 text-xs text-muted-foreground">
+                            <Loader2 className="w-3 h-3 animate-spin flex-shrink-0" />
+                            <span className="truncate">{name}</span>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                    <input
+                      id="cf-photo-upload"
+                      type="file"
+                      accept="image/*"
+                      multiple
+                      className="hidden"
+                      data-testid="input-completion-photo"
+                      onChange={async e => {
+                        const files = Array.from(e.target.files || []);
+                        if (!files.length) return;
+                        const remaining = 6 - completionForm.completionPhotoStorageKeys.length;
+                        const toUpload = files.slice(0, remaining);
+                        setUploadingFileNames(toUpload.map(f => f.name));
+                        try {
+                          const newKeys: string[] = [];
+                          for (const file of toUpload) {
+                            try {
+                              const fd = new FormData();
+                              fd.append('files', file);
+                              const uploadRes = await fetch(`/api/tickets/${ticketId}/photos`, {
+                                method: 'POST',
+                                body: fd,
+                                credentials: 'include',
+                              });
+                              if (!uploadRes.ok) throw new Error(await uploadRes.text());
+                              const data = await uploadRes.json() as { objectPaths: string[] };
+                              const key = data.objectPaths?.[0];
+                              if (key) {
+                                newKeys.push(key);
+                                newlyUploadedKeysRef.current = [...newlyUploadedKeysRef.current, key];
+                              }
+                              setUploadingFileNames(prev => prev.filter(n => n !== file.name));
+                            } catch (err) {
+                              setUploadingFileNames(prev => prev.filter(n => n !== file.name));
+                              toast({ title: t('ticketDetail.photoUploadFailed'), variant: "destructive" });
+                            }
+                          }
+                          if (newKeys.length > 0) {
+                            setCompletionForm(prev => ({
+                              ...prev,
+                              completionPhotoStorageKeys: [...prev.completionPhotoStorageKeys, ...newKeys],
+                            }));
+                          }
+                        } finally {
+                          setUploadingFileNames([]);
+                          e.target.value = '';
+                        }
+                      }}
+                    />
+                  </div>
+                )}
+              </div>
+            </div>
+
+            <div className="space-y-1.5 border-t pt-3">
+              <Label htmlFor="cf-internal" className="text-sm font-medium text-muted-foreground">{t('ticketDetail.internalNotes')}</Label>
+              <Textarea
+                id="cf-internal"
+                rows={2}
+                placeholder={t('ticketDetail.internalNotesPlaceholder')}
+                value={completionForm.internalCompletionNotes}
+                onChange={e => setCompletionForm(prev => ({ ...prev, internalCompletionNotes: e.target.value }))}
+                data-testid="input-internal-notes"
+              />
+              <p className="text-xs text-muted-foreground">{t('ticketDetail.internalNotesHint')}</p>
+            </div>
+
+            <div className="space-y-1.5 border-t pt-3">
+              <Label className="text-sm font-medium text-muted-foreground">{t('ticketDetail.followUpTicket')}</Label>
+              <Select
+                value={completionForm.followUpTicketId || 'none'}
+                onValueChange={v => setCompletionForm(prev => ({ ...prev, followUpTicketId: v === 'none' ? '' : v }))}
+                data-testid="select-follow-up-ticket"
+              >
+                <SelectTrigger data-testid="trigger-follow-up-ticket">
+                  <SelectValue placeholder={t('ticketDetail.followUpTicketPlaceholder')} />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="none">{t('ticketDetail.noFollowUp')}</SelectItem>
+                  {allTickets.map(t2 => (
+                    <SelectItem key={t2.id} value={t2.id}>{t2.title}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <p className="text-xs text-muted-foreground">{t('ticketDetail.followUpTicketHint')}</p>
+            </div>
+          </div>
+          <DialogFooter className="gap-2">
+            <Button variant="outline" onClick={async () => {
+              // Clean up any photos uploaded in this session that weren't saved
+              const keysToClean = newlyUploadedKeysRef.current.filter(
+                k => completionForm.completionPhotoStorageKeys.includes(k)
+              );
+              for (const key of keysToClean) {
+                try {
+                  const encodedKey = encodeURIComponent(key).replace(/%2F/g, '/');
+                  await fetch(`/api/tickets/${ticketId}/photos/${encodedKey}`, {
+                    method: 'DELETE',
+                    credentials: 'include',
+                  });
+                } catch { }
+              }
+              newlyUploadedKeysRef.current = [];
+              setShowCompletionFormDialog(false);
+            }}>
+              {t('common.cancel')}
+            </Button>
+            <Button
+              onClick={() => {
+                newlyUploadedKeysRef.current = [];
+                const payload: Record<string, unknown> = {
+                  workSummaryForCustomer: completionForm.workSummaryForCustomer || null,
+                  materialsUsed: completionForm.materialsUsed || null,
+                  areasWorked: completionForm.areasWorked || null,
+                  recommendations: completionForm.recommendations || null,
+                  internalCompletionNotes: completionForm.internalCompletionNotes || null,
+                  leadTechUserId: completionForm.leadTechUserId || null,
+                  crewMemberUserIds: completionForm.crewMemberUserIds,
+                  completionPhotoStorageKeys: completionForm.completionPhotoStorageKeys,
+                  followUpTicketId: completionForm.followUpTicketId || null,
+                };
+                if (completionForm.actualStartTime) payload.actualStartTime = completionForm.actualStartTime;
+                if (completionForm.actualEndTime) payload.actualEndTime = completionForm.actualEndTime;
+                saveCompletionDataMutation.mutate(payload);
+              }}
+              disabled={saveCompletionDataMutation.isPending}
+              data-testid="button-save-completion-data"
+            >
+              {saveCompletionDataMutation.isPending ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : null}
+              {t('common.save')}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Preview Email Dialog */}
+      <Dialog open={showPreviewDialog} onOpenChange={setShowPreviewDialog}>
+        <DialogContent className="sm:max-w-2xl max-h-[90vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>{t('ticketDetail.emailPreviewTitle')}</DialogTitle>
+            <DialogDescription>{t('ticketDetail.emailPreviewDescription')}</DialogDescription>
+          </DialogHeader>
+          <div className="border rounded-md overflow-hidden">
+            <iframe
+              title="Email Preview"
+              srcDoc={previewHtml}
+              className="w-full"
+              style={{ height: 500, border: 'none' }}
+              sandbox="allow-same-origin"
+              data-testid="iframe-email-preview"
+            />
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setShowPreviewDialog(false)}>{t('common.close')}</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>

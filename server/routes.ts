@@ -17,6 +17,7 @@ import { ObjectStorageService, ObjectNotFoundError, objectStorageClient, signObj
 import { ObjectPermission, ObjectAccessGroupType, setObjectAclPolicy } from "./objectAcl";
 import { processEmailEvent, resendEmail, sendEmail, getDefaultWorkCompletedTemplate, getDefaultChemicalPreNoticeTemplate, getDefaultChemicalPostNoticeTemplate, getDefaultChemicalTreatmentNotificationTemplate, buildChemicalNotificationVariables, formatTimeWindow, buildChemicalCompletionEmailVars, renderTemplate, renderChemicalEmail } from './services/emailService';
 import heicConvert from 'heic-convert';
+import multer from 'multer';
 import { renderVisualScope, renderVisualScopeExport, type ExportType, type ExportPreset } from "./visualScopeRenderer";
 import { ROLLUP_SERVICE_LABELS, campaignToRollupServiceType } from "../shared/serviceCatalog";
 import { buildContractAuditRows } from "./auditEngine";
@@ -1648,6 +1649,28 @@ export async function migrateCampaignItemsChemicalColumns(): Promise<void> {
     console.log("campaign_items chemical columns migration complete");
   } catch (error) {
     console.error("Error during campaign_items chemical columns migration:", error);
+  }
+}
+
+export async function migrateTicketCompletionFields(): Promise<void> {
+  console.log("Running startup migration: Ensuring ticket completion fields exist on tickets table...");
+  try {
+    await db.execute(sql`ALTER TABLE tickets ADD COLUMN IF NOT EXISTS completed_by_id varchar REFERENCES users(id) ON DELETE SET NULL`);
+    await db.execute(sql`ALTER TABLE tickets ADD COLUMN IF NOT EXISTS actual_start_time timestamp`);
+    await db.execute(sql`ALTER TABLE tickets ADD COLUMN IF NOT EXISTS actual_end_time timestamp`);
+    await db.execute(sql`ALTER TABLE tickets ADD COLUMN IF NOT EXISTS lead_tech_user_id varchar REFERENCES users(id) ON DELETE SET NULL`);
+    await db.execute(sql`ALTER TABLE tickets ADD COLUMN IF NOT EXISTS crew_member_user_ids text[] NOT NULL DEFAULT ARRAY[]::text[]`);
+    await db.execute(sql`ALTER TABLE tickets ADD COLUMN IF NOT EXISTS work_summary_for_customer text`);
+    await db.execute(sql`ALTER TABLE tickets ADD COLUMN IF NOT EXISTS materials_used text`);
+    await db.execute(sql`ALTER TABLE tickets ADD COLUMN IF NOT EXISTS areas_worked text`);
+    await db.execute(sql`ALTER TABLE tickets ADD COLUMN IF NOT EXISTS recommendations text`);
+    await db.execute(sql`ALTER TABLE tickets ADD COLUMN IF NOT EXISTS internal_completion_notes text`);
+    await db.execute(sql`ALTER TABLE tickets ADD COLUMN IF NOT EXISTS completion_photo_storage_keys text[] NOT NULL DEFAULT ARRAY[]::text[]`);
+    await db.execute(sql`ALTER TABLE tickets ADD COLUMN IF NOT EXISTS completion_email_sent_at timestamp`);
+    await db.execute(sql`ALTER TABLE tickets ADD COLUMN IF NOT EXISTS follow_up_ticket_id varchar REFERENCES tickets(id) ON DELETE SET NULL`);
+    console.log("Ticket completion fields migration complete");
+  } catch (error) {
+    console.error("Error during ticket completion fields migration:", error);
   }
 }
 
@@ -6220,6 +6243,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         
         if (newStatus?.isFinal === "true") {
           req.body.completedAt = new Date();
+          if (!req.body.completedByUserId) req.body.completedByUserId = user.id;
           
           // Create completion notification for main admin
           try {
@@ -6366,6 +6390,27 @@ export async function registerRoutes(app: Express): Promise<Server> {
             }
           }
         }
+      }
+    }
+
+    // Validate completion field business rules
+    if (req.body.actualStartTime && req.body.actualEndTime) {
+      const startMs = new Date(req.body.actualStartTime).getTime();
+      const endMs = new Date(req.body.actualEndTime).getTime();
+      if (endMs < startMs) {
+        return res.status(422).json({ error: "END_BEFORE_START", message: "Actual end time must be on or after the actual start time." });
+      }
+    }
+    if (req.body.leadTechUserId && Array.isArray(req.body.crewMemberUserIds) && req.body.crewMemberUserIds.includes(req.body.leadTechUserId)) {
+      return res.status(422).json({ error: "LEAD_IN_CREW", message: "The lead technician cannot also appear in the additional crew list." });
+    }
+    if (req.body.followUpTicketId) {
+      if (req.body.followUpTicketId === req.params.id) {
+        return res.status(422).json({ error: "SELF_FOLLOW_UP", message: "A ticket cannot reference itself as a follow-up ticket." });
+      }
+      const followUpCheck = await storage.getTicketById(req.body.followUpTicketId, user.activeCompanyId);
+      if (!followUpCheck) {
+        return res.status(422).json({ error: "INVALID_FOLLOW_UP", message: "Follow-up ticket not found or does not belong to this company." });
       }
     }
 
@@ -9316,7 +9361,26 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(400).send("Ticket has no customer — cannot send completion email");
       }
 
-      const ticketType = await storage.getTicketTypeById(ticket.typeId, user.activeCompanyId);
+      // Validate workSummaryForCustomer is present
+      const workSummary = (ticket.workSummaryForCustomer as string | null)?.trim();
+      if (!workSummary) {
+        return res.status(422).json({ error: "A customer-facing work recap is required before sending the completion email. Please fill in the 'Work Performed' field on the ticket." });
+      }
+
+      // 60-second debounce: always enforced regardless of resend flag
+      const resendOverride = req.body.resend === true;
+      if (ticket.completionEmailSentAt) {
+        const secondsAgo = (Date.now() - new Date(ticket.completionEmailSentAt as Date).getTime()) / 1000;
+        if (secondsAgo < 60) {
+          return res.status(409).json({ error: `Completion email was sent ${Math.round(secondsAgo)}s ago. Wait ${Math.round(60 - secondsAgo)}s before resending.` });
+        }
+        // After the debounce window, require explicit resend flag
+        if (!resendOverride) {
+          return res.status(409).json({ resendRequired: true, error: "Email was already sent. Pass resend: true to send again." });
+        }
+      }
+
+      const ticketType = await storage.getTicketTypeById(ticket.ticketTypeId, user.activeCompanyId);
       if (ticketType) {
         const statuses = await storage.getTicketTypeStatuses(ticketType.id, user.activeCompanyId);
         const currentStatus = statuses.find(s => s.id === ticket.currentStatusId);
@@ -9349,9 +9413,105 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
 
       const company = await storage.getCompanyById(user.activeCompanyId);
-      const completionDate = new Date().toLocaleDateString('en-US', {
+      const completionDate = (ticket.completedAt || ticket.workCompletedDate || new Date()).toLocaleDateString('en-US', {
         year: 'numeric', month: 'long', day: 'numeric'
       });
+
+      // Resolve lead tech name
+      let leadTechName = '';
+      if (ticket.leadTechUserId) {
+        const leadTech = await storage.getUserById(ticket.leadTechUserId);
+        if (leadTech) leadTechName = `${leadTech.firstName || ''} ${leadTech.lastName || ''}`.trim();
+      }
+      if (!leadTechName && ticket.assignedToId) {
+        const assignee = await storage.getUserById(ticket.assignedToId);
+        if (assignee) leadTechName = `${assignee.firstName || ''} ${assignee.lastName || ''}`.trim();
+      }
+
+      // Resolve crew member names with natural-language formatting
+      let crewSummary = '';
+      const crewIds: string[] = (ticket.crewMemberUserIds as string[] | null) || [];
+      if (crewIds.length > 0) {
+        const crewNames: string[] = [];
+        for (const uid of crewIds) {
+          const u = await storage.getUserById(uid);
+          if (u) crewNames.push(`${u.firstName || ''} ${u.lastName || ''}`.trim());
+        }
+        const validNames = crewNames.filter(Boolean);
+        if (validNames.length === 1) crewSummary = `With ${validNames[0]}`;
+        else if (validNames.length === 2) crewSummary = `With ${validNames[0]} and ${validNames[1]}`;
+        else if (validNames.length >= 3) crewSummary = `With ${validNames[0]}, ${validNames[1]}, and ${validNames.length - 2} more`;
+      } else if (!leadTechName) {
+        crewSummary = 'Solo';
+      }
+
+      // Build time-on-site string with required fallback forms
+      const fmtTime = (d: Date) => d.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true });
+      const fmtDuration = (mins: number) => {
+        if (mins >= 60) { const h = Math.floor(mins / 60); const m = mins % 60; return m > 0 ? `${h}h ${m}m` : `${h}h`; }
+        return `${mins}m`;
+      };
+      let timeOnSite = '';
+      if (ticket.actualStartTime && ticket.actualEndTime) {
+        const start = new Date(ticket.actualStartTime);
+        const end = new Date(ticket.actualEndTime);
+        const diffMins = Math.round((end.getTime() - start.getTime()) / 60000);
+        timeOnSite = `Arrived ${fmtTime(start)}, departed ${fmtTime(end)} (${fmtDuration(diffMins)})`;
+      } else if (ticket.completedAt || ticket.workCompletedDate) {
+        const done = new Date((ticket.completedAt || ticket.workCompletedDate) as Date);
+        const today = new Date();
+        const isToday = done.toDateString() === today.toDateString();
+        timeOnSite = isToday ? `Completed today at ${fmtTime(done)}` : `Completed ${done.toLocaleDateString('en-US', { month: 'long', day: 'numeric' })} at ${fmtTime(done)}`;
+      }
+
+      // Generate signed photo URLs for completion photos (7-day TTL for email recipients)
+      let completionPhotosHtml = '';
+      const photoKeys: string[] = (ticket.completionPhotoStorageKeys as string[] | null) || [];
+      if (photoKeys.length > 0) {
+        const objectStorageService = new ObjectStorageService();
+        const photoImgTags: string[] = [];
+        for (const key of photoKeys) {
+          try {
+            const file = await objectStorageService.getObjectEntityFile(key);
+            const bucketName = file.bucket.name;
+            const objectName = file.name;
+            const signedUrl = await signObjectURL({ bucketName, objectName, method: 'GET', ttlSec: 7 * 24 * 3600 });
+            photoImgTags.push(`<img src="${signedUrl}" alt="Completion photo" />`);
+          } catch {
+            // Skip photos that can't be signed
+          }
+        }
+        completionPhotosHtml = photoImgTags.join('');
+      }
+
+      // Resolve follow-up ticket info
+      let followUpTitle = '';
+      let followUpDetails = '';
+      if (ticket.followUpTicketId) {
+        const followUp = await storage.getTicketById(ticket.followUpTicketId, user.activeCompanyId);
+        if (followUp) {
+          followUpTitle = followUp.title;
+          followUpDetails = followUp.description || '';
+        }
+      }
+
+      // Ticket number / reference
+      const ticketNumber = `#${ticket.id.slice(0, 6).toUpperCase()}`;
+
+      // Service category label (ticket type name), fallback to "Service visit"
+      let serviceCategory = 'Service visit';
+      if (ticket.ticketTypeId) {
+        const ttype = await storage.getTicketTypeById(ticket.ticketTypeId, user.activeCompanyId);
+        if (ttype?.name) serviceCategory = ttype.name;
+      }
+
+      // Contact email/phone for footer
+      const contacts = await storage.getContactsByCustomerId(ticket.customerId!, user.activeCompanyId);
+      const primaryContact = contacts.find(c => c.isPrimary === "true") || contacts[0];
+      const contactEmail = primaryContact?.emails?.[0] || '';
+      const contactPhone = primaryContact?.phone || '';
+
+      const workSummaryForCustomer = (ticket.workSummaryForCustomer as string | null) || ticket.description || ticket.title;
 
       const allResults: any[] = [];
       for (const toEmail of toEmails) {
@@ -9361,6 +9521,21 @@ export async function registerRoutes(app: Express): Promise<Server> {
           companyName: company?.name || 'Property Maintenance',
           completionDate,
           ticketDescription: ticket.description || '',
+          workSummaryForCustomer,
+          materialsUsed: (ticket.materialsUsed as string | null) || '',
+          areasWorked: (ticket.areasWorked as string | null) || '',
+          recommendations: (ticket.recommendations as string | null) || '',
+          leadTechName,
+          crewSummary,
+          timeOnSite,
+          completionPhotosHtml,
+          scopeItemsHtml: '',
+          followUpTitle,
+          followUpDetails,
+          ticketNumber,
+          serviceCategory,
+          contactEmail,
+          contactPhone,
         }, {
           customerId: ticket.customerId,
           ticketId: ticket.id,
@@ -9368,6 +9543,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
           sentById: user.id,
         });
         allResults.push(...results);
+      }
+
+      // Record when the completion email was sent
+      if (allResults.length > 0) {
+        await storage.updateTicket(ticket.id, user.activeCompanyId, {
+          completionEmailSentAt: new Date(),
+        });
       }
 
       if (allResults.length === 0) {
@@ -9378,6 +9560,268 @@ export async function registerRoutes(app: Express): Promise<Server> {
     } catch (err: any) {
       console.error("Failed to send completion email:", err);
       res.status(500).send("Failed to send completion email");
+    }
+  });
+
+  // Get signed URLs for completion photos on a ticket (7-day TTL)
+  app.get("/api/tickets/:id/photo-urls", async (req, res) => {
+    if (!req.isAuthenticated()) return res.status(401).send("Not authenticated");
+    const user = req.user as UserWithContext;
+    try {
+      const ticket = await storage.getTicketById(req.params.id, user.activeCompanyId);
+      if (!ticket) return res.status(404).send("Ticket not found");
+      const photoKeys: string[] = (ticket.completionPhotoStorageKeys as string[] | null) || [];
+      const objectStorageService = new ObjectStorageService();
+      const urls: { key: string; url: string }[] = [];
+      for (const key of photoKeys) {
+        try {
+          const file = await objectStorageService.getObjectEntityFile(key);
+          const url = await signObjectURL({ bucketName: file.bucket.name, objectName: file.name, method: 'GET', ttlSec: 7 * 24 * 3600 });
+          urls.push({ key, url });
+        } catch {
+          // Skip files that can't be found
+        }
+      }
+      res.json(urls);
+    } catch (err: any) {
+      console.error("Failed to get completion photo URLs:", err);
+      res.status(500).send("Failed to get completion photo URLs");
+    }
+  });
+
+  // Upload completion photos (up to 6 files per request) — validates MIME, strips EXIF, resizes, stores in GCS
+  const completionPhotoUpload = multer({
+    storage: multer.memoryStorage(),
+    limits: { fileSize: 20 * 1024 * 1024, files: 6 },
+  });
+
+  app.post(
+    "/api/tickets/:id/photos",
+    completionPhotoUpload.array("files", 6),
+    async (req: any, res: any) => {
+      if (!req.isAuthenticated()) return res.status(401).send("Not authenticated");
+      const user = req.user as UserWithContext;
+      if (user.activeRole === "field") return res.status(403).send("Insufficient permissions");
+      try {
+        const ticket = await storage.getTicketById(req.params.id, user.activeCompanyId);
+        if (!ticket) return res.status(404).send("Ticket not found");
+
+        const photoKeys: string[] = (ticket.completionPhotoStorageKeys as string[] | null) || [];
+        const incomingFiles: Express.Multer.File[] = Array.isArray(req.files) ? req.files : (req.file ? [req.file] : []);
+        if (incomingFiles.length === 0) return res.status(400).send("No files provided");
+        if (photoKeys.length + incomingFiles.length > 6) {
+          return res.status(422).send("Maximum of 6 completion photos allowed per ticket");
+        }
+
+        const bucketId = process.env.DEFAULT_OBJECT_STORAGE_BUCKET_ID;
+        if (!bucketId) return res.status(500).send("Object storage not configured");
+
+        const { v4: uuidv4 } = await import('uuid');
+        const sharp = (await import('sharp')).default;
+        const newKeys: string[] = [];
+
+        for (const uploadedFile of incomingFiles) {
+          let buf: Buffer = uploadedFile.buffer;
+
+          // Magic-byte MIME validation
+          const magic = buf.subarray(0, 12);
+          const isJpeg = magic[0] === 0xff && magic[1] === 0xd8 && magic[2] === 0xff;
+          const isPng = magic[0] === 0x89 && magic[1] === 0x50 && magic[2] === 0x4e && magic[3] === 0x47;
+          const isHeic = magic[4] === 0x66 && magic[5] === 0x74 && magic[6] === 0x79 && magic[7] === 0x70;
+          const isWebp = magic[8] === 0x57 && magic[9] === 0x45 && magic[10] === 0x42 && magic[11] === 0x50;
+          if (!isJpeg && !isPng && !isHeic && !isWebp) {
+            return res.status(422).send("Invalid file type — only JPEG, PNG, WebP, and HEIC are accepted");
+          }
+
+          // Convert HEIC to JPEG
+          if (isHeic) {
+            buf = Buffer.from(await heicConvert({ buffer: buf, format: 'JPEG', quality: 0.85 }));
+          }
+
+          // Resize to max 1600px on longest edge, strip all EXIF/GPS metadata via sharp.
+          // Sharp strips metadata by default (do NOT call .withMetadata() — that would preserve it).
+          // .rotate() uses EXIF orientation to correct angle, then the EXIF is not written to output.
+          buf = await sharp(buf)
+            .rotate()                            // auto-orient from EXIF; EXIF not preserved in output
+            .resize({ width: 1600, height: 1600, fit: 'inside', withoutEnlargement: true })
+            .jpeg({ quality: 85 })              // encode to JPEG without metadata (Sharp default)
+            .toBuffer();
+
+          // Store in required namespace: ticket-photos/{companyId}/{ticketId}/{uuid}.jpg
+          const objectName = `ticket-photos/${user.activeCompanyId}/${req.params.id}/${uuidv4()}.jpg`;
+          const bucket = objectStorageClient.bucket(bucketId);
+          const file = bucket.file(objectName);
+          await file.save(buf, { contentType: 'image/jpeg', resumable: false });
+          newKeys.push(objectName);
+        }
+
+        const updated = [...photoKeys, ...newKeys];
+        await storage.updateTicket(req.params.id, user.activeCompanyId, { completionPhotoStorageKeys: updated });
+
+        res.json({ objectPaths: newKeys, completionPhotoStorageKeys: updated });
+      } catch (err: any) {
+        console.error("Failed to upload completion photo:", err);
+        res.status(500).send("Failed to upload photo");
+      }
+    }
+  );
+
+  // Delete a completion photo — removes from GCS and from the ticket's array
+  app.delete("/api/tickets/:id/photos/:storageKey(*)", async (req, res) => {
+    if (!req.isAuthenticated()) return res.status(401).send("Not authenticated");
+    const user = req.user as UserWithContext;
+    if (user.activeRole === "field") return res.status(403).send("Insufficient permissions");
+    try {
+      const ticket = await storage.getTicketById(req.params.id, user.activeCompanyId);
+      if (!ticket) return res.status(404).send("Ticket not found");
+      const keyToRemove = req.params.storageKey;
+      // Validate this key belongs to this ticket (scoped path check)
+      const existing: string[] = (ticket.completionPhotoStorageKeys as string[] | null) || [];
+      if (!existing.includes(keyToRemove)) {
+        return res.status(404).send("Photo not found on this ticket");
+      }
+      // Delete from GCS
+      const bucketId = process.env.DEFAULT_OBJECT_STORAGE_BUCKET_ID;
+      if (bucketId) {
+        try {
+          const bucket = objectStorageClient.bucket(bucketId);
+          await bucket.file(keyToRemove).delete({ ignoreNotFound: true });
+        } catch (deleteErr) {
+          console.warn("GCS delete failed (non-fatal):", deleteErr);
+        }
+      }
+      const updated = existing.filter((k: string) => k !== keyToRemove);
+      await storage.updateTicket(req.params.id, user.activeCompanyId, { completionPhotoStorageKeys: updated });
+      res.json({ completionPhotoStorageKeys: updated });
+    } catch (err: any) {
+      console.error("Failed to delete completion photo:", err);
+      res.status(500).send("Failed to delete completion photo");
+    }
+  });
+
+  // Preview the completion email HTML without sending (no side effects)
+  app.post("/api/tickets/:id/preview-completion-email", async (req, res) => {
+    if (!req.isAuthenticated()) return res.status(401).send("Not authenticated");
+    const user = req.user as UserWithContext;
+    if (user.activeRole === "field") return res.status(403).send("Insufficient permissions");
+    try {
+      const ticket = await storage.getTicketById(req.params.id, user.activeCompanyId);
+      if (!ticket) return res.status(404).send("Ticket not found");
+      if (!ticket.customerId) return res.status(400).send("Ticket has no customer");
+
+      const customer = await storage.getCustomerById(ticket.customerId, user.activeCompanyId);
+      const company = await storage.getCompanyById(user.activeCompanyId);
+      const completionDate = (ticket.completedAt || ticket.workCompletedDate || new Date()).toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' });
+
+      let leadTechName = '';
+      if (ticket.leadTechUserId) {
+        const u = await storage.getUserById(ticket.leadTechUserId as string);
+        if (u) leadTechName = `${u.firstName || ''} ${u.lastName || ''}`.trim();
+      }
+      if (!leadTechName && ticket.assignedToId) {
+        const u = await storage.getUserById(ticket.assignedToId);
+        if (u) leadTechName = `${u.firstName || ''} ${u.lastName || ''}`.trim();
+      }
+
+      const crewIds: string[] = (ticket.crewMemberUserIds as string[] | null) || [];
+      let crewSummary = '';
+      if (crewIds.length > 0) {
+        const names: string[] = [];
+        for (const uid of crewIds) {
+          const u = await storage.getUserById(uid);
+          if (u) names.push(`${u.firstName || ''} ${u.lastName || ''}`.trim());
+        }
+        const validNames = names.filter(Boolean);
+        if (validNames.length === 1) crewSummary = `With ${validNames[0]}`;
+        else if (validNames.length === 2) crewSummary = `With ${validNames[0]} and ${validNames[1]}`;
+        else if (validNames.length >= 3) crewSummary = `With ${validNames[0]}, ${validNames[1]}, and ${validNames.length - 2} more`;
+      } else if (!leadTechName) {
+        crewSummary = 'Solo';
+      }
+
+      const _fmtTime = (d: Date) => d.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true });
+      const _fmtDur = (mins: number) => { if (mins >= 60) { const h = Math.floor(mins / 60); const m = mins % 60; return m > 0 ? `${h}h ${m}m` : `${h}h`; } return `${mins}m`; };
+      let timeOnSite = '';
+      if (ticket.actualStartTime && ticket.actualEndTime) {
+        const start = new Date(ticket.actualStartTime);
+        const end = new Date(ticket.actualEndTime);
+        const diffMins = Math.round((end.getTime() - start.getTime()) / 60000);
+        timeOnSite = `Arrived ${_fmtTime(start)}, departed ${_fmtTime(end)} (${_fmtDur(diffMins)})`;
+      } else if (ticket.completedAt || ticket.workCompletedDate) {
+        const done = new Date((ticket.completedAt || ticket.workCompletedDate) as Date);
+        const today = new Date();
+        const isToday = done.toDateString() === today.toDateString();
+        timeOnSite = isToday ? `Completed today at ${_fmtTime(done)}` : `Completed ${done.toLocaleDateString('en-US', { month: 'long', day: 'numeric' })} at ${_fmtTime(done)}`;
+      }
+
+      let completionPhotosHtml = '';
+      const photoKeys: string[] = (ticket.completionPhotoStorageKeys as string[] | null) || [];
+      if (photoKeys.length > 0) {
+        const objectStorageService = new ObjectStorageService();
+        const imgs: string[] = [];
+        for (const key of photoKeys) {
+          try {
+            const file = await objectStorageService.getObjectEntityFile(key);
+            const url = await signObjectURL({ bucketName: file.bucket.name, objectName: file.name, method: 'GET', ttlSec: 7 * 24 * 3600 });
+            imgs.push(`<img src="${url}" alt="Completion photo" />`);
+          } catch { }
+        }
+        completionPhotosHtml = imgs.join('');
+      }
+
+      let followUpTitle = '';
+      let followUpDetails = '';
+      if (ticket.followUpTicketId) {
+        const fu = await storage.getTicketById(ticket.followUpTicketId as string, user.activeCompanyId);
+        if (fu) { followUpTitle = fu.title; followUpDetails = fu.description || ''; }
+      }
+
+      const contacts = await storage.getContactsByCustomerId(ticket.customerId, user.activeCompanyId);
+      const primaryContact = contacts.find(c => c.isPrimary === "true") || contacts[0];
+      let serviceCategory = 'Service visit';
+      if (ticket.ticketTypeId) {
+        const tt = await storage.getTicketTypeById(ticket.ticketTypeId, user.activeCompanyId);
+        if (tt?.name) serviceCategory = tt.name;
+      }
+
+      const { substituteVariables } = await import('./services/emailService');
+      // Use DB template if available (matches what actual send uses), fall back to default
+      let htmlBody = getDefaultWorkCompletedTemplate().htmlBody;
+      const rules = await storage.getEmailRulesByEvent('ticket.work_completed', user.activeCompanyId);
+      if (rules.length > 0) {
+        const dbTemplate = await storage.getEmailTemplateById(rules[0].templateId, user.activeCompanyId);
+        if (dbTemplate?.isActive && dbTemplate.htmlBody) {
+          htmlBody = dbTemplate.htmlBody;
+        }
+      }
+      const variables: Record<string, string> = {
+        ticketTitle: ticket.title,
+        customerName: customer?.name || '',
+        companyName: company?.name || 'Property Maintenance',
+        completionDate,
+        ticketDescription: ticket.description || '',
+        workSummaryForCustomer: (ticket.workSummaryForCustomer as string | null) || ticket.description || ticket.title,
+        materialsUsed: (ticket.materialsUsed as string | null) || '',
+        areasWorked: (ticket.areasWorked as string | null) || '',
+        recommendations: (ticket.recommendations as string | null) || '',
+        leadTechName,
+        crewSummary,
+        timeOnSite,
+        completionPhotosHtml,
+        scopeItemsHtml: '',
+        followUpTitle,
+        followUpDetails,
+        ticketNumber: `#${ticket.id.slice(0, 6).toUpperCase()}`,
+        serviceCategory,
+        contactEmail: primaryContact?.emails?.[0] || '',
+        contactPhone: primaryContact?.phone || '',
+      };
+      const html = substituteVariables(htmlBody, variables);
+      res.set('Content-Type', 'text/html');
+      res.send(html);
+    } catch (err: any) {
+      console.error("Failed to preview completion email:", err);
+      res.status(500).send("Failed to preview completion email");
     }
   });
 
@@ -9418,6 +9862,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
         });
         
         console.log(`Seeded default email template and rule for company ${companyId}`);
+      } else {
+        // Always upsert the HTML body and subject so existing companies get the latest template
+        const defaultTemplate = getDefaultWorkCompletedTemplate();
+        await storage.updateEmailTemplate(existing.id, companyId, {
+          htmlBody: defaultTemplate.htmlBody,
+          textBody: defaultTemplate.textBody,
+          subject: defaultTemplate.subject,
+        });
       }
 
       // Chemical email templates: delegated to registry-based seeder in server/templates/seed.ts

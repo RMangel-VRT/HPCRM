@@ -66,8 +66,21 @@ export function renderTemplate(template: string, variables: Record<string, strin
   return result.replace(/\{\{(\w+)\}\}/g, (_, key) => variables[key] || '');
 }
 
-function substituteVariables(template: string, variables: Record<string, string>): string {
-  return renderTemplate(template, variables);
+export function substituteVariables(template: string, variables: Record<string, string>): string {
+  let result = template;
+  // Iteratively resolve {{#if varName}}...{{/if}} blocks from innermost out.
+  // Each pass resolves the deepest remaining blocks; repeat until stable.
+  let prev: string;
+  do {
+    prev = result;
+    result = result.replace(/\{\{#if (\w+)\}\}([\s\S]*?)\{\{\/if\}\}/g, (_, key, inner) => {
+      const val = variables[key];
+      return (val && val.trim()) ? inner : '';
+    });
+  } while (result !== prev);
+  // Then substitute simple {{variable}} tokens
+  result = result.replace(/\{\{(\w+)\}\}/g, (_, key) => variables[key] || '');
+  return result;
 }
 
 export async function sendEmail(
@@ -219,56 +232,120 @@ export function getDefaultWorkCompletedTemplate() {
 <html>
 <head>
   <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <style>
     body { font-family: Arial, sans-serif; margin: 0; padding: 0; background-color: #f4f4f4; }
     .container { max-width: 600px; margin: 0 auto; background: #ffffff; }
     .header { background-color: #1a5632; padding: 24px; text-align: center; }
-    .header h1 { color: #ffffff; margin: 0; font-size: 22px; }
+    .header h1 { color: #ffffff; margin: 0; font-size: 22px; letter-spacing: 0.5px; }
+    .header p { color: #a7d7b0; margin: 6px 0 0; font-size: 14px; }
     .content { padding: 32px 24px; }
-    .content h2 { color: #1a5632; margin-top: 0; }
-    .detail-row { padding: 8px 0; border-bottom: 1px solid #e5e7eb; }
-    .detail-label { color: #6b7280; font-size: 13px; text-transform: uppercase; }
-    .detail-value { color: #111827; font-size: 15px; margin-top: 2px; }
-    .footer { padding: 16px 24px; background-color: #f9fafb; text-align: center; font-size: 12px; color: #9ca3af; }
+    .section-label { font-size: 11px; font-weight: 700; letter-spacing: 1px; text-transform: uppercase; color: #6b7280; margin: 20px 0 6px; }
+    .section-value { color: #111827; font-size: 15px; line-height: 1.5; white-space: pre-wrap; }
+    .divider { border: none; border-top: 1px solid #e5e7eb; margin: 16px 0; }
+    .summary-box { background: #f0fdf4; border: 1px solid #bbf7d0; border-radius: 6px; padding: 16px 20px; margin: 0 0 20px; }
+    .summary-box p { margin: 0; color: #166534; font-size: 15px; line-height: 1.6; white-space: pre-wrap; }
+    .ref-box { background: #f9fafb; border-radius: 6px; padding: 12px 16px; margin-top: 20px; }
+    .ref-box .ref-row { display: flex; font-size: 13px; margin: 3px 0; }
+    .ref-box .ref-label { color: #6b7280; width: 130px; flex-shrink: 0; }
+    .ref-box .ref-value { color: #111827; font-weight: 500; }
+    .photos-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin-top: 8px; }
+    .photos-grid img { width: 100%; height: 140px; object-fit: cover; border-radius: 4px; border: 1px solid #e5e7eb; }
+    .followup-box { background: #eff6ff; border: 1px solid #bfdbfe; border-radius: 6px; padding: 12px 16px; margin-top: 8px; }
+    .followup-box p { margin: 4px 0; font-size: 13px; }
+    .followup-title { font-weight: 600; color: #1d4ed8; }
+    .footer { padding: 20px 24px; background-color: #f9fafb; text-align: center; font-size: 12px; color: #9ca3af; border-top: 1px solid #e5e7eb; }
+    .footer a { color: #6b7280; }
+    h2 { color: #1a5632; margin: 0 0 8px; font-size: 20px; }
+    .crew-line { font-size: 14px; color: #374151; margin-top: 4px; }
   </style>
 </head>
 <body>
   <div class="container">
     <div class="header">
       <h1>{{companyName}}</h1>
+      <p>Work Completion Report</p>
     </div>
     <div class="content">
       <h2>Work Completed</h2>
-      <p>The following work has been completed at your property:</p>
-      <div class="detail-row">
-        <div class="detail-label">Work Description</div>
-        <div class="detail-value">{{ticketTitle}}</div>
+      <p style="color:#374151;font-size:14px;margin:0 0 16px;">The following service has been completed at your property.</p>
+
+      <div class="section-label">Work Performed</div>
+      <div class="summary-box">
+        <p>{{workSummaryForCustomer}}</p>
       </div>
-      <div class="detail-row">
-        <div class="detail-label">Property</div>
-        <div class="detail-value">{{customerName}}</div>
-      </div>
-      <div class="detail-row">
-        <div class="detail-label">Completed On</div>
-        <div class="detail-value">{{completionDate}}</div>
-      </div>
-      {{#if ticketDescription}}
-      <div class="detail-row">
-        <div class="detail-label">Details</div>
-        <div class="detail-value">{{ticketDescription}}</div>
-      </div>
+
+      {{#if scopeItemsHtml}}
+      <div class="section-label">Scope of Work</div>
+      <div class="section-value">{{scopeItemsHtml}}</div>
+      <hr class="divider">
       {{/if}}
-      <p style="margin-top: 24px; color: #6b7280; font-size: 13px;">
-        If you have any questions about this work, please contact us.
+
+      {{#if materialsUsed}}
+      <div class="section-label">Materials Used</div>
+      <div class="section-value">{{materialsUsed}}</div>
+      <hr class="divider">
+      {{/if}}
+
+      {{#if areasWorked}}
+      <div class="section-label">Areas Worked</div>
+      <div class="section-value">{{areasWorked}}</div>
+      <hr class="divider">
+      {{/if}}
+
+      {{#if completionPhotosHtml}}
+      <div class="section-label">Site Photos</div>
+      <div class="photos-grid">{{completionPhotosHtml}}</div>
+      <hr class="divider">
+      {{/if}}
+
+      {{#if recommendations}}
+      <div class="section-label">Observations &amp; Recommendations</div>
+      <div class="section-value">{{recommendations}}</div>
+      <hr class="divider">
+      {{/if}}
+
+      <div class="section-label">Crew On Site</div>
+      <div class="section-value">{{leadTechName}}</div>
+      {{#if crewSummary}}
+      <div class="crew-line">{{crewSummary}}</div>
+      {{/if}}
+      <hr class="divider">
+
+      {{#if followUpTitle}}
+      <div class="section-label">Next Steps</div>
+      <div class="followup-box">
+        <p class="followup-title">{{followUpTitle}}</p>
+        {{#if followUpDetails}}
+        <p style="color:#374151;">{{followUpDetails}}</p>
+        {{/if}}
+      </div>
+      <hr class="divider">
+      {{/if}}
+
+      <div class="ref-box">
+        <div class="ref-row"><span class="ref-label">Property</span><span class="ref-value">{{customerName}}</span></div>
+        <div class="ref-row"><span class="ref-label">Service</span><span class="ref-value">{{serviceCategory}}</span></div>
+        <div class="ref-row"><span class="ref-label">Completed</span><span class="ref-value">{{completionDate}}</span></div>
+        {{#if timeOnSite}}
+        <div class="ref-row"><span class="ref-label">Time on Site</span><span class="ref-value">{{timeOnSite}}</span></div>
+        {{/if}}
+        <div class="ref-row"><span class="ref-label">Reference #</span><span class="ref-value">{{ticketNumber}}</span></div>
+      </div>
+
+      <p style="margin-top:20px;color:#6b7280;font-size:13px;">
+        If you have any questions about this work, please contact us at
+        {{#if contactEmail}}<a href="mailto:{{contactEmail}}" style="color:#1a5632;">{{contactEmail}}</a>{{/if}}
+        {{#if contactPhone}} or {{contactPhone}}{{/if}}.
       </p>
     </div>
     <div class="footer">
-      <p>{{companyName}} - Property Maintenance Services</p>
+      <p>{{companyName}} &mdash; Property Maintenance Services</p>
     </div>
   </div>
 </body>
 </html>`,
-    textBody: `Work Completed: {{ticketTitle}}\n\nThe following work has been completed at your property:\n\nWork: {{ticketTitle}}\nProperty: {{customerName}}\nCompleted On: {{completionDate}}\n\nIf you have any questions about this work, please contact us.\n\n{{companyName}} - Property Maintenance Services`,
+    textBody: `Work Completed: {{ticketTitle}}\n\nThe following service has been completed at your property.\n\nWork Performed:\n{{workSummaryForCustomer}}\n\nProperty: {{customerName}}\nService: {{serviceCategory}}\nCompleted: {{completionDate}}\nLead Tech: {{leadTechName}}\nReference: {{ticketNumber}}\n\nIf you have any questions, please contact us.\n\n{{companyName}} - Property Maintenance Services`,
     category: 'transactional' as const,
     isActive: true,
   };
