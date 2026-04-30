@@ -6,6 +6,15 @@ import { storage } from '../storage';
 import type { EmailLog, InsertEmailLog, EmailRule, CampaignItem, ChemicalProduct } from '@shared/schema';
 import { getEmailFallbacks, formatTimeWindowWithFallback } from '../i18n/emailFallbacks';
 
+function loadTemplateFile(filename: string): string | null {
+  try {
+    return readFileSync(join(__dirname, '../templates', filename), 'utf-8');
+  } catch {
+    return null;
+  }
+}
+
+
 let connectionSettings: any;
 
 async function getCredentials() {
@@ -384,15 +393,6 @@ export function getDefaultChemicalPreNoticeTemplate() {
   };
 }
 
-function loadTemplateFile(fileName: string): string | null {
-  try {
-    const templatePath = join(process.cwd(), 'server', 'templates', fileName);
-    return readFileSync(templatePath, 'utf-8');
-  } catch {
-    return null;
-  }
-}
-
 export function getDefaultChemicalPostNoticeTemplate() {
   // NOTE: Use {{{tripleStash}}} for variables containing raw HTML (photos, HTML fragments, etc.). Plain {{var}} HTML-escapes its value.
   const htmlBody =
@@ -564,15 +564,10 @@ export function renderChemicalEmail(
     'completion': 'chemical-treatment-completion.html',
   };
   const fileName = fileMap[context];
-  const templatePath = join(process.cwd(), 'server', 'templates', fileName);
-  let template: string;
-  try {
-    template = readFileSync(templatePath, 'utf-8');
-  } catch {
-    // Inline fallback if disk file is missing
-    template = context === 'pre-visit'
+  const template = loadTemplateFile(fileName) ?? (
+    context === 'pre-visit'
       ? `<p>{{companyName}} — Upcoming Chemical Treatment for {{customerName}}. Scheduled: {{windowStart}} - {{windowEnd}}.</p>`
-      : `<p>{{companyName}} — Chemical Treatment Completed for {{customerName}} on {{completionDate}}.</p>`;
-  }
+      : `<p>{{companyName}} — Chemical Treatment Completed for {{customerName}} on {{completionDate}}.</p>`
+  );
   return renderTemplate(template, vars);
 }
