@@ -48,12 +48,7 @@ app.use((req, res, next) => {
 (async () => {
   const server = await registerRoutes(app);
 
-  // Startup migrations are gated behind RUN_STARTUP_MIGRATIONS=true.
-  // In production, run `RUN_STARTUP_MIGRATIONS=true node dist/index.js` once
-  // after each deployment, or use `npx tsx scripts/run-migrations.ts` for SQL migrations.
-  if (process.env.RUN_STARTUP_MIGRATIONS === "true") {
-    await runStartupMigrations();
-  }
+  await runStartupMigrations();
 
   app.use((err: any, _req: Request, res: Response, _next: NextFunction) => {
     const status = err.status || err.statusCode || 500;

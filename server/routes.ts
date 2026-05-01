@@ -15090,6 +15090,8 @@ export async function migrateEmailTrackingTables(): Promise<void> {
  * directly from scripts/run-migrations.ts for one-off deployment runs.
  */
 export async function runStartupMigrations(): Promise<void> {
+  // Run column-adding migrations first so later migrations that query those columns don't fail
+  await migrateTicketCompletionFields();
   await migrateProjectSchedulingStatus();
   await migrateFirstBankHierarchy();
   await migrateExtraBillableTicketType();
@@ -15126,5 +15128,4 @@ export async function runStartupMigrations(): Promise<void> {
   await migrateChemicalProductsTable();
   await migrateCampaignItemsCompletionColumns();
   await migrateUserApplicatorFields();
-  await migrateTicketCompletionFields();
 }

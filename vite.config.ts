@@ -37,9 +37,6 @@ export default defineConfig({
           if (id.includes("node_modules/mapbox-gl") || id.includes("node_modules/@mapbox")) {
             return "vendor-mapbox";
           }
-          if (id.includes("node_modules/recharts") || id.includes("node_modules/d3-") || id.includes("node_modules/victory")) {
-            return "vendor-charts";
-          }
           if (id.includes("node_modules/pdf-lib") || id.includes("node_modules/pdfkit") || id.includes("node_modules/@pdf-lib")) {
             return "vendor-pdf";
           }
