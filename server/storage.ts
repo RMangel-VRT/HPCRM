@@ -210,6 +210,7 @@ export interface IStorage {
   markNotificationRead(id: string, userId: string): Promise<TicketNotification | undefined>;
   markAllNotificationsRead(userId: string, companyId: string): Promise<void>;
   getNotificationsWithDueDateType(ticketId: string, type: NotificationType): Promise<TicketNotification[]>;
+  dismissDueDateNotificationsForTicket(ticketId: string): Promise<void>;
   
   // Property Management Companies
   getPropertyManagementCompanies(companyId: string): Promise<PropertyManagementCompany[]>;
@@ -2220,6 +2221,16 @@ export class PgStorage implements IStorage {
   async getNotificationsWithDueDateType(ticketId: string, type: NotificationType): Promise<TicketNotification[]> {
     return await db.select().from(ticketNotifications)
       .where(and(eq(ticketNotifications.ticketId, ticketId), eq(ticketNotifications.type, type)));
+  }
+
+  async dismissDueDateNotificationsForTicket(ticketId: string): Promise<void> {
+    await db.update(ticketNotifications)
+      .set({ isRead: true })
+      .where(and(
+        eq(ticketNotifications.ticketId, ticketId),
+        inArray(ticketNotifications.type, ["overdue", "due_today", "due_tomorrow"]),
+        eq(ticketNotifications.isRead, false)
+      ));
   }
 
   // Property Management Companies

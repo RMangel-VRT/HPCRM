@@ -6424,6 +6424,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
                       changedById: user.id,
                       notes: `Auto-advanced: linked Invoice ticket completed`,
                     });
+
+                    // Dismiss stale due-date notifications for the parent ticket
+                    await storage.dismissDueDateNotificationsForTicket(parentTicket.id).catch(err => {
+                      console.error("Failed to dismiss due-date notifications for parent ticket:", err);
+                    });
                     
                     console.log(`Auto-advanced parent ticket ${parentTicket.id} (${parentTicketType?.name}) to "${nextFinalStatus.name}" after Invoice completion`);
                   }
@@ -6527,7 +6532,40 @@ export async function registerRoutes(app: Express): Promise<Server> {
     const isBeingAssigned = assignmentChanged && newAssigneeId;
 
     const ticket = await storage.updateTicket(req.params.id, user.activeCompanyId, result.data);
-    
+
+    // Dismiss stale due-date notifications when the due date is extended to a strictly
+    // future date (tomorrow or later) or when the ticket moves to a final (resolved) status
+    try {
+      const today = new Date();
+      today.setHours(0, 0, 0, 0);
+      const todayEnd = new Date(today.getTime() + 24 * 60 * 60 * 1000 - 1);
+
+      // Only fire when dueDate was explicitly included in the update payload,
+      // the new value is strictly in the future (tomorrow or later), and it
+      // actually differs from the existing due date.
+      let dueDateExtendedToFuture = false;
+      if (result.data.dueDate !== undefined && result.data.dueDate !== null) {
+        const newDueDate = new Date(result.data.dueDate as string | Date);
+        const oldDueDate = existingTicket.dueDate ? new Date(String(existingTicket.dueDate)) : null;
+        const dueDateActuallyChanged = !oldDueDate || newDueDate.getTime() !== oldDueDate.getTime();
+        dueDateExtendedToFuture = dueDateActuallyChanged && newDueDate > todayEnd;
+      }
+
+      let resolvedToFinalStatus = false;
+      if (req.body.currentStatusId && req.body.currentStatusId !== existingTicket.currentStatusId) {
+        const allTicketStatuses = await storage.getTicketTypeStatuses(existingTicket.ticketTypeId);
+        const updatedStatus = allTicketStatuses.find(s => s.id === req.body.currentStatusId);
+        resolvedToFinalStatus = updatedStatus?.isFinal === "true";
+      }
+
+      if (dueDateExtendedToFuture || resolvedToFinalStatus) {
+        await storage.dismissDueDateNotificationsForTicket(req.params.id);
+        console.log(`Dismissed due-date notifications for ticket ${req.params.id} (dueDateExtendedToFuture=${dueDateExtendedToFuture}, resolvedToFinalStatus=${resolvedToFinalStatus})`);
+      }
+    } catch (err) {
+      console.error("Failed to dismiss due-date notifications:", err);
+    }
+
     // Create notification for ticket assignment/reassignment
     if (isBeingAssigned) {
       try {
@@ -6809,6 +6847,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
                 currentStatusId: closedLostStatus.id,
                 completedAt: new Date(),
               });
+              await storage.dismissDueDateNotificationsForTicket(ticket.id).catch(err => {
+                console.error("Failed to dismiss due-date notifications on Project denial:", err);
+              });
               console.log(`Auto-transitioned Project ${ticket.id} to "Closed - Lost" after denial`);
             }
           }
@@ -6828,6 +6869,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
               await storage.updateTicket(ticket.id, user.activeCompanyId, {
                 currentStatusId: closedLostStatus.id,
                 completedAt: new Date(),
+              });
+              await storage.dismissDueDateNotificationsForTicket(ticket.id).catch(err => {
+                console.error("Failed to dismiss due-date notifications on RFP loss:", err);
               });
               console.log(`Auto-transitioned RFP Request ${ticket.id} to "Closed - Lost" after lost decision`);
             }
