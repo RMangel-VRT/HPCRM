@@ -84,7 +84,7 @@ export default function SettingsPage() {
   const isAdmin = currentUser?.activeRole === "admin" || currentUser?.isSuperAdminBool;
   const validTabs = [
     'company', 'seasons', 'benchmarks', 'property-management', 'features',
-    'email-templates', 'billing', 'service-plans', 'chemical-products',
+    'email-templates', 'billing', 'service-plans', 'chemical-products', 'notification-templates',
   ];
   const getDefaultTab = () => {
     const pathSegments = location.split('?')[0].split('/').filter(Boolean);
@@ -518,6 +518,9 @@ export default function SettingsPage() {
           )}
           {isAdmin && (
             <TabsTrigger value="chemical-products" data-testid="tab-chemical-products">{t("chemicalProducts.title")}</TabsTrigger>
+          )}
+          {isAdmin && (
+            <TabsTrigger value="notification-templates" data-testid="tab-notification-templates">Notification Templates</TabsTrigger>
           )}
         </TabsList>
 
