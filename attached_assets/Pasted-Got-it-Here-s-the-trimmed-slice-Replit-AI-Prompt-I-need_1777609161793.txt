@@ -1,0 +1,49 @@
+Got it. Here's the trimmed slice:
+
+Replit AI Prompt:
+
+I need to add a multi-template notification system to the chemical campaign feature. Admins select a notification template when creating a campaign. Each template is specific to a chemical product and carries all chemical content hardcoded — applicators only fill in visit-specific fields.
+1. Database
+
+Create a chemical_notification_templates table with: id, company_id, name, service_type (slug), is_default, pre_visit_subject, pre_visit_html (full HTML email body), post_visit_subject, post_visit_html, created_by, created_at, updated_at
+Add notification_template_id FK column to chemical_campaigns
+Add Drizzle schema definitions to shared/schema.ts and create + run the SQL migration
+
+2. Email Engine
+
+Modify processEmailEvent to load the campaign's selected template instead of the hardcoded default. If notification_template_id is null (existing campaigns), fall back to current behavior — no breaking changes
+The only runtime variables injected at send time are:
+
+Pre-visit: {{customerName}}, {{companyName}}, {{campaignTitle}}, {{targetDate}}, {{backupDate}}, {{notes}}
+Post-visit: {{customerName}}, {{companyName}}, {{campaignTitle}}, {{completionDate}}, {{areasTreated}}, {{applicationConditions}}, {{nextVisitDate}}, {{notes}}
+
+
+Everything else (product name, manufacturer, active ingredients, target weeds, REI, post-app instructions) is hardcoded HTML inside the template body itself
+
+3. Applicator Send Forms
+
+Pre-visit send form collects only: Scheduled Date, Backup Date, Notes (optional)
+Post-visit completion form collects only: Completion Date, Areas Treated, Application Conditions (pre-populate from weather capture if available), Next Visit Date, Notes (optional)
+Remove any existing fields that asked the applicator to enter product, chemical, or REI information — that now lives in the template
+
+4. Campaign Creation UI
+
+Add a template selector dropdown to the chemical campaign creation form (admin only), populated from the API, showing template name and service type
+
+5. Admin Template Management — new page at /admin/notification-templates
+
+List view: template name, service type, last updated, edit/delete actions
+Create/edit form with fields for: Name, Service Type, Pre-Visit Subject, Pre-Visit HTML body, Post-Visit Subject, Post-Visit HTML body
+Variable reference helper showing the available {{variable}} slots listed above
+Preview button rendering the template with sample data
+Delete with confirmation
+Admin role only
+
+6. Seed the following fully written templates. Each must have a complete, professional, customer-facing HTML email body (matching the styling pattern of the existing Chemical Treatment Notice template — green header, detail rows, product box) with all chemical content hardcoded into the HTML. Do not use placeholders for chemical details — write the actual content for each:
+
+Broadleaf Weed Control — Product: LESCO Three-Way Selective Herbicide. Manufacturer: LESCO Inc. Active ingredients: 2,4-D, Mecoprop-p (MCPP), Dicamba. Target weeds: Dandelion, clover, henbit, plantain, wild onion, ground ivy, and other broadleaf weeds. REI: 48 hours. No mowing 1–2 days before and after application. No irrigation for 24 hours after application.
+Fertilizer Application — write accurate standard content for a professional granular or liquid turf fertilizer application
+Pre-Emergent Application — write accurate standard content for a crabgrass and annual weed pre-emergent (e.g. prodiamine or pendimethalin based)
+Crabgrass Treatment — write accurate standard content for a post-emergent crabgrass control application
+
+Use the existing stack: Drizzle ORM, PostgreSQL, Express routes, React + Shadcn/ui + TanStack Query + Tailwind. Match existing patterns for migrations, role checks, and component structure throughout the codebase.
