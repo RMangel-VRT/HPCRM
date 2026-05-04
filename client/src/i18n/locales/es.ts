@@ -1467,6 +1467,25 @@ const es = {
     chemLicense: "Licencia", // TODO: human-review translation
     chemNoLicenseWarning: "Este miembro del equipo no tiene licencia de aplicador registrada", // TODO: human-review translation
     chemNoLicensedApplicators: "No se encontraron aplicadores con licencia. Agregue una licencia de aplicador en Configuracion del Equipo.", // TODO: human-review translation
+    chemTemplateBanner: "Esta campana usa la plantilla de notificacion \"{{name}}\". Los campos de producto, aplicador y ajuste se gestionan a nivel de plantilla.", // TODO: human-review translation
+    chemTemplateUnknown: "Plantilla desconocida", // TODO: human-review translation
+    chemNoTemplateBanner: "No hay plantilla de notificacion asignada a esta campana. Asigne una en Configuracion de Campana para habilitar los correos de previsita.", // TODO: human-review translation
+    chemTemplateLabelUpload: "Subir PDF de etiqueta de plantilla", // TODO: human-review translation
+    chemTemplateLabelUploaded: "PDF de etiqueta de plantilla subido", // TODO: human-review translation
+    chemTemplateLabelRemoved: "PDF de etiqueta de plantilla eliminado", // TODO: human-review translation
+    chemTemplateLabelRemoveFailed: "Error al eliminar PDF de etiqueta de plantilla", // TODO: human-review translation
+    chemTemplateLabelPdfOnly: "Solo se permiten archivos PDF para etiquetas de plantilla", // TODO: human-review translation
+    chemTemplateEditTitle: "Editar Plantilla", // TODO: human-review translation
+    chemTemplateNewTitle: "Nueva Plantilla de Notificacion", // TODO: human-review translation
+    chemTemplateLabelSection: "PDF de Etiqueta Predeterminado", // TODO: human-review translation
+    chemTemplateLabelSectionHint: "Adjunto a los correos de previsita para esta plantilla (enlace con firma de 7 dias). Las anulaciones a nivel de visita tienen prioridad.", // TODO: human-review translation
+    chemTemplateLabelCreateHint: "Guarde la plantilla primero para habilitar la carga del PDF de etiqueta.", // TODO: human-review translation
+    chemTemplateSave: "Guardar Cambios", // TODO: human-review translation
+    chemTemplateCreate: "Crear Plantilla", // TODO: human-review translation
+    chemTemplateNoTemplate422: "Esta campana no tiene plantilla de notificacion asignada. Asigne una en la configuracion de la campana antes de enviar.", // TODO: human-review translation
+    chemTemplateSettingsLink: "Ver configuracion de plantilla", // TODO: human-review translation
+    chemCampaignSettingsLink: "Ir a configuracion de campana", // TODO: human-review translation
+    chemTemplateLabelReplace: "Reemplazar PDF de etiqueta", // TODO: human-review translation
     chemLabelOverride: "Etiqueta de Visita (PDF)", // TODO: human-review translation
     chemUploadLabelOverride: "Subir Etiqueta", // TODO: human-review translation
     chemLabelOverrideHint: "Reemplaza la etiqueta del producto solo para esta visita. Solo archivos PDF.", // TODO: human-review translation

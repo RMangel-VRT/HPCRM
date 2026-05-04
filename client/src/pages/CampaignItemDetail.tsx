@@ -28,19 +28,6 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import {
-  Popover,
-  PopoverContent,
-  PopoverTrigger,
-} from "@/components/ui/popover";
-import {
-  Command,
-  CommandEmpty,
-  CommandGroup,
-  CommandInput,
-  CommandItem,
-  CommandList,
-} from "@/components/ui/command";
-import {
   Loader2,
   ArrowLeft,
   CheckCircle2,
@@ -69,9 +56,6 @@ import {
   Eye,
   FileText,
   Upload,
-  Plus,
-  Check,
-  ChevronsUpDown,
 } from "lucide-react";
 import type { CampaignChecklistAuditLogWithUser } from "@shared/schema";
 import {
@@ -153,6 +137,7 @@ interface CampaignDetailData extends Campaign {
   createdByName?: string;
   checklistTasks?: CampaignChecklistTask[];
   itemTaskCompletions?: Record<string, string[]>;
+  notificationTemplateName?: string | null;
 }
 
 export default function CampaignItemDetail() {
@@ -282,52 +267,19 @@ export default function CampaignItemDetail() {
   const [chemVisitExpanded, setChemVisitExpanded] = useState(false);
   const [chemTargetDate, setChemTargetDate] = useState("");
   const [chemBackupDate, setChemBackupDate] = useState("");
-  const [chemTimeWindowStart, setChemTimeWindowStart] = useState("");
-  const [chemTimeWindowEnd, setChemTimeWindowEnd] = useState("");
-  const [chemProductId, setChemProductId] = useState<string>("");
-  const [chemApplicatorId, setChemApplicatorId] = useState<string>("");
-  const [chemWateringOverride, setChemWateringOverride] = useState("");
-  const [chemMowingOverride, setChemMowingOverride] = useState("");
-  const [chemReentryOverride, setChemReentryOverride] = useState("");
-  const [chemPurposeOverride, setChemPurposeOverride] = useState("");
   const [showNotifPreview, setShowNotifPreview] = useState(false);
   const [notifPreviewData, setNotifPreviewData] = useState<{ subject: string; htmlBody: string; templateName: string; recipientEmail: string | null; contactName: string | null } | null>(null);
   const [loadingNotifPreview, setLoadingNotifPreview] = useState(false);
   const [sendingNotification, setSendingNotification] = useState(false);
   const [uploadingVisitLabel, setUploadingVisitLabel] = useState(false);
-  const [productSearchOpen, setProductSearchOpen] = useState(false);
-  const [showAddProductDialog, setShowAddProductDialog] = useState(false);
-  const [newProductName, setNewProductName] = useState("");
-  const [newProductManufacturer, setNewProductManufacturer] = useState("");
-  const [savingNewProduct, setSavingNewProduct] = useState(false);
   const primaryContact = contacts?.find(c => c.isPrimary === "true") || contacts?.[0];
   const recipientEmail = primaryContact?.emails?.[0] || contacts?.find(c => c.emails && c.emails.length > 0)?.emails?.[0] || null;
-
-  const { data: chemicalProducts = [] } = useQuery<{ id: string; name: string; manufacturer: string | null; category: string | null; reentryIntervalHours: number | null; wateringInstructions: string | null; mowingInstructions: string | null; purposeDescription: string | null }[]>({
-    queryKey: ["/api/chemical-products"],
-    enabled: isChemicalCampaign && canManage,
-  });
-
-  type TeamMemberWithLicense = { id: string; userId: string; role: string; status: string; user: { id: string; firstName: string; lastName: string; email: string; applicatorLicenseNumber: string | null; applicatorLicenseState: string | null } };
-  const { data: teamMembers = [] } = useQuery<TeamMemberWithLicense[]>({
-    queryKey: ["/api/company-users"],
-    enabled: isChemicalCampaign && canManage,
-  });
-  const licensedApplicators = teamMembers.filter(m => m.status === "active" && m.user.applicatorLicenseNumber);
 
   const saveChemVisitMutation = useMutation({
     mutationFn: async () => {
       return apiRequest("PATCH", `/api/campaigns/${campaignId}/items/${itemId}`, {
         targetDate: chemTargetDate || null,
         backupDate: chemBackupDate || null,
-        timeWindowStart: chemTimeWindowStart || null,
-        timeWindowEnd: chemTimeWindowEnd || null,
-        chemicalProductId: (chemProductId && chemProductId !== "none") ? chemProductId : null,
-        applicatorUserId: (chemApplicatorId && chemApplicatorId !== "none") ? chemApplicatorId : null,
-        wateringInstructionsOverride: chemWateringOverride || null,
-        mowingInstructionsOverride: chemMowingOverride || null,
-        reentryIntervalOverride: chemReentryOverride ? parseFloat(chemReentryOverride) : null,
-        purposeOverride: chemPurposeOverride || null,
       });
     },
     onSuccess: () => {
@@ -367,14 +319,6 @@ export default function CampaignItemDetail() {
     if (item && isChemicalCampaign) {
       setChemTargetDate(item.targetDate || "");
       setChemBackupDate(item.backupDate || "");
-      setChemTimeWindowStart(item.timeWindowStart || "");
-      setChemTimeWindowEnd(item.timeWindowEnd || "");
-      setChemProductId(item.chemicalProductId || "");
-      setChemApplicatorId(item.applicatorUserId || "");
-      setChemWateringOverride(item.postApplicationWateringOverride || "");
-      setChemMowingOverride(item.mowingRestrictionOverride || "");
-      setChemReentryOverride(item.reEntryIntervalOverride != null ? String(item.reEntryIntervalOverride) : "");
-      setChemPurposeOverride(item.postApplicationExpectationOverride || "");
     }
   }, [item?.id, isChemicalCampaign]);
 
@@ -824,6 +768,29 @@ export default function CampaignItemDetail() {
           </CardHeader>
           {chemVisitExpanded && (
             <CardContent className="pt-0 space-y-4">
+              {campaign?.notificationTemplateId ? (
+                <div className="flex items-start gap-2 p-3 rounded-md bg-primary/5 border border-primary/20 text-sm" data-testid="banner-chem-template">
+                  <FlaskConical className="w-4 h-4 text-primary mt-0.5 flex-shrink-0" />
+                  <span className="text-muted-foreground flex-1">
+                    {t("campaigns.chemTemplateBanner", { name: campaign.notificationTemplateName || t("campaigns.chemTemplateUnknown") })}
+                    {" "}
+                    <Link href={`/dashboard/settings/notification-templates`} className="text-primary underline underline-offset-2 hover:opacity-75" data-testid="link-template-settings">
+                      {t("campaigns.chemTemplateSettingsLink")}
+                    </Link>
+                  </span>
+                </div>
+              ) : (
+                <div className="flex items-start gap-2 p-3 rounded-md bg-muted/50 border text-sm" data-testid="banner-chem-no-template">
+                  <FileText className="w-4 h-4 text-muted-foreground mt-0.5 flex-shrink-0" />
+                  <span className="text-muted-foreground flex-1">
+                    {t("campaigns.chemNoTemplateBanner")}
+                    {" "}
+                    <Link href={`/dashboard/campaigns/${campaignId}`} className="text-primary underline underline-offset-2 hover:opacity-75" data-testid="link-campaign-settings">
+                      {t("campaigns.chemCampaignSettingsLink")}
+                    </Link>
+                  </span>
+                </div>
+              )}
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div className="space-y-1.5">
                   <Label className="text-xs text-muted-foreground">{t("campaigns.chemTargetDate")}</Label>
@@ -857,179 +824,6 @@ export default function CampaignItemDetail() {
                     value={chemBackupDate}
                     onChange={(e) => setChemBackupDate(e.target.value)}
                     data-testid="input-chem-backup-date"
-                  />
-                </div>
-                <div className="space-y-1.5">
-                  <Label className="text-xs text-muted-foreground">{t("campaigns.chemTimeWindowStart")}</Label>
-                  <Input
-                    type="time"
-                    value={chemTimeWindowStart}
-                    onChange={(e) => setChemTimeWindowStart(e.target.value)}
-                    data-testid="input-chem-time-start"
-                  />
-                </div>
-                <div className="space-y-1.5">
-                  <Label className="text-xs text-muted-foreground">{t("campaigns.chemTimeWindowEnd")}</Label>
-                  <Input
-                    type="time"
-                    value={chemTimeWindowEnd}
-                    onChange={(e) => setChemTimeWindowEnd(e.target.value)}
-                    data-testid="input-chem-time-end"
-                  />
-                </div>
-              </div>
-
-              <Separator />
-
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                <div className="space-y-1.5">
-                  <Label className="text-xs text-muted-foreground">{t("campaigns.chemProduct")}</Label>
-                  <Popover open={productSearchOpen} onOpenChange={setProductSearchOpen}>
-                    <PopoverTrigger asChild>
-                      <Button
-                        variant="outline"
-                        role="combobox"
-                        aria-expanded={productSearchOpen}
-                        className="w-full justify-between font-normal"
-                        data-testid="select-chem-product"
-                      >
-                        <span className="truncate">
-                          {chemProductId && chemProductId !== "none"
-                            ? (chemicalProducts.find(p => p.id === chemProductId)?.name || t("campaigns.chemSelectProduct"))
-                            : t("campaigns.chemSelectProduct")}
-                        </span>
-                        <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
-                      </Button>
-                    </PopoverTrigger>
-                    <PopoverContent className="w-[300px] p-0" align="start">
-                      <Command>
-                        <CommandInput placeholder={t("campaigns.chemSearchProduct")} />
-                        <CommandList>
-                          <CommandEmpty>{t("campaigns.chemNoProductFound")}</CommandEmpty>
-                          <CommandGroup>
-                            <CommandItem
-                              value="none"
-                              onSelect={() => { setChemProductId(""); setProductSearchOpen(false); }}
-                            >
-                              <Check className={`mr-2 h-4 w-4 ${(!chemProductId || chemProductId === "none") ? "opacity-100" : "opacity-0"}`} />
-                              {t("common.none")}
-                            </CommandItem>
-                            {chemicalProducts.map((p) => (
-                              <CommandItem
-                                key={p.id}
-                                value={`${p.name} ${p.manufacturer || ""}`}
-                                onSelect={() => { setChemProductId(p.id); setProductSearchOpen(false); }}
-                              >
-                                <Check className={`mr-2 h-4 w-4 ${chemProductId === p.id ? "opacity-100" : "opacity-0"}`} />
-                                <div className="flex flex-col">
-                                  <span>{p.name}</span>
-                                  {p.manufacturer && <span className="text-xs text-muted-foreground">{p.manufacturer}</span>}
-                                </div>
-                              </CommandItem>
-                            ))}
-                          </CommandGroup>
-                          <CommandGroup>
-                            <CommandItem
-                              onSelect={() => { setProductSearchOpen(false); setShowAddProductDialog(true); }}
-                              className="text-primary"
-                            >
-                              <Plus className="mr-2 h-4 w-4" />
-                              {t("campaigns.chemAddNewProduct")}
-                            </CommandItem>
-                          </CommandGroup>
-                        </CommandList>
-                      </Command>
-                    </PopoverContent>
-                  </Popover>
-                  {chemProductId && chemProductId !== "none" && (() => {
-                    const prod = chemicalProducts.find(p => p.id === chemProductId);
-                    if (!prod) return null;
-                    return (
-                      <div className="mt-1 p-2 border rounded-md bg-muted/30 space-y-0.5">
-                        {prod.manufacturer && <p className="text-xs text-muted-foreground">{t("campaigns.chemManufacturer")}: {prod.manufacturer}</p>}
-                        {prod.category && <p className="text-xs text-muted-foreground">{t("campaigns.chemCategory")}: {prod.category}</p>}
-                        {prod.reentryIntervalHours != null && <p className="text-xs text-muted-foreground">{t("campaigns.chemReentryInterval")}: {prod.reentryIntervalHours}h</p>}
-                      </div>
-                    );
-                  })()}
-                </div>
-                <div className="space-y-1.5">
-                  <Label className="text-xs text-muted-foreground">{t("campaigns.chemApplicator")}</Label>
-                  <Select value={chemApplicatorId} onValueChange={setChemApplicatorId}>
-                    <SelectTrigger data-testid="select-chem-applicator">
-                      <SelectValue placeholder={t("campaigns.chemSelectApplicator")} />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="none">{t("common.none")}</SelectItem>
-                      {licensedApplicators.length === 0 && (
-                        <div className="px-2 py-3 text-xs text-muted-foreground text-center">
-                          {t("campaigns.chemNoLicensedApplicators")}
-                        </div>
-                      )}
-                      {licensedApplicators.map((m) => (
-                        <SelectItem key={m.userId} value={m.userId}>
-                          {m.user.firstName} {m.user.lastName} — {m.user.applicatorLicenseNumber}{m.user.applicatorLicenseState ? ` (${m.user.applicatorLicenseState})` : ""}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                  {chemApplicatorId && chemApplicatorId !== "none" && (() => {
-                    const appl = licensedApplicators.find(m => m.userId === chemApplicatorId);
-                    if (!appl) return null;
-                    return (
-                      <p className="text-xs text-muted-foreground mt-1">
-                        {t("campaigns.chemLicense")}: {appl.user.applicatorLicenseNumber}{appl.user.applicatorLicenseState ? ` (${appl.user.applicatorLicenseState})` : ""}
-                      </p>
-                    );
-                  })()}
-                </div>
-              </div>
-
-              <Separator />
-
-              <div className="space-y-3">
-                <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">{t("campaigns.chemOverrides")}</p>
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                  <div className="space-y-1.5">
-                    <Label className="text-xs text-muted-foreground">{t("campaigns.chemPurposeOverride")}</Label>
-                    <Input
-                      value={chemPurposeOverride}
-                      onChange={(e) => setChemPurposeOverride(e.target.value)}
-                      placeholder={t("campaigns.chemOverridePlaceholder")}
-                      data-testid="input-chem-purpose-override"
-                    />
-                  </div>
-                  <div className="space-y-1.5">
-                    <Label className="text-xs text-muted-foreground">{t("campaigns.chemReentryOverride")}</Label>
-                    <Input
-                      type="number"
-                      min={0}
-                      step={0.5}
-                      value={chemReentryOverride}
-                      onChange={(e) => setChemReentryOverride(e.target.value)}
-                      placeholder={t("campaigns.chemOverridePlaceholder")}
-                      data-testid="input-chem-reentry-override"
-                    />
-                  </div>
-                </div>
-                <div className="space-y-1.5">
-                  <Label className="text-xs text-muted-foreground">{t("campaigns.chemWateringOverride")}</Label>
-                  <Textarea
-                    value={chemWateringOverride}
-                    onChange={(e) => setChemWateringOverride(e.target.value)}
-                    rows={2}
-                    placeholder={t("campaigns.chemOverridePlaceholder")}
-                    data-testid="textarea-chem-watering-override"
-                  />
-                </div>
-                <div className="space-y-1.5">
-                  <Label className="text-xs text-muted-foreground">{t("campaigns.chemMowingOverride")}</Label>
-                  <Textarea
-                    value={chemMowingOverride}
-                    onChange={(e) => setChemMowingOverride(e.target.value)}
-                    rows={2}
-                    placeholder={t("campaigns.chemOverridePlaceholder")}
-                    data-testid="textarea-chem-mowing-override"
                   />
                 </div>
               </div>
@@ -2355,72 +2149,6 @@ export default function CampaignItemDetail() {
         </AlertDialogContent>
       </AlertDialog>
 
-      {/* Inline Add Product Dialog */}
-      <Dialog open={showAddProductDialog} onOpenChange={(open) => { if (!open) { setShowAddProductDialog(false); setNewProductName(""); setNewProductManufacturer(""); } }}>
-        <DialogContent className="max-w-sm" data-testid="dialog-add-product">
-          <DialogHeader>
-            <DialogTitle>{t("campaigns.chemAddNewProduct")}</DialogTitle>
-            <DialogDescription>{t("campaigns.chemAddProductDesc")}</DialogDescription>
-          </DialogHeader>
-          <div className="space-y-3">
-            <div className="space-y-1.5">
-              <Label className="text-xs text-muted-foreground">{t("campaigns.chemProductName")} *</Label>
-              <Input
-                value={newProductName}
-                onChange={(e) => setNewProductName(e.target.value)}
-                placeholder={t("campaigns.chemProductNamePlaceholder")}
-                data-testid="input-new-product-name"
-              />
-            </div>
-            <div className="space-y-1.5">
-              <Label className="text-xs text-muted-foreground">{t("campaigns.chemManufacturer")}</Label>
-              <Input
-                value={newProductManufacturer}
-                onChange={(e) => setNewProductManufacturer(e.target.value)}
-                placeholder={t("campaigns.chemManufacturerPlaceholder")}
-                data-testid="input-new-product-manufacturer"
-              />
-            </div>
-          </div>
-          <DialogFooter>
-            <Button
-              variant="outline"
-              onClick={() => { setShowAddProductDialog(false); setNewProductName(""); setNewProductManufacturer(""); }}
-            >
-              {t("common.cancel")}
-            </Button>
-            <Button
-              disabled={!newProductName.trim() || savingNewProduct}
-              onClick={async () => {
-                setSavingNewProduct(true);
-                try {
-                  const res = await apiRequest("POST", "/api/chemical-products", {
-                    name: newProductName.trim(),
-                    manufacturer: newProductManufacturer.trim() || null,
-                  });
-                  const created = await res.json();
-                  await queryClient.invalidateQueries({ queryKey: ["/api/chemical-products"] });
-                  if (created?.id) setChemProductId(created.id);
-                  setShowAddProductDialog(false);
-                  setNewProductName("");
-                  setNewProductManufacturer("");
-                  toast({ title: t("campaigns.chemProductSaved") });
-                } catch (err: unknown) {
-                  const message = err instanceof Error ? err.message : t("common.error");
-                  toast({ title: message, variant: "destructive" });
-                } finally {
-                  setSavingNewProduct(false);
-                }
-              }}
-              data-testid="button-save-new-product"
-            >
-              {savingNewProduct ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : null}
-              {t("common.save")}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-
       <Dialog open={showNotifPreview} onOpenChange={(open) => { if (!open) { setShowNotifPreview(false); setNotifPreviewData(null); } }}>
         <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto" data-testid="dialog-notif-preview">
           <div className="space-y-4">
@@ -2588,10 +2316,12 @@ export default function CampaignItemDetail() {
               </div>
               <div>
                 <Label className="text-xs text-muted-foreground">{t("campaigns.chemEmailBody")}</Label>
-                <div
-                  className="text-sm mt-0.5 p-3 rounded-md border bg-muted/30 max-h-48 overflow-y-auto"
-                  data-testid="text-email-body"
-                  dangerouslySetInnerHTML={{ __html: emailPreview?.htmlBody || "—" }}
+                <iframe
+                  srcDoc={emailPreview?.htmlBody || "<p>—</p>"}
+                  className="w-full rounded-md border bg-white mt-0.5"
+                  style={{ height: "200px" }}
+                  sandbox="allow-same-origin"
+                  data-testid="iframe-pre-send-email-body"
                 />
               </div>
             </div>

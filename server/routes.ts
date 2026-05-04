@@ -29,6 +29,7 @@ import { seedChemicalEmailTemplates, seedChemicalNotificationTemplates } from ".
  * Target is 7 days (604800 s); increase when the signing service supports longer durations.
  */
 const LABEL_URL_TTL_SEC = 3600;
+const TEMPLATE_LABEL_TTL_SEC = 604800; // 7 days for template-level label PDFs
 
 const LABEL_ALLOWED_MIME_TYPES: Record<string, string> = {
   "application/pdf": "pdf",
@@ -11987,6 +11988,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
         itemTaskCompletions[item.id] = completions.map(c => c.campaignChecklistTaskId);
       }
     }
+    let notificationTemplateName: string | null = null;
+    if (campaign.notificationTemplateId) {
+      const notifTpl = await storage.getChemicalNotificationTemplate(campaign.notificationTemplateId, user.activeCompanyId);
+      notificationTemplateName = notifTpl?.name ?? null;
+    }
     res.json({
       ...campaign,
       items: itemsWithNames,
@@ -11999,6 +12005,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       seasonName,
       checklistTasks,
       itemTaskCompletions,
+      notificationTemplateName,
     });
   });
 
@@ -12101,6 +12108,18 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       if (notifTemplate && (type === "pre" || type === "post")) {
         templateName = notifTemplate.name;
+        // Resolve label PDF URL: visit override → template default (for preview)
+        let previewLabelPdfUrl = '';
+        try {
+          const labelKey = targetItem.labelPdfOverrideKey || notifTemplate.defaultLabelPdfStorageKey || null;
+          if (labelKey) {
+            const { bucketName: lbBucket, objectName: lbObject } = (function parseGcsPath(p: string) {
+              const parts = p.replace(/^\//, "").split("/");
+              return { bucketName: parts[0], objectName: parts.slice(1).join("/") };
+            })(labelKey);
+            previewLabelPdfUrl = await signObjectURL({ bucketName: lbBucket, objectName: lbObject, method: "GET", ttlSec: TEMPLATE_LABEL_TTL_SEC });
+          }
+        } catch { previewLabelPdfUrl = ''; }
         const notifVars: Record<string, string> = {
           companyName: company?.name || '',
           customerName: targetItem.customerName,
@@ -12108,6 +12127,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
           targetDate: (type !== "post" && customWindowStart) ? customWindowStart : campaign.windowStart,
           backupDate: (type !== "post" && customWindowEnd) ? customWindowEnd : campaign.windowEnd,
           notes: '',
+          labelPdfUrl: previewLabelPdfUrl,
+          pesticideLicenseNumber: company?.pesticideLicenseNumber || '',
           ...(type === "post" ? { completionDate: resolveChemCompletionDate(targetItem), areasTreated: '', applicationConditions: '', nextVisitDate: '' } : {}),
         };
         const rawSubject = type === "post" ? notifTemplate.postVisitSubject : notifTemplate.preVisitSubject;
@@ -12887,17 +12908,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(400).json({ error: "Time window end must not be before start" });
       }
 
-      // Required-field enforcement: when any chemical scheduling/assignment field is explicitly
-      // included in the PATCH body, all three core required fields must be non-null.
-      const chemFieldsInPatch = (
-        targetDate !== undefined ||
-        backupDate !== undefined ||
-        timeWindowStart !== undefined ||
-        timeWindowEnd !== undefined ||
+      // Required-field enforcement: only enforce product+applicator when those fields are
+      // explicitly provided in the PATCH body (allows simplified date-only saves).
+      const assignmentFieldsInPatch = (
         chemicalProductId !== undefined ||
         applicatorUserId !== undefined
       );
-      if (chemFieldsInPatch) {
+      if (assignmentFieldsInPatch) {
         if (!resolvedTargetDate) {
           return res.status(400).json({ error: "Target date is required when saving chemical visit details" });
         }
@@ -12994,8 +13011,22 @@ export async function registerRoutes(app: Express): Promise<Server> {
         const notifTemplate = campaign.notificationTemplateId
           ? await storage.getChemicalNotificationTemplate(campaign.notificationTemplateId, user.activeCompanyId)
           : null;
+        if (!notifTemplate) {
+          return res.status(422).json({ error: "NO_NOTIFICATION_TEMPLATE", message: "This campaign has no notification template assigned. Assign a template in campaign settings before sending." });
+        }
         let sentLog: { id: string; status: string } | undefined;
         if (notifTemplate) {
+          let labelPdfUrl = "";
+          const labelStorageKey = targetItem.labelPdfOverrideKey || notifTemplate.defaultLabelPdfStorageKey || null;
+          if (labelStorageKey) {
+            try {
+              const { bucketName: pcBucket, objectName: pcObject } = (function parseGcsPath(p: string) {
+                const parts = p.replace(/^\//, "").split("/");
+                return { bucketName: parts[0], objectName: parts.slice(1).join("/") };
+              })(labelStorageKey);
+              labelPdfUrl = await signObjectURL({ bucketName: pcBucket, objectName: pcObject, method: "GET", ttlSec: TEMPLATE_LABEL_TTL_SEC });
+            } catch { labelPdfUrl = ""; }
+          }
           const templateVars: Record<string, string> = {
             companyName: company?.name || '',
             customerName: targetItem.customerName,
@@ -13003,6 +13034,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
             targetDate: customWindowStart?.trim() || campaign.windowStart,
             backupDate: customWindowEnd?.trim() || campaign.windowEnd,
             notes: notes || '',
+            labelPdfUrl,
+            pesticideLicenseNumber: company?.pesticideLicenseNumber || '',
           };
           const log = await sendEmail(recipientEmail, notifTemplate.preVisitSubject, notifTemplate.preVisitHtml, null, {
             companyId: user.activeCompanyId,
@@ -13011,20 +13044,6 @@ export async function registerRoutes(app: Express): Promise<Server> {
             variables: templateVars,
           });
           sentLog = log;
-        } else {
-          const emailResults = await processEmailEvent('campaign.chemical_pre_notice', user.activeCompanyId, {
-            companyName: company?.name || '',
-            customerName: targetItem.customerName,
-            campaignTitle: campaign.title,
-            windowStart: customWindowStart?.trim() || campaign.windowStart,
-            windowEnd: customWindowEnd?.trim() || campaign.windowEnd,
-            notes: notes || '',
-          }, {
-            customerId: targetItem.customerId,
-            toEmail: recipientEmail,
-            sentById: user.id,
-          });
-          sentLog = emailResults.find(l => l.status === "sent");
         }
         if (!sentLog || sentLog.status !== "sent") {
           return res.status(502).json({ error: "Email delivery failed. Please try again." });
@@ -15277,6 +15296,72 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // ─── Template-level label PDF signed URL ────────────────────────────────────
+  app.get("/api/chemical-notification-templates/:id/label-url", async (req, res) => {
+    if (!req.isAuthenticated()) return res.status(401).send("Not authenticated");
+    const user = req.user as UserWithContext;
+    if (!isTemplateAdmin(user)) return res.status(403).json({ error: "Admin or office only" });
+    try {
+      const tpl = await storage.getChemicalNotificationTemplate(req.params.id, user.activeCompanyId);
+      if (!tpl) return res.status(404).json({ error: "Template not found" });
+      if (!tpl.defaultLabelPdfStorageKey) return res.json({ signedUrl: null, expiresAt: null, filename: null });
+      const { bucketName: tlBucket, objectName: tlObject } = (function parseGcsPath(p: string) {
+        const parts = p.replace(/^\//, "").split("/");
+        return { bucketName: parts[0], objectName: parts.slice(1).join("/") };
+      })(tpl.defaultLabelPdfStorageKey);
+      const signedUrl = await signObjectURL({ bucketName: tlBucket, objectName: tlObject, method: "GET", ttlSec: TEMPLATE_LABEL_TTL_SEC });
+      const expiresAt = new Date(Date.now() + TEMPLATE_LABEL_TTL_SEC * 1000).toISOString();
+      res.json({ signedUrl, expiresAt, filename: tpl.defaultLabelPdfFilename });
+    } catch (err) {
+      console.error("GET /api/chemical-notification-templates/:id/label-url error:", err);
+      res.status(500).json({ error: "Internal server error" });
+    }
+  });
+
+  // ─── Template-level label PDF upload / delete ───────────────────────────────
+  app.post("/api/chemical-notification-templates/:id/label",
+    express.raw({ type: "*/*", limit: "11mb" }),
+    async (req, res) => {
+    if (!req.isAuthenticated()) return res.status(401).send("Not authenticated");
+    const user = req.user as UserWithContext;
+    if (!isTemplateAdmin(user)) return res.status(403).json({ error: "Admin or office only" });
+    try {
+      const tpl = await storage.getChemicalNotificationTemplate(req.params.id, user.activeCompanyId);
+      if (!tpl) return res.status(404).json({ error: "Template not found" });
+      const fileBuffer: Buffer = Buffer.isBuffer(req.body) ? req.body : Buffer.from(req.body as Uint8Array);
+      if (!fileBuffer.length) return res.status(400).json({ error: "Missing file data" });
+      if (fileBuffer.length > 10 * 1024 * 1024) return res.status(400).json({ error: "File exceeds 10 MB limit" });
+      const mimeType = detectLabelMimeType(fileBuffer);
+      if (!mimeType) return res.status(400).json({ error: "Only PDF files are allowed for template labels." });
+      const ext = LABEL_ALLOWED_MIME_TYPES[mimeType];
+      const relativePath = `chemical-notification-template-labels/${user.activeCompanyId}/${req.params.id}.${ext}`;
+      const objectStorageService = new ObjectStorageService();
+      const fullPath = await objectStorageService.saveBufferToPrivatePath(relativePath, fileBuffer, mimeType);
+      const rawFilename = typeof req.query.filename === "string" ? req.query.filename : `label.${ext}`;
+      const safeFilename = rawFilename.replace(/[^a-zA-Z0-9._-]/g, "_");
+      const updated = await storage.setChemicalNotificationTemplateLabel(req.params.id, user.activeCompanyId, fullPath, safeFilename);
+      if (!updated) return res.status(404).json({ error: "Template not found" });
+      res.json(updated);
+    } catch (err) {
+      console.error("POST /api/chemical-notification-templates/:id/label error:", err);
+      res.status(500).json({ error: "Internal server error" });
+    }
+  });
+
+  app.delete("/api/chemical-notification-templates/:id/label", async (req, res) => {
+    if (!req.isAuthenticated()) return res.status(401).send("Not authenticated");
+    const user = req.user as UserWithContext;
+    if (!isTemplateAdmin(user)) return res.status(403).json({ error: "Admin or office only" });
+    try {
+      const updated = await storage.clearChemicalNotificationTemplateLabel(req.params.id, user.activeCompanyId);
+      if (!updated) return res.status(404).json({ error: "Template not found" });
+      res.json(updated);
+    } catch (err) {
+      console.error("DELETE /api/chemical-notification-templates/:id/label error:", err);
+      res.status(500).json({ error: "Internal server error" });
+    }
+  });
+
   app.post("/api/chemical-notification-templates/preview", async (req, res) => {
     if (!req.isAuthenticated()) return res.status(401).send("Not authenticated");
     const user = req.user as UserWithContext;
@@ -15387,6 +15472,18 @@ export async function migrateUserApplicatorFields(): Promise<void> {
     console.log("User applicator fields migration complete");
   } catch (error) {
     console.error("Error during user applicator fields migration:", error);
+  }
+}
+
+export async function migrateChemTemplateLabelAndCompanyLicense(): Promise<void> {
+  console.log("Running startup migration: Ensuring chemical template label columns and company pesticide license column exist...");
+  try {
+    await db.execute(sql`ALTER TABLE chemical_notification_templates ADD COLUMN IF NOT EXISTS default_label_pdf_storage_key text`);
+    await db.execute(sql`ALTER TABLE chemical_notification_templates ADD COLUMN IF NOT EXISTS default_label_pdf_filename text`);
+    await db.execute(sql`ALTER TABLE companies ADD COLUMN IF NOT EXISTS pesticide_license_number text`);
+    console.log("Chemical template label / company pesticide license migration complete");
+  } catch (error) {
+    console.error("Error during chem template label / company pesticide license migration:", error);
   }
 }
 
@@ -15511,4 +15608,5 @@ export async function runStartupMigrations(): Promise<void> {
   await migrateChemicalProductsTable();
   await migrateCampaignItemsCompletionColumns();
   await migrateUserApplicatorFields();
+  await migrateChemTemplateLabelAndCompanyLicense();
 }

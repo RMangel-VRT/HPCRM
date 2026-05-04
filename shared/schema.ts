@@ -10,6 +10,7 @@ export const companies = pgTable("companies", {
   subscriptionPlan: text("subscription_plan").$type<"free" | "basic" | "pro" | "enterprise">().default("free"),
   subscriptionStatus: text("subscription_status").$type<"active" | "canceled" | "past_due" | "trialing">().default("active"),
   billingEmail: text("billing_email"),
+  pesticideLicenseNumber: text("pesticide_license_number"),
   createdAt: timestamp("created_at").notNull().defaultNow(),
   updatedAt: timestamp("updated_at").notNull().defaultNow(),
 });
@@ -1783,6 +1784,8 @@ export const chemicalNotificationTemplates = pgTable("chemical_notification_temp
   preVisitHtml: text("pre_visit_html").notNull(),
   postVisitSubject: text("post_visit_subject").notNull(),
   postVisitHtml: text("post_visit_html").notNull(),
+  defaultLabelPdfStorageKey: text("default_label_pdf_storage_key"),
+  defaultLabelPdfFilename: text("default_label_pdf_filename"),
   createdBy: varchar("created_by").references(() => users.id, { onDelete: "set null" }),
   createdAt: timestamp("created_at").notNull().defaultNow(),
   updatedAt: timestamp("updated_at").notNull().defaultNow(),

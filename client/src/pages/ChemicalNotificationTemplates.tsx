@@ -2,6 +2,7 @@ import { useState, useEffect, useRef } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
+import { useTranslation } from "react-i18next";
 import { format } from "date-fns";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -43,7 +44,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { Plus, Pencil, Trash2, Eye, Mail, Loader2, ChevronDown, ChevronUp, AlertTriangle, Users } from "lucide-react";
+import { Plus, Pencil, Trash2, Eye, Mail, Loader2, ChevronDown, ChevronUp, AlertTriangle, Users, FileText, Upload, X, Check } from "lucide-react";
 
 type ChemicalNotificationTemplate = {
   id: string;
@@ -54,6 +55,8 @@ type ChemicalNotificationTemplate = {
   preVisitHtml: string;
   postVisitSubject: string;
   postVisitHtml: string;
+  defaultLabelPdfStorageKey: string | null;
+  defaultLabelPdfFilename: string | null;
   createdAt: string;
   updatedAt: string;
 };
@@ -144,6 +147,7 @@ type PreviewWithDataState = {
 
 export default function ChemicalNotificationTemplates() {
   const { toast } = useToast();
+  const { t } = useTranslation();
   const [showForm, setShowForm] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [form, setForm] = useState(BLANK_FORM);
@@ -169,6 +173,8 @@ export default function ChemicalNotificationTemplates() {
   const [previewRendered, setPreviewRendered] = useState<{ subject: string; htmlBody: string } | null>(null);
   const [previewLoading, setPreviewLoading] = useState(false);
   const customerInputRef = useRef<HTMLInputElement>(null);
+  const [uploadingTemplateLabel, setUploadingTemplateLabel] = useState(false);
+  const labelInputRef = useRef<HTMLInputElement>(null);
 
   const { data: templates = [], isLoading } = useQuery<ChemicalNotificationTemplate[]>({
     queryKey: ["/api/chemical-notification-templates"],
@@ -357,6 +363,7 @@ export default function ChemicalNotificationTemplates() {
                 <TableRow>
                   <TableHead>Name</TableHead>
                   <TableHead>Service Type</TableHead>
+                  <TableHead>Label PDF</TableHead>
                   <TableHead>Last Updated</TableHead>
                   <TableHead className="text-right">Actions</TableHead>
                 </TableRow>
@@ -370,6 +377,15 @@ export default function ChemicalNotificationTemplates() {
                         <Badge variant="secondary" className="text-xs">{serviceTypeLabel(tpl.serviceType)}</Badge>
                       ) : (
                         <span className="text-muted-foreground text-sm">—</span>
+                      )}
+                    </TableCell>
+                    <TableCell className="text-sm">
+                      {tpl.defaultLabelPdfStorageKey ? (
+                        <div className="flex items-center gap-1 text-green-700 dark:text-green-400" data-testid={`text-template-label-${tpl.id}`}>
+                          <Check className="w-4 h-4 flex-shrink-0" />
+                        </div>
+                      ) : (
+                        <span className="text-muted-foreground">—</span>
                       )}
                     </TableCell>
                     <TableCell className="text-sm text-muted-foreground">
@@ -396,7 +412,7 @@ export default function ChemicalNotificationTemplates() {
       <Dialog open={showForm} onOpenChange={(v) => { if (!v) { setShowForm(false); setEditingId(null); setForm(BLANK_FORM); setPreviewMode(null); } }}>
         <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto" data-testid="dialog-template-form">
           <DialogHeader>
-            <DialogTitle>{editingId ? "Edit Template" : "New Notification Template"}</DialogTitle>
+            <DialogTitle>{editingId ? t("campaigns.chemTemplateEditTitle") : t("campaigns.chemTemplateNewTitle")}</DialogTitle>
           </DialogHeader>
 
           <div className="space-y-5">
@@ -424,6 +440,143 @@ export default function ChemicalNotificationTemplates() {
                 </Select>
               </div>
             </div>
+
+            {(() => {
+              const tpl = editingId ? templates.find(tmpl => tmpl.id === editingId) : null;
+              return (
+                <div className="space-y-2">
+                  <Label className="text-sm font-medium">{t("campaigns.chemTemplateLabelSection")}</Label>
+                  <p className="text-xs text-muted-foreground">{t("campaigns.chemTemplateLabelSectionHint")}</p>
+                  {!editingId ? (
+                    <p className="text-xs text-muted-foreground italic" data-testid="text-label-create-hint">
+                      {t("campaigns.chemTemplateLabelCreateHint")}
+                    </p>
+                  ) : tpl?.defaultLabelPdfFilename ? (
+                    <div className="flex flex-col gap-2">
+                      <div className="flex items-center gap-2 p-2 border rounded-md bg-muted/30">
+                        <FileText className="w-4 h-4 text-muted-foreground flex-shrink-0" />
+                        <span className="text-xs flex-1 truncate" data-testid="text-template-label-filename">{tpl.defaultLabelPdfFilename}</span>
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          disabled={uploadingTemplateLabel}
+                          onClick={async () => {
+                            setUploadingTemplateLabel(true);
+                            try {
+                              await apiRequest("DELETE", `/api/chemical-notification-templates/${editingId}/label`);
+                              queryClient.invalidateQueries({ queryKey: ["/api/chemical-notification-templates"] });
+                              toast({ title: t("campaigns.chemTemplateLabelRemoved") });
+                            } catch {
+                              toast({ title: t("campaigns.chemTemplateLabelRemoveFailed"), variant: "destructive" });
+                            } finally {
+                              setUploadingTemplateLabel(false);
+                            }
+                          }}
+                          data-testid="button-remove-template-label"
+                        >
+                          {uploadingTemplateLabel ? <Loader2 className="w-4 h-4 animate-spin" /> : <X className="w-4 h-4" />}
+                        </Button>
+                      </div>
+                      <div>
+                        <input
+                          ref={labelInputRef}
+                          type="file"
+                          accept="application/pdf"
+                          className="hidden"
+                          onChange={async (e) => {
+                            const file = e.target.files?.[0];
+                            if (!file) return;
+                            if (file.type !== "application/pdf") {
+                              toast({ title: t("campaigns.chemTemplateLabelPdfOnly"), variant: "destructive" });
+                              return;
+                            }
+                            setUploadingTemplateLabel(true);
+                            try {
+                              const arrayBuffer = await file.arrayBuffer();
+                              const res = await fetch(`/api/chemical-notification-templates/${editingId}/label?filename=${encodeURIComponent(file.name)}`, {
+                                method: "POST",
+                                headers: { "Content-Type": "application/pdf" },
+                                body: arrayBuffer,
+                                credentials: "include",
+                              });
+                              if (!res.ok) {
+                                const err = await res.json().catch(() => ({}));
+                                throw new Error(err.error || "Upload failed");
+                              }
+                              queryClient.invalidateQueries({ queryKey: ["/api/chemical-notification-templates"] });
+                              toast({ title: t("campaigns.chemTemplateLabelUploaded") });
+                            } catch (err: unknown) {
+                              toast({ title: err instanceof Error ? err.message : "Upload failed", variant: "destructive" });
+                            } finally {
+                              setUploadingTemplateLabel(false);
+                              if (labelInputRef.current) labelInputRef.current.value = "";
+                            }
+                          }}
+                        />
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          disabled={uploadingTemplateLabel}
+                          onClick={() => labelInputRef.current?.click()}
+                          data-testid="button-replace-template-label"
+                        >
+                          {uploadingTemplateLabel ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <Upload className="w-4 h-4 mr-2" />}
+                          {t("campaigns.chemTemplateLabelReplace")}
+                        </Button>
+                      </div>
+                    </div>
+                  ) : (
+                    <div>
+                      <input
+                        ref={labelInputRef}
+                        type="file"
+                        accept="application/pdf"
+                        className="hidden"
+                        onChange={async (e) => {
+                          const file = e.target.files?.[0];
+                          if (!file) return;
+                          if (file.type !== "application/pdf") {
+                            toast({ title: t("campaigns.chemTemplateLabelPdfOnly"), variant: "destructive" });
+                            return;
+                          }
+                          setUploadingTemplateLabel(true);
+                          try {
+                            const arrayBuffer = await file.arrayBuffer();
+                            const res = await fetch(`/api/chemical-notification-templates/${editingId}/label?filename=${encodeURIComponent(file.name)}`, {
+                              method: "POST",
+                              headers: { "Content-Type": "application/pdf" },
+                              body: arrayBuffer,
+                              credentials: "include",
+                            });
+                            if (!res.ok) {
+                              const err = await res.json().catch(() => ({}));
+                              throw new Error(err.error || "Upload failed");
+                            }
+                            queryClient.invalidateQueries({ queryKey: ["/api/chemical-notification-templates"] });
+                            toast({ title: t("campaigns.chemTemplateLabelUploaded") });
+                          } catch (err: unknown) {
+                            toast({ title: err instanceof Error ? err.message : "Upload failed", variant: "destructive" });
+                          } finally {
+                            setUploadingTemplateLabel(false);
+                            if (labelInputRef.current) labelInputRef.current.value = "";
+                          }
+                        }}
+                      />
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        disabled={uploadingTemplateLabel}
+                        onClick={() => labelInputRef.current?.click()}
+                        data-testid="button-upload-template-label"
+                      >
+                        {uploadingTemplateLabel ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <Upload className="w-4 h-4 mr-2" />}
+                        {t("campaigns.chemTemplateLabelUpload")}
+                      </Button>
+                    </div>
+                  )}
+                </div>
+              );
+            })()}
 
             <Separator />
 
@@ -578,7 +731,7 @@ export default function ChemicalNotificationTemplates() {
             </Button>
             <Button onClick={handleSubmit} disabled={isPending} data-testid="button-save-template">
               {isPending && <Loader2 className="w-4 h-4 mr-2 animate-spin" />}
-              {editingId ? "Save Changes" : "Create Template"}
+              {editingId ? t("campaigns.chemTemplateSave") : t("campaigns.chemTemplateCreate")}
             </Button>
           </DialogFooter>
         </DialogContent>

@@ -441,6 +441,8 @@ export interface IStorage {
   getChemicalNotificationTemplate(id: string, companyId: string): Promise<ChemicalNotificationTemplate | undefined>;
   createChemicalNotificationTemplate(data: InsertChemicalNotificationTemplate): Promise<ChemicalNotificationTemplate>;
   updateChemicalNotificationTemplate(id: string, companyId: string, updates: Partial<InsertChemicalNotificationTemplate>): Promise<ChemicalNotificationTemplate | undefined>;
+  setChemicalNotificationTemplateLabel(id: string, companyId: string, storageKey: string, filename: string): Promise<ChemicalNotificationTemplate | undefined>;
+  clearChemicalNotificationTemplateLabel(id: string, companyId: string): Promise<ChemicalNotificationTemplate | undefined>;
   deleteChemicalNotificationTemplate(id: string, companyId: string): Promise<void>;
   getCampaignsByTemplate(templateId: string, companyId: string): Promise<{ id: string; title: string; status: string }[]>;
   getCampaignNotificationTemplate(campaignId: string, companyId: string): Promise<ChemicalNotificationTemplate | undefined>;
@@ -4421,6 +4423,24 @@ export class PgStorage implements IStorage {
     const [row] = await db
       .update(chemicalNotificationTemplates)
       .set({ ...updates, updatedAt: new Date() })
+      .where(and(eq(chemicalNotificationTemplates.id, id), eq(chemicalNotificationTemplates.companyId, companyId)))
+      .returning();
+    return row;
+  }
+
+  async setChemicalNotificationTemplateLabel(id: string, companyId: string, storageKey: string, filename: string): Promise<ChemicalNotificationTemplate | undefined> {
+    const [row] = await db
+      .update(chemicalNotificationTemplates)
+      .set({ defaultLabelPdfStorageKey: storageKey, defaultLabelPdfFilename: filename, updatedAt: new Date() })
+      .where(and(eq(chemicalNotificationTemplates.id, id), eq(chemicalNotificationTemplates.companyId, companyId)))
+      .returning();
+    return row;
+  }
+
+  async clearChemicalNotificationTemplateLabel(id: string, companyId: string): Promise<ChemicalNotificationTemplate | undefined> {
+    const [row] = await db
+      .update(chemicalNotificationTemplates)
+      .set({ defaultLabelPdfStorageKey: null, defaultLabelPdfFilename: null, updatedAt: new Date() })
       .where(and(eq(chemicalNotificationTemplates.id, id), eq(chemicalNotificationTemplates.companyId, companyId)))
       .returning();
     return row;

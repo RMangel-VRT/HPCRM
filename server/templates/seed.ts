@@ -119,13 +119,14 @@ const SHARED_EMAIL_STYLES = `
   .notice-box { background-color: #f0fdf4; border: 1px solid #86efac; border-radius: 6px; padding: 14px 16px; margin-top: 24px; }
   .notice-box p { margin: 0; color: #166534; font-size: 14px; line-height: 1.5; }
   .footer { padding: 16px 24px; background-color: #f9fafb; text-align: center; font-size: 12px; color: #9ca3af; }
+  .label-btn { display: inline-block; margin-top: 20px; padding: 10px 20px; background-color: #1a5632; color: #ffffff !important; text-decoration: none; border-radius: 4px; font-size: 14px; font-weight: 600; }
 `;
 
 function buildPreVisitHtml(
   treatmentTitle: string,
   treatmentDescription: string,
-  productBox: string,
   careInstructions: string,
+  productDetailHtml?: string,
 ): string {
   return `<!DOCTYPE html>
 <html>
@@ -157,10 +158,15 @@ function buildPreVisitHtml(
         <div class="detail-label">Backup Date</div>
         <div class="detail-value">{{backupDate}}</div>
       </div>
-      ${productBox}
       <div class="notice-box">
         <p>${careInstructions}</p>
       </div>
+      ${productDetailHtml ? productDetailHtml : ''}
+      {{#if labelPdfUrl}}
+      <div style="margin-top:20px;">
+        <a href="{{labelPdfUrl}}" class="label-btn" target="_blank">View Product Label (PDF)</a>
+      </div>
+      {{/if}}
       {{#if notes}}
       <div class="detail-row" style="margin-top:16px;">
         <div class="detail-label">Additional Notes</div>
@@ -170,6 +176,9 @@ function buildPreVisitHtml(
     </div>
     <div class="footer">
       <p>{{companyName}} &mdash; Property Maintenance Services</p>
+      {{#if pesticideLicenseNumber}}
+      <p style="margin-top:6px;">Pesticide Applicator License: {{pesticideLicenseNumber}}</p>
+      {{/if}}
     </div>
   </div>
 </body>
@@ -264,10 +273,11 @@ const CHEM_NOTIF_TEMPLATE_SEEDS: ChemNotifTemplateSeed[] = [
     preVisitHtml: buildPreVisitHtml(
       'Scheduled Broadleaf Weed Control Application',
       'We will be applying a selective broadleaf herbicide to your property on the date listed below.',
-      `<div class="product-box">
-        <h3>Treatment Details</h3>
+      'Please keep pets, children, and sensitive individuals off treated areas for at least 48 hours after application and until the lawn is completely dry. Do not water or mow for 24 hours following treatment.',
+      `<div class="product-box" style="margin-top:20px;">
+        <h3>Product Label &amp; Safety Information</h3>
         <div class="detail-row">
-          <div class="detail-label">Product</div>
+          <div class="detail-label">Product Name</div>
           <div class="detail-value">LESCO Three-Way Selective Herbicide</div>
         </div>
         <div class="detail-row">
@@ -276,22 +286,13 @@ const CHEM_NOTIF_TEMPLATE_SEEDS: ChemNotifTemplateSeed[] = [
         </div>
         <div class="detail-row">
           <div class="detail-label">Target Weeds</div>
-          <div class="detail-value">Dandelion, clover, henbit, plantain, wild onion, ground ivy, and other broadleaf weeds</div>
+          <div class="detail-value">Broadleaf weeds including dandelion, clover, plantain, ground ivy, and thistle</div>
         </div>
         <div class="detail-row">
           <div class="detail-label">Re-Entry Interval</div>
-          <div class="detail-value">48 hours after application</div>
-        </div>
-        <div class="detail-row">
-          <div class="detail-label">Mowing Instructions</div>
-          <div class="detail-value">Do not mow 1–2 days before or after application to maximize product uptake</div>
-        </div>
-        <div class="detail-row">
-          <div class="detail-label">Watering Instructions</div>
-          <div class="detail-value">Do not irrigate or water for 24 hours after application</div>
+          <div class="detail-value">48 hours or until the lawn is completely dry</div>
         </div>
       </div>`,
-      'Please keep pets, children, and sensitive individuals off treated areas for at least 48 hours after application and until the lawn is completely dry. Do not water or mow for 24 hours following treatment.',
     ),
     postVisitSubject: 'Broadleaf Weed Control Completed — {{customerName}}',
     postVisitHtml: buildPostVisitHtml(
@@ -323,30 +324,22 @@ const CHEM_NOTIF_TEMPLATE_SEEDS: ChemNotifTemplateSeed[] = [
     preVisitHtml: buildPreVisitHtml(
       'Scheduled Fertilizer Application',
       'We will be applying a professional turf fertilizer to your property to promote healthy growth and color.',
-      `<div class="product-box">
-        <h3>Treatment Details</h3>
+      'Granular fertilizer is safe for people and pets once it has been watered in and the lawn has dried. We recommend watering within 24–48 hours of application to maximize effectiveness. Avoid mowing immediately before or after application if possible.',
+      `<div class="product-box" style="margin-top:20px;">
+        <h3>Product Label &amp; Safety Information</h3>
         <div class="detail-row">
-          <div class="detail-label">Application Type</div>
+          <div class="detail-label">Product Name</div>
           <div class="detail-value">Professional Granular Turf Fertilizer</div>
         </div>
         <div class="detail-row">
-          <div class="detail-label">Nutrient Profile</div>
-          <div class="detail-value">Balanced NPK formulation with slow-release nitrogen for sustained feeding over 6–8 weeks</div>
-        </div>
-        <div class="detail-row">
-          <div class="detail-label">Purpose</div>
-          <div class="detail-value">Promotes dense, green turf; strengthens root systems; improves drought tolerance and overall turf health</div>
-        </div>
-        <div class="detail-row">
-          <div class="detail-label">Watering Instructions</div>
-          <div class="detail-value">Water in within 24–48 hours of application to activate granules and begin nutrient uptake</div>
+          <div class="detail-label">Formulation</div>
+          <div class="detail-value">Balanced NPK with slow-release nitrogen</div>
         </div>
         <div class="detail-row">
           <div class="detail-label">Re-Entry Interval</div>
-          <div class="detail-value">Safe to re-enter once granules have been watered in and lawn is dry</div>
+          <div class="detail-value">Safe once granules are watered in and the surface is completely dry (typically 24–48 hours)</div>
         </div>
       </div>`,
-      'Granular fertilizer is safe for people and pets once it has been watered in and the lawn has dried. We recommend watering within 24–48 hours of application to maximize effectiveness. Avoid mowing immediately before or after application if possible.',
     ),
     postVisitSubject: 'Fertilizer Application Completed — {{customerName}}',
     postVisitHtml: buildPostVisitHtml(
@@ -374,30 +367,26 @@ const CHEM_NOTIF_TEMPLATE_SEEDS: ChemNotifTemplateSeed[] = [
     preVisitHtml: buildPreVisitHtml(
       'Scheduled Pre-Emergent Herbicide Application',
       'We will be applying a pre-emergent herbicide to prevent crabgrass and other annual weeds from germinating in your lawn.',
-      `<div class="product-box">
-        <h3>Treatment Details</h3>
+      'Pre-emergent products create a chemical barrier in the soil. It is important to water in the product within 21 days to activate it. Avoid aerating, overseeding, or disturbing the soil after application, as this breaks the barrier.',
+      `<div class="product-box" style="margin-top:20px;">
+        <h3>Product Label &amp; Safety Information</h3>
+        <div class="detail-row">
+          <div class="detail-label">Product Name</div>
+          <div class="detail-value">Prodiamine-Based Pre-Emergent Herbicide</div>
+        </div>
         <div class="detail-row">
           <div class="detail-label">Active Ingredient</div>
-          <div class="detail-value">Prodiamine (0.37%) — professional-grade pre-emergent</div>
+          <div class="detail-value">Prodiamine 0.37%</div>
         </div>
         <div class="detail-row">
           <div class="detail-label">Target Weeds</div>
-          <div class="detail-value">Crabgrass, goosegrass, annual bluegrass (Poa annua), foxtail, spurge, and other annual grassy and broadleaf weeds</div>
-        </div>
-        <div class="detail-row">
-          <div class="detail-label">Application Timing</div>
-          <div class="detail-value">Applied before soil temperatures reach 55°F consistently — optimal window for preventing weed seed germination</div>
-        </div>
-        <div class="detail-row">
-          <div class="detail-label">Activation Requirement</div>
-          <div class="detail-value">Must be watered in with 0.5 inches of irrigation or rainfall within 21 days of application to activate the barrier</div>
+          <div class="detail-value">Crabgrass, annual bluegrass, foxtail, and other annual grassy weeds</div>
         </div>
         <div class="detail-row">
           <div class="detail-label">Re-Entry Interval</div>
-          <div class="detail-value">Safe once product is watered in and lawn surface is dry</div>
+          <div class="detail-value">Safe to enter once product is watered in (within 21 days of application)</div>
         </div>
       </div>`,
-      'Pre-emergent products create a chemical barrier in the soil. It is important to water in the product within 21 days to activate it. Avoid aerating, overseeding, or disturbing the soil after application, as this breaks the barrier.',
     ),
     postVisitSubject: 'Pre-Emergent Herbicide Application Completed — {{customerName}}',
     postVisitHtml: buildPostVisitHtml(
@@ -429,34 +418,26 @@ const CHEM_NOTIF_TEMPLATE_SEEDS: ChemNotifTemplateSeed[] = [
     preVisitHtml: buildPreVisitHtml(
       'Scheduled Post-Emergent Crabgrass Control Application',
       'We will be applying a post-emergent herbicide specifically targeting actively growing crabgrass in your lawn.',
-      `<div class="product-box">
-        <h3>Treatment Details</h3>
+      'Please keep pets and children off treated areas until the lawn is completely dry. Do not mow or water for 24 hours following application to allow the product to be fully absorbed by weed foliage.',
+      `<div class="product-box" style="margin-top:20px;">
+        <h3>Product Label &amp; Safety Information</h3>
         <div class="detail-row">
-          <div class="detail-label">Application Type</div>
-          <div class="detail-value">Post-Emergent Crabgrass Control (liquid spray)</div>
+          <div class="detail-label">Product Name</div>
+          <div class="detail-value">Post-Emergent Crabgrass Control</div>
         </div>
         <div class="detail-row">
           <div class="detail-label">Active Ingredient</div>
-          <div class="detail-value">Quinclorac — selective post-emergent herbicide effective on actively growing crabgrass</div>
+          <div class="detail-value">Quinclorac — post-emergent selective herbicide</div>
         </div>
         <div class="detail-row">
           <div class="detail-label">Target Weeds</div>
-          <div class="detail-value">Crabgrass (large and smooth), foxtail, and select broadleaf weeds</div>
+          <div class="detail-value">Actively growing crabgrass</div>
         </div>
         <div class="detail-row">
           <div class="detail-label">Re-Entry Interval</div>
-          <div class="detail-value">Keep off treated areas until completely dry (typically 2–4 hours)</div>
-        </div>
-        <div class="detail-row">
-          <div class="detail-label">Mowing Instructions</div>
-          <div class="detail-value">Do not mow 1–2 days before or after treatment for best results</div>
-        </div>
-        <div class="detail-row">
-          <div class="detail-label">Watering Instructions</div>
-          <div class="detail-value">Do not water or irrigate for 24 hours after application</div>
+          <div class="detail-value">Keep off treated areas until completely dry (2–4 hours)</div>
         </div>
       </div>`,
-      'Please keep pets and children off treated areas until the lawn is completely dry. Do not mow or water for 24 hours following application to allow the product to be fully absorbed by weed foliage.',
     ),
     postVisitSubject: 'Crabgrass Treatment Completed — {{customerName}}',
     postVisitHtml: buildPostVisitHtml(
@@ -489,7 +470,8 @@ const CHEM_NOTIF_TEMPLATE_SEEDS: ChemNotifTemplateSeed[] = [
 
 /**
  * Idempotent upsert: seed four standard chemical notification templates per company.
- * Uses upsert-by-name logic: if a template with the same name exists, it is skipped.
+ * If a template with the same name already exists, sync only the preVisitHtml to pick
+ * up structural changes while preserving company-level subject customisations.
  */
 export async function seedChemicalNotificationTemplates(
   companyId: string,
@@ -497,8 +479,8 @@ export async function seedChemicalNotificationTemplates(
 ): Promise<void> {
   for (const seed of CHEM_NOTIF_TEMPLATE_SEEDS) {
     const existing = await storage.getChemicalNotificationTemplates(companyId);
-    const alreadyExists = existing.some(t => t.name === seed.name);
-    if (!alreadyExists) {
+    const match = existing.find(t => t.name === seed.name);
+    if (!match) {
       await storage.createChemicalNotificationTemplate({
         companyId,
         name: seed.name,
@@ -511,6 +493,9 @@ export async function seedChemicalNotificationTemplates(
         createdBy: null,
       });
       console.log(`Seeded chemical notification template "${seed.name}" for company ${companyId}`);
+    } else if (match.preVisitHtml !== seed.preVisitHtml) {
+      await storage.updateChemicalNotificationTemplate(match.id, companyId, { preVisitHtml: seed.preVisitHtml });
+      console.log(`Updated pre-visit HTML for chemical notification template "${seed.name}" for company ${companyId}`);
     }
   }
 }
