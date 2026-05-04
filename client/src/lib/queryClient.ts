@@ -1,4 +1,5 @@
-import { QueryClient, QueryFunction } from "@tanstack/react-query";
+import { QueryClient, QueryFunction, MutationCache } from "@tanstack/react-query";
+import { toast } from "@/hooks/use-toast";
 
 async function throwIfResNotOk(res: Response) {
   if (!res.ok) {
@@ -42,6 +43,18 @@ export const getQueryFn: <T>(options: {
   };
 
 export const queryClient = new QueryClient({
+  mutationCache: new MutationCache({
+    onError: (error) => {
+      const msg = error instanceof Error ? error.message : String(error);
+      if (msg.includes("PARENT_CUSTOMER_NOT_ALLOWED")) {
+        toast({
+          title: "Cannot use a parent customer",
+          description: "That customer is a grouping for child properties. Please pick a child property instead.",
+          variant: "destructive",
+        });
+      }
+    },
+  }),
   defaultOptions: {
     queries: {
       queryFn: getQueryFn({ on401: "throw" }),

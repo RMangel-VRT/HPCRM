@@ -3156,6 +3156,7 @@ export default function CustomerDetail() {
                         onSelect={(c) => field.onChange(c.id || null)}
                         placeholder={t("customerDetail.parentAccount")}
                         testId="input-customer-parent"
+                        mode="any"
                         excludeIds={[
                           customer.id,
                           ...(customer.childCustomers?.map(c => c.id) ?? []),

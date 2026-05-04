@@ -2531,7 +2531,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     if (!req.isAuthenticated()) return res.status(401).send("Not authenticated");
     const user = req.user as UserWithContext;
     const q = (req.query.q as string) || "";
-    const results = await storage.getCustomerSearch(user.activeCompanyId, q);
+    const results = await storage.getCustomerSearchWithChildren(user.activeCompanyId, q);
     return res.json(results);
   });
 

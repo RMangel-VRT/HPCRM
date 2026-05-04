@@ -138,6 +138,7 @@ function RouteEmailDialog({ email, open, onOpenChange, preselectedCustomer }: Ro
               selectedId={selectedCustomer?.id}
               placeholder={t("emailTracking.searchCustomer")}
               testId="input-customer-search-route"
+              mode="operational"
             />
             {selectedCustomer && (
               <p className="text-xs text-muted-foreground mt-1">{selectedCustomer.name}</p>

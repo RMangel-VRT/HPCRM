@@ -37,6 +37,7 @@ export interface IStorage {
   getCustomers(companyId: string): Promise<Customer[]>;
   getCustomersPaginated(companyId: string, opts: { page: number; limit: number; search?: string }): Promise<{ customers: Customer[]; total: number }>;
   getCustomerSearch(companyId: string, query: string): Promise<Customer[]>;
+  getCustomerSearchWithChildren(companyId: string, query: string): Promise<Customer[]>;
   getCustomerById(id: string, companyId: string): Promise<Customer | undefined>;
   getCustomersByIds(ids: string[], companyId: string): Promise<Map<string, Customer>>;
   getChildCustomers(parentId: string, companyId: string): Promise<Customer[]>;
@@ -714,6 +715,24 @@ export class PgStorage implements IStorage {
       ))
       .orderBy(customers.name)
       .limit(20);
+  }
+
+  async getCustomerSearchWithChildren(companyId: string, query: string): Promise<Customer[]> {
+    const base = await this.getCustomerSearch(companyId, query);
+    const seen = new Set<string>(base.map(c => c.id));
+    const extra: Customer[] = [];
+    for (const c of base) {
+      if (c.isParent === "true") {
+        const children = await this.getChildCustomers(c.id, companyId);
+        for (const child of children) {
+          if (!seen.has(child.id)) {
+            seen.add(child.id);
+            extra.push(child);
+          }
+        }
+      }
+    }
+    return [...base, ...extra];
   }
 
   async getCustomerById(id: string, companyId: string): Promise<Customer | undefined> {
