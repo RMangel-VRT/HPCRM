@@ -441,6 +441,7 @@ export interface IStorage {
   createChemicalNotificationTemplate(data: InsertChemicalNotificationTemplate): Promise<ChemicalNotificationTemplate>;
   updateChemicalNotificationTemplate(id: string, companyId: string, updates: Partial<InsertChemicalNotificationTemplate>): Promise<ChemicalNotificationTemplate | undefined>;
   deleteChemicalNotificationTemplate(id: string, companyId: string): Promise<void>;
+  getCampaignsByTemplate(templateId: string, companyId: string): Promise<{ id: string; title: string; status: string }[]>;
   getCampaignNotificationTemplate(campaignId: string, companyId: string): Promise<ChemicalNotificationTemplate | undefined>;
 
   sessionStore: session.Store;
@@ -4418,6 +4419,14 @@ export class PgStorage implements IStorage {
     await db
       .delete(chemicalNotificationTemplates)
       .where(and(eq(chemicalNotificationTemplates.id, id), eq(chemicalNotificationTemplates.companyId, companyId)));
+  }
+
+  async getCampaignsByTemplate(templateId: string, companyId: string): Promise<{ id: string; title: string; status: string }[]> {
+    const rows = await db
+      .select({ id: campaigns.id, title: campaigns.title, status: campaigns.status })
+      .from(campaigns)
+      .where(and(eq(campaigns.notificationTemplateId, templateId), eq(campaigns.companyId, companyId)));
+    return rows;
   }
 
   async getCampaignNotificationTemplate(campaignId: string, companyId: string): Promise<ChemicalNotificationTemplate | undefined> {

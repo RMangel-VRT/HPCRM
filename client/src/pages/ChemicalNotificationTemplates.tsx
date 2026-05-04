@@ -43,7 +43,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { Plus, Pencil, Trash2, Eye, Mail, Loader2, ChevronDown, ChevronUp } from "lucide-react";
+import { Plus, Pencil, Trash2, Eye, Mail, Loader2, ChevronDown, ChevronUp, AlertTriangle } from "lucide-react";
 
 type ChemicalNotificationTemplate = {
   id: string;
@@ -136,6 +136,11 @@ export default function ChemicalNotificationTemplates() {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [form, setForm] = useState(BLANK_FORM);
   const [deleteId, setDeleteId] = useState<string | null>(null);
+
+  const { data: templateCampaigns = [], isLoading: campaignsLoading, isError: campaignsError } = useQuery<{ id: string; title: string; status: string }[]>({
+    queryKey: ["/api/chemical-notification-templates", deleteId, "campaigns"],
+    enabled: !!deleteId,
+  });
   const [previewMode, setPreviewMode] = useState<"pre" | "post" | null>(null);
   const [showVarsPanel, setShowVarsPanel] = useState(false);
 
@@ -480,19 +485,56 @@ export default function ChemicalNotificationTemplates() {
       </Dialog>
 
       <AlertDialog open={!!deleteId} onOpenChange={(v) => { if (!v) setDeleteId(null); }}>
-        <AlertDialogContent>
+        <AlertDialogContent data-testid="dialog-delete-template">
           <AlertDialogHeader>
             <AlertDialogTitle>Delete Template</AlertDialogTitle>
-            <AlertDialogDescription>
-              Are you sure you want to delete this notification template? Campaigns assigned to this template will fall back to the default email system. This action cannot be undone.
+            <AlertDialogDescription asChild>
+              <div className="space-y-3">
+                <p>Are you sure you want to delete this notification template? This action cannot be undone.</p>
+                {campaignsLoading ? (
+                  <div className="flex items-center gap-2 text-sm text-muted-foreground" data-testid="status-campaigns-loading">
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                    Checking campaign usage...
+                  </div>
+                ) : campaignsError ? (
+                  <div className="rounded-md border border-destructive/30 bg-destructive/5 p-3 space-y-1" data-testid="status-campaigns-error">
+                    <div className="flex items-center gap-2 text-sm font-medium text-destructive">
+                      <AlertTriangle className="w-4 h-4 shrink-0" />
+                      Unable to verify campaign usage
+                    </div>
+                    <p className="text-xs text-muted-foreground">Could not load the list of campaigns using this template. Deletion is disabled until this can be confirmed.</p>
+                  </div>
+                ) : templateCampaigns.length > 0 ? (
+                  <div className="rounded-md border border-destructive/30 bg-destructive/5 p-3 space-y-2" data-testid="status-campaigns-warning">
+                    <div className="flex items-center gap-2 text-sm font-medium text-destructive">
+                      <AlertTriangle className="w-4 h-4 shrink-0" />
+                      {templateCampaigns.length === 1
+                        ? "1 campaign is using this template"
+                        : `${templateCampaigns.length} campaigns are using this template`}
+                    </div>
+                    <p className="text-xs text-muted-foreground">These campaigns will lose their notification template assignment:</p>
+                    <ul className="space-y-1" data-testid="list-template-campaigns">
+                      {templateCampaigns.map((c) => (
+                        <li key={c.id} className="flex items-center gap-2 text-xs" data-testid={`item-campaign-${c.id}`}>
+                          <span className="font-medium">{c.title}</span>
+                          <Badge variant="secondary" className="text-xs capitalize">{c.status}</Badge>
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                ) : (
+                  <p className="text-sm text-muted-foreground" data-testid="status-campaigns-none">No campaigns are currently using this template.</p>
+                )}
+              </div>
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel data-testid="button-cancel-delete">Cancel</AlertDialogCancel>
             <AlertDialogAction
               onClick={() => { if (deleteId) deleteMutation.mutate(deleteId); }}
-              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              className="bg-destructive text-destructive-foreground"
               data-testid="button-confirm-delete"
+              disabled={deleteMutation.isPending || campaignsLoading || campaignsError}
             >
               {deleteMutation.isPending && <Loader2 className="w-4 h-4 mr-2 animate-spin" />}
               Delete

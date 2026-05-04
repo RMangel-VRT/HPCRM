@@ -15156,6 +15156,19 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.patch("/api/chemical-notification-templates/:id", handleUpdateChemicalNotificationTemplate);
   app.put("/api/chemical-notification-templates/:id", handleUpdateChemicalNotificationTemplate);
 
+  app.get("/api/chemical-notification-templates/:id/campaigns", async (req, res) => {
+    if (!req.isAuthenticated()) return res.status(401).send("Not authenticated");
+    const user = req.user as UserWithContext;
+    if (!isTemplateAdmin(user)) return res.status(403).json({ error: "Admin only" });
+    try {
+      const campaigns = await storage.getCampaignsByTemplate(req.params.id, user.activeCompanyId);
+      res.json(campaigns);
+    } catch (err) {
+      console.error("GET /api/chemical-notification-templates/:id/campaigns error:", err);
+      res.status(500).json({ error: "Internal server error" });
+    }
+  });
+
   app.delete("/api/chemical-notification-templates/:id", async (req, res) => {
     if (!req.isAuthenticated()) return res.status(401).send("Not authenticated");
     const user = req.user as UserWithContext;
