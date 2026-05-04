@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useTranslation } from "react-i18next";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { useForm } from "react-hook-form";
@@ -20,6 +20,17 @@ import {
   DialogFooter,
 } from "@/components/ui/dialog";
 import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from "@/components/ui/alert-dialog";
+import {
   Table,
   TableBody,
   TableCell,
@@ -33,9 +44,10 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { MoreHorizontal, Plus, Mail, Pencil, Trash2, User } from "lucide-react";
+import { MoreHorizontal, Plus, Mail, Pencil, Trash2, User, Loader2, CheckCircle, AlertCircle, Link2Off } from "lucide-react";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
+import { formatDistanceToNow } from "date-fns";
 import type { MailboxAccount } from "@shared/schema";
 
 interface CompanyUser {
@@ -43,6 +55,14 @@ interface CompanyUser {
   name: string;
   email: string;
   role: string;
+}
+
+interface OAuthStatus {
+  syncEnabled: boolean;
+  syncStatus: string;
+  connectedEmail: string | null;
+  connectedAt: string | null;
+  hasRefreshToken: boolean;
 }
 
 const makeFormSchema = (t: (key: string) => string) => z.object({
@@ -56,10 +76,26 @@ const makeFormSchema = (t: (key: string) => string) => z.object({
 
 type FormValues = z.infer<ReturnType<typeof makeFormSchema>>;
 
-function SyncStatusBadge({ status }: { status: string }) {
+function SyncStatusBadge({ status, connectedEmail }: { status: string; connectedEmail?: string | null }) {
   const { t } = useTranslation();
-  if (status === "connected") return <Badge className="text-xs bg-green-600/90 text-white">{t("emailTracking.syncConnected")}</Badge>;
-  if (status === "error") return <Badge variant="destructive" className="text-xs">{t("emailTracking.syncError")}</Badge>;
+  if (status === "connected") {
+    return (
+      <div className="flex items-center gap-1.5">
+        <CheckCircle className="w-3.5 h-3.5 text-green-600" />
+        <Badge className="text-xs bg-green-600/90 text-white">
+          {connectedEmail ? t("emailTracking.syncConnectedAs", { email: connectedEmail }) : t("emailTracking.syncConnected")}
+        </Badge>
+      </div>
+    );
+  }
+  if (status === "error") {
+    return (
+      <div className="flex items-center gap-1.5">
+        <AlertCircle className="w-3.5 h-3.5 text-destructive" />
+        <Badge variant="destructive" className="text-xs">{t("emailTracking.syncError")}</Badge>
+      </div>
+    );
+  }
   return <Badge variant="secondary" className="text-xs">{t("emailTracking.syncNotConnected")}</Badge>;
 }
 
@@ -235,6 +271,117 @@ function MailboxFormDialog({
   );
 }
 
+function GmailConnectButton({ account }: { account: MailboxAccount }) {
+  const { t } = useTranslation();
+  const { toast } = useToast();
+  const [isConnecting, setIsConnecting] = useState(false);
+
+  const { data: oauthStatus } = useQuery<OAuthStatus>({
+    queryKey: ["/api/mailbox-accounts", account.id, "oauth-status"],
+    queryFn: () => apiRequest("GET", `/api/mailbox-accounts/${account.id}/oauth/status`).then(r => r.json() as Promise<OAuthStatus>),
+    enabled: account.isActive,
+  });
+
+  const disconnectMutation = useMutation({
+    mutationFn: () => apiRequest("POST", `/api/mailbox-accounts/${account.id}/oauth/disconnect`, {}),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/mailbox-accounts"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/mailbox-accounts", account.id, "oauth-status"] });
+      toast({ title: t("emailTracking.gmailDisconnected") });
+    },
+    onError: () => toast({ title: t("emailTracking.gmailDisconnectError"), variant: "destructive" }),
+  });
+
+  const handleConnect = async () => {
+    setIsConnecting(true);
+    try {
+      const res = await apiRequest("GET", `/api/mailbox-accounts/${account.id}/oauth/connect`);
+      const result = await res.json() as { authUrl?: string; error?: string };
+      if (result?.authUrl) {
+        window.location.href = result.authUrl;
+        // don't clear isConnecting — page is navigating away
+      } else {
+        toast({ title: result?.error ?? t("emailTracking.gmailConnectError"), variant: "destructive" });
+        setIsConnecting(false);
+      }
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : t("emailTracking.gmailConnectError");
+      toast({ title: msg, variant: "destructive" });
+      setIsConnecting(false);
+    }
+  };
+
+  const status = oauthStatus?.syncStatus ?? account.syncStatus ?? "not_connected";
+  const connectedEmail = oauthStatus?.connectedEmail ?? null;
+  const connectedAt = oauthStatus?.connectedAt ?? null;
+
+  return (
+    <div className="flex flex-col gap-1.5">
+      <SyncStatusBadge status={status} connectedEmail={connectedEmail} />
+
+      {connectedAt && status === "connected" && (
+        <p className="text-xs text-muted-foreground">
+          {t("emailTracking.connectedAgo", { time: formatDistanceToNow(new Date(connectedAt), { addSuffix: true }) })}
+        </p>
+      )}
+
+      {status === "connected" ? (
+        <AlertDialog>
+          <AlertDialogTrigger asChild>
+            <Button
+              variant="outline"
+              size="sm"
+              className="gap-1 text-xs"
+              data-testid={`button-disconnect-gmail-${account.id}`}
+              disabled={disconnectMutation.isPending}
+            >
+              {disconnectMutation.isPending ? (
+                <Loader2 className="w-3 h-3 animate-spin" />
+              ) : (
+                <Link2Off className="w-3 h-3" />
+              )}
+              {t("emailTracking.disconnect")}
+            </Button>
+          </AlertDialogTrigger>
+          <AlertDialogContent>
+            <AlertDialogHeader>
+              <AlertDialogTitle>{t("emailTracking.disconnectTitle")}</AlertDialogTitle>
+              <AlertDialogDescription>
+                {t("emailTracking.disconnectDesc", { email: connectedEmail ?? account.emailAddress })}
+              </AlertDialogDescription>
+            </AlertDialogHeader>
+            <AlertDialogFooter>
+              <AlertDialogCancel>{t("common.cancel")}</AlertDialogCancel>
+              <AlertDialogAction
+                onClick={() => disconnectMutation.mutate()}
+                data-testid={`button-confirm-disconnect-${account.id}`}
+              >
+                {t("emailTracking.disconnect")}
+              </AlertDialogAction>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
+      ) : (
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={handleConnect}
+          disabled={isConnecting}
+          data-testid={`button-connect-gmail-${account.id}`}
+          className="gap-1 text-xs"
+        >
+          {isConnecting ? (
+            <Loader2 className="w-3 h-3 animate-spin" />
+          ) : (
+            <Mail className="w-3 h-3" />
+          )}
+          {status === "error" ? t("emailTracking.reconnect") : t("emailTracking.connectGmail")}
+        </Button>
+      )}
+    </div>
+  );
+}
+
 export default function MailboxAccountsSettingsPage() {
   const { t } = useTranslation();
   const { toast } = useToast();
@@ -250,6 +397,20 @@ export default function MailboxAccountsSettingsPage() {
   });
 
   const userMap = new Map(companyUsers.map(u => [u.id, u]));
+
+  // Handle ?connected=<id> return from OAuth
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const connectedId = params.get("connected");
+    if (connectedId) {
+      toast({ title: t("emailTracking.gmailConnectedSuccess") });
+      queryClient.invalidateQueries({ queryKey: ["/api/mailbox-accounts"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/mailbox-accounts", connectedId, "oauth-status"] });
+      // Clean the URL
+      const cleanUrl = window.location.pathname;
+      window.history.replaceState({}, "", cleanUrl);
+    }
+  }, []);
 
   const deleteMutation = useMutation({
     mutationFn: (id: string) => apiRequest("DELETE", `/api/mailbox-accounts/${id}`, {}),
@@ -279,16 +440,6 @@ export default function MailboxAccountsSettingsPage() {
             <h1 className="text-lg font-semibold" data-testid="heading-mailbox-settings">{t("emailTracking.mailboxSettingsTitle")}</h1>
           </div>
           <div className="flex-1" />
-          <Button
-            variant="outline"
-            size="sm"
-            disabled
-            data-testid="button-connect-gmail"
-            className="gap-1"
-          >
-            <Mail className="w-4 h-4" />
-            {t("emailTracking.connectGmail")}
-          </Button>
           <Button
             size="sm"
             onClick={() => { setEditAccount(null); setShowForm(true); }}
@@ -363,21 +514,7 @@ export default function MailboxAccountsSettingsPage() {
                         }
                       </TableCell>
                       <TableCell>
-                        <div className="flex flex-col gap-1">
-                          <SyncStatusBadge status={account.syncStatus ?? "not_connected"} />
-                          {(!account.syncStatus || account.syncStatus === "not_connected") && (
-                            <Button
-                              variant="outline"
-                              size="sm"
-                              disabled
-                              data-testid={`button-connect-gmail-${account.id}`}
-                              className="gap-1 text-xs h-7"
-                            >
-                              <Mail className="w-3 h-3" />
-                              {t("emailTracking.connectGmail")}
-                            </Button>
-                          )}
-                        </div>
+                        <GmailConnectButton account={account} />
                       </TableCell>
                       <TableCell className="text-right">
                         <DropdownMenu>

@@ -4,9 +4,18 @@ import { mailboxAccounts } from "@shared/schema";
 import { insertMailboxAccountSchema } from "@shared/schema";
 import { eq, and } from "drizzle-orm";
 import type { UserWithContext } from "../auth";
+import {
+  isGoogleOAuthConfigured,
+  generateAuthUrl,
+  generateStateToken,
+  exchangeCodeForTokens,
+  getUserEmail,
+  revokeTokens,
+} from "../services/googleOAuth";
 
 const router = Router();
 
+// ─── List all mailbox accounts for the company ────────────────────────────────
 router.get("/", async (req, res) => {
   try {
     const user = req.user as UserWithContext;
@@ -24,6 +33,215 @@ router.get("/", async (req, res) => {
   }
 });
 
+// ─── Auth helper: admin/superadmin OR owner of personal mailbox ───────────────
+function canManageMailboxOAuth(user: UserWithContext, account: typeof mailboxAccounts.$inferSelect): boolean {
+  if (user.isSuperAdminBool) return true;
+  if (user.activeRole === "admin") return true;
+  // Personal mailbox owned by this user
+  if (account.accountType === "personal" && account.ownerUserId === user.id) return true;
+  return false;
+}
+
+// ─── OAuth status for a specific mailbox ─────────────────────────────────────
+router.get("/:id/oauth/status", async (req, res) => {
+  try {
+    const user = req.user as UserWithContext;
+    if (!user?.activeCompanyId) return res.status(401).json({ error: "Unauthorized" });
+
+    if (!isGoogleOAuthConfigured()) {
+      return res.status(503).json({ error: "Google OAuth is not configured. Contact your administrator." });
+    }
+
+    const [account] = await db.select()
+      .from(mailboxAccounts)
+      .where(and(eq(mailboxAccounts.id, req.params.id), eq(mailboxAccounts.companyId, user.activeCompanyId)));
+    if (!account) return res.status(404).json({ error: "Not found" });
+
+    if (!canManageMailboxOAuth(user, account)) {
+      return res.status(403).json({ error: "Not authorized to manage this mailbox" });
+    }
+
+    const tokenData = account.oauthTokenJson as Record<string, unknown> | null;
+    res.json({
+      syncEnabled: account.syncEnabled,
+      syncStatus: account.syncStatus,
+      connectedEmail: tokenData?.connected_email ?? null,
+      connectedAt: tokenData?.connected_at ?? null,
+      hasRefreshToken: !!(tokenData?.refresh_token),
+    });
+  } catch (err) {
+    console.error("GET /api/mailbox-accounts/:id/oauth/status error:", err);
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+// ─── Initiate Gmail OAuth flow ────────────────────────────────────────────────
+router.get("/:id/oauth/connect", async (req, res) => {
+  try {
+    const user = req.user as UserWithContext;
+    if (!user?.activeCompanyId) return res.status(401).json({ error: "Unauthorized" });
+
+    if (!isGoogleOAuthConfigured()) {
+      return res.status(503).json({ error: "Google OAuth is not configured. Contact your administrator." });
+    }
+
+    const [account] = await db.select()
+      .from(mailboxAccounts)
+      .where(and(eq(mailboxAccounts.id, req.params.id), eq(mailboxAccounts.companyId, user.activeCompanyId)));
+    if (!account) return res.status(404).json({ error: "Not found" });
+
+    if (!canManageMailboxOAuth(user, account)) {
+      return res.status(403).json({ error: "Not authorized to connect this mailbox" });
+    }
+
+    const { state, randomPart } = generateStateToken(req.params.id);
+
+    // Store the random portion AND mailbox id in session for CSRF + identity validation
+    (req.session as Record<string, unknown>).oauthState = randomPart;
+    (req.session as Record<string, unknown>).oauthMailboxId = req.params.id;
+
+    const authUrl = generateAuthUrl(state);
+    res.json({ authUrl });
+  } catch (err) {
+    console.error("GET /api/mailbox-accounts/:id/oauth/connect error:", err);
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+// ─── OAuth callback ───────────────────────────────────────────────────────────
+router.get("/oauth/callback", async (req, res) => {
+  const { code, state, error: oauthError } = req.query as Record<string, string>;
+
+  const settingsUrl = "/dashboard/settings/mailbox-accounts";
+
+  if (oauthError) {
+    return res.status(400).send(buildHtmlPage("OAuth Error", `<p>Google returned an error: <strong>${escapeHtml(oauthError)}</strong></p><p><a href="${settingsUrl}">Return to settings</a></p>`));
+  }
+
+  if (!code || !state) {
+    return res.status(400).send(buildHtmlPage("Missing Parameters", `<p>Missing OAuth code or state.</p><p><a href="${settingsUrl}">Return to settings</a></p>`));
+  }
+
+  // Require authenticated session with company scope — no cross-tenant fallback
+  const user = req.user as UserWithContext | undefined;
+  if (!user?.activeCompanyId) {
+    return res.status(401).send(buildHtmlPage("Session Expired", `<p>Your session has expired. Please sign in and try connecting again.</p><p><a href="${settingsUrl}">Return to settings</a></p>`));
+  }
+
+  if (!isGoogleOAuthConfigured()) {
+    return res.status(503).send(buildHtmlPage("Not Configured", `<p>Google OAuth is not configured. Contact your administrator.</p><p><a href="${settingsUrl}">Return to settings</a></p>`));
+  }
+
+  // Parse state: "<mailboxAccountId>:<randomPart>"
+  const colonIdx = state.indexOf(":");
+  if (colonIdx === -1) {
+    return res.status(403).send(buildHtmlPage("Invalid OAuth state", `<p>Invalid OAuth state — please try connecting again.</p><p><a href="${settingsUrl}">Return to settings</a></p>`));
+  }
+
+  const mailboxAccountIdFromState = state.slice(0, colonIdx);
+  const receivedRandom = state.slice(colonIdx + 1);
+  const session = req.session as Record<string, unknown>;
+  const expectedRandom = session.oauthState as string | undefined;
+  const sessionMailboxId = session.oauthMailboxId as string | undefined;
+
+  // Validate CSRF random AND mailbox identity match between state param and session
+  if (!expectedRandom || receivedRandom !== expectedRandom) {
+    return res.status(403).send(buildHtmlPage("Invalid OAuth state", `<p>Invalid OAuth state — please try connecting again. Your session may have expired.</p><p><a href="${settingsUrl}">Return to settings</a></p>`));
+  }
+  if (!sessionMailboxId || mailboxAccountIdFromState !== sessionMailboxId) {
+    return res.status(403).send(buildHtmlPage("Invalid OAuth state", `<p>Mailbox identity mismatch — please try connecting again.</p><p><a href="${settingsUrl}">Return to settings</a></p>`));
+  }
+
+  // Clear state from session before any async work
+  delete session.oauthState;
+  delete session.oauthMailboxId;
+
+  try {
+    // Verify account exists and belongs to this user's company (no fallback without scope)
+    const [account] = await db.select().from(mailboxAccounts).where(
+      and(eq(mailboxAccounts.id, mailboxAccountIdFromState), eq(mailboxAccounts.companyId, user.activeCompanyId))
+    );
+    if (!account) {
+      return res.status(404).send(buildHtmlPage("Not Found", `<p>Mailbox account not found.</p><p><a href="${settingsUrl}">Return to settings</a></p>`));
+    }
+
+    if (!canManageMailboxOAuth(user, account)) {
+      return res.status(403).send(buildHtmlPage("Not Authorized", `<p>You are not authorized to connect this mailbox.</p><p><a href="${settingsUrl}">Return to settings</a></p>`));
+    }
+
+    const tokens = await exchangeCodeForTokens(code);
+    const accessToken = tokens.access_token;
+    if (!accessToken) throw new Error("No access token received from Google");
+
+    const connectedEmail = await getUserEmail(accessToken);
+
+    // Verify email matches the mailbox account email
+    if (connectedEmail.toLowerCase() !== account.emailAddress.toLowerCase()) {
+      return res.status(400).send(buildHtmlPage("Email Mismatch", `
+        <p>The Google account you signed in with (<strong>${escapeHtml(connectedEmail)}</strong>) does not match the mailbox address (<strong>${escapeHtml(account.emailAddress)}</strong>).</p>
+        <p>Please try again and sign in with the correct Google account.</p>
+        <p><a href="${settingsUrl}">Return to settings</a></p>
+      `));
+    }
+
+    const tokenJson = {
+      access_token: tokens.access_token,
+      refresh_token: tokens.refresh_token ?? null,
+      expiry_date: tokens.expiry_date ?? null,
+      scope: tokens.scope ?? null,
+      token_type: tokens.token_type ?? null,
+      connected_at: new Date().toISOString(),
+      connected_email: connectedEmail,
+    };
+
+    await db
+      .update(mailboxAccounts)
+      .set({
+        oauthTokenJson: tokenJson,
+        syncEnabled: true,
+        syncStatus: "connected",
+        oauthProvider: "google",
+        lastSyncedAt: new Date(),
+        updatedAt: new Date(),
+      })
+      .where(and(eq(mailboxAccounts.id, mailboxAccountIdFromState), eq(mailboxAccounts.companyId, user.activeCompanyId)));
+
+    return res.redirect(`${settingsUrl}?connected=${encodeURIComponent(mailboxAccountIdFromState)}`);
+  } catch (err) {
+    console.error("OAuth callback error:", err);
+    const msg = err instanceof Error ? err.message : "Unknown error";
+    return res.status(500).send(buildHtmlPage("Connection Failed", `<p>Failed to connect Gmail: ${escapeHtml(msg)}</p><p><a href="${settingsUrl}">Return to settings</a></p>`));
+  }
+});
+
+// ─── Disconnect / revoke OAuth ────────────────────────────────────────────────
+router.post("/:id/oauth/disconnect", async (req, res) => {
+  try {
+    const user = req.user as UserWithContext;
+    if (!user?.activeCompanyId) return res.status(401).json({ error: "Unauthorized" });
+
+    if (!isGoogleOAuthConfigured()) {
+      return res.status(503).json({ error: "Google OAuth is not configured. Contact your administrator." });
+    }
+
+    const [account] = await db.select()
+      .from(mailboxAccounts)
+      .where(and(eq(mailboxAccounts.id, req.params.id), eq(mailboxAccounts.companyId, user.activeCompanyId)));
+    if (!account) return res.status(404).json({ error: "Not found" });
+
+    if (!canManageMailboxOAuth(user, account)) {
+      return res.status(403).json({ error: "Not authorized to disconnect this mailbox" });
+    }
+
+    await revokeTokens(req.params.id);
+    res.json({ success: true });
+  } catch (err) {
+    console.error("POST /api/mailbox-accounts/:id/oauth/disconnect error:", err);
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+// ─── Get single mailbox account ───────────────────────────────────────────────
 router.get("/:id", async (req, res) => {
   try {
     const user = req.user as UserWithContext;
@@ -42,6 +260,7 @@ router.get("/:id", async (req, res) => {
   }
 });
 
+// ─── Create mailbox account ───────────────────────────────────────────────────
 router.post("/", async (req, res) => {
   try {
     const user = req.user as UserWithContext;
@@ -57,6 +276,7 @@ router.post("/", async (req, res) => {
   }
 });
 
+// ─── Update mailbox account ───────────────────────────────────────────────────
 router.patch("/:id", async (req, res) => {
   try {
     const user = req.user as UserWithContext;
@@ -77,6 +297,7 @@ router.patch("/:id", async (req, res) => {
   }
 });
 
+// ─── Deactivate mailbox account ───────────────────────────────────────────────
 router.delete("/:id", async (req, res) => {
   try {
     const user = req.user as UserWithContext;
@@ -93,5 +314,33 @@ router.delete("/:id", async (req, res) => {
     res.status(500).json({ error: "Internal server error" });
   }
 });
+
+// ─── Helpers ──────────────────────────────────────────────────────────────────
+function escapeHtml(str: string): string {
+  return str
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;");
+}
+
+function buildHtmlPage(title: string, bodyContent: string): string {
+  return `<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>${escapeHtml(title)} - High Plains CRM</title>
+  <style>
+    body { font-family: sans-serif; max-width: 600px; margin: 60px auto; padding: 0 20px; color: #333; }
+    h1 { color: #c0392b; }
+    a { color: #2980b9; }
+  </style>
+</head>
+<body>
+  <h1>${escapeHtml(title)}</h1>
+  ${bodyContent}
+</body>
+</html>`;
+}
 
 export default router;

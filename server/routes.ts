@@ -14590,6 +14590,49 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const parsed = insertCommunicationSchema.safeParse(payload);
       if (!parsed.success) return res.status(400).json({ error: parsed.error.flatten() });
       const comm = await storage.createCommunication(parsed.data);
+
+      // Attempt Gmail send if conditions met
+      if (
+        parsed.data.direction === "outbound" &&
+        parsed.data.status === "sent" &&
+        parsed.data.mailboxAccountId
+      ) {
+        try {
+          const { mailboxAccounts: mbTable } = await import("@shared/schema");
+          const { eq: eqFn, and: andFn } = await import("drizzle-orm");
+          // Scope mailbox lookup to the requester's company to prevent cross-tenant IDOR
+          const [mbAccount] = await db.select().from(mbTable).where(
+            andFn(eqFn(mbTable.id, parsed.data.mailboxAccountId), eqFn(mbTable.companyId, user.activeCompanyId))
+          );
+          if (mbAccount?.syncEnabled === true && mbAccount.syncStatus === "connected") {
+            const { sendEmail: gmailSend } = await import("./services/gmailSender");
+            const toAddresses = (parsed.data.toAddresses ?? []).filter(Boolean);
+            const ccAddresses = (parsed.data.ccAddresses ?? []).filter(Boolean);
+            const bccAddresses = (parsed.data.bccAddresses ?? []).filter(Boolean);
+            const gmailResult = await gmailSend(parsed.data.mailboxAccountId, {
+              to: toAddresses,
+              cc: ccAddresses.length ? ccAddresses : undefined,
+              bcc: bccAddresses.length ? bccAddresses : undefined,
+              subject: parsed.data.subject ?? "(No subject)",
+              bodyText: parsed.data.bodyText ?? parsed.data.body ?? "",
+              bodyHtml: parsed.data.bodyHtml ?? undefined,
+            });
+            // Update communication record with delivery info
+            await db.execute(
+              sql`UPDATE communications SET provider_message_id = ${gmailResult.messageId}, provider_thread_id = ${gmailResult.threadId}, delivery_provider = 'gmail', delivery_status = 'sent', sent_at = NOW() WHERE id = ${comm.id}`
+            );
+            return res.status(201).json({ ...comm, deliveryProvider: "gmail", deliveryStatus: "sent" });
+          }
+        } catch (gmailErr: unknown) {
+          const errMsg = gmailErr instanceof Error ? gmailErr.message : "Gmail send failed";
+          console.error("Gmail send error:", errMsg);
+          await db.execute(
+            sql`UPDATE communications SET delivery_status = 'failed', failure_reason = ${errMsg} WHERE id = ${comm.id}`
+          );
+          return res.status(500).json({ error: errMsg, communicationId: comm.id });
+        }
+      }
+
       res.status(201).json(comm);
     } catch (err) {
       console.error("POST /api/customers/:customerId/communications error:", err);
@@ -15368,6 +15411,7 @@ export async function migrateEmailTrackingTables(): Promise<void> {
     `);
 
     await db.execute(sql`ALTER TABLE mailbox_accounts ADD COLUMN IF NOT EXISTS sync_enabled BOOLEAN DEFAULT false`);
+    await db.execute(sql`ALTER TABLE mailbox_accounts ALTER COLUMN sync_enabled SET NOT NULL`);
     await db.execute(sql`ALTER TABLE mailbox_accounts ADD COLUMN IF NOT EXISTS last_synced_at TIMESTAMP`);
     await db.execute(sql`ALTER TABLE mailbox_accounts ADD COLUMN IF NOT EXISTS oauth_provider TEXT`);
     await db.execute(sql`ALTER TABLE mailbox_accounts ADD COLUMN IF NOT EXISTS oauth_token_json JSONB`);

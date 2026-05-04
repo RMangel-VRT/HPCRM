@@ -12,7 +12,7 @@ import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
-import { ChevronDown, ChevronUp, X } from "lucide-react";
+import { ChevronDown, ChevronUp, X, Mail, Info, AlertCircle } from "lucide-react";
 import type { MailboxAccount } from "@shared/schema";
 
 const baseFormSchema = z.object({
@@ -28,16 +28,8 @@ const baseFormSchema = z.object({
 
 type FormValues = z.infer<typeof baseFormSchema>;
 
-function makeFormSchema(t: (k: string) => string) {
-  return baseFormSchema.superRefine((data, ctx) => {
-    if (data.direction === "outbound" && !data.mailboxAccountId) {
-      ctx.addIssue({
-        code: z.ZodIssueCode.custom,
-        message: t("emailTracking.mailboxRequiredForOutbound"),
-        path: ["mailboxAccountId"],
-      });
-    }
-  });
+function makeFormSchema(_t: (k: string) => string) {
+  return baseFormSchema;
 }
 
 interface LogCommunicationFormProps {
@@ -88,6 +80,7 @@ export default function LogCommunicationForm({ customerId, onSuccess, onCancel }
   const { t } = useTranslation();
   const { toast } = useToast();
   const [showCc, setShowCc] = useState(false);
+  const [sendError, setSendError] = useState<string | null>(null);
 
   const { data: mailboxAccounts = [] } = useQuery<MailboxAccount[]>({
     queryKey: ["/api/mailbox-accounts"],
@@ -117,8 +110,13 @@ export default function LogCommunicationForm({ customerId, onSuccess, onCancel }
   const selectedMailboxId = form.watch("mailboxAccountId");
   const selectedMailbox = activeMailboxes.find(m => m.id === selectedMailboxId);
 
+  const isOutbound = direction === "outbound";
+  const isGmailSend = isOutbound && selectedMailbox?.syncEnabled === true && selectedMailbox?.syncStatus === "connected";
+  const isLogOnly = isOutbound && (!selectedMailbox || !selectedMailbox.syncEnabled || selectedMailbox.syncStatus !== "connected");
+
   const mutation = useMutation({
     mutationFn: async (values: FormValues) => {
+      setSendError(null);
       const dateVal = values.dateTime ? new Date(values.dateTime) : new Date();
       const payload: Record<string, unknown> = {
         direction: values.direction,
@@ -144,13 +142,20 @@ export default function LogCommunicationForm({ customerId, onSuccess, onCancel }
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/customers", customerId, "communications"] });
       queryClient.invalidateQueries({ queryKey: ["/api/customers", customerId, "communications", "summary"] });
-      toast({ title: t("emailTracking.submitLog") });
+      toast({ title: isGmailSend ? t("emailTracking.sentViaGmail") : t("emailTracking.submitLog") });
       onSuccess?.();
     },
-    onError: () => {
-      toast({ title: t("emailTracking.logError"), variant: "destructive" });
+    onError: (err: unknown) => {
+      const errMsg = err instanceof Error ? err.message : t("emailTracking.logError");
+      setSendError(errMsg);
     },
   });
+
+  const submitLabel = mutation.isPending
+    ? t("common.saving")
+    : isGmailSend
+    ? t("emailTracking.sendViaGmail")
+    : t("emailTracking.submitLog");
 
   return (
     <Form {...form}>
@@ -179,7 +184,7 @@ export default function LogCommunicationForm({ customerId, onSuccess, onCancel }
             <FormItem>
               <FormLabel>
                 {t("emailTracking.selectMailbox")}{" "}
-                {direction === "outbound" ? t("emailTracking.mailboxRequired") : t("emailTracking.mailboxOptional")}
+                {t("emailTracking.mailboxOptional")}
               </FormLabel>
               <Select value={field.value ?? "__none__"} onValueChange={v => field.onChange(v === "__none__" ? undefined : v)}>
                 <FormControl>
@@ -188,7 +193,7 @@ export default function LogCommunicationForm({ customerId, onSuccess, onCancel }
                   </SelectTrigger>
                 </FormControl>
                 <SelectContent>
-                  {direction === "inbound" && <SelectItem value="__none__">{t("emailTracking.noOwner")}</SelectItem>}
+                  <SelectItem value="__none__">{t("emailTracking.noOwner")}</SelectItem>
                   {activeMailboxes.map(m => (
                     <SelectItem key={m.id} value={m.id}>{m.displayName} ({m.emailAddress})</SelectItem>
                   ))}
@@ -208,6 +213,36 @@ export default function LogCommunicationForm({ customerId, onSuccess, onCancel }
             </FormItem>
           )} />
         </div>
+
+        {/* Send intent banner — only visible for outbound */}
+        {isOutbound && selectedMailboxId && (
+          isGmailSend ? (
+            <div className="flex items-start gap-2 rounded-md bg-blue-50 dark:bg-blue-950/30 border border-blue-200 dark:border-blue-800 px-3 py-2 text-sm text-blue-800 dark:text-blue-200" data-testid="banner-gmail-send">
+              <Mail className="w-4 h-4 mt-0.5 shrink-0" />
+              <span>{t("emailTracking.willSendViaGmail", { email: selectedMailbox?.emailAddress ?? "" })}</span>
+            </div>
+          ) : (
+            <div className="flex items-start gap-2 rounded-md bg-muted border px-3 py-2 text-sm text-muted-foreground" data-testid="banner-log-only">
+              <Info className="w-4 h-4 mt-0.5 shrink-0" />
+              <span>{t("emailTracking.logOnlyBanner")}</span>
+            </div>
+          )
+        )}
+
+        {isOutbound && !selectedMailboxId && (
+          <div className="flex items-start gap-2 rounded-md bg-muted border px-3 py-2 text-sm text-muted-foreground" data-testid="banner-no-mailbox">
+            <Info className="w-4 h-4 mt-0.5 shrink-0" />
+            <span>{t("emailTracking.logOnlyBanner")}</span>
+          </div>
+        )}
+
+        {/* API send error — form stays open */}
+        {sendError && (
+          <div className="flex items-start gap-2 rounded-md bg-destructive/10 border border-destructive/30 px-3 py-2 text-sm text-destructive" data-testid="banner-send-error">
+            <AlertCircle className="w-4 h-4 mt-0.5 shrink-0" />
+            <span>{sendError}</span>
+          </div>
+        )}
 
         {direction === "inbound" && (
           <FormField control={form.control} name="fromAddress" render={({ field }) => (
@@ -293,7 +328,7 @@ export default function LogCommunicationForm({ customerId, onSuccess, onCancel }
             </Button>
           )}
           <Button type="submit" disabled={mutation.isPending} data-testid="button-log-submit">
-            {mutation.isPending ? t("common.saving") : t("emailTracking.submitLog")}
+            {submitLabel}
           </Button>
         </div>
       </form>
