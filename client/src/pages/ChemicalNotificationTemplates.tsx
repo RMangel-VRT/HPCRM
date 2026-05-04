@@ -243,8 +243,16 @@ export default function ChemicalNotificationTemplates() {
       toast({ title: "Template deleted" });
       setDeleteId(null);
     },
-    onError: () => {
-      toast({ title: "Failed to delete template", variant: "destructive" });
+    onError: (error: Error) => {
+      if (error.message.startsWith("409")) {
+        toast({
+          title: "Cannot delete template",
+          description: "This template is used by one or more active campaigns. Archive or reassign those campaigns first.",
+          variant: "destructive",
+        });
+      } else {
+        toast({ title: "Failed to delete template", variant: "destructive" });
+      }
     },
   });
 
@@ -710,25 +718,50 @@ export default function ChemicalNotificationTemplates() {
                     </div>
                     <p className="text-xs text-muted-foreground">Could not load the list of campaigns using this template. Deletion is disabled until this can be confirmed.</p>
                   </div>
-                ) : templateCampaigns.length > 0 ? (
-                  <div className="rounded-md border border-destructive/30 bg-destructive/5 p-3 space-y-2" data-testid="status-campaigns-warning">
-                    <div className="flex items-center gap-2 text-sm font-medium text-destructive">
-                      <AlertTriangle className="w-4 h-4 shrink-0" />
-                      {templateCampaigns.length === 1
-                        ? "1 campaign is using this template"
-                        : `${templateCampaigns.length} campaigns are using this template`}
+                ) : templateCampaigns.length > 0 ? (() => {
+                  const activeCampaigns = templateCampaigns.filter((c) => c.status === "active");
+                  const inactiveCampaigns = templateCampaigns.filter((c) => c.status !== "active");
+                  return (
+                    <div className="space-y-2">
+                      {activeCampaigns.length > 0 && (
+                        <div className="rounded-md border border-destructive/30 bg-destructive/5 p-3 space-y-2" data-testid="status-campaigns-blocked">
+                          <div className="flex items-center gap-2 text-sm font-medium text-destructive">
+                            <AlertTriangle className="w-4 h-4 shrink-0" />
+                            {activeCampaigns.length === 1
+                              ? "1 active campaign is using this template"
+                              : `${activeCampaigns.length} active campaigns are using this template`}
+                          </div>
+                          <p className="text-xs text-muted-foreground">Deletion is blocked while active campaigns reference this template. Archive or reassign these campaigns first:</p>
+                          <ul className="space-y-1" data-testid="list-active-campaigns">
+                            {activeCampaigns.map((c) => (
+                              <li key={c.id} className="flex items-center gap-2 text-xs" data-testid={`item-campaign-${c.id}`}>
+                                <span className="font-medium">{c.title}</span>
+                                <Badge variant="secondary" className="text-xs capitalize">{c.status}</Badge>
+                              </li>
+                            ))}
+                          </ul>
+                        </div>
+                      )}
+                      {inactiveCampaigns.length > 0 && (
+                        <div className="rounded-md border border-muted bg-muted/30 p-3 space-y-2" data-testid="status-campaigns-warning">
+                          <p className="text-xs text-muted-foreground">
+                            {inactiveCampaigns.length === 1
+                              ? "1 completed or archived campaign also references this template and will lose its assignment:"
+                              : `${inactiveCampaigns.length} completed or archived campaigns also reference this template and will lose their assignment:`}
+                          </p>
+                          <ul className="space-y-1" data-testid="list-inactive-campaigns">
+                            {inactiveCampaigns.map((c) => (
+                              <li key={c.id} className="flex items-center gap-2 text-xs" data-testid={`item-campaign-${c.id}`}>
+                                <span className="font-medium">{c.title}</span>
+                                <Badge variant="secondary" className="text-xs capitalize">{c.status}</Badge>
+                              </li>
+                            ))}
+                          </ul>
+                        </div>
+                      )}
                     </div>
-                    <p className="text-xs text-muted-foreground">These campaigns will lose their notification template assignment:</p>
-                    <ul className="space-y-1" data-testid="list-template-campaigns">
-                      {templateCampaigns.map((c) => (
-                        <li key={c.id} className="flex items-center gap-2 text-xs" data-testid={`item-campaign-${c.id}`}>
-                          <span className="font-medium">{c.title}</span>
-                          <Badge variant="secondary" className="text-xs capitalize">{c.status}</Badge>
-                        </li>
-                      ))}
-                    </ul>
-                  </div>
-                ) : (
+                  );
+                })() : (
                   <p className="text-sm text-muted-foreground" data-testid="status-campaigns-none">No campaigns are currently using this template.</p>
                 )}
               </div>
@@ -740,7 +773,7 @@ export default function ChemicalNotificationTemplates() {
               onClick={() => { if (deleteId) deleteMutation.mutate(deleteId); }}
               className="bg-destructive text-destructive-foreground"
               data-testid="button-confirm-delete"
-              disabled={deleteMutation.isPending || campaignsLoading || campaignsError}
+              disabled={deleteMutation.isPending || campaignsLoading || !!campaignsError || templateCampaigns.some((c) => c.status === "active")}
             >
               {deleteMutation.isPending && <Loader2 className="w-4 h-4 mr-2 animate-spin" />}
               Delete

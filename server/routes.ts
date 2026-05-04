@@ -15218,6 +15218,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
     const user = req.user as UserWithContext;
     if (!isTemplateAdmin(user)) return res.status(403).json({ error: "Admin only" });
     try {
+      const campaigns = await storage.getCampaignsByTemplate(req.params.id, user.activeCompanyId);
+      const activeCampaigns = campaigns.filter((c) => c.status === "active");
+      if (activeCampaigns.length > 0) {
+        return res.status(409).json({
+          error: "Template is in use by active campaigns",
+          campaigns: activeCampaigns,
+        });
+      }
       await storage.deleteChemicalNotificationTemplate(req.params.id, user.activeCompanyId);
       res.json({ success: true });
     } catch (err) {
