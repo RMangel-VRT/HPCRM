@@ -19,6 +19,34 @@ interface SendEmailResult {
   threadId: string;
 }
 
+function base64EncodeBody(text: string): string {
+  const b64 = Buffer.from(text, "utf8").toString("base64");
+  return b64.match(/.{1,76}/g)?.join("\r\n") ?? b64;
+}
+
+function encodeHeaderValue(value: string): string {
+  if (/^[\x00-\x7F]*$/.test(value)) {
+    return value;
+  }
+  const encoded = Buffer.from(value, "utf8").toString("base64");
+  return `=?UTF-8?B?${encoded}?=`;
+}
+
+function formatAddressWithName(displayName: string | null | undefined, email: string): string {
+  const name = displayName?.trim() ?? "";
+  if (!name) {
+    return email;
+  }
+  if (!/^[\x00-\x7F]*$/.test(name)) {
+    return `${encodeHeaderValue(name)} <${email}>`;
+  }
+  if (/[,;<>@:"()[\]\\]/.test(name)) {
+    const escaped = name.replace(/\\/g, "\\\\").replace(/"/g, '\\"');
+    return `"${escaped}" <${email}>`;
+  }
+  return `${name} <${email}>`;
+}
+
 function buildMimeMessage(
   from: string,
   opts: SendEmailOptions
@@ -32,7 +60,7 @@ function buildMimeMessage(
     `To: ${opts.to.join(", ")}`,
     opts.cc?.length ? `Cc: ${opts.cc.join(", ")}` : null,
     opts.bcc?.length ? `Bcc: ${opts.bcc.join(", ")}` : null,
-    `Subject: ${opts.subject}`,
+    `Subject: ${encodeHeaderValue(opts.subject)}`,
     `Date: ${date}`,
     `Message-ID: ${messageId}`,
     `MIME-Version: 1.0`,
@@ -45,22 +73,22 @@ function buildMimeMessage(
     body = [
       `--${boundary}`,
       `Content-Type: text/plain; charset="UTF-8"`,
-      `Content-Transfer-Encoding: 7bit`,
+      `Content-Transfer-Encoding: base64`,
       ``,
-      opts.bodyText,
+      base64EncodeBody(opts.bodyText),
       ``,
       `--${boundary}`,
       `Content-Type: text/html; charset="UTF-8"`,
-      `Content-Transfer-Encoding: 7bit`,
+      `Content-Transfer-Encoding: base64`,
       ``,
-      opts.bodyHtml,
+      base64EncodeBody(opts.bodyHtml),
       ``,
       `--${boundary}--`,
     ].join("\r\n");
   } else {
     headers.push(`Content-Type: text/plain; charset="UTF-8"`);
-    headers.push(`Content-Transfer-Encoding: 7bit`);
-    body = opts.bodyText;
+    headers.push(`Content-Transfer-Encoding: base64`);
+    body = base64EncodeBody(opts.bodyText);
   }
 
   return headers.join("\r\n") + "\r\n\r\n" + body;
@@ -92,9 +120,7 @@ export async function sendEmail(
 
   const gmail = google.gmail({ version: "v1", auth: client });
 
-  const fromAddress = account.displayName
-    ? `${account.displayName} <${account.emailAddress}>`
-    : account.emailAddress;
+  const fromAddress = formatAddressWithName(account.displayName, account.emailAddress);
 
   const mimeMessage = buildMimeMessage(fromAddress, opts);
   const encodedMessage = base64urlEncode(mimeMessage);
