@@ -151,6 +151,7 @@ export interface IStorage {
   
   createTicketStatusHistory(history: InsertTicketStatusHistory): Promise<TicketStatusHistory>;
   getTicketStatusHistory(ticketId: string): Promise<TicketStatusHistory[]>;
+  getTicketStatusHistoryForTickets(ticketIds: string[]): Promise<TicketStatusHistory[]>;
   
   getTicketComments(ticketId: string): Promise<TicketCommentWithAuthor[]>;
   createTicketComment(comment: InsertTicketComment): Promise<TicketComment>;
@@ -1933,6 +1934,13 @@ export class PgStorage implements IStorage {
   async getTicketStatusHistory(ticketId: string): Promise<TicketStatusHistory[]> {
     return await db.select().from(ticketStatusHistory)
       .where(eq(ticketStatusHistory.ticketId, ticketId))
+      .orderBy(desc(ticketStatusHistory.createdAt));
+  }
+
+  async getTicketStatusHistoryForTickets(ticketIds: string[]): Promise<TicketStatusHistory[]> {
+    if (ticketIds.length === 0) return [];
+    return await db.select().from(ticketStatusHistory)
+      .where(inArray(ticketStatusHistory.ticketId, ticketIds))
       .orderBy(desc(ticketStatusHistory.createdAt));
   }
 

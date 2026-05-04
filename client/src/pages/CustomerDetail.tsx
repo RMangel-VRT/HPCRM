@@ -60,6 +60,7 @@ import CommunicationListTab from "@/components/CommunicationListTab";
 import CustomerServiceChecklist from "@/components/CustomerServiceChecklist";
 import AnnualServiceRollup from "@/components/AnnualServiceRollup";
 import CustomerDashboard from "@/components/customer/dashboard/CustomerDashboard";
+import ParentCustomerDashboard from "@/pages/ParentCustomerDashboard";
 import {
   setLastViewedCustomerId,
   clearLastViewedCustomerId,
@@ -1136,10 +1137,6 @@ export default function CustomerDetail() {
     .filter((c) => c.active === "true")
     .sort((a, b) => (a.name || "").localeCompare(b.name || ""));
 
-  const { data: parentContracts = [] } = useQuery<Contract[]>({
-    queryKey: ["/api/customers", customer?.parentCustomerId, "contracts"],
-    enabled: !!customer?.parentCustomerId,
-  });
 
   const canUploadDocuments = user?.activeRole === "admin" || user?.activeRole === "office";
   const canEditContracts = user?.activeRole === "admin" || user?.activeRole === "office";
@@ -1718,6 +1715,14 @@ export default function CustomerDetail() {
   const isParentCustomer = customer.isParent === "true" || childCustomers.length > 0;
   const parentCustomer = customer.parentCustomer || null;
 
+  if (customer.isParent === "true") {
+    return (
+      <div className="flex h-full bg-background">
+        <ParentCustomerDashboard customer={customer} />
+      </div>
+    );
+  }
+
   return (
     <div className="flex h-full bg-background">
       <CustomerRailSidebar
@@ -2151,75 +2156,6 @@ export default function CustomerDetail() {
               <CustomerVisualScopesSection customerId={params?.id!} />
             </TabsContent>
             <TabsContent value="contracts" className="space-y-4">
-                {isChildCustomer && parentCustomer ? (
-                  <div className="space-y-4">
-                    <Card>
-                      <CardContent className="pt-4">
-                        <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                          <Building2 className="w-4 h-4" />
-                          <span>
-                            {t("customerDetail.parentContractsManaged")}{" "}
-                            <Link href={`/dashboard/customers/${parentCustomer.id}`}>
-                              <span className="text-primary hover:underline cursor-pointer" data-testid="link-parent-contracts">
-                                {t("common.view")} {parentCustomer.name} {t("customerDetail.billingTabs.contracts")}
-                              </span>
-                            </Link>
-                          </span>
-                        </div>
-                      </CardContent>
-                    </Card>
-                    {parentContracts.filter(c => c.status === "active" || c.status === "paused").map((contract) => (
-                      <Card key={contract.id} className="opacity-80" data-testid={`card-parent-contract-${contract.id}`}>
-                        <CardContent className="pt-4">
-                          <div className="flex items-center justify-between gap-2">
-                            <div>
-                              <p className="font-medium">{contract.serviceType}</p>
-                              <p className="text-sm text-muted-foreground">
-                                {contract.billingPattern} {t("customerDetail.tabs.billing")}
-                              </p>
-                            </div>
-                            <Badge variant={contract.status === "active" ? "default" : "secondary"}>
-                              {contract.status}
-                            </Badge>
-                          </div>
-                        </CardContent>
-                      </Card>
-                    ))}
-                    {contracts.length > 0 && (
-                      <>
-                        <div className="flex items-center gap-2 mt-6 mb-2">
-                          <Clock className="w-4 h-4 text-muted-foreground" />
-                          <h3 className="text-sm font-medium text-muted-foreground">
-                            {t("customerDetail.legacyContracts")}
-                          </h3>
-                        </div>
-                        {contracts.map((contract) => (
-                          <Card key={contract.id} className="border-dashed" data-testid={`card-legacy-contract-${contract.id}`}>
-                            <CardContent className="pt-4">
-                              <div className="flex items-center justify-between gap-2 flex-wrap">
-                                <div>
-                                  <p className="font-medium">{contract.serviceType}</p>
-                                  <p className="text-sm text-muted-foreground">
-                                    {contract.billingPattern} {t("customerDetail.tabs.billing")}
-                                    {contract.endDate && (
-                                      <span> · {t("contracts.endDate")} {new Date(contract.endDate).toLocaleDateString()}</span>
-                                    )}
-                                  </p>
-                                </div>
-                                <div className="flex items-center gap-2">
-                                  <Badge variant="outline">{t("customerDetail.legacy")}</Badge>
-                                  <Badge variant={contract.status === "active" ? "default" : (contract.status === "ended" ? "destructive" : "secondary")}>
-                                    {contract.status}
-                                  </Badge>
-                                </div>
-                              </div>
-                            </CardContent>
-                          </Card>
-                        ))}
-                      </>
-                    )}
-                  </div>
-                ) : (
                 <>
                 <div className="flex justify-between items-center gap-4">
                   <div className="flex items-center gap-2">
@@ -2315,7 +2251,6 @@ export default function CustomerDetail() {
                   formatFileSize={formatFileSize}
                 />
                 </>
-                )}
               </TabsContent>
 
             <TabsContent value="rate-sheet" className="space-y-4">

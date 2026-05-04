@@ -2577,6 +2577,152 @@ export async function registerRoutes(app: Express): Promise<Server> {
     });
   });
 
+  app.get("/api/customers/:id/parent-rollup", async (req, res) => {
+    if (!req.isAuthenticated()) {
+      return res.status(401).send("Not authenticated");
+    }
+
+    const user = req.user as UserWithContext;
+    const customer = await storage.getCustomerById(req.params.id, user.activeCompanyId);
+    if (!customer) {
+      return res.status(404).send("Customer not found");
+    }
+
+    if (customer.isParent !== "true") {
+      return res.status(400).json({ error: "NOT_A_PARENT_CUSTOMER" });
+    }
+
+    const children = await storage.getChildCustomers(customer.id, user.activeCompanyId);
+    const currentYear = new Date().getFullYear();
+    const now = new Date();
+    const thirtyDaysAgo = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
+    const ytdStart = new Date(currentYear, 0, 1);
+
+    const allStatuses = await storage.getAllTicketTypeStatuses(user.activeCompanyId);
+    const finalStatusIds = new Set(
+      allStatuses.filter(s => s.isFinal === "true").map(s => s.id)
+    );
+
+    const childData = await Promise.all(
+      children.map(async (child) => {
+        const [contracts, tickets, communications, revenueData] = await Promise.all([
+          storage.getContractsByCustomerId(child.id, user.activeCompanyId),
+          storage.getTicketsByCustomerId(child.id, user.activeCompanyId),
+          storage.getCommunications(user.activeCompanyId, { customerId: child.id }),
+          storage.getCustomerRevenue(child.id, user.activeCompanyId, currentYear),
+        ]);
+
+        const ticketIds = tickets.map(t => t.id);
+        const statusHistoryRecords = await storage.getTicketStatusHistoryForTickets(ticketIds);
+
+        const activeContractCount = contracts.filter(c => c.status === "active").length;
+        const openTicketCount = tickets.filter(t => !finalStatusIds.has(t.currentStatusId)).length;
+
+        const recentCommunicationCount = communications.filter(c => {
+          const date = c.sentAt ?? c.createdAt;
+          return date !== null && date >= thirtyDaysAgo;
+        }).length;
+
+        const sortedComms = [...communications].sort((a, b) => {
+          const dateA = a.sentAt ?? a.createdAt;
+          const dateB = b.sentAt ?? b.createdAt;
+          return dateB.getTime() - dateA.getTime();
+        });
+        const lastCommunication: Date | null =
+          sortedComms.length > 0 ? (sortedComms[0].sentAt ?? sortedComms[0].createdAt) : null;
+
+        const completedWorkOrdersYtd = tickets.filter(
+          t => t.completedAt !== null && t.completedAt >= ytdStart
+        ).length;
+
+        const ticketTitleById = new Map(tickets.map(t => [t.id, t.title]));
+
+        const commActivity = communications.map(c => ({
+          type: "communication" as const,
+          id: c.id,
+          date: c.sentAt ?? c.createdAt,
+          title: c.subject || "(no subject)",
+          subtitle: c.type,
+          childId: child.id,
+          childName: child.name,
+        }));
+
+        const completionActivity = tickets
+          .filter(t => t.completedAt !== null)
+          .map(t => ({
+            type: "completion" as const,
+            id: `complete-${t.id}`,
+            date: t.completedAt as Date,
+            title: t.title,
+            subtitle: "Work completed",
+            childId: child.id,
+            childName: child.name,
+          }));
+
+        const statusChangeActivity = statusHistoryRecords.map(h => ({
+          type: "status_change" as const,
+          id: h.id,
+          date: h.createdAt,
+          title: ticketTitleById.get(h.ticketId) ?? "Ticket",
+          subtitle: "Status changed",
+          childId: child.id,
+          childName: child.name,
+        }));
+
+        return {
+          id: child.id,
+          name: child.name,
+          activeContracts: activeContractCount,
+          openTickets: openTicketCount,
+          annualRevenue: revenueData.annualProjection,
+          lastCommunication,
+          recentCommunicationCount,
+          completedWorkOrdersYtd,
+          activityItems: [...commActivity, ...completionActivity, ...statusChangeActivity],
+        };
+      })
+    );
+
+    const totals = {
+      activeContracts: childData.reduce((sum, c) => sum + c.activeContracts, 0),
+      openTickets: childData.reduce((sum, c) => sum + c.openTickets, 0),
+      annualRevenue: childData.reduce((sum, c) => sum + c.annualRevenue, 0),
+      recentCommunications: childData.reduce((sum, c) => sum + c.recentCommunicationCount, 0),
+      completedWorkOrdersYtd: childData.reduce((sum, c) => sum + c.completedWorkOrdersYtd, 0),
+    };
+
+    const allActivityItems = childData.flatMap(c => c.activityItems);
+    const recentActivity = allActivityItems
+      .filter(item => item.date !== null)
+      .sort((a, b) => (b.date as Date).getTime() - (a.date as Date).getTime())
+      .slice(0, 10)
+      .map(item => ({
+        type: item.type,
+        id: item.id,
+        date: item.date,
+        title: item.title,
+        subtitle: item.subtitle,
+        childId: item.childId,
+        childName: item.childName,
+      }));
+
+    const childrenResponse = childData.map(c => ({
+      id: c.id,
+      name: c.name,
+      activeContracts: c.activeContracts,
+      openTickets: c.openTickets,
+      annualRevenue: c.annualRevenue,
+      lastCommunication: c.lastCommunication,
+    }));
+
+    res.json({
+      parent: customer,
+      children: childrenResponse,
+      totals,
+      recentActivity,
+    });
+  });
+
   app.post("/api/customers", async (req, res) => {
     if (!req.isAuthenticated()) {
       return res.status(401).send("Not authenticated");
