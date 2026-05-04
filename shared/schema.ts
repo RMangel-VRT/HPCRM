@@ -2459,6 +2459,10 @@ export const mailboxAccounts = pgTable("mailbox_accounts", {
   description: text("description"),
   isActive: boolean("is_active").notNull().default(true),
   syncStatus: text("sync_status").notNull().$type<"not_connected" | "connected" | "error">().default("not_connected"),
+  syncEnabled: boolean("sync_enabled").default(false),
+  lastSyncedAt: timestamp("last_synced_at"),
+  oauthProvider: text("oauth_provider"),
+  oauthTokenJson: jsonb("oauth_token_json"),
   createdAt: timestamp("created_at").notNull().defaultNow(),
   updatedAt: timestamp("updated_at").notNull().defaultNow(),
 }, (table) => ({
@@ -2474,6 +2478,10 @@ export const insertMailboxAccountSchema = createInsertSchema(mailboxAccounts).om
   syncStatus: z.enum(["not_connected", "connected", "error"]).default("not_connected"),
   ownerUserId: z.string().nullable().optional(),
   description: z.string().nullable().optional(),
+  syncEnabled: z.boolean().nullable().optional(),
+  lastSyncedAt: z.coerce.date().nullable().optional(),
+  oauthProvider: z.string().nullable().optional(),
+  oauthTokenJson: z.any().optional(),
 });
 
 export type InsertMailboxAccount = z.infer<typeof insertMailboxAccountSchema>;
@@ -2585,7 +2593,6 @@ export const communications = pgTable("communications", {
   bccAddresses: text("bcc_addresses").array().default(sql`ARRAY[]::text[]`),
   receivedAt: timestamp("received_at"),
   providerThreadId: text("provider_thread_id"),
-  inReplyToMessageId: text("in_reply_to_message_id"),
   routingMethod: text("routing_method").$type<"manual" | "email_match" | "thread_match" | "content_match" | "llm">(),
   routingConfidence: real("routing_confidence"),
   attachmentsJson: jsonb("attachments_json").default(sql`'[]'::jsonb`),
@@ -2641,7 +2648,6 @@ export const insertCommunicationSchema = createInsertSchema(communications).omit
   bccAddresses: z.array(z.string()).default([]),
   receivedAt: z.coerce.date().nullable().optional(),
   providerThreadId: z.string().nullable().optional(),
-  inReplyToMessageId: z.string().nullable().optional(),
   routingMethod: z.enum(["manual", "email_match", "thread_match", "content_match", "llm"]).nullable().optional(),
   routingConfidence: z.number().min(0).max(1).nullable().optional(),
   attachmentsJson: z.any().optional(),

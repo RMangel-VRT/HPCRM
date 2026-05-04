@@ -15242,6 +15242,11 @@ export async function migrateEmailTrackingTables(): Promise<void> {
       )
     `);
 
+    await db.execute(sql`ALTER TABLE mailbox_accounts ADD COLUMN IF NOT EXISTS sync_enabled BOOLEAN DEFAULT false`);
+    await db.execute(sql`ALTER TABLE mailbox_accounts ADD COLUMN IF NOT EXISTS last_synced_at TIMESTAMP`);
+    await db.execute(sql`ALTER TABLE mailbox_accounts ADD COLUMN IF NOT EXISTS oauth_provider TEXT`);
+    await db.execute(sql`ALTER TABLE mailbox_accounts ADD COLUMN IF NOT EXISTS oauth_token_json JSONB`);
+
     await db.execute(sql`
       CREATE TABLE IF NOT EXISTS unsorted_emails (
         id VARCHAR PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -15281,10 +15286,10 @@ export async function migrateEmailTrackingTables(): Promise<void> {
     await db.execute(sql`ALTER TABLE communications ADD COLUMN IF NOT EXISTS bcc_addresses TEXT[] DEFAULT ARRAY[]::TEXT[]`);
     await db.execute(sql`ALTER TABLE communications ADD COLUMN IF NOT EXISTS received_at TIMESTAMP`);
     await db.execute(sql`ALTER TABLE communications ADD COLUMN IF NOT EXISTS provider_thread_id TEXT`);
-    await db.execute(sql`ALTER TABLE communications ADD COLUMN IF NOT EXISTS in_reply_to_message_id TEXT`);
     await db.execute(sql`ALTER TABLE communications ADD COLUMN IF NOT EXISTS routing_method TEXT`);
     await db.execute(sql`ALTER TABLE communications ADD COLUMN IF NOT EXISTS routing_confidence REAL`);
     await db.execute(sql`ALTER TABLE communications ADD COLUMN IF NOT EXISTS attachments_json JSONB DEFAULT '[]'::jsonb`);
+    await db.execute(sql`ALTER TABLE communications DROP COLUMN IF EXISTS in_reply_to_message_id`);
 
     console.log("Email tracking tables migration complete");
   } catch (error) {
