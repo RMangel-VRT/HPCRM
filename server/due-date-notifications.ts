@@ -44,18 +44,22 @@ async function checkAndCreateDueDateNotifications() {
 
       if (!notificationType) continue;
 
-      const todayDateStr = todayStart.toISOString().split('T')[0];
-      const existingToday = await db.select()
+      const whereConditions = [
+        eq(ticketNotifications.ticketId, ticket.id),
+        eq(ticketNotifications.recipientId, ticket.assignedToId),
+        eq(ticketNotifications.type, notificationType),
+      ];
+
+      if (notificationType !== "overdue") {
+        whereConditions.push(gte(ticketNotifications.createdAt, todayStart));
+      }
+
+      const existingNotification = await db.select()
         .from(ticketNotifications)
-        .where(and(
-          eq(ticketNotifications.ticketId, ticket.id),
-          eq(ticketNotifications.recipientId, ticket.assignedToId),
-          eq(ticketNotifications.type, notificationType),
-          gte(ticketNotifications.createdAt, todayStart)
-        ))
+        .where(and(...whereConditions))
         .limit(1);
 
-      if (existingToday.length > 0) continue;
+      if (existingNotification.length > 0) continue;
 
       const customer = ticket.customerId 
         ? await storage.getCustomerById(ticket.customerId, ticket.companyId)
