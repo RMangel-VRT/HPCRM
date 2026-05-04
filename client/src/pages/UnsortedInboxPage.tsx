@@ -23,12 +23,14 @@ import {
   UserPlus,
   X,
   User,
+  Settings,
 } from "lucide-react";
 import { formatDistanceToNow, format } from "date-fns";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import type { UnsortedEmail, MailboxAccount } from "@shared/schema";
 import CustomerSearchInput from "@/components/CustomerSearchInput";
+import { Link } from "wouter";
 
 type StatusFilter = "all" | "pending" | "routed" | "archived" | "spam";
 
@@ -37,11 +39,6 @@ interface CompanyUser {
   name: string;
   email: string;
   role: string;
-}
-
-interface CandidateCustomer {
-  id: string;
-  name: string;
 }
 
 function useStatusBadge(status: string) {
@@ -53,13 +50,38 @@ function useStatusBadge(status: string) {
   return <Badge variant="secondary" className="text-xs">{status}</Badge>;
 }
 
-function CandidateCustomerChips({ fromAddress, onSelect }: {
-  fromAddress: string;
-  onSelect?: (c: CandidateCustomer) => void;
+function CandidateCustomerChips({ email, onRoute }: {
+  email: UnsortedEmail;
+  onRoute?: (emailId: string, customerId: string) => void;
 }) {
-  const searchTerm = fromAddress.split("@")[0] || fromAddress;
-  const { data } = useQuery<{ id: string; name: string }[]>({
-    queryKey: ["/api/customers", "by-email", searchTerm],
+  const { t } = useTranslation();
+  const { toast } = useToast();
+  const [routingId, setRoutingId] = useState<string | null>(null);
+
+  // First try candidateCustomerIds from the router
+  const ids = (email.candidateCustomerIds ?? []).filter(Boolean);
+
+  const { data: candidateCustomers = [] } = useQuery<{ id: string; name: string; customerNumber?: string }[]>({
+    queryKey: ["/api/customers", "candidates-by-ids", ids.join(",")],
+    queryFn: async () => {
+      if (ids.length === 0) return [];
+      const results = await Promise.all(
+        ids.slice(0, 5).map(id =>
+          fetch(`/api/customers/${id}`, { credentials: "include" })
+            .then(r => r.ok ? r.json() : null)
+            .catch(() => null)
+        )
+      );
+      return results.filter(Boolean);
+    },
+    staleTime: 60_000,
+    enabled: ids.length > 0,
+  });
+
+  // Fallback: email-based search when no candidateCustomerIds
+  const searchTerm = ids.length === 0 ? (email.fromAddress.split("@")[0] || email.fromAddress) : "";
+  const { data: searchResults = [] } = useQuery<{ id: string; name: string }[]>({
+    queryKey: ["/api/customers", "by-email-search", searchTerm],
     queryFn: async () => {
       const res = await fetch(`/api/customers?search=${encodeURIComponent(searchTerm)}&limit=3`, { credentials: "include" });
       if (!res.ok) return [];
@@ -70,15 +92,33 @@ function CandidateCustomerChips({ fromAddress, onSelect }: {
     enabled: searchTerm.length >= 2,
   });
 
-  if (!data || data.length === 0) return null;
+  const chips: { id: string; name: string }[] = ids.length > 0 ? candidateCustomers : searchResults;
+  if (chips.length === 0) return null;
+
+  const handleRoute = async (e: React.MouseEvent, customerId: string) => {
+    e.stopPropagation();
+    setRoutingId(customerId);
+    try {
+      const res = await apiRequest("POST", `/api/unsorted-emails/${email.id}/route`, { customerId });
+      if (!res.ok) throw new Error("Route failed");
+      toast({ title: t("emailTracking.routedSuccessfully") });
+      queryClient.invalidateQueries({ queryKey: ["/api/unsorted-emails"] });
+      onRoute?.(email.id, customerId);
+    } catch {
+      toast({ title: t("emailTracking.routeEmailError"), variant: "destructive" });
+    } finally {
+      setRoutingId(null);
+    }
+  };
 
   return (
     <div className="flex flex-wrap gap-1 mt-1">
-      {data.map(c => (
+      {chips.map(c => (
         <button
           key={c.id}
-          className="inline-flex items-center gap-1 rounded-md bg-primary/10 text-primary text-xs px-1.5 py-0.5 hover-elevate"
-          onClick={e => { e.stopPropagation(); onSelect?.(c); }}
+          className="inline-flex items-center gap-1 rounded-md bg-primary/10 text-primary text-xs px-1.5 py-0.5 hover-elevate disabled:opacity-50"
+          onClick={(e) => handleRoute(e, c.id)}
+          disabled={routingId !== null}
           data-testid={`chip-candidate-${c.id}`}
           title={`Route to ${c.name}`}
         >
@@ -267,11 +307,6 @@ function EmailDetailPane({ email, users, onClose }: EmailDetailPaneProps) {
     ? users.find(u => u.id === email.assignedToUserId)
     : null;
 
-  const handleCandidateSelect = (c: CandidateCustomer) => {
-    setPreselectedCustomer(c);
-    setShowRouteDialog(true);
-  };
-
   return (
     <div className="flex flex-col h-full border-l bg-background">
       <div className="flex items-center justify-between px-4 py-3 border-b shrink-0">
@@ -304,6 +339,30 @@ function EmailDetailPane({ email, users, onClose }: EmailDetailPaneProps) {
             )}
           </div>
         </div>
+
+        <Separator />
+
+        {/* Routing notes from the sync engine */}
+        {email.routingNotes && (
+          <>
+            <Separator />
+            <div className="text-xs rounded-md bg-muted/40 px-3 py-2 space-y-0.5">
+              <p className="font-medium text-muted-foreground">{t("emailTracking.routingNotesLabel")}</p>
+              <p className="text-muted-foreground" data-testid="text-detail-routing-notes">{email.routingNotes}</p>
+            </div>
+          </>
+        )}
+
+        {/* Candidate customer chips from router */}
+        {(email.candidateCustomerIds ?? []).length > 0 && (
+          <>
+            <Separator />
+            <div>
+              <p className="text-xs font-medium text-muted-foreground mb-1.5">{t("emailTracking.candidatesLabel")}</p>
+              <CandidateCustomerChips email={email} />
+            </div>
+          </>
+        )}
 
         <Separator />
 
@@ -385,13 +444,11 @@ function EmailListItem({
   isSelected,
   onClick,
   assignedUserName,
-  onCandidateSelect,
 }: {
   email: UnsortedEmail;
   isSelected: boolean;
   onClick: () => void;
   assignedUserName?: string;
-  onCandidateSelect?: (c: CandidateCustomer) => void;
 }) {
   const timestamp = email.receivedAt ? new Date(email.receivedAt) : null;
   const badge = useStatusBadge(email.status);
@@ -424,7 +481,7 @@ function EmailListItem({
             <p className="text-xs text-muted-foreground line-clamp-1 mt-0.5">{email.bodyText.slice(0, 100)}</p>
           )}
           {email.status === "pending" && (
-            <CandidateCustomerChips fromAddress={email.fromAddress} onSelect={onCandidateSelect} />
+            <CandidateCustomerChips email={email} />
           )}
         </div>
         {timestamp && (
@@ -437,6 +494,16 @@ function EmailListItem({
   );
 }
 
+interface SyncSummary {
+  totalActive: number;
+  connected: number;
+  errors: number;
+  notConnected: number;
+  lastRunAt: string | null;
+  messagesRoutedLast24h: number;
+  messagesUnsortedLast24h: number;
+}
+
 export default function UnsortedInboxPage() {
   const { t } = useTranslation();
   const [statusFilter, setStatusFilter] = useState<StatusFilter>("pending");
@@ -444,7 +511,6 @@ export default function UnsortedInboxPage() {
   const [assignedToFilter, setAssignedToFilter] = useState("");
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedEmail, setSelectedEmail] = useState<UnsortedEmail | null>(null);
-  const [pendingRouteData, setPendingRouteData] = useState<{ email: UnsortedEmail; customer: CandidateCustomer } | null>(null);
 
   const { data: emails = [], isLoading } = useQuery<UnsortedEmail[]>({
     queryKey: ["/api/unsorted-emails", statusFilter, mailboxFilter, assignedToFilter],
@@ -463,6 +529,15 @@ export default function UnsortedInboxPage() {
     queryKey: ["/api/mailbox-accounts"],
   });
 
+  const { data: syncSummary } = useQuery<SyncSummary>({
+    queryKey: ["/api/mailbox-accounts/sync-summary"],
+    queryFn: () =>
+      fetch("/api/mailbox-accounts/sync-summary", { credentials: "include" })
+        .then(r => r.ok ? r.json() : null)
+        .catch(() => null),
+    staleTime: 30_000,
+  });
+
   const { data: companyUsers = [] } = useQuery<CompanyUser[]>({
     queryKey: ["/api/company-users"],
   });
@@ -477,10 +552,74 @@ export default function UnsortedInboxPage() {
     : emails;
 
   const pendingCount = emails.filter(e => e.status === "pending").length;
+  const hasConnectedMailboxes = (syncSummary?.connected ?? 0) > 0;
+  const hasAnyMailboxes = (syncSummary?.totalActive ?? 0) > 0 || mailboxAccounts.length > 0;
 
-  const handleCandidateSelect = (email: UnsortedEmail, customer: CandidateCustomer) => {
-    setSelectedEmail(email);
-    setPendingRouteData({ email, customer });
+  const renderEmptyState = () => {
+    // No mailboxes configured at all
+    if (!hasAnyMailboxes) {
+      return (
+        <div className="flex flex-col items-center justify-center h-full gap-3 p-6">
+          <Inbox className="w-10 h-10 text-muted-foreground" />
+          <p className="font-medium text-sm" data-testid="text-inbox-empty">{t("emailTracking.noMailboxesConnectedTitle")}</p>
+          <p className="text-muted-foreground text-sm text-center max-w-sm">
+            {t("emailTracking.noMailboxesConnectedDesc")}
+          </p>
+          <Link href="/settings/mailbox-accounts">
+            <Button size="sm" variant="outline" className="gap-1.5">
+              <Settings className="w-3.5 h-3.5" />
+              {t("emailTracking.mailboxSettingsTitle")}
+            </Button>
+          </Link>
+        </div>
+      );
+    }
+    // Mailboxes exist but none connected
+    if (!hasConnectedMailboxes && (statusFilter === "all" || statusFilter === "pending")) {
+      return (
+        <div className="flex flex-col items-center justify-center h-full gap-3 p-6">
+          <Inbox className="w-10 h-10 text-muted-foreground" />
+          <p className="font-medium text-sm" data-testid="text-inbox-empty">{t("emailTracking.unsortedInboxEmpty")}</p>
+          <p className="text-muted-foreground text-sm text-center max-w-sm">
+            {t("emailTracking.unsortedInboxEmptyDesc")}
+          </p>
+          <Link href="/settings/mailbox-accounts">
+            <Button size="sm" variant="outline" className="gap-1.5">
+              <Settings className="w-3.5 h-3.5" />
+              {t("emailTracking.connectGmail")}
+            </Button>
+          </Link>
+        </div>
+      );
+    }
+    // Mailboxes connected, inbox is just clear
+    return (
+      <div className="flex flex-col items-center justify-center h-full gap-2 p-6">
+        <Inbox className="w-10 h-10 text-muted-foreground" />
+        <p className="font-medium text-sm" data-testid="text-inbox-empty">
+          {statusFilter === "all" || statusFilter === "pending"
+            ? t("emailTracking.unsortedInboxEmptyClear")
+            : t("emailTracking.noStatusEmails", { status: t(`emailTracking.status${statusFilter.charAt(0).toUpperCase() + statusFilter.slice(1)}`) })}
+        </p>
+        <p className="text-muted-foreground text-sm text-center max-w-sm">
+          {statusFilter === "all" || statusFilter === "pending"
+            ? (syncSummary?.lastRunAt
+                ? t("emailTracking.syncSummaryLastRun", {
+                    time: formatDistanceToNow(new Date(syncSummary.lastRunAt), { addSuffix: true }),
+                  })
+                : t("emailTracking.syncSummaryNeverRun"))
+            : t("emailTracking.unsortedInboxFilterDesc")}
+        </p>
+        {(statusFilter === "all" || statusFilter === "pending") && syncSummary && (
+          <p className="text-xs text-muted-foreground" data-testid="text-sync-24h-stats">
+            {t("emailTracking.syncStats24h", {
+              routed: syncSummary.messagesRoutedLast24h,
+              unsorted: syncSummary.messagesUnsortedLast24h,
+            })}
+          </p>
+        )}
+      </div>
+    );
   };
 
   return (
@@ -492,6 +631,16 @@ export default function UnsortedInboxPage() {
             <h1 className="text-lg font-semibold" data-testid="heading-unsorted-inbox">{t("emailTracking.unsortedInboxTitle")}</h1>
             {pendingCount > 0 && (
               <Badge data-testid="badge-pending-count">{pendingCount}</Badge>
+            )}
+            {syncSummary && syncSummary.connected > 0 && (
+              <Badge variant="secondary" className="text-xs" data-testid="badge-sync-connected">
+                {t("emailTracking.syncSummaryConnected", { count: syncSummary.connected })}
+              </Badge>
+            )}
+            {syncSummary && syncSummary.errors > 0 && (
+              <Badge variant="destructive" className="text-xs" data-testid="badge-sync-errors">
+                {t("emailTracking.syncSummaryErrors", { count: syncSummary.errors })}
+              </Badge>
             )}
           </div>
           <div className="flex-1" />
@@ -549,21 +698,7 @@ export default function UnsortedInboxPage() {
               <p className="text-sm text-muted-foreground">{t("common.loading")}</p>
             </div>
           ) : filteredEmails.length === 0 ? (
-            <div className="flex flex-col items-center justify-center h-full gap-2 p-6">
-              <Inbox className="w-10 h-10 text-muted-foreground" />
-              <p className="font-medium text-sm" data-testid="text-inbox-empty">
-                {statusFilter === "all"
-                  ? t("emailTracking.unsortedInboxEmpty")
-                  : statusFilter === "pending"
-                    ? t("emailTracking.unsortedInboxEmptyClear")
-                    : t("emailTracking.noStatusEmails", { status: t(`emailTracking.status${statusFilter.charAt(0).toUpperCase() + statusFilter.slice(1)}`) })}
-              </p>
-              <p className="text-muted-foreground text-sm text-center max-w-sm">
-                {statusFilter === "all" || statusFilter === "pending"
-                  ? t("emailTracking.unsortedInboxEmptyDesc")
-                  : t("emailTracking.unsortedInboxFilterDesc")}
-              </p>
-            </div>
+            renderEmptyState()
           ) : (
             <div className="overflow-y-auto flex-1">
               {filteredEmails.map(email => {
@@ -577,7 +712,6 @@ export default function UnsortedInboxPage() {
                     isSelected={selectedEmail?.id === email.id}
                     onClick={() => setSelectedEmail(email)}
                     assignedUserName={assignedUser?.name}
-                    onCandidateSelect={(c) => handleCandidateSelect(email, c)}
                   />
                 );
               })}
@@ -602,14 +736,6 @@ export default function UnsortedInboxPage() {
         )}
       </div>
 
-      {pendingRouteData && (
-        <RouteEmailDialog
-          email={pendingRouteData.email}
-          open={!!pendingRouteData}
-          onOpenChange={(v) => { if (!v) setPendingRouteData(null); }}
-          preselectedCustomer={pendingRouteData.customer}
-        />
-      )}
     </div>
   );
 }

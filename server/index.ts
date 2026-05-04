@@ -2,6 +2,7 @@ import express, { type Request, Response, NextFunction } from "express";
 import { registerRoutes, runStartupMigrations } from "./routes";
 import { setupVite, serveStatic, log } from "./vite";
 import { runDueDateNotifications } from "./due-date-notifications";
+import { startSyncWorker } from "./services/emailSyncService";
 
 const app = express();
 
@@ -92,5 +93,12 @@ app.use((req, res, next) => {
     // with the x-cron-token header (set CRON_SECRET env var) from an external
     // scheduler (e.g., a cron job or Replit Scheduled Deployments).
     log("Automation rules evaluator: use POST /api/_internal/run-automation-rules from a scheduler");
+
+    // Start Gmail inbound sync worker (gated by env vars)
+    if (process.env.NODE_ENV !== "test" && process.env.DISABLE_EMAIL_SYNC !== "true") {
+      startSyncWorker();
+    } else {
+      log("Email sync worker disabled (NODE_ENV=test or DISABLE_EMAIL_SYNC=true)");
+    }
   });
 })();

@@ -15960,5 +15960,48 @@ export async function runStartupMigrations(): Promise<void> {
   await migrateCampaignItemsCompletionColumns();
   await migrateUserApplicatorFields();
   await migrateChemTemplateLabelAndCompanyLicense();
+  await migrateEmailSyncTables();
   await reconcileIsParentFlags();
+}
+
+export async function migrateEmailSyncTables(): Promise<void> {
+  console.log("Running startup migration: Ensuring email sync tables and columns exist...");
+  try {
+    // mailboxAccounts — add new columns
+    await db.execute(sql`ALTER TABLE mailbox_accounts ADD COLUMN IF NOT EXISTS gmail_history_id TEXT`);
+    await db.execute(sql`ALTER TABLE mailbox_accounts ADD COLUMN IF NOT EXISTS sync_interval_minutes INTEGER NOT NULL DEFAULT 2`);
+    await db.execute(sql`ALTER TABLE mailbox_accounts ADD COLUMN IF NOT EXISTS sync_error_count INTEGER NOT NULL DEFAULT 0`);
+
+    // unsortedEmails — add routing_notes column
+    await db.execute(sql`ALTER TABLE unsorted_emails ADD COLUMN IF NOT EXISTS routing_notes TEXT`);
+
+    // mailbox_sync_runs table
+    await db.execute(sql`
+      CREATE TABLE IF NOT EXISTS mailbox_sync_runs (
+        id VARCHAR PRIMARY KEY DEFAULT gen_random_uuid(),
+        company_id VARCHAR NOT NULL REFERENCES companies(id) ON DELETE CASCADE,
+        mailbox_account_id VARCHAR NOT NULL REFERENCES mailbox_accounts(id) ON DELETE CASCADE,
+        started_at TIMESTAMP NOT NULL DEFAULT NOW(),
+        finished_at TIMESTAMP,
+        status TEXT NOT NULL DEFAULT 'running',
+        messages_fetched INTEGER NOT NULL DEFAULT 0,
+        messages_routed INTEGER NOT NULL DEFAULT 0,
+        messages_unsorted INTEGER NOT NULL DEFAULT 0,
+        messages_discarded INTEGER NOT NULL DEFAULT 0,
+        messages_deduped INTEGER NOT NULL DEFAULT 0,
+        error_message TEXT,
+        sync_method TEXT,
+        history_id_before TEXT,
+        history_id_after TEXT
+      )
+    `);
+    await db.execute(sql`
+      CREATE INDEX IF NOT EXISTS mailbox_sync_runs_mailbox_started_idx
+      ON mailbox_sync_runs(mailbox_account_id, started_at)
+    `);
+
+    console.log("Email sync tables migration complete");
+  } catch (error) {
+    console.error("Error during email sync tables migration:", error);
+  }
 }

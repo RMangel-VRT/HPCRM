@@ -1,8 +1,8 @@
 import { Router } from "express";
 import { db } from "../db";
-import { mailboxAccounts } from "@shared/schema";
+import { mailboxAccounts, mailboxSyncRuns, unsortedEmails, communications } from "@shared/schema";
 import { insertMailboxAccountSchema } from "@shared/schema";
-import { eq, and } from "drizzle-orm";
+import { eq, and, desc, gte, sql } from "drizzle-orm";
 import type { UserWithContext } from "../auth";
 import {
   isGoogleOAuthConfigured,
@@ -12,6 +12,7 @@ import {
   getUserEmail,
   revokeTokens,
 } from "../services/googleOAuth";
+import { syncMailbox } from "../services/emailSyncService";
 
 const router = Router();
 
@@ -237,6 +238,138 @@ router.post("/:id/oauth/disconnect", async (req, res) => {
     res.json({ success: true });
   } catch (err) {
     console.error("POST /api/mailbox-accounts/:id/oauth/disconnect error:", err);
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+// ─── GET /sync-summary — inbox page header stats ─────────────────────────────
+router.get("/sync-summary", async (req, res) => {
+  try {
+    const user = req.user as UserWithContext;
+    if (!user?.activeCompanyId) return res.status(401).json({ error: "Unauthorized" });
+    if (user.activeRole !== "admin" && user.activeRole !== "office" && !user.isSuperAdminBool) {
+      return res.status(403).json({ error: "Admin or office role required" });
+    }
+
+    const accounts = await db.select().from(mailboxAccounts)
+      .where(eq(mailboxAccounts.companyId, user.activeCompanyId));
+
+    const totalActive = accounts.filter(a => a.isActive).length;
+    const connected = accounts.filter(a => a.isActive && a.syncStatus === "connected").length;
+    const errors = accounts.filter(a => a.isActive && a.syncStatus === "error").length;
+    const notConnected = accounts.filter(a => a.isActive && a.syncStatus === "not_connected").length;
+
+    // Last run timestamp across all mailboxes
+    let lastRunAt: Date | null = null;
+    if (connected > 0) {
+      const connectedIds = accounts.filter(a => a.syncStatus === "connected").map(a => a.id);
+      if (connectedIds.length > 0) {
+        const latestRun = await db.select({ startedAt: mailboxSyncRuns.startedAt })
+          .from(mailboxSyncRuns)
+          .where(
+            and(
+              eq(mailboxSyncRuns.companyId, user.activeCompanyId),
+              sql`mailbox_account_id = ANY(ARRAY[${sql.join(connectedIds.map(id => sql`${id}`), sql`, `)}]::varchar[])`
+            )
+          )
+          .orderBy(desc(mailboxSyncRuns.startedAt))
+          .limit(1);
+        lastRunAt = latestRun[0]?.startedAt ?? null;
+      }
+    }
+
+    // Messages routed/unsorted in last 24h — filter to email type only so non-email
+    // inbound communications (notes, SMS) don't inflate the "routed" metric.
+    const since24h = new Date(Date.now() - 24 * 60 * 60 * 1000);
+    const recentRouted = await db.select({ count: sql<number>`count(*)` })
+      .from(communications)
+      .where(
+        and(
+          eq(communications.companyId, user.activeCompanyId),
+          eq(communications.type, "email"),
+          eq(communications.direction, "inbound"),
+          gte(communications.receivedAt, since24h)
+        )
+      );
+    const recentUnsorted = await db.select({ count: sql<number>`count(*)` })
+      .from(unsortedEmails)
+      .where(
+        and(
+          eq(unsortedEmails.companyId, user.activeCompanyId),
+          gte(unsortedEmails.createdAt, since24h)
+        )
+      );
+
+    res.json({
+      totalActive,
+      connected,
+      errors,
+      notConnected,
+      lastRunAt,
+      messagesRoutedLast24h: Number(recentRouted[0]?.count ?? 0),
+      messagesUnsortedLast24h: Number(recentUnsorted[0]?.count ?? 0),
+    });
+  } catch (err) {
+    console.error("GET /api/mailbox-accounts/sync-summary error:", err);
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+// ─── POST /:id/sync — manual trigger ─────────────────────────────────────────
+router.post("/:id/sync", async (req, res) => {
+  try {
+    const user = req.user as UserWithContext;
+    if (!user?.activeCompanyId) return res.status(401).json({ error: "Unauthorized" });
+    if (user.activeRole !== "admin" && user.activeRole !== "office" && !user.isSuperAdminBool) {
+      return res.status(403).json({ error: "Admin or office role required" });
+    }
+
+    const [account] = await db.select().from(mailboxAccounts)
+      .where(and(eq(mailboxAccounts.id, req.params.id), eq(mailboxAccounts.companyId, user.activeCompanyId)));
+    if (!account) return res.status(404).json({ error: "Not found" });
+
+    if (!account.syncEnabled || account.syncStatus !== "connected") {
+      return res.status(400).json({ error: "Mailbox is not connected" });
+    }
+
+    const result = await syncMailbox(req.params.id, true);
+
+    // Return the sync run record
+    const [syncRun] = await db.select().from(mailboxSyncRuns)
+      .where(eq(mailboxSyncRuns.id, result.syncRunId));
+
+    res.json(syncRun ?? result);
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : "Sync failed";
+    if (msg === "Sync already in progress for this mailbox") {
+      return res.status(409).json({ error: msg });
+    }
+    console.error("POST /api/mailbox-accounts/:id/sync error:", err);
+    res.status(500).json({ error: msg });
+  }
+});
+
+// ─── GET /:id/sync-runs — last 20 runs ────────────────────────────────────────
+router.get("/:id/sync-runs", async (req, res) => {
+  try {
+    const user = req.user as UserWithContext;
+    if (!user?.activeCompanyId) return res.status(401).json({ error: "Unauthorized" });
+    if (user.activeRole !== "admin" && user.activeRole !== "office" && !user.isSuperAdminBool) {
+      return res.status(403).json({ error: "Admin or office role required" });
+    }
+
+    const [account] = await db.select().from(mailboxAccounts)
+      .where(and(eq(mailboxAccounts.id, req.params.id), eq(mailboxAccounts.companyId, user.activeCompanyId)));
+    if (!account) return res.status(404).json({ error: "Not found" });
+
+    const runs = await db.select().from(mailboxSyncRuns)
+      .where(eq(mailboxSyncRuns.mailboxAccountId, req.params.id))
+      .orderBy(desc(mailboxSyncRuns.startedAt))
+      .limit(20);
+
+    res.json(runs);
+  } catch (err) {
+    console.error("GET /api/mailbox-accounts/:id/sync-runs error:", err);
     res.status(500).json({ error: "Internal server error" });
   }
 });

@@ -1,7 +1,7 @@
 import { Router } from "express";
 import { db } from "../db";
 import { unsortedEmails } from "@shared/schema";
-import { eq, and, desc } from "drizzle-orm";
+import { eq, and, desc, sql } from "drizzle-orm";
 import { storage } from "../storage";
 import type { UserWithContext } from "../auth";
 
@@ -22,7 +22,7 @@ router.get("/", async (req, res) => {
       return res.status(403).json({ error: "Admin or office role required" });
     }
 
-    const { status, mailboxAccountId, assignedToUserId, page, limit: limitStr } = req.query;
+    const { status, mailboxAccountId, assignedToUserId, candidateCustomerId, page, limit: limitStr } = req.query;
     const pageNum = Math.max(1, parseInt(page as string) || 1);
     const limitNum = Math.min(100, parseInt(limitStr as string) || 25);
     const offset = (pageNum - 1) * limitNum;
@@ -36,6 +36,11 @@ router.get("/", async (req, res) => {
     }
     if (assignedToUserId) {
       conditions.push(eq(unsortedEmails.assignedToUserId, assignedToUserId as string));
+    }
+    if (candidateCustomerId) {
+      conditions.push(
+        sql`${unsortedEmails.candidateCustomerIds} @> ARRAY[${candidateCustomerId as string}]::varchar[]`
+      );
     }
 
     const rows = await db.select()

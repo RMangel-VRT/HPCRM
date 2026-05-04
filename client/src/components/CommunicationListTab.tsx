@@ -1,10 +1,10 @@
 import { useState, useMemo } from "react";
 import { useTranslation } from "react-i18next";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useMutation } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
-import { Card, CardContent } from "@/components/ui/card";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import {
   Select,
   SelectContent,
@@ -39,6 +39,7 @@ import {
   ChevronRight,
   ChevronDown,
   Check,
+  UserCheck,
 } from "lucide-react";
 import {
   Popover,
@@ -46,14 +47,112 @@ import {
   PopoverTrigger,
 } from "@/components/ui/popover";
 import { Checkbox } from "@/components/ui/checkbox";
-import { format } from "date-fns";
-import type { CommunicationWithDetails, MailboxAccount } from "@shared/schema";
+import { format, formatDistanceToNow } from "date-fns";
+import type { CommunicationWithDetails, MailboxAccount, UnsortedEmail } from "@shared/schema";
 import { DatePickerField } from "@/components/DatePickerField";
 import LogCommunicationForm from "@/components/customer/communications/LogCommunicationForm";
+import { apiRequest, queryClient } from "@/lib/queryClient";
+import { useToast } from "@/hooks/use-toast";
 
 interface CommunicationListTabProps {
   queryKey: string[];
   customerId?: string;
+}
+
+// ── Unsorted Candidates Panel ────────────────────────────────────────────────
+// Shows unsorted emails where this customer is a routing candidate
+function UnsortedCandidatesPanel({ customerId }: { customerId: string }) {
+  const { t } = useTranslation();
+  const { toast } = useToast();
+  const [open, setOpen] = useState(false);
+
+  const { data: candidates = [], isLoading } = useQuery<UnsortedEmail[]>({
+    queryKey: ["/api/unsorted-emails", "candidate", customerId],
+    queryFn: async () => {
+      const res = await fetch(
+        `/api/unsorted-emails?candidateCustomerId=${encodeURIComponent(customerId)}&status=pending&limit=20`,
+        { credentials: "include" }
+      );
+      if (!res.ok) return [];
+      return res.json();
+    },
+    staleTime: 30_000,
+    enabled: open,
+  });
+
+  const routeMutation = useMutation({
+    mutationFn: (emailId: string) =>
+      apiRequest("POST", `/api/unsorted-emails/${emailId}/route`, { customerId }),
+    onSuccess: () => {
+      toast({ title: t("emailTracking.routedSuccessfully") });
+      queryClient.invalidateQueries({ queryKey: ["/api/unsorted-emails"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/unsorted-emails", "candidate", customerId] });
+      // Also refresh the communications list for this customer
+      queryClient.invalidateQueries({ queryKey: ["/api/customers", customerId, "communications"] });
+    },
+    onError: () => toast({ title: t("emailTracking.routeEmailError"), variant: "destructive" }),
+  });
+
+  return (
+    <Card className="border-dashed">
+      <CardHeader className="pb-2 pt-3 px-4">
+        <div
+          className="flex items-center gap-2 cursor-pointer"
+          onClick={() => setOpen(!open)}
+          data-testid="button-unsorted-candidates-toggle"
+        >
+          {open ? <ChevronDown className="w-4 h-4 text-muted-foreground" /> : <ChevronRight className="w-4 h-4 text-muted-foreground" />}
+          <CardTitle className="text-sm font-medium">{t("emailTracking.unsortedCandidates")}</CardTitle>
+          <Inbox className="w-3.5 h-3.5 text-muted-foreground" />
+        </div>
+      </CardHeader>
+      {open && (
+        <CardContent className="px-4 pb-3 pt-0">
+          {isLoading ? (
+            <div className="space-y-2">
+              {[1, 2].map(i => <div key={i} className="h-10 bg-muted animate-pulse rounded-md" />)}
+            </div>
+          ) : candidates.length === 0 ? (
+            <p className="text-sm text-muted-foreground" data-testid="text-unsorted-candidates-empty">
+              {t("emailTracking.unsortedCandidatesEmpty")}
+            </p>
+          ) : (
+            <div className="space-y-2">
+              {candidates.map(email => (
+                <div
+                  key={email.id}
+                  className="flex items-start gap-3 rounded-md border bg-muted/30 px-3 py-2"
+                  data-testid={`card-unsorted-candidate-${email.id}`}
+                >
+                  <ArrowDownLeft className="w-3.5 h-3.5 text-blue-500 mt-0.5 shrink-0" />
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm font-medium truncate">{email.subject}</p>
+                    <p className="text-xs text-muted-foreground truncate">
+                      {email.fromName ? `${email.fromName} <${email.fromAddress}>` : email.fromAddress}
+                    </p>
+                    <p className="text-xs text-muted-foreground">
+                      {email.receivedAt ? formatDistanceToNow(new Date(email.receivedAt), { addSuffix: true }) : ""}
+                    </p>
+                  </div>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="gap-1 shrink-0 text-xs"
+                    disabled={routeMutation.isPending}
+                    onClick={() => routeMutation.mutate(email.id)}
+                    data-testid={`button-route-candidate-${email.id}`}
+                  >
+                    <UserCheck className="w-3 h-3" />
+                    {t("emailTracking.routeAsCustomer")}
+                  </Button>
+                </div>
+              ))}
+            </div>
+          )}
+        </CardContent>
+      )}
+    </Card>
+  );
 }
 
 const STATUS_COLORS: Record<string, string> = {
@@ -590,6 +689,10 @@ export default function CommunicationListTab({ queryKey, customerId }: Communica
             </div>
           )}
         </>
+      )}
+
+      {customerId && (
+        <UnsortedCandidatesPanel customerId={customerId} />
       )}
 
       <Dialog open={!!selectedComm} onOpenChange={(open) => { if (!open) setSelectedComm(null); }}>

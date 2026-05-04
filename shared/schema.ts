@@ -2466,6 +2466,9 @@ export const mailboxAccounts = pgTable("mailbox_accounts", {
   lastSyncedAt: timestamp("last_synced_at"),
   oauthProvider: text("oauth_provider"),
   oauthTokenJson: jsonb("oauth_token_json"),
+  gmailHistoryId: text("gmail_history_id"),
+  syncIntervalMinutes: integer("sync_interval_minutes").notNull().default(2),
+  syncErrorCount: integer("sync_error_count").notNull().default(0),
   createdAt: timestamp("created_at").notNull().defaultNow(),
   updatedAt: timestamp("updated_at").notNull().defaultNow(),
 }, (table) => ({
@@ -2485,10 +2488,51 @@ export const insertMailboxAccountSchema = createInsertSchema(mailboxAccounts).om
   lastSyncedAt: z.coerce.date().nullable().optional(),
   oauthProvider: z.string().nullable().optional(),
   oauthTokenJson: z.any().optional(),
+  gmailHistoryId: z.string().nullable().optional(),
+  syncIntervalMinutes: z.number().int().min(1).default(2),
+  syncErrorCount: z.number().int().min(0).default(0),
 });
 
 export type InsertMailboxAccount = z.infer<typeof insertMailboxAccountSchema>;
 export type MailboxAccount = typeof mailboxAccounts.$inferSelect;
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Mailbox Sync Runs (Slice 3)
+// ─────────────────────────────────────────────────────────────────────────────
+
+export const mailboxSyncRuns = pgTable("mailbox_sync_runs", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  companyId: varchar("company_id").notNull().references(() => companies.id, { onDelete: "cascade" }),
+  mailboxAccountId: varchar("mailbox_account_id").notNull().references(() => mailboxAccounts.id, { onDelete: "cascade" }),
+  startedAt: timestamp("started_at").notNull().defaultNow(),
+  finishedAt: timestamp("finished_at"),
+  status: text("status").notNull().$type<"running" | "success" | "partial" | "error">().default("running"),
+  messagesFetched: integer("messages_fetched").notNull().default(0),
+  messagesRouted: integer("messages_routed").notNull().default(0),
+  messagesUnsorted: integer("messages_unsorted").notNull().default(0),
+  messagesDiscarded: integer("messages_discarded").notNull().default(0),
+  messagesDeduped: integer("messages_deduped").notNull().default(0),
+  errorMessage: text("error_message"),
+  syncMethod: text("sync_method").$type<"history" | "timestamp">(),
+  historyIdBefore: text("history_id_before"),
+  historyIdAfter: text("history_id_after"),
+}, (table) => ({
+  mailboxSyncRunsMailboxStartedIdx: index("mailbox_sync_runs_mailbox_started_idx").on(table.mailboxAccountId, table.startedAt),
+}));
+
+export const insertMailboxSyncRunSchema = createInsertSchema(mailboxSyncRuns).omit({
+  id: true,
+  startedAt: true,
+}).extend({
+  status: z.enum(["running", "success", "partial", "error"]).default("running"),
+  syncMethod: z.enum(["history", "timestamp"]).nullable().optional(),
+  errorMessage: z.string().nullable().optional(),
+  historyIdBefore: z.string().nullable().optional(),
+  historyIdAfter: z.string().nullable().optional(),
+});
+
+export type InsertMailboxSyncRun = z.infer<typeof insertMailboxSyncRunSchema>;
+export type MailboxSyncRun = typeof mailboxSyncRuns.$inferSelect;
 
 export const unsortedEmails = pgTable("unsorted_emails", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
@@ -2509,6 +2553,7 @@ export const unsortedEmails = pgTable("unsorted_emails", {
   resolvedByUserId: varchar("resolved_by_user_id").references(() => users.id, { onDelete: "set null" }),
   resolvedAt: timestamp("resolved_at"),
   candidateCustomerIds: text("candidate_customer_ids").array().default(sql`ARRAY[]::text[]`),
+  routingNotes: text("routing_notes"),
   attachmentsJson: jsonb("attachments_json").default(sql`'[]'::jsonb`),
   createdAt: timestamp("created_at").notNull().defaultNow(),
 }, (table) => ({
@@ -2532,6 +2577,7 @@ export const insertUnsortedEmailSchema = createInsertSchema(unsortedEmails).omit
   resolvedToCommunicationId: z.string().nullable().optional(),
   resolvedByUserId: z.string().nullable().optional(),
   resolvedAt: z.coerce.date().nullable().optional(),
+  routingNotes: z.string().nullable().optional(),
 });
 
 export type InsertUnsortedEmail = z.infer<typeof insertUnsortedEmailSchema>;
