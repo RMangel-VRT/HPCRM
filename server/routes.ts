@@ -15226,6 +15226,79 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  app.post("/api/chemical-notification-templates/preview", async (req, res) => {
+    if (!req.isAuthenticated()) return res.status(401).send("Not authenticated");
+    const user = req.user as UserWithContext;
+    const previewRoles = ["admin", "office"];
+    if (!previewRoles.includes(user.activeRole) && !user.isSuperAdminBool) {
+      return res.status(403).json({ error: "Insufficient permissions" });
+    }
+    try {
+      const {
+        customerId,
+        subject,
+        htmlBody,
+        emailType,
+        campaignTitle,
+        targetDate,
+        backupDate,
+        completionDate,
+        notes,
+        areasTreated,
+        applicationConditions,
+        nextVisitDate,
+      } = req.body || {};
+
+      if (!subject && !htmlBody) {
+        return res.status(400).json({ error: "subject or htmlBody is required" });
+      }
+
+      const company = await storage.getCompanyById(user.activeCompanyId);
+
+      let customerName = "";
+      if (customerId) {
+        const customer = await storage.getCustomerById(customerId, user.activeCompanyId);
+        if (customer) customerName = customer.name;
+      }
+
+      const today = new Date();
+      const fmt = (d: Date) => d.toLocaleDateString("en-US", { year: "numeric", month: "long", day: "numeric" });
+      const soon = new Date(today); soon.setDate(today.getDate() + 7);
+      const weekAfter = new Date(today); weekAfter.setDate(today.getDate() + 14);
+
+      let vars: Record<string, string>;
+      if (emailType === "post") {
+        vars = {
+          companyName: company?.name || "Your Company",
+          customerName: customerName || "Sample Customer",
+          campaignTitle: campaignTitle?.trim() || "Spring Chemical Campaign",
+          completionDate: completionDate?.trim() || fmt(today),
+          notes: notes?.trim() || "",
+          areasTreated: areasTreated?.trim() || "",
+          applicationConditions: applicationConditions?.trim() || "",
+          nextVisitDate: nextVisitDate?.trim() || "",
+        };
+      } else {
+        vars = {
+          companyName: company?.name || "Your Company",
+          customerName: customerName || "Sample Customer",
+          campaignTitle: campaignTitle?.trim() || "Spring Chemical Campaign",
+          targetDate: targetDate?.trim() || fmt(soon),
+          backupDate: backupDate?.trim() || fmt(weekAfter),
+          notes: notes?.trim() || "",
+        };
+      }
+
+      const renderedSubject = subject ? renderTemplate(subject, vars) : "";
+      const renderedHtml = htmlBody ? renderTemplate(htmlBody, vars) : "";
+
+      res.json({ subject: renderedSubject, htmlBody: renderedHtml, vars });
+    } catch (err) {
+      console.error("POST /api/chemical-notification-templates/preview error:", err);
+      res.status(500).json({ error: "Internal server error" });
+    }
+  });
+
   const httpServer = createServer(app);
 
   return httpServer;

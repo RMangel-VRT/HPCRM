@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect, useRef } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
@@ -43,7 +43,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { Plus, Pencil, Trash2, Eye, Mail, Loader2, ChevronDown, ChevronUp, AlertTriangle } from "lucide-react";
+import { Plus, Pencil, Trash2, Eye, Mail, Loader2, ChevronDown, ChevronUp, AlertTriangle, Users } from "lucide-react";
 
 type ChemicalNotificationTemplate = {
   id: string;
@@ -56,6 +56,11 @@ type ChemicalNotificationTemplate = {
   postVisitHtml: string;
   createdAt: string;
   updatedAt: string;
+};
+
+type CustomerSearchResult = {
+  id: string;
+  name: string;
 };
 
 const SERVICE_TYPE_OPTIONS = [
@@ -130,6 +135,13 @@ const BLANK_FORM = {
   postVisitHtml: "",
 };
 
+type PreviewWithDataState = {
+  open: boolean;
+  emailType: "pre" | "post";
+  subject: string;
+  htmlBody: string;
+};
+
 export default function ChemicalNotificationTemplates() {
   const { toast } = useToast();
   const [showForm, setShowForm] = useState(false);
@@ -144,9 +156,44 @@ export default function ChemicalNotificationTemplates() {
   const [previewMode, setPreviewMode] = useState<"pre" | "post" | null>(null);
   const [showVarsPanel, setShowVarsPanel] = useState(false);
 
+  const [previewWithData, setPreviewWithData] = useState<PreviewWithDataState>({
+    open: false,
+    emailType: "pre",
+    subject: "",
+    htmlBody: "",
+  });
+  const [customerSearch, setCustomerSearch] = useState("");
+  const [selectedCustomer, setSelectedCustomer] = useState<CustomerSearchResult | null>(null);
+  const [showCustomerDropdown, setShowCustomerDropdown] = useState(false);
+  const [previewCampaignTitle, setPreviewCampaignTitle] = useState("");
+  const [previewRendered, setPreviewRendered] = useState<{ subject: string; htmlBody: string } | null>(null);
+  const [previewLoading, setPreviewLoading] = useState(false);
+  const customerInputRef = useRef<HTMLInputElement>(null);
+
   const { data: templates = [], isLoading } = useQuery<ChemicalNotificationTemplate[]>({
     queryKey: ["/api/chemical-notification-templates"],
   });
+
+  const { data: customerResults = [] } = useQuery<CustomerSearchResult[]>({
+    queryKey: ["/api/customers/search", customerSearch],
+    queryFn: async () => {
+      if (!customerSearch.trim()) return [];
+      const res = await fetch(`/api/customers/search?q=${encodeURIComponent(customerSearch)}`);
+      if (!res.ok) return [];
+      return res.json();
+    },
+    enabled: customerSearch.trim().length > 0,
+  });
+
+  useEffect(() => {
+    if (!previewWithData.open) {
+      setCustomerSearch("");
+      setSelectedCustomer(null);
+      setShowCustomerDropdown(false);
+      setPreviewCampaignTitle("");
+      setPreviewRendered(null);
+    }
+  }, [previewWithData.open]);
 
   const createMutation = useMutation({
     mutationFn: async (data: typeof BLANK_FORM) => {
@@ -238,6 +285,39 @@ export default function ChemicalNotificationTemplates() {
     : previewMode === "post"
       ? substituteVars(form.postVisitHtml, SAMPLE_POST_VARS)
       : "";
+
+  const openPreviewWithData = (emailType: "pre" | "post") => {
+    setPreviewWithData({
+      open: true,
+      emailType,
+      subject: emailType === "pre" ? form.preVisitSubject : form.postVisitSubject,
+      htmlBody: emailType === "pre" ? form.preVisitHtml : form.postVisitHtml,
+    });
+  };
+
+  const handleRunPreview = async () => {
+    setPreviewLoading(true);
+    setPreviewRendered(null);
+    try {
+      const res = await apiRequest("POST", "/api/chemical-notification-templates/preview", {
+        customerId: selectedCustomer?.id || null,
+        subject: previewWithData.subject,
+        htmlBody: previewWithData.htmlBody,
+        emailType: previewWithData.emailType,
+        campaignTitle: previewCampaignTitle || undefined,
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        toast({ title: data.error || "Preview failed", variant: "destructive" });
+        return;
+      }
+      setPreviewRendered({ subject: data.subject, htmlBody: data.htmlBody });
+    } catch {
+      toast({ title: "Failed to generate preview", variant: "destructive" });
+    } finally {
+      setPreviewLoading(false);
+    }
+  };
 
   return (
     <div className="p-6 max-w-6xl mx-auto space-y-6">
@@ -340,12 +420,18 @@ export default function ChemicalNotificationTemplates() {
             <Separator />
 
             <div className="space-y-4">
-              <div className="flex items-center justify-between gap-2">
+              <div className="flex items-center justify-between gap-2 flex-wrap">
                 <h3 className="font-semibold text-sm">Pre-Visit Email</h3>
-                <Button variant="outline" size="sm" onClick={() => setPreviewMode(prev => prev === "pre" ? null : "pre")} data-testid="button-preview-pre">
-                  <Eye className="w-4 h-4 mr-1" />
-                  {previewMode === "pre" ? "Hide Preview" : "Preview"}
-                </Button>
+                <div className="flex items-center gap-2">
+                  <Button variant="outline" size="sm" onClick={() => setPreviewMode(prev => prev === "pre" ? null : "pre")} data-testid="button-preview-pre">
+                    <Eye className="w-4 h-4 mr-1" />
+                    {previewMode === "pre" ? "Hide Preview" : "Preview"}
+                  </Button>
+                  <Button variant="outline" size="sm" onClick={() => openPreviewWithData("pre")} data-testid="button-preview-pre-with-data">
+                    <Users className="w-4 h-4 mr-1" />
+                    Preview with data
+                  </Button>
+                </div>
               </div>
               <div className="space-y-2">
                 <Label>Subject *</Label>
@@ -385,12 +471,18 @@ export default function ChemicalNotificationTemplates() {
             <Separator />
 
             <div className="space-y-4">
-              <div className="flex items-center justify-between gap-2">
+              <div className="flex items-center justify-between gap-2 flex-wrap">
                 <h3 className="font-semibold text-sm">Post-Visit Email</h3>
-                <Button variant="outline" size="sm" onClick={() => setPreviewMode(prev => prev === "post" ? null : "post")} data-testid="button-preview-post">
-                  <Eye className="w-4 h-4 mr-1" />
-                  {previewMode === "post" ? "Hide Preview" : "Preview"}
-                </Button>
+                <div className="flex items-center gap-2">
+                  <Button variant="outline" size="sm" onClick={() => setPreviewMode(prev => prev === "post" ? null : "post")} data-testid="button-preview-post">
+                    <Eye className="w-4 h-4 mr-1" />
+                    {previewMode === "post" ? "Hide Preview" : "Preview"}
+                  </Button>
+                  <Button variant="outline" size="sm" onClick={() => openPreviewWithData("post")} data-testid="button-preview-post-with-data">
+                    <Users className="w-4 h-4 mr-1" />
+                    Preview with data
+                  </Button>
+                </div>
               </div>
               <div className="space-y-2">
                 <Label>Subject *</Label>
@@ -479,6 +571,120 @@ export default function ChemicalNotificationTemplates() {
             <Button onClick={handleSubmit} disabled={isPending} data-testid="button-save-template">
               {isPending && <Loader2 className="w-4 h-4 mr-2 animate-spin" />}
               {editingId ? "Save Changes" : "Create Template"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={previewWithData.open} onOpenChange={(v) => setPreviewWithData(s => ({ ...s, open: v }))}>
+        <DialogContent className="max-w-3xl max-h-[90vh] overflow-y-auto" data-testid="dialog-preview-with-data">
+          <DialogHeader>
+            <DialogTitle>
+              Preview with Real Data — {previewWithData.emailType === "pre" ? "Pre-Visit" : "Post-Visit"} Email
+            </DialogTitle>
+          </DialogHeader>
+
+          <div className="space-y-4">
+            <div className="space-y-2">
+              <Label>Customer / Property</Label>
+              <div className="relative" ref={customerInputRef as any}>
+                <Input
+                  value={selectedCustomer ? selectedCustomer.name : customerSearch}
+                  onChange={(e) => {
+                    setSelectedCustomer(null);
+                    setCustomerSearch(e.target.value);
+                    setShowCustomerDropdown(true);
+                    setPreviewRendered(null);
+                  }}
+                  onFocus={() => { if (customerSearch || !selectedCustomer) setShowCustomerDropdown(true); }}
+                  placeholder="Search for a customer..."
+                  data-testid="input-preview-customer-search"
+                />
+                {showCustomerDropdown && !selectedCustomer && customerSearch.trim().length > 0 && (
+                  <div className="absolute z-50 w-full mt-1 bg-popover border rounded-md shadow-md max-h-48 overflow-y-auto">
+                    {customerResults.length === 0 ? (
+                      <div className="px-3 py-2 text-sm text-muted-foreground">No customers found</div>
+                    ) : (
+                      customerResults.map((c) => (
+                        <button
+                          key={c.id}
+                          className="w-full text-left px-3 py-2 text-sm hover-elevate"
+                          onClick={() => {
+                            setSelectedCustomer(c);
+                            setCustomerSearch("");
+                            setShowCustomerDropdown(false);
+                            setPreviewRendered(null);
+                          }}
+                          data-testid={`option-customer-${c.id}`}
+                        >
+                          {c.name}
+                        </button>
+                      ))
+                    )}
+                  </div>
+                )}
+              </div>
+              {selectedCustomer && (
+                <div className="flex items-center gap-2">
+                  <Badge variant="secondary" className="text-xs">{selectedCustomer.name}</Badge>
+                  <button
+                    className="text-xs text-muted-foreground hover:text-foreground"
+                    onClick={() => { setSelectedCustomer(null); setPreviewRendered(null); }}
+                    data-testid="button-clear-customer"
+                  >
+                    Clear
+                  </button>
+                </div>
+              )}
+              <p className="text-xs text-muted-foreground">
+                The customer name and your company name will be pulled from real records. Other fields use sensible defaults unless overridden below.
+              </p>
+            </div>
+
+            <div className="space-y-2">
+              <Label>Campaign Title <span className="text-muted-foreground font-normal">(optional override)</span></Label>
+              <Input
+                value={previewCampaignTitle}
+                onChange={(e) => { setPreviewCampaignTitle(e.target.value); setPreviewRendered(null); }}
+                placeholder="e.g. Spring Weed Control 2026"
+                data-testid="input-preview-campaign-title"
+              />
+            </div>
+
+            <div className="flex justify-end">
+              <Button onClick={handleRunPreview} disabled={previewLoading} data-testid="button-generate-preview">
+                {previewLoading && <Loader2 className="w-4 h-4 mr-2 animate-spin" />}
+                Generate Preview
+              </Button>
+            </div>
+
+            {previewRendered && (
+              <div className="space-y-3">
+                <Separator />
+                <div className="space-y-1">
+                  <Label className="text-xs text-muted-foreground">Rendered Subject</Label>
+                  <p className="text-sm font-medium border rounded-md px-3 py-2 bg-muted/40" data-testid="text-preview-rendered-subject">
+                    {previewRendered.subject || <span className="text-muted-foreground italic">No subject</span>}
+                  </p>
+                </div>
+                <div className="space-y-1">
+                  <Label className="text-xs text-muted-foreground">Rendered Email Body</Label>
+                  <div className="border rounded-md overflow-hidden" data-testid="container-preview-rendered-html">
+                    <iframe
+                      srcDoc={previewRendered.htmlBody}
+                      title="Email preview with real data"
+                      className="w-full min-h-[400px] bg-white"
+                      sandbox="allow-same-origin"
+                    />
+                  </div>
+                </div>
+              </div>
+            )}
+          </div>
+
+          <DialogFooter className="mt-4">
+            <Button variant="outline" onClick={() => setPreviewWithData(s => ({ ...s, open: false }))} data-testid="button-close-preview-dialog">
+              Close
             </Button>
           </DialogFooter>
         </DialogContent>
