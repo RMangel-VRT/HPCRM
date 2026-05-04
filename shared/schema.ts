@@ -1773,6 +1773,42 @@ export const insertChemicalProductSchema = createInsertSchema(chemicalProducts).
 export type InsertChemicalProduct = z.infer<typeof insertChemicalProductSchema>;
 export type ChemicalProduct = typeof chemicalProducts.$inferSelect;
 
+export const chemicalNotificationTemplates = pgTable("chemical_notification_templates", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  companyId: varchar("company_id").notNull().references(() => companies.id, { onDelete: "cascade" }),
+  name: text("name").notNull(),
+  serviceType: text("service_type").notNull(),
+  isDefault: boolean("is_default").notNull().default(false),
+  preVisitSubject: text("pre_visit_subject").notNull(),
+  preVisitHtml: text("pre_visit_html").notNull(),
+  postVisitSubject: text("post_visit_subject").notNull(),
+  postVisitHtml: text("post_visit_html").notNull(),
+  createdBy: varchar("created_by").references(() => users.id, { onDelete: "set null" }),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  updatedAt: timestamp("updated_at").notNull().defaultNow(),
+}, (table) => ({
+  chemNotifTemplatesCompanyIdx: index("chem_notif_templates_company_id_idx").on(table.companyId),
+  chemNotifTemplatesNameCompanyUnique: unique("chem_notif_templates_name_company_unique").on(table.name, table.companyId),
+}));
+
+export const insertChemicalNotificationTemplateSchema = createInsertSchema(chemicalNotificationTemplates).omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+}).extend({
+  name: z.string().min(1).max(200),
+  serviceType: z.string().min(1).max(100),
+  preVisitSubject: z.string().min(1),
+  preVisitHtml: z.string().min(1),
+  postVisitSubject: z.string().min(1),
+  postVisitHtml: z.string().min(1),
+  isDefault: z.boolean().default(false),
+  createdBy: z.string().nullable().optional(),
+});
+
+export type InsertChemicalNotificationTemplate = z.infer<typeof insertChemicalNotificationTemplateSchema>;
+export type ChemicalNotificationTemplate = typeof chemicalNotificationTemplates.$inferSelect;
+
 export const campaigns = pgTable("campaigns", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
   companyId: varchar("company_id").notNull().references(() => companies.id, { onDelete: "cascade" }),
@@ -1786,6 +1822,7 @@ export const campaigns = pgTable("campaigns", {
   subtype: text("subtype").$type<"spring_turn_on" | "winterization" | "custom">(),
   status: text("status").$type<"active" | "completed" | "archived">().notNull().default("active"),
   seasonId: varchar("season_id").references(() => seasons.id, { onDelete: "set null" }),
+  notificationTemplateId: varchar("notification_template_id").references(() => chemicalNotificationTemplates.id, { onDelete: "set null" }),
   createdById: varchar("created_by_id").references(() => users.id, { onDelete: "set null" }),
   createdAt: timestamp("created_at").notNull().defaultNow(),
   updatedAt: timestamp("updated_at").notNull().defaultNow(),
@@ -1799,6 +1836,7 @@ export const insertCampaignSchema = createInsertSchema(campaigns).omit({
   updatedAt: true,
 }).extend({
   seasonId: z.string().nullable().optional(),
+  notificationTemplateId: z.string().nullable().optional(),
 });
 
 export type InsertCampaign = z.infer<typeof insertCampaignSchema>;

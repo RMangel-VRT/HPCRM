@@ -68,6 +68,7 @@ const GlobalOperationsPage = lazy(() => import("@/pages/GlobalOperationsPage"));
 const PropertyDetail = lazy(() => import("@/pages/PropertyDetail"));
 const UnsortedInboxPage = lazy(() => import("@/pages/UnsortedInboxPage"));
 const MailboxAccountsSettingsPage = lazy(() => import("@/pages/MailboxAccountsSettingsPage"));
+const ChemicalNotificationTemplates = lazy(() => import("@/pages/ChemicalNotificationTemplates"));
 
 interface ErrorBoundaryProps {
   children: ReactNode;
@@ -320,6 +321,7 @@ function Router() {
         <ProtectedRoute path="/dashboard/communications" component={CommunicationsCenter} allowedRoles={["admin", "office"]} />
         <ProtectedRoute path="/dashboard/communications/unsorted" component={UnsortedInboxPage} allowedRoles={["admin", "office"]} />
         <ProtectedRoute path="/dashboard/settings/mailbox-accounts" component={MailboxAccountsSettingsPage} allowedRoles={["admin"]} />
+        <ProtectedRoute path="/dashboard/settings/notification-templates" component={ChemicalNotificationTemplates} allowedRoles={["admin"]} />
         <ProtectedRoute path="/dashboard/reports" component={ReportsPage} allowedRoles={["admin", "office"]} />
         <ProtectedRoute path="/dashboard/users" component={UsersPage} allowedRoles={["admin"]} />
         <ProtectedRoute path="/dashboard/settings" component={SettingsPage} allowedRoles={["admin", "office"]} />

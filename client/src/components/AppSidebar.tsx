@@ -236,6 +236,7 @@ export default function AppSidebar({
     }
     if (userRole === "admin") {
       items.push({ title: t("nav.mailboxAccounts"), url: "/dashboard/settings/mailbox-accounts", icon: Mail });
+      items.push({ title: "Notification Templates", url: "/dashboard/settings/notification-templates", icon: FileText });
     }
     if (userRole === "admin") {
       items.push({ title: t("nav.team"), url: "/dashboard/users", icon: Users });

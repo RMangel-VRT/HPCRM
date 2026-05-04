@@ -208,6 +208,9 @@ export default function CampaignItemDetail() {
   const [sendingCompletionEmail, setSendingCompletionEmail] = useState(false);
   const [emailDebounceTick, setEmailDebounceTick] = useState(0);
   const [postCommDate, setPostCommDate] = useState("");
+  const [postCommAreasTreated, setPostCommAreasTreated] = useState("");
+  const [postCommApplicationConditions, setPostCommApplicationConditions] = useState("");
+  const [postCommNextVisitDate, setPostCommNextVisitDate] = useState("");
   const [showIrrigationCompleteDialog, setShowIrrigationCompleteDialog] = useState(false);
   const [irrigationCompleteDate, setIrrigationCompleteDate] = useState("");
   const [pendingIrrigationTaskId, setPendingIrrigationTaskId] = useState<string | null>(null);
@@ -386,7 +389,7 @@ export default function CampaignItemDetail() {
   }, [item?.completionEmailSentAt, emailDebounceTick]);
 
   const updateItemMutation = useMutation({
-    mutationFn: async (data: { status?: string; notes?: string; skipReason?: string; exceptionType?: string | null; photos?: string[]; chemAction?: string; overrideEmail?: string; completionDate?: string; weatherTemp?: number; weatherWindSpeed?: number; weatherWindDirection?: string; weatherHumidity?: number; weatherConditions?: string; customWindowStart?: string; customWindowEnd?: string; completedAt?: string; workCompletedAt?: string }) => {
+    mutationFn: async (data: { status?: string; notes?: string; skipReason?: string; exceptionType?: string | null; photos?: string[]; chemAction?: string; overrideEmail?: string; completionDate?: string; weatherTemp?: number; weatherWindSpeed?: number; weatherWindDirection?: string; weatherHumidity?: number; weatherConditions?: string; customWindowStart?: string; customWindowEnd?: string; completedAt?: string; workCompletedAt?: string; areasTreated?: string; applicationConditions?: string; nextVisitDate?: string }) => {
       if (data.chemAction && data.chemAction !== "reset" && data.chemAction !== "finish_without_comms") {
         const routeMap: Record<string, string> = {
           send_pre_communication: "send-pre-comm",
@@ -401,6 +404,9 @@ export default function CampaignItemDetail() {
           if (data.customWindowEnd) body.customWindowEnd = data.customWindowEnd;
           if (data.completedAt) body.completedAt = data.completedAt;
           if (data.workCompletedAt) body.workCompletedAt = data.workCompletedAt;
+          if (data.areasTreated) body.areasTreated = data.areasTreated;
+          if (data.applicationConditions) body.applicationConditions = data.applicationConditions;
+          if (data.nextVisitDate) body.nextVisitDate = data.nextVisitDate;
           const res = await apiRequest("POST", `/api/campaigns/${campaignId}/items/${itemId}/${route}`, body);
           return res.json();
         }
@@ -1559,6 +1565,14 @@ export default function CampaignItemDetail() {
                         if (res.ok) setEmailPreview(await res.json());
                       } catch {}
                       setLoadingPreview(false);
+                      if (item.weatherConditions || item.weatherTemp != null) {
+                        const parts: string[] = [];
+                        if (item.weatherTemp != null) parts.push(`${item.weatherTemp}°F`);
+                        if (item.weatherWindSpeed != null) parts.push(`Wind ${item.weatherWindSpeed} mph${item.weatherWindDirection ? ` ${item.weatherWindDirection}` : ""}`);
+                        if (item.weatherHumidity != null) parts.push(`Humidity ${item.weatherHumidity}%`);
+                        if (item.weatherConditions) parts.push(item.weatherConditions);
+                        setPostCommApplicationConditions(parts.join(", "));
+                      }
                       setShowEmailConfirm("post");
                     }}
                     disabled={updateItemMutation.isPending || loadingPreview}
@@ -2444,7 +2458,7 @@ export default function CampaignItemDetail() {
         </DialogContent>
       </Dialog>
 
-      <Dialog open={!!showEmailConfirm} onOpenChange={() => { setShowEmailConfirm(null); setEmailPreview(null); setManualEmail(""); setPreNoticeWindowStart(""); setPreNoticeWindowEnd(""); setPostCommDate(""); }}>
+      <Dialog open={!!showEmailConfirm} onOpenChange={() => { setShowEmailConfirm(null); setEmailPreview(null); setManualEmail(""); setPreNoticeWindowStart(""); setPreNoticeWindowEnd(""); setPostCommDate(""); setPostCommAreasTreated(""); setPostCommApplicationConditions(""); setPostCommNextVisitDate(""); }}>
         <DialogContent className="max-w-lg" data-testid="dialog-chem-email-compose">
           <div className="space-y-4">
             <div className="flex items-center gap-2">
@@ -2525,13 +2539,41 @@ export default function CampaignItemDetail() {
                 </div>
               )}
               {showEmailConfirm === "post" && (
-                <div>
-                  <Label className="text-xs text-muted-foreground">Completion Date *</Label>
-                  <DatePickerField
-                    value={postCommDate ? new Date(postCommDate + 'T00:00:00') : undefined}
-                    onChange={(date) => setPostCommDate(date ? format(date, 'yyyy-MM-dd') : '')}
-                    data-testid="input-post-comm-date"
-                  />
+                <div className="space-y-3">
+                  <div>
+                    <Label className="text-xs text-muted-foreground">Completion Date *</Label>
+                    <DatePickerField
+                      value={postCommDate ? new Date(postCommDate + 'T00:00:00') : undefined}
+                      onChange={(date) => setPostCommDate(date ? format(date, 'yyyy-MM-dd') : '')}
+                      data-testid="input-post-comm-date"
+                    />
+                  </div>
+                  <div>
+                    <Label className="text-xs text-muted-foreground">Areas Treated</Label>
+                    <Input
+                      value={postCommAreasTreated}
+                      onChange={(e) => setPostCommAreasTreated(e.target.value)}
+                      placeholder="e.g. Front lawn, side beds"
+                      data-testid="input-post-comm-areas-treated"
+                    />
+                  </div>
+                  <div>
+                    <Label className="text-xs text-muted-foreground">Application Conditions</Label>
+                    <Input
+                      value={postCommApplicationConditions}
+                      onChange={(e) => setPostCommApplicationConditions(e.target.value)}
+                      placeholder="e.g. Temp 68°F, wind calm, partly cloudy"
+                      data-testid="input-post-comm-conditions"
+                    />
+                  </div>
+                  <div>
+                    <Label className="text-xs text-muted-foreground">Next Visit Date</Label>
+                    <DatePickerField
+                      value={postCommNextVisitDate ? new Date(postCommNextVisitDate + 'T00:00:00') : undefined}
+                      onChange={(date) => setPostCommNextVisitDate(date ? format(date, 'yyyy-MM-dd') : '')}
+                      data-testid="input-post-comm-next-visit"
+                    />
+                  </div>
                 </div>
               )}
               <div>
@@ -2555,7 +2597,7 @@ export default function CampaignItemDetail() {
             </div>
             <Separator />
             <div className="flex flex-col-reverse sm:flex-row sm:justify-end gap-2">
-              <Button variant="outline" className="w-full sm:w-auto" onClick={() => { setShowEmailConfirm(null); setEmailPreview(null); setManualEmail(""); setPreNoticeWindowStart(""); setPreNoticeWindowEnd(""); }} data-testid="button-cancel-email">
+              <Button variant="outline" className="w-full sm:w-auto" onClick={() => { setShowEmailConfirm(null); setEmailPreview(null); setManualEmail(""); setPreNoticeWindowStart(""); setPreNoticeWindowEnd(""); setPostCommDate(""); setPostCommAreasTreated(""); setPostCommApplicationConditions(""); setPostCommNextVisitDate(""); }} data-testid="button-cancel-email">
                 {t("common.cancel")}
               </Button>
               <Button
@@ -2566,13 +2608,19 @@ export default function CampaignItemDetail() {
                   const customWindowStart = showEmailConfirm === "pre" ? preNoticeWindowStart : undefined;
                   const customWindowEnd = showEmailConfirm === "pre" ? preNoticeWindowEnd : undefined;
                   const completedAt = showEmailConfirm === "post" ? postCommDate : undefined;
+                  const areasTreated = showEmailConfirm === "post" ? postCommAreasTreated : undefined;
+                  const applicationConditions = showEmailConfirm === "post" ? postCommApplicationConditions : undefined;
+                  const nextVisitDate = showEmailConfirm === "post" ? postCommNextVisitDate : undefined;
                   setShowEmailConfirm(null);
                   setEmailPreview(null);
-                  updateItemMutation.mutate({ chemAction: action, notes, overrideEmail: !emailPreview?.recipientEmail ? effectiveEmail : undefined, customWindowStart, customWindowEnd, completedAt });
+                  updateItemMutation.mutate({ chemAction: action, notes, overrideEmail: !emailPreview?.recipientEmail ? effectiveEmail : undefined, customWindowStart, customWindowEnd, completedAt, areasTreated, applicationConditions, nextVisitDate });
                   setManualEmail("");
                   setPreNoticeWindowStart("");
                   setPreNoticeWindowEnd("");
                   setPostCommDate("");
+                  setPostCommAreasTreated("");
+                  setPostCommApplicationConditions("");
+                  setPostCommNextVisitDate("");
                 }}
                 disabled={updateItemMutation.isPending || (!emailPreview?.recipientEmail && (!manualEmail.trim() || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(manualEmail.trim()))) || (showEmailConfirm === "post" && !postCommDate)}
                 data-testid="button-confirm-send-email"

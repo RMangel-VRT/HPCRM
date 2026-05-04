@@ -9,7 +9,7 @@ import { setupAuth, type UserWithContext } from "./auth";
 import { storage } from "./storage";
 import { db } from "./db";
 import { eq, and, inArray, sql, gte, lte, isNull, ne } from "drizzle-orm";
-import { insertCustomerSchema, insertContactSchema, insertCompanySchema, insertCompanyUserSchema, insertSettingsSchema, insertNoteSchema, insertContractSchema, insertContractDocumentSchema, insertContractBuilderDocumentSchema, insertContractBuilderSectionSchema, insertContractBuilderVariableSchema, insertTicketTypeSchema, insertTicketTypeStatusSchema, insertTicketTypeFieldSchema, insertTicketSchema, insertTicketFieldValueSchema, insertTicketStatusHistorySchema, insertTicketCommentSchema, insertTicketLinkSchema, insertCustomerMapLayerSchema, insertCustomerMapDocumentSchema, insertMaintenanceCrewSchema, insertMaintenanceVisitConfigSchema, insertWeeklyScheduleTemplateSchema, insertScheduleBlockSchema, insertEquipmentSchema, insertEquipmentFileSchema, insertEquipmentTicketSchema, insertEquipmentTicketStatusHistorySchema, insertSnowEventSchema, insertSnowEventPropertyImpactSchema, insertSnowEventAttachmentSchema, insertEmailTemplateSchema, insertEmailRuleSchema, insertCommunicationAutomationRuleSchema, SNOW_RANGES, tickets, ticketLinks, ticketTypes, ticketTypeStatuses, customers as customersTable, contacts as contactsTable, contracts as contractsTable, equipment as equipmentTable, users as usersTable, contractMonthlyAmounts, contractDocuments, contractServices, contractStatusHistory, companyUsers as companyUsersTable, insertCommunicationSchema, campaigns as campaignsTable, campaignItems as campaignItemsTable, chemicalProducts as chemicalProductsTable, insertChemicalProductSchema } from "@shared/schema";
+import { insertCustomerSchema, insertContactSchema, insertCompanySchema, insertCompanyUserSchema, insertSettingsSchema, insertNoteSchema, insertContractSchema, insertContractDocumentSchema, insertContractBuilderDocumentSchema, insertContractBuilderSectionSchema, insertContractBuilderVariableSchema, insertTicketTypeSchema, insertTicketTypeStatusSchema, insertTicketTypeFieldSchema, insertTicketSchema, insertTicketFieldValueSchema, insertTicketStatusHistorySchema, insertTicketCommentSchema, insertTicketLinkSchema, insertCustomerMapLayerSchema, insertCustomerMapDocumentSchema, insertMaintenanceCrewSchema, insertMaintenanceVisitConfigSchema, insertWeeklyScheduleTemplateSchema, insertScheduleBlockSchema, insertEquipmentSchema, insertEquipmentFileSchema, insertEquipmentTicketSchema, insertEquipmentTicketStatusHistorySchema, insertSnowEventSchema, insertSnowEventPropertyImpactSchema, insertSnowEventAttachmentSchema, insertEmailTemplateSchema, insertEmailRuleSchema, insertCommunicationAutomationRuleSchema, SNOW_RANGES, tickets, ticketLinks, ticketTypes, ticketTypeStatuses, customers as customersTable, contacts as contactsTable, contracts as contractsTable, equipment as equipmentTable, users as usersTable, contractMonthlyAmounts, contractDocuments, contractServices, contractStatusHistory, companyUsers as companyUsersTable, insertCommunicationSchema, campaigns as campaignsTable, campaignItems as campaignItemsTable, chemicalProducts as chemicalProductsTable, insertChemicalProductSchema, insertChemicalNotificationTemplateSchema } from "@shared/schema";
 import type { Customer, CaptureParams, CampaignItem, InsertCampaignItem, Season, InsertCommunication, InsertCommunicationTemplate, InsertCommunicationAuditLog, ServicePlanCategory, ChemicalProduct, InsertVisualScopeSheet } from "@shared/schema";
 import { insertCommunicationTemplateSchema, insertServicePlanTemplateSchema, insertServicePlanTemplateItemSchema, insertCustomerServicePlanSchema } from "@shared/schema";
 import { runAutomationRule, runAllAutomationRules } from "./services/automationService";
@@ -21,7 +21,7 @@ import multer from 'multer';
 import { renderVisualScope, renderVisualScopeExport, type ExportType, type ExportPreset } from "./visualScopeRenderer";
 import { ROLLUP_SERVICE_LABELS, campaignToRollupServiceType } from "../shared/serviceCatalog";
 import { buildContractAuditRows } from "./auditEngine";
-import { seedChemicalEmailTemplates } from "./templates/seed";
+import { seedChemicalEmailTemplates, seedChemicalNotificationTemplates } from "./templates/seed";
 
 /**
  * Signed URL TTL for chemical product label attachments (in seconds).
@@ -1687,6 +1687,37 @@ export async function migrateChemicalProductsTable(): Promise<void> {
   }
 }
 
+export async function migrateChemicalNotificationTemplatesTable(): Promise<void> {
+  console.log("Running startup migration: Ensuring chemical_notification_templates table exists...");
+  try {
+    await db.execute(sql`
+      CREATE TABLE IF NOT EXISTS chemical_notification_templates (
+        id varchar PRIMARY KEY DEFAULT gen_random_uuid(),
+        company_id varchar NOT NULL REFERENCES companies(id) ON DELETE CASCADE,
+        name text NOT NULL,
+        service_type text NOT NULL DEFAULT 'custom',
+        is_default boolean NOT NULL DEFAULT false,
+        pre_visit_subject text NOT NULL DEFAULT '',
+        pre_visit_html text NOT NULL DEFAULT '',
+        post_visit_subject text NOT NULL DEFAULT '',
+        post_visit_html text NOT NULL DEFAULT '',
+        created_by varchar REFERENCES users(id) ON DELETE SET NULL,
+        created_at timestamp NOT NULL DEFAULT NOW(),
+        updated_at timestamp NOT NULL DEFAULT NOW()
+      )
+    `);
+    await db.execute(sql`CREATE INDEX IF NOT EXISTS chem_notif_templates_company_id_idx ON chemical_notification_templates(company_id)`);
+    await db.execute(sql`CREATE UNIQUE INDEX IF NOT EXISTS chem_notif_templates_name_company_unique ON chemical_notification_templates(name, company_id)`);
+    await db.execute(sql`ALTER TABLE campaigns ADD COLUMN IF NOT EXISTS notification_template_id varchar REFERENCES chemical_notification_templates(id) ON DELETE SET NULL`);
+    await db.execute(sql`UPDATE chemical_notification_templates SET service_type = 'custom' WHERE service_type IS NULL`);
+    await db.execute(sql`ALTER TABLE chemical_notification_templates ALTER COLUMN service_type SET NOT NULL`);
+    await db.execute(sql`ALTER TABLE chemical_notification_templates ALTER COLUMN service_type SET DEFAULT 'custom'`);
+    console.log("chemical_notification_templates table migration complete");
+  } catch (error) {
+    console.error("Error during chemical_notification_templates table migration:", error);
+  }
+}
+
 export async function migrateCampaignItemsChemicalColumns(): Promise<void> {
   console.log("Running startup migration: Ensuring chemical columns exist on campaign_items table...");
   try {
@@ -2165,6 +2196,7 @@ export async function seedChemicalEmailTemplatesBootstrap(): Promise<void> {
     const companies = await storage.getCompanies();
     for (const company of companies) {
       await seedChemicalEmailTemplates(company.id, storage);
+      await seedChemicalNotificationTemplates(company.id, storage);
     }
     console.log("Chemical email templates seed bootstrap complete");
   } catch (error) {
@@ -9945,6 +9977,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       // Chemical email templates: delegated to registry-based seeder in server/templates/seed.ts
       await seedChemicalEmailTemplates(companyId, storage);
+      // Chemical notification templates: seed four standard templates per company
+      await seedChemicalNotificationTemplates(companyId, storage);
     } catch (err) {
       console.error("Failed to seed email templates:", err);
     }
@@ -11722,7 +11756,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     if (user.activeRole !== "admin" && user.activeRole !== "office") {
       return res.status(403).send("Only admin/office can create campaigns");
     }
-    const { title, description, assignedToId, assignedToId2, windowStart, windowEnd, customerIds, category, subtype, checklistTasks } = req.body as {
+    const { title, description, assignedToId, assignedToId2, windowStart, windowEnd, customerIds, category, subtype, checklistTasks, notificationTemplateId } = req.body as {
       title?: string;
       description?: string;
       assignedToId?: string;
@@ -11733,6 +11767,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       category?: string;
       subtype?: string;
       checklistTasks?: { label: string; order: number }[];
+      notificationTemplateId?: string;
     };
     const validCategories = ["general", "chemical", "irrigation"];
     const campaignCategory = (validCategories.includes(category || "") ? category : "general") as "general" | "chemical" | "irrigation";
@@ -11796,6 +11831,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
     if (campaignCategory === "irrigation" && (!checklistTasks || checklistTasks.length === 0)) {
       return res.status(400).json({ error: "Irrigation campaigns require at least one checklist task" });
     }
+    let resolvedNotificationTemplateId: string | null = null;
+    if (notificationTemplateId && campaignCategory === "chemical") {
+      const tpl = await storage.getChemicalNotificationTemplate(notificationTemplateId, user.activeCompanyId);
+      if (!tpl) return res.status(400).json({ error: "Notification template not found or does not belong to this company" });
+      resolvedNotificationTemplateId = tpl.id;
+    }
     const campaign = await storage.createCampaignWithItems(
       {
         companyId: user.activeCompanyId,
@@ -11809,6 +11850,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         subtype: campaignSubtype,
         status: "active",
         createdById: user.id,
+        notificationTemplateId: resolvedNotificationTemplateId,
       },
       itemsData
     );
@@ -12008,7 +12050,27 @@ export async function registerRoutes(app: Express): Promise<Server> {
         // Non-fatal: preview still renders without label URL
       }
 
-      if (rules.length > 0) {
+      // Use notification template if campaign has one selected and this is a pre/post preview
+      const notifTemplate = (type === "pre" || type === "post") && campaign.notificationTemplateId
+        ? await storage.getChemicalNotificationTemplate(campaign.notificationTemplateId, user.activeCompanyId)
+        : null;
+
+      if (notifTemplate && (type === "pre" || type === "post")) {
+        templateName = notifTemplate.name;
+        const notifVars: Record<string, string> = {
+          companyName: company?.name || '',
+          customerName: targetItem.customerName,
+          campaignTitle: campaign.title,
+          targetDate: (type !== "post" && customWindowStart) ? customWindowStart : campaign.windowStart,
+          backupDate: (type !== "post" && customWindowEnd) ? customWindowEnd : campaign.windowEnd,
+          notes: '',
+          ...(type === "post" ? { completionDate: resolveChemCompletionDate(targetItem), areasTreated: '', applicationConditions: '', nextVisitDate: '' } : {}),
+        };
+        const rawSubject = type === "post" ? notifTemplate.postVisitSubject : notifTemplate.preVisitSubject;
+        const rawHtml = type === "post" ? notifTemplate.postVisitHtml : notifTemplate.preVisitHtml;
+        subject = renderTemplate(rawSubject, notifVars);
+        htmlBody = renderTemplate(rawHtml, notifVars);
+      } else if (rules.length > 0) {
         const template = await storage.getEmailTemplateById(rules[0].templateId, user.activeCompanyId);
         if (template) {
           templateName = template.name;
@@ -12885,20 +12947,42 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(400).json({ error: "No recipient email available. Provide an email address or add a contact/property manager." });
       }
       try {
-        const emailResults = await processEmailEvent('campaign.chemical_pre_notice', user.activeCompanyId, {
-          companyName: company?.name || '',
-          customerName: targetItem.customerName,
-          campaignTitle: campaign.title,
-          windowStart: customWindowStart?.trim() || campaign.windowStart,
-          windowEnd: customWindowEnd?.trim() || campaign.windowEnd,
-          notes: notes || '',
-        }, {
-          customerId: targetItem.customerId,
-          toEmail: recipientEmail,
-          sentById: user.id,
-        });
-        const sentLog = emailResults.find(l => l.status === "sent");
-        if (!sentLog) {
+        const notifTemplate = campaign.notificationTemplateId
+          ? await storage.getChemicalNotificationTemplate(campaign.notificationTemplateId, user.activeCompanyId)
+          : null;
+        let sentLog: { id: string; status: string } | undefined;
+        if (notifTemplate) {
+          const templateVars: Record<string, string> = {
+            companyName: company?.name || '',
+            customerName: targetItem.customerName,
+            campaignTitle: campaign.title,
+            targetDate: customWindowStart?.trim() || campaign.windowStart,
+            backupDate: customWindowEnd?.trim() || campaign.windowEnd,
+            notes: notes || '',
+          };
+          const log = await sendEmail(recipientEmail, notifTemplate.preVisitSubject, notifTemplate.preVisitHtml, null, {
+            companyId: user.activeCompanyId,
+            customerId: targetItem.customerId,
+            sentById: user.id,
+            variables: templateVars,
+          });
+          sentLog = log;
+        } else {
+          const emailResults = await processEmailEvent('campaign.chemical_pre_notice', user.activeCompanyId, {
+            companyName: company?.name || '',
+            customerName: targetItem.customerName,
+            campaignTitle: campaign.title,
+            windowStart: customWindowStart?.trim() || campaign.windowStart,
+            windowEnd: customWindowEnd?.trim() || campaign.windowEnd,
+            notes: notes || '',
+          }, {
+            customerId: targetItem.customerId,
+            toEmail: recipientEmail,
+            sentById: user.id,
+          });
+          sentLog = emailResults.find(l => l.status === "sent");
+        }
+        if (!sentLog || sentLog.status !== "sent") {
           return res.status(502).json({ error: "Email delivery failed. Please try again." });
         }
         chemUpdates.preCommEmailLogId = sentLog.id;
@@ -12977,7 +13061,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       if (targetItem.workflowStep !== "work_completed") {
         return res.status(400).json({ error: "Item is not in work-completed step" });
       }
-      const { notes, overrideEmail, completedAt: completedAtStr } = req.body || {};
+      const { notes, overrideEmail, completedAt: completedAtStr, areasTreated, applicationConditions, nextVisitDate } = req.body || {};
       const chemUpdates: Partial<InsertCampaignItem & { updatedAt: Date }> = { updatedAt: new Date() };
       const company = await storage.getCompanyById(user.activeCompanyId);
       const { email: resolvedEmail } = await resolveChemRecipientEmail(targetItem.customerId, user.activeCompanyId);
@@ -12986,19 +13070,46 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(400).json({ error: "No recipient email available. Provide an email address or add a contact/property manager." });
       }
       try {
-        const emailResults = await processEmailEvent('campaign.chemical_post_notice', user.activeCompanyId, {
-          companyName: company?.name || '',
-          customerName: targetItem.customerName,
-          campaignTitle: campaign.title,
-          completionDate: resolveChemCompletionDate(targetItem),
-          notes: notes || '',
-        }, {
-          customerId: targetItem.customerId,
-          toEmail: recipientEmail,
-          sentById: user.id,
-        });
-        const sentLog = emailResults.find(l => l.status === "sent");
-        if (!sentLog) {
+        const notifTemplate = campaign.notificationTemplateId
+          ? await storage.getChemicalNotificationTemplate(campaign.notificationTemplateId, user.activeCompanyId)
+          : null;
+        let sentLog: { id: string; status: string } | undefined;
+        if (notifTemplate) {
+          const resolvedCompletionDate = completedAtStr
+            ? (() => { const d = new Date(completedAtStr + "T12:00:00"); return isNaN(d.getTime()) ? resolveChemCompletionDate(targetItem) : d.toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' }); })()
+            : resolveChemCompletionDate(targetItem);
+          const templateVars: Record<string, string> = {
+            companyName: company?.name || '',
+            customerName: targetItem.customerName,
+            campaignTitle: campaign.title,
+            completionDate: resolvedCompletionDate,
+            notes: notes || '',
+            areasTreated: areasTreated || '',
+            applicationConditions: applicationConditions || '',
+            nextVisitDate: nextVisitDate || '',
+          };
+          const log = await sendEmail(recipientEmail, notifTemplate.postVisitSubject, notifTemplate.postVisitHtml, null, {
+            companyId: user.activeCompanyId,
+            customerId: targetItem.customerId,
+            sentById: user.id,
+            variables: templateVars,
+          });
+          sentLog = log;
+        } else {
+          const emailResults = await processEmailEvent('campaign.chemical_post_notice', user.activeCompanyId, {
+            companyName: company?.name || '',
+            customerName: targetItem.customerName,
+            campaignTitle: campaign.title,
+            completionDate: resolveChemCompletionDate(targetItem),
+            notes: notes || '',
+          }, {
+            customerId: targetItem.customerId,
+            toEmail: recipientEmail,
+            sentById: user.id,
+          });
+          sentLog = emailResults.find(l => l.status === "sent");
+        }
+        if (!sentLog || sentLog.status !== "sent") {
           return res.status(502).json({ error: "Email delivery failed. Please try again." });
         }
         chemUpdates.postCommEmailLogId = sentLog.id;
@@ -14974,6 +15085,90 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // ─── Chemical Notification Templates CRUD ────────────────────────────────────
+
+  const isTemplateAdmin = (user: UserWithContext) => user.activeRole === "admin" || user.isSuperAdminBool;
+
+  app.get("/api/chemical-notification-templates", async (req, res) => {
+    if (!req.isAuthenticated()) return res.status(401).send("Not authenticated");
+    const user = req.user as UserWithContext;
+    const templateReadRoles = ["admin", "office"];
+    if (!templateReadRoles.includes(user.activeRole) && !user.isSuperAdminBool) return res.status(403).json({ error: "Insufficient permissions" });
+    try {
+      const templates = await storage.getChemicalNotificationTemplates(user.activeCompanyId);
+      res.json(templates);
+    } catch (err) {
+      console.error("GET /api/chemical-notification-templates error:", err);
+      res.status(500).json({ error: "Internal server error" });
+    }
+  });
+
+  app.get("/api/chemical-notification-templates/:id", async (req, res) => {
+    if (!req.isAuthenticated()) return res.status(401).send("Not authenticated");
+    const user = req.user as UserWithContext;
+    const templateReadRoles = ["admin", "office"];
+    if (!templateReadRoles.includes(user.activeRole) && !user.isSuperAdminBool) return res.status(403).json({ error: "Insufficient permissions" });
+    try {
+      const tpl = await storage.getChemicalNotificationTemplate(req.params.id, user.activeCompanyId);
+      if (!tpl) return res.status(404).json({ error: "Not found" });
+      res.json(tpl);
+    } catch (err) {
+      console.error("GET /api/chemical-notification-templates/:id error:", err);
+      res.status(500).json({ error: "Internal server error" });
+    }
+  });
+
+  app.post("/api/chemical-notification-templates", async (req, res) => {
+    if (!req.isAuthenticated()) return res.status(401).send("Not authenticated");
+    const user = req.user as UserWithContext;
+    if (!isTemplateAdmin(user)) return res.status(403).json({ error: "Admin only" });
+    try {
+      const parsed = insertChemicalNotificationTemplateSchema.safeParse({
+        ...req.body,
+        companyId: user.activeCompanyId,
+        createdBy: user.id,
+      });
+      if (!parsed.success) return res.status(400).json({ error: parsed.error.flatten() });
+      const tpl = await storage.createChemicalNotificationTemplate(parsed.data);
+      res.status(201).json(tpl);
+    } catch (err) {
+      console.error("POST /api/chemical-notification-templates error:", err);
+      res.status(500).json({ error: "Internal server error" });
+    }
+  });
+
+  async function handleUpdateChemicalNotificationTemplate(req: express.Request, res: express.Response) {
+    if (!req.isAuthenticated()) return res.status(401).send("Not authenticated");
+    const user = req.user as UserWithContext;
+    if (!isTemplateAdmin(user)) return res.status(403).json({ error: "Admin only" });
+    try {
+      const { companyId: _c, id: _i, createdBy: _b, ...patchBody } = req.body || {};
+      const parsed = insertChemicalNotificationTemplateSchema.partial().safeParse(patchBody);
+      if (!parsed.success) return res.status(400).json({ error: parsed.error.flatten() });
+      const tpl = await storage.updateChemicalNotificationTemplate(req.params.id, user.activeCompanyId, parsed.data);
+      if (!tpl) return res.status(404).json({ error: "Not found" });
+      res.json(tpl);
+    } catch (err) {
+      console.error("PUT/PATCH /api/chemical-notification-templates/:id error:", err);
+      res.status(500).json({ error: "Internal server error" });
+    }
+  }
+  app.patch("/api/chemical-notification-templates/:id", handleUpdateChemicalNotificationTemplate);
+  app.put("/api/chemical-notification-templates/:id", handleUpdateChemicalNotificationTemplate);
+
+  app.delete("/api/chemical-notification-templates/:id", async (req, res) => {
+    if (!req.isAuthenticated()) return res.status(401).send("Not authenticated");
+    const user = req.user as UserWithContext;
+    if (!isTemplateAdmin(user)) return res.status(403).json({ error: "Admin only" });
+    try {
+      await storage.deleteChemicalNotificationTemplate(req.params.id, user.activeCompanyId);
+      res.json({ success: true });
+    } catch (err) {
+      console.error("DELETE /api/chemical-notification-templates/:id error:", err);
+      res.status(500).json({ error: "Internal server error" });
+    }
+  });
+
   const httpServer = createServer(app);
 
   return httpServer;
@@ -15125,6 +15320,7 @@ export async function runStartupMigrations(): Promise<void> {
   await migrateContractAutoPopulateColumn();
   await migrateCustomerServicePlanTemplateOrigin();
   await migrateEmailTrackingTables();
+  await migrateChemicalNotificationTemplatesTable();
   await migrateChemicalProductsTable();
   await migrateCampaignItemsCompletionColumns();
   await migrateUserApplicatorFields();

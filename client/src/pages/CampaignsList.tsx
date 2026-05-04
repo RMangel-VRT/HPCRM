@@ -263,6 +263,7 @@ function CreateCampaignDialog({ open, onOpenChange }: { open: boolean; onOpenCha
   const [checklistTasks, setChecklistTasks] = useState<{ label: string; order: number }[]>([]);
   const [selectedCustomerIds, setSelectedCustomerIds] = useState<Set<string>>(new Set());
   const [customerSearch, setCustomerSearch] = useState("");
+  const [notificationTemplateId, setNotificationTemplateId] = useState<string>("");
 
   const { data: customersResp } = useQuery<{ customers: Customer[]; total: number }>({
     queryKey: ["/api/customers"],
@@ -271,6 +272,10 @@ function CreateCampaignDialog({ open, onOpenChange }: { open: boolean; onOpenCha
 
   const { data: companyUsersData = [] } = useQuery<CompanyUserWithDetails[]>({
     queryKey: ["/api/companies/users"],
+  });
+
+  const { data: notificationTemplates = [] } = useQuery<{ id: string; name: string; serviceType: string | null }[]>({
+    queryKey: ["/api/chemical-notification-templates"],
   });
 
   const selectableCustomers = useMemo(() => {
@@ -405,6 +410,7 @@ function CreateCampaignDialog({ open, onOpenChange }: { open: boolean; onOpenCha
       customerIds: Array.from(selectedCustomerIds),
       category,
       ...(category === "irrigation" ? { subtype: irrigationSubtype, checklistTasks } : {}),
+      ...(category === "chemical" && notificationTemplateId ? { notificationTemplateId } : {}),
     });
   };
 
@@ -516,6 +522,9 @@ function CreateCampaignDialog({ open, onOpenChange }: { open: boolean; onOpenCha
                 if (val === "irrigation") {
                   handleSubtypeChange("spring_turn_on");
                 }
+                if (val !== "chemical") {
+                  setNotificationTemplateId("");
+                }
               }}>
                 <SelectTrigger data-testid="select-campaign-category">
                   <SelectValue />
@@ -524,15 +533,32 @@ function CreateCampaignDialog({ open, onOpenChange }: { open: boolean; onOpenCha
                   <SelectItem value="general" data-testid="select-campaign-category-general">{t("campaigns.categoryGeneral")}</SelectItem>
                   <SelectItem value="chemical" data-testid="select-campaign-category-chemical">{t("campaigns.categoryChemical")}</SelectItem>
                   <SelectItem value="irrigation" data-testid="select-campaign-category-irrigation">{t("campaigns.categoryIrrigation")}</SelectItem>
+
                 </SelectContent>
               </Select>
               {category === "chemical" && (
                 <p className="text-xs text-muted-foreground">{t("campaigns.categoryDescription")}</p>
               )}
-              {category === "irrigation" && (
-                <p className="text-xs text-muted-foreground">{t("campaigns.irrigationDescription")}</p>
-              )}
             </div>
+            {category === "chemical" && (
+              <div className="space-y-2">
+                <Label>Notification Template <span className="text-muted-foreground text-xs">(optional)</span></Label>
+                <Select value={notificationTemplateId || "none"} onValueChange={(v) => setNotificationTemplateId(v === "none" ? "" : v)}>
+                  <SelectTrigger data-testid="select-notification-template">
+                    <SelectValue placeholder="Select a template..." />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="none">None (use default)</SelectItem>
+                    {notificationTemplates.map((tpl) => (
+                      <SelectItem key={tpl.id} value={tpl.id} data-testid={`select-notification-template-${tpl.id}`}>
+                        {tpl.name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                <p className="text-xs text-muted-foreground">Choose the email template to use for pre-visit and post-visit customer notifications.</p>
+              </div>
+            )}
             {category === "irrigation" && (
               <div className="space-y-4">
                 <div className="space-y-2">
@@ -682,6 +708,12 @@ function CreateCampaignDialog({ open, onOpenChange }: { open: boolean; onOpenCha
                   <span className="text-sm text-muted-foreground">{t("campaigns.categoryLabel")}</span>
                   <span className="text-sm font-medium">{category === "chemical" ? t("campaigns.categoryChemical") : category === "irrigation" ? t("campaigns.categoryIrrigation") : t("campaigns.categoryGeneral")}</span>
                 </div>
+                {category === "chemical" && notificationTemplateId && (
+                  <div className="flex justify-between gap-2">
+                    <span className="text-sm text-muted-foreground">Notification Template</span>
+                    <span className="text-sm font-medium">{notificationTemplates.find(t => t.id === notificationTemplateId)?.name ?? "—"}</span>
+                  </div>
+                )}
                 {category === "irrigation" && (
                   <div className="flex justify-between gap-2">
                     <span className="text-sm text-muted-foreground">{t("campaigns.irrigationSubtype")}</span>
