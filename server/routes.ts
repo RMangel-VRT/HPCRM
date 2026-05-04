@@ -22,6 +22,7 @@ import { renderVisualScope, renderVisualScopeExport, type ExportType, type Expor
 import { ROLLUP_SERVICE_LABELS, campaignToRollupServiceType } from "../shared/serviceCatalog";
 import { buildContractAuditRows } from "./auditEngine";
 import { seedChemicalEmailTemplates, seedChemicalNotificationTemplates } from "./templates/seed";
+import { assertNotParentCustomer } from "./utils/parentGuard";
 
 /**
  * Signed URL TTL for chemical product label attachments (in seconds).
@@ -2781,7 +2782,19 @@ export async function registerRoutes(app: Express): Promise<Server> {
       return res.status(403).send("Insufficient permissions - admin or office role required");
     }
 
+    // Before deleting, fetch the customer so we know its parentCustomerId
+    const customerToDelete = await storage.getCustomerById(req.params.id, user.activeCompanyId);
     await storage.deleteCustomer(req.params.id, user.activeCompanyId);
+
+    // If the deleted customer had a parent, check if the parent has any remaining children
+    if (customerToDelete?.parentCustomerId) {
+      const remainingChildren = await storage.getChildCustomers(customerToDelete.parentCustomerId, user.activeCompanyId);
+      if (remainingChildren.length === 0) {
+        await storage.updateCustomer(customerToDelete.parentCustomerId, user.activeCompanyId, { isParent: "false" });
+        console.log(`Cleared isParent flag on customer ${customerToDelete.parentCustomerId} — last child was deleted`);
+      }
+    }
+
     res.status(200).send("Deleted");
   });
 
@@ -2806,6 +2819,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
     if (user.activeRole === "field_manager" || user.activeRole === "chemical_manager" || user.activeRole === "field" || user.activeRole === "irrigation_manager" || user.activeRole === "landscape_supervisor") {
       return res.status(403).send("Insufficient permissions - admin or office role required");
     }
+
+    if (await assertNotParentCustomer(req.params.customerId, user.activeCompanyId, res)) return;
 
     const { selectedPmCompanyId, ...contactData } = req.body;
     
@@ -2996,6 +3011,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
       return res.status(403).send("Insufficient permissions - field role cannot create notes");
     }
 
+    if (await assertNotParentCustomer(req.params.customerId, user.activeCompanyId, res)) return;
+
     const result = insertNoteSchema.safeParse({
       ...req.body,
       customerId: req.params.customerId,
@@ -3139,6 +3156,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
       return res.status(403).send("Insufficient permissions - admin or office role required");
     }
 
+    if (await assertNotParentCustomer(req.params.customerId, user.activeCompanyId, res)) return;
+
     const result = insertContractSchema.safeParse({
       ...req.body,
       startDate: req.body.startDate ? new Date(req.body.startDate) : undefined,
@@ -3201,6 +3220,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
       return res.status(400).json({ error: result.error.message });
     }
 
+    if (await assertNotParentCustomer(result.data.customerId, user.activeCompanyId, res)) return;
+
     if (result.data.serviceType === "Maintenance" || result.data.serviceType === "Snow") {
       const existingContracts = await storage.getContractsByCustomerId(result.data.customerId, user.activeCompanyId);
       const existingActiveContract = existingContracts.find(
@@ -3243,6 +3264,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
     const existingContract = await storage.getContractById(req.params.id, user.activeCompanyId);
     if (!existingContract) {
       return res.status(404).send("Contract not found");
+    }
+
+    // If customerId is being changed, guard against parent customers
+    if (req.body.customerId && req.body.customerId !== existingContract.customerId) {
+      if (await assertNotParentCustomer(req.body.customerId, user.activeCompanyId, res)) return;
     }
 
     // If changing status to active, check uniqueness for Maintenance/Snow contracts
@@ -5863,6 +5889,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
       return res.status(403).send("Insufficient permissions - admin role required");
     }
 
+    if (req.body.customerId) {
+      if (await assertNotParentCustomer(req.body.customerId, user.activeCompanyId, res)) return;
+    }
+
     // Validate assignedToId is provided and user belongs to the company
     if (!req.body.assignedToId) {
       return res.status(400).send("Assignment is required - tickets must be assigned to a user");
@@ -6214,6 +6244,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
     // Viewers cannot update tickets
     if (user.activeRole === "field") {
       return res.status(403).send("Insufficient permissions");
+    }
+
+    // Guard against operational records being on a parent customer
+    {
+      const effectiveCustomerId = req.body.customerId ?? existingTicket.customerId;
+      if (effectiveCustomerId && await assertNotParentCustomer(effectiveCustomerId, user.activeCompanyId, res)) return;
     }
 
     // If status is changing, record history
@@ -7319,6 +7355,112 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
     
     res.json({ dryRun: false, count: results.length, tickets: results });
+  });
+
+  // Parent customer audit report
+  app.get("/api/admin/parent-customer-audit", async (req, res) => {
+    if (!req.isAuthenticated()) return res.status(401).send("Not authenticated");
+    const user = req.user as UserWithContext;
+    if (user.activeRole !== "admin" && user.activeRole !== "office" && !user.isSuperAdminBool) {
+      return res.status(403).send("Admin or office role required");
+    }
+
+    const parents = await storage.getParentCustomers(user.activeCompanyId);
+    const auditRows: Array<{
+      parentId: string;
+      parentName: string;
+      recordType: string;
+      recordId: string;
+      recordSummary: string;
+      childCount: number;
+    }> = [];
+
+    const parentSummaries: Array<{
+      parentId: string;
+      parentName: string;
+      childCount: number;
+      totalRecords: number;
+      recordsByType: Record<string, number>;
+    }> = [];
+
+    for (const parent of parents) {
+      const children = await storage.getChildCustomers(parent.id, user.activeCompanyId);
+      const childCount = children.length;
+      const rowsForParent: typeof auditRows = [];
+
+      const [contracts, tickets, proposals, communications, contacts, notes, servicePlans] = await Promise.all([
+        storage.getContractsByCustomerId(parent.id, user.activeCompanyId),
+        storage.getTicketsByCustomerId(parent.id, user.activeCompanyId),
+        storage.getProposalsByCustomer(parent.id, user.activeCompanyId),
+        storage.getCommunications(user.activeCompanyId, { customerId: parent.id }),
+        storage.getContactsByCustomerId(parent.id, user.activeCompanyId),
+        storage.getNotesByCustomerId(parent.id, user.activeCompanyId),
+        storage.getCustomerServicePlans(parent.id, user.activeCompanyId),
+      ]);
+
+      for (const r of contracts) {
+        rowsForParent.push({ parentId: parent.id, parentName: parent.name, recordType: "contract", recordId: r.id, recordSummary: `${r.serviceType} — ${r.status}`, childCount });
+      }
+      for (const r of tickets) {
+        rowsForParent.push({ parentId: parent.id, parentName: parent.name, recordType: "ticket", recordId: r.id, recordSummary: r.title, childCount });
+      }
+      for (const r of proposals) {
+        rowsForParent.push({ parentId: parent.id, parentName: parent.name, recordType: "proposal", recordId: r.id, recordSummary: r.title || r.proposalNumber || r.id, childCount });
+      }
+      for (const r of communications) {
+        rowsForParent.push({ parentId: parent.id, parentName: parent.name, recordType: "communication", recordId: r.id, recordSummary: r.subject || "(no subject)", childCount });
+      }
+      for (const r of contacts) {
+        rowsForParent.push({ parentId: parent.id, parentName: parent.name, recordType: "contact", recordId: r.id, recordSummary: r.name, childCount });
+      }
+      for (const r of notes) {
+        rowsForParent.push({ parentId: parent.id, parentName: parent.name, recordType: "note", recordId: r.id, recordSummary: r.body.slice(0, 80), childCount });
+      }
+      for (const r of servicePlans) {
+        rowsForParent.push({ parentId: parent.id, parentName: parent.name, recordType: "service_plan", recordId: r.id, recordSummary: `${r.serviceCategory} ${r.year}`, childCount });
+      }
+
+      if (rowsForParent.length > 0) {
+        auditRows.push(...rowsForParent);
+        const recordsByType: Record<string, number> = {};
+        for (const row of rowsForParent) {
+          recordsByType[row.recordType] = (recordsByType[row.recordType] ?? 0) + 1;
+        }
+        parentSummaries.push({
+          parentId: parent.id,
+          parentName: parent.name,
+          childCount,
+          totalRecords: rowsForParent.length,
+          recordsByType,
+        });
+      }
+    }
+
+    const format = req.query.format as string | undefined;
+    if (format === "csv") {
+      const lines = [
+        "parent_id,parent_name,record_type,record_id,record_summary,child_count",
+        ...auditRows.map(r => [
+          r.parentId,
+          `"${r.parentName.replace(/"/g, '""')}"`,
+          r.recordType,
+          r.recordId,
+          `"${r.recordSummary.replace(/"/g, '""')}"`,
+          r.childCount,
+        ].join(",")),
+      ];
+      res.setHeader("Content-Type", "text/csv");
+      res.setHeader("Content-Disposition", "attachment; filename=\"parent-customer-audit.csv\"");
+      return res.send(lines.join("\n"));
+    }
+
+    res.json({
+      generatedAt: new Date().toISOString(),
+      totalParentsWithRecords: parentSummaries.length,
+      totalRecords: auditRows.length,
+      summaries: parentSummaries,
+      records: auditRows,
+    });
   });
 
   // Get ticket with full details (type, statuses, fields)
@@ -8526,6 +8668,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
       return res.status(403).send("Only Admin and Shop Manager can create equipment with retired status");
     }
     
+    if (req.body.customerId) {
+      if (await assertNotParentCustomer(req.body.customerId, user.activeCompanyId, res)) return;
+    }
+
     const parsed = insertEquipmentSchema.safeParse({
       ...req.body,
       companyId: user.activeCompanyId,
@@ -10287,6 +10433,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
     const customer = await storage.getCustomerById(customerId, user.activeCompanyId);
     if (!customer) return res.status(400).json({ error: "Customer not found or does not belong to your company" });
 
+    if (await assertNotParentCustomer(customerId, user.activeCompanyId, res)) return;
+
     const today = new Date().toISOString().split("T")[0];
     // Use the DB sequence for atomic, concurrency-safe number assignment
     const seqRow = await db.execute(sql`SELECT NEXTVAL('proposal_number_seq') AS seq`);
@@ -10320,6 +10468,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
     if (!req.isAuthenticated()) return res.status(401).send("Not authenticated");
     const user = req.user as UserWithContext;
     if (!canAccessProposals(user.activeRole)) return res.status(403).send("Insufficient permissions");
+    const existing = await storage.getProposalById(req.params.id, user.activeCompanyId);
+    if (!existing) return res.status(404).send("Not found");
+    if (await assertNotParentCustomer(existing.customerId, user.activeCompanyId, res)) return;
     const { title, proposalDate, estimateNumber, scopeOfWork, ticketId,
             visualScopeSheetId, vsIncludeBase, vsIncludeOverlay } = req.body;
     const updated = await storage.updateProposal(req.params.id, user.activeCompanyId, {
@@ -11375,6 +11526,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     if (!canAccessVisualScope(user.activeRole)) return res.status(403).send("Insufficient permissions");
     const { customerId, title, scopeDate } = req.body;
     if (!customerId) return res.status(400).json({ error: "customerId is required" });
+    if (await assertNotParentCustomer(customerId, user.activeCompanyId, res)) return;
     const today = new Date().toISOString().substring(0, 10);
     const sheet = await storage.createVisualScopeSheet({
       companyId: user.activeCompanyId,
@@ -12254,6 +12406,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
     const { customerIds } = req.body as { customerIds?: string[] };
     if (!customerIds || !Array.isArray(customerIds) || customerIds.length === 0) {
       return res.status(400).json({ error: "customerIds required" });
+    }
+    // Guard each customerId against being a parent
+    for (const custId of customerIds) {
+      if (await assertNotParentCustomer(custId, user.activeCompanyId, res)) return;
     }
     const existingItems = await storage.getCampaignItems(req.params.id, user.activeCompanyId);
     const existingCustomerIds = new Set(existingItems.map(i => i.customerId));
@@ -13721,6 +13877,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // POST /api/communications — create / send / schedule a communication
   app.post("/api/communications", requireCommPermission("send"), async (req, res) => {
     const user = req.user as UserWithContext;
+    if (req.body.customerId) {
+      if (await assertNotParentCustomer(req.body.customerId, user.activeCompanyId, res)) return;
+    }
     const result = insertCommunicationSchema.safeParse({
       ...req.body,
       companyId: user.activeCompanyId,
@@ -13844,6 +14003,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
     if (!req.isAuthenticated()) return res.status(401).send("Unauthorized");
     const user = req.user as UserWithContext;
     if (!COMM_VIEW_ROLES_SET.includes(user.activeRole)) return res.status(403).send("Insufficient permissions");
+    if (req.body.customerId) {
+      if (await assertNotParentCustomer(req.body.customerId, user.activeCompanyId, res)) return;
+    }
     const { insertCommunicationThreadSchema } = await import("@shared/schema");
     const parsed = insertCommunicationThreadSchema.safeParse({ ...req.body, companyId: user.activeCompanyId });
     if (!parsed.success) return res.status(400).json({ error: parsed.error.flatten() });
@@ -14438,6 +14600,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     const user = req.user as UserWithContext;
     if (!user?.activeCompanyId) return res.status(401).json({ error: "Unauthorized" });
     if (user.activeRole !== "admin" && user.activeRole !== "office" && !user.isSuperAdminBool) return res.status(403).json({ error: "Admin/office only" });
+    if (await assertNotParentCustomer(req.params.id, user.activeCompanyId, res)) return;
     const parsed = insertCustomerServicePlanSchema.safeParse({
       ...req.body,
       customerId: req.params.id,
@@ -14460,6 +14623,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     const user = req.user as UserWithContext;
     if (!user?.activeCompanyId) return res.status(401).json({ error: "Unauthorized" });
     if (user.activeRole !== "admin" && user.activeRole !== "office" && !user.isSuperAdminBool) return res.status(403).json({ error: "Admin/office only" });
+    if (await assertNotParentCustomer(req.params.id, user.activeCompanyId, res)) return;
     const fromTemplateSchema = z.object({
       templateId: z.string().min(1),
       year: z.union([z.number().int(), z.string().regex(/^\d{4}$/).transform(Number)]),
@@ -15564,6 +15728,47 @@ export async function migrateEmailTrackingTables(): Promise<void> {
 }
 
 /**
+ * Reconciles the isParent flag on all customers:
+ * - Parents with zero children → isParent = "false"
+ * - Customers with children but isParent = "false" → isParent = "true"
+ */
+async function reconcileIsParentFlags(): Promise<void> {
+  try {
+    console.log("Running startup reconciliation: Syncing isParent flags...");
+
+    // Set isParent = false for customers marked as parent but having no children
+    const clearResult = await db.execute(sql`
+      UPDATE customers
+      SET is_parent = 'false'
+      WHERE is_parent = 'true'
+        AND id NOT IN (
+          SELECT DISTINCT parent_customer_id
+          FROM customers
+          WHERE parent_customer_id IS NOT NULL
+        )
+    `);
+
+    // Set isParent = true for customers that have children but are not marked
+    const setResult = await db.execute(sql`
+      UPDATE customers
+      SET is_parent = 'true'
+      WHERE is_parent = 'false'
+        AND id IN (
+          SELECT DISTINCT parent_customer_id
+          FROM customers
+          WHERE parent_customer_id IS NOT NULL
+        )
+    `);
+
+    const cleared = (clearResult as { rowCount: number | null }).rowCount ?? 0;
+    const set = (setResult as { rowCount: number | null }).rowCount ?? 0;
+    console.log(`isParent reconciliation complete: cleared=${cleared}, set=${set}`);
+  } catch (error) {
+    console.error("Error reconciling isParent flags:", error);
+  }
+}
+
+/**
  * Runs all in-process startup migrations in the correct order.
  * Gate with the RUN_STARTUP_MIGRATIONS env var in server/index.ts, or call
  * directly from scripts/run-migrations.ts for one-off deployment runs.
@@ -15609,4 +15814,5 @@ export async function runStartupMigrations(): Promise<void> {
   await migrateCampaignItemsCompletionColumns();
   await migrateUserApplicatorFields();
   await migrateChemTemplateLabelAndCompanyLicense();
+  await reconcileIsParentFlags();
 }
