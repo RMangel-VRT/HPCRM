@@ -201,6 +201,7 @@ router.get("/oauth/callback", async (req, res) => {
         oauthTokenJson: tokenJson,
         syncEnabled: true,
         syncStatus: "connected",
+        syncErrorCount: 0,
         oauthProvider: "google",
         lastSyncedAt: new Date(),
         updatedAt: new Date(),
