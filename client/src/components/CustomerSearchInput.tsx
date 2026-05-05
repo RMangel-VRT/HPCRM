@@ -5,7 +5,7 @@ import { Search, X, ChevronRight, ChevronDown, Users } from "lucide-react";
 import type { Customer } from "@shared/schema";
 
 interface CustomerSearchInputProps {
-  onSelect: (customer: { id: string; name: string }) => void;
+  onSelect: (customer: { id: string; name: string; parentCustomerId?: string | null }) => void;
   selectedId?: string;
   selectedCustomerName?: string;
   placeholder?: string;
@@ -90,7 +90,7 @@ export default function CustomerSearchInput({
     setOpen(false);
     setResults([]);
     setExpandedParents(new Set());
-    onSelect({ id: c.id, name: c.name });
+    onSelect({ id: c.id, name: c.name, parentCustomerId: c.parentCustomerId });
   };
 
   const toggleParent = (parentId: string) => {
@@ -150,7 +150,7 @@ export default function CustomerSearchInput({
               setResults([]);
               setOpen(false);
               setExpandedParents(new Set());
-              onSelect({ id: "", name: "" });
+              onSelect({ id: "", name: "", parentCustomerId: null });
             }}
             data-testid="button-customer-search-clear"
           >

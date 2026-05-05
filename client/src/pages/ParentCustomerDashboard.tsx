@@ -11,7 +11,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "@/components/ui/alert-dialog";
-import { Building2, Users, FileText, TicketIcon, DollarSign, MessageSquare, CheckSquare, ArrowRight, Activity, Settings, Edit2, UserMinus, UserPlus, Loader2, CheckCircle2, RefreshCw, X, AlertCircle } from "lucide-react";
+import { Building2, Users, FileText, TicketIcon, DollarSign, MessageSquare, CheckSquare, ArrowRight, Activity, Settings, Edit2, UserMinus, UserPlus, Loader2, CheckCircle2, RefreshCw, X, AlertCircle, AlertTriangle } from "lucide-react";
 import { formatDistanceToNow } from "date-fns";
 import { useToast } from "@/hooks/use-toast";
 import { queryClient, apiRequest } from "@/lib/queryClient";
@@ -74,7 +74,7 @@ export default function ParentCustomerDashboard({ customer }: Props) {
   const [activeTab, setActiveTab] = useState("children");
   const [isRenameOpen, setIsRenameOpen] = useState(false);
   const [renameValue, setRenameValue] = useState(customer.name);
-  const [linkCandidates, setLinkCandidates] = useState<{ id: string; name: string }[]>([]);
+  const [linkCandidates, setLinkCandidates] = useState<{ id: string; name: string; parentCustomerId?: string | null }[]>([]);
   const [linkingStatus, setLinkingStatus] = useState<Map<string, "pending" | "success" | "error">>(new Map());
   const [isBulkLinking, setIsBulkLinking] = useState(false);
   const [unlinkTargetId, setUnlinkTargetId] = useState<string | null>(null);
@@ -519,7 +519,7 @@ export default function ParentCustomerDashboard({ customer }: Props) {
                         onSelect={c => {
                           if (!c.id) return;
                           setLinkCandidates(prev =>
-                            prev.some(p => p.id === c.id) ? prev : [...prev, { id: c.id, name: c.name }]
+                            prev.some(p => p.id === c.id) ? prev : [...prev, { id: c.id, name: c.name, parentCustomerId: c.parentCustomerId }]
                           );
                         }}
                       />
@@ -527,30 +527,42 @@ export default function ParentCustomerDashboard({ customer }: Props) {
                         <div className="space-y-1" data-testid="list-link-candidates">
                           {linkCandidates.map(candidate => {
                             const status = linkingStatus.get(candidate.id);
+                            const hasExistingParent = !!candidate.parentCustomerId && candidate.parentCustomerId !== customer.id;
                             return (
                               <div
                                 key={candidate.id}
-                                className="flex items-center gap-2 rounded-md border px-3 py-1.5"
+                                className="rounded-md border"
                                 data-testid={`row-link-candidate-${candidate.id}`}
                               >
-                                {status === "pending" && <Loader2 className="w-3.5 h-3.5 animate-spin text-muted-foreground flex-shrink-0" />}
-                                {status === "success" && <CheckCircle2 className="w-3.5 h-3.5 text-green-600 dark:text-green-400 flex-shrink-0" />}
-                                {status === "error" && <AlertCircle className="w-3.5 h-3.5 text-destructive flex-shrink-0" />}
-                                {!status && <UserPlus className="w-3.5 h-3.5 text-muted-foreground flex-shrink-0" />}
-                                <span className="text-sm flex-1 truncate">{candidate.name}</span>
-                                {!isBulkLinking && status !== "success" && (
-                                  <Button
-                                    size="icon"
-                                    variant="ghost"
-                                    onClick={() => setLinkCandidates(prev => prev.filter(p => p.id !== candidate.id))}
-                                    data-testid={`button-remove-candidate-${candidate.id}`}
-                                  >
-                                    <X className="w-3.5 h-3.5" />
-                                  </Button>
+                                <div className="flex items-center gap-2 px-3 py-1.5">
+                                  {status === "pending" && <Loader2 className="w-3.5 h-3.5 animate-spin text-muted-foreground flex-shrink-0" />}
+                                  {status === "success" && <CheckCircle2 className="w-3.5 h-3.5 text-green-600 dark:text-green-400 flex-shrink-0" />}
+                                  {status === "error" && <AlertCircle className="w-3.5 h-3.5 text-destructive flex-shrink-0" />}
+                                  {!status && !hasExistingParent && <UserPlus className="w-3.5 h-3.5 text-muted-foreground flex-shrink-0" />}
+                                  {!status && hasExistingParent && <AlertTriangle className="w-3.5 h-3.5 text-amber-500 flex-shrink-0" />}
+                                  <span className="text-sm flex-1 truncate">{candidate.name}</span>
+                                  {!isBulkLinking && status !== "success" && (
+                                    <Button
+                                      size="icon"
+                                      variant="ghost"
+                                      onClick={() => setLinkCandidates(prev => prev.filter(p => p.id !== candidate.id))}
+                                      data-testid={`button-remove-candidate-${candidate.id}`}
+                                    >
+                                      <X className="w-3.5 h-3.5" />
+                                    </Button>
+                                  )}
+                                </div>
+                                {hasExistingParent && !status && (
+                                  <p className="text-xs text-amber-700 dark:text-amber-400 px-3 pb-1.5" data-testid={`warning-existing-parent-${candidate.id}`}>
+                                    Currently in another group — will be moved here
+                                  </p>
                                 )}
                               </div>
                             );
                           })}
+                        </div>
+                      )}
+                      {linkCandidates.length > 0 && (
                           <Button
                             size="sm"
                             onClick={linkAllCandidates}
@@ -569,7 +581,6 @@ export default function ParentCustomerDashboard({ customer }: Props) {
                                 ? "Link Property"
                                 : `Link All (${linkCandidates.length})`}
                           </Button>
-                        </div>
                       )}
                     </div>
                   </CardContent>
