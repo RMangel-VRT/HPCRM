@@ -133,6 +133,12 @@ function SyncHistoryPanel({ accountId }: { accountId: string }) {
     queryFn: () => apiRequest("GET", `/api/mailbox-accounts/${accountId}/sync-runs`).then(r => r.json()),
     enabled: open,
     staleTime: 10_000,
+    refetchInterval: (query) => {
+      if (!open) return false;
+      const data = query.state.data as MailboxSyncRun[] | undefined;
+      const hasRunning = data?.some(r => r.status === "running");
+      return hasRunning ? 3_000 : false;
+    },
   });
 
   const last5 = runs.slice(0, 5);

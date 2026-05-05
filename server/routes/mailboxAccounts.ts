@@ -300,12 +300,25 @@ router.get("/sync-summary", async (req, res) => {
         )
       );
 
+    // Check if any sync run is currently in progress for this company
+    const runningRuns = await db.select({ id: mailboxSyncRuns.id })
+      .from(mailboxSyncRuns)
+      .where(
+        and(
+          eq(mailboxSyncRuns.companyId, user.activeCompanyId),
+          eq(mailboxSyncRuns.status, "running")
+        )
+      )
+      .limit(1);
+    const hasRunning = runningRuns.length > 0;
+
     res.json({
       totalActive,
       connected,
       errors,
       notConnected,
       lastRunAt,
+      hasRunning,
       messagesRoutedLast24h: Number(recentRouted[0]?.count ?? 0),
       messagesUnsortedLast24h: Number(recentUnsorted[0]?.count ?? 0),
     });

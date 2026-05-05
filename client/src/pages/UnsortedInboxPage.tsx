@@ -24,6 +24,7 @@ import {
   X,
   User,
   Settings,
+  Loader2,
 } from "lucide-react";
 import { formatDistanceToNow, format } from "date-fns";
 import { apiRequest, queryClient } from "@/lib/queryClient";
@@ -500,6 +501,7 @@ interface SyncSummary {
   errors: number;
   notConnected: number;
   lastRunAt: string | null;
+  hasRunning: boolean;
   messagesRoutedLast24h: number;
   messagesUnsortedLast24h: number;
 }
@@ -536,6 +538,10 @@ export default function UnsortedInboxPage() {
         .then(r => r.ok ? r.json() : null)
         .catch(() => null),
     staleTime: 30_000,
+    refetchInterval: (query) => {
+      const data = query.state.data as SyncSummary | null | undefined;
+      return data?.hasRunning ? 3_000 : 30_000;
+    },
   });
 
   const { data: companyUsers = [] } = useQuery<CompanyUser[]>({
@@ -631,6 +637,12 @@ export default function UnsortedInboxPage() {
             <h1 className="text-lg font-semibold" data-testid="heading-unsorted-inbox">{t("emailTracking.unsortedInboxTitle")}</h1>
             {pendingCount > 0 && (
               <Badge data-testid="badge-pending-count">{pendingCount}</Badge>
+            )}
+            {syncSummary?.hasRunning && (
+              <Badge variant="secondary" className="text-xs gap-1" data-testid="badge-sync-running">
+                <Loader2 className="w-3 h-3 animate-spin" />
+                {t("emailTracking.syncSummaryRunning")}
+              </Badge>
             )}
             {syncSummary && syncSummary.connected > 0 && (
               <Badge variant="secondary" className="text-xs" data-testid="badge-sync-connected">

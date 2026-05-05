@@ -1881,6 +1881,7 @@ const en = {
     syncRunSuccess: "Success",
     syncRunPartial: "Partial",
     syncRunRunning: "Running",
+    syncSummaryRunning: "Syncing\u2026",
     syncSummaryConnected: "{{count}} connected",
     syncSummaryErrors: "{{count}} error",
     syncSummaryLastRun: "Last sync: {{time}}",

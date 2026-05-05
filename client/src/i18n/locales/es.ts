@@ -1967,6 +1967,8 @@ const es = {
     syncRunPartial_review_es: "needs human review",
     syncRunRunning: "En ejecución",
     syncRunRunning_review_es: "needs human review",
+    syncSummaryRunning: "Sincronizando\u2026",
+    syncSummaryRunning_review_es: "needs human review",
     syncSummaryConnected: "{{count}} conectado",
     syncSummaryConnected_review_es: "needs human review",
     syncSummaryErrors: "{{count}} error",
