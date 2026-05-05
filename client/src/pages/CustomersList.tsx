@@ -228,6 +228,11 @@ export default function CustomersList() {
     }
   };
 
+  const customersById = useMemo(() => customers.reduce<Record<string, Customer>>((acc, c) => {
+    acc[c.id] = c;
+    return acc;
+  }, {}), [customers]);
+
   const childrenByParent = useMemo(() => customers.reduce<Record<string, Customer[]>>((acc, c) => {
     if (c.parentCustomerId) {
       if (!acc[c.parentCustomerId]) acc[c.parentCustomerId] = [];
@@ -449,17 +454,30 @@ export default function CustomersList() {
                       {isParent && (
                         <Building2 className="w-4 h-4 text-primary" />
                       )}
-                      <span>{customer.name}</span>
-                      {customer.customerType === "hoa" && (
-                        <Badge variant="outline" className="text-xs" data-testid={`badge-hoa-${customer.id}`}>
-                          HOA
-                        </Badge>
-                      )}
-                      {isParent && childCount > 0 && (
-                        <Badge variant="secondary" className="text-xs ml-1">
-                          {childCount} {childCount === 1 ? "branch" : "branches"}
-                        </Badge>
-                      )}
+                      <div className="flex flex-col">
+                        <div className="flex items-center gap-1.5">
+                          <span>{customer.name}</span>
+                          {customer.customerType === "hoa" && (
+                            <Badge variant="outline" className="text-xs" data-testid={`badge-hoa-${customer.id}`}>
+                              HOA
+                            </Badge>
+                          )}
+                          {isParent && childCount > 0 && (
+                            <Badge variant="secondary" className="text-xs ml-1">
+                              {childCount} {childCount === 1 ? "branch" : "branches"}
+                            </Badge>
+                          )}
+                        </div>
+                        {isChild && customer.parentCustomerId && customersById[customer.parentCustomerId] && (
+                          <Link
+                            href={`/dashboard/customers/${customer.parentCustomerId}`}
+                            className="text-xs text-muted-foreground hover:text-foreground transition-colors"
+                            data-testid={`link-parent-group-${customer.id}`}
+                          >
+                            Part of {customersById[customer.parentCustomerId].name}
+                          </Link>
+                        )}
+                      </div>
                     </div>
                   </TableCell>
                   <TableCell className="text-muted-foreground">
