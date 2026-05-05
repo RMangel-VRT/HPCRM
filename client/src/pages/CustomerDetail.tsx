@@ -1788,7 +1788,15 @@ export default function CustomerDetail() {
               {t("customerDetail.parentAccount")}
             </Badge>
           )}
-          {isChildCustomer && (
+          {isChildCustomer && parentCustomer && (
+            <Link href={`/dashboard/customers/${parentCustomer.id}?tab=overview`}>
+              <Badge variant="outline" className="cursor-pointer gap-1" data-testid="badge-branch-customer">
+                <Building2 className="w-3 h-3" />
+                {t("customerDetail.partOf", { name: parentCustomer.name })}
+              </Badge>
+            </Link>
+          )}
+          {isChildCustomer && !parentCustomer && (
             <Badge variant="outline" data-testid="badge-branch-customer">
               {t("customerDetail.branch")}
             </Badge>

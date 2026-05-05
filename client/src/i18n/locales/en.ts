@@ -453,6 +453,7 @@ const en = {
     uploadFailed: "Upload failed. Please try again.",
     parentAccount: "Parent Account",
     branch: "Branch",
+    partOf: "Part of {{name}}",
     coverageMaintAndSnow: "Maintenance & Snow",
     coverageMaintOnly: "Maintenance Only",
     coverageSnowOnly: "Snow Only",

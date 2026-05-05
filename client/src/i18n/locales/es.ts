@@ -379,6 +379,7 @@ const es = {
     locationSavedDesc: "Coordenadas del cliente actualizadas.",
     currentCoords: "Coordenadas",
     cancelEdit: "Cancelar",
+    partOf: "Parte de {{name}}",
   },
   contracts: {
     title: "Contratos",
