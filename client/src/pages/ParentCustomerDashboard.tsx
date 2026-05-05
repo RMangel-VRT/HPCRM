@@ -11,7 +11,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "@/components/ui/alert-dialog";
-import { Building2, Users, FileText, TicketIcon, DollarSign, MessageSquare, CheckSquare, ArrowRight, Activity, Settings, Edit2, UserMinus, UserPlus, Loader2, CheckCircle2, RefreshCw } from "lucide-react";
+import { Building2, Users, FileText, TicketIcon, DollarSign, MessageSquare, CheckSquare, ArrowRight, Activity, Settings, Edit2, UserMinus, UserPlus, Loader2, CheckCircle2, RefreshCw, X, AlertCircle } from "lucide-react";
 import { formatDistanceToNow } from "date-fns";
 import { useToast } from "@/hooks/use-toast";
 import { queryClient, apiRequest } from "@/lib/queryClient";
@@ -74,7 +74,9 @@ export default function ParentCustomerDashboard({ customer }: Props) {
   const [activeTab, setActiveTab] = useState("children");
   const [isRenameOpen, setIsRenameOpen] = useState(false);
   const [renameValue, setRenameValue] = useState(customer.name);
-  const [linkCandidate, setLinkCandidate] = useState<{ id: string; name: string } | null>(null);
+  const [linkCandidates, setLinkCandidates] = useState<{ id: string; name: string }[]>([]);
+  const [linkingStatus, setLinkingStatus] = useState<Map<string, "pending" | "success" | "error">>(new Map());
+  const [isBulkLinking, setIsBulkLinking] = useState(false);
   const [unlinkTargetId, setUnlinkTargetId] = useState<string | null>(null);
 
   const { data: rollup, isLoading } = useQuery<ParentRollupData>({
@@ -102,20 +104,64 @@ export default function ParentCustomerDashboard({ customer }: Props) {
     },
   });
 
-  const linkChildMutation = useMutation({
-    mutationFn: (childId: string) =>
-      apiRequest("PATCH", `/api/customers/${childId}`, { parentCustomerId: customer.id }),
-    onSuccess: () => {
+  async function linkAllCandidates() {
+    if (linkCandidates.length === 0 || isBulkLinking) return;
+    setIsBulkLinking(true);
+    const initialStatus = new Map<string, "pending" | "success" | "error">();
+    for (const c of linkCandidates) initialStatus.set(c.id, "pending");
+    setLinkingStatus(new Map(initialStatus));
+
+    const results = await Promise.allSettled(
+      linkCandidates.map(c =>
+        apiRequest("PATCH", `/api/customers/${c.id}`, { parentCustomerId: customer.id })
+          .then(() => ({ id: c.id, ok: true }))
+          .catch(() => ({ id: c.id, ok: false }))
+      )
+    );
+
+    const nextStatus = new Map<string, "pending" | "success" | "error">();
+    let successCount = 0;
+    let errorCount = 0;
+    const failedCandidates: { id: string; name: string }[] = [];
+
+    for (let i = 0; i < results.length; i++) {
+      const result = results[i];
+      const candidate = linkCandidates[i];
+      const outcome = result.status === "fulfilled" ? result.value : { id: candidate.id, ok: false };
+      if (outcome.ok) {
+        nextStatus.set(outcome.id, "success");
+        successCount++;
+      } else {
+        nextStatus.set(outcome.id, "error");
+        errorCount++;
+        failedCandidates.push(candidate);
+      }
+    }
+
+    setLinkingStatus(nextStatus);
+
+    if (successCount > 0) {
       queryClient.invalidateQueries({ queryKey: ["/api/customers", customer.id] });
       queryClient.invalidateQueries({ queryKey: ["/api/customers", customer.id, "parent-rollup"] });
       queryClient.invalidateQueries({ queryKey: ["/api/customers"] });
-      setLinkCandidate(null);
-      toast({ title: "Child property linked successfully" });
-    },
-    onError: () => {
-      toast({ title: "Failed to link child property", variant: "destructive" });
-    },
-  });
+    }
+
+    if (errorCount === 0) {
+      toast({ title: successCount === 1 ? "Property linked successfully" : `${successCount} properties linked successfully` });
+      setLinkCandidates([]);
+      setLinkingStatus(new Map());
+    } else if (successCount === 0) {
+      toast({ title: "Failed to link properties", variant: "destructive" });
+    } else {
+      toast({
+        title: `${successCount} linked, ${errorCount} failed`,
+        variant: "destructive",
+      });
+      setLinkCandidates(failedCandidates);
+    }
+
+    setIsBulkLinking(false);
+  }
 
   const unlinkChildMutation = useMutation({
     mutationFn: (childId: string) =>
@@ -461,31 +507,67 @@ export default function ParentCustomerDashboard({ customer }: Props) {
                     )}
 
                     <div className="pt-2 border-t space-y-2">
-                      <p className="text-sm font-medium">Link a property to this group</p>
+                      <p className="text-sm font-medium">Link properties to this group</p>
                       <CustomerSearchInput
                         mode="any"
                         placeholder="Search for a customer to add..."
                         testId="input-link-child-search"
-                        excludeIds={[customer.id, ...currentChildIds]}
-                        selectedId={linkCandidate?.id}
-                        selectedCustomerName={linkCandidate?.name ?? ""}
-                        onSelect={c => setLinkCandidate(c.id ? c : null)}
+                        excludeIds={[customer.id, ...currentChildIds, ...linkCandidates.map(c => c.id)]}
+                        selectedId={undefined}
+                        selectedCustomerName=""
+                        disabled={isBulkLinking}
+                        onSelect={c => {
+                          if (!c.id) return;
+                          setLinkCandidates(prev =>
+                            prev.some(p => p.id === c.id) ? prev : [...prev, { id: c.id, name: c.name }]
+                          );
+                        }}
                       />
-                      {linkCandidate && (
-                        <div className="flex items-center gap-2" data-testid="row-link-candidate">
-                          <span className="text-sm flex-1">{linkCandidate.name}</span>
+                      {linkCandidates.length > 0 && (
+                        <div className="space-y-1" data-testid="list-link-candidates">
+                          {linkCandidates.map(candidate => {
+                            const status = linkingStatus.get(candidate.id);
+                            return (
+                              <div
+                                key={candidate.id}
+                                className="flex items-center gap-2 rounded-md border px-3 py-1.5"
+                                data-testid={`row-link-candidate-${candidate.id}`}
+                              >
+                                {status === "pending" && <Loader2 className="w-3.5 h-3.5 animate-spin text-muted-foreground flex-shrink-0" />}
+                                {status === "success" && <CheckCircle2 className="w-3.5 h-3.5 text-green-600 dark:text-green-400 flex-shrink-0" />}
+                                {status === "error" && <AlertCircle className="w-3.5 h-3.5 text-destructive flex-shrink-0" />}
+                                {!status && <UserPlus className="w-3.5 h-3.5 text-muted-foreground flex-shrink-0" />}
+                                <span className="text-sm flex-1 truncate">{candidate.name}</span>
+                                {!isBulkLinking && status !== "success" && (
+                                  <Button
+                                    size="icon"
+                                    variant="ghost"
+                                    onClick={() => setLinkCandidates(prev => prev.filter(p => p.id !== candidate.id))}
+                                    data-testid={`button-remove-candidate-${candidate.id}`}
+                                  >
+                                    <X className="w-3.5 h-3.5" />
+                                  </Button>
+                                )}
+                              </div>
+                            );
+                          })}
                           <Button
                             size="sm"
-                            onClick={() => linkChildMutation.mutate(linkCandidate.id)}
-                            disabled={linkChildMutation.isPending}
-                            data-testid="button-confirm-link-child"
+                            onClick={linkAllCandidates}
+                            disabled={isBulkLinking || linkCandidates.length === 0}
+                            data-testid="button-link-all"
+                            className="w-full mt-1"
                           >
-                            {linkChildMutation.isPending ? (
-                              <Loader2 className="w-4 h-4 animate-spin mr-1" />
+                            {isBulkLinking ? (
+                              <Loader2 className="w-4 h-4 animate-spin mr-1.5" />
                             ) : (
                               <UserPlus className="w-3.5 h-3.5 mr-1.5" />
                             )}
-                            Link
+                            {isBulkLinking
+                              ? "Linking…"
+                              : linkCandidates.length === 1
+                                ? "Link Property"
+                                : `Link All (${linkCandidates.length})`}
                           </Button>
                         </div>
                       )}

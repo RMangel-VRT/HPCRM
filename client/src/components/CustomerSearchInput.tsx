@@ -12,6 +12,7 @@ interface CustomerSearchInputProps {
   testId?: string;
   excludeIds?: string[];
   mode?: "operational" | "any";
+  disabled?: boolean;
 }
 
 export default function CustomerSearchInput({
@@ -22,6 +23,7 @@ export default function CustomerSearchInput({
   testId,
   excludeIds,
   mode = "operational",
+  disabled = false,
 }: CustomerSearchInputProps) {
   const { t } = useTranslation();
   const [search, setSearch] = useState("");
@@ -129,6 +131,7 @@ export default function CustomerSearchInput({
         <Input
           data-testid={testId || "input-customer-search"}
           value={displayValue}
+          disabled={disabled}
           onChange={(e) => {
             setSearch(e.target.value);
             if (e.target.value === "") setSelectedName("");
