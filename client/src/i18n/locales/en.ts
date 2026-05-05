@@ -1897,6 +1897,12 @@ const en = {
     unsortedCandidates: "Unsorted emails for this customer",
     unsortedCandidatesEmpty: "No unsorted emails linked to this customer",
     viewInUnsortedInbox: "View in Unsorted Inbox",
+    syncErrorCalloutTitle: "Sync stopped",
+    syncErrorCalloutDesc: "Gmail sync stopped after {{count}} consecutive error(s). Reconnect to resume — your existing sync history will be preserved.",
+    reconnectTitle: "Reconnect Gmail",
+    reconnectDesc: "Reconnecting will resume syncing from exactly where it left off. Your existing email history will not be lost.",
+    reconnectHistoryNote: "History preserved",
+    reconnectConfirm: "Reconnect Gmail",
   },
   userProfile: {
     applicatorLicenseNumber: "Applicator License Number",

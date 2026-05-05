@@ -59,6 +59,7 @@ import {
   ChevronDown,
   ChevronRight,
   Clock,
+  ShieldCheck,
 } from "lucide-react";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
@@ -390,6 +391,7 @@ function GmailConnectButton({ account }: { account: MailboxAccount }) {
   const { t } = useTranslation();
   const { toast } = useToast();
   const [isConnecting, setIsConnecting] = useState(false);
+  const [reconnectDialogOpen, setReconnectDialogOpen] = useState(false);
 
   const { data: oauthStatus } = useQuery<OAuthStatus>({
     queryKey: ["/api/mailbox-accounts", account.id, "oauth-status"],
@@ -446,6 +448,8 @@ function GmailConnectButton({ account }: { account: MailboxAccount }) {
   const connectedEmail = oauthStatus?.connectedEmail ?? null;
   const connectedAt = oauthStatus?.connectedAt ?? null;
   const isConnected = status === "connected";
+  const isError = status === "error";
+  const errorCount = account.syncErrorCount ?? 0;
 
   return (
     <div className="flex flex-col gap-1.5">
@@ -455,6 +459,21 @@ function GmailConnectButton({ account }: { account: MailboxAccount }) {
         <p className="text-xs text-muted-foreground">
           {t("emailTracking.connectedAgo", { time: formatDistanceToNow(new Date(connectedAt), { addSuffix: true }) })}
         </p>
+      )}
+
+      {isError && (
+        <div
+          className="rounded-md border border-destructive/30 bg-destructive/8 px-3 py-2 text-xs space-y-1.5"
+          data-testid={`callout-sync-error-${account.id}`}
+        >
+          <div className="flex items-center gap-1.5 font-medium text-destructive">
+            <AlertCircle className="w-3.5 h-3.5 shrink-0" />
+            {t("emailTracking.syncErrorCalloutTitle")}
+          </div>
+          <p className="text-muted-foreground leading-relaxed">
+            {t("emailTracking.syncErrorCalloutDesc", { count: errorCount })}
+          </p>
+        </div>
       )}
 
       <div className="flex items-center gap-1.5 flex-wrap">
@@ -512,21 +531,68 @@ function GmailConnectButton({ account }: { account: MailboxAccount }) {
             </AlertDialog>
           </>
         ) : (
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={handleConnect}
-            disabled={isConnecting}
-            data-testid={`button-connect-gmail-${account.id}`}
-            className="gap-1 text-xs"
-          >
-            {isConnecting ? (
-              <Loader2 className="w-3 h-3 animate-spin" />
+          <>
+            {isError ? (
+              <>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setReconnectDialogOpen(true)}
+                  disabled={isConnecting}
+                  data-testid={`button-reconnect-gmail-${account.id}`}
+                  className="gap-1 text-xs"
+                >
+                  {isConnecting ? (
+                    <Loader2 className="w-3 h-3 animate-spin" />
+                  ) : (
+                    <RefreshCw className="w-3 h-3" />
+                  )}
+                  {t("emailTracking.reconnect")}
+                </Button>
+                <AlertDialog open={reconnectDialogOpen} onOpenChange={setReconnectDialogOpen}>
+                  <AlertDialogContent data-testid={`dialog-reconnect-${account.id}`}>
+                    <AlertDialogHeader>
+                      <AlertDialogTitle>{t("emailTracking.reconnectTitle")}</AlertDialogTitle>
+                      <AlertDialogDescription asChild>
+                        <div className="space-y-3">
+                          <p>{t("emailTracking.reconnectDesc")}</p>
+                          <div className="flex items-center gap-2 rounded-md border border-border bg-muted/40 px-3 py-2 text-sm text-foreground">
+                            <ShieldCheck className="w-4 h-4 text-green-600 shrink-0" />
+                            <span>{t("emailTracking.reconnectHistoryNote")}</span>
+                          </div>
+                        </div>
+                      </AlertDialogDescription>
+                    </AlertDialogHeader>
+                    <AlertDialogFooter>
+                      <AlertDialogCancel>{t("common.cancel")}</AlertDialogCancel>
+                      <AlertDialogAction
+                        onClick={handleConnect}
+                        data-testid={`button-confirm-reconnect-${account.id}`}
+                      >
+                        {t("emailTracking.reconnectConfirm")}
+                      </AlertDialogAction>
+                    </AlertDialogFooter>
+                  </AlertDialogContent>
+                </AlertDialog>
+              </>
             ) : (
-              <Mail className="w-3 h-3" />
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={handleConnect}
+                disabled={isConnecting}
+                data-testid={`button-connect-gmail-${account.id}`}
+                className="gap-1 text-xs"
+              >
+                {isConnecting ? (
+                  <Loader2 className="w-3 h-3 animate-spin" />
+                ) : (
+                  <Mail className="w-3 h-3" />
+                )}
+                {t("emailTracking.connectGmail")}
+              </Button>
             )}
-            {status === "error" ? t("emailTracking.reconnect") : t("emailTracking.connectGmail")}
-          </Button>
+          </>
         )}
       </div>
 
