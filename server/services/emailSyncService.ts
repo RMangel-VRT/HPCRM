@@ -1,9 +1,10 @@
 import { db } from "../db";
-import { mailboxAccounts, mailboxSyncRuns, communications, unsortedEmails } from "@shared/schema";
+import { mailboxAccounts, mailboxSyncRuns, communications, unsortedEmails, users, companyUsers } from "@shared/schema";
 import { eq, and, or, sql, desc } from "drizzle-orm";
 import { google } from "googleapis";
 import { getValidAccessToken } from "./googleOAuth";
 import { routeMessage, type ParsedMessage } from "./emailRouter";
+import { sendEmail } from "./emailService";
 
 // In-memory lock set: mailboxAccountId -> true if sync is in progress
 const syncLocks = new Set<string>();
@@ -179,6 +180,123 @@ async function fetchGmailMessages(
   return { messages, newHistoryId, method: "timestamp" };
 }
 
+// ── Sync error email notification ─────────────────────────────────────────────
+
+async function sendSyncErrorNotification(
+  mailboxAccountId: string,
+  companyId: string,
+  mailboxEmailAddress: string,
+  ownerUserId: string | null,
+): Promise<void> {
+  // Find recipient: mailbox owner first, then any active company admin
+  let recipientEmail: string | null = null;
+
+  if (ownerUserId) {
+    const [owner] = await db
+      .select({ email: users.email })
+      .from(users)
+      .where(eq(users.id, ownerUserId));
+    recipientEmail = owner?.email ?? null;
+  }
+
+  if (!recipientEmail) {
+    const [admin] = await db
+      .select({ email: users.email })
+      .from(users)
+      .innerJoin(companyUsers, eq(users.id, companyUsers.userId))
+      .where(
+        and(
+          eq(companyUsers.companyId, companyId),
+          eq(companyUsers.role, "admin"),
+          eq(companyUsers.status, "active"),
+        )
+      )
+      .limit(1);
+    recipientEmail = admin?.email ?? null;
+  }
+
+  if (!recipientEmail) {
+    console.warn(`[email-sync] No recipient email found for sync error notification (mailbox=${mailboxAccountId})`);
+    return;
+  }
+
+  // Build the settings page link — try all known Replit URL env vars in priority order
+  const baseUrl =
+    process.env.REPLIT_DEPLOYMENT_URL ||
+    (process.env.REPLIT_DOMAINS ? `https://${process.env.REPLIT_DOMAINS.split(",")[0].trim()}` : null) ||
+    (process.env.REPLIT_DEV_DOMAIN ? `https://${process.env.REPLIT_DEV_DOMAIN}` : null) ||
+    "";
+  if (!baseUrl) {
+    console.warn("[email-sync] Could not resolve absolute base URL for sync error notification email — link will be a relative path");
+  }
+  const settingsUrl = `${baseUrl}/dashboard/settings/mailbox-accounts`;
+
+  const subject = `Gmail sync stopped for ${mailboxEmailAddress}`;
+
+  const htmlBody = `<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <style>
+    body { font-family: Arial, sans-serif; margin: 0; padding: 0; background-color: #f4f4f4; }
+    .container { max-width: 600px; margin: 0 auto; background: #ffffff; }
+    .header { background-color: #b91c1c; padding: 24px; text-align: center; }
+    .header h1 { color: #ffffff; margin: 0; font-size: 20px; }
+    .content { padding: 32px 24px; }
+    .alert-box { background: #fef2f2; border: 1px solid #fecaca; border-radius: 6px; padding: 16px 20px; margin-bottom: 24px; }
+    .alert-box p { margin: 0; color: #991b1b; font-size: 15px; line-height: 1.6; }
+    .detail { font-size: 14px; color: #374151; line-height: 1.6; margin-bottom: 20px; }
+    .mailbox { font-weight: 600; color: #111827; }
+    .cta { text-align: center; margin: 28px 0; }
+    .cta a { background-color: #1d4ed8; color: #ffffff; text-decoration: none; padding: 12px 28px; border-radius: 6px; font-size: 15px; font-weight: 600; display: inline-block; }
+    .footer { padding: 20px 24px; background-color: #f9fafb; text-align: center; font-size: 12px; color: #9ca3af; border-top: 1px solid #e5e7eb; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <div class="header">
+      <h1>Gmail Sync Stopped</h1>
+    </div>
+    <div class="content">
+      <div class="alert-box">
+        <p>Gmail sync has stopped for <span class="mailbox">${mailboxEmailAddress}</span> due to an authentication error.</p>
+      </div>
+      <p class="detail">
+        Your mailbox could not be reached — this is usually caused by an expired or revoked Google authorization.
+        No new emails will be synced until you reconnect the account.
+      </p>
+      <p class="detail">
+        Your existing sync history is preserved. Simply reconnect your Google account to resume syncing from where it left off.
+      </p>
+      <div class="cta">
+        <a href="${settingsUrl}">Go to Mailbox Settings</a>
+      </div>
+    </div>
+    <div class="footer">
+      <p>This is an automated notification. You received this because you are the owner or admin of this mailbox account.</p>
+    </div>
+  </div>
+</body>
+</html>`;
+
+  const textBody = `Gmail sync stopped for ${mailboxEmailAddress}
+
+Gmail sync has stopped due to an authentication error. No new emails will be synced until you reconnect the account.
+
+This is usually caused by an expired or revoked Google authorization. Your existing sync history is preserved.
+
+To reconnect, visit your mailbox settings:
+${settingsUrl}`;
+
+  await sendEmail(recipientEmail, subject, htmlBody, textBody, {
+    companyId,
+    variables: {},
+  });
+
+  console.log(`[email-sync] Sent sync error notification to ${recipientEmail} for mailbox=${mailboxAccountId}`);
+}
+
 // ── Main sync function ────────────────────────────────────────────────────────
 
 export async function syncMailbox(mailboxAccountId: string, manual = false): Promise<{
@@ -256,6 +374,11 @@ export async function syncMailbox(mailboxAccountId: string, manual = false): Pro
       await db.update(mailboxAccounts)
         .set({ syncStatus: "error", syncErrorCount: (account.syncErrorCount ?? 0) + 1, updatedAt: new Date() })
         .where(eq(mailboxAccounts.id, mailboxAccountId));
+      // Notify only on first transition into error state
+      if (account.syncStatus !== "error") {
+        sendSyncErrorNotification(mailboxAccountId, account.companyId, account.emailAddress, account.ownerUserId ?? null)
+          .catch(e => console.error("[email-sync] Failed to send sync error notification:", e));
+      }
       throw err;
     }
 
@@ -277,6 +400,11 @@ export async function syncMailbox(mailboxAccountId: string, manual = false): Pro
         await db.update(mailboxAccounts)
           .set({ syncStatus: "error", syncErrorCount: (account.syncErrorCount ?? 0) + 1, updatedAt: new Date() })
           .where(eq(mailboxAccounts.id, mailboxAccountId));
+        // Notify only on first transition into error state
+        if (account.syncStatus !== "error") {
+          sendSyncErrorNotification(mailboxAccountId, account.companyId, account.emailAddress, account.ownerUserId ?? null)
+            .catch(e => console.error("[email-sync] Failed to send sync error notification:", e));
+        }
         throw new Error(msg);
       }
       if (status === 429) {
