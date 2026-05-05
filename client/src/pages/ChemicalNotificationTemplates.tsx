@@ -44,7 +44,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { Plus, Pencil, Trash2, Eye, Mail, Loader2, ChevronDown, ChevronUp, AlertTriangle, Users, FileText, Upload, X, Check } from "lucide-react";
+import { Plus, Pencil, Trash2, Eye, Mail, Loader2, ChevronDown, ChevronUp, AlertTriangle, Users, FileText, Upload, X, Check, ExternalLink } from "lucide-react";
 
 type ChemicalNotificationTemplate = {
   id: string;
@@ -179,6 +179,15 @@ export default function ChemicalNotificationTemplates() {
   const { data: templates = [], isLoading } = useQuery<ChemicalNotificationTemplate[]>({
     queryKey: ["/api/chemical-notification-templates"],
   });
+
+  const { data: companyData } = useQuery<{ pesticideLicenseNumber: string | null }>({
+    queryKey: ["/api/company"],
+  });
+
+  const licenseIsBlank = !companyData?.pesticideLicenseNumber?.trim();
+
+  const templateUsesPesticideLicense = (html: string) =>
+    /\{\{#if\s+pesticideLicenseNumber\}\}/.test(html);
 
   const { data: customerResults = [] } = useQuery<CustomerSearchResult[]>({
     queryKey: ["/api/customers/search", customerSearch],
@@ -613,6 +622,17 @@ export default function ChemicalNotificationTemplates() {
                   className="font-mono text-xs"
                   data-testid="textarea-pre-visit-html"
                 />
+                {licenseIsBlank && templateUsesPesticideLicense(form.preVisitHtml) && (
+                  <div className="flex items-start gap-2 rounded-md border border-amber-200 bg-amber-50 dark:border-amber-800 dark:bg-amber-950/30 px-3 py-2.5 text-sm text-amber-800 dark:text-amber-300" data-testid="warning-pesticide-license-pre">
+                    <AlertTriangle className="w-4 h-4 mt-0.5 flex-shrink-0" />
+                    <span>
+                      This template includes a pesticide license footer, but your <strong>Pesticide Applicator License #</strong> is not set. The license number will be hidden in sent emails.{" "}
+                      <a href="/dashboard/settings/company" className="underline font-medium inline-flex items-center gap-0.5">
+                        Add it in Company Settings <ExternalLink className="w-3 h-3" />
+                      </a>
+                    </span>
+                  </div>
+                )}
               </div>
               {previewMode === "pre" && (
                 <div className="space-y-2">
@@ -664,6 +684,17 @@ export default function ChemicalNotificationTemplates() {
                   className="font-mono text-xs"
                   data-testid="textarea-post-visit-html"
                 />
+                {licenseIsBlank && templateUsesPesticideLicense(form.postVisitHtml) && (
+                  <div className="flex items-start gap-2 rounded-md border border-amber-200 bg-amber-50 dark:border-amber-800 dark:bg-amber-950/30 px-3 py-2.5 text-sm text-amber-800 dark:text-amber-300" data-testid="warning-pesticide-license-post">
+                    <AlertTriangle className="w-4 h-4 mt-0.5 flex-shrink-0" />
+                    <span>
+                      This template includes a pesticide license footer, but your <strong>Pesticide Applicator License #</strong> is not set. The license number will be hidden in sent emails.{" "}
+                      <a href="/dashboard/settings/company" className="underline font-medium inline-flex items-center gap-0.5">
+                        Add it in Company Settings <ExternalLink className="w-3 h-3" />
+                      </a>
+                    </span>
+                  </div>
+                )}
               </div>
               {previewMode === "post" && (
                 <div className="space-y-2">

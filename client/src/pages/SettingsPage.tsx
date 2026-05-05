@@ -20,7 +20,7 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
 import { Textarea } from "@/components/ui/textarea";
-import { Building2, User, Plus, Pencil, Trash2, X, Phone, Mail, Copy, FileText, Eye } from "lucide-react";
+import { Building2, User, Plus, Pencil, Trash2, X, Phone, Mail, Copy, FileText, Eye, AlertTriangle } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import type { Settings, PropertyManagementCompany, PropertyManager, PropertyManagerEmail, PropertyManagerPhone, PropertyManagerWithContacts } from "@shared/schema";
@@ -148,6 +148,18 @@ export default function SettingsPage() {
     queryKey: ["/api/email-templates"],
     enabled: isAdmin === true,
   });
+
+  const { data: chemicalTemplates = [] } = useQuery<{ preVisitHtml: string; postVisitHtml: string }[]>({
+    queryKey: ["/api/chemical-notification-templates"],
+    enabled: isAdmin === true,
+  });
+
+  const anyChemTemplateMissingLicense = isAdmin &&
+    !companyData?.pesticideLicenseNumber?.trim() &&
+    chemicalTemplates.some(tpl =>
+      /\{\{#if\s+pesticideLicenseNumber\}\}/.test(tpl.preVisitHtml) ||
+      /\{\{#if\s+pesticideLicenseNumber\}\}/.test(tpl.postVisitHtml)
+    );
 
   const { data: emailRules = [] } = useQuery<any[]>({
     queryKey: ["/api/email-rules"],
@@ -582,6 +594,14 @@ export default function SettingsPage() {
                     placeholder="e.g. 28374"
                     data-testid="input-pesticide-license-number"
                   />
+                  {anyChemTemplateMissingLicense && (
+                    <div className="flex items-start gap-2 rounded-md border border-amber-200 bg-amber-50 dark:border-amber-800 dark:bg-amber-950/30 px-3 py-2.5 text-sm text-amber-800 dark:text-amber-300" data-testid="warning-settings-pesticide-license">
+                      <AlertTriangle className="w-4 h-4 mt-0.5 flex-shrink-0" />
+                      <span>
+                        One or more chemical notification templates include a pesticide license footer. Fill in this field so the license number appears in compliance emails.
+                      </span>
+                    </div>
+                  )}
                 </div>
                 <div className="flex justify-end">
                   <Button
