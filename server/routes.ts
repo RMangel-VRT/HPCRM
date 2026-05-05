@@ -4158,6 +4158,44 @@ export async function registerRoutes(app: Express): Promise<Server> {
     res.status(200).send("Deleted");
   });
 
+  // Company self-service routes (admin can update their own company record)
+  app.get("/api/company", async (req, res) => {
+    if (!req.isAuthenticated()) {
+      return res.status(401).send("Not authenticated");
+    }
+    const user = req.user as UserWithContext;
+    if (user.activeRole !== "admin" && !user.isSuperAdminBool) {
+      return res.status(403).send("Forbidden");
+    }
+    const company = await storage.getCompanyById(user.activeCompanyId);
+    if (!company) {
+      return res.status(404).send("Company not found");
+    }
+    res.json(company);
+  });
+
+  app.patch("/api/company", async (req, res) => {
+    if (!req.isAuthenticated()) {
+      return res.status(401).send("Not authenticated");
+    }
+    const user = req.user as UserWithContext;
+    if (user.activeRole !== "admin" && !user.isSuperAdminBool) {
+      return res.status(403).send("Forbidden");
+    }
+    const allowed = z.object({
+      pesticideLicenseNumber: z.string().nullable().optional(),
+    });
+    const result = allowed.safeParse(req.body);
+    if (!result.success) {
+      return res.status(400).send(result.error.message);
+    }
+    const company = await storage.updateCompany(user.activeCompanyId, result.data);
+    if (!company) {
+      return res.status(404).send("Company not found");
+    }
+    res.json(company);
+  });
+
   // Settings routes
   app.get("/api/settings", async (req, res) => {
     if (!req.isAuthenticated()) {

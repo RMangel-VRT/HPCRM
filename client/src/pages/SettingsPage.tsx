@@ -47,6 +47,7 @@ const MONTHS_WITH_KEYS = [
 
 const companySchema = z.object({
   companyName: z.string().min(1, "Company name is required"),
+  pesticideLicenseNumber: z.string().optional(),
 });
 
 const benchmarksSchema = z.object({
@@ -123,6 +124,11 @@ export default function SettingsPage() {
   const { data: settings, isLoading } = useQuery<Settings>({
     queryKey: ["/api/settings"],
   });
+
+  const { data: companyData } = useQuery<{ pesticideLicenseNumber: string | null }>({
+    queryKey: ["/api/company"],
+    enabled: isAdmin === true,
+  });
   
   // Property Management queries
   const { data: pmCompanies = [] } = useQuery<PropertyManagementCompany[]>({
@@ -195,10 +201,27 @@ export default function SettingsPage() {
     },
   });
 
+  const updateCompanyMutation = useMutation({
+    mutationFn: async (updates: { pesticideLicenseNumber?: string | null }) => {
+      return await apiRequest("PATCH", "/api/company", updates);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/company"] });
+    },
+    onError: () => {
+      toast({
+        title: t("common.error"),
+        description: t("settings.saveFailed"),
+        variant: "destructive",
+      });
+    },
+  });
+
   const companyForm = useForm<z.infer<typeof companySchema>>({
     resolver: zodResolver(companySchema),
     defaultValues: {
       companyName: "",
+      pesticideLicenseNumber: "",
     },
   });
 
@@ -395,10 +418,13 @@ export default function SettingsPage() {
     }
   });
 
-  // Initialize form values when settings load
+  // Initialize form values when settings or company data load
   useEffect(() => {
     if (settings && !isLoading) {
-      companyForm.reset({ companyName: settings.companyName });
+      companyForm.reset({
+        companyName: settings.companyName,
+        pesticideLicenseNumber: companyData?.pesticideLicenseNumber ?? "",
+      });
 
       if (settings.mowingSeasonMonths.length > 0) {
         setMowingMonths(settings.mowingSeasonMonths);
@@ -426,10 +452,11 @@ export default function SettingsPage() {
         });
       }
     }
-  }, [settings, isLoading]);
+  }, [settings, isLoading, companyData]);
 
   const handleCompanySubmit = companyForm.handleSubmit((data) => {
     updateSettingsMutation.mutate({ companyName: data.companyName });
+    updateCompanyMutation.mutate({ pesticideLicenseNumber: data.pesticideLicenseNumber || null });
   });
 
   const toggleMonth = (month: string, type: "mowing" | "cleanup") => {
@@ -547,13 +574,22 @@ export default function SettingsPage() {
                     </p>
                   )}
                 </div>
+                <div className="space-y-2">
+                  <Label htmlFor="pesticideLicenseNumber">Pesticide Applicator License #</Label>
+                  <Input
+                    id="pesticideLicenseNumber"
+                    {...companyForm.register("pesticideLicenseNumber")}
+                    placeholder="e.g. 28374"
+                    data-testid="input-pesticide-license-number"
+                  />
+                </div>
                 <div className="flex justify-end">
                   <Button
                     type="submit"
-                    disabled={updateSettingsMutation.isPending}
+                    disabled={updateSettingsMutation.isPending || updateCompanyMutation.isPending}
                     data-testid="button-save-company"
                   >
-                    {updateSettingsMutation.isPending ? t("common.saving") : t("settings.saveChanges")}
+                    {(updateSettingsMutation.isPending || updateCompanyMutation.isPending) ? t("common.saving") : t("settings.saveChanges")}
                   </Button>
                 </div>
               </form>
