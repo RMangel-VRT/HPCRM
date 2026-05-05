@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useRef, useCallback } from "react";
 import { useTranslation } from "react-i18next";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { useForm } from "react-hook-form";
@@ -14,7 +14,7 @@ import { Switch } from "@/components/ui/switch";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Badge } from "@/components/ui/badge";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
-import { Plus, Pencil, Trash2, Leaf } from "lucide-react";
+import { Plus, Pencil, Trash2, Leaf, FileText, Upload, AlertCircle, ExternalLink, Loader2 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import type { ChemicalProduct } from "@shared/schema";
@@ -33,6 +33,22 @@ type ProductFormValues = {
   notes: string;
   defaultPostApplicationExpectation: string;
   defaultPostApplicationWatering: string;
+};
+
+type ExtractResult = {
+  storageKey: string;
+  extracted: Partial<{
+    name: string;
+    epaRegistrationNumber: string;
+    activeIngredient: string;
+    targetPest: string;
+    applicationRate: string;
+    reEntryInterval: string;
+    mowingRestriction: string;
+    signalWord: string;
+    isOrganic: boolean;
+  }>;
+  warning?: string;
 };
 
 export default function ChemicalProductsAdmin() {
@@ -57,6 +73,15 @@ export default function ChemicalProductsAdmin() {
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editingProduct, setEditingProduct] = useState<ChemicalProduct | null>(null);
   const [deletingProduct, setDeletingProduct] = useState<ChemicalProduct | null>(null);
+
+  // Label PDF state
+  const [isDragging, setIsDragging] = useState(false);
+  const [isAnalyzing, setIsAnalyzing] = useState(false);
+  const [extractWarning, setExtractWarning] = useState<string | null>(null);
+  const [pendingStorageKey, setPendingStorageKey] = useState<string | null>(null);
+  const [existingLabelKey, setExistingLabelKey] = useState<string | null>(null);
+  const [labelViewUrl, setLabelViewUrl] = useState<string | null>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   const { data: products = [], isLoading } = useQuery<ChemicalProduct[]>({
     queryKey: ["/api/chemical-products"],
@@ -83,10 +108,14 @@ export default function ChemicalProductsAdmin() {
 
   const saveMutation = useMutation({
     mutationFn: async (data: ProductFormValues) => {
-      if (editingProduct) {
-        return apiRequest("PATCH", `/api/chemical-products/${editingProduct.id}`, data);
+      const payload: Record<string, unknown> = { ...data };
+      if (pendingStorageKey) {
+        payload.labelPdfStorageKey = pendingStorageKey;
       }
-      return apiRequest("POST", "/api/chemical-products", data);
+      if (editingProduct) {
+        return apiRequest("PATCH", `/api/chemical-products/${editingProduct.id}`, payload);
+      }
+      return apiRequest("POST", "/api/chemical-products", payload);
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/chemical-products"] });
@@ -114,8 +143,18 @@ export default function ChemicalProductsAdmin() {
     },
   });
 
+  function resetLabelState() {
+    setPendingStorageKey(null);
+    setExistingLabelKey(null);
+    setLabelViewUrl(null);
+    setExtractWarning(null);
+    setIsAnalyzing(false);
+    setIsDragging(false);
+  }
+
   function openAdd() {
     setEditingProduct(null);
+    resetLabelState();
     form.reset({
       name: "",
       epaRegistrationNumber: "",
@@ -134,8 +173,22 @@ export default function ChemicalProductsAdmin() {
     setDialogOpen(true);
   }
 
-  function openEdit(product: ChemicalProduct) {
+  async function openEdit(product: ChemicalProduct) {
     setEditingProduct(product);
+    resetLabelState();
+    if (product.labelPdfStorageKey) {
+      setExistingLabelKey(product.labelPdfStorageKey);
+      // Fetch the presigned URL
+      try {
+        const resp = await fetch(`/api/chemical-products/${product.id}/label-pdf-url`);
+        if (resp.ok) {
+          const data = await resp.json();
+          setLabelViewUrl(data.url);
+        }
+      } catch {
+        // ignore
+      }
+    }
     form.reset({
       name: product.name,
       epaRegistrationNumber: product.epaRegistrationNumber ?? "",
@@ -154,9 +207,91 @@ export default function ChemicalProductsAdmin() {
     setDialogOpen(true);
   }
 
+  async function processLabelFile(file: File) {
+    if (!file.name.toLowerCase().endsWith(".pdf") && file.type !== "application/pdf") {
+      toast({ title: t("chemicalProducts.labelInvalidFile"), variant: "destructive" });
+      return;
+    }
+    if (file.size > 20 * 1024 * 1024) {
+      toast({ title: t("chemicalProducts.labelFileTooLarge"), variant: "destructive" });
+      return;
+    }
+    setIsAnalyzing(true);
+    setExtractWarning(null);
+    setPendingStorageKey(null);
+    setLabelViewUrl(null);
+
+    try {
+      const formData = new FormData();
+      formData.append("file", file);
+      const resp = await fetch("/api/chemical-products/extract-label", {
+        method: "POST",
+        body: formData,
+      });
+      if (!resp.ok) {
+        const err = await resp.json().catch(() => ({}));
+        toast({ title: err.error || t("chemicalProducts.labelExtractFailed"), variant: "destructive" });
+        setIsAnalyzing(false);
+        return;
+      }
+      const result: ExtractResult = await resp.json();
+      setPendingStorageKey(result.storageKey);
+
+      if (result.warning) {
+        setExtractWarning(result.warning);
+      }
+
+      // Auto-fill form fields
+      const ex = result.extracted;
+      if (ex.name) form.setValue("name", ex.name);
+      if (ex.epaRegistrationNumber) form.setValue("epaRegistrationNumber", ex.epaRegistrationNumber);
+      if (ex.activeIngredient) form.setValue("activeIngredient", ex.activeIngredient);
+      if (ex.targetPest) form.setValue("targetPest", ex.targetPest);
+      if (ex.applicationRate) form.setValue("applicationRate", ex.applicationRate);
+      if (ex.reEntryInterval) form.setValue("reEntryInterval", ex.reEntryInterval);
+      if (ex.mowingRestriction) form.setValue("mowingRestriction", ex.mowingRestriction);
+      if (ex.signalWord && ["none", "caution", "warning", "danger"].includes(ex.signalWord)) {
+        form.setValue("signalWord", ex.signalWord as "none" | "caution" | "warning" | "danger");
+      }
+      if (typeof ex.isOrganic === "boolean") {
+        form.setValue("isOrganic", ex.isOrganic);
+      }
+    } catch {
+      toast({ title: t("chemicalProducts.labelExtractFailed"), variant: "destructive" });
+    } finally {
+      setIsAnalyzing(false);
+    }
+  }
+
+  const handleDragOver = useCallback((e: React.DragEvent) => {
+    e.preventDefault();
+    setIsDragging(true);
+  }, []);
+
+  const handleDragLeave = useCallback((e: React.DragEvent) => {
+    e.preventDefault();
+    setIsDragging(false);
+  }, []);
+
+  const handleDrop = useCallback(async (e: React.DragEvent) => {
+    e.preventDefault();
+    setIsDragging(false);
+    const file = e.dataTransfer.files[0];
+    if (file) await processLabelFile(file);
+  }, []);
+
+  const handleFileInputChange = useCallback(async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) await processLabelFile(file);
+    // Reset so the same file can be selected again
+    e.target.value = "";
+  }, []);
+
   function onSubmit(data: ProductFormValues) {
     saveMutation.mutate(data);
   }
+
+  const hasLabel = pendingStorageKey || existingLabelKey;
 
   return (
     <>
@@ -202,6 +337,12 @@ export default function ChemicalProductsAdmin() {
                             {t(`chemicalProducts.signalWord${product.signalWord.charAt(0).toUpperCase() + product.signalWord.slice(1)}`)}
                           </Badge>
                         )}
+                        {product.labelPdfStorageKey && (
+                          <Badge variant="outline" className="text-xs gap-1">
+                            <FileText className="w-3 h-3" />
+                            {t("chemicalProducts.labelOnFile")}
+                          </Badge>
+                        )}
                       </div>
                       {product.activeIngredient && (
                         <p className="text-xs text-muted-foreground truncate">{product.activeIngredient}</p>
@@ -233,13 +374,117 @@ export default function ChemicalProductsAdmin() {
         </CardContent>
       </Card>
 
-      <Dialog open={dialogOpen} onOpenChange={(open) => { if (!open) { setDialogOpen(false); setEditingProduct(null); } }}>
+      <Dialog open={dialogOpen} onOpenChange={(open) => { if (!open) { setDialogOpen(false); setEditingProduct(null); resetLabelState(); } }}>
         <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle>
               {editingProduct ? t("chemicalProducts.editProduct") : t("chemicalProducts.addProduct")}
             </DialogTitle>
           </DialogHeader>
+
+          {/* Label PDF upload zone */}
+          <div className="space-y-2">
+            <p className="text-sm font-medium">{t("chemicalProducts.labelUploadTitle")}</p>
+
+            {/* "On file" indicator (existing label, not yet replaced) */}
+            {existingLabelKey && !pendingStorageKey && (
+              <div className="flex items-center gap-3 p-3 rounded-md border bg-muted/40">
+                <FileText className="w-4 h-4 text-muted-foreground flex-shrink-0" />
+                <span className="text-sm text-muted-foreground flex-1">{t("chemicalProducts.labelOnFile")}</span>
+                {labelViewUrl && (
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    asChild
+                    data-testid="button-view-label"
+                  >
+                    <a href={labelViewUrl} target="_blank" rel="noopener noreferrer">
+                      <ExternalLink className="w-3 h-3 mr-1" />
+                      {t("chemicalProducts.labelView")}
+                    </a>
+                  </Button>
+                )}
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => fileInputRef.current?.click()}
+                  data-testid="button-replace-label"
+                >
+                  {t("chemicalProducts.labelReplace")}
+                </Button>
+              </div>
+            )}
+
+            {/* After a new file is uploaded/analyzing */}
+            {isAnalyzing && (
+              <div className="flex items-center gap-3 p-3 rounded-md border bg-muted/40" data-testid="status-analyzing-label">
+                <Loader2 className="w-4 h-4 animate-spin text-muted-foreground flex-shrink-0" />
+                <span className="text-sm text-muted-foreground">{t("chemicalProducts.labelAnalyzing")}</span>
+              </div>
+            )}
+
+            {/* New label stored after successful upload */}
+            {pendingStorageKey && !isAnalyzing && (
+              <div className="flex items-center gap-3 p-3 rounded-md border bg-muted/40">
+                <FileText className="w-4 h-4 text-muted-foreground flex-shrink-0" />
+                <span className="text-sm text-muted-foreground flex-1">{t("chemicalProducts.labelOnFile")}</span>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => fileInputRef.current?.click()}
+                  data-testid="button-replace-label-new"
+                >
+                  {t("chemicalProducts.labelReplace")}
+                </Button>
+              </div>
+            )}
+
+            {/* Warning banner */}
+            {extractWarning && (
+              <div className="flex items-start gap-2 p-3 rounded-md border border-yellow-200 bg-yellow-50 dark:border-yellow-900 dark:bg-yellow-950/30" data-testid="status-extract-warning">
+                <AlertCircle className="w-4 h-4 text-yellow-600 dark:text-yellow-400 flex-shrink-0 mt-0.5" />
+                <p className="text-sm text-yellow-700 dark:text-yellow-300">{extractWarning}</p>
+              </div>
+            )}
+
+            {/* Drop zone — shown when no label is uploading/uploaded, or when replacing */}
+            {!isAnalyzing && !pendingStorageKey && !existingLabelKey && (
+              <div
+                className={`relative flex flex-col items-center justify-center gap-2 p-6 rounded-md border-2 border-dashed cursor-pointer transition-colors ${
+                  isDragging
+                    ? "border-primary bg-primary/5"
+                    : "border-muted-foreground/25 hover:border-muted-foreground/50 hover:bg-muted/20"
+                }`}
+                onDragOver={handleDragOver}
+                onDragLeave={handleDragLeave}
+                onDrop={handleDrop}
+                onClick={() => fileInputRef.current?.click()}
+                data-testid="zone-label-upload"
+                role="button"
+                tabIndex={0}
+                onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") fileInputRef.current?.click(); }}
+              >
+                <Upload className="w-6 h-6 text-muted-foreground" />
+                <div className="text-center">
+                  <p className="text-sm font-medium text-muted-foreground">{t("chemicalProducts.labelUploadDrop")}</p>
+                  <p className="text-xs text-muted-foreground/70 mt-0.5">{t("chemicalProducts.labelUploadHint")}</p>
+                </div>
+              </div>
+            )}
+
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept=".pdf,application/pdf"
+              className="hidden"
+              onChange={handleFileInputChange}
+              data-testid="input-label-pdf"
+            />
+          </div>
+
           <Form {...form}>
             <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -431,10 +676,10 @@ export default function ChemicalProductsAdmin() {
               </div>
 
               <DialogFooter>
-                <Button type="button" variant="outline" onClick={() => setDialogOpen(false)} data-testid="button-cancel-product">
+                <Button type="button" variant="outline" onClick={() => { setDialogOpen(false); resetLabelState(); }} data-testid="button-cancel-product">
                   {t("common.cancel")}
                 </Button>
-                <Button type="submit" disabled={saveMutation.isPending} data-testid="button-save-product">
+                <Button type="submit" disabled={saveMutation.isPending || isAnalyzing} data-testid="button-save-product">
                   {t(saveMutation.isPending ? "common.saving" : "common.save")}
                 </Button>
               </DialogFooter>

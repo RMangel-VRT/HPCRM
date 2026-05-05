@@ -1683,6 +1683,15 @@ export async function migrateChemicalProductsTable(): Promise<void> {
     await db.execute(sql`ALTER TABLE chemical_products ADD COLUMN IF NOT EXISTS category text DEFAULT 'other'`);
     await db.execute(sql`ALTER TABLE chemical_products ADD COLUMN IF NOT EXISTS notes text`);
     await db.execute(sql`ALTER TABLE chemical_products ADD COLUMN IF NOT EXISTS deleted_at timestamp`);
+    // Newer schema columns added later
+    await db.execute(sql`ALTER TABLE chemical_products ADD COLUMN IF NOT EXISTS target_pest text`);
+    await db.execute(sql`ALTER TABLE chemical_products ADD COLUMN IF NOT EXISTS application_rate text`);
+    await db.execute(sql`ALTER TABLE chemical_products ADD COLUMN IF NOT EXISTS re_entry_interval text`);
+    await db.execute(sql`ALTER TABLE chemical_products ADD COLUMN IF NOT EXISTS mowing_restriction text`);
+    await db.execute(sql`ALTER TABLE chemical_products ADD COLUMN IF NOT EXISTS is_organic boolean NOT NULL DEFAULT false`);
+    await db.execute(sql`ALTER TABLE chemical_products ADD COLUMN IF NOT EXISTS label_pdf_storage_key text`);
+    await db.execute(sql`ALTER TABLE chemical_products ADD COLUMN IF NOT EXISTS default_post_application_expectation text`);
+    await db.execute(sql`ALTER TABLE chemical_products ADD COLUMN IF NOT EXISTS default_post_application_watering text`);
     console.log("chemical_products table migration complete");
   } catch (error) {
     console.error("Error during chemical_products table migration:", error);
@@ -15014,6 +15023,165 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.use("/api/unsorted-emails", unsortedEmailsRouter);
 
   // ─── Chemical Products CRUD ──────────────────────────────────────────────────
+
+  app.get("/api/chemical-products", async (req, res) => {
+    if (!req.isAuthenticated()) return res.status(401).send("Not authenticated");
+    const user = req.user as UserWithContext;
+    try {
+      const products = await storage.getChemicalProducts(user.activeCompanyId);
+      res.json(products);
+    } catch (error) {
+      console.error("Error fetching chemical products:", error);
+      res.status(500).json({ error: "Internal server error" });
+    }
+  });
+
+  app.post("/api/chemical-products", async (req, res) => {
+    if (!req.isAuthenticated()) return res.status(401).send("Not authenticated");
+    const user = req.user as UserWithContext;
+    if (user.activeRole !== "admin" && user.activeRole !== "chemical_manager") {
+      return res.status(403).send("Admin or chemical_manager only");
+    }
+    try {
+      const parsed = insertChemicalProductSchema.safeParse({ ...req.body, companyId: user.activeCompanyId });
+      if (!parsed.success) {
+        return res.status(400).json({ error: "Invalid fields", details: parsed.error.flatten() });
+      }
+      const product = await storage.createChemicalProduct(parsed.data);
+      res.status(201).json(product);
+    } catch (error: unknown) {
+      if (error instanceof Error && error.message.includes("unique")) {
+        return res.status(409).json({ error: "A product with this name already exists" });
+      }
+      console.error("Error creating chemical product:", error);
+      res.status(500).json({ error: "Internal server error" });
+    }
+  });
+
+  // Extract label data from PDF using AI
+  app.post("/api/chemical-products/extract-label",
+    multer({ storage: multer.memoryStorage(), limits: { fileSize: 20 * 1024 * 1024 } }).single("file"),
+    async (req, res) => {
+      if (!req.isAuthenticated()) return res.status(401).send("Not authenticated");
+      const user = req.user as UserWithContext;
+      if (user.activeRole !== "admin" && user.activeRole !== "chemical_manager") {
+        return res.status(403).send("Admin or chemical_manager only");
+      }
+      try {
+        if (!req.file) return res.status(400).json({ error: "No file uploaded" });
+        const fileBuffer = req.file.buffer;
+        // Validate PDF magic bytes: %PDF
+        if (fileBuffer[0] !== 0x25 || fileBuffer[1] !== 0x50 || fileBuffer[2] !== 0x44 || fileBuffer[3] !== 0x46) {
+          return res.status(415).json({ error: "File must be a PDF document" });
+        }
+
+        // Extract text from PDF using pdf-parse v2 class API
+        let pdfText = "";
+        try {
+          const { PDFParse } = (await import("pdf-parse")) as { PDFParse: new (opts: { data: Buffer }) => { getText(): Promise<{ text: string }>; destroy(): Promise<void> } };
+          const parser = new PDFParse({ data: fileBuffer });
+          const pdfData = await parser.getText();
+          pdfText = pdfData.text || "";
+          await parser.destroy();
+        } catch (pdfErr) {
+          console.error("PDF text extraction error:", pdfErr);
+          pdfText = "";
+        }
+
+        // Store the PDF in object storage
+        const objectStorageService = new ObjectStorageService();
+        const relativePath = `chemical-product-labels/${user.activeCompanyId}/${randomUUID()}.pdf`;
+        const storageKey = await objectStorageService.saveBufferToPrivatePath(relativePath, fileBuffer, "application/pdf");
+
+        if (!pdfText.trim()) {
+          return res.json({
+            storageKey,
+            extracted: {},
+            warning: "No readable text found in this PDF. The file has been stored but fields could not be auto-filled.",
+          });
+        }
+
+        // Use OpenAI to extract structured fields from the label text
+        let extracted: Record<string, string | boolean> = {};
+        try {
+          const OpenAI = (await import("openai")).default;
+          const openai = new OpenAI({
+            apiKey: process.env.AI_INTEGRATIONS_OPENAI_API_KEY || "dummy",
+            baseURL: process.env.AI_INTEGRATIONS_OPENAI_BASE_URL,
+          });
+
+          const prompt = `You are an expert at reading chemical pesticide/herbicide product labels. Extract the following fields from the label text below. Return ONLY a valid JSON object with these exact keys (use empty string "" if not found, never null):
+
+- name: full product name
+- epaRegistrationNumber: EPA Registration Number (format like "12345-678" or "12345-678-12345")
+- activeIngredient: active ingredient(s) with percentages if shown (e.g. "2,4-D Amine 46.5%")
+- targetPest: target pests or use sites (summarize briefly)
+- applicationRate: application rate (e.g. "1-2 oz per 1000 sq ft")
+- reEntryInterval: re-entry interval (REI) in hours or days (e.g. "24 hours", "12 hours")
+- mowingRestriction: mowing restriction (e.g. "Do not mow for 24 hours after application")
+- signalWord: EXACTLY one of: "none", "caution", "warning", "danger" (based on the signal word on the label)
+- isOrganic: true if the product is OMRI listed or certified organic, false otherwise
+
+Label text:
+${pdfText.slice(0, 8000)}`;
+
+          const completion = await openai.chat.completions.create({
+            model: "gpt-5-mini",
+            messages: [{ role: "user", content: prompt }],
+            response_format: { type: "json_object" },
+          });
+
+          const content = completion.choices[0]?.message?.content || "{}";
+          const raw = JSON.parse(content);
+          extracted = {
+            name: typeof raw.name === "string" ? raw.name : "",
+            epaRegistrationNumber: typeof raw.epaRegistrationNumber === "string" ? raw.epaRegistrationNumber : "",
+            activeIngredient: typeof raw.activeIngredient === "string" ? raw.activeIngredient : "",
+            targetPest: typeof raw.targetPest === "string" ? raw.targetPest : "",
+            applicationRate: typeof raw.applicationRate === "string" ? raw.applicationRate : "",
+            reEntryInterval: typeof raw.reEntryInterval === "string" ? raw.reEntryInterval : "",
+            mowingRestriction: typeof raw.mowingRestriction === "string" ? raw.mowingRestriction : "",
+            signalWord: ["none", "caution", "warning", "danger"].includes(raw.signalWord) ? raw.signalWord : "none",
+            isOrganic: raw.isOrganic === true,
+          };
+        } catch (aiErr) {
+          console.error("AI extraction error:", aiErr);
+          // Return the storage key even if AI fails
+          return res.json({
+            storageKey,
+            extracted: {},
+            warning: "Label PDF stored, but AI extraction failed. Please fill in the fields manually.",
+          });
+        }
+
+        res.json({ storageKey, extracted });
+      } catch (error) {
+        console.error("Error in extract-label:", error);
+        res.status(500).json({ error: "Internal server error" });
+      }
+    }
+  );
+
+  // Get presigned URL to view/download a stored product label PDF
+  app.get("/api/chemical-products/:id/label-pdf-url", async (req, res) => {
+    if (!req.isAuthenticated()) return res.status(401).send("Not authenticated");
+    const user = req.user as UserWithContext;
+    try {
+      const product = await storage.getChemicalProductById(req.params.id, user.activeCompanyId);
+      if (!product) return res.status(404).json({ error: "Not found" });
+      if (!product.labelPdfStorageKey) return res.status(404).json({ error: "No label PDF on file" });
+      const { bucketName, objectName } = (() => {
+        const p = product.labelPdfStorageKey.replace(/^\//, "");
+        const parts = p.split("/");
+        return { bucketName: parts[0], objectName: parts.slice(1).join("/") };
+      })();
+      const url = await signObjectURL({ bucketName, objectName, method: "GET", ttlSec: LABEL_URL_TTL_SEC });
+      res.json({ url });
+    } catch (error) {
+      console.error("Error getting label PDF URL:", error);
+      res.status(500).json({ error: "Internal server error" });
+    }
+  });
 
   app.patch("/api/chemical-products/:id", async (req, res) => {
     if (!req.isAuthenticated()) return res.status(401).send("Not authenticated");

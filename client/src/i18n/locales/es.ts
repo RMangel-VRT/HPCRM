@@ -1582,6 +1582,17 @@ const es = {
     deleteFailed: "Error al eliminar producto", // TODO: human-review translation
     saved: "Producto guardado", // TODO: human-review translation
     saveFailed: "Error al guardar producto", // TODO: human-review translation
+    labelUploadTitle: "PDF de etiqueta del producto", // TODO: human-review translation
+    labelUploadDrop: "Suelta un PDF aqui o haz clic para buscar", // TODO: human-review translation
+    labelUploadHint: "Sube la etiqueta del producto para rellenar los campos automaticamente", // TODO: human-review translation
+    labelAnalyzing: "Analizando etiqueta…", // TODO: human-review translation
+    labelOnFile: "PDF de etiqueta disponible", // TODO: human-review translation
+    labelView: "Ver", // TODO: human-review translation
+    labelReplace: "Reemplazar", // TODO: human-review translation
+    labelExtractWarning: "Etiqueta guardada, pero algunos campos no pudieron extraerse automaticamente.", // TODO: human-review translation
+    labelExtractFailed: "El analisis de la etiqueta fallo. Puede completar los campos manualmente.", // TODO: human-review translation
+    labelInvalidFile: "Solo se aceptan archivos PDF", // TODO: human-review translation
+    labelFileTooLarge: "El archivo debe ser menor de 20 MB", // TODO: human-review translation
   },
   operations: {
     title: "Lista de Verificacion Operativa",
