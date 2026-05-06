@@ -40,7 +40,7 @@ function extractTextFromParts(parts: MimePart[], mimeType: "text/plain" | "text/
   return "";
 }
 
-function parseGmailMessage(message: {
+export function parseGmailMessage(message: {
   id?: string | null;
   threadId?: string | null;
   payload?: {
@@ -63,10 +63,27 @@ function parseGmailMessage(message: {
   const fromName = fromNameMatch ? fromNameMatch[1].trim() : undefined;
 
   const toRaw = getHeader("To");
-  const toAddresses = toRaw ? toRaw.split(",").map(a => a.trim()).filter(Boolean) : [];
+  const toAddresses = toRaw ? toRaw.split(",").map(a => {
+    const m = a.trim().match(/^"?(.+?)"?\s*<(.+)>$/);
+    return m ? m[2].trim().toLowerCase() : a.trim().toLowerCase();
+  }).filter(Boolean) : [];
+
+  const ccRaw = getHeader("Cc");
+  const ccAddresses = ccRaw ? ccRaw.split(",").map(a => {
+    const m = a.trim().match(/^"?(.+?)"?\s*<(.+)>$/);
+    return m ? m[2].trim().toLowerCase() : a.trim().toLowerCase();
+  }).filter(Boolean) : [];
 
   const subject = getHeader("Subject") || "(No subject)";
   const inReplyTo = getHeader("In-Reply-To") || undefined;
+
+  // Use RFC Message-ID header as providerMessageId for reliable cross-system dedup.
+  // When the CRM sends via gmailSender, it embeds a Message-ID header and stores
+  // that same value as communications.providerMessageId. When Gmail puts the sent
+  // message in the SENT folder and we sync it, we extract the same Message-ID here
+  // so the dedup check finds the existing row and skips re-insertion.
+  const rfcMessageId = getHeader("Message-ID").trim();
+  const providerMessageId = rfcMessageId || message.id;
 
   let bodyText = "";
   let bodyHtml = "";
@@ -93,11 +110,12 @@ function parseGmailMessage(message: {
   if (!fromAddress) return null;
 
   return {
-    providerMessageId: message.id,
+    providerMessageId,
     providerThreadId: message.threadId,
     fromAddress,
     fromName,
     toAddresses,
+    ccAddresses,
     subject,
     bodyText,
     bodyHtml: bodyHtml || undefined,
@@ -106,7 +124,7 @@ function parseGmailMessage(message: {
   };
 }
 
-// ── Fetch messages via Gmail API ──────────────────────────────────────────────
+// ── Fetch INBOX messages via Gmail API ────────────────────────────────────────
 
 async function fetchGmailMessages(
   accessToken: string,
@@ -130,6 +148,7 @@ async function fetchGmailMessages(
         userId: "me",
         startHistoryId: historyId,
         historyTypes: ["messageAdded"],
+        labelId: "INBOX",
         maxResults: 500,
       });
 
@@ -156,15 +175,14 @@ async function fetchGmailMessages(
     }
   }
 
-  // Timestamp-based fallback query
+  // Timestamp-based fallback query — INBOX only
   const afterSecs = sinceTimestamp
     ? Math.floor(sinceTimestamp.getTime() / 1000)
     : Math.floor((Date.now() - 7 * 24 * 60 * 60 * 1000) / 1000);
 
-  // Fetch from INBOX and SENT (dedup handles already-stored outbound)
   const listResp = await gmail.users.messages.list({
     userId: "me",
-    q: `after:${afterSecs} (in:inbox OR in:sent)`,
+    q: `after:${afterSecs} in:inbox`,
     maxResults,
   });
 
@@ -178,6 +196,80 @@ async function fetchGmailMessages(
   const newHistoryId = profile.data.historyId ?? null;
 
   return { messages, newHistoryId, method: "timestamp" };
+}
+
+// ── Fetch SENT messages via Gmail API ─────────────────────────────────────────
+
+async function fetchGmailSentMessages(
+  accessToken: string,
+  sentHistoryId: string | null,
+  sinceTimestamp: Date | null,
+  maxResults = 200
+): Promise<{
+  messages: Array<{ id: string; threadId: string }>;
+  newSentHistoryId: string | null;
+  method: "history" | "timestamp";
+}> {
+  const auth = new google.auth.OAuth2();
+  auth.setCredentials({ access_token: accessToken });
+  const gmail = google.gmail({ version: "v1", auth });
+
+  // Try History API with SENT label filter
+  if (sentHistoryId) {
+    try {
+      const historyResp = await gmail.users.history.list({
+        userId: "me",
+        startHistoryId: sentHistoryId,
+        historyTypes: ["messageAdded"],
+        labelId: "SENT",
+        maxResults: 500,
+      });
+
+      const histories = historyResp.data.history ?? [];
+      const msgIds: Array<{ id: string; threadId: string }> = [];
+
+      for (const h of histories) {
+        for (const added of (h.messagesAdded ?? [])) {
+          if (added.message?.id && added.message?.threadId) {
+            msgIds.push({ id: added.message.id, threadId: added.message.threadId });
+          }
+        }
+      }
+
+      return {
+        messages: msgIds,
+        newSentHistoryId: historyResp.data.historyId ?? sentHistoryId,
+        method: "history",
+      };
+    } catch (err: unknown) {
+      const status = (err as { code?: number }).code;
+      if (status !== 404) throw err;
+      // 404 → history id expired, fall through to timestamp query
+    }
+  }
+
+  // Timestamp-based fallback — SENT label
+  const afterSecs = sinceTimestamp
+    ? Math.floor(sinceTimestamp.getTime() / 1000)
+    : Math.floor((Date.now() - 7 * 24 * 60 * 60 * 1000) / 1000);
+
+  const listResp = await gmail.users.messages.list({
+    userId: "me",
+    labelIds: ["SENT"],
+    q: `after:${afterSecs}`,
+    maxResults,
+  });
+
+  const messages = (listResp.data.messages ?? []).map(m => ({
+    id: m.id!,
+    threadId: m.threadId!,
+  }));
+
+  // Get new history id from profile (shared history stream, used as cursor for next SENT fetch)
+  const profile = await gmail.users.getProfile({ userId: "me" });
+  const newSentHistoryId = profile.data.historyId ?? null;
+
+  return { messages, newSentHistoryId, method: "timestamp" };
 }
 
 // ── Sync error email notification ─────────────────────────────────────────────
@@ -307,6 +399,11 @@ export async function syncMailbox(mailboxAccountId: string, manual = false): Pro
   messagesUnsorted: number;
   messagesDiscarded: number;
   messagesDeduped: number;
+  sentMessagesFetched: number;
+  sentMessagesRouted: number;
+  sentMessagesUnsorted: number;
+  sentMessagesDiscarded: number;
+  sentMessagesDeduped: number;
 }> {
   // Acquire in-memory lock
   if (syncLocks.has(mailboxAccountId)) {
@@ -358,6 +455,11 @@ export async function syncMailbox(mailboxAccountId: string, manual = false): Pro
       messagesUnsorted: 0,
       messagesDiscarded: 0,
       messagesDeduped: 0,
+      sentMessagesFetched: 0,
+      sentMessagesRouted: 0,
+      sentMessagesDeduped: 0,
+      sentMessagesUnsorted: 0,
+      sentMessagesDiscarded: 0,
       historyIdBefore,
     }).returning();
 
@@ -382,7 +484,7 @@ export async function syncMailbox(mailboxAccountId: string, manual = false): Pro
       throw err;
     }
 
-    // Fetch messages
+    // ── INBOX fetch ───────────────────────────────────────────────────────────
     let fetchResult: { messages: Array<{ id: string; threadId: string }>; newHistoryId: string | null; method: "history" | "timestamp" };
     try {
       fetchResult = await fetchGmailMessages(
@@ -400,7 +502,6 @@ export async function syncMailbox(mailboxAccountId: string, manual = false): Pro
         await db.update(mailboxAccounts)
           .set({ syncStatus: "error", syncErrorCount: (account.syncErrorCount ?? 0) + 1, updatedAt: new Date() })
           .where(eq(mailboxAccounts.id, mailboxAccountId));
-        // Notify only on first transition into error state
         if (account.syncStatus !== "error") {
           sendSyncErrorNotification(mailboxAccountId, account.companyId, account.emailAddress, account.ownerUserId ?? null)
             .catch(e => console.error("[email-sync] Failed to send sync error notification:", e));
@@ -410,7 +511,6 @@ export async function syncMailbox(mailboxAccountId: string, manual = false): Pro
       if (status === 429) {
         const msg = `[email-sync] Rate limited for mailbox=${mailboxAccountId} — applying backoff`;
         await finalizeOnce("partial", {}, msg);
-        // Advance lastSyncedAt so the next-due check skips at least one full interval
         await db.update(mailboxAccounts)
           .set({ lastSyncedAt: new Date(), syncStatus: "connected", updatedAt: new Date() })
           .where(eq(mailboxAccounts.id, mailboxAccountId));
@@ -422,9 +522,9 @@ export async function syncMailbox(mailboxAccountId: string, manual = false): Pro
     const counters = { fetched: 0, routed: 0, unsorted: 0, discarded: 0, deduped: 0 };
     counters.fetched = fetchResult.messages.length;
 
-    console.log(`[email-sync] Fetched ${counters.fetched} messages via ${fetchResult.method} for mailbox=${mailboxAccountId}`);
+    console.log(`[email-sync] Fetched ${counters.fetched} INBOX messages via ${fetchResult.method} for mailbox=${mailboxAccountId}`);
 
-    // Process messages
+    // Process INBOX messages
     const auth = new google.auth.OAuth2();
     auth.setCredentials({ access_token: accessToken });
     const gmail = google.gmail({ version: "v1", auth });
@@ -482,7 +582,7 @@ export async function syncMailbox(mailboxAccountId: string, manual = false): Pro
         } catch (msgFetchErr: unknown) {
           const msgStatus = (msgFetchErr as { code?: number }).code;
           if (msgStatus === 429) {
-            const msg = `[email-sync] Rate limited during message fetch for mailbox=${mailboxAccountId} — applying backoff`;
+            const msg = `[email-sync] Rate limited during INBOX message fetch for mailbox=${mailboxAccountId} — applying backoff`;
             console.warn(msg);
             await finalizeOnce("partial", {
               messagesFetched: counters.fetched,
@@ -494,7 +594,6 @@ export async function syncMailbox(mailboxAccountId: string, manual = false): Pro
             await db.update(mailboxAccounts)
               .set({ lastSyncedAt: new Date(), syncStatus: "connected", updatedAt: new Date() })
               .where(eq(mailboxAccounts.id, mailboxAccountId));
-            // Return partial result — lock will be released in finally
             return {
               syncRunId,
               status: "partial" as const,
@@ -503,6 +602,11 @@ export async function syncMailbox(mailboxAccountId: string, manual = false): Pro
               messagesUnsorted: counters.unsorted,
               messagesDiscarded: counters.discarded,
               messagesDeduped: counters.deduped,
+              sentMessagesFetched: 0,
+              sentMessagesRouted: 0,
+              sentMessagesUnsorted: 0,
+              sentMessagesDiscarded: 0,
+              sentMessagesDeduped: 0,
             };
           }
           counters.discarded++;
@@ -515,25 +619,52 @@ export async function syncMailbox(mailboxAccountId: string, manual = false): Pro
           continue;
         }
 
-        // Determine message direction from Gmail labels
-        const labelIds = (fullMsg.data.labelIds ?? []) as string[];
-        const isSentLabel = labelIds.includes("SENT");
-        // direction: outbound if from this mailbox's SENT folder, inbound otherwise
-        const direction = isSentLabel ? "outbound" : "inbound";
+        // Secondary dedup by RFC Message-ID (for records that were stored with
+        // RFC IDs as providerMessageId — avoids re-inserting on re-sync).
+        if (parsed.providerMessageId !== msgRef.id) {
+          const existingByRfc = await db
+            .select({ id: communications.id })
+            .from(communications)
+            .where(
+              and(
+                eq(communications.companyId, account.companyId),
+                eq(communications.providerMessageId, parsed.providerMessageId)
+              )
+            )
+            .limit(1);
+          if (existingByRfc.length > 0) {
+            counters.deduped++;
+            continue;
+          }
 
-        // Attach mailbox address so routeMessage can exclude it from participant matching
-        // (important for outbound: fromAddress is the mailbox owner, customer is in toAddresses)
+          const existingUnsortedByRfc = await db
+            .select({ id: unsortedEmails.id })
+            .from(unsortedEmails)
+            .where(
+              and(
+                eq(unsortedEmails.companyId, account.companyId),
+                eq(unsortedEmails.providerMessageId, parsed.providerMessageId)
+              )
+            )
+            .limit(1);
+          if (existingUnsortedByRfc.length > 0) {
+            counters.deduped++;
+            continue;
+          }
+        }
+
+        // Attach mailbox address so routeMessage can exclude it
         parsed.mailboxEmailAddress = account.emailAddress;
 
-        // Route the message
-        const result = await routeMessage(account.companyId, parsed);
+        // Route inbound message
+        const result = await routeMessage(account.companyId, parsed, { direction: "inbound" });
 
         if (result.action === "route" && result.customerId) {
           await db.insert(communications).values({
             companyId: account.companyId,
             customerId: result.customerId,
             type: "email",
-            direction,
+            direction: "inbound",
             status: "sent",
             followUpStatus: "none",
             subject: parsed.subject,
@@ -543,7 +674,7 @@ export async function syncMailbox(mailboxAccountId: string, manual = false): Pro
             fromAddress: parsed.fromAddress,
             fromName: parsed.fromName || undefined,
             toAddresses: parsed.toAddresses,
-            ccAddresses: [],
+            ccAddresses: parsed.ccAddresses ?? [],
             bccAddresses: [],
             receivedAt: parsed.receivedAt,
             sentAt: parsed.receivedAt,
@@ -568,25 +699,205 @@ export async function syncMailbox(mailboxAccountId: string, manual = false): Pro
             receivedAt: parsed.receivedAt,
             providerMessageId: parsed.providerMessageId,
             providerThreadId: parsed.providerThreadId,
+            direction: "inbound",
             status: "pending",
             candidateCustomerIds: result.candidateCustomerIds ?? [],
             routingNotes: result.routingNotes || undefined,
           });
           counters.unsorted++;
         } else {
-          // discard
           counters.discarded++;
         }
       } catch (msgErr) {
-        console.error(`[email-sync] Error processing message id=${msgRef.id}:`, (msgErr as Error).message);
+        console.error(`[email-sync] Error processing INBOX message id=${msgRef.id}:`, (msgErr as Error).message);
         counters.discarded++;
       }
     }
 
-    // Update mailbox with new history id and lastSyncedAt
+    // ── SENT folder fetch & process ───────────────────────────────────────────
+    const sentCounters = { fetched: 0, routed: 0, unsorted: 0, discarded: 0, deduped: 0 };
+    let sentSucceeded = true;
+    let newSentHistoryId: string | null = null;
+
+    try {
+      const sentFetchResult = await fetchGmailSentMessages(
+        accessToken,
+        account.gmailSentHistoryId ?? null,
+        account.lastSyncedAt ?? null,
+        200
+      );
+
+      sentCounters.fetched = sentFetchResult.messages.length;
+      newSentHistoryId = sentFetchResult.newSentHistoryId;
+
+      console.log(`[email-sync] Fetched ${sentCounters.fetched} SENT messages via ${sentFetchResult.method} for mailbox=${mailboxAccountId}`);
+
+      const mailboxLower = account.emailAddress.toLowerCase().trim();
+
+      // Pre-fetch all company mailbox addresses so we can identify internal/colleague emails
+      const companyMailboxRows = await db
+        .select({ emailAddress: mailboxAccounts.emailAddress })
+        .from(mailboxAccounts)
+        .where(eq(mailboxAccounts.companyId, account.companyId));
+      const companyMailboxEmails = new Set(
+        companyMailboxRows.map(m => m.emailAddress.toLowerCase().trim())
+      );
+
+      for (const msgRef of sentFetchResult.messages) {
+        try {
+          // Always fetch full message so we can extract the RFC Message-ID header
+          // for correct dedup against communications.providerMessageId.
+          // (Pre-fetch dedup by Gmail internal ID cannot match RFC-keyed records.)
+          let fullMsg: Awaited<ReturnType<typeof gmail.users.messages.get>>;
+          try {
+            fullMsg = await gmail.users.messages.get({
+              userId: "me",
+              id: msgRef.id,
+              format: "full",
+            });
+          } catch (msgFetchErr: unknown) {
+            const msgStatus = (msgFetchErr as { code?: number }).code;
+            if (msgStatus === 429) {
+              console.warn(`[email-sync] Rate limited during SENT message fetch for mailbox=${mailboxAccountId} — stopping SENT loop`);
+              sentSucceeded = false; // partial — SENT loop is incomplete
+              break;
+            }
+            sentCounters.discarded++;
+            continue;
+          }
+
+          const parsed = parseGmailMessage(fullMsg.data as Parameters<typeof parseGmailMessage>[0]);
+          if (!parsed) {
+            sentCounters.discarded++;
+            continue;
+          }
+
+          // Dedup by RFC Message-ID — this is the key that gmailSender stores in
+          // communications.providerMessageId when the CRM sends via Gmail.
+          const existingComm = await db
+            .select({ id: communications.id })
+            .from(communications)
+            .where(
+              and(
+                eq(communications.companyId, account.companyId),
+                eq(communications.providerMessageId, parsed.providerMessageId)
+              )
+            )
+            .limit(1);
+          if (existingComm.length > 0) {
+            sentCounters.deduped++;
+            continue;
+          }
+
+          const existingUnsorted = await db
+            .select({ id: unsortedEmails.id })
+            .from(unsortedEmails)
+            .where(
+              and(
+                eq(unsortedEmails.companyId, account.companyId),
+                eq(unsortedEmails.providerMessageId, parsed.providerMessageId)
+              )
+            )
+            .limit(1);
+          if (existingUnsorted.length > 0) {
+            sentCounters.deduped++;
+            continue;
+          }
+
+          // Sanity check: SENT folder messages should always be FROM the mailbox
+          if (parsed.fromAddress !== mailboxLower) {
+            sentCounters.discarded++;
+            continue;
+          }
+
+          // Skip internal / colleague emails: if every recipient is a company mailbox,
+          // this is an internal message with no external customer recipients.
+          const allRecipients = [
+            ...(parsed.toAddresses ?? []),
+            ...(parsed.ccAddresses ?? []),
+          ].map(a => a.toLowerCase().trim()).filter(Boolean);
+          const isAllInternal =
+            allRecipients.length > 0 &&
+            allRecipients.every(r => companyMailboxEmails.has(r));
+          if (isAllInternal) {
+            sentCounters.discarded++;
+            continue;
+          }
+
+          // Attach mailbox address for routing
+          parsed.mailboxEmailAddress = account.emailAddress;
+
+          // Route outbound message (match on toAddresses / ccAddresses)
+          const result = await routeMessage(account.companyId, parsed, { direction: "outbound" });
+
+          if (result.action === "route" && result.customerId) {
+            await db.insert(communications).values({
+              companyId: account.companyId,
+              customerId: result.customerId,
+              sentById: account.ownerUserId ?? undefined,
+              type: "email",
+              direction: "outbound",
+              status: "sent",
+              followUpStatus: "none",
+              subject: parsed.subject,
+              body: parsed.bodyText || parsed.subject,
+              bodyText: parsed.bodyText || undefined,
+              bodyHtml: parsed.bodyHtml || undefined,
+              fromAddress: parsed.fromAddress,
+              fromName: parsed.fromName || undefined,
+              toAddresses: parsed.toAddresses,
+              ccAddresses: parsed.ccAddresses ?? [],
+              bccAddresses: [],
+              receivedAt: parsed.receivedAt,
+              sentAt: parsed.receivedAt,
+              providerMessageId: parsed.providerMessageId,
+              providerThreadId: parsed.providerThreadId,
+              mailboxAccountId: mailboxAccountId,
+              routingMethod: result.routingMethod,
+              routingConfidence: result.routingConfidence,
+              inReplyTo: parsed.inReplyTo || undefined,
+            });
+            sentCounters.routed++;
+          } else if (result.action === "unsorted") {
+            await db.insert(unsortedEmails).values({
+              companyId: account.companyId,
+              mailboxAccountId: mailboxAccountId,
+              fromAddress: parsed.fromAddress,
+              fromName: parsed.fromName || undefined,
+              toAddresses: parsed.toAddresses,
+              subject: parsed.subject,
+              bodyText: parsed.bodyText || undefined,
+              bodyHtml: parsed.bodyHtml || undefined,
+              receivedAt: parsed.receivedAt,
+              providerMessageId: parsed.providerMessageId,
+              providerThreadId: parsed.providerThreadId,
+              direction: "outbound",
+              status: "pending",
+              candidateCustomerIds: result.candidateCustomerIds ?? [],
+              routingNotes: result.routingNotes || undefined,
+            });
+            sentCounters.unsorted++;
+          } else {
+            // discard — no CRM signals found for recipient
+            sentCounters.discarded++;
+          }
+        } catch (msgErr) {
+          console.error(`[email-sync] Error processing SENT message id=${msgRef.id}:`, (msgErr as Error).message);
+          sentCounters.discarded++;
+        }
+      }
+    } catch (sentErr) {
+      // SENT loop error: mark partial (inbox succeeded) rather than full error
+      const sentErrMsg = sentErr instanceof Error ? sentErr.message : "SENT sync error";
+      console.error(`[email-sync] SENT folder sync failed for mailbox=${mailboxAccountId}: ${sentErrMsg}`);
+      sentSucceeded = false;
+    }
+
+    // Update mailbox with new history cursors and lastSyncedAt
     await db.update(mailboxAccounts)
       .set({
         gmailHistoryId: fetchResult.newHistoryId ?? account.gmailHistoryId,
+        gmailSentHistoryId: newSentHistoryId ?? account.gmailSentHistoryId,
         lastSyncedAt: new Date(),
         syncStatus: "connected",
         syncErrorCount: 0,
@@ -594,28 +905,39 @@ export async function syncMailbox(mailboxAccountId: string, manual = false): Pro
       })
       .where(eq(mailboxAccounts.id, mailboxAccountId));
 
-    // Normal completion is always "success" — discards are expected (no CRM signals found).
-    // "partial" is reserved exclusively for the 429 rate-limit truncation path above.
-    await finalizeOnce("success", {
+    // Determine final status: partial if SENT loop failed, success otherwise
+    const finalStatus = sentSucceeded ? "success" : "partial";
+
+    await finalizeOnce(finalStatus as "success" | "partial", {
       messagesFetched: counters.fetched,
       messagesRouted: counters.routed,
       messagesUnsorted: counters.unsorted,
       messagesDiscarded: counters.discarded,
       messagesDeduped: counters.deduped,
+      sentMessagesFetched: sentCounters.fetched,
+      sentMessagesRouted: sentCounters.routed,
+      sentMessagesDeduped: sentCounters.deduped,
+      sentMessagesUnsorted: sentCounters.unsorted,
+      sentMessagesDiscarded: sentCounters.discarded,
       historyIdAfter: fetchResult.newHistoryId ?? undefined,
       syncMethod: fetchResult.method,
     });
 
-    console.log(`[email-sync] Completed sync run=${syncRunId} fetched=${counters.fetched} routed=${counters.routed} unsorted=${counters.unsorted} discarded=${counters.discarded} deduped=${counters.deduped}`);
+    console.log(`[email-sync] Completed sync run=${syncRunId} inbox=[fetched=${counters.fetched} routed=${counters.routed} unsorted=${counters.unsorted} discarded=${counters.discarded} deduped=${counters.deduped}] sent=[fetched=${sentCounters.fetched} routed=${sentCounters.routed} unsorted=${sentCounters.unsorted} discarded=${sentCounters.discarded} deduped=${sentCounters.deduped}] status=${finalStatus}`);
 
     return {
       syncRunId,
-      status: "success",
+      status: finalStatus,
       messagesFetched: counters.fetched,
       messagesRouted: counters.routed,
       messagesUnsorted: counters.unsorted,
       messagesDiscarded: counters.discarded,
       messagesDeduped: counters.deduped,
+      sentMessagesFetched: sentCounters.fetched,
+      sentMessagesRouted: sentCounters.routed,
+      sentMessagesUnsorted: sentCounters.unsorted,
+      sentMessagesDiscarded: sentCounters.discarded,
+      sentMessagesDeduped: sentCounters.deduped,
     };
   } catch (err) {
     // Catch-all: finalize any run that escaped all specific handlers above.
@@ -637,6 +959,11 @@ async function finalizeSyncRun(
     messagesUnsorted?: number;
     messagesDiscarded?: number;
     messagesDeduped?: number;
+    sentMessagesFetched?: number;
+    sentMessagesRouted?: number;
+    sentMessagesDeduped?: number;
+    sentMessagesUnsorted?: number;
+    sentMessagesDiscarded?: number;
     historyIdAfter?: string;
     syncMethod?: "history" | "timestamp";
   },
@@ -651,6 +978,11 @@ async function finalizeSyncRun(
       messagesUnsorted: counters.messagesUnsorted ?? 0,
       messagesDiscarded: counters.messagesDiscarded ?? 0,
       messagesDeduped: counters.messagesDeduped ?? 0,
+      sentMessagesFetched: counters.sentMessagesFetched ?? 0,
+      sentMessagesRouted: counters.sentMessagesRouted ?? 0,
+      sentMessagesDeduped: counters.sentMessagesDeduped ?? 0,
+      sentMessagesUnsorted: counters.sentMessagesUnsorted ?? 0,
+      sentMessagesDiscarded: counters.sentMessagesDiscarded ?? 0,
       historyIdAfter: counters.historyIdAfter ?? null,
       syncMethod: counters.syncMethod ?? null,
       errorMessage: errorMessage ?? null,

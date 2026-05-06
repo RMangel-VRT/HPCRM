@@ -16252,13 +16252,17 @@ export async function migrateMailboxVisibilitySettings(): Promise<void> {
 export async function migrateEmailSyncTables(): Promise<void> {
   console.log("Running startup migration: Ensuring email sync tables and columns exist...");
   try {
-    // mailboxAccounts — add new columns
+    // mailboxAccounts — add new columns (Slice 1)
     await db.execute(sql`ALTER TABLE mailbox_accounts ADD COLUMN IF NOT EXISTS gmail_history_id TEXT`);
     await db.execute(sql`ALTER TABLE mailbox_accounts ADD COLUMN IF NOT EXISTS sync_interval_minutes INTEGER NOT NULL DEFAULT 2`);
     await db.execute(sql`ALTER TABLE mailbox_accounts ADD COLUMN IF NOT EXISTS sync_error_count INTEGER NOT NULL DEFAULT 0`);
+    // Slice 2: sent-folder cursor
+    await db.execute(sql`ALTER TABLE mailbox_accounts ADD COLUMN IF NOT EXISTS gmail_sent_history_id TEXT`);
 
-    // unsortedEmails — add routing_notes column
+    // unsortedEmails — Slice 1
     await db.execute(sql`ALTER TABLE unsorted_emails ADD COLUMN IF NOT EXISTS routing_notes TEXT`);
+    // Slice 2: direction column
+    await db.execute(sql`ALTER TABLE unsorted_emails ADD COLUMN IF NOT EXISTS direction TEXT NOT NULL DEFAULT 'inbound'`);
 
     // mailbox_sync_runs table
     await db.execute(sql`
@@ -16284,6 +16288,12 @@ export async function migrateEmailSyncTables(): Promise<void> {
       CREATE INDEX IF NOT EXISTS mailbox_sync_runs_mailbox_started_idx
       ON mailbox_sync_runs(mailbox_account_id, started_at)
     `);
+    // Slice 2: sent_* counters on mailbox_sync_runs
+    await db.execute(sql`ALTER TABLE mailbox_sync_runs ADD COLUMN IF NOT EXISTS sent_messages_fetched INTEGER NOT NULL DEFAULT 0`);
+    await db.execute(sql`ALTER TABLE mailbox_sync_runs ADD COLUMN IF NOT EXISTS sent_messages_routed INTEGER NOT NULL DEFAULT 0`);
+    await db.execute(sql`ALTER TABLE mailbox_sync_runs ADD COLUMN IF NOT EXISTS sent_messages_deduped INTEGER NOT NULL DEFAULT 0`);
+    await db.execute(sql`ALTER TABLE mailbox_sync_runs ADD COLUMN IF NOT EXISTS sent_messages_unsorted INTEGER NOT NULL DEFAULT 0`);
+    await db.execute(sql`ALTER TABLE mailbox_sync_runs ADD COLUMN IF NOT EXISTS sent_messages_discarded INTEGER NOT NULL DEFAULT 0`);
 
     console.log("Email sync tables migration complete");
   } catch (error) {

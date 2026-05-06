@@ -15,7 +15,10 @@ interface SendEmailOptions {
 }
 
 interface SendEmailResult {
+  /** RFC Message-ID header value (e.g. <abc@highplains.crm>) — stored as providerMessageId for dedup */
   messageId: string;
+  /** Gmail's internal message ID — useful for deep-linking but NOT used as dedup key */
+  gmailId: string;
   threadId: string;
 }
 
@@ -49,10 +52,10 @@ function formatAddressWithName(displayName: string | null | undefined, email: st
 
 function buildMimeMessage(
   from: string,
-  opts: SendEmailOptions
+  opts: SendEmailOptions,
+  rfcMessageId: string
 ): string {
   const boundary = `boundary_${randomBytes(12).toString("hex")}`;
-  const messageId = `<${randomBytes(16).toString("hex")}@highplains.crm>`;
   const date = new Date().toUTCString();
 
   const headers = [
@@ -62,7 +65,7 @@ function buildMimeMessage(
     opts.bcc?.length ? `Bcc: ${opts.bcc.join(", ")}` : null,
     `Subject: ${encodeHeaderValue(opts.subject)}`,
     `Date: ${date}`,
-    `Message-ID: ${messageId}`,
+    `Message-ID: ${rfcMessageId}`,
     `MIME-Version: 1.0`,
   ].filter(Boolean);
 
@@ -122,7 +125,9 @@ export async function sendEmail(
 
   const fromAddress = formatAddressWithName(account.displayName, account.emailAddress);
 
-  const mimeMessage = buildMimeMessage(fromAddress, opts);
+  // Generate RFC Message-ID before building MIME — this is what gets stored as providerMessageId
+  const rfcMessageId = `<${randomBytes(16).toString("hex")}@highplains.crm>`;
+  const mimeMessage = buildMimeMessage(fromAddress, opts, rfcMessageId);
   const encodedMessage = base64urlEncode(mimeMessage);
 
   try {
@@ -132,7 +137,8 @@ export async function sendEmail(
     });
 
     return {
-      messageId: response.data.id ?? "",
+      messageId: rfcMessageId,                 // RFC Message-ID — used as providerMessageId for dedup
+      gmailId: response.data.id ?? "",         // Gmail internal ID — reference only
       threadId: response.data.threadId ?? "",
     };
   } catch (err: unknown) {

@@ -376,6 +376,7 @@ export interface IStorage {
   // Communications
   getCommunications(companyId: string, filters?: { view?: string; customerId?: string; type?: string; sentById?: string; search?: string; startDate?: Date; endDate?: Date; status?: string; fromDate?: string; toDate?: string; threadId?: string }, scope?: VisibleMailboxes): Promise<CommunicationWithDetails[]>;
   getCommunicationById(id: string, companyId: string): Promise<CommunicationWithDetails | undefined>;
+  getCommunicationByProviderMessageId(companyId: string, providerMessageId: string): Promise<Communication | null>;
   createCommunication(communication: InsertCommunication): Promise<Communication>;
   updateCommunication(id: string, companyId: string, updates: Partial<InsertCommunication>): Promise<Communication | undefined>;
   deleteCommunication(id: string, companyId: string): Promise<void>;
@@ -3707,6 +3708,14 @@ export class PgStorage implements IStorage {
     }
 
     return result;
+  }
+
+  async getCommunicationByProviderMessageId(companyId: string, providerMessageId: string): Promise<Communication | null> {
+    const [row] = await db.select()
+      .from(communications)
+      .where(and(eq(communications.companyId, companyId), eq(communications.providerMessageId, providerMessageId)))
+      .limit(1);
+    return row ?? null;
   }
 
   async getCommunicationById(id: string, companyId: string): Promise<CommunicationWithDetails | undefined> {

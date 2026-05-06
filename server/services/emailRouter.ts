@@ -8,6 +8,7 @@ export interface ParsedMessage {
   fromAddress: string;
   fromName?: string;
   toAddresses: string[];
+  ccAddresses?: string[];
   subject: string;
   bodyText: string;
   bodyHtml?: string;
@@ -30,28 +31,39 @@ export interface RoutingResult {
   routingNotes?: string;
 }
 
+export interface RouteMessageOpts {
+  direction?: "inbound" | "outbound";
+}
+
 /**
  * Deterministic 4-tier routing ladder.
  * Returns a RoutingResult indicating how the message should be stored.
  * No sensitive content (addresses, bodies) is logged — only IDs and counts.
+ *
+ * @param opts.direction - "inbound" (default): match on fromAddress (customer sent to mailbox).
+ *                         "outbound": match on toAddresses/ccAddresses (mailbox sent to customer).
  */
-export async function routeMessage(companyId: string, msg: ParsedMessage): Promise<RoutingResult> {
-  // ── Tier 1: Exact email address match against contacts.emails ──────────────
-  // For inbound: match fromAddress (the customer's sender address).
-  // For outbound (sent-elsewhere): fromAddress is the mailbox owner, so we
-  // also check toAddresses — the customer is in the recipient list.
-  // We exclude the mailbox's own address from all candidates to avoid false
-  // positives when the mailbox address appears in a contact record.
+export async function routeMessage(companyId: string, msg: ParsedMessage, opts: RouteMessageOpts = {}): Promise<RoutingResult> {
+  const direction = opts.direction ?? "inbound";
   const mailboxLower = (msg.mailboxEmailAddress ?? "").toLowerCase().trim();
-  const participantAddresses = [msg.fromAddress, ...msg.toAddresses]
-    .map(a => a.toLowerCase().trim())
-    .filter(a => a && a !== mailboxLower);
-  const uniqueParticipants = [...new Set(participantAddresses)];
+
+  // ── Tier 1: Exact email address match against contacts.emails ──────────────
+  // For inbound: the customer is the sender — match fromAddress.
+  // For outbound: the mailbox is the sender (excluded), customer is a recipient — match toAddresses + ccAddresses.
+  const tier1Candidates: string[] =
+    direction === "outbound"
+      ? [...(msg.toAddresses ?? []), ...(msg.ccAddresses ?? [])]
+          .map(a => a.toLowerCase().trim())
+          .filter(a => a && a !== mailboxLower)
+      : [msg.fromAddress]
+          .map(a => a.toLowerCase().trim())
+          .filter(a => a && a !== mailboxLower);
+
+  const uniqueTier1 = [...new Set(tier1Candidates)];
 
   let tier1CustomerIds: string[] = [];
-  if (uniqueParticipants.length > 0) {
-    // Build an OR of per-address containment checks
-    const addressConditions = uniqueParticipants.map(
+  if (uniqueTier1.length > 0) {
+    const addressConditions = uniqueTier1.map(
       addr => sql`lower(${contacts.emails}::text)::text[] @> ARRAY[${addr}]::text[]`
     );
     const contactRows = await db
