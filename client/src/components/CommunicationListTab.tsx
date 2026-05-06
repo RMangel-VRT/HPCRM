@@ -196,6 +196,31 @@ interface CommRowProps {
   indent?: boolean;
 }
 
+function SourceBadge({ comm }: { comm: CommunicationWithDetails }) {
+  const { t } = useTranslation();
+  if (!comm.mailboxAccountId) return null;
+  if (comm.direction === "outbound") {
+    return (
+      <Badge
+        variant="secondary"
+        className="text-xs shrink-0 bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-400"
+        data-testid={`badge-via-gmail-${comm.id}`}
+      >
+        {t("emailTracking.viaGmailBadge")}
+      </Badge>
+    );
+  }
+  return (
+    <Badge
+      variant="secondary"
+      className="text-xs shrink-0 bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-400"
+      data-testid={`badge-inbox-sync-${comm.id}`}
+    >
+      {t("emailTracking.inboxSyncBadge")}
+    </Badge>
+  );
+}
+
 function CommRow({ comm, onClick, indent }: CommRowProps) {
   const timestamp = comm.receivedAt ?? comm.sentAt ?? comm.createdAt;
   const fromAddr = comm.fromAddress ?? comm.sentByName;
@@ -209,11 +234,12 @@ function CommRow({ comm, onClick, indent }: CommRowProps) {
         <DirectionIcon direction={comm.direction} />
       </TableCell>
       <TableCell>
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 flex-wrap">
           <Mail className="w-4 h-4 text-muted-foreground shrink-0" />
           <span className="font-medium text-sm truncate max-w-[200px]" data-testid={`text-comm-subject-${comm.id}`}>
             {comm.subject}
           </span>
+          <SourceBadge comm={comm} />
         </div>
       </TableCell>
       <TableCell className="hidden sm:table-cell">
@@ -714,6 +740,16 @@ export default function CommunicationListTab({ queryKey, customerId }: Communica
                   <div className="flex items-center gap-1.5" data-testid="text-detail-direction">
                     <DirectionIcon direction={selectedComm.direction} />
                     <span className="capitalize">{selectedComm.direction ?? "—"}</span>
+                  </div>
+                </div>
+                <div>
+                  <p className="text-muted-foreground font-medium mb-1">{t("emailTracking.fieldSource")}</p>
+                  <div data-testid="text-detail-source">
+                    {selectedComm.mailboxAccountId ? (
+                      <SourceBadge comm={selectedComm} />
+                    ) : (
+                      <span className="text-sm">{t("emailTracking.sourceCrm")}</span>
+                    )}
                   </div>
                 </div>
                 <div>
