@@ -15,6 +15,7 @@ import {
 import { Separator } from "@/components/ui/separator";
 import {
   ArrowDownLeft,
+  ArrowUpRight,
   Archive,
   AlertTriangle,
   Search,
@@ -35,6 +36,7 @@ import { Link } from "wouter";
 import MailboxViewAsPicker from "@/components/customer/communications/MailboxViewAsPicker";
 
 type StatusFilter = "all" | "pending" | "routed" | "archived" | "spam";
+type DirectionFilter = "all" | "inbound" | "outbound";
 
 interface CompanyUser {
   id: string;
@@ -333,6 +335,12 @@ function EmailDetailPane({ email, users, onClose }: EmailDetailPaneProps) {
               <span className="font-medium text-foreground">{t("emailTracking.fromLabel")}: </span>
               {email.fromName ? `${email.fromName} <${email.fromAddress}>` : email.fromAddress}
             </p>
+            {email.direction === "outbound" && (email.toAddresses ?? []).length > 0 && (
+              <p className="text-muted-foreground" data-testid="text-detail-to">
+                <span className="font-medium text-foreground">{t("emailTracking.toAddresses")}: </span>
+                {(email.toAddresses ?? []).join(", ")}
+              </p>
+            )}
             {email.receivedAt && (
               <p className="text-muted-foreground">
                 <span className="font-medium text-foreground">{t("emailTracking.receivedLabel")}: </span>
@@ -452,8 +460,13 @@ function EmailListItem({
   onClick: () => void;
   assignedUserName?: string;
 }) {
+  const { t } = useTranslation();
   const timestamp = email.receivedAt ? new Date(email.receivedAt) : null;
   const badge = useStatusBadge(email.status);
+  const isOutbound = email.direction === "outbound";
+  const primaryAddress = isOutbound
+    ? ((email.toAddresses ?? []).length > 0 ? (email.toAddresses ?? [])[0] : email.fromAddress)
+    : (email.fromName ? `${email.fromName} <${email.fromAddress}>` : email.fromAddress);
 
   return (
     <div
@@ -462,7 +475,10 @@ function EmailListItem({
       data-testid={`item-email-${email.id}`}
     >
       <div className="flex items-start gap-2">
-        <ArrowDownLeft className="w-3.5 h-3.5 text-blue-500 mt-0.5 shrink-0" />
+        {isOutbound
+          ? <ArrowUpRight className="w-3.5 h-3.5 text-emerald-500 mt-0.5 shrink-0" />
+          : <ArrowDownLeft className="w-3.5 h-3.5 text-blue-500 mt-0.5 shrink-0" />
+        }
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-1.5 flex-wrap">
             <span className="text-sm font-medium truncate" data-testid={`text-email-subject-${email.id}`}>
@@ -477,7 +493,11 @@ function EmailListItem({
             )}
           </div>
           <p className="text-xs text-muted-foreground truncate" data-testid={`text-email-from-${email.id}`}>
-            {email.fromName ? `${email.fromName} <${email.fromAddress}>` : email.fromAddress}
+            <span className="font-medium">{isOutbound ? t("emailTracking.toAddresses") : t("emailTracking.fromLabel")}:</span>{" "}
+            {primaryAddress}
+            {isOutbound && (email.toAddresses ?? []).length > 1 && (
+              <span className="ml-1 text-muted-foreground/70">+{(email.toAddresses ?? []).length - 1}</span>
+            )}
           </p>
           {email.bodyText && (
             <p className="text-xs text-muted-foreground line-clamp-1 mt-0.5">{email.bodyText.slice(0, 100)}</p>
@@ -510,6 +530,7 @@ interface SyncSummary {
 export default function UnsortedInboxPage() {
   const { t } = useTranslation();
   const [statusFilter, setStatusFilter] = useState<StatusFilter>("pending");
+  const [directionFilter, setDirectionFilter] = useState<DirectionFilter>("all");
   const [mailboxFilter, setMailboxFilter] = useState("");
   const [assignedToFilter, setAssignedToFilter] = useState("");
   const [searchQuery, setSearchQuery] = useState("");
@@ -517,10 +538,11 @@ export default function UnsortedInboxPage() {
   const [viewAs, setViewAs] = useState<string>("");
 
   const { data: emails = [], isLoading } = useQuery<UnsortedEmail[]>({
-    queryKey: ["/api/unsorted-emails", statusFilter, mailboxFilter, assignedToFilter, viewAs],
+    queryKey: ["/api/unsorted-emails", statusFilter, directionFilter, mailboxFilter, assignedToFilter, viewAs],
     queryFn: async () => {
       const params = new URLSearchParams();
       if (statusFilter !== "all") params.set("status", statusFilter);
+      if (directionFilter !== "all") params.set("direction", directionFilter);
       if (mailboxFilter) params.set("mailboxAccountId", mailboxFilter);
       if (assignedToFilter) params.set("assignedToUserId", assignedToFilter);
       if (viewAs) params.set("viewAs", viewAs);
@@ -552,12 +574,16 @@ export default function UnsortedInboxPage() {
   });
 
   const filteredEmails = searchQuery
-    ? emails.filter(e =>
-        e.subject.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        e.fromAddress.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        (e.fromName ?? "").toLowerCase().includes(searchQuery.toLowerCase()) ||
-        (e.bodyText ?? "").toLowerCase().includes(searchQuery.toLowerCase())
-      )
+    ? emails.filter(e => {
+        const q = searchQuery.toLowerCase();
+        return (
+          e.subject.toLowerCase().includes(q) ||
+          e.fromAddress.toLowerCase().includes(q) ||
+          (e.fromName ?? "").toLowerCase().includes(q) ||
+          (e.bodyText ?? "").toLowerCase().includes(q) ||
+          (e.toAddresses ?? []).some(addr => addr.toLowerCase().includes(q))
+        );
+      })
     : emails;
 
   const pendingCount = emails.filter(e => e.status === "pending").length;
@@ -659,6 +685,25 @@ export default function UnsortedInboxPage() {
             )}
           </div>
           <div className="flex-1" />
+          {/* Direction toggle */}
+          <div className="flex items-center rounded-md border overflow-hidden" data-testid="toggle-direction-filter">
+            {(["all", "inbound", "outbound"] as DirectionFilter[]).map((dir) => (
+              <button
+                key={dir}
+                onClick={() => { setDirectionFilter(dir); setSelectedEmail(null); }}
+                data-testid={`button-direction-${dir}`}
+                className={`flex items-center gap-1 px-2.5 py-1 text-xs font-medium transition-colors border-r last:border-r-0 ${
+                  directionFilter === dir
+                    ? "bg-muted text-foreground"
+                    : "text-muted-foreground hover:bg-muted/50"
+                }`}
+              >
+                {dir === "inbound" && <ArrowDownLeft className="w-3 h-3 text-blue-500" />}
+                {dir === "outbound" && <ArrowUpRight className="w-3 h-3 text-emerald-500" />}
+                {dir === "all" ? t("emailTracking.allDirections") : dir === "inbound" ? t("emailTracking.directionInbound") : t("emailTracking.directionOutbound")}
+              </button>
+            ))}
+          </div>
           <div className="relative w-52">
             <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-muted-foreground" />
             <Input

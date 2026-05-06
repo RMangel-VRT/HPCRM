@@ -148,7 +148,7 @@ router.post("/:id/route", async (req, res) => {
       customerId,
       sentById: user.id,
       type: "email",
-      direction: "inbound",
+      direction: email.direction ?? "inbound",
       status: "sent",
       followUpStatus: "none",
       subject: email.subject,
