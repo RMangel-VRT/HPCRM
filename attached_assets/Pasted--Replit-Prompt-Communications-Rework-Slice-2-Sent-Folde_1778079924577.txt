@@ -1,0 +1,162 @@
+# Replit Prompt — Communications Rework, Slice 2 (Sent-Folder Sync + Outbound Routing + Message-ID Dedup)
+
+## Context
+
+Slice 1 of the Communications rework added per-user scoping to the list endpoints. The CRM now correctly filters who sees what. This is **Slice 2 of 4**. Goal: capture outbound mail that originates outside the CRM (e.g., a salesperson replies to a customer directly in Gmail) and bring it into the same routing pipeline that handles inbound, so both directions land in the `communications` table and show up everywhere we already display communications.
+
+Currently `server/services/emailSyncService.ts` only fetches Gmail's `INBOX`. CRM-sent emails go through `server/services/gmailSender.ts`, which writes a `communications` row directly with `direction = "outbound"` and `providerMessageId` set. Anything sent in Gmail without going through the CRM is invisible to the app.
+
+This slice extends the sync to also pull from Gmail's `SENT` system label, dedupes against existing CRM-sent communications by `Message-ID`, and routes the rest through the same `routeMessage()` ladder (with one direction-aware tweak).
+
+## What gets pulled, what gets stored
+
+Per fetched message, in addition to the existing inbound rules:
+
+1. **Outbound, already in DB (sent by CRM)**: `providerMessageId` matches an existing `communications.providerMessageId` → skip, increment `messagesDeduped` on the sync run, do nothing else.
+2. **Outbound, routed**: routing ladder produces a confident customer match → insert into `communications` with `direction = "outbound"`, `mailboxAccountId = <syncing mailbox>`, `sentById = mailbox.ownerUserId` (if set, else NULL), `routingMethod` from the router.
+3. **Outbound, unsorted**: CRM-relevant signal but ambiguous → insert into `unsorted_emails` with `direction = "outbound"` (new column — see schema changes).
+4. **Outbound, discarded**: no CRM signal → drop, increment `messagesDiscarded`.
+
+## Schema changes
+
+### `unsorted_emails` — new column
+
+Add `direction` so the unsorted UI can group inbound vs outbound:
+
+```ts
+direction: text("direction").notNull().$type<"inbound" | "outbound">().default("inbound"),
+```
+
+Migration:
+
+```sql
+ALTER TABLE unsorted_emails
+  ADD COLUMN IF NOT EXISTS direction TEXT NOT NULL DEFAULT 'inbound';
+```
+
+Update `insertUnsortedEmailSchema` and types.
+
+### `mailbox_accounts` — new column
+
+`gmailHistoryId` already exists for the inbox cursor. Add a separate cursor for the SENT label so the two streams are independent:
+
+```ts
+gmailSentHistoryId: text("gmail_sent_history_id"),
+```
+
+Migration:
+
+```sql
+ALTER TABLE mailbox_accounts
+  ADD COLUMN IF NOT EXISTS gmail_sent_history_id TEXT;
+```
+
+(Gmail's History API is account-wide, not per-label, but tracking a separate cursor lets us back off the SENT pull cadence independently if rate limits become an issue. We'll use the same `gmailHistoryId` value for both streams initially; the column exists for future flexibility.)
+
+### `mailbox_sync_runs` — new column
+
+```ts
+sentMessagesFetched: integer("sent_messages_fetched").notNull().default(0),
+sentMessagesRouted: integer("sent_messages_routed").notNull().default(0),
+sentMessagesDeduped: integer("sent_messages_deduped").notNull().default(0),
+sentMessagesUnsorted: integer("sent_messages_unsorted").notNull().default(0),
+sentMessagesDiscarded: integer("sent_messages_discarded").notNull().default(0),
+```
+
+Migration: ALTER TABLE with `IF NOT EXISTS` for each.
+
+## Service changes
+
+### `server/services/emailSyncService.ts`
+
+Add a sibling fetcher to the existing `fetchGmailMessages()`. Pseudocode:
+
+```ts
+async function fetchGmailSentMessages(
+  mailboxAccount: MailboxAccount,
+  oauthClient: GmailOAuthClient,
+): Promise<GmailMessage[]> {
+  // Use the same History API path when a cursor exists; otherwise fall back to:
+  //   q = `in:sent after:${lastSyncedAt - 1day}`
+  // and `labelIds = ["SENT"]`
+}
+```
+
+Update `syncMailbox()` to call **both** `fetchGmailMessages()` (INBOX) and `fetchGmailSentMessages()` (SENT) in sequence, accumulating into the same per-run counters but tracking the SENT-side counts in the new `sent_*` columns on `mailbox_sync_runs`.
+
+For each SENT message:
+1. **Dedup check**: query `communications` for `providerMessageId = msg.gmailMessageId` AND `companyId = mailbox.companyId`. If found, skip.
+2. **Self-bounce check**: if `From` address belongs to a mailbox in the same company (a colleague's mailbox), skip — the inbound side will or did handle it.
+3. **Route via `routeMessage(msg, { direction: "outbound" })`** — see router change below.
+4. Persist according to result type (routed / unsorted / discarded).
+
+Store the `Message-ID` header (RFC 5322) in `communications.providerMessageId` for SENT messages — Gmail's `id` is internal, but the `Message-ID` header is the durable cross-system identifier and matches what `gmailSender.ts` already writes when sending. Verify `gmailSender.ts` writes the header value and not the Gmail internal id; if not, adjust it as part of this slice. (Both should be stored — add a `providerInternalId` column if needed, but `providerMessageId` should always be the RFC `Message-ID`.)
+
+### `server/services/emailRouter.ts`
+
+`routeMessage(msg, opts)` already takes the message. Add `opts.direction: "inbound" | "outbound"` (default `"inbound"`). Behavior changes:
+
+- **Tier 1 (email match)**: for inbound, match `msg.from` against `contacts.email`. For outbound, match each address in `msg.to + msg.cc` against `contacts.email`. If exactly one customer matches, route to that customer.
+- **Tier 2 (thread match)**: unchanged — same `providerThreadId` / `In-Reply-To` lookup, regardless of direction.
+- **Tier 3 (content match)**: unchanged.
+- **Discard**: same.
+
+Add a unit test for outbound routing: a Gmail-direct reply to a known customer's contact email should produce `routed` with `routingMethod = "email_match"`.
+
+### `server/services/gmailSender.ts`
+
+Confirm the writeback after sending:
+- `providerMessageId` = the RFC `Message-ID` header (NOT Gmail's internal id).
+- `direction = "outbound"`.
+- `mailboxAccountId` = the sending mailbox.
+- `sentById` = the user who triggered the send.
+
+If any of these are missing or wrong, fix them in this slice. Add a test that sends through `gmailSender` and then re-running the sync deduplicates the same message instead of creating a duplicate communication.
+
+## Storage changes
+
+`server/storage.ts`:
+- `getCommunicationByProviderMessageId(companyId: string, providerMessageId: string): Promise<Communication | null>` — used by the dedup check. Already may exist; verify.
+- `createUnsortedEmail()` — accept `direction` field.
+- Any communication creation paths used from sync should accept `mailboxAccountId` and pass it through.
+
+## API changes
+
+`GET /api/unsorted-emails` should now accept `direction` query param (`"inbound" | "outbound" | "all"`, default `"all"`), and `getUnsortedEmails` should filter accordingly. The frontend Unsorted tab in Slice 3 will use this.
+
+No new endpoints in this slice.
+
+## Sync cadence
+
+- Keep the 60-second worker tick (`syncAllMailboxes`).
+- INBOX and SENT are pulled in the same sync run (sequential calls, single `mailbox_sync_runs` row).
+- If SENT pull errors but INBOX succeeds, the run status is `partial`.
+
+## Acceptance checklist
+
+- [ ] `unsorted_emails.direction` and `mailbox_accounts.gmail_sent_history_id` exist.
+- [ ] `mailbox_sync_runs` has `sent_*` counters.
+- [ ] A user replies to `customer@foo.com` directly in Gmail. Within ~60 seconds, a row appears in `communications` with `direction = "outbound"`, `mailboxAccountId` set, `customerId` set (if `customer@foo.com` is on a contact), and `routingMethod = "email_match"`.
+- [ ] An email sent through the CRM (`gmailSender`) does NOT get duplicated when the sync runs and pulls it from the SENT folder.
+- [ ] Outbound mail with no matchable recipient → goes to `unsorted_emails` with `direction = "outbound"`.
+- [ ] Outbound mail to a personal address (no CRM signal) → discarded.
+- [ ] `routeMessage` unit tests cover both inbound and outbound paths.
+- [ ] Sync run errors on SENT side mark the run as `partial`, not `error`, when INBOX succeeded.
+
+## Files touched
+
+- `shared/schema.ts`
+- `server/services/emailSyncService.ts`
+- `server/services/emailRouter.ts`
+- `server/services/gmailSender.ts` (verify-and-fix)
+- `server/services/emailRouter.test.ts` (new tests for outbound)
+- `server/storage.ts`
+- `server/routes/unsortedEmails.ts` — accept `direction` filter
+- Migrations file (`server/index.ts` or `server/routes.ts` startup migration block)
+
+## Things to NOT change in this slice
+
+- Per-user scoping rule from Slice 1 — already applied at the API layer; sync writes are server-side and don't go through it (correct).
+- The Communications page UI — Slice 3.
+- LLM routing — still out of scope.
+- Pub/Sub — still polling.

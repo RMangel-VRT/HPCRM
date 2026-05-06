@@ -1,0 +1,77 @@
+# Communications Rework — Plan
+
+## Why we're doing this
+
+Gmail mailbox sync is now working, but the result is split across two pages with confusing scope:
+
+- `CommunicationsCenter.tsx` shows the global `communications` table — admin/office only.
+- `UnsortedInboxPage.tsx` shows ambiguous Gmail mail waiting for triage — also admin/office only, also global.
+- Outbound mail sent through Gmail directly (not through the CRM) is invisible.
+- There is no per-user view; every admin/office user sees every mailbox's mail.
+
+This rework collapses everything into one Communications page with secondary navigation, scopes views per user with role-based defaults, and treats outbound mail the same way we treat inbound mail (sync, dedupe, route).
+
+## Target architecture
+
+### Mailbox ownership
+`mailbox_accounts` already has `accountType` (`personal` | `shared`) and `ownerUserId`. We treat:
+- `personal` mailboxes — visible to the owner; admins can switch to other users' mailboxes via a viewer.
+- `shared` mailboxes — visible to a configured set of users (admin/office by default).
+
+### Role-based defaults
+Default visibility on the Communications page:
+- `admin`, `office`: see all mailboxes for the company; `viewAs` selector defaults to "All".
+- `field_manager`, `chemical_manager`, `irrigation_manager`, `shop_manager`, `landscape_supervisor`, `mapping`: see all mailboxes by default but with the `viewAs` selector visible.
+- `field`: sees only their own mailbox (if any).
+
+These defaults can be overridden per-role in `settings` (future slice if needed).
+
+### Sent folder sync
+`server/services/emailSyncService.ts` currently pulls Gmail `INBOX`. We extend it to also fetch from the `SENT` label, dedupe each message by Gmail `Message-ID` against the existing `communications.providerMessageId`, and route the rest through the same `routeMessage()` ladder. This catches emails composed in Gmail directly so they appear in the Communications page like CRM-sent ones.
+
+### Single Communications page with sub-tabs
+`/dashboard/communications` becomes the only entry point. Secondary nav:
+- **Inbox** — inbound, current user's scope (or admin's selected scope)
+- **Sent** — outbound, current user's scope
+- **Unsorted** — the unsorted-emails triage queue, scoped the same way
+- **All Communications** — the existing global filtered list (status, customer, type, etc.) — admins/office only
+
+`UnsortedInboxPage` and any standalone "unsorted" routes redirect into this page's `Unsorted` tab. The page holds shared state (date range, viewAs, search) so switching tabs doesn't lose context.
+
+## Slices
+
+This is split into 4 sequenced Replit prompts:
+
+1. **Slice 1 — Per-user mailbox scoping & role-based visibility.** Backend-first. Add `viewerUserId` filtering to the existing `/api/communications`, `/api/unsorted-emails`, and `/api/mailbox-accounts` endpoints. No UI changes yet beyond passing the new query params; existing pages keep working.
+2. **Slice 2 — Sent folder sync + outbound routing + Message-ID dedup.** Extends `emailSyncService` to pull `SENT`, treats outbound the same as inbound through the router, dedupes against existing CRM-sent records.
+3. **Slice 3 — Unified Communications page with secondary nav.** Frontend rewrite. New `CommunicationsCenter.tsx` shell with four sub-tabs that consume the per-user APIs from Slice 1.
+4. **Slice 4 — Deprecate old standalone routes & cleanup.** Redirect `/dashboard/communications/unsorted` to the new Unsorted tab, remove dead code, update the sidebar.
+
+Each slice is self-contained, ships independently, and leaves the app in a working state.
+
+## Files we'll touch
+
+Backend
+- `shared/schema.ts` — minor: add `defaultMailboxRoleVisibility` column to `settings` (Slice 1) and confirm `mailbox_accounts.ownerUserId` is populated for personal accounts
+- `server/storage.ts` — add `getCommunications` / `getUnsortedEmails` / `getMailboxAccounts` overloads that take `viewerUserId` + role
+- `server/routes.ts` (`/api/communications`) — accept and apply scoping
+- `server/routes/unsortedEmails.ts` — accept and apply scoping
+- `server/routes/mailboxAccounts.ts` — accept and apply scoping
+- `server/services/emailSyncService.ts` — pull `SENT`, route outbound, dedupe by Message-ID
+- `server/services/emailRouter.ts` — accept `direction: "inbound" | "outbound"` and skip `Tier 1: contact match` for outbound (use recipient address instead of sender)
+
+Frontend
+- `client/src/pages/CommunicationsCenter.tsx` — rewrite as shell with sub-tabs
+- `client/src/pages/UnsortedInboxPage.tsx` — extract its body into a `<UnsortedTab />` component
+- `client/src/components/customer/communications/InboxTab.tsx` — new
+- `client/src/components/customer/communications/SentTab.tsx` — new
+- `client/src/components/customer/communications/AllCommunicationsTab.tsx` — extracted from current `CommunicationsCenter`
+- `client/src/App.tsx` — add `field` role to `allowedRoles` for the Communications routes; redirect old routes
+- Sidebar component — collapse "Communications" + "Unsorted Inbox" entries into a single "Communications" entry
+
+## Out of scope
+
+- Pub/Sub push notifications (still polling)
+- LLM-based routing (Slice 3.5 of the original email-tracking plan)
+- Cross-mailbox conflict resolution (e.g., two users connect the same Gmail account)
+- Mobile-optimized layout for the new page (keep what we have)
