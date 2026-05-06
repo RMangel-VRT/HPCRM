@@ -19,6 +19,16 @@ const fakeAccount = {
   ownerUserId: null,
 };
 
+const fakePersonalAccount = {
+  id: "mailbox-2",
+  companyId: "company-1",
+  emailAddress: "personal@example.com",
+  syncErrorCount: 0,
+  syncStatus: "not_connected",
+  accountType: "personal",
+  ownerUserId: "user-1",
+};
+
 const mockSelectWhere = vi.fn().mockResolvedValue([fakeAccount]);
 const mockSelectFrom = vi.fn(() => ({ where: mockSelectWhere }));
 const mockSelect = vi.fn(() => ({ from: mockSelectFrom }));
@@ -53,13 +63,16 @@ vi.mock("../services/emailSyncService", () => ({
 
 // ── Shared schema — minimal structural stand-in ────────────────────────────────
 vi.mock("@shared/schema", () => ({
-  mailboxAccounts: { id: "id", companyId: "companyId" },
+  mailboxAccounts: { id: "id", companyId: "companyId", emailAddress: "emailAddress", accountType: "accountType", ownerUserId: "ownerUserId" },
   mailboxSyncRuns: {},
   unsortedEmails: {},
   communications: {},
   insertMailboxAccountSchema: {
     parse: (x: unknown) => x,
     safeParse: (x: unknown) => ({ success: true, data: x }),
+    pick: () => ({
+      safeParse: (x: unknown) => ({ success: true, data: x }),
+    }),
   },
 }));
 
@@ -69,28 +82,49 @@ vi.mock("drizzle-orm", () => ({
   and: (...args: unknown[]) => args,
   desc: (col: unknown) => col,
   gte: (col: unknown, val: unknown) => ({ col, val }),
-  sql: (strings: TemplateStringsArray) => strings.join(""),
+  sql: Object.assign(
+    (strings: TemplateStringsArray, ...values: unknown[]) => ({ strings, values }),
+    { join: vi.fn() }
+  ),
+  inArray: (col: unknown, vals: unknown) => ({ col, vals }),
+}));
+
+// ── mailboxScope service ───────────────────────────────────────────────────────
+vi.mock("../services/mailboxScope", () => ({
+  resolveVisibleMailboxes: vi.fn().mockResolvedValue({ mailboxIds: null }),
+  MailboxScopeForbiddenError: class MailboxScopeForbiddenError extends Error {},
+}));
+
+// ── mailboxBackfillService ─────────────────────────────────────────────────────
+vi.mock("../services/mailboxBackfillService", () => ({
+  startBackfill: vi.fn(),
+  requestCancel: vi.fn(),
+  getActiveBackfill: vi.fn(),
+  getBackfillHistory: vi.fn(),
 }));
 
 // ── Build a minimal Express app that mounts the router ────────────────────────
-async function buildApp() {
+async function buildApp(overrides: {
+  user?: Record<string, unknown>;
+  sessionExtra?: Record<string, unknown>;
+} = {}) {
   // Import AFTER mocks are registered
   const { default: router } = await import("./mailboxAccounts");
   const app = express();
   app.use(express.json());
 
-  // Inject a pre-authenticated user and a valid CSRF session state
   app.use((req, _res, next) => {
-    (req as express.Request & { user?: unknown }).user = {
+    (req as express.Request & { user?: unknown }).user = overrides.user ?? {
       id: "user-1",
+      name: "Test User",
       activeCompanyId: "company-1",
       activeRole: "admin",
       isSuperAdminBool: false,
     };
-    // Provide a session with the matching CSRF random part and mailbox id
     (req as express.Request & { session: Record<string, unknown> }).session = {
       oauthState: "random-csrf-token",
       oauthMailboxId: "mailbox-1",
+      ...(overrides.sessionExtra ?? {}),
     };
     next();
   });
@@ -99,14 +133,13 @@ async function buildApp() {
   return app;
 }
 
-// ── Tests ──────────────────────────────────────────────────────────────────────
+// ── Tests: existing reconnect behavior ────────────────────────────────────────
 describe("OAuth callback reconnect — syncErrorCount reset", () => {
   let app: express.Express;
 
   beforeEach(async () => {
     vi.clearAllMocks();
 
-    // Restore default mock return values after clearAllMocks
     mockSet.mockReturnValue({ where: mockWhere });
     mockUpdate.mockReturnValue({ set: mockSet });
     mockWhere.mockResolvedValue([]);
@@ -118,7 +151,6 @@ describe("OAuth callback reconnect — syncErrorCount reset", () => {
   });
 
   it("resets syncErrorCount to 0 on a successful reconnect from an errored state", async () => {
-    // The account has syncErrorCount=5 before the callback
     expect(fakeAccount.syncErrorCount).toBe(5);
 
     const response = await request(app)
@@ -128,15 +160,11 @@ describe("OAuth callback reconnect — syncErrorCount reset", () => {
         state: "mailbox-1:random-csrf-token",
       });
 
-    // Route should redirect on success
     expect(response.status).toBe(302);
-
-    // The db.update().set(...) must have been called exactly once
     expect(mockSet).toHaveBeenCalledOnce();
 
     const setPayload = mockSet.mock.calls[0][0] as Record<string, unknown>;
 
-    // Core assertion: reconnect explicitly resets the error counter
     expect(setPayload.syncErrorCount).toBe(0);
     expect(setPayload.syncStatus).toBe("connected");
     expect(setPayload.syncEnabled).toBe(true);
@@ -153,7 +181,6 @@ describe("OAuth callback reconnect — syncErrorCount reset", () => {
     expect(mockSet).toHaveBeenCalledOnce();
     const setPayload = mockSet.mock.calls[0][0] as Record<string, unknown>;
 
-    // If the key were absent, the DB column would keep its previous non-zero value
     expect(Object.prototype.hasOwnProperty.call(setPayload, "syncErrorCount")).toBe(true);
     expect(setPayload.syncErrorCount).toStrictEqual(0);
   });
@@ -169,9 +196,97 @@ describe("OAuth callback reconnect — syncErrorCount reset", () => {
         state: "mailbox-1:random-csrf-token",
       });
 
-    // On error the route returns 500, not a redirect
     expect(response.status).toBe(500);
-    // The update must NOT have been called — no partial write
+    expect(mockSet).not.toHaveBeenCalled();
+  });
+});
+
+// ── Tests: email mismatch — shared mailbox rejects ────────────────────────────
+describe("OAuth callback — shared mailbox rejects email mismatch", () => {
+  let app: express.Express;
+
+  beforeEach(async () => {
+    vi.clearAllMocks();
+    mockSet.mockReturnValue({ where: mockWhere });
+    mockUpdate.mockReturnValue({ set: mockSet });
+    mockWhere.mockResolvedValue([]);
+    mockSelectWhere.mockResolvedValue([fakeAccount]);
+    mockSelectFrom.mockReturnValue({ where: mockSelectWhere });
+    mockSelect.mockReturnValue({ from: mockSelectFrom });
+    app = await buildApp();
+  });
+
+  it("returns 400 with Email Mismatch page when shared mailbox email differs from connected Google account", async () => {
+    const { getUserEmail } = await import("../services/googleOAuth");
+    vi.mocked(getUserEmail).mockResolvedValueOnce("different@example.com");
+
+    const response = await request(app)
+      .get("/api/mailbox-accounts/oauth/callback")
+      .query({ code: "valid-auth-code", state: "mailbox-1:random-csrf-token" });
+
+    expect(response.status).toBe(400);
+    expect(response.text).toContain("Email Mismatch");
+    expect(mockSet).not.toHaveBeenCalled();
+  });
+});
+
+// ── Tests: personal mailbox auto-correct ──────────────────────────────────────
+describe("OAuth callback — personal mailbox auto-correct", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockSet.mockReturnValue({ where: mockWhere });
+    mockUpdate.mockReturnValue({ set: mockSet });
+    mockWhere.mockResolvedValue([]);
+    mockSelectFrom.mockReturnValue({ where: mockSelectWhere });
+    mockSelect.mockReturnValue({ from: mockSelectFrom });
+  });
+
+  it("auto-corrects emailAddress when personal mailbox owner signs in with a different (unclaimed) Gmail", async () => {
+    const { getUserEmail } = await import("../services/googleOAuth");
+    vi.mocked(getUserEmail).mockResolvedValueOnce("corrected@gmail.com");
+
+    // First select returns the personal account; second select (conflict check) returns empty
+    mockSelectWhere
+      .mockResolvedValueOnce([fakePersonalAccount])
+      .mockResolvedValueOnce([]);
+
+    const app = await buildApp({
+      sessionExtra: { oauthMailboxId: "mailbox-2" },
+    });
+
+    const response = await request(app)
+      .get("/api/mailbox-accounts/oauth/callback")
+      .query({ code: "valid-auth-code", state: "mailbox-2:random-csrf-token" });
+
+    // Should succeed (redirect)
+    expect(response.status).toBe(302);
+    expect(mockSet).toHaveBeenCalledOnce();
+
+    const setPayload = mockSet.mock.calls[0][0] as Record<string, unknown>;
+    // The auto-corrected email address must be saved
+    expect(setPayload.emailAddress).toBe("corrected@gmail.com");
+    expect(setPayload.syncStatus).toBe("connected");
+  });
+
+  it("rejects when the corrected email is already claimed by another mailbox in the company", async () => {
+    const { getUserEmail } = await import("../services/googleOAuth");
+    vi.mocked(getUserEmail).mockResolvedValueOnce("taken@gmail.com");
+
+    // First select returns the personal account; second select returns a conflicting row
+    mockSelectWhere
+      .mockResolvedValueOnce([fakePersonalAccount])
+      .mockResolvedValueOnce([{ id: "mailbox-conflict" }]);
+
+    const app = await buildApp({
+      sessionExtra: { oauthMailboxId: "mailbox-2" },
+    });
+
+    const response = await request(app)
+      .get("/api/mailbox-accounts/oauth/callback")
+      .query({ code: "valid-auth-code", state: "mailbox-2:random-csrf-token" });
+
+    expect(response.status).toBe(400);
+    expect(response.text).toContain("Email Conflict");
     expect(mockSet).not.toHaveBeenCalled();
   });
 });

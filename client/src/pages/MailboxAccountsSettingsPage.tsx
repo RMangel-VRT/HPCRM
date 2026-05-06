@@ -631,6 +631,242 @@ function GmailConnectButton({ account, autoOpenBackfill = false }: { account: Ma
   );
 }
 
+interface OversightViewAccount {
+  account: MailboxAccount;
+  owner: CompanyUser | null;
+  connectedEmail: string | null;
+  connectedAt: string | null;
+}
+
+function PersonalMailboxViewDialog({
+  item,
+  onClose,
+}: {
+  item: OversightViewAccount | null;
+  onClose: () => void;
+}) {
+  const { t } = useTranslation();
+  if (!item) return null;
+  const { account, owner, connectedEmail, connectedAt } = item;
+  return (
+    <Dialog open={!!item} onOpenChange={(v) => { if (!v) onClose(); }}>
+      <DialogContent data-testid="dialog-personal-mailbox-view">
+        <DialogHeader>
+          <DialogTitle>Personal mailbox details</DialogTitle>
+        </DialogHeader>
+        <div className="space-y-3 text-sm">
+          <div className="grid grid-cols-[130px_1fr] gap-y-2">
+            <span className="text-muted-foreground">Owner</span>
+            <span className="font-medium">{owner?.name ?? t("emailTracking.unknownUser")}</span>
+
+            <span className="text-muted-foreground">Owner email</span>
+            <span>{owner?.email ?? "—"}</span>
+
+            <span className="text-muted-foreground">Mailbox address</span>
+            <span>{account.emailAddress}</span>
+
+            {connectedEmail && connectedEmail.toLowerCase() !== account.emailAddress.toLowerCase() && (
+              <>
+                <span className="text-muted-foreground">Connected as</span>
+                <span>{connectedEmail}</span>
+              </>
+            )}
+
+            <span className="text-muted-foreground">Sync status</span>
+            <SyncStatusBadge status={account.syncStatus ?? "not_connected"} connectedEmail={connectedEmail} />
+
+            <span className="text-muted-foreground">Sync enabled</span>
+            <span>{account.syncEnabled ? "Yes" : "No"}</span>
+
+            {connectedAt && (
+              <>
+                <span className="text-muted-foreground">Connected</span>
+                <span>{formatDistanceToNow(new Date(connectedAt), { addSuffix: true })}</span>
+              </>
+            )}
+
+            <span className="text-muted-foreground">Last synced</span>
+            <span>
+              {account.lastSyncedAt
+                ? formatDistanceToNow(new Date(account.lastSyncedAt), { addSuffix: true })
+                : "Never"}
+            </span>
+
+            {(account.syncErrorCount ?? 0) > 0 && (
+              <>
+                <span className="text-muted-foreground">Error count</span>
+                <span className="text-destructive">{account.syncErrorCount}</span>
+              </>
+            )}
+          </div>
+        </div>
+        <DialogFooter>
+          <Button variant="outline" onClick={onClose} data-testid="button-close-mailbox-view">
+            {t("common.close")}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+function PersonalMailboxesOversightPanel() {
+  const { t } = useTranslation();
+  const { toast } = useToast();
+  const [open, setOpen] = useState(false);
+  const [viewItem, setViewItem] = useState<OversightViewAccount | null>(null);
+
+  const { data: allAccounts = [] } = useQuery<MailboxAccount[]>({
+    queryKey: ["/api/mailbox-accounts"],
+    enabled: open,
+  });
+
+  const { data: companyUsers = [] } = useQuery<CompanyUser[]>({
+    queryKey: ["/api/company-users"],
+    enabled: open,
+  });
+
+  const userMap = new Map(companyUsers.map(u => [u.id, u]));
+  const personalAccounts = allAccounts.filter(a => a.accountType === "personal");
+
+  const disconnectMutation = useMutation({
+    mutationFn: (id: string) => apiRequest("POST", `/api/mailbox-accounts/${id}/oauth/disconnect`, {}),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/mailbox-accounts"] });
+      toast({ title: t("emailTracking.gmailDisconnected") });
+    },
+    onError: () => toast({ title: t("emailTracking.gmailDisconnectError"), variant: "destructive" }),
+  });
+
+  return (
+    <div className="mt-6">
+      <button
+        className="flex w-full items-center gap-2 text-sm font-medium text-muted-foreground hover-elevate rounded-md px-2 py-1.5"
+        onClick={() => setOpen(!open)}
+        data-testid="button-personal-mailboxes-oversight-toggle"
+      >
+        {open ? <ChevronDown className="w-4 h-4 shrink-0" /> : <ChevronRight className="w-4 h-4 shrink-0" />}
+        <ShieldCheck className="w-4 h-4 shrink-0" />
+        Personal mailboxes (oversight)
+        {personalAccounts.length > 0 && (
+          <Badge variant="secondary" className="ml-1 text-xs">{personalAccounts.length}</Badge>
+        )}
+      </button>
+
+      {open && (
+        <Card className="mt-2">
+          <CardHeader className="pb-2">
+            <CardTitle className="text-sm font-medium text-muted-foreground">
+              Personal mailboxes across the company — read-only view
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="p-0">
+            {personalAccounts.length === 0 ? (
+              <p className="text-sm text-muted-foreground px-4 py-6 text-center">No personal mailboxes connected yet.</p>
+            ) : (
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>Owner</TableHead>
+                    <TableHead>Email / Connected as</TableHead>
+                    <TableHead>Status</TableHead>
+                    <TableHead>Last synced</TableHead>
+                    <TableHead className="text-right">Actions</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {personalAccounts.map((account) => {
+                    const owner = account.ownerUserId ? userMap.get(account.ownerUserId) ?? null : null;
+                    const tokenData = account.oauthTokenJson as Record<string, unknown> | null;
+                    const connectedEmail = (tokenData?.connected_email as string | undefined) ?? null;
+                    const connectedAt = (tokenData?.connected_at as string | undefined) ?? null;
+                    return (
+                      <TableRow key={account.id} data-testid={`row-personal-mailbox-oversight-${account.id}`}>
+                        <TableCell>
+                          <div>
+                            <p className="text-sm font-medium">{owner?.name ?? t("emailTracking.unknownUser")}</p>
+                            <p className="text-xs text-muted-foreground">{owner?.email ?? ""}</p>
+                          </div>
+                        </TableCell>
+                        <TableCell>
+                          <div>
+                            <p className="text-sm">{account.emailAddress}</p>
+                            {connectedEmail && connectedEmail.toLowerCase() !== account.emailAddress.toLowerCase() && (
+                              <p className="text-xs text-muted-foreground">as {connectedEmail}</p>
+                            )}
+                          </div>
+                        </TableCell>
+                        <TableCell>
+                          <SyncStatusBadge status={account.syncStatus ?? "not_connected"} connectedEmail={connectedEmail} />
+                        </TableCell>
+                        <TableCell>
+                          <span className="text-xs text-muted-foreground">
+                            {account.lastSyncedAt
+                              ? formatDistanceToNow(new Date(account.lastSyncedAt), { addSuffix: true })
+                              : "Never"}
+                          </span>
+                        </TableCell>
+                        <TableCell className="text-right">
+                          <div className="flex items-center justify-end gap-2">
+                            <Button
+                              size="sm"
+                              variant="ghost"
+                              className="gap-1 text-xs"
+                              onClick={() => setViewItem({ account, owner, connectedEmail, connectedAt })}
+                              data-testid={`button-admin-view-personal-${account.id}`}
+                            >
+                              View
+                            </Button>
+                            {account.syncStatus === "connected" && (
+                              <AlertDialog>
+                                <AlertDialogTrigger asChild>
+                                  <Button
+                                    size="sm"
+                                    variant="outline"
+                                    className="gap-1 text-xs"
+                                    disabled={disconnectMutation.isPending}
+                                    data-testid={`button-admin-disconnect-personal-${account.id}`}
+                                  >
+                                    <Link2Off className="w-3 h-3" />
+                                    Revoke
+                                  </Button>
+                                </AlertDialogTrigger>
+                                <AlertDialogContent>
+                                  <AlertDialogHeader>
+                                    <AlertDialogTitle>Revoke access?</AlertDialogTitle>
+                                    <AlertDialogDescription>
+                                      This will immediately disconnect {owner?.name ?? "this user"}'s mailbox ({connectedEmail ?? account.emailAddress}). Use this only for urgent revocations.
+                                    </AlertDialogDescription>
+                                  </AlertDialogHeader>
+                                  <AlertDialogFooter>
+                                    <AlertDialogCancel>{t("common.cancel")}</AlertDialogCancel>
+                                    <AlertDialogAction
+                                      onClick={() => disconnectMutation.mutate(account.id)}
+                                      data-testid={`button-confirm-admin-revoke-${account.id}`}
+                                    >
+                                      Revoke
+                                    </AlertDialogAction>
+                                  </AlertDialogFooter>
+                                </AlertDialogContent>
+                              </AlertDialog>
+                            )}
+                          </div>
+                        </TableCell>
+                      </TableRow>
+                    );
+                  })}
+                </TableBody>
+              </Table>
+            )}
+          </CardContent>
+        </Card>
+      )}
+
+      <PersonalMailboxViewDialog item={viewItem} onClose={() => setViewItem(null)} />
+    </div>
+  );
+}
+
 export default function MailboxAccountsSettingsPage() {
   const { t } = useTranslation();
   const { toast } = useToast();
@@ -841,6 +1077,7 @@ export default function MailboxAccountsSettingsPage() {
             </CardContent>
           </Card>
         )}
+        <PersonalMailboxesOversightPanel />
       </div>
       <MailboxFormDialog
         open={showForm}

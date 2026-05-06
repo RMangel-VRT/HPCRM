@@ -228,6 +228,12 @@ export default function AppSidebar({
   const crmItems = getCrmItems();
   const managementItems = getManagementItems();
 
+  const getMyAccountItems = (): NavItem[] => {
+    return [
+      { title: "My Mailbox", url: "/dashboard/settings/my-mailbox", icon: Mail },
+    ];
+  };
+
   const getAdminItems = (): NavItem[] => {
     if (isSuperAdmin) return [];
     const items: NavItem[] = [];
@@ -243,6 +249,8 @@ export default function AppSidebar({
     }
     return items;
   };
+
+  const myAccountItems = getMyAccountItems();
 
   const adminItems = getAdminItems();
 
@@ -347,6 +355,24 @@ export default function AppSidebar({
             <SidebarGroupLabel>{t("nav.management")}</SidebarGroupLabel>
             <SidebarMenu>
               {managementItems.map((item) => (
+                <SidebarMenuItem key={item.title}>
+                  <SidebarMenuButton asChild isActive={isActive(item.url)}>
+                    <Link href={item.url} data-testid={`link-${item.title.toLowerCase().replace(/\s+/g, '-')}`}>
+                      <item.icon className="w-4 h-4" />
+                      <span>{item.title}</span>
+                    </Link>
+                  </SidebarMenuButton>
+                </SidebarMenuItem>
+              ))}
+            </SidebarMenu>
+          </SidebarGroup>
+        )}
+
+        {myAccountItems.length > 0 && (
+          <SidebarGroup>
+            <SidebarGroupLabel>My Account</SidebarGroupLabel>
+            <SidebarMenu>
+              {myAccountItems.map((item) => (
                 <SidebarMenuItem key={item.title}>
                   <SidebarMenuButton asChild isActive={isActive(item.url)}>
                     <Link href={item.url} data-testid={`link-${item.title.toLowerCase().replace(/\s+/g, '-')}`}>

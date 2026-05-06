@@ -129,10 +129,143 @@ router.get("/:id/oauth/connect", async (req, res) => {
     (req.session as Record<string, unknown>).oauthState = randomPart;
     (req.session as Record<string, unknown>).oauthMailboxId = req.params.id;
 
+    // Store return context so the callback can redirect appropriately
+    const fromParam = req.query.from as string | undefined;
+    if (fromParam) {
+      (req.session as Record<string, unknown>).oauthFrom = fromParam;
+    } else {
+      delete (req.session as Record<string, unknown>).oauthFrom;
+    }
+
     const authUrl = generateAuthUrl(state);
     res.json({ authUrl });
   } catch (err) {
     console.error("GET /api/mailbox-accounts/:id/oauth/connect error:", err);
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+// ─── List personal mailboxes for the current user ────────────────────────────
+// Returns a safe DTO — never exposes oauthTokenJson; derives connectedEmail/connectedAt server-side.
+router.get("/mine", async (req, res) => {
+  try {
+    const user = req.user as UserWithContext;
+    if (!user?.activeCompanyId) return res.status(401).json({ error: "Unauthorized" });
+
+    const rows = await db.select({
+      id: mailboxAccounts.id,
+      displayName: mailboxAccounts.displayName,
+      emailAddress: mailboxAccounts.emailAddress,
+      accountType: mailboxAccounts.accountType,
+      syncStatus: mailboxAccounts.syncStatus,
+      syncEnabled: mailboxAccounts.syncEnabled,
+      syncErrorCount: mailboxAccounts.syncErrorCount,
+      lastSyncedAt: mailboxAccounts.lastSyncedAt,
+      isActive: mailboxAccounts.isActive,
+      ownerUserId: mailboxAccounts.ownerUserId,
+      oauthTokenJson: mailboxAccounts.oauthTokenJson,
+    })
+      .from(mailboxAccounts)
+      .where(
+        and(
+          eq(mailboxAccounts.companyId, user.activeCompanyId),
+          eq(mailboxAccounts.accountType, "personal"),
+          eq(mailboxAccounts.ownerUserId, user.id),
+        )
+      );
+
+    const dtos = rows.map((r) => {
+      const tokenData = r.oauthTokenJson as Record<string, unknown> | null;
+      return {
+        id: r.id,
+        displayName: r.displayName,
+        emailAddress: r.emailAddress,
+        accountType: r.accountType,
+        syncStatus: r.syncStatus,
+        syncEnabled: r.syncEnabled,
+        syncErrorCount: r.syncErrorCount,
+        lastSyncedAt: r.lastSyncedAt,
+        isActive: r.isActive,
+        ownerUserId: r.ownerUserId,
+        connectedEmail: (tokenData?.connected_email as string | undefined) ?? null,
+        connectedAt: (tokenData?.connected_at as string | undefined) ?? null,
+      };
+    });
+
+    res.json(dtos);
+  } catch (err) {
+    console.error("GET /api/mailbox-accounts/mine error:", err);
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+// ─── Create a personal mailbox for the current user ───────────────────────────
+router.post("/mine", async (req, res) => {
+  try {
+    const user = req.user as UserWithContext;
+    if (!user?.activeCompanyId) return res.status(401).json({ error: "Unauthorized" });
+
+    const emailSchema = insertMailboxAccountSchema.pick({ emailAddress: true });
+    const parsed = emailSchema.safeParse(req.body);
+    if (!parsed.success) {
+      return res.status(400).json({ error: parsed.error.flatten() });
+    }
+
+    const { emailAddress } = req.body as { emailAddress: string; displayName?: string };
+    const displayName = (req.body.displayName as string | undefined)?.trim() || user.name || emailAddress;
+
+    // Check if this emailAddress already exists in the company
+    const [existing] = await db.select()
+      .from(mailboxAccounts)
+      .where(
+        and(
+          eq(mailboxAccounts.companyId, user.activeCompanyId),
+          sql`lower(${mailboxAccounts.emailAddress}) = lower(${emailAddress})`
+        )
+      );
+
+    if (existing) {
+      return res.status(200).json({
+        alreadyExists: true,
+        id: existing.id,
+        isOwner: existing.ownerUserId === user.id,
+        accountType: existing.accountType,
+      });
+    }
+
+    const [account] = await db.insert(mailboxAccounts).values({
+      companyId: user.activeCompanyId,
+      emailAddress,
+      displayName,
+      accountType: "personal",
+      ownerUserId: user.id,
+      syncStatus: "not_connected",
+      syncEnabled: false,
+      isActive: true,
+    } as typeof mailboxAccounts.$inferInsert).returning();
+
+    console.info("[mailbox.self_created]", {
+      userId: user.id,
+      mailboxAccountId: account.id,
+      emailAddress,
+    });
+
+    res.status(201).json({
+      id: account.id,
+      displayName: account.displayName,
+      emailAddress: account.emailAddress,
+      accountType: account.accountType,
+      syncStatus: account.syncStatus,
+      syncEnabled: account.syncEnabled,
+      syncErrorCount: account.syncErrorCount,
+      lastSyncedAt: account.lastSyncedAt,
+      isActive: account.isActive,
+      ownerUserId: account.ownerUserId,
+      connectedEmail: null,
+      connectedAt: null,
+    });
+  } catch (err) {
+    console.error("POST /api/mailbox-accounts/mine error:", err);
     res.status(500).json({ error: "Internal server error" });
   }
 });
@@ -181,9 +314,18 @@ router.get("/oauth/callback", async (req, res) => {
     return res.status(403).send(buildHtmlPage("Invalid OAuth state", `<p>Mailbox identity mismatch — please try connecting again.</p><p><a href="${settingsUrl}">Return to settings</a></p>`));
   }
 
+  // Capture return context before clearing session
+  const oauthFrom = session.oauthFrom as string | undefined;
+
   // Clear state from session before any async work
   delete session.oauthState;
   delete session.oauthMailboxId;
+  delete session.oauthFrom;
+
+  // Determine return URL based on context
+  const returnUrl = oauthFrom === "my-mailbox"
+    ? "/dashboard/settings/my-mailbox"
+    : settingsUrl;
 
   try {
     // Verify account exists and belongs to this user's company (no fallback without scope)
@@ -191,11 +333,11 @@ router.get("/oauth/callback", async (req, res) => {
       and(eq(mailboxAccounts.id, mailboxAccountIdFromState), eq(mailboxAccounts.companyId, user.activeCompanyId))
     );
     if (!account) {
-      return res.status(404).send(buildHtmlPage("Not Found", `<p>Mailbox account not found.</p><p><a href="${settingsUrl}">Return to settings</a></p>`));
+      return res.status(404).send(buildHtmlPage("Not Found", `<p>Mailbox account not found.</p><p><a href="${returnUrl}">Return to settings</a></p>`));
     }
 
     if (!canManageMailboxOAuth(user, account)) {
-      return res.status(403).send(buildHtmlPage("Not Authorized", `<p>You are not authorized to connect this mailbox.</p><p><a href="${settingsUrl}">Return to settings</a></p>`));
+      return res.status(403).send(buildHtmlPage("Not Authorized", `<p>You are not authorized to connect this mailbox.</p><p><a href="${returnUrl}">Return to settings</a></p>`));
     }
 
     const tokens = await exchangeCodeForTokens(code);
@@ -204,13 +346,45 @@ router.get("/oauth/callback", async (req, res) => {
 
     const connectedEmail = await getUserEmail(accessToken);
 
+    // Track whether we need to update emailAddress (personal mailbox auto-correct)
+    let autocorrectedEmailAddress: string | null = null;
+
     // Verify email matches the mailbox account email
     if (connectedEmail.toLowerCase() !== account.emailAddress.toLowerCase()) {
-      return res.status(400).send(buildHtmlPage("Email Mismatch", `
-        <p>The Google account you signed in with (<strong>${escapeHtml(connectedEmail)}</strong>) does not match the mailbox address (<strong>${escapeHtml(account.emailAddress)}</strong>).</p>
-        <p>Please try again and sign in with the correct Google account.</p>
-        <p><a href="${settingsUrl}">Return to settings</a></p>
-      `));
+      if (account.accountType === "personal" && account.ownerUserId === user.id) {
+        // Check whether connectedEmail is already claimed by another row in this company
+        const conflicting = await db.select({ id: mailboxAccounts.id })
+          .from(mailboxAccounts)
+          .where(
+            and(
+              eq(mailboxAccounts.companyId, user.activeCompanyId),
+              sql`lower(${mailboxAccounts.emailAddress}) = lower(${connectedEmail})`
+            )
+          );
+        const hasConflict = conflicting.some(a => a.id !== account.id);
+        if (hasConflict) {
+          return res.status(400).send(buildHtmlPage("Email Conflict", `
+            <p>The Google account you signed in with (<strong>${escapeHtml(connectedEmail)}</strong>) is already registered as another mailbox in your company.</p>
+            <p>Please contact your administrator for assistance.</p>
+            <p><a href="${returnUrl}">Return to settings</a></p>
+          `));
+        }
+        // Auto-correct: update the stored email address to match the authenticated Google account
+        autocorrectedEmailAddress = connectedEmail;
+        console.info("[mailbox.email_autocorrected]", {
+          userId: user.id,
+          mailboxAccountId: account.id,
+          from: account.emailAddress,
+          to: connectedEmail,
+        });
+      } else {
+        // Shared mailbox or personal owned by a different user — reject on mismatch
+        return res.status(400).send(buildHtmlPage("Email Mismatch", `
+          <p>The Google account you signed in with (<strong>${escapeHtml(connectedEmail)}</strong>) does not match the mailbox address (<strong>${escapeHtml(account.emailAddress)}</strong>).</p>
+          <p>Please try again and sign in with the correct Google account.</p>
+          <p><a href="${returnUrl}">Return to settings</a></p>
+        `));
+      }
     }
 
     const tokenJson = {
@@ -223,24 +397,37 @@ router.get("/oauth/callback", async (req, res) => {
       connected_email: connectedEmail,
     };
 
-    await db
-      .update(mailboxAccounts)
-      .set({
-        oauthTokenJson: tokenJson,
-        syncEnabled: true,
-        syncStatus: "connected",
-        syncErrorCount: 0,
-        oauthProvider: "google",
-        lastSyncedAt: new Date(),
-        updatedAt: new Date(),
-      })
-      .where(and(eq(mailboxAccounts.id, mailboxAccountIdFromState), eq(mailboxAccounts.companyId, user.activeCompanyId)));
+    const baseSet = {
+      oauthTokenJson: tokenJson,
+      syncEnabled: true,
+      syncStatus: "connected" as const,
+      syncErrorCount: 0,
+      oauthProvider: "google",
+      lastSyncedAt: new Date(),
+      updatedAt: new Date(),
+    };
 
-    return res.redirect(`${settingsUrl}?connected=${encodeURIComponent(mailboxAccountIdFromState)}&promptBackfill=1`);
+    if (autocorrectedEmailAddress) {
+      await db.update(mailboxAccounts)
+        .set({ ...baseSet, emailAddress: autocorrectedEmailAddress })
+        .where(and(eq(mailboxAccounts.id, mailboxAccountIdFromState), eq(mailboxAccounts.companyId, user.activeCompanyId)));
+    } else {
+      await db.update(mailboxAccounts)
+        .set(baseSet)
+        .where(and(eq(mailboxAccounts.id, mailboxAccountIdFromState), eq(mailboxAccounts.companyId, user.activeCompanyId)));
+    }
+
+    const redirectBase = returnUrl;
+    const autocorrectedFlag = autocorrectedEmailAddress ? "&autocorrected=1" : "";
+    const redirectSuffix = oauthFrom === "my-mailbox"
+      ? `?connected=${encodeURIComponent(mailboxAccountIdFromState)}${autocorrectedFlag}`
+      : `?connected=${encodeURIComponent(mailboxAccountIdFromState)}&promptBackfill=1`;
+
+    return res.redirect(`${redirectBase}${redirectSuffix}`);
   } catch (err) {
     console.error("OAuth callback error:", err);
     const msg = err instanceof Error ? err.message : "Unknown error";
-    return res.status(500).send(buildHtmlPage("Connection Failed", `<p>Failed to connect Gmail: ${escapeHtml(msg)}</p><p><a href="${settingsUrl}">Return to settings</a></p>`));
+    return res.status(500).send(buildHtmlPage("Connection Failed", `<p>Failed to connect Gmail: ${escapeHtml(msg)}</p><p><a href="${returnUrl}">Return to settings</a></p>`));
   }
 });
 
