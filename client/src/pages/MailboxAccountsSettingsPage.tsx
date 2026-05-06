@@ -1,5 +1,6 @@
 import { useState, useEffect } from "react";
 import { useTranslation } from "react-i18next";
+import { useAuth } from "@/hooks/use-auth";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
@@ -633,8 +634,12 @@ function GmailConnectButton({ account, autoOpenBackfill = false }: { account: Ma
 export default function MailboxAccountsSettingsPage() {
   const { t } = useTranslation();
   const { toast } = useToast();
+  const { user: currentUser } = useAuth();
+  const isAdmin = currentUser?.activeRole === "admin" || currentUser?.isSuperAdminBool;
   const [showForm, setShowForm] = useState(false);
   const [editAccount, setEditAccount] = useState<MailboxAccount | null>(null);
+  const [deactivateTarget, setDeactivateTarget] = useState<MailboxAccount | null>(null);
+  const [hardDeleteTarget, setHardDeleteTarget] = useState<MailboxAccount | null>(null);
 
   const { data: accounts = [], isLoading } = useQuery<MailboxAccount[]>({
     queryKey: ["/api/mailbox-accounts"],
@@ -670,8 +675,28 @@ export default function MailboxAccountsSettingsPage() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/mailbox-accounts"] });
       toast({ title: t("emailTracking.deactivate") });
+      setDeactivateTarget(null);
     },
     onError: () => toast({ title: t("emailTracking.mailboxDeactivateError"), variant: "destructive" }),
+  });
+
+  const hardDeleteMutation = useMutation({
+    mutationFn: (id: string) => apiRequest("DELETE", `/api/mailbox-accounts/${id}/permanent`, {}),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/mailbox-accounts"] });
+      toast({ title: t("emailTracking.mailboxHardDeleteSuccess") });
+      setHardDeleteTarget(null);
+    },
+    onError: (err: Error) => {
+      const isConnected = err.message?.toLowerCase().includes("connected") || err.message?.includes("409");
+      toast({
+        title: isConnected
+          ? t("emailTracking.mailboxHardDeleteConnectedError")
+          : t("emailTracking.mailboxHardDeleteError"),
+        variant: "destructive",
+      });
+      setHardDeleteTarget(null);
+    },
   });
 
   const handleEdit = (account: MailboxAccount) => {
@@ -789,13 +814,23 @@ export default function MailboxAccountsSettingsPage() {
                               {t("common.edit")}
                             </DropdownMenuItem>
                             <DropdownMenuItem
-                              onClick={() => deleteMutation.mutate(account.id)}
+                              onClick={() => setDeactivateTarget(account)}
                               className="text-destructive"
                               data-testid={`action-deactivate-mailbox-${account.id}`}
                             >
                               <Trash2 className="w-4 h-4 mr-2" />
                               {t("emailTracking.deactivate")}
                             </DropdownMenuItem>
+                            {isAdmin && (
+                              <DropdownMenuItem
+                                onClick={() => setHardDeleteTarget(account)}
+                                className="text-destructive"
+                                data-testid={`action-hard-delete-mailbox-${account.id}`}
+                              >
+                                <Trash2 className="w-4 h-4 mr-2" />
+                                {t("emailTracking.deletePermanently")}
+                              </DropdownMenuItem>
+                            )}
                           </DropdownMenuContent>
                         </DropdownMenu>
                       </TableCell>
@@ -812,6 +847,59 @@ export default function MailboxAccountsSettingsPage() {
         onOpenChange={handleClose}
         editAccount={editAccount}
       />
+
+      <AlertDialog open={!!deactivateTarget} onOpenChange={(open) => { if (!open) setDeactivateTarget(null); }}>
+        <AlertDialogContent data-testid="dialog-deactivate-mailbox">
+          <AlertDialogHeader>
+            <AlertDialogTitle>{t("emailTracking.deactivateConfirmTitle")}</AlertDialogTitle>
+            <AlertDialogDescription>
+              {deactivateTarget
+                ? t("emailTracking.deactivateConfirmDesc", {
+                    name: deactivateTarget.displayName,
+                    email: deactivateTarget.emailAddress,
+                  })
+                : ""}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel data-testid="button-deactivate-cancel">{t("common.cancel")}</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={() => deactivateTarget && deleteMutation.mutate(deactivateTarget.id)}
+              disabled={deleteMutation.isPending}
+              data-testid="button-deactivate-confirm"
+            >
+              {deleteMutation.isPending ? t("common.saving") : t("emailTracking.deactivateConfirm")}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      <AlertDialog open={!!hardDeleteTarget} onOpenChange={(open) => { if (!open) setHardDeleteTarget(null); }}>
+        <AlertDialogContent data-testid="dialog-hard-delete-mailbox">
+          <AlertDialogHeader>
+            <AlertDialogTitle>{t("emailTracking.hardDeleteConfirmTitle")}</AlertDialogTitle>
+            <AlertDialogDescription>
+              {hardDeleteTarget
+                ? t("emailTracking.hardDeleteConfirmDesc", {
+                    name: hardDeleteTarget.displayName,
+                    email: hardDeleteTarget.emailAddress,
+                  })
+                : ""}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel data-testid="button-hard-delete-cancel">{t("common.cancel")}</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={() => hardDeleteTarget && hardDeleteMutation.mutate(hardDeleteTarget.id)}
+              disabled={hardDeleteMutation.isPending}
+              className="bg-destructive text-destructive-foreground"
+              data-testid="button-hard-delete-confirm"
+            >
+              {hardDeleteMutation.isPending ? t("common.saving") : t("emailTracking.hardDeleteConfirm")}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }

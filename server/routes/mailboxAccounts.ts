@@ -486,7 +486,7 @@ router.patch("/:id", async (req, res) => {
   }
 });
 
-// ─── Deactivate mailbox account ───────────────────────────────────────────────
+// ─── Deactivate mailbox account (soft) ───────────────────────────────────────
 router.delete("/:id", async (req, res) => {
   try {
     const user = req.user as UserWithContext;
@@ -500,6 +500,33 @@ router.delete("/:id", async (req, res) => {
     res.json({ success: true });
   } catch (err) {
     console.error("DELETE /api/mailbox-accounts/:id error:", err);
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+// ─── Hard-delete mailbox account (permanent) ─────────────────────────────────
+router.delete("/:id/permanent", async (req, res) => {
+  try {
+    const user = req.user as UserWithContext;
+    if (!user?.activeCompanyId) return res.status(401).json({ error: "Unauthorized" });
+    if (user.activeRole !== "admin" && !user.isSuperAdminBool) return res.status(403).json({ error: "Admin only" });
+
+    const [account] = await db.select()
+      .from(mailboxAccounts)
+      .where(and(eq(mailboxAccounts.id, req.params.id), eq(mailboxAccounts.companyId, user.activeCompanyId)));
+    if (!account) return res.status(404).json({ error: "Not found" });
+
+    if (account.syncStatus === "connected") {
+      return res.status(409).json({ error: "Mailbox is currently connected. Disconnect it before deleting." });
+    }
+
+    await db.delete(mailboxSyncRuns).where(eq(mailboxSyncRuns.mailboxAccountId, req.params.id));
+    await db.delete(mailboxAccounts)
+      .where(and(eq(mailboxAccounts.id, req.params.id), eq(mailboxAccounts.companyId, user.activeCompanyId)));
+
+    res.json({ success: true });
+  } catch (err) {
+    console.error("DELETE /api/mailbox-accounts/:id/permanent error:", err);
     res.status(500).json({ error: "Internal server error" });
   }
 });
