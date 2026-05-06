@@ -1687,6 +1687,10 @@ const en = {
     labelExtractFailed: "Label analysis failed. You can still fill in the fields manually.",
     labelInvalidFile: "Only PDF files are accepted",
     labelFileTooLarge: "File must be under 20 MB",
+    labelNoTextTitle: "No readable text found in this PDF",
+    labelNoTextDetail: "This looks like a scanned image-only PDF — the AI scanner needs selectable text to extract fields. Try uploading a text-based PDF version of the label, or fill in the fields below manually.",
+    labelAiErrorTitle: "AI extraction could not complete",
+    labelAiErrorDetail: "The label was saved successfully, but an error occurred while reading it. Please fill in the fields below manually, or try uploading a different PDF.",
   },
   operations: {
     title: "Operations Checklist",

@@ -1593,6 +1593,10 @@ const es = {
     labelExtractFailed: "El analisis de la etiqueta fallo. Puede completar los campos manualmente.", // TODO: human-review translation
     labelInvalidFile: "Solo se aceptan archivos PDF", // TODO: human-review translation
     labelFileTooLarge: "El archivo debe ser menor de 20 MB", // TODO: human-review translation
+    labelNoTextTitle: "No se encontro texto legible en este PDF", // TODO: human-review translation
+    labelNoTextDetail: "Este parece ser un PDF de solo imagen escaneado — el escaner de IA necesita texto seleccionable para extraer campos. Intente subir una version en PDF con texto del documento, o complete los campos manualmente.", // TODO: human-review translation
+    labelAiErrorTitle: "La extraccion de IA no pudo completarse", // TODO: human-review translation
+    labelAiErrorDetail: "La etiqueta se guardo correctamente, pero ocurrio un error al leerla. Complete los campos manualmente o intente subir un PDF diferente.", // TODO: human-review translation
   },
   operations: {
     title: "Lista de Verificacion Operativa",

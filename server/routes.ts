@@ -15097,6 +15097,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
           return res.json({
             storageKey,
             extracted: {},
+            warningType: "no_text",
             warning: "No readable text found in this PDF. The file has been stored but fields could not be auto-filled.",
           });
         }
@@ -15150,6 +15151,7 @@ ${pdfText.slice(0, 8000)}`;
           return res.json({
             storageKey,
             extracted: {},
+            warningType: "ai_error",
             warning: "Label PDF stored, but AI extraction failed. Please fill in the fields manually.",
           });
         }

@@ -49,6 +49,7 @@ type ExtractResult = {
     isOrganic: boolean;
   }>;
   warning?: string;
+  warningType?: "no_text" | "ai_error";
 };
 
 export default function ChemicalProductsAdmin() {
@@ -78,6 +79,7 @@ export default function ChemicalProductsAdmin() {
   const [isDragging, setIsDragging] = useState(false);
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [extractWarning, setExtractWarning] = useState<string | null>(null);
+  const [extractWarningType, setExtractWarningType] = useState<"no_text" | "ai_error" | null>(null);
   const [pendingStorageKey, setPendingStorageKey] = useState<string | null>(null);
   const [existingLabelKey, setExistingLabelKey] = useState<string | null>(null);
   const [labelViewUrl, setLabelViewUrl] = useState<string | null>(null);
@@ -148,6 +150,7 @@ export default function ChemicalProductsAdmin() {
     setExistingLabelKey(null);
     setLabelViewUrl(null);
     setExtractWarning(null);
+    setExtractWarningType(null);
     setIsAnalyzing(false);
     setIsDragging(false);
   }
@@ -218,6 +221,7 @@ export default function ChemicalProductsAdmin() {
     }
     setIsAnalyzing(true);
     setExtractWarning(null);
+    setExtractWarningType(null);
     setPendingStorageKey(null);
     setLabelViewUrl(null);
 
@@ -239,6 +243,7 @@ export default function ChemicalProductsAdmin() {
 
       if (result.warning) {
         setExtractWarning(result.warning);
+        setExtractWarningType(result.warningType ?? null);
       }
 
       // Auto-fill form fields
@@ -446,7 +451,22 @@ export default function ChemicalProductsAdmin() {
             {extractWarning && (
               <div className="flex items-start gap-2 p-3 rounded-md border border-yellow-200 bg-yellow-50 dark:border-yellow-900 dark:bg-yellow-950/30" data-testid="status-extract-warning">
                 <AlertCircle className="w-4 h-4 text-yellow-600 dark:text-yellow-400 flex-shrink-0 mt-0.5" />
-                <p className="text-sm text-yellow-700 dark:text-yellow-300">{extractWarning}</p>
+                <div className="flex flex-col gap-1">
+                  <p className="text-sm font-medium text-yellow-800 dark:text-yellow-200">
+                    {extractWarningType === "no_text"
+                      ? t("chemicalProducts.labelNoTextTitle")
+                      : extractWarningType === "ai_error"
+                      ? t("chemicalProducts.labelAiErrorTitle")
+                      : t("chemicalProducts.labelExtractWarning")}
+                  </p>
+                  {(extractWarningType === "no_text" || extractWarningType === "ai_error") && (
+                    <p className="text-sm text-yellow-700 dark:text-yellow-300">
+                      {extractWarningType === "no_text"
+                        ? t("chemicalProducts.labelNoTextDetail")
+                        : t("chemicalProducts.labelAiErrorDetail")}
+                    </p>
+                  )}
+                </div>
               </div>
             )}
 
