@@ -253,6 +253,7 @@ function MailboxFormDialog({
   });
 
   useEffect(() => {
+    if (!open) return;
     form.reset({
       emailAddress: editAccount?.emailAddress ?? "",
       displayName: editAccount?.displayName ?? "",
@@ -261,7 +262,7 @@ function MailboxFormDialog({
       ownerUserId: editAccount?.ownerUserId ?? null,
       description: editAccount?.description ?? "",
     });
-  }, [editAccount]);
+  }, [open, editAccount]);
 
   const watchAccountType = form.watch("accountType");
 
