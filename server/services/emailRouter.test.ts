@@ -1,69 +1,41 @@
+// @vitest-environment node
 /**
- * Unit tests for emailRouter.ts direction-aware routing and
+ * Tests for emailRouter.ts direction-aware routing and
  * emailSyncService.ts parseGmailMessage (RFC Message-ID extraction / dedup key).
  *
  * Run with: npx vitest run server/services/emailRouter.test.ts
+ *
+ * These tests use a real PostgreSQL database (the dev DATABASE_URL) with
+ * per-test company isolation — each test creates its own company UUID and
+ * tears it down via CASCADE delete in afterEach.  No drizzle-orm or schema
+ * mocks are needed; only emailService and googleOAuth are stubbed to prevent
+ * real network calls.
  */
 
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 
-// vi.hoisted: variables declared here are available inside vi.mock() factories
-// because vitest hoists vi.mock() calls to the top of the file before any
-// variable declarations execute.
-const { mockDbSelect } = vi.hoisted(() => ({ mockDbSelect: vi.fn() }));
-
-// Mock ../db — only db.select is needed; pool not needed because ./emailService
-// and ./googleOAuth are mocked below, cutting the transitive path to storage.ts.
-vi.mock("../db", () => ({ db: { select: mockDbSelect } }));
-
-// Cut the transitive chain: emailSyncService imports these, which otherwise
-// pull in storage.ts (needs a real PG pool) and the Google OAuth client.
 vi.mock("./emailService", () => ({ sendEmail: vi.fn() }));
 vi.mock("./googleOAuth", () => ({
   getValidAccessToken: vi.fn().mockResolvedValue("mock-token"),
   getOAuth2Client: vi.fn(),
 }));
 
-vi.mock("@shared/schema", () => ({
-  contacts: { companyId: "companyId", customerId: "customerId", emails: "emails" },
-  customers: {
-    companyId: "companyId", id: "id", name: "name",
-    customerNumber: "customerNumber", street: "street",
-    active: "active", managementCompany: "managementCompany",
-  },
-  communications: { companyId: "companyId", customerId: "customerId",
-    id: "id",
-    providerMessageId: "providerMessageId", providerThreadId: "providerThreadId",
-  },
-  mailboxAccounts: {},
-  mailboxSyncRuns: {},
-  unsortedEmails: { id: "id", companyId: "companyId", providerMessageId: "providerMessageId" },
-  users: {},
-  companyUsers: {},
-}));
-
-vi.mock("drizzle-orm", () => ({
-  eq: (a: unknown, b: unknown) => ({ _: "eq", a, b }),
-  and: (...args: unknown[]) => ({ _: "and", args }),
-  or: (...args: unknown[]) => ({ _: "or", args }),
-  sql: (s: TemplateStringsArray, ...v: unknown[]) => ({ _: "sql", s, v }),
-  inArray: (col: unknown, vals: unknown[]) => ({ _: "inArray", col, vals }),
-  desc: (col: unknown) => ({ _: "desc", col }),
-}));
-
-// Import AFTER mocks are registered
 import { db } from "../db";
-import { communications, unsortedEmails } from "@shared/schema";
+import { communications } from "@shared/schema";
 import { and, eq } from "drizzle-orm";
 import { parseGmailMessage } from "./emailSyncService";
 import { routeMessage } from "./emailRouter";
 import type { ParsedMessage } from "./emailRouter";
+import {
+  createTestCompany,
+  createTestCustomer,
+  createTestContact,
+  createTestCommunication,
+  cleanupTestCompany,
+} from "./testHelpers/dbSeed";
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
-/** Build a minimal ParsedMessage for routing tests.
- *  providerThreadId defaults to "" (falsy) so Tier 2 (thread match) is
- *  skipped unless a test explicitly sets it — keeping mock sequences simple. */
 function buildMsg(overrides: Partial<ParsedMessage> = {}): ParsedMessage {
   return {
     providerMessageId: "<gm-001@highplains.crm>",
@@ -76,29 +48,6 @@ function buildMsg(overrides: Partial<ParsedMessage> = {}): ParsedMessage {
     mailboxEmailAddress: "mailbox@company.com",
     ...overrides,
   };
-}
-
-/**
- * Build a DB chain compatible with BOTH query patterns used in this codebase:
- *   - routeMessage:  await db.select().from().where()        (no .limit())
- *   - sync dedup:   await db.select().from().where().limit() (with .limit())
- *
- * `.where()` returns a thenable that also exposes `.limit()`, so both patterns work.
- */
-function makeChain(rows: unknown[]) {
-  const whereResult = Object.assign(Promise.resolve(rows), {
-    limit: vi.fn().mockResolvedValue(rows),
-  });
-  return {
-    from: vi.fn().mockReturnThis(),
-    where: vi.fn().mockReturnValue(whereResult),
-  };
-}
-
-/** Provide a sequence of return values for successive db.select() calls. */
-function mockSelectSequence(sequence: unknown[][]) {
-  let i = 0;
-  mockDbSelect.mockImplementation(() => makeChain(sequence[i++] ?? []));
 }
 
 // ── parseGmailMessage: RFC Message-ID extraction (pure-function tests) ────────
@@ -120,9 +69,6 @@ describe("parseGmailMessage", () => {
     });
 
     expect(result).not.toBeNull();
-    // MUST be the RFC header value — not Gmail's internal ID — so that the
-    // dedup check in syncMailbox() matches communications.providerMessageId
-    // written by gmailSender when the CRM originally sent the email.
     expect(result?.providerMessageId).toBe("<abc123@highplains.crm>");
   });
 
@@ -157,7 +103,6 @@ describe("parseGmailMessage", () => {
       internalDate: "1700000000000",
     });
 
-    // Outbound Tier 1 routing matches on toAddresses — must be bare lowercase email
     expect(result?.toAddresses).toEqual(["alice@customer.com", "bob@customer.com"]);
   });
 
@@ -183,24 +128,21 @@ describe("parseGmailMessage", () => {
 // ── Sync-level dedup: RFC Message-ID contract + DB query verification ─────────
 
 describe("SENT sync dedup contract", () => {
-  beforeEach(() => vi.clearAllMocks());
+  let companyId: string;
 
-  /**
-   * End-to-end dedup contract:
-   *
-   * gmailSender generates rfcMessageId = `<hex@highplains.crm>`, embeds it as
-   * the MIME `Message-ID:` header, and stores it as communications.providerMessageId.
-   *
-   * Later, when Gmail's SENT folder sync runs, parseGmailMessage must extract
-   * that same value so the dedup query:
-   *   WHERE communications.providerMessageId = parsed.providerMessageId
-   * finds the existing row and increments deduped counter instead of inserting.
-   */
+  beforeEach(async () => {
+    companyId = await createTestCompany();
+  });
+
+  afterEach(async () => {
+    await cleanupTestCompany(companyId);
+  });
+
   it("SENT folder message resolves to same RFC ID that gmailSender stored", () => {
     const crmRfcId = "<deadbeef1234@highplains.crm>";
 
     const parsed = parseGmailMessage({
-      id: "gmail-sent-internal-9999",   // Gmail's own ID — NOT the dedup key
+      id: "gmail-sent-internal-9999",
       threadId: "thread-sent",
       payload: {
         headers: [
@@ -220,7 +162,6 @@ describe("SENT sync dedup contract", () => {
   it("dedup DB query finds existing communication by RFC Message-ID", async () => {
     const rfcId = "<crmgenerated@highplains.crm>";
 
-    // Parse a SENT folder message — extracts RFC Message-ID as providerMessageId
     const parsed = parseGmailMessage({
       id: "gmail-sent-internal-abc",
       threadId: "thread-sent-001",
@@ -236,25 +177,21 @@ describe("SENT sync dedup contract", () => {
     });
     expect(parsed?.providerMessageId).toBe(rfcId);
 
-    // Simulate the SENT loop dedup query — the mock returns an existing row,
-    // representing a CRM-sent email already stored in communications.
-    mockDbSelect.mockImplementationOnce(() => makeChain([{ id: "existing-comm-001" }]));
+    const customerId = await createTestCustomer(companyId);
+    await createTestCommunication(companyId, customerId, { providerMessageId: rfcId });
 
-    // Execute the exact query that syncMailbox SENT loop runs
     const existingComm = await db
       .select({ id: communications.id })
       .from(communications)
       .where(
         and(
-          eq(communications.companyId, "co-1"),
-          eq(communications.providerMessageId, parsed!.providerMessageId)
-        )
+          eq(communications.companyId, companyId),
+          eq(communications.providerMessageId, parsed!.providerMessageId),
+        ),
       )
       .limit(1);
 
-    // Dedup hit: existingComm.length > 0 → syncMailbox increments deduped, skips insert
     expect(existingComm).toHaveLength(1);
-    expect(existingComm[0]).toEqual({ id: "existing-comm-001" });
   });
 
   it("dedup DB query returns empty when no matching communication exists", async () => {
@@ -274,21 +211,17 @@ describe("SENT sync dedup contract", () => {
       internalDate: "1700000002000",
     });
 
-    // No existing communication with this RFC ID
-    mockDbSelect.mockImplementationOnce(() => makeChain([]));
-
     const existingComm = await db
       .select({ id: communications.id })
       .from(communications)
       .where(
         and(
-          eq(communications.companyId, "co-1"),
-          eq(communications.providerMessageId, parsed!.providerMessageId)
-        )
+          eq(communications.companyId, companyId),
+          eq(communications.providerMessageId, parsed!.providerMessageId),
+        ),
       )
       .limit(1);
 
-    // No dedup hit: existingComm.length === 0 → syncMailbox proceeds with routing + insert
     expect(existingComm).toHaveLength(0);
   });
 });
@@ -296,44 +229,57 @@ describe("SENT sync dedup contract", () => {
 // ── routeMessage: direction-aware Tier 1 routing ──────────────────────────────
 
 describe("routeMessage", () => {
-  beforeEach(() => vi.clearAllMocks());
+  let companyId: string;
+
+  beforeEach(async () => {
+    companyId = await createTestCompany();
+  });
+
+  afterEach(async () => {
+    await cleanupTestCompany(companyId);
+  });
 
   describe("inbound", () => {
     it("routes to the matched customer when fromAddress is a known contact", async () => {
-      // Tier 1 (contacts query): 1 result → route immediately
-      mockSelectSequence([[{ customerId: "cust-123" }]]);
+      const customerId = await createTestCustomer(companyId);
+      await createTestContact(companyId, customerId, ["cust@example.com"]);
 
-      const result = await routeMessage("co-1",
+      const result = await routeMessage(
+        companyId,
         buildMsg({ fromAddress: "cust@example.com" }),
-        { direction: "inbound" }
+        { direction: "inbound" },
       );
 
       expect(result.action).toBe("route");
-      expect(result.customerId).toBe("cust-123");
+      expect(result.customerId).toBe(customerId);
       expect(result.routingMethod).toBe("email_match");
       expect(result.routingConfidence).toBe(1.0);
     });
 
     it("returns unsorted when fromAddress belongs to contacts in multiple customers", async () => {
-      // Tier 1: 2 results → unsorted with candidate list
-      mockSelectSequence([[{ customerId: "cust-a" }, { customerId: "cust-b" }]]);
+      const custA = await createTestCustomer(companyId, { name: "Customer A" });
+      const custB = await createTestCustomer(companyId, { name: "Customer B" });
+      await createTestContact(companyId, custA, ["shared@example.com"]);
+      await createTestContact(companyId, custB, ["shared@example.com"]);
 
-      const result = await routeMessage("co-1",
+      const result = await routeMessage(
+        companyId,
         buildMsg({ fromAddress: "shared@example.com" }),
-        { direction: "inbound" }
+        { direction: "inbound" },
       );
 
       expect(result.action).toBe("unsorted");
-      expect(result.candidateCustomerIds).toEqual(["cust-a", "cust-b"]);
+      expect(result.candidateCustomerIds).toHaveLength(2);
+      expect(result.candidateCustomerIds).toEqual(
+        expect.arrayContaining([custA, custB]),
+      );
     });
 
     it("discards when no tier finds any CRM signals", async () => {
-      // providerThreadId="" → Tier 2 skipped; sequence covers Tier 1, 3, 4
-      mockSelectSequence([[], [], []]);
-
-      const result = await routeMessage("co-1",
+      const result = await routeMessage(
+        companyId,
         buildMsg({ fromAddress: "stranger@personal.com", subject: "Vacation", bodyText: "" }),
-        { direction: "inbound" }
+        { direction: "inbound" },
       );
 
       expect(result.action).toBe("discard");
@@ -342,47 +288,47 @@ describe("routeMessage", () => {
 
   describe("outbound", () => {
     it("routes to the matched customer when toAddress is a known contact", async () => {
-      // Tier 1 candidates = toAddresses (mailbox excluded); 1 result → route
-      mockSelectSequence([[{ customerId: "cust-456" }]]);
+      const customerId = await createTestCustomer(companyId);
+      await createTestContact(companyId, customerId, ["recipient@customer.com"]);
 
-      const result = await routeMessage("co-1",
+      const result = await routeMessage(
+        companyId,
         buildMsg({
           fromAddress: "mailbox@company.com",
           toAddresses: ["recipient@customer.com"],
           mailboxEmailAddress: "mailbox@company.com",
         }),
-        { direction: "outbound" }
+        { direction: "outbound" },
       );
 
       expect(result.action).toBe("route");
-      expect(result.customerId).toBe("cust-456");
+      expect(result.customerId).toBe(customerId);
       expect(result.routingMethod).toBe("email_match");
     });
 
     it("routes to the matched customer when a ccAddress is a known contact", async () => {
-      // toAddress has no match; ccAddress resolves to a customer
-      mockSelectSequence([[{ customerId: "cust-789" }]]);
+      const customerId = await createTestCustomer(companyId);
+      await createTestContact(companyId, customerId, ["cc-contact@customer.com"]);
 
-      const result = await routeMessage("co-1",
+      const result = await routeMessage(
+        companyId,
         buildMsg({
           fromAddress: "mailbox@company.com",
           toAddresses: ["nobody@personal.com"],
           ccAddresses: ["cc-contact@customer.com"],
           mailboxEmailAddress: "mailbox@company.com",
         }),
-        { direction: "outbound" }
+        { direction: "outbound" },
       );
 
       expect(result.action).toBe("route");
-      expect(result.customerId).toBe("cust-789");
+      expect(result.customerId).toBe(customerId);
       expect(result.routingMethod).toBe("email_match");
     });
 
     it("discards when no outbound recipient matches any CRM contact", async () => {
-      // Tier 1 (contacts): []  Tier 3 (allCustomers): []  Tier 4 (pmcCustomers): []
-      mockSelectSequence([[], [], []]);
-
-      const result = await routeMessage("co-1",
+      const result = await routeMessage(
+        companyId,
         buildMsg({
           fromAddress: "mailbox@company.com",
           toAddresses: ["personal@gmail.com"],
@@ -391,31 +337,26 @@ describe("routeMessage", () => {
           subject: "Personal note",
           bodyText: "",
         }),
-        { direction: "outbound" }
+        { direction: "outbound" },
       );
 
       expect(result.action).toBe("discard");
     });
 
     it("excludes the mailbox address itself from outbound recipient candidates", async () => {
-      // toAddresses = [mailboxAddress] → filtered out → Tier 1 DB call SKIPPED
-      // (uniqueTier1 is empty so the contacts query is never made)
-      // Sequence covers Tier 3 and Tier 4 only.
-      mockSelectSequence([[], []]);
-
-      const result = await routeMessage("co-1",
+      const result = await routeMessage(
+        companyId,
         buildMsg({
           fromAddress: "mailbox@company.com",
-          toAddresses: ["mailbox@company.com"],   // self-addressed / BCC-to-self
+          toAddresses: ["mailbox@company.com"],
           ccAddresses: [],
           mailboxEmailAddress: "mailbox@company.com",
           subject: "Self BCC",
           bodyText: "",
         }),
-        { direction: "outbound" }
+        { direction: "outbound" },
       );
 
-      // Mailbox address is filtered out → no Tier 1 candidates → falls through to discard
       expect(result.action).toBe("discard");
     });
   });
