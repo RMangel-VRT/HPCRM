@@ -252,6 +252,17 @@ function MailboxFormDialog({
     },
   });
 
+  useEffect(() => {
+    form.reset({
+      emailAddress: editAccount?.emailAddress ?? "",
+      displayName: editAccount?.displayName ?? "",
+      accountType: (editAccount?.accountType as "personal" | "shared") ?? "shared",
+      isActive: editAccount?.isActive ?? true,
+      ownerUserId: editAccount?.ownerUserId ?? null,
+      description: editAccount?.description ?? "",
+    });
+  }, [editAccount]);
+
   const watchAccountType = form.watch("accountType");
 
   const createMutation = useMutation({
