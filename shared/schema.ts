@@ -2905,3 +2905,51 @@ export type ServicePlanTemplateWithItems = ServicePlanTemplate & {
 };
 
 export type { AuditFlag, AuditStatus, ContractAuditRow, ContractAuditResponse } from "./auditTypes";
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Mailbox Backfill Runs (Slice 2.5)
+// ─────────────────────────────────────────────────────────────────────────────
+
+export const mailboxBackfillRuns = pgTable("mailbox_backfill_runs", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  companyId: varchar("company_id").notNull().references(() => companies.id, { onDelete: "cascade" }),
+  mailboxAccountId: varchar("mailbox_account_id").notNull().references(() => mailboxAccounts.id, { onDelete: "cascade" }),
+  startedAt: timestamp("started_at").notNull().defaultNow(),
+  finishedAt: timestamp("finished_at"),
+  rangeStart: timestamp("range_start").notNull(),
+  rangeEnd: timestamp("range_end").notNull(),
+  includeInbox: boolean("include_inbox").notNull().default(true),
+  includeSent: boolean("include_sent").notNull().default(true),
+  status: text("status").notNull().$type<"queued" | "running" | "success" | "partial" | "error" | "cancelled">().default("queued"),
+  cancelRequested: boolean("cancel_requested").notNull().default(false),
+  estimatedTotal: integer("estimated_total"),
+  currentMonth: text("current_month"),
+  inboxFetched: integer("inbox_fetched").notNull().default(0),
+  inboxRouted: integer("inbox_routed").notNull().default(0),
+  inboxUnsorted: integer("inbox_unsorted").notNull().default(0),
+  inboxDeduped: integer("inbox_deduped").notNull().default(0),
+  sentFetched: integer("sent_fetched").notNull().default(0),
+  sentRouted: integer("sent_routed").notNull().default(0),
+  sentUnsorted: integer("sent_unsorted").notNull().default(0),
+  sentDeduped: integer("sent_deduped").notNull().default(0),
+  errorMessage: text("error_message"),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+}, (table) => ({
+  mailboxBackfillRunsMailboxStartedIdx: index("mailbox_backfill_runs_mailbox_started_idx").on(table.mailboxAccountId, table.startedAt),
+}));
+
+export const insertMailboxBackfillRunSchema = createInsertSchema(mailboxBackfillRuns).omit({
+  id: true,
+  startedAt: true,
+  createdAt: true,
+}).extend({
+  status: z.enum(["queued", "running", "success", "partial", "error", "cancelled"]).default("queued"),
+  cancelRequested: z.boolean().default(false),
+  estimatedTotal: z.number().int().nullable().optional(),
+  currentMonth: z.string().nullable().optional(),
+  errorMessage: z.string().nullable().optional(),
+  finishedAt: z.coerce.date().nullable().optional(),
+});
+
+export type InsertMailboxBackfillRun = z.infer<typeof insertMailboxBackfillRunSchema>;
+export type MailboxBackfillRun = typeof mailboxBackfillRuns.$inferSelect;

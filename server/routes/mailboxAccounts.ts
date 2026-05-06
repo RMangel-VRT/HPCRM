@@ -15,6 +15,7 @@ import {
   revokeTokens,
 } from "../services/googleOAuth";
 import { syncMailbox } from "../services/emailSyncService";
+import { startBackfill, requestCancel, getActiveBackfill, getBackfillHistory } from "../services/mailboxBackfillService";
 
 const router = Router();
 
@@ -235,7 +236,7 @@ router.get("/oauth/callback", async (req, res) => {
       })
       .where(and(eq(mailboxAccounts.id, mailboxAccountIdFromState), eq(mailboxAccounts.companyId, user.activeCompanyId)));
 
-    return res.redirect(`${settingsUrl}?connected=${encodeURIComponent(mailboxAccountIdFromState)}`);
+    return res.redirect(`${settingsUrl}?connected=${encodeURIComponent(mailboxAccountIdFromState)}&promptBackfill=1`);
   } catch (err) {
     console.error("OAuth callback error:", err);
     const msg = err instanceof Error ? err.message : "Unknown error";
@@ -499,6 +500,96 @@ router.delete("/:id", async (req, res) => {
     res.json({ success: true });
   } catch (err) {
     console.error("DELETE /api/mailbox-accounts/:id error:", err);
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+// ── Auth helper: owner of mailbox OR admin/office ────────────────────────────
+function canAccessMailboxBackfill(user: UserWithContext, account: typeof mailboxAccounts.$inferSelect): boolean {
+  if (user.isSuperAdminBool) return true;
+  if (user.activeRole === "admin" || user.activeRole === "office") return true;
+  if (account.accountType === "personal" && account.ownerUserId === user.id) return true;
+  return false;
+}
+
+// ─── POST /:id/backfill — start or return existing run ────────────────────────
+router.post("/:id/backfill", async (req, res) => {
+  try {
+    const user = req.user as UserWithContext;
+    if (!user?.activeCompanyId) return res.status(401).json({ error: "Unauthorized" });
+
+    const [account] = await db.select()
+      .from(mailboxAccounts)
+      .where(and(eq(mailboxAccounts.id, req.params.id), eq(mailboxAccounts.companyId, user.activeCompanyId)));
+    if (!account) return res.status(404).json({ error: "Not found" });
+    if (!canAccessMailboxBackfill(user, account)) return res.status(403).json({ error: "Forbidden" });
+
+    const { rangeStart, rangeEnd, includeInbox = true, includeSent = true } = req.body;
+    if (!rangeStart || !rangeEnd) return res.status(400).json({ error: "rangeStart and rangeEnd required" });
+
+    const start = new Date(rangeStart);
+    const end = new Date(rangeEnd);
+    if (isNaN(start.getTime()) || isNaN(end.getTime())) {
+      return res.status(400).json({ error: "Invalid date range" });
+    }
+
+    const result = await startBackfill({
+      mailboxAccountId: req.params.id,
+      companyId: user.activeCompanyId,
+      rangeStart: start,
+      rangeEnd: end,
+      includeInbox: Boolean(includeInbox),
+      includeSent: Boolean(includeSent),
+    });
+
+    res.status(result.alreadyRunning ? 200 : 201).json(result);
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : "Internal server error";
+    console.error("POST /api/mailbox-accounts/:id/backfill error:", err);
+    res.status(400).json({ error: msg });
+  }
+});
+
+// ─── GET /:id/backfill/status — active run + last 10 history ─────────────────
+router.get("/:id/backfill/status", async (req, res) => {
+  try {
+    const user = req.user as UserWithContext;
+    if (!user?.activeCompanyId) return res.status(401).json({ error: "Unauthorized" });
+
+    const [account] = await db.select()
+      .from(mailboxAccounts)
+      .where(and(eq(mailboxAccounts.id, req.params.id), eq(mailboxAccounts.companyId, user.activeCompanyId)));
+    if (!account) return res.status(404).json({ error: "Not found" });
+    if (!canAccessMailboxBackfill(user, account)) return res.status(403).json({ error: "Forbidden" });
+
+    const [active, history] = await Promise.all([
+      getActiveBackfill(req.params.id),
+      getBackfillHistory(req.params.id, 10),
+    ]);
+
+    res.json({ active: active ?? null, history });
+  } catch (err) {
+    console.error("GET /api/mailbox-accounts/:id/backfill/status error:", err);
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+// ─── POST /:id/backfill/:runId/cancel ─────────────────────────────────────────
+router.post("/:id/backfill/:runId/cancel", async (req, res) => {
+  try {
+    const user = req.user as UserWithContext;
+    if (!user?.activeCompanyId) return res.status(401).json({ error: "Unauthorized" });
+
+    const [account] = await db.select()
+      .from(mailboxAccounts)
+      .where(and(eq(mailboxAccounts.id, req.params.id), eq(mailboxAccounts.companyId, user.activeCompanyId)));
+    if (!account) return res.status(404).json({ error: "Not found" });
+    if (!canAccessMailboxBackfill(user, account)) return res.status(403).json({ error: "Forbidden" });
+
+    await requestCancel(req.params.runId);
+    res.json({ success: true });
+  } catch (err) {
+    console.error("POST /api/mailbox-accounts/:id/backfill/:runId/cancel error:", err);
     res.status(500).json({ error: "Internal server error" });
   }
 });

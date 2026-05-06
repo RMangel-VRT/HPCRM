@@ -12,6 +12,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Switch } from "@/components/ui/switch";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
+import BackfillPanel from "@/components/customer/communications/BackfillPanel";
 import {
   Dialog,
   DialogContent,
@@ -405,7 +406,7 @@ function MailboxFormDialog({
   );
 }
 
-function GmailConnectButton({ account }: { account: MailboxAccount }) {
+function GmailConnectButton({ account, autoOpenBackfill = false }: { account: MailboxAccount; autoOpenBackfill?: boolean }) {
   const { t } = useTranslation();
   const { toast } = useToast();
   const [isConnecting, setIsConnecting] = useState(false);
@@ -619,6 +620,10 @@ function GmailConnectButton({ account }: { account: MailboxAccount }) {
       )}
 
       {isConnected && (
+        <BackfillPanel mailboxAccountId={account.id} autoOpen={autoOpenBackfill} />
+      )}
+
+      {isConnected && (
         <SyncHistoryPanel accountId={account.id} />
       )}
     </div>
@@ -641,14 +646,20 @@ export default function MailboxAccountsSettingsPage() {
 
   const userMap = new Map(companyUsers.map(u => [u.id, u]));
 
-  // Handle ?connected=<id> return from OAuth
+  const [promptBackfillId, setPromptBackfillId] = useState<string | null>(null);
+
+  // Handle ?connected=<id>&promptBackfill=1 return from OAuth
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
     const connectedId = params.get("connected");
+    const shouldPromptBackfill = params.get("promptBackfill") === "1";
     if (connectedId) {
       toast({ title: t("emailTracking.gmailConnectedSuccess") });
       queryClient.invalidateQueries({ queryKey: ["/api/mailbox-accounts"] });
       queryClient.invalidateQueries({ queryKey: ["/api/mailbox-accounts", connectedId, "oauth-status"] });
+      if (shouldPromptBackfill) {
+        setPromptBackfillId(connectedId);
+      }
       const cleanUrl = window.location.pathname;
       window.history.replaceState({}, "", cleanUrl);
     }
@@ -763,7 +774,7 @@ export default function MailboxAccountsSettingsPage() {
                         }
                       </TableCell>
                       <TableCell>
-                        <GmailConnectButton account={account} />
+                        <GmailConnectButton account={account} autoOpenBackfill={promptBackfillId === account.id} />
                       </TableCell>
                       <TableCell className="text-right">
                         <DropdownMenu>

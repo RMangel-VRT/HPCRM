@@ -3,6 +3,7 @@ import { registerRoutes, runStartupMigrations } from "./routes";
 import { setupVite, serveStatic, log } from "./vite";
 import { runDueDateNotifications } from "./due-date-notifications";
 import { startSyncWorker } from "./services/emailSyncService";
+import { requeueInterruptedBackfills } from "./services/mailboxBackfillService";
 
 const app = express();
 
@@ -50,6 +51,10 @@ app.use((req, res, next) => {
   const server = await registerRoutes(app);
 
   await runStartupMigrations();
+
+  requeueInterruptedBackfills().catch(err =>
+    console.error("requeueInterruptedBackfills startup error:", err)
+  );
 
   app.use((err: any, _req: Request, res: Response, _next: NextFunction) => {
     const status = err.status || err.statusCode || 500;
