@@ -248,6 +248,18 @@ export const insertContractStatusHistorySchema = createInsertSchema(contractStat
 export type InsertContractStatusHistory = z.infer<typeof insertContractStatusHistorySchema>;
 export type ContractStatusHistory = typeof contractStatusHistory.$inferSelect;
 
+export type RoleName = "admin" | "office" | "field_manager" | "chemical_manager" | "field" | "irrigation_manager" | "shop_manager" | "mapping" | "landscape_supervisor";
+
+export type MailboxVisibilityConfig = {
+  shared: RoleName[];
+  perRole?: Partial<Record<RoleName, "own" | "all" | "shared_only">>;
+};
+
+export const DEFAULT_MAILBOX_VISIBILITY: MailboxVisibilityConfig = {
+  shared: ["admin", "office"],
+  perRole: { field: "own" },
+};
+
 export const settings = pgTable("settings", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
   companyId: varchar("company_id").notNull().references(() => companies.id, { onDelete: "cascade" }).unique(),
@@ -256,6 +268,7 @@ export const settings = pgTable("settings", {
   cleanupSeasonMonths: text("cleanup_season_months").array().notNull().default(sql`ARRAY[]::text[]`),
   hourlyRateBenchmarks: text("hourly_rate_benchmarks").notNull().default('{}'),
   featureFlags: text("feature_flags").notNull().default('{}'),
+  defaultMailboxVisibility: jsonb("default_mailbox_visibility").$type<MailboxVisibilityConfig>().default(sql`'{"shared":["admin","office"],"perRole":{"field":"own"}}'::jsonb`),
   createdAt: timestamp("created_at").notNull().defaultNow(),
   updatedAt: timestamp("updated_at").notNull().defaultNow(),
 });
@@ -269,6 +282,10 @@ export const insertSettingsSchema = createInsertSchema(settings).omit({
   cleanupSeasonMonths: z.array(z.string()).default([]),
   hourlyRateBenchmarks: z.string().default('{}'),
   featureFlags: z.string().default('{}'),
+  defaultMailboxVisibility: z.object({
+    shared: z.array(z.string()).default([]),
+    perRole: z.record(z.enum(["own", "all", "shared_only"])).optional(),
+  }).optional(),
 });
 
 export type InsertSettings = z.infer<typeof insertSettingsSchema>;

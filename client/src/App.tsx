@@ -318,8 +318,8 @@ function Router() {
           component={PropertyDetail}
           allowedRoles={["admin", "office", "field_manager", "field", "chemical_manager"]}
         />
-        <ProtectedRoute path="/dashboard/communications" component={CommunicationsCenter} allowedRoles={["admin", "office"]} />
-        <ProtectedRoute path="/dashboard/communications/unsorted" component={UnsortedInboxPage} allowedRoles={["admin", "office"]} />
+        <ProtectedRoute path="/dashboard/communications" component={CommunicationsCenter} allowedRoles={["admin", "office", "field", "field_manager", "chemical_manager", "irrigation_manager", "shop_manager", "mapping", "landscape_supervisor"]} />
+        <ProtectedRoute path="/dashboard/communications/unsorted" component={UnsortedInboxPage} allowedRoles={["admin", "office", "field", "field_manager", "chemical_manager", "irrigation_manager", "shop_manager", "mapping", "landscape_supervisor"]} />
         <ProtectedRoute path="/dashboard/settings/mailbox-accounts" component={MailboxAccountsSettingsPage} allowedRoles={["admin"]} />
         <ProtectedRoute path="/dashboard/settings/notification-templates" component={ChemicalNotificationTemplates} allowedRoles={["admin"]} />
         <ProtectedRoute path="/dashboard/reports" component={ReportsPage} allowedRoles={["admin", "office"]} />

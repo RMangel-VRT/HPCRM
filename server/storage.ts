@@ -2,6 +2,7 @@ import { type User, type InsertUser, type Customer, type InsertCustomer, type Co
 import { db } from "./db";
 import { users, customers, contacts, companies, companyUsers, settings, notes, contracts, contractStatusHistory, contractDocuments, contractMonthlyAmounts, customerRateSheets, contractServices, contractTemplates, contractBuilderDocuments, contractBuilderSections, contractBuilderVariables, ticketTypes, ticketTypeStatuses, ticketTypeFields, tickets, ticketFieldValues, ticketStatusHistory, ticketComments, ticketCommentMentions, ticketSources, ticketLinks, customerMapLayers, customerMapDocuments, maintenanceCrews, maintenanceVisitConfigs, weeklyScheduleTemplates, scheduleBlocks, ticketNotifications, propertyManagementCompanies, propertyManagers, propertyManagerEmails, propertyManagerPhones, equipment, equipmentFiles, equipmentTickets, equipmentTicketStatusHistory, snowEvents, snowEventAttachments, snowEventPropertyImpacts, emailTemplates, emailRules, emailLogs, proposals, proposalFiles, proposalVersions, visualScopeSheets, campaigns, campaignItems, campaignChecklistTasks, campaignItemTaskCompletions, campaignChecklistAuditLog as campaignChecklistAuditLogTable, seasons, communications, communicationTemplates, communicationThreads, communicationLinks, communicationAuditLog, communicationAutomationRules, servicePlanTemplates, servicePlanTemplateItems, customerServicePlans, stylePresets, sheetTemplates, chemicalProducts, chemicalNotificationTemplates } from "@shared/schema";
 import type { StylePreset, InsertStylePreset, SheetTemplate, InsertSheetTemplate, StylePresetType, StylePresetConfig } from "@shared/schema";
+import type { VisibleMailboxes } from "./services/mailboxScope";
 import type { CommunicationAutomationRule, InsertCommunicationAutomationRule, ServicePlanTemplateWithItems, ServicePlanTemplate, InsertServicePlanTemplate, ServicePlanTemplateItem, ServicePlanCategory, CustomerServicePlan, InsertCustomerServicePlan, ServiceFulfillmentRow } from "@shared/schema";
 import { eq, and, or, sql, desc, asc, inArray, max, type SQL, getTableColumns } from "drizzle-orm";
 import session from "express-session";
@@ -373,7 +374,7 @@ export interface IStorage {
   deleteSeason(id: string, companyId: string): Promise<void>;
 
   // Communications
-  getCommunications(companyId: string, filters?: { view?: string; customerId?: string; type?: string; sentById?: string; search?: string; startDate?: Date; endDate?: Date; status?: string; fromDate?: string; toDate?: string; threadId?: string }): Promise<CommunicationWithDetails[]>;
+  getCommunications(companyId: string, filters?: { view?: string; customerId?: string; type?: string; sentById?: string; search?: string; startDate?: Date; endDate?: Date; status?: string; fromDate?: string; toDate?: string; threadId?: string }, scope?: VisibleMailboxes): Promise<CommunicationWithDetails[]>;
   getCommunicationById(id: string, companyId: string): Promise<CommunicationWithDetails | undefined>;
   createCommunication(communication: InsertCommunication): Promise<Communication>;
   updateCommunication(id: string, companyId: string, updates: Partial<InsertCommunication>): Promise<Communication | undefined>;
@@ -3556,7 +3557,7 @@ export class PgStorage implements IStorage {
     return { action };
   }
 
-  async getCommunications(companyId: string, filters?: { view?: string; customerId?: string; type?: string; sentById?: string; search?: string; startDate?: Date; endDate?: Date; status?: string; fromDate?: string; toDate?: string; threadId?: string }): Promise<CommunicationWithDetails[]> {
+  async getCommunications(companyId: string, filters?: { view?: string; customerId?: string; type?: string; sentById?: string; search?: string; startDate?: Date; endDate?: Date; status?: string; fromDate?: string; toDate?: string; threadId?: string }, scope?: VisibleMailboxes): Promise<CommunicationWithDetails[]> {
     // Build SQL WHERE conditions — push as many filters to the DB as possible
     const conditions: (ReturnType<typeof eq> | ReturnType<typeof and> | ReturnType<typeof or> | ReturnType<typeof sql> | undefined)[] = [
       eq(communications.companyId, companyId),
@@ -3626,6 +3627,32 @@ export class PgStorage implements IStorage {
           sql`lower(COALESCE(${communications.fromAddress}, '')) like ${s}`
         )
       );
+    }
+
+    // Mailbox scope filter
+    if (scope) {
+      const { mailboxIds, includeNullMailbox, nullMailboxSentByUserId } = scope;
+      if (mailboxIds !== null) {
+        const nullPart = includeNullMailbox
+          ? sql`${communications.mailboxAccountId} IS NULL`
+          : nullMailboxSentByUserId
+            ? sql`(${communications.mailboxAccountId} IS NULL AND ${communications.sentById} = ${nullMailboxSentByUserId})`
+            : null;
+
+        if (mailboxIds.length === 0 && !nullPart) {
+          return [];
+        }
+
+        const parts: (ReturnType<typeof sql> | ReturnType<typeof inArray>)[] = [];
+        if (mailboxIds.length > 0) parts.push(inArray(communications.mailboxAccountId, mailboxIds));
+        if (nullPart) parts.push(nullPart);
+
+        if (parts.length === 1) {
+          conditions.push(parts[0]);
+        } else if (parts.length > 1) {
+          conditions.push(or(...parts));
+        }
+      }
     }
 
     const rows = await db.select({

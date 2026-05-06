@@ -2,7 +2,9 @@ import { Router } from "express";
 import { db } from "../db";
 import { mailboxAccounts, mailboxSyncRuns, unsortedEmails, communications } from "@shared/schema";
 import { insertMailboxAccountSchema } from "@shared/schema";
-import { eq, and, desc, gte, sql } from "drizzle-orm";
+import { eq, and, desc, gte, sql, inArray } from "drizzle-orm";
+import { resolveVisibleMailboxes, MailboxScopeForbiddenError } from "../services/mailboxScope";
+import type { RoleName } from "@shared/schema";
 import type { UserWithContext } from "../auth";
 import {
   isGoogleOAuthConfigured,
@@ -21,12 +23,37 @@ router.get("/", async (req, res) => {
   try {
     const user = req.user as UserWithContext;
     if (!user?.activeCompanyId) return res.status(401).json({ error: "Unauthorized" });
-    if (user.activeRole !== "admin" && user.activeRole !== "office" && !user.isSuperAdminBool) {
-      return res.status(403).json({ error: "Admin or office role required" });
+
+    const viewAs = req.query.viewAs as string | undefined;
+    let visibleMailboxIds: string[] | null = null;
+
+    try {
+      const vis = await resolveVisibleMailboxes({
+        userId: user.id,
+        companyId: user.activeCompanyId,
+        role: user.activeRole as RoleName,
+        viewAs: viewAs || undefined,
+        isSuperAdmin: user.isSuperAdminBool,
+      });
+      visibleMailboxIds = vis.mailboxIds;
+    } catch (err) {
+      if (err instanceof MailboxScopeForbiddenError) return res.status(403).json({ error: err.message });
+      console.error("[mailboxAccounts] scope resolution error:", err);
+      return res.status(500).json({ error: "Failed to resolve mailbox visibility" });
     }
+
+    if (visibleMailboxIds !== null && visibleMailboxIds.length === 0) {
+      return res.json([]);
+    }
+
+    const conditions = [eq(mailboxAccounts.companyId, user.activeCompanyId)];
+    if (visibleMailboxIds !== null && visibleMailboxIds.length > 0) {
+      conditions.push(inArray(mailboxAccounts.id, visibleMailboxIds));
+    }
+
     const accounts = await db.select()
       .from(mailboxAccounts)
-      .where(eq(mailboxAccounts.companyId, user.activeCompanyId));
+      .where(and(...conditions));
     res.json(accounts);
   } catch (err) {
     console.error("GET /api/mailbox-accounts error:", err);
@@ -341,6 +368,20 @@ router.post("/:id/sync", async (req, res) => {
     const [account] = await db.select().from(mailboxAccounts)
       .where(and(eq(mailboxAccounts.id, req.params.id), eq(mailboxAccounts.companyId, user.activeCompanyId)));
     if (!account) return res.status(404).json({ error: "Not found" });
+
+    try {
+      const vis = await resolveVisibleMailboxes({
+        userId: user.id,
+        companyId: user.activeCompanyId,
+        role: user.activeRole as RoleName,
+        isSuperAdmin: user.isSuperAdminBool,
+      });
+      if (vis.mailboxIds !== null && !vis.mailboxIds.includes(req.params.id)) {
+        return res.status(403).json({ error: "You do not have access to this mailbox." });
+      }
+    } catch (err) {
+      if (err instanceof MailboxScopeForbiddenError) return res.status(403).json({ error: err.message });
+    }
 
     if (!account.syncEnabled || account.syncStatus !== "connected") {
       return res.status(400).json({ error: "Mailbox is not connected" });

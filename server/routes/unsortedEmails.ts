@@ -1,9 +1,11 @@
 import { Router } from "express";
 import { db } from "../db";
 import { unsortedEmails } from "@shared/schema";
-import { eq, and, desc, sql } from "drizzle-orm";
+import { eq, and, desc, sql, inArray } from "drizzle-orm";
 import { storage } from "../storage";
 import type { UserWithContext } from "../auth";
+import { resolveVisibleMailboxes, MailboxScopeForbiddenError } from "../services/mailboxScope";
+import type { RoleName } from "@shared/schema";
 
 const router = Router();
 
@@ -18,8 +20,29 @@ router.get("/", async (req, res) => {
   try {
     const user = req.user as UserWithContext;
     if (!user?.activeCompanyId) return res.status(401).json({ error: "Unauthorized" });
-    if (user.activeRole !== "admin" && user.activeRole !== "office" && !user.isSuperAdminBool) {
-      return res.status(403).json({ error: "Admin or office role required" });
+
+    const viewAs = req.query.viewAs as string | undefined;
+    let visibleMailboxIds: string[] | null = null;
+    let includeNullMailbox = false;
+
+    try {
+      const vis = await resolveVisibleMailboxes({
+        userId: user.id,
+        companyId: user.activeCompanyId,
+        role: user.activeRole as RoleName,
+        viewAs: viewAs || undefined,
+        isSuperAdmin: user.isSuperAdminBool,
+      });
+      visibleMailboxIds = vis.mailboxIds;
+      includeNullMailbox = vis.includeNullMailbox;
+    } catch (err) {
+      if (err instanceof MailboxScopeForbiddenError) return res.status(403).json({ error: err.message });
+      console.error("[unsortedEmails] scope resolution error:", err);
+      return res.status(500).json({ error: "Failed to resolve mailbox visibility" });
+    }
+
+    if (visibleMailboxIds !== null && visibleMailboxIds.length === 0 && !includeNullMailbox) {
+      return res.json([]);
     }
 
     const { status, mailboxAccountId, assignedToUserId, candidateCustomerId, page, limit: limitStr } = req.query;
@@ -31,8 +54,15 @@ router.get("/", async (req, res) => {
     if (status && isValidStatus(status)) {
       conditions.push(eq(unsortedEmails.status, status));
     }
+
     if (mailboxAccountId) {
-      conditions.push(eq(unsortedEmails.mailboxAccountId, mailboxAccountId as string));
+      const requested = mailboxAccountId as string;
+      if (visibleMailboxIds !== null && !visibleMailboxIds.includes(requested)) {
+        return res.json([]);
+      }
+      conditions.push(eq(unsortedEmails.mailboxAccountId, requested));
+    } else if (visibleMailboxIds !== null && visibleMailboxIds.length > 0) {
+      conditions.push(inArray(unsortedEmails.mailboxAccountId, visibleMailboxIds));
     }
     if (assignedToUserId) {
       conditions.push(eq(unsortedEmails.assignedToUserId, assignedToUserId as string));
@@ -87,6 +117,22 @@ router.post("/:id/route", async (req, res) => {
       .from(unsortedEmails)
       .where(and(eq(unsortedEmails.id, req.params.id), eq(unsortedEmails.companyId, user.activeCompanyId)));
     if (!email) return res.status(404).json({ error: "Not found" });
+
+    if (email.mailboxAccountId) {
+      try {
+        const vis = await resolveVisibleMailboxes({
+          userId: user.id,
+          companyId: user.activeCompanyId,
+          role: user.activeRole as RoleName,
+          isSuperAdmin: user.isSuperAdminBool,
+        });
+        if (vis.mailboxIds !== null && !vis.mailboxIds.includes(email.mailboxAccountId)) {
+          return res.status(403).json({ error: "You do not have access to this mailbox." });
+        }
+      } catch (err) {
+        if (err instanceof MailboxScopeForbiddenError) return res.status(403).json({ error: err.message });
+      }
+    }
 
     const { customerId } = req.body;
     if (!customerId) return res.status(400).json({ error: "customerId is required" });

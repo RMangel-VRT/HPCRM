@@ -32,6 +32,7 @@ import { useToast } from "@/hooks/use-toast";
 import type { UnsortedEmail, MailboxAccount } from "@shared/schema";
 import CustomerSearchInput from "@/components/CustomerSearchInput";
 import { Link } from "wouter";
+import MailboxViewAsPicker from "@/components/customer/communications/MailboxViewAsPicker";
 
 type StatusFilter = "all" | "pending" | "routed" | "archived" | "spam";
 
@@ -513,14 +514,16 @@ export default function UnsortedInboxPage() {
   const [assignedToFilter, setAssignedToFilter] = useState("");
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedEmail, setSelectedEmail] = useState<UnsortedEmail | null>(null);
+  const [viewAs, setViewAs] = useState<string>("");
 
   const { data: emails = [], isLoading } = useQuery<UnsortedEmail[]>({
-    queryKey: ["/api/unsorted-emails", statusFilter, mailboxFilter, assignedToFilter],
+    queryKey: ["/api/unsorted-emails", statusFilter, mailboxFilter, assignedToFilter, viewAs],
     queryFn: async () => {
       const params = new URLSearchParams();
       if (statusFilter !== "all") params.set("status", statusFilter);
       if (mailboxFilter) params.set("mailboxAccountId", mailboxFilter);
       if (assignedToFilter) params.set("assignedToUserId", assignedToFilter);
+      if (viewAs) params.set("viewAs", viewAs);
       const res = await fetch(`/api/unsorted-emails?${params}`, { credentials: "include" });
       if (!res.ok) throw new Error("Failed to fetch");
       return res.json();
@@ -666,6 +669,7 @@ export default function UnsortedInboxPage() {
               data-testid="input-search-emails"
             />
           </div>
+          <MailboxViewAsPicker value={viewAs} onChange={setViewAs} />
           <Select value={mailboxFilter || "__all__"} onValueChange={v => setMailboxFilter(v === "__all__" ? "" : v)}>
             <SelectTrigger className="w-44" data-testid="select-mailbox-filter">
               <SelectValue placeholder={t("emailTracking.allMailboxes")} />

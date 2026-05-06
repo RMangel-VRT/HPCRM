@@ -2476,6 +2476,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // These must be defined early because they are used on routes registered
   // throughout the file (including email-rules routes at line ~7620).
   const COMM_VIEW_ROLES_SET = ["admin", "office"];
+  const COMM_LIST_ROLES_SET = ["admin", "office", "field", "field_manager", "chemical_manager", "irrigation_manager", "shop_manager", "mapping", "landscape_supervisor"];
   const COMM_MANAGE_TEMPLATES_ROLES_SET = ["admin", "office"];
   const COMM_SEND_ROLES_SET = ["admin", "office"];
   const COMM_AUTOMATIONS_ROLES_SET = ["admin"];
@@ -13994,16 +13995,40 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // GET /api/communications
-  app.get("/api/communications", requireCommPermission("view"), async (req, res) => {
+  app.get("/api/communications", (req, res, next) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ error: "Not authenticated" });
     const user = req.user as UserWithContext;
-    const { type, status, customerId, direction, search, fromDate, toDate } = req.query as Record<string, string>;
+    if (!COMM_LIST_ROLES_SET.includes(user.activeRole)) return res.status(403).json({ error: "Access denied" });
+    next();
+  }, async (req, res) => {
+    const user = req.user as UserWithContext;
+    const { type, status, customerId, direction, search, fromDate, toDate, viewAs } = req.query as Record<string, string>;
+
+    let scope: { mailboxIds: string[] | null; includeNullMailbox: boolean; nullMailboxSentByUserId?: string } | undefined;
+    try {
+      const { resolveVisibleMailboxes, MailboxScopeForbiddenError } = await import("./services/mailboxScope");
+      const vis = await resolveVisibleMailboxes({
+        userId: user.id,
+        companyId: user.activeCompanyId,
+        role: user.activeRole as import("@shared/schema").RoleName,
+        viewAs: viewAs || undefined,
+        isSuperAdmin: user.isSuperAdminBool,
+      });
+      scope = { mailboxIds: vis.mailboxIds, includeNullMailbox: vis.includeNullMailbox, nullMailboxSentByUserId: vis.nullMailboxSentByUserId };
+    } catch (err: unknown) {
+      const { MailboxScopeForbiddenError } = await import("./services/mailboxScope");
+      if (err instanceof MailboxScopeForbiddenError) return res.status(403).json({ error: err.message });
+      console.error("resolveVisibleMailboxes error:", err);
+      return res.status(500).json({ error: "Failed to resolve mailbox scope" });
+    }
+
     let items = await storage.getCommunications(user.activeCompanyId, {
       type: type || undefined,
       status: status || undefined,
       customerId: customerId || undefined,
       fromDate: fromDate || undefined,
       toDate: toDate || undefined,
-    });
+    }, scope);
     if (direction && direction !== "all") items = items.filter(c => c.direction === direction);
     if (search) {
       const q = search.toLowerCase();
@@ -14017,8 +14042,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
       );
     }
     if (req.query.mailboxIds) {
-      const ids = new Set((req.query.mailboxIds as string).split(",").filter(Boolean));
-      items = items.filter(c => c.mailboxAccountId && ids.has(c.mailboxAccountId));
+      const legacyIds = new Set((req.query.mailboxIds as string).split(",").filter(Boolean));
+      items = items.filter(c => c.mailboxAccountId && legacyIds.has(c.mailboxAccountId));
     }
     if (req.query.page !== undefined) {
       const page = Math.max(1, parseInt(req.query.page as string) || 1);
@@ -16169,7 +16194,59 @@ export async function runStartupMigrations(): Promise<void> {
   await migrateUserApplicatorFields();
   await migrateChemTemplateLabelAndCompanyLicense();
   await migrateEmailSyncTables();
+  await migrateMailboxVisibilitySettings();
   await reconcileIsParentFlags();
+}
+
+export async function migrateMailboxVisibilitySettings(): Promise<void> {
+  console.log("Running startup migration: default_mailbox_visibility column and ownerUserId backfill...");
+  try {
+    await db.execute(sql`ALTER TABLE settings ADD COLUMN IF NOT EXISTS default_mailbox_visibility JSONB DEFAULT '{}'::jsonb`);
+
+    await db.execute(sql`
+      UPDATE settings
+      SET default_mailbox_visibility = '{"shared":["admin","office"],"perRole":{"field":"own"}}'::jsonb
+      WHERE default_mailbox_visibility IS NULL
+         OR default_mailbox_visibility = '{}'::jsonb
+    `);
+
+    const ambiguousResult = await db.execute(sql`
+      SELECT ma.email_address, COUNT(u.id) AS user_count
+      FROM mailbox_accounts ma
+      JOIN users u ON lower(u.email) = lower(ma.email_address)
+      WHERE ma.account_type = 'personal'
+        AND ma.owner_user_id IS NULL
+      GROUP BY ma.email_address
+      HAVING COUNT(u.id) > 1
+    `);
+    const ambiguousEmails = new Set((ambiguousResult.rows as { email_address: string }[]).map(r => r.email_address));
+
+    if (ambiguousEmails.size > 0) {
+      console.warn(`migrateMailboxVisibilitySettings: skipping ambiguous email(s) with multiple users: ${[...ambiguousEmails].join(", ")}`);
+    }
+
+    await db.execute(sql`
+      UPDATE mailbox_accounts ma
+      SET owner_user_id = (
+        SELECT u.id FROM users u WHERE lower(u.email) = lower(ma.email_address) LIMIT 1
+      )
+      WHERE ma.account_type = 'personal'
+        AND ma.owner_user_id IS NULL
+        AND lower(ma.email_address) NOT IN (
+          SELECT lower(ma2.email_address)
+          FROM mailbox_accounts ma2
+          JOIN users u2 ON lower(u2.email) = lower(ma2.email_address)
+          WHERE ma2.account_type = 'personal'
+            AND ma2.owner_user_id IS NULL
+          GROUP BY ma2.email_address
+          HAVING COUNT(u2.id) > 1
+        )
+    `);
+
+    console.log("migrateMailboxVisibilitySettings complete");
+  } catch (error) {
+    console.error("Error during migrateMailboxVisibilitySettings (skipping):", error);
+  }
 }
 
 export async function migrateEmailSyncTables(): Promise<void> {

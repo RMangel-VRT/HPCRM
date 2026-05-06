@@ -85,6 +85,7 @@ import {
 import type { Communication, Customer, CommunicationWithDetails, CommunicationAnalytics, CommunicationTemplate, CommunicationAuditLogWithUser, CommunicationAutomationRule } from "@shared/schema";
 import { COMMUNICATION_TEMPLATE_CATEGORIES, COMMUNICATION_TEMPLATE_CATEGORY_LABELS } from "@shared/schema";
 import ComposeDrawer from "@/components/ComposeDrawer";
+import MailboxViewAsPicker from "@/components/customer/communications/MailboxViewAsPicker";
 
 type SectionFilter = "all" | "draft" | "sent" | "scheduled" | "follow_ups" | "templates" | "audit_log";
 type ViewMode = "communications" | "automations";
@@ -231,15 +232,18 @@ function buildDetailSummary(log: CommunicationAuditLogWithUser): string {
 }
 
 // Permission helper — determines what the current user can do
+const ALL_COMM_ROLES = new Set(["admin", "office", "field", "field_manager", "chemical_manager", "irrigation_manager", "shop_manager", "mapping", "landscape_supervisor"]);
+
 function useCommPermissions() {
   const { user } = useAuth();
   const role = user?.activeRole;
   return {
-    canView: role === "admin" || role === "office",
+    canView: !!role && ALL_COMM_ROLES.has(role),
     canManageTemplates: role === "admin" || role === "office",
     canSend: role === "admin" || role === "office",
     canManageAutomations: role === "admin",
     isAdmin: role === "admin",
+    isAdminOrOffice: role === "admin" || role === "office",
   };
 }
 
@@ -2026,6 +2030,7 @@ export default function CommunicationsCenter() {
   const [search, setSearch] = useState("");
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [validationErrors, setValidationErrors] = useState<string[]>([]);
+  const [viewAs, setViewAs] = useState<string>("");
 
   // Keep sectionFilter in sync when the URL query param changes (e.g., clicking dashboard widgets)
   useEffect(() => {
@@ -2037,7 +2042,14 @@ export default function CommunicationsCenter() {
   useSetBreadcrumbs([{ label: "Communications" }], []);
 
   const { data: communications = [], isLoading } = useQuery<CommunicationWithDetails[]>({
-    queryKey: ["/api/communications"],
+    queryKey: ["/api/communications", viewAs],
+    queryFn: async () => {
+      const params = new URLSearchParams();
+      if (viewAs) params.set("viewAs", viewAs);
+      const res = await fetch(`/api/communications${params.toString() ? `?${params}` : ""}`, { credentials: "include" });
+      if (!res.ok) throw new Error("Failed to fetch communications");
+      return res.json();
+    },
     enabled: permissions.canView,
   });
 
@@ -2169,6 +2181,9 @@ export default function CommunicationsCenter() {
             <Plus className="w-3.5 h-3.5 mr-1.5" />
             Compose
           </Button>
+          {permissions.isAdminOrOffice && (
+            <MailboxViewAsPicker value={viewAs} onChange={setViewAs} />
+          )}
         </div>
         <div className="flex-1 overflow-y-auto p-2">
           <div className="space-y-1">
