@@ -69,6 +69,7 @@ const PropertyDetail = lazy(() => import("@/pages/PropertyDetail"));
 const UnsortedInboxPage = lazy(() => import("@/pages/UnsortedInboxPage"));
 const MailboxAccountsSettingsPage = lazy(() => import("@/pages/MailboxAccountsSettingsPage"));
 const MyMailboxPage = lazy(() => import("@/pages/MyMailboxPage"));
+const SharedMailboxesAndOversightPage = lazy(() => import("@/pages/SharedMailboxesAndOversightPage"));
 const ChemicalNotificationTemplates = lazy(() => import("@/pages/ChemicalNotificationTemplates"));
 
 interface ErrorBoundaryProps {
@@ -321,7 +322,10 @@ function Router() {
         />
         <ProtectedRoute path="/dashboard/communications" component={CommunicationsCenter} allowedRoles={["admin", "office", "field", "field_manager", "chemical_manager", "irrigation_manager", "shop_manager", "mapping", "landscape_supervisor"]} />
         <ProtectedRoute path="/dashboard/communications/unsorted" component={UnsortedInboxPage} allowedRoles={["admin", "office", "field", "field_manager", "chemical_manager", "irrigation_manager", "shop_manager", "mapping", "landscape_supervisor"]} />
-        <ProtectedRoute path="/dashboard/settings/mailbox-accounts" component={MailboxAccountsSettingsPage} allowedRoles={["admin"]} />
+        <ProtectedRoute path="/dashboard/settings/shared-mailboxes" component={SharedMailboxesAndOversightPage} allowedRoles={["admin", "office"]} />
+        <Route path="/dashboard/settings/mailbox-accounts">
+          <Redirect to="/dashboard/settings/shared-mailboxes" />
+        </Route>
         <ProtectedRoute path="/dashboard/settings/my-mailbox" component={MyMailboxPage} />
         <ProtectedRoute path="/dashboard/settings/notification-templates" component={ChemicalNotificationTemplates} allowedRoles={["admin"]} />
         <ProtectedRoute path="/dashboard/reports" component={ReportsPage} allowedRoles={["admin", "office"]} />

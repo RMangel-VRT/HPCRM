@@ -241,7 +241,7 @@ export default function AppSidebar({
       items.push({ title: t("nav.settings"), url: "/dashboard/settings", icon: Settings });
     }
     if (userRole === "admin") {
-      items.push({ title: t("nav.mailboxAccounts"), url: "/dashboard/settings/mailbox-accounts", icon: Mail });
+      items.push({ title: t("nav.sharedMailboxes"), url: "/dashboard/settings/shared-mailboxes", icon: Mail });
       items.push({ title: "Notification Templates", url: "/dashboard/settings/notification-templates", icon: FileText });
     }
     if (userRole === "admin") {

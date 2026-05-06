@@ -553,7 +553,7 @@ export default function SettingsPage() {
             <TabsTrigger value="service-plans" data-testid="tab-service-plans">Service Plans</TabsTrigger>
           )}
           {isAdmin && (
-            <TabsTrigger value="mailbox-accounts" data-testid="tab-mailbox-accounts">{t("nav.mailboxAccounts")}</TabsTrigger>
+            <TabsTrigger value="shared-mailboxes" data-testid="tab-shared-mailboxes">{t("nav.sharedMailboxes")}</TabsTrigger>
           )}
           {isAdmin && (
             <TabsTrigger value="chemical-products" data-testid="tab-chemical-products">{t("chemicalProducts.title")}</TabsTrigger>

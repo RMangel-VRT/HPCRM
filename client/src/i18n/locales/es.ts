@@ -186,6 +186,8 @@ const es = {
     inbox_review_es: "needs human review",
     mailboxAccounts: "Cuentas de correo",
     mailboxAccounts_review_es: "needs human review",
+    sharedMailboxes: "Buzones Compartidos",
+    sharedMailboxes_review_es: "needs human review",
     logOut: "Cerrar Sesion",
   },
   sidebar: {

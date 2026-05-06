@@ -457,6 +457,22 @@ export interface IStorage {
   getActiveMailboxBackfillRun(mailboxAccountId: string): Promise<MailboxBackfillRun | undefined>;
   getMailboxBackfillHistory(mailboxAccountId: string, limit?: number): Promise<MailboxBackfillRun[]>;
 
+  // Personal Mailbox Oversight
+  getCompanyPersonalMailboxes(companyId: string): Promise<Array<{
+    id: string;
+    emailAddress: string;
+    displayName: string;
+    syncStatus: string | null;
+    syncEnabled: boolean | null;
+    lastSyncedAt: Date | null;
+    isActive: boolean | null;
+    ownerUserId: string | null;
+    ownerName: string | null;
+    ownerEmail: string | null;
+    connectedEmail: string | null;
+    pendingUnsortedCount: number;
+  }>>;
+
   sessionStore: session.Store;
 }
 
@@ -4569,6 +4585,58 @@ export class PgStorage implements IStorage {
       .orderBy(desc(mailboxBackfillRuns.startedAt))
       .limit(1);
     return row;
+  }
+
+  async getCompanyPersonalMailboxes(companyId: string) {
+    const rows = await db.select({
+      id: mailboxAccounts.id,
+      emailAddress: mailboxAccounts.emailAddress,
+      displayName: mailboxAccounts.displayName,
+      syncStatus: mailboxAccounts.syncStatus,
+      syncEnabled: mailboxAccounts.syncEnabled,
+      lastSyncedAt: mailboxAccounts.lastSyncedAt,
+      isActive: mailboxAccounts.isActive,
+      ownerUserId: mailboxAccounts.ownerUserId,
+      oauthTokenJson: mailboxAccounts.oauthTokenJson,
+      ownerName: users.name,
+      ownerEmail: users.email,
+    })
+      .from(mailboxAccounts)
+      .leftJoin(users, eq(mailboxAccounts.ownerUserId, users.id))
+      .where(and(eq(mailboxAccounts.companyId, companyId), eq(mailboxAccounts.accountType, "personal")));
+
+    const ids = rows.map(r => r.id);
+    let unsortedCounts: Record<string, number> = {};
+    if (ids.length > 0) {
+      const counts = await db.select({
+        mailboxAccountId: unsortedEmails.mailboxAccountId,
+        count: sql<number>`count(*)`,
+      })
+        .from(unsortedEmails)
+        .where(and(eq(unsortedEmails.companyId, companyId), inArray(unsortedEmails.mailboxAccountId, ids)))
+        .groupBy(unsortedEmails.mailboxAccountId);
+      for (const c of counts) {
+        if (c.mailboxAccountId) unsortedCounts[c.mailboxAccountId] = Number(c.count);
+      }
+    }
+
+    return rows.map(r => {
+      const tokenData = r.oauthTokenJson as Record<string, unknown> | null;
+      return {
+        id: r.id,
+        emailAddress: r.emailAddress,
+        displayName: r.displayName,
+        syncStatus: r.syncStatus,
+        syncEnabled: r.syncEnabled,
+        lastSyncedAt: r.lastSyncedAt,
+        isActive: r.isActive,
+        ownerUserId: r.ownerUserId,
+        ownerName: r.ownerName,
+        ownerEmail: r.ownerEmail,
+        connectedEmail: (tokenData?.connected_email as string) ?? null,
+        pendingUnsortedCount: unsortedCounts[r.id] ?? 0,
+      };
+    });
   }
 
   async getMailboxBackfillHistory(mailboxAccountId: string, limit = 10): Promise<MailboxBackfillRun[]> {

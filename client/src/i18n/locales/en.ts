@@ -184,6 +184,7 @@ const en = {
     campaigns: "Campaigns",
     inbox: "Inbox",
     mailboxAccounts: "Mailbox Accounts",
+    sharedMailboxes: "Shared Mailboxes",
     logOut: "Log Out",
   },
   sidebar: {

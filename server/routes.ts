@@ -4248,6 +4248,62 @@ export async function registerRoutes(app: Express): Promise<Server> {
     res.json(settings);
   });
 
+  // Company mail settings (defaultMailboxVisibility, defaultSyncIntervalMinutes)
+  app.get("/api/settings/mail", async (req, res) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ error: "Not authenticated" });
+    const user = req.user as UserWithContext;
+    if (user.activeRole !== "admin" && user.activeRole !== "office" && !user.isSuperAdminBool) {
+      return res.status(403).json({ error: "Admin or office role required" });
+    }
+    const settings = await storage.getSettings(user.activeCompanyId);
+    if (!settings) return res.status(404).json({ error: "Settings not found" });
+    res.json({
+      defaultMailboxVisibility: settings.defaultMailboxVisibility ?? { shared: ["admin", "office"], perRole: { field: "own" } },
+      defaultSyncIntervalMinutes: settings.defaultSyncIntervalMinutes ?? 2,
+    });
+  });
+
+  app.patch("/api/settings/mail", async (req, res) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ error: "Not authenticated" });
+    const user = req.user as UserWithContext;
+    if (user.activeRole !== "admin" && user.activeRole !== "office" && !user.isSuperAdminBool) {
+      return res.status(403).json({ error: "Admin or office role required" });
+    }
+    const { z } = await import("zod");
+    const schema = z.object({
+      defaultMailboxVisibility: z.object({
+        shared: z.array(z.string()).optional(),
+        perRole: z.record(z.enum(["own", "all", "shared_only"])).optional(),
+      }).optional(),
+      defaultSyncIntervalMinutes: z.number().int().min(1).max(60).optional(),
+    });
+    const parsed = schema.safeParse(req.body);
+    if (!parsed.success) return res.status(400).json({ error: parsed.error.flatten() });
+    const settings = await storage.updateSettings(user.activeCompanyId, parsed.data as Parameters<typeof storage.updateSettings>[1]);
+    if (!settings) return res.status(404).json({ error: "Settings not found" });
+    console.log(`[settings.mail.updated] companyId=${user.activeCompanyId} by userId=${user.id}`);
+    res.json({
+      defaultMailboxVisibility: settings.defaultMailboxVisibility ?? { shared: ["admin", "office"], perRole: { field: "own" } },
+      defaultSyncIntervalMinutes: settings.defaultSyncIntervalMinutes ?? 2,
+    });
+  });
+
+  // Personal mailbox oversight — admin/office list with owner info
+  app.get("/api/mailbox-accounts/personal", async (req, res) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ error: "Not authenticated" });
+    const user = req.user as UserWithContext;
+    if (user.activeRole !== "admin" && user.activeRole !== "office" && !user.isSuperAdminBool) {
+      return res.status(403).json({ error: "Admin or office role required" });
+    }
+    try {
+      const rows = await storage.getCompanyPersonalMailboxes(user.activeCompanyId);
+      res.json(rows);
+    } catch (err) {
+      console.error("GET /api/mailbox-accounts/personal error:", err);
+      res.status(500).json({ error: "Internal server error" });
+    }
+  });
+
   app.get("/api/customers/:customerId/revenue/:year", async (req, res) => {
     if (!req.isAuthenticated()) {
       return res.status(401).send("Not authenticated");

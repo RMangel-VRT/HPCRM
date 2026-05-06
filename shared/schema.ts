@@ -269,6 +269,7 @@ export const settings = pgTable("settings", {
   hourlyRateBenchmarks: text("hourly_rate_benchmarks").notNull().default('{}'),
   featureFlags: text("feature_flags").notNull().default('{}'),
   defaultMailboxVisibility: jsonb("default_mailbox_visibility").$type<MailboxVisibilityConfig>().default(sql`'{"shared":["admin","office"],"perRole":{"field":"own"}}'::jsonb`),
+  defaultSyncIntervalMinutes: integer("default_sync_interval_minutes").default(2),
   createdAt: timestamp("created_at").notNull().defaultNow(),
   updatedAt: timestamp("updated_at").notNull().defaultNow(),
 });
@@ -286,6 +287,7 @@ export const insertSettingsSchema = createInsertSchema(settings).omit({
     shared: z.array(z.string()).default([]),
     perRole: z.record(z.enum(["own", "all", "shared_only"])).optional(),
   }).optional(),
+  defaultSyncIntervalMinutes: z.number().int().min(1).max(60).optional(),
 });
 
 export type InsertSettings = z.infer<typeof insertSettingsSchema>;

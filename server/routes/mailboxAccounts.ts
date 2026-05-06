@@ -274,7 +274,7 @@ router.post("/mine", async (req, res) => {
 router.get("/oauth/callback", async (req, res) => {
   const { code, state, error: oauthError } = req.query as Record<string, string>;
 
-  const settingsUrl = "/dashboard/settings/mailbox-accounts";
+  const settingsUrl = "/dashboard/settings/shared-mailboxes";
 
   if (oauthError) {
     return res.status(400).send(buildHtmlPage("OAuth Error", `<p>Google returned an error: <strong>${escapeHtml(oauthError)}</strong></p><p><a href="${settingsUrl}">Return to settings</a></p>`));
@@ -641,8 +641,29 @@ router.post("/", async (req, res) => {
   try {
     const user = req.user as UserWithContext;
     if (!user?.activeCompanyId) return res.status(401).json({ error: "Unauthorized" });
-    if (user.activeRole !== "admin" && !user.isSuperAdminBool) return res.status(403).json({ error: "Admin only" });
-    const parsed = insertMailboxAccountSchema.safeParse({ ...req.body, companyId: user.activeCompanyId });
+    if (user.activeRole !== "admin" && user.activeRole !== "office" && !user.isSuperAdminBool) {
+      return res.status(403).json({ error: "Admin or office role required" });
+    }
+
+    // This endpoint only creates shared mailboxes. Personal mailboxes are created
+    // through the My Mailbox self-serve flow (Slice 1.5).
+    const accountType = req.body.accountType ?? "shared";
+    if (accountType === "personal") {
+      return res.status(400).json({
+        error: "Personal mailboxes cannot be created through this endpoint. Use the My Mailbox page instead.",
+      });
+    }
+    if (req.body.ownerUserId) {
+      return res.status(400).json({
+        error: "ownerUserId may not be set when creating a shared mailbox.",
+      });
+    }
+
+    const parsed = insertMailboxAccountSchema.safeParse({
+      ...req.body,
+      accountType: "shared",
+      companyId: user.activeCompanyId,
+    });
     if (!parsed.success) return res.status(400).json({ error: parsed.error.flatten() });
     const [account] = await db.insert(mailboxAccounts).values(parsed.data as typeof mailboxAccounts.$inferInsert).returning();
     res.status(201).json(account);
@@ -657,18 +678,81 @@ router.patch("/:id", async (req, res) => {
   try {
     const user = req.user as UserWithContext;
     if (!user?.activeCompanyId) return res.status(401).json({ error: "Unauthorized" });
-    if (user.activeRole !== "admin" && !user.isSuperAdminBool) return res.status(403).json({ error: "Admin only" });
-    const updates = req.body;
+
+    const [account] = await db.select()
+      .from(mailboxAccounts)
+      .where(and(eq(mailboxAccounts.id, req.params.id), eq(mailboxAccounts.companyId, user.activeCompanyId)));
+    if (!account) return res.status(404).json({ error: "Not found" });
+
+    // Personal mailboxes may only be patched by their owner or an admin
+    if (account.accountType === "personal") {
+      if (user.activeRole !== "admin" && !user.isSuperAdminBool && account.ownerUserId !== user.id) {
+        return res.status(403).json({ error: "Not authorized to update this personal mailbox" });
+      }
+    } else {
+      // Shared mailboxes require admin or office
+      if (user.activeRole !== "admin" && user.activeRole !== "office" && !user.isSuperAdminBool) {
+        return res.status(403).json({ error: "Admin or office role required" });
+      }
+    }
+
+    const updates = { ...req.body };
     delete updates.id;
     delete updates.companyId;
-    const [account] = await db.update(mailboxAccounts)
+
+    // Immutability rules: accountType and ownerUserId cannot be changed on shared mailboxes
+    if (account.accountType === "shared") {
+      if (updates.accountType !== undefined && updates.accountType !== "shared") {
+        return res.status(400).json({ error: "accountType cannot be changed on a shared mailbox" });
+      }
+      if (updates.ownerUserId !== undefined) {
+        return res.status(400).json({ error: "ownerUserId cannot be set on a shared mailbox" });
+      }
+    }
+    delete updates.accountType;
+
+    const [updated] = await db.update(mailboxAccounts)
       .set({ ...updates, updatedAt: new Date() })
       .where(and(eq(mailboxAccounts.id, req.params.id), eq(mailboxAccounts.companyId, user.activeCompanyId)))
       .returning();
-    if (!account) return res.status(404).json({ error: "Not found" });
-    res.json(account);
+    if (!updated) return res.status(404).json({ error: "Not found" });
+    res.json(updated);
   } catch (err) {
     console.error("PATCH /api/mailbox-accounts/:id error:", err);
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+// ─── Admin-disconnect (admin/office override) ─────────────────────────────────
+router.post("/:id/admin-disconnect", async (req, res) => {
+  try {
+    const user = req.user as UserWithContext;
+    if (!user?.activeCompanyId) return res.status(401).json({ error: "Unauthorized" });
+    if (user.activeRole !== "admin" && user.activeRole !== "office" && !user.isSuperAdminBool) {
+      return res.status(403).json({ error: "Admin or office role required" });
+    }
+
+    const [account] = await db.select()
+      .from(mailboxAccounts)
+      .where(and(eq(mailboxAccounts.id, req.params.id), eq(mailboxAccounts.companyId, user.activeCompanyId)));
+    if (!account) return res.status(404).json({ error: "Not found" });
+
+    const reason = req.body?.reason as string | undefined;
+
+    await db.update(mailboxAccounts)
+      .set({
+        oauthTokenJson: null,
+        syncStatus: "not_connected",
+        syncEnabled: false,
+        updatedAt: new Date(),
+      })
+      .where(and(eq(mailboxAccounts.id, req.params.id), eq(mailboxAccounts.companyId, user.activeCompanyId)));
+
+    console.log(`[mailbox.admin_disconnected] mailboxId=${req.params.id} by userId=${user.id} reason=${reason ?? "(none)"}`);
+
+    res.json({ success: true });
+  } catch (err) {
+    console.error("POST /api/mailbox-accounts/:id/admin-disconnect error:", err);
     res.status(500).json({ error: "Internal server error" });
   }
 });
