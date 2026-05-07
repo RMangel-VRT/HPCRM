@@ -1547,6 +1547,49 @@ const es = {
     chemCompletionEmailDebounce: "Correo enviado recientemente — espere 60 segundos o use Reenviar", // TODO: human-review translation
     chemCompletionUnsent24h: "Esta visita fue completada hace mas de 24 horas y no se ha enviado correo de completado.", // TODO: human-review translation
     chemCompletionEmailPreviewTitle: "Vista Previa del Correo de Completado", // TODO: human-review translation
+    categoryExtraBillable: "Facturable Extra", // TODO: human-review translation
+    extraBillableDescription: "Rastrea trabajo facturable ad-hoc realizado por cuadrillas de campo. Asigna propiedades a cuadrillas, completa el trabajo y prepara tickets de factura.", // TODO: human-review translation
+    extraBillableTabProperties: "Propiedades", // TODO: human-review translation
+    extraBillableTabCrews: "Cuadrillas", // TODO: human-review translation
+    extraBillableTabBillingQueue: "Cola de Facturacion", // TODO: human-review translation
+    extraBillableNoCrews: "Aun no hay cuadrillas — crea una para comenzar a asignar propiedades.", // TODO: human-review translation
+    extraBillableAddCrew: "Agregar Cuadrilla", // TODO: human-review translation
+    extraBillableCrewName: "Nombre de Cuadrilla", // TODO: human-review translation
+    extraBillableCrewColor: "Color", // TODO: human-review translation
+    extraBillableCrewLeader: "Lider", // TODO: human-review translation
+    extraBillableCrewMembers: "Miembros", // TODO: human-review translation
+    extraBillableEditCrew: "Editar Cuadrilla", // TODO: human-review translation
+    extraBillableDeleteCrew: "Eliminar Cuadrilla", // TODO: human-review translation
+    extraBillableDeleteCrewConfirm: "Eliminar esta cuadrilla? Las propiedades asignadas actualmente deben reasignarse primero.", // TODO: human-review translation
+    extraBillableCrewSaved: "Cuadrilla guardada", // TODO: human-review translation
+    extraBillableCrewSaveFailed: "Error al guardar la cuadrilla", // TODO: human-review translation
+    extraBillableCrewDeleted: "Cuadrilla eliminada", // TODO: human-review translation
+    extraBillableCrewDeleteFailed: "Error al eliminar la cuadrilla", // TODO: human-review translation
+    extraBillableAddMember: "Agregar Miembro", // TODO: human-review translation
+    extraBillableMemberAdded: "Miembro agregado", // TODO: human-review translation
+    extraBillableMemberRemoved: "Miembro removido", // TODO: human-review translation
+    extraBillableAssignedCrew: "Cuadrilla Asignada", // TODO: human-review translation
+    extraBillableUnassigned: "Sin asignar", // TODO: human-review translation
+    extraBillableAssignToCrew: "Asignar a Cuadrilla", // TODO: human-review translation
+    extraBillableProperties: "Propiedades", // TODO: human-review translation
+    extraBillableItemCount: "{{count}} propiedades", // TODO: human-review translation
+    extraBillableBillingStatusNotCreated: "No Creado", // TODO: human-review translation
+    extraBillableBillingStatusReady: "Listo para Facturar", // TODO: human-review translation
+    extraBillableBillingStatusInvoiced: "Facturado", // TODO: human-review translation
+    extraBillableEstimatedAmount: "Monto Estimado", // TODO: human-review translation
+    extraBillableBillingQueueEmpty: "Aun no hay propiedades listas para facturar.", // TODO: human-review translation
+    extraBillableBillingQueueLocked: "La cola de facturacion es parte de la Fase 2.", // TODO: human-review translation
+    extraBillableSearchProperties: "Buscar propiedades…", // TODO: human-review translation
+    extraBillablePropertyCount: "Propiedades", // TODO: human-review translation
+    extraBillableCompletedCount: "Completadas", // TODO: human-review translation
+    extraBillablePhotosCount: "Fotos", // TODO: human-review translation
+    extraBillableTotalEstimated: "Total estimado", // TODO: human-review translation
+    extraBillableOpenProperty: "Abrir", // TODO: human-review translation
+    extraBillableAddProperties: "Agregar propiedades", // TODO: human-review translation
+    extraBillableNoMatchingProperties: "Ninguna propiedad coincide con tu busqueda.", // TODO: human-review translation
+    extraBillableColorPresets: "Color predefinido", // TODO: human-review translation
+    extraBillableSelectMembers: "Miembros", // TODO: human-review translation
+    extraBillableLeaderPinned: "El lider es siempre un miembro.", // TODO: human-review translation
   },
   chemicalProducts: {
     title: "Productos Quimicos", // TODO: human-review translation

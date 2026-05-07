@@ -58,6 +58,7 @@ import {
   Droplets,
   Leaf,
   Pencil,
+  DollarSign,
   X,
   Plus,
   List,
@@ -67,6 +68,7 @@ import {
   AlertCircle,
 } from "lucide-react";
 import type { Campaign, CampaignItem, Season, CampaignChecklistTask, Customer, CompanyUser, User as UserType } from "@shared/schema";
+import ExtraBillableCampaignView from "@/components/ExtraBillableCampaignView";
 
 interface CampaignItemWithUser extends CampaignItem {
   completedByName?: string | null;
@@ -339,6 +341,7 @@ export default function CampaignDetail() {
 
   const isChemicalCampaign = campaign?.category === "chemical";
   const isIrrigationCampaign = campaign?.category === "irrigation";
+  const isExtraBillableCampaign = campaign?.category === "extra_billable";
 
   const getChemStepLabel = (step: string | null, itemStatus?: string) => {
     if (itemStatus === "completed") return t("campaigns.chemStepComplete");
@@ -383,7 +386,14 @@ export default function CampaignDetail() {
             <Badge variant="outline" data-testid="badge-campaign-category">
               {campaign.category === "chemical" && <FlaskConical className="w-3 h-3 mr-1" />}
               {campaign.category === "irrigation" && <Droplets className="w-3 h-3 mr-1" />}
-              {campaign.category === "chemical" ? t("campaigns.categoryChemical") : campaign.category === "irrigation" ? t("campaigns.categoryIrrigation") : t("campaigns.categoryGeneral")}
+              {campaign.category === "extra_billable" && <DollarSign className="w-3 h-3 mr-1" />}
+              {campaign.category === "chemical"
+                ? t("campaigns.categoryChemical")
+                : campaign.category === "irrigation"
+                  ? t("campaigns.categoryIrrigation")
+                  : campaign.category === "extra_billable"
+                    ? t("campaigns.categoryExtraBillable")
+                    : t("campaigns.categoryGeneral")}
             </Badge>
             {isOverdue && (
               <Badge variant="destructive">
@@ -501,7 +511,11 @@ export default function CampaignDetail() {
         </Button>
       )}
 
-      {isChemicalCampaign && (
+      {isExtraBillableCampaign && (
+        <ExtraBillableCampaignView campaign={campaign} campaignId={id!} />
+      )}
+
+      {!isExtraBillableCampaign && isChemicalCampaign && (
         <div className="flex items-center gap-1">
           <Button
             variant={activeTab === "items" ? "default" : "outline"}
@@ -523,7 +537,7 @@ export default function CampaignDetail() {
         </div>
       )}
 
-      {activeTab === "report" && isChemicalCampaign ? (
+      {isExtraBillableCampaign ? null : activeTab === "report" && isChemicalCampaign ? (
         <div className="space-y-4">
           <div className="flex items-center gap-2 flex-wrap">
             <Button variant="outline" size="sm" onClick={handleExportCSV} data-testid="button-export-csv">
