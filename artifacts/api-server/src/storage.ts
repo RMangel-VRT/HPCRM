@@ -1,4 +1,23 @@
 import type { CampaignCrew, InsertCampaignCrew, CampaignCrewMember, CampaignCrewWithMembers } from "@workspace/db";
+
+export interface MyExtraBillableBatch {
+  campaignId: string;
+  campaignTitle: string;
+  campaignStatus: string;
+  windowStart: string;
+  windowEnd: string;
+  crewId: string;
+  crewName: string;
+  crewColor: string;
+  leaderUserId: string;
+  leaderName: string;
+  isLeader: boolean;
+  assignedItemCount: number;
+  completedItemCount: number;
+  pendingItemCount: number;
+  photoCount: number;
+  nextDueDate: string | null;
+}
 import { type User, type InsertUser, type Customer, type InsertCustomer, type Contact, type InsertContact, type Company, type InsertCompany, type CompanyUser, type InsertCompanyUser, type Settings, type InsertSettings, type Note, type InsertNote, type Contract, type InsertContract, type ContractStatusHistory, type InsertContractStatusHistory, type ContractDocument, type InsertContractDocument, type ContractMonthlyAmount, type InsertContractMonthlyAmount, type CustomerRateSheet, type InsertCustomerRateSheet, type ContractService, type InsertContractService, type ContractTemplate, type InsertContractTemplate, type ContractBuilderDocument, type InsertContractBuilderDocument, type ContractBuilderSection, type InsertContractBuilderSection, type ContractBuilderVariable, type InsertContractBuilderVariable, type TicketType, type InsertTicketType, type TicketTypeStatus, type InsertTicketTypeStatus, type TicketTypeField, type InsertTicketTypeField, type Ticket, type InsertTicket, type TicketFieldValue, type InsertTicketFieldValue, type TicketStatusHistory, type InsertTicketStatusHistory, type TicketComment, type TicketCommentWithAuthor, type InsertTicketComment, type TicketCommentMention, type InsertTicketCommentMention, type TicketSource, type InsertTicketSource, type TicketLink, type InsertTicketLink, type TicketTypeCategory, type CustomerMapLayer, type InsertCustomerMapLayer, type CustomerMapDocument, type InsertCustomerMapDocument, type MaintenanceCrew, type InsertMaintenanceCrew, type MaintenanceVisitConfig, type InsertMaintenanceVisitConfig, type WeeklyScheduleTemplate, type InsertWeeklyScheduleTemplate, type ScheduleBlock, type InsertScheduleBlock, type TicketNotification, type InsertTicketNotification, type NotificationType, type PropertyManagementCompany, type InsertPropertyManagementCompany, type PropertyManager, type InsertPropertyManager, type PropertyManagerEmail, type InsertPropertyManagerEmail, type PropertyManagerPhone, type InsertPropertyManagerPhone, type PropertyManagerWithContacts, type Equipment, type InsertEquipment, type EquipmentFile, type InsertEquipmentFile, type EquipmentTicket, type InsertEquipmentTicket, type EquipmentTicketStatusHistory, type InsertEquipmentTicketStatusHistory, type EquipmentWithTicketCount, type SnowEvent, type InsertSnowEvent, type SnowEventAttachment, type InsertSnowEventAttachment, type SnowEventPropertyImpact, type InsertSnowEventPropertyImpact, type SnowEventWithDetails, type SnowEventPropertyImpactWithCustomer, type EmailTemplate, type InsertEmailTemplate, type EmailRule, type InsertEmailRule, type EmailLog, type InsertEmailLog, type EmailLogWithDetails, type Proposal, type InsertProposal, type ProposalFile, type InsertProposalFile, type ProposalWithDetails, type ProposalVersion, type InsertProposalVersion, type ProposalVersionWithUser, type VisualScopeSheet, type InsertVisualScopeSheet, type VisualScopeSheetWithCustomer, type Campaign, type InsertCampaign, type CampaignItem, type InsertCampaignItem, type CampaignWithProgress, type Season, type InsertSeason, type CampaignChecklistTask, type InsertCampaignChecklistTask, type CampaignItemTaskCompletion, type InsertCampaignItemTaskCompletion, type CampaignChecklistAuditLog, type InsertCampaignChecklistAuditLog, type CampaignChecklistAuditLogWithUser, type Communication, type InsertCommunication, type CommunicationTemplate, type InsertCommunicationTemplate, type CommunicationThread, type InsertCommunicationThread, type CommunicationLink, type InsertCommunicationLink, type CommunicationWithDetails, type CommunicationAnalytics, type InsertCommunicationAuditLog, type CommunicationAuditLog, type CommunicationAuditLogWithUser, type ChemicalProduct, type InsertChemicalProduct, type ChemicalNotificationTemplate, type InsertChemicalNotificationTemplate, type MailboxBackfillRun, type InsertMailboxBackfillRun } from "@workspace/db";
 import { db } from "./db";
 import { users, customers, contacts, companies, companyUsers, settings, notes, contracts, contractStatusHistory, contractDocuments, contractMonthlyAmounts, customerRateSheets, contractServices, contractTemplates, contractBuilderDocuments, contractBuilderSections, contractBuilderVariables, ticketTypes, ticketTypeStatuses, ticketTypeFields, tickets, ticketFieldValues, ticketStatusHistory, ticketComments, ticketCommentMentions, ticketSources, ticketLinks, customerMapLayers, customerMapDocuments, maintenanceCrews, maintenanceVisitConfigs, weeklyScheduleTemplates, scheduleBlocks, ticketNotifications, propertyManagementCompanies, propertyManagers, propertyManagerEmails, propertyManagerPhones, equipment, equipmentFiles, equipmentTickets, equipmentTicketStatusHistory, snowEvents, snowEventAttachments, snowEventPropertyImpacts, emailTemplates, emailRules, emailLogs, proposals, proposalFiles, proposalVersions, visualScopeSheets, campaigns, campaignItems, campaignChecklistTasks, campaignItemTaskCompletions, campaignChecklistAuditLog as campaignChecklistAuditLogTable, campaignCrews, campaignCrewMembers, seasons, communications, communicationTemplates, communicationThreads, communicationLinks, communicationAuditLog, communicationAutomationRules, servicePlanTemplates, servicePlanTemplateItems, customerServicePlans, stylePresets, sheetTemplates, chemicalProducts, chemicalNotificationTemplates, mailboxBackfillRuns } from "@workspace/db";
@@ -350,6 +369,7 @@ export interface IStorage {
   addCampaignCrewMember(crewId: string, userId: string): Promise<CampaignCrewMember>;
   removeCampaignCrewMember(crewId: string, userId: string): Promise<void>;
   getCampaignIdsForUserCrews(userId: string, companyId: string): Promise<string[]>;
+  getMyExtraBillableBatches(userId: string, role: string, companyId: string): Promise<MyExtraBillableBatch[]>;
   getCampaignById(id: string, companyId: string): Promise<Campaign | undefined>;
   createCampaign(campaign: InsertCampaign): Promise<Campaign>;
   updateCampaign(id: string, companyId: string, updates: Partial<InsertCampaign>): Promise<Campaign | undefined>;
@@ -3600,6 +3620,114 @@ export class PgStorage implements IStorage {
       .innerJoin(campaignCrews, eq(campaignCrewMembers.campaignCrewId, campaignCrews.id))
       .where(and(eq(campaignCrewMembers.userId, userId), eq(campaignCrews.companyId, companyId)));
     return Array.from(new Set(rows.map(r => r.campaignId)));
+  }
+
+  async getMyExtraBillableBatches(userId: string, role: string, companyId: string): Promise<MyExtraBillableBatch[]> {
+    const isAdminOrOffice = role === "admin" || role === "office";
+    const baseSelect = {
+      crewId: campaignCrews.id,
+      crewName: campaignCrews.name,
+      crewColor: campaignCrews.color,
+      leaderUserId: campaignCrews.leaderUserId,
+      leaderName: users.name,
+      campaignId: campaigns.id,
+      campaignTitle: campaigns.title,
+      campaignStatus: campaigns.status,
+      windowStart: campaigns.windowStart,
+      windowEnd: campaigns.windowEnd,
+    } as const;
+
+    let crewRows: Array<{
+      crewId: string;
+      crewName: string;
+      crewColor: string;
+      leaderUserId: string;
+      leaderName: string;
+      campaignId: string;
+      campaignTitle: string;
+      campaignStatus: string;
+      windowStart: string;
+      windowEnd: string;
+    }>;
+
+    if (isAdminOrOffice) {
+      crewRows = await db
+        .select(baseSelect)
+        .from(campaignCrews)
+        .innerJoin(campaigns, eq(campaignCrews.campaignId, campaigns.id))
+        .innerJoin(users, eq(campaignCrews.leaderUserId, users.id))
+        .where(and(
+          eq(campaignCrews.companyId, companyId),
+          eq(campaigns.category, "extra_billable"),
+        ))
+        .orderBy(desc(campaigns.windowEnd), asc(campaignCrews.name));
+    } else {
+      crewRows = await db
+        .selectDistinct(baseSelect)
+        .from(campaignCrews)
+        .innerJoin(campaigns, eq(campaignCrews.campaignId, campaigns.id))
+        .innerJoin(users, eq(campaignCrews.leaderUserId, users.id))
+        .leftJoin(campaignCrewMembers, eq(campaignCrewMembers.campaignCrewId, campaignCrews.id))
+        .where(and(
+          eq(campaignCrews.companyId, companyId),
+          eq(campaigns.category, "extra_billable"),
+          or(eq(campaignCrews.leaderUserId, userId), eq(campaignCrewMembers.userId, userId)),
+        ));
+    }
+
+    if (crewRows.length === 0) return [];
+    const crewIds = crewRows.map(c => c.crewId);
+
+    const itemAggRows = await db
+      .select({
+        crewId: campaignItems.assignedCampaignCrewId,
+        total: sql<number>`count(*)::int`,
+        completed: sql<number>`count(*) FILTER (WHERE ${campaignItems.status} = 'completed')::int`,
+        pending: sql<number>`count(*) FILTER (WHERE ${campaignItems.status} <> 'completed' AND ${campaignItems.status} <> 'skipped')::int`,
+        photos: sql<number>`COALESCE(SUM(COALESCE(array_length(${campaignItems.completionPhotoStorageKeys}, 1), 0)), 0)::int`,
+        nextDueDate: sql<string | null>`MIN(${campaignItems.targetDate}) FILTER (WHERE ${campaignItems.status} <> 'completed' AND ${campaignItems.status} <> 'skipped')`,
+      })
+      .from(campaignItems)
+      .where(and(
+        eq(campaignItems.companyId, companyId),
+        inArray(campaignItems.assignedCampaignCrewId, crewIds),
+      ))
+      .groupBy(campaignItems.assignedCampaignCrewId);
+
+    const aggByCrew = new Map<string, { total: number; completed: number; pending: number; photos: number; nextDueDate: string | null }>();
+    for (const r of itemAggRows) {
+      if (r.crewId) {
+        aggByCrew.set(r.crewId, {
+          total: Number(r.total) || 0,
+          completed: Number(r.completed) || 0,
+          pending: Number(r.pending) || 0,
+          photos: Number(r.photos) || 0,
+          nextDueDate: r.nextDueDate ?? null,
+        });
+      }
+    }
+
+    return crewRows.map(c => {
+      const agg = aggByCrew.get(c.crewId);
+      return {
+        campaignId: c.campaignId,
+        campaignTitle: c.campaignTitle,
+        campaignStatus: c.campaignStatus,
+        windowStart: c.windowStart,
+        windowEnd: c.windowEnd,
+        crewId: c.crewId,
+        crewName: c.crewName,
+        crewColor: c.crewColor,
+        leaderUserId: c.leaderUserId,
+        leaderName: c.leaderName,
+        isLeader: c.leaderUserId === userId,
+        assignedItemCount: agg?.total ?? 0,
+        completedItemCount: agg?.completed ?? 0,
+        pendingItemCount: agg?.pending ?? 0,
+        photoCount: agg?.photos ?? 0,
+        nextDueDate: agg?.nextDueDate ?? null,
+      };
+    });
   }
 
   async getSeasons(companyId: string): Promise<Season[]> {

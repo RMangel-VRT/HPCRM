@@ -44,6 +44,8 @@ import {
   Archive,
   AlertTriangle,
   Droplets,
+  FlaskConical,
+  ClipboardList as ClipboardListIcon,
   GripVertical,
   Trash2,
 } from "lucide-react";
@@ -62,6 +64,7 @@ export default function CampaignsList() {
   const [, navigate] = useLocation();
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState<string>("all");
+  const [categoryFilter, setCategoryFilter] = useState<string>("all");
   const [showCreate, setShowCreate] = useState(false);
 
   const { data: campaigns = [], isLoading } = useQuery<CampaignWithProgress[]>({
@@ -73,6 +76,9 @@ export default function CampaignsList() {
     if (statusFilter !== "all") {
       result = result.filter(c => c.status === statusFilter);
     }
+    if (categoryFilter !== "all") {
+      result = result.filter(c => c.category === categoryFilter);
+    }
     if (search.trim()) {
       const s = search.toLowerCase();
       result = result.filter(c =>
@@ -81,7 +87,7 @@ export default function CampaignsList() {
       );
     }
     return result;
-  }, [campaigns, statusFilter, search]);
+  }, [campaigns, statusFilter, categoryFilter, search]);
 
   const canManage = user?.activeRole === "admin" || user?.activeRole === "office";
 
@@ -164,6 +170,15 @@ export default function CampaignsList() {
             <TabsTrigger value="archived" data-testid="tab-campaigns-archived">{t("campaigns.archived")}</TabsTrigger>
           </TabsList>
         </Tabs>
+        <Tabs value={categoryFilter} onValueChange={setCategoryFilter}>
+          <TabsList data-testid="tabs-campaign-category-filter">
+            <TabsTrigger value="all" data-testid="tab-cat-all">{t("common.all")}</TabsTrigger>
+            <TabsTrigger value="general" data-testid="tab-cat-general">{t("campaigns.categoryGeneral")}</TabsTrigger>
+            <TabsTrigger value="chemical" data-testid="tab-cat-chemical">{t("campaigns.categoryChemical")}</TabsTrigger>
+            <TabsTrigger value="irrigation" data-testid="tab-cat-irrigation">{t("campaigns.categoryIrrigation")}</TabsTrigger>
+            <TabsTrigger value="extra_billable" data-testid="tab-cat-extra-billable">{t("campaigns.categoryExtraBillable")}</TabsTrigger>
+          </TabsList>
+        </Tabs>
       </div>
 
       {filteredCampaigns.length === 0 ? (
@@ -200,9 +215,21 @@ export default function CampaignsList() {
                           {campaign.title}
                         </h3>
                         {statusBadge(campaign.status)}
-                        <Badge variant="outline" className="text-xs" data-testid={`badge-campaign-category-${campaign.id}`}>
+                        <Badge
+                          variant="outline"
+                          className={`text-xs ${campaign.category === "extra_billable" ? "border-amber-500/50 text-amber-700 dark:text-amber-300" : ""}`}
+                          data-testid={`badge-campaign-category-${campaign.id}`}
+                        >
                           {campaign.category === "irrigation" && <Droplets className="w-3 h-3 mr-1" />}
-                          {campaign.category === "chemical" ? t("campaigns.categoryChemical") : campaign.category === "irrigation" ? t("campaigns.categoryIrrigation") : t("campaigns.categoryGeneral")}
+                          {campaign.category === "chemical" && <FlaskConical className="w-3 h-3 mr-1" />}
+                          {campaign.category === "extra_billable" && <ClipboardListIcon className="w-3 h-3 mr-1" />}
+                          {campaign.category === "chemical"
+                            ? t("campaigns.categoryChemical")
+                            : campaign.category === "irrigation"
+                            ? t("campaigns.categoryIrrigation")
+                            : campaign.category === "extra_billable"
+                            ? t("campaigns.categoryExtraBillable")
+                            : t("campaigns.categoryGeneral")}
                         </Badge>
                       </div>
                       {campaign.description && (

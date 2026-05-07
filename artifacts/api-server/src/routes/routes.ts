@@ -12198,6 +12198,16 @@ export async function registerRoutes(app: Express): Promise<Server> {
     res.json(allCampaigns);
   });
 
+  app.get("/api/me/extra-billable-batches", async (req, res) => {
+    if (!req.isAuthenticated()) return res.status(401).send("Not authenticated");
+    const user = req.user as UserWithContext;
+    if (!campaignAllowedRoles.includes(user.activeRole)) {
+      return res.status(403).send("Insufficient permissions");
+    }
+    const batches = await storage.getMyExtraBillableBatches(user.id, user.activeRole, user.activeCompanyId);
+    res.json(batches);
+  });
+
   app.post("/api/campaigns", async (req, res) => {
     if (!req.isAuthenticated()) return res.status(401).send("Not authenticated");
     const user = req.user as UserWithContext;

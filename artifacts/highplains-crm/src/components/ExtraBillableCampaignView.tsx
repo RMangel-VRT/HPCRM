@@ -26,7 +26,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { Plus, Users, X, Trash2, Pencil, Search, ExternalLink, Lock } from "lucide-react";
+import { Plus, Users, X, Trash2, Pencil, Search, ExternalLink, Lock, Info } from "lucide-react";
 import EmptyState from "@/components/EmptyState";
 import type { Campaign, CampaignItem, CampaignCrewWithMembers, CompanyUser, User as UserType } from "@shared/schema";
 
@@ -53,6 +53,7 @@ export default function ExtraBillableCampaignView({ campaign, campaignId }: Prop
   const { t } = useTranslation();
   const { toast } = useToast();
   const { user } = useAuth();
+  const isFieldOnlyRole = user?.activeRole === "field" || user?.activeRole === "landscape_supervisor";
   const [tab, setTab] = useState<"properties" | "crews" | "billing">("properties");
   const [crewDialogOpen, setCrewDialogOpen] = useState(false);
   const [editingCrew, setEditingCrew] = useState<CampaignCrewWithMembers | null>(null);
@@ -131,32 +132,43 @@ export default function ExtraBillableCampaignView({ campaign, campaignId }: Prop
 
   return (
     <div className="space-y-4">
-      <div className="flex items-center gap-1 flex-wrap">
-        <Button
-          variant={tab === "properties" ? "default" : "outline"}
-          size="sm"
-          onClick={() => setTab("properties")}
-          data-testid="button-eb-tab-properties"
+      {isFieldOnlyRole && (
+        <div
+          className="flex items-start gap-2 p-3 rounded-md border border-amber-500/30 bg-amber-500/10 text-sm text-amber-800 dark:text-amber-300"
+          data-testid="banner-eb-field-view"
         >
-          {t("campaigns.extraBillableTabProperties")}
-        </Button>
-        <Button
-          variant={tab === "crews" ? "default" : "outline"}
-          size="sm"
-          onClick={() => setTab("crews")}
-          data-testid="button-eb-tab-crews"
-        >
-          {t("campaigns.extraBillableTabCrews")}
-        </Button>
-        <Button
-          variant={tab === "billing" ? "default" : "outline"}
-          size="sm"
-          onClick={() => setTab("billing")}
-          data-testid="button-eb-tab-billing"
-        >
-          {t("campaigns.extraBillableTabBillingQueue")}
-        </Button>
-      </div>
+          <Info className="w-4 h-4 mt-0.5 shrink-0" />
+          <span>{t("campaigns.extraBillableFieldViewBanner")}</span>
+        </div>
+      )}
+      {!isFieldOnlyRole && (
+        <div className="flex items-center gap-1 flex-wrap">
+          <Button
+            variant={tab === "properties" ? "default" : "outline"}
+            size="sm"
+            onClick={() => setTab("properties")}
+            data-testid="button-eb-tab-properties"
+          >
+            {t("campaigns.extraBillableTabProperties")}
+          </Button>
+          <Button
+            variant={tab === "crews" ? "default" : "outline"}
+            size="sm"
+            onClick={() => setTab("crews")}
+            data-testid="button-eb-tab-crews"
+          >
+            {t("campaigns.extraBillableTabCrews")}
+          </Button>
+          <Button
+            variant={tab === "billing" ? "default" : "outline"}
+            size="sm"
+            onClick={() => setTab("billing")}
+            data-testid="button-eb-tab-billing"
+          >
+            {t("campaigns.extraBillableTabBillingQueue")}
+          </Button>
+        </div>
+      )}
 
       {tab === "properties" && (
         <Card>

@@ -263,6 +263,12 @@ export default function CampaignItemDetail() {
   const canReopen = ["admin", "office", "chemical_manager"].includes(user?.activeRole || "");
   const isChemicalCampaign = campaign?.category === "chemical";
   const isIrrigationCampaign = campaign?.category === "irrigation";
+  const isExtraBillableCampaign = campaign?.category === "extra_billable";
+
+  const { data: ebCrews = [] } = useQuery<Array<{ id: string; name: string; color: string; leaderUserId: string; leaderName?: string }>>({
+    queryKey: ["/api/campaigns", campaignId, "crews"],
+    enabled: !!campaignId && isExtraBillableCampaign,
+  });
   const [showChemReset, setShowChemReset] = useState(false);
   const [chemVisitExpanded, setChemVisitExpanded] = useState(false);
   const [chemTargetDate, setChemTargetDate] = useState("");
@@ -625,6 +631,28 @@ export default function CampaignItemDetail() {
                   {t("campaigns.customerTypeHoa")}
                 </Badge>
               )}
+              {isExtraBillableCampaign && item.assignedCampaignCrewId && (() => {
+                const crew = ebCrews.find(c => c.id === item.assignedCampaignCrewId);
+                if (!crew) return null;
+                const isLeader = !!user?.id && crew.leaderUserId === user.id;
+                return (
+                  <Badge
+                    variant="outline"
+                    className="gap-1.5"
+                    style={{ borderColor: crew.color }}
+                    data-testid="chip-crew-context"
+                  >
+                    <span
+                      className="inline-block w-2.5 h-2.5 rounded-full"
+                      style={{ backgroundColor: crew.color }}
+                      aria-hidden
+                    />
+                    {isLeader
+                      ? t("campaigns.crewContextChipLeader", { name: crew.name })
+                      : t("campaigns.crewContextChip", { name: crew.name })}
+                  </Badge>
+                );
+              })()}
             </div>
           </div>
           <p className="text-sm text-muted-foreground mt-1">

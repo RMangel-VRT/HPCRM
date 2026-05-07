@@ -10,7 +10,9 @@ import {
   UserCheck,
   AlertCircle,
   ArrowRight,
+  ListChecks,
 } from "lucide-react";
+import MyExtraBillableBatchesWidget from "@/components/MyExtraBillableBatchesWidget";
 import { useQuery } from "@tanstack/react-query";
 import { useTranslation } from "react-i18next";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -46,6 +48,7 @@ interface Campaign {
 }
 
 type FieldRole =
+  | "field"
   | "field_manager"
   | "chemical_manager"
   | "irrigation_manager"
@@ -53,6 +56,7 @@ type FieldRole =
   | "landscape_supervisor";
 
 const CAMPAIGN_PANEL_ROLES: FieldRole[] = ["field_manager", "chemical_manager", "landscape_supervisor"];
+const BATCH_WIDGET_ROLES: FieldRole[] = ["field", "field_manager", "landscape_supervisor"];
 
 interface NavButton {
   title: string;
@@ -65,6 +69,7 @@ function getNavButtons(role: FieldRole, t: (key: string) => string): NavButton[]
     case "field_manager":
       return [
         { title: t("fieldLayout.myTickets"), url: "/dashboard/tickets/my", icon: UserCheck },
+        { title: t("fieldLayout.myBatches"), url: "/dashboard/my-batches", icon: ListChecks },
         { title: t("fieldLayout.customers"), url: "/dashboard/field-customers", icon: Building2 },
         { title: t("fieldLayout.routeMap"), url: "/dashboard/customers/map", icon: MapPin },
         { title: t("fieldLayout.propertyMaps"), url: "/dashboard/maps", icon: Map },
@@ -94,9 +99,15 @@ function getNavButtons(role: FieldRole, t: (key: string) => string): NavButton[]
     case "landscape_supervisor":
       return [
         { title: t("fieldLayout.myTickets"), url: "/dashboard/tickets/my", icon: UserCheck },
+        { title: t("fieldLayout.myBatches"), url: "/dashboard/my-batches", icon: ListChecks },
         { title: t("fieldLayout.customers"), url: "/dashboard/field-customers", icon: Building2 },
         { title: t("fieldLayout.propertyMaps"), url: "/dashboard/maps", icon: Map },
         { title: t("fieldLayout.routeMap"), url: "/dashboard/customers/map", icon: MapPin },
+      ];
+    case "field":
+      return [
+        { title: t("fieldLayout.myTickets"), url: "/dashboard/tickets/my", icon: UserCheck },
+        { title: t("fieldLayout.myBatches"), url: "/dashboard/my-batches", icon: ListChecks },
       ];
     default:
       return [
@@ -112,6 +123,7 @@ export default function FieldHomeDashboard() {
 
   const showTabs = role === "landscape_supervisor";
   const showCampaignPanel = CAMPAIGN_PANEL_ROLES.includes(role);
+  const showBatchWidget = BATCH_WIDGET_ROLES.includes(role);
 
   const { data: myTickets = [], isLoading: ticketsLoading } = useQuery<Ticket[]>({
     queryKey: ["/api/tickets/my", { userId: user?.id }],
@@ -212,6 +224,8 @@ export default function FieldHomeDashboard() {
           </Link>
         )}
       </div>
+
+      {showBatchWidget && <MyExtraBillableBatchesWidget />}
 
       {showCampaignPanel && (
         <div>

@@ -59,6 +59,7 @@ const VisualScopeDraft = lazy(() => import("@/pages/VisualScopeDraft"));
 const CustomerRouteMap = lazy(() => import("@/pages/CustomerRouteMap"));
 const FieldCustomerList = lazy(() => import("@/pages/FieldCustomerList"));
 const CampaignsList = lazy(() => import("@/pages/CampaignsList"));
+const MyBatchesPage = lazy(() => import("@/pages/MyBatchesPage"));
 const CampaignDetail = lazy(() => import("@/pages/CampaignDetail"));
 const CampaignItemDetail = lazy(() => import("@/pages/CampaignItemDetail"));
 const SeasonsPage = lazy(() => import("@/pages/SeasonsPage"));
@@ -299,6 +300,11 @@ function Router() {
           path="/dashboard/campaigns"
           component={CampaignsList}
           allowedRoles={["admin", "office", "field", "field_manager", "chemical_manager", "irrigation_manager", "landscape_supervisor"]}
+        />
+        <ProtectedRoute
+          path="/dashboard/my-batches"
+          component={MyBatchesPage}
+          allowedRoles={["admin", "office", "field", "field_manager", "landscape_supervisor"]}
         />
         <ProtectedRoute
           path="/dashboard/seasons/:id"

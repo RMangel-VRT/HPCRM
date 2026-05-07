@@ -280,6 +280,7 @@ const es = {
     snow: "Nieve",
     seasons: "Temporadas",
     navigation: "Navegacion",
+    myBatches: "Mis Lotes", // TODO: human-review translation
   },
   fieldDashboard: {
     myWork: "Mi Trabajo",
@@ -295,6 +296,14 @@ const es = {
     viewAll: "Ver Todo",
     viewMoreTickets: "Ver {{count}} tickets mas",
     myCampaigns: "Mis Campanas",
+    myBatches: "Mis Lotes", // TODO: human-review translation
+    myBatchesDescription: "Cuadrillas facturables extra que lideras o de las que eres miembro", // TODO: human-review translation
+    noBatches: "No hay lotes activos asignados a ti", // TODO: human-review translation
+    noBatchesDescription: "Actualmente no eres lider ni miembro de ninguna cuadrilla facturable extra que coincida con los filtros.", // TODO: human-review translation
+    batchNextDue: "Proxima fecha", // TODO: human-review translation
+    sortDueDate: "Fecha de vencimiento", // TODO: human-review translation
+    sortName: "Nombre de cuadrilla", // TODO: human-review translation
+    sortProgress: "Progreso", // TODO: human-review translation
   },
   shopDashboard: {
     title: "Panel de Gerente de Taller",
@@ -1590,6 +1599,9 @@ const es = {
     extraBillableColorPresets: "Color predefinido", // TODO: human-review translation
     extraBillableSelectMembers: "Miembros", // TODO: human-review translation
     extraBillableLeaderPinned: "El lider es siempre un miembro.", // TODO: human-review translation
+    extraBillableFieldViewBanner: "Estas viendo una vista limitada — solo se muestran las propiedades de tu cuadrilla asignada. La gestion de cuadrillas y la facturacion son manejadas por el personal de oficina.", // TODO: human-review translation
+    crewContextChip: "Cuadrilla: {{name}}", // TODO: human-review translation
+    crewContextChipLeader: "Lider de Cuadrilla: {{name}}", // TODO: human-review translation
     crewItemCount: "{{count}} propiedades", // TODO: human-review translation
     crewPhotoCount: "{{count}} fotos", // TODO: human-review translation
     crewCompletedCount: "{{count}} completadas", // TODO: human-review translation
