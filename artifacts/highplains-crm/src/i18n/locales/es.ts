@@ -1559,7 +1559,28 @@ const es = {
     categoryExtraBillable: "Facturable Extra", // TODO: human-review translation
     extraBillableDescription: "Rastrea trabajo facturable ad-hoc realizado por cuadrillas de campo. Asigna propiedades a cuadrillas, completa el trabajo y prepara tickets de factura.", // TODO: human-review translation
     extraBillableTabProperties: "Propiedades", // TODO: human-review translation
+    extraBillableTabAssignments: "Asignaciones", // TODO: human-review translation
     extraBillableTabCrews: "Cuadrillas", // TODO: human-review translation
+    boardEmptyColumn: "Suelta propiedades aquí", // TODO: human-review translation
+    boardSelectedLabel: "seleccionadas", // TODO: human-review translation
+    boardLeaderlessCrewBlocked: "Asigna un líder antes de soltar propiedades", // TODO: human-review translation
+    boardAssignedToast_one: "Se asignó {{count}} propiedad a {{target}}", // TODO: human-review translation
+    boardAssignedToast_other: "Se asignaron {{count}} propiedades a {{target}}", // TODO: human-review translation
+    boardAssignFailed: "No se pudieron asignar las propiedades", // TODO: human-review translation
+    boardSearchUnassigned: "Buscar sin asignar…", // TODO: human-review translation
+    boardAllAssigned: "Todas las propiedades están asignadas.", // TODO: human-review translation
+    boardNoProperties: "Aún no hay propiedades en esta campaña.", // TODO: human-review translation
+    boardCreateCrew: "Crear una cuadrilla", // TODO: human-review translation
+    boardMoveToCrew: "Mover a cuadrilla", // TODO: human-review translation
+    boardOpenProperty: "Abrir detalle de propiedad", // TODO: human-review translation
+    boardViewCustomer: "Ver cliente", // TODO: human-review translation
+    boardAssignTo: "Asignar a ▾", // TODO: human-review translation
+    boardCounterProps_one: "{{count}} prop", // TODO: human-review translation
+    boardCounterProps_other: "{{count}} props", // TODO: human-review translation
+    boardCounterPhotos_one: "{{count}} foto", // TODO: human-review translation
+    boardCounterPhotos_other: "{{count}} fotos", // TODO: human-review translation
+    boardCounterDone_one: "{{count}} hecha", // TODO: human-review translation
+    boardCounterDone_other: "{{count}} hechas", // TODO: human-review translation
     extraBillableTabBillingQueue: "Cola de Facturacion", // TODO: human-review translation
     extraBillableNoCrews: "Aun no hay cuadrillas — crea una para comenzar a asignar propiedades.", // TODO: human-review translation
     extraBillableAddCrew: "Agregar Cuadrilla", // TODO: human-review translation

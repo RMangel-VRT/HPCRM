@@ -12193,9 +12193,23 @@ export async function registerRoutes(app: Express): Promise<Server> {
     if (!campaignAllowedRoles.includes(user.activeRole)) {
       return res.status(403).send("Insufficient permissions");
     }
-    const assignedToId = user.activeRole !== "admin" ? user.id : undefined;
-    const allCampaigns = await storage.getCampaigns(user.activeCompanyId, assignedToId);
-    res.json(allCampaigns);
+    if (user.activeRole === "admin") {
+      const allCampaigns = await storage.getCampaigns(user.activeCompanyId);
+      return res.json(allCampaigns);
+    }
+    // Non-admins see campaigns directly assigned to them OR (for field/landscape_supervisor)
+    // any extra_billable campaign on which they are a member of any crew.
+    const directlyAssigned = await storage.getCampaigns(user.activeCompanyId, user.id);
+    if (user.activeRole !== "field" && user.activeRole !== "landscape_supervisor") {
+      return res.json(directlyAssigned);
+    }
+    const crewCampaignIds = await storage.getCampaignIdsForUserCrews(user.id, user.activeCompanyId);
+    const haveIds = new Set(directlyAssigned.map(c => c.id));
+    const missingIds = crewCampaignIds.filter(id => !haveIds.has(id));
+    if (missingIds.length === 0) return res.json(directlyAssigned);
+    const allCampaigns = await storage.getCampaigns(user.activeCompanyId);
+    const extraExtraBillable = allCampaigns.filter(c => missingIds.includes(c.id) && c.category === "extra_billable");
+    res.json([...directlyAssigned, ...extraExtraBillable]);
   });
 
   app.get("/api/me/extra-billable-batches", async (req, res) => {
@@ -12350,12 +12364,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
       (user.activeRole === "field" || user.activeRole === "landscape_supervisor")
     ) {
       const allCrews = await storage.getCampaignCrews(req.params.id, user.activeCompanyId);
-      const userCrewIds = new Set(
-        allCrews
-          .filter(c => c.leaderUserId === user.id || c.members.some(m => m.userId === user.id))
-          .map(c => c.id),
-      );
-      items = items.filter(i => i.assignedCampaignCrewId && userCrewIds.has(i.assignedCampaignCrewId));
+      const userCrewIds = extraBillableAccess.userCrewIdSetFromCrews(user, allCrews);
+      items = extraBillableAccess.filterExtraBillableCampaignItems(items, user, campaign, userCrewIds);
     }
     const assignedUser = campaign.assignedToId
       ? await storage.getUserById(campaign.assignedToId)
@@ -12916,6 +12926,62 @@ export async function registerRoutes(app: Express): Promise<Server> {
       updatedAt: new Date(),
     });
     res.json(updated);
+  });
+
+  // POST /api/campaigns/:campaignId/items/bulk-assign-crew
+  // Drag-drop board endpoint. Admin/office only. Single transaction. Cap 500 ids.
+  app.post("/api/campaigns/:campaignId/items/bulk-assign-crew", async (req, res) => {
+    if (!req.isAuthenticated()) return res.status(401).send("Not authenticated");
+    const user = req.user as UserWithContext;
+
+    // Pre-fetch the inputs the pure validator needs
+    const campaign = await storage.getCampaignById(req.params.campaignId, user.activeCompanyId);
+    const requestedCrewId =
+      req.body && typeof req.body === "object" && typeof (req.body as Record<string, unknown>).assignedCampaignCrewId === "string"
+        ? ((req.body as Record<string, unknown>).assignedCampaignCrewId as string)
+        : null;
+    const targetCrew = requestedCrewId
+      ? await storage.getCampaignCrewById(requestedCrewId, user.activeCompanyId)
+      : null;
+    const requestedItemIds: string[] =
+      req.body && Array.isArray((req.body as Record<string, unknown>).itemIds)
+        ? ((req.body as Record<string, unknown>).itemIds as unknown[]).filter((x): x is string => typeof x === "string" && x.length > 0)
+        : [];
+    const itemRows = requestedItemIds.length === 0
+      ? []
+      : await db.select({ id: campaignItemsTable.id, campaignId: campaignItemsTable.campaignId })
+          .from(campaignItemsTable)
+          .where(and(
+            eq(campaignItemsTable.companyId, user.activeCompanyId),
+            inArray(campaignItemsTable.id, Array.from(new Set(requestedItemIds))),
+          ));
+
+    const validation = extraBillableAccess.validateBulkAssignCrew({
+      user,
+      campaignId: req.params.campaignId,
+      body: req.body,
+      campaign,
+      targetCrew: targetCrew ? { id: targetCrew.id, campaignId: targetCrew.campaignId, leaderUserId: targetCrew.leaderUserId ?? null } : null,
+      itemRows,
+    });
+    if (!validation.ok) {
+      return res.status(validation.status).json({ error: validation.error, code: validation.code });
+    }
+    const { itemIds, assignedCampaignCrewId } = validation;
+
+    const updatedRows = await db.transaction(async (tx) => {
+      const rows = await tx.update(campaignItemsTable)
+        .set({ assignedCampaignCrewId: assignedCampaignCrewId ?? null, updatedAt: new Date() })
+        .where(and(
+          eq(campaignItemsTable.companyId, user.activeCompanyId),
+          eq(campaignItemsTable.campaignId, req.params.campaignId),
+          inArray(campaignItemsTable.id, itemIds),
+        ))
+        .returning();
+      return rows;
+    });
+
+    res.json({ updated: updatedRows.length, items: updatedRows });
   });
 
   // GET /api/operations/customer-service-summaries — summary rollup for all active customers with active contracts

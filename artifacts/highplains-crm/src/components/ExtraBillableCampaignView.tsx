@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useMemo, useState, useEffect, useCallback } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { useTranslation } from "react-i18next";
 import { Link } from "wouter";
@@ -26,8 +26,9 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { Plus, Users, X, Trash2, Pencil, Search, ExternalLink, Lock, Info } from "lucide-react";
+import { Plus, Users, X, Trash2, Pencil, Search, ExternalLink, Lock, Info, LayoutGrid } from "lucide-react";
 import EmptyState from "@/components/EmptyState";
+import CrewAssignmentBoard from "@/components/CrewAssignmentBoard";
 import type { Campaign, CampaignItem, CampaignCrewWithMembers, CompanyUser, User as UserType } from "@shared/schema";
 
 interface CampaignDetailLike extends Campaign {
@@ -54,7 +55,37 @@ export default function ExtraBillableCampaignView({ campaign, campaignId }: Prop
   const { toast } = useToast();
   const { user } = useAuth();
   const isFieldOnlyRole = user?.activeRole === "field" || user?.activeRole === "landscape_supervisor";
-  const [tab, setTab] = useState<"properties" | "crews" | "billing">("properties");
+  type EBTab = "properties" | "assignments" | "crews" | "billing";
+  const lastTabKey = `eb-campaign-tab-last:${campaignId}`;
+  const seenKey = `eb-campaign-tab-seen:${campaignId}`;
+  const hasUnassigned = useMemo(
+    () => (campaign.items || []).some(i => !i.assignedCampaignCrewId),
+    [campaign.items],
+  );
+  const initialTab: EBTab = (() => {
+    if (typeof window === "undefined") return "properties";
+    const seen = window.localStorage.getItem(seenKey);
+    // First-visit override: unassigned items route to Assignments regardless of last selection
+    if (!seen && hasUnassigned) return "assignments";
+    const last = window.localStorage.getItem(lastTabKey) as EBTab | null;
+    if (last && ["properties", "assignments", "crews", "billing"].includes(last)) return last;
+    return "properties";
+  })();
+  const [tab, setTabState] = useState<EBTab>(initialTab);
+  const setTab = useCallback((next: EBTab) => {
+    setTabState(next);
+    if (typeof window !== "undefined") {
+      window.localStorage.setItem(lastTabKey, next);
+    }
+  }, [lastTabKey]);
+  useEffect(() => {
+    if (typeof window !== "undefined") {
+      window.localStorage.setItem(seenKey, "1");
+      // Persist whatever initial tab we landed on so subsequent opens remember it
+      window.localStorage.setItem(lastTabKey, initialTab);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [seenKey, lastTabKey]);
   const [crewDialogOpen, setCrewDialogOpen] = useState(false);
   const [editingCrew, setEditingCrew] = useState<CampaignCrewWithMembers | null>(null);
   const [search, setSearch] = useState("");
@@ -150,6 +181,15 @@ export default function ExtraBillableCampaignView({ campaign, campaignId }: Prop
             data-testid="button-eb-tab-properties"
           >
             {t("campaigns.extraBillableTabProperties")}
+          </Button>
+          <Button
+            variant={tab === "assignments" ? "default" : "outline"}
+            size="sm"
+            onClick={() => setTab("assignments")}
+            data-testid="button-eb-tab-assignments"
+          >
+            <LayoutGrid className="w-4 h-4 mr-1" />
+            {t("campaigns.extraBillableTabAssignments")}
           </Button>
           <Button
             variant={tab === "crews" ? "default" : "outline"}
@@ -275,6 +315,16 @@ export default function ExtraBillableCampaignView({ campaign, campaignId }: Prop
             )}
           </CardContent>
         </Card>
+      )}
+
+      {tab === "assignments" && (
+        <CrewAssignmentBoard
+          campaignId={campaignId}
+          items={items}
+          crews={crews}
+          isAdminOffice={isAdminOffice}
+          onSwitchToCrews={() => setTab("crews")}
+        />
       )}
 
       {tab === "crews" && (

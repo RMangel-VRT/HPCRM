@@ -2,7 +2,7 @@
 import { describe, it, expect, vi } from "vitest";
 import express from "express";
 import request from "supertest";
-import { canAccessExtraBillableCampaignItem } from "./extraBillableAccess";
+import { canAccessExtraBillableCampaignItem, filterExtraBillableCampaignItems, userCrewIdSetFromCrews, validateBulkAssignCrew } from "./extraBillableAccess";
 
 const baseCrew = {
   id: "crew-1",
@@ -235,6 +235,27 @@ describe("GET /api/campaigns/:id (extra_billable item filter)", () => {
     expect(res.body.items).toEqual([]);
   });
 
+  it("filterExtraBillableCampaignItems: passes through non-extra_billable campaigns unchanged", () => {
+    const items = [{ id: "a", assignedCampaignCrewId: null }, { id: "b", assignedCampaignCrewId: "x" }];
+    const out = filterExtraBillableCampaignItems(
+      items,
+      { id: "u", activeRole: "field", activeCompanyId: "c" },
+      { category: "chemical" },
+      new Set(),
+    );
+    expect(out).toEqual(items);
+  });
+
+  it("userCrewIdSetFromCrews collects leader and member crews", () => {
+    const crews = [
+      { id: "c1", leaderUserId: "u1", members: [{ userId: "u1" }] },
+      { id: "c2", leaderUserId: "leader", members: [{ userId: "u1" }] },
+      { id: "c3", leaderUserId: "leader", members: [{ userId: "other" }] },
+    ];
+    const set = userCrewIdSetFromCrews({ id: "u1" }, crews);
+    expect(Array.from(set).sort()).toEqual(["c1", "c2"]);
+  });
+
   it("shows only crew items when campaign-assigned field user is a crew member", async () => {
     const { app } = buildGetApp({
       user: { id: "field-user", activeRole: "field", activeCompanyId: "company-1" },
@@ -251,5 +272,143 @@ describe("GET /api/campaigns/:id (extra_billable item filter)", () => {
     const res = await request(app).get("/api/campaigns/campaign-1");
     expect(res.status).toBe(200);
     expect(res.body.items.map((i: any) => i.id)).toEqual(["item-1"]);
+  });
+});
+
+// ─── validateBulkAssignCrew (drives the real /bulk-assign-crew handler) ─────
+describe("validateBulkAssignCrew", () => {
+  const adminUser = { id: "admin", activeRole: "admin", activeCompanyId: "co" } as const;
+  const ebCampaign = { id: "camp-1", category: "extra_billable" } as const;
+  const goodCrew = { id: "crew-1", campaignId: "camp-1", leaderUserId: "leader" };
+
+  it("admin bulk-assigns 3 items successfully", () => {
+    const out = validateBulkAssignCrew({
+      user: adminUser,
+      campaignId: "camp-1",
+      body: { itemIds: ["i1", "i2", "i3"], assignedCampaignCrewId: "crew-1" },
+      campaign: ebCampaign,
+      targetCrew: goodCrew,
+      itemRows: [
+        { id: "i1", campaignId: "camp-1" },
+        { id: "i2", campaignId: "camp-1" },
+        { id: "i3", campaignId: "camp-1" },
+      ],
+    });
+    expect(out.ok).toBe(true);
+    if (out.ok) {
+      expect(out.itemIds.sort()).toEqual(["i1", "i2", "i3"]);
+      expect(out.assignedCampaignCrewId).toBe("crew-1");
+    }
+  });
+
+  it("returns 400 items_wrong_campaign if any item belongs to a different campaign", () => {
+    const out = validateBulkAssignCrew({
+      user: adminUser,
+      campaignId: "camp-1",
+      body: { itemIds: ["i1", "i2"], assignedCampaignCrewId: "crew-1" },
+      campaign: ebCampaign,
+      targetCrew: goodCrew,
+      itemRows: [
+        { id: "i1", campaignId: "camp-1" },
+        { id: "i2", campaignId: "other-camp" },
+      ],
+    });
+    expect(out.ok).toBe(false);
+    if (!out.ok) {
+      expect(out.status).toBe(400);
+      expect(out.code).toBe("items_wrong_campaign");
+    }
+  });
+
+  it("returns 400 leaderless_crew when target crew has no leader", () => {
+    const out = validateBulkAssignCrew({
+      user: adminUser,
+      campaignId: "camp-1",
+      body: { itemIds: ["i1"], assignedCampaignCrewId: "crew-1" },
+      campaign: ebCampaign,
+      targetCrew: { ...goodCrew, leaderUserId: null },
+      itemRows: [{ id: "i1", campaignId: "camp-1" }],
+    });
+    expect(out.ok).toBe(false);
+    if (!out.ok) {
+      expect(out.status).toBe(400);
+      expect(out.code).toBe("leaderless_crew");
+      expect(out.error).toMatch(/leader/i);
+    }
+  });
+
+  it("returns 403 forbidden_role when a field user attempts bulk reassignment", () => {
+    const out = validateBulkAssignCrew({
+      user: { id: "field-1", activeRole: "field", activeCompanyId: "co" },
+      campaignId: "camp-1",
+      body: { itemIds: ["i1"], assignedCampaignCrewId: "crew-1" },
+      campaign: ebCampaign,
+      targetCrew: goodCrew,
+      itemRows: [{ id: "i1", campaignId: "camp-1" }],
+    });
+    expect(out.ok).toBe(false);
+    if (!out.ok) {
+      expect(out.status).toBe(403);
+      expect(out.code).toBe("forbidden_role");
+    }
+  });
+
+  it("returns 400 wrong_category when campaign is not extra_billable", () => {
+    const out = validateBulkAssignCrew({
+      user: adminUser,
+      campaignId: "camp-1",
+      body: { itemIds: ["i1"], assignedCampaignCrewId: "crew-1" },
+      campaign: { id: "camp-1", category: "chemical" },
+      targetCrew: goodCrew,
+      itemRows: [{ id: "i1", campaignId: "camp-1" }],
+    });
+    expect(out.ok).toBe(false);
+    if (!out.ok) {
+      expect(out.status).toBe(400);
+      expect(out.code).toBe("wrong_category");
+    }
+  });
+
+  it("allows null crewId to unassign", () => {
+    const out = validateBulkAssignCrew({
+      user: adminUser,
+      campaignId: "camp-1",
+      body: { itemIds: ["i1", "i2"], assignedCampaignCrewId: null },
+      campaign: ebCampaign,
+      targetCrew: null,
+      itemRows: [
+        { id: "i1", campaignId: "camp-1" },
+        { id: "i2", campaignId: "camp-1" },
+      ],
+    });
+    expect(out.ok).toBe(true);
+    if (out.ok) expect(out.assignedCampaignCrewId).toBeNull();
+  });
+
+  it("rejects more than 500 itemIds", () => {
+    const tooMany = Array.from({ length: 501 }, (_, i) => `i${i}`);
+    const out = validateBulkAssignCrew({
+      user: adminUser,
+      campaignId: "camp-1",
+      body: { itemIds: tooMany, assignedCampaignCrewId: null },
+      campaign: ebCampaign,
+      targetCrew: null,
+      itemRows: tooMany.map((id) => ({ id, campaignId: "camp-1" })),
+    });
+    expect(out.ok).toBe(false);
+    if (!out.ok) expect(out.code).toBe("invalid_item_ids");
+  });
+
+  it("rejects items_not_found when an itemId is missing from itemRows", () => {
+    const out = validateBulkAssignCrew({
+      user: adminUser,
+      campaignId: "camp-1",
+      body: { itemIds: ["i1", "ghost"], assignedCampaignCrewId: null },
+      campaign: ebCampaign,
+      targetCrew: null,
+      itemRows: [{ id: "i1", campaignId: "camp-1" }],
+    });
+    expect(out.ok).toBe(false);
+    if (!out.ok) expect(out.code).toBe("items_not_found");
   });
 });
