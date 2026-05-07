@@ -66,7 +66,6 @@ const SeasonDetail = lazy(() => import("@/pages/SeasonDetail"));
 const CommunicationsCenter = lazy(() => import("@/pages/CommunicationsCenter"));
 const GlobalOperationsPage = lazy(() => import("@/pages/GlobalOperationsPage"));
 const PropertyDetail = lazy(() => import("@/pages/PropertyDetail"));
-const UnsortedInboxPage = lazy(() => import("@/pages/UnsortedInboxPage"));
 const MailboxAccountsSettingsPage = lazy(() => import("@/pages/MailboxAccountsSettingsPage"));
 const MyMailboxPage = lazy(() => import("@/pages/MyMailboxPage"));
 const SharedMailboxesAndOversightPage = lazy(() => import("@/pages/SharedMailboxesAndOversightPage"));
@@ -320,8 +319,8 @@ function Router() {
           component={PropertyDetail}
           allowedRoles={["admin", "office", "field_manager", "field", "chemical_manager"]}
         />
+        <ProtectedRoute path="/dashboard/communications/:tab" component={CommunicationsCenter} allowedRoles={["admin", "office", "field", "field_manager", "chemical_manager", "irrigation_manager", "shop_manager", "mapping", "landscape_supervisor"]} />
         <ProtectedRoute path="/dashboard/communications" component={CommunicationsCenter} allowedRoles={["admin", "office", "field", "field_manager", "chemical_manager", "irrigation_manager", "shop_manager", "mapping", "landscape_supervisor"]} />
-        <ProtectedRoute path="/dashboard/communications/unsorted" component={UnsortedInboxPage} allowedRoles={["admin", "office", "field", "field_manager", "chemical_manager", "irrigation_manager", "shop_manager", "mapping", "landscape_supervisor"]} />
         <ProtectedRoute path="/dashboard/settings/shared-mailboxes" component={SharedMailboxesAndOversightPage} allowedRoles={["admin", "office"]} />
         <Route path="/dashboard/settings/mailbox-accounts">
           <Redirect to="/dashboard/settings/shared-mailboxes" />
