@@ -1,0 +1,327 @@
+# Replit Prompt — Extra Billable Campaign, Slice 3: Property Grid with Drop Zones
+
+## Context
+
+This is **Slice 3 of 5** of the Extra Billable Campaign feature. Slice 1 added the schema and basic CRUD. Slice 2 added the dnd-kit crew-assignment kanban board. Slice 3 is the most novel piece: **a property grid where every property card is its own native-HTML file drop zone**, designed so the admin can drag photos from outside the browser (specifically: iMessage on macOS, the Files app, Finder, or any other source) and drop them directly onto the right property card.
+
+The user-facing problem this solves: after a storm, customers and crew leaders text in batches of branch-cleanup photos. Tree branches all look like piles of branches — the moment a photo is separated from "this came from the Henderson thread," it's useless. There must be no shared "photo inbox." Every drop must land on a specific property card in one motion.
+
+This is **not dnd-kit** (which only handles intra-page draggables). The drop targets are real HTML elements with `onDragOver` / `onDrop` handlers reading from `event.dataTransfer.files`.
+
+The Slice 3 deployable end-state: an admin opens the campaign's new "Property Grid" tab, types `hend` in the filter to narrow to the Henderson card, cmd-drags 5 photos from Messages.app, drops them on the card, sees the count badge increment 0→5 with a green flash, types `smith`, drops 3 more photos, etc. Crew leaders' field-uploaded photos appear in the same grid, intermixed with admin-dropped ones.
+
+This slice should land in a deployable, production-quality state. Slice 4 (ticket generation) and Slice 5 (field crew leader polish) build on it but do not block it. Slice 3 is purely additive — the existing Properties tab table from Slice 1 stays as a denser alternative view.
+
+## Existing context (do not duplicate or replace)
+
+Slices 1 and 2 must already be merged before starting Slice 3. If anything from those slices is missing, stop and surface it in Deliverables before proceeding.
+
+Critical pre-existing pieces this slice depends on:
+
+- **`campaign_items.photos`** (text array column, exists pre-Slice-1 — see `shared/schema.ts:1859`). This is where we store the storage keys. **Do NOT use `completionPhotoStorageKeys`** — that's chemical-campaign specific. Extra Billable photos go in the standard `photos[]` array, the same one the existing `CampaignItemDetail.tsx` photo upload already uses for general/irrigation campaigns.
+- **`<ExtraBillableCampaignView>`** at `client/src/components/ExtraBillableCampaignView.tsx` already has tabs Properties, Assignments, Crews, Billing Queue. Slice 3 adds a fifth tab: **"Property Grid"** between "Properties" and "Assignments" — this is the natural primary view for the admin's photo-collection workflow, so default to landing on it instead of the table when a campaign has any properties at all.
+- **Photo pipeline reference: `server/routes.ts:10090`** — this is the canonical photo upload endpoint (used for `tickets.completionPhotoStorageKeys`). It does the right things: magic-byte validation for JPEG/PNG/WebP/HEIC, HEIC→JPEG via `heicConvert`, `sharp().rotate().resize({width:1600,height:1600}).jpeg({quality:85})` to auto-orient, downsize, and strip EXIF/GPS metadata (sharp's default behavior — do not call `.withMetadata()`). Match this pipeline exactly. Do not match `server/routes.ts:15222` (the chemical-campaign uploader) — it doesn't accept HEIC, and HEIC is what iPhone photos arriving via iMessage will be.
+- **Existing presigned-URL flow** at `/api/campaigns/photo-upload-url` (used by `client/src/pages/CampaignItemDetail.tsx:442–462`) is the legacy general-photo path. Do NOT use this for the drop endpoint — presigned URLs from the browser cannot run server-side HEIC conversion or magic-byte validation. The new endpoint below uploads through the server.
+- **Authorization helper** `canAccessExtraBillableCampaignItem(user, item, mode)` from Slice 1. Reuse it. Field-role users can only drop photos onto items in their own crew (mode `"write"` requires they're the crew's leader).
+- **Concurrency utility** `p-limit` is already in `package.json`. Use it for parallel drop-side uploads.
+- **Stack:** React 18 + TS + Vite + Tailwind + shadcn/ui (Radix) + Wouter + TanStack Query v5 + RHF + Zod + Drizzle + Postgres + i18next. No new dependencies.
+
+Read `server/routes.ts:10090` (the ticket-photo uploader), `client/src/pages/CampaignItemDetail.tsx:442–524` (the existing campaign-photo XHR upload pattern), and the Slice 1 `<ExtraBillableCampaignView>` component before writing code. The drop-endpoint is essentially the ticket-photo pipeline retargeted at campaign items, and the client uploader closely mirrors `handleCompletionPhotoFiles` in `CampaignItemDetail.tsx`.
+
+## Schema changes
+
+**None.** Photos go into the existing `campaign_items.photos[]` text array. No new columns, no new tables. If you find yourself adding schema, stop and explain why before proceeding.
+
+## API endpoints
+
+### 1. New: drop-endpoint photo upload
+
+```
+POST /api/campaigns/:campaignId/items/:itemId/photos/drop
+```
+
+Request: `Content-Type: image/jpeg | image/png | image/heic | image/heif | image/webp | application/octet-stream`. Body: raw bytes of one image file (use `express.raw({ type: [...], limit: "12mb" })`). One file per request — the client loops with concurrency.
+
+Authentication required. Authorization:
+
+- Validate the parent campaign exists for `user.activeCompanyId` and has `category: "extra_billable"`. 404 otherwise (do not leak campaign existence across companies).
+- Validate the item exists on this campaign for this company. 404 otherwise.
+- Run `canAccessExtraBillableCampaignItem(user, item, "write")`. 403 otherwise. This means: admin/office always pass; `field` role passes only if they are `campaign_crews.leaderUserId` of the item's `assignedCampaignCrewId`.
+
+Pipeline (mirror `server/routes.ts:10090` exactly — do not invent a parallel pipeline):
+
+1. Read the buffer from `req.body`. Reject 0-byte with 400.
+2. Magic-byte MIME validation. Accept JPEG (`FF D8 FF`), PNG (`89 50 4E 47`), HEIC (bytes 4–7 = `66 74 79 70`), WebP (bytes 8–11 = `57 45 42 50`). Anything else: 415 `"Unsupported image type — JPEG, PNG, WebP, or HEIC only"`.
+3. If HEIC: `Buffer.from(await heicConvert({ buffer: buf, format: "JPEG", quality: 0.85 }))`. The `heic-convert` package is already in `package.json`.
+4. `sharp(buf).rotate().resize({ width: 1600, height: 1600, fit: "inside", withoutEnlargement: true }).jpeg({ quality: 85 }).toBuffer()`. Sharp strips EXIF by default; do NOT call `.withMetadata()`. The `.rotate()` reads EXIF orientation and applies it before stripping.
+5. Storage key: `extra-billable-photos/${user.activeCompanyId}/${itemId}/${uuidv4()}.jpg`. Use the bucket id from `process.env.DEFAULT_OBJECT_STORAGE_BUCKET_ID` (matching the ticket-photo endpoint).
+6. Save: `bucket.file(objectName).save(buf, { contentType: "image/jpeg", resumable: false })`.
+7. Append the storage key to `campaign_items.photos[]` with a single `UPDATE ... SET photos = array_append(photos, $1)` (or whatever Drizzle pattern matches the existing append pattern — match what's already used elsewhere in `storage.ts` if it exists, otherwise read-modify-write the array). Update `campaign_items.updatedAt`.
+8. Response: `{ storageKey: string, photos: string[] }` — return the full updated photos array so the client can update its cache without an extra fetch.
+
+Soft cap: do NOT enforce a per-item photo limit. (The chemical endpoint caps at 6; we do not — storm cleanup photos can run 10–20 per property.) If a hard cap is genuinely needed for storage or UX reasons, leave it for a future slice and document the decision in Deliverables.
+
+Failure modes:
+
+- HEIC conversion failure → 422 `"Could not convert HEIC photo — try a JPEG export"`.
+- sharp failure → 422 `"Could not process this image — file may be corrupt"`.
+- GCS upload failure → 502 `"Storage temporarily unavailable — try again"`.
+- DB update failure (after successful upload) → log loudly and return 500. The orphaned blob in GCS is acceptable; do not attempt to delete (you'd need a transaction across two systems we don't have).
+
+### 2. New: photo delete
+
+```
+DELETE /api/campaigns/:campaignId/items/:itemId/photos/:storageKey(*)
+```
+
+Removes a single photo from `campaign_items.photos[]` and from GCS. Same authorization rules as the upload endpoint. Validate the storageKey is in the item's photos array (404 if not — do not allow cross-item deletes). On success, delete from GCS (best-effort — log and proceed if delete fails). Return `{ photos: string[] }` with the updated array.
+
+The existing CampaignItemDetail page at `:526` already has a `removePhoto` flow for the legacy presigned-URL photos — for extra_billable items, route to this new endpoint instead. Same network shape, easy swap.
+
+### 3. New: signed-URL endpoint for viewing photos
+
+```
+GET /api/campaigns/:campaignId/items/:itemId/photo-urls
+```
+
+Returns `{ urls: { storageKey: string; url: string }[] }` — for each storage key in the item's `photos[]`, a 1-hour signed URL. Same auth as the upload endpoint plus a `read` mode (members can read, leaders can write; admins can both). The grid uses these URLs for the thumbnails and lightbox previews.
+
+If a similar pattern already exists for chemical campaign photos (the file `CampaignItemDetail.tsx` shows `completion-photo-urls` calls), match its exact response shape and caching headers.
+
+## UI / pages / components
+
+### 1. New tab: "Property Grid"
+
+In `client/src/components/ExtraBillableCampaignView.tsx`:
+
+```
+Property Grid | Properties | Assignments | Crews | Billing Queue
+```
+
+Default landing tab logic (overrides what Slice 2 set):
+
+- If the campaign has any properties at all → land on **Property Grid**.
+- Else if there are unassigned properties → land on **Assignments** (Slice 2's default).
+- Else → **Properties** table.
+
+Persist the user's last-chosen tab per-campaign in `localStorage` keyed by campaign ID, but the rules above apply the first time per campaign.
+
+Add the i18next key `extraBillableTabPropertyGrid: "Property Grid"` (and Spanish equivalent) to the existing `campaigns` namespace. Mirror Slice 1's flat-camelCase convention.
+
+### 2. New component: `<PropertyGrid>`
+
+Path: `client/src/components/PropertyGrid.tsx`. Accepts `campaignId: string`. Top-level layout:
+
+```
++-----------------------------------------------------------+
+| [search "...."]  [sort ▼]  [filter chips: status, photos] |
+| 47 properties · 234 photos · 12 complete                  |
++-----------------------------------------------------------+
+| [card] [card] [card] [card]                               |
+| [card] [card] [card] [card]                               |
+| [card] [card] [card] [card]                               |
++-----------------------------------------------------------+
+```
+
+Cards are `flex-wrap` with `gap-3` (12px). Each card is **280px wide × ~160px tall**, fluid responsive (cards reflow). Container max-width matches the existing campaign-detail content area.
+
+#### Top bar
+
+- Search input (left, ~280px wide): client-side filter on customer name, city, and address. Debounced 100ms. Auto-focus when the tab is opened so the admin can start typing immediately on landing.
+- Sort dropdown (small Select): "Recently active" (default — by `max(photos last-added, updatedAt)`), "Customer A→Z", "Most photos", "Fewest photos", "By crew, then customer".
+- Filter chips (right): toggle-style badges for status (Pending / Completed / Skipped), photo state (Has photos / No photos), and crew (multi-select). Active chips have filled background.
+- Counter row beneath: `"{total} properties · {photoCount} photos · {completedCount} complete"` — uses i18n keys mirroring Slice 1's `crewItemCount` style.
+- Right-aligned: a small toggle button "Switch to table" that links to the Properties tab.
+
+#### Property card structure
+
+```
++----------------------------------------+
+| Customer Name                  [📷 5]  |
+| 1234 Main St · Lakewood                |
+| [▮ Crew 1]                  [pending]  |
+| [thumb][thumb][thumb][thumb] +N        |
++----------------------------------------+
+```
+
+- Top row: customer name (truncated, 14px semibold), photo count badge in top-right (camera icon + number; hidden if 0).
+- Address line: street + city, truncated, 12px muted.
+- Middle row: crew pill on the left (color swatch + name, or "Unassigned" gray pill); status badge on the right (pending/completed/skipped — reuse existing campaign status badge component).
+- Bottom strip: 4 photo thumbnails (32×32, rounded-sm), the most recent first (last 4 entries of `photos[]`). If more than 4, a "+N" gray chip after them. If zero photos, a muted dashed-border row with the text "Drop photos here" centered (icon + text).
+- Whole card is a drop target via `onDragEnter` / `onDragOver` / `onDragLeave` / `onDrop` on the outermost div.
+- `onDragOver` MUST `event.preventDefault()` and set `event.dataTransfer.dropEffect = "copy"` — without preventDefault, the browser ignores the drop.
+- Visual feedback states:
+  - **Idle:** subtle border (`border` Tailwind class), card background `bg-card`.
+  - **Dragging-over:** thicker primary border (`ring-2 ring-primary`), background tinted with `bg-primary/5`. Use Tailwind transitions (~150ms).
+  - **Drop just succeeded:** flash a green glow for 800ms. Implement with a one-shot Tailwind animation or a transient `ring-success/50` class set via `setTimeout`.
+  - **Uploading:** a thin progress bar pinned to the card's bottom edge (Radix `<Progress>`), with the text `"Uploading 3/8…"` overlayed at the top-right when multiple files are in flight.
+  - **Drop failed:** red border + chip showing the error reason ("HEIC conversion failed"), persists for 4 seconds then auto-clears.
+
+Click anywhere on the card (not on a thumbnail or the camera badge) → opens the Photo Detail Sheet (see §3).
+
+Click on a photo thumbnail → opens a lightbox with arrow-key navigation through that property's photos.
+
+#### Multi-card behavior
+
+Slice 3 does NOT do multi-property selection — that's Slice 2's pattern, and a multi-property drop doesn't make sense (every photo goes to exactly one property). One drop = one card.
+
+#### Field-role view
+
+When a `field`-role user opens this view (they shouldn't usually navigate to the admin tabs, but if they do via deep link), the grid shows only items they can access (per Slice 2's filter — items in their crew). Drop is disabled on cards where they're not the leader (cursor shows `not-allowed`, drop returns 403, error chip shows "Only the crew leader can upload from desktop"). Field users don't normally use this view; they use the existing `CampaignItemDetail.tsx` mobile flow per Slice 1.
+
+### 3. New component: `<PropertyPhotoSheet>`
+
+Path: `client/src/components/PropertyPhotoSheet.tsx`. Uses shadcn `<Sheet>` (right-side drawer) so the admin doesn't lose grid scroll position when reviewing a property.
+
+Sheet content:
+
+- Header: customer name (large), address (muted), crew pill, status badge, photo count.
+- Photo strip: 2-column grid of all photos at ~140×140 with rounded corners. Click → lightbox (use the same lightbox the grid uses). Each photo has a small `X` button on hover (admin/leader only) → calls the delete endpoint with optimistic update.
+- Notes preview: read-only excerpt of `campaign_items.notes` (up to 3 lines, truncated with ellipsis). "Edit" link below switches to the full `CampaignItemDetail.tsx` page.
+- Actions row at the bottom of the sheet:
+  - "Open full detail" → navigates to `/dashboard/campaigns/:cid/items/:iid` (existing page)
+  - "View customer" → links to `/dashboard/customers/:customerId`
+  - "Mark complete" / "Mark skipped" — only for admin/leader; calls existing campaign-item PATCH endpoint
+- Footer: a small drop zone identical to the card's, so the admin can also drag photos here while reviewing. Same upload flow, same feedback.
+
+Sheet width: `sm:max-w-md` on small screens, `lg:max-w-lg` on large.
+
+### 4. New utility: `useFileDropZone(onFiles)` hook
+
+Path: `client/src/hooks/useFileDropZone.ts`. Returns `{ ref, isDragging, dropHandlers }`. Handles the four DOM events with proper preventDefault, debouncing of dragenter/dragleave (which fire on child elements and can flicker the visual state), and extraction of `event.dataTransfer.files` into a `File[]`. `onFiles(files: File[])` is called only on successful drop.
+
+Use this hook on every property card and on the photo sheet's drop area. It centralizes the gnarly DOM-event details.
+
+The hook MUST handle:
+
+- `dragenter` increments a counter, `dragleave` decrements it. `isDragging = counter > 0`. This avoids flicker when dragging over child elements.
+- `dragover` calls `preventDefault()` and sets `dropEffect = "copy"`.
+- `drop` calls `preventDefault()`, reads `event.dataTransfer.files`, filters to images by MIME prefix `image/` OR by extension matching `.heic|.heif|.jpg|.jpeg|.png|.webp` (case-insensitive — Messages.app sometimes drops with empty MIME), calls `onFiles`, and resets the counter.
+- An optional second arg `{ accept: string[] }` to scope accepted MIME prefixes.
+
+### 5. New utility: `useBatchPhotoUpload(itemId)` hook
+
+Path: `client/src/hooks/useBatchPhotoUpload.ts`. Returns:
+
+```ts
+{
+  upload: (files: File[]) => Promise<UploadResult[]>;
+  inFlight: number;       // count of currently-uploading files for this item
+  completed: number;       // count of files completed in the most recent batch
+  errors: Array<{ fileName: string; error: string }>;
+  clear: () => void;
+}
+```
+
+Implementation:
+
+- Use `p-limit` (already in `package.json`) with concurrency 3 to throttle parallel uploads.
+- Each file is sent via `fetch` (preferred over XHR for the new endpoint — XHR was used in legacy code only because it provided per-file progress, which is overkill here since aggregate progress is what we display). If you do need per-file progress, fall back to XHR matching the pattern at `CampaignItemDetail.tsx:480`.
+- POST raw bytes to `/api/campaigns/${campaignId}/items/${itemId}/photos/drop` with `Content-Type: ${file.type || "application/octet-stream"}`.
+- On success, dispatch a TanStack Query cache invalidation for the campaign's items.
+- On per-file failure, push to `errors`, do not abort the batch.
+- After the whole batch settles, return aggregate result. The card's flash-green animation is triggered only if at least one file succeeded.
+
+### 6. Lightbox
+
+Use a simple shadcn `<Dialog>` rendering the image at full viewport size. Arrow keys, Esc to close, swipe gestures on touch devices. If a lightbox component already exists in the codebase (search for `<Dialog>` with images), reuse it. If not, build a minimal one inside `client/src/components/PhotoLightbox.tsx`.
+
+### 7. Empty states
+
+- **No properties:** centered empty state with a button "Add properties" that switches to the Properties tab and opens the Add Properties dialog from Slice 1.
+- **No properties matching filters:** "No matches — try clearing filters" with a clear-all-filters button.
+- **First-load skeleton:** 8 card-shaped Skeletons in a flex-wrap.
+
+### 8. i18next keys (add to existing `campaigns` namespace, flat camelCase)
+
+```ts
+extraBillableTabPropertyGrid: "Property Grid",
+gridSearchPlaceholder: "Search properties…",
+gridSortRecent: "Recently active",
+gridSortCustomer: "Customer A→Z",
+gridSortMostPhotos: "Most photos",
+gridSortFewestPhotos: "Fewest photos",
+gridSortByCrew: "By crew",
+gridChipPending: "Pending",
+gridChipCompleted: "Completed",
+gridChipSkipped: "Skipped",
+gridChipHasPhotos: "Has photos",
+gridChipNoPhotos: "No photos",
+gridChipFilterCrew: "Crew",
+gridSummaryCounts: "{{total}} properties · {{photoCount}} photos · {{completedCount}} complete",
+gridSwitchToTable: "Switch to table",
+gridDropHint: "Drop photos here",
+gridUploadingProgress: "Uploading {{current}}/{{total}}…",
+gridPhotoUploadFailed: "{{count}} photo(s) failed to upload",
+gridPhotoSheetOpen: "Open full detail",
+gridPhotoSheetEdit: "Edit",
+gridPhotoSheetDeletePhoto: "Delete photo",
+gridDropForbidden: "Only the crew leader can upload from desktop",
+gridUnsupportedType: "Unsupported file type — drop images only",
+gridNoMatches: "No matches — try clearing filters",
+gridClearFilters: "Clear filters",
+```
+
+### 9. Performance and limits
+
+- Render up to 200 cards without virtualization (typical storm batch). If a campaign exceeds 200 properties, lazy-render with the existing scroll patterns or React-window — but do not add a virtualization library in this slice; document the constraint and propose for v2.
+- Thumbnails are 32×32 from the same signed URL as the lightbox-quality image — the browser will scale. Acceptable because images are already 1600px max post-upload. If this becomes a perf problem in production, future work can add a sharp-generated thumbnail variant; out of scope for Slice 3.
+
+## Patterns and conventions
+
+- Reuse the photo pipeline from `server/routes.ts:10090` exactly — do not introduce a parallel pipeline. If anything diverges, document it.
+- `data-testid` on every interactive element. Examples: `data-testid="grid-card-${itemId}"`, `data-testid="grid-search-input"`, `data-testid="grid-sort-select"`, `data-testid="grid-photo-thumb-${itemId}-${idx}"`, `data-testid="sheet-photo-delete-${itemId}-${storageKey}"`.
+- All user-facing strings via i18next, both `en.ts` and `es.ts`, in the `campaigns` namespace, flat camelCase.
+- Optimistic updates: on drop, immediately add a placeholder photo entry on the card with a spinner; replace with the real storage key on success or remove on failure. Don't block the UI.
+- Use the existing `useToast` hook for all toasts. Don't introduce a new notifications system.
+- Use `lucide-react` for all icons.
+- The `<PropertyGrid>` component must be < 600 lines. If it's growing, extract `<PropertyCard>`, `<GridFilterBar>`, and `<PropertyPhotoSheet>` to sibling files.
+- The drop-zone hook (`useFileDropZone`) is generic and must not contain any campaign-specific code. Other features may want to reuse it.
+
+## Testing
+
+Add a `vitest` + `supertest` test file at `server/routes/extraBillableCampaign.photoDrop.test.ts` covering:
+
+- Upload succeeds with JPEG, returns updated photos array, file appears in GCS at the correct path.
+- HEIC magic-byte file gets converted and stored as `.jpg`.
+- 0-byte body returns 400.
+- Wrong MIME (e.g., PDF magic bytes) returns 415.
+- Field role with no crew assignment returns 403.
+- Field role who is leader of the assigned crew succeeds.
+- Field role who is a non-leader crew member returns 403.
+- Wrong company (cross-company access) returns 404.
+- Photo delete validates the storage key belongs to the item.
+
+Add a small client-side test for `useFileDropZone` covering: dragenter/dragleave counter logic, dragover preventDefault + dropEffect, drop extracts files and filters by MIME or extension, accepts HEIC even when MIME is empty.
+
+## Out of scope for this slice (do not build)
+
+- Bulk-drop on multiple cards at once — every drop targets exactly one card.
+- Photo inbox / staging area for photos to be sorted later — this was explicitly rejected in design.
+- Server-generated thumbnail variants (sharp creates 1600px max; thumbnails just scale that down in the browser).
+- Photo rotation / cropping in the UI — rely on the auto-orient at upload time.
+- Drag-drop reordering of photos within a property — order is upload-time order.
+- Bulk delete of photos — delete is per-photo only in v1.
+- Generate Tickets button or the ticket-generation endpoint (Slice 4).
+- Field crew leader's home dashboard widget (Slice 5).
+- Mobile drop zones (mobile crew leaders use the existing `CampaignItemDetail.tsx` photo upload — there's no useful drag-drop UX on iOS).
+- Auto-tagging photos by EXIF GPS or timestamp — irrelevant since EXIF is stripped.
+- Duplicate detection ("you already uploaded this photo") — defer to v2.
+- Rich-text annotation on photos (arrows, circles) — defer to v2.
+
+## Deliverables
+
+When you finish, report back with:
+
+1. List of all new files created (paths).
+2. List of all files modified (paths + 1-line description).
+3. The exact endpoint added with method, path, accepted MIME types, max size, required role, and Zod schema.
+4. Confirmation that the photo pipeline matches `server/routes.ts:10090` (HEIC convert + sharp resize + EXIF strip), with any deviations called out.
+5. The exact storage namespace used (`extra-billable-photos/...`) and confirmation that signed URLs work for read access.
+6. The `useFileDropZone` API and any deviations from the spec.
+7. The `useBatchPhotoUpload` concurrency, error-aggregation behavior, and which TanStack Query cache keys it invalidates.
+8. The vitest test file path and the list of cases included.
+9. Any decisions you made where this prompt was ambiguous, and what you chose.
+10. A short manual test plan covering: dragging a single JPEG from Finder onto the Henderson card and confirming the count badge increments, dragging 8 mixed JPEG/HEIC photos from Messages.app and confirming all 8 land on the correct card with green flash, dragging a non-image file (e.g., a .txt) and confirming the 415 error chip, attempting to drop on a card while logged in as a non-leader crew member (expect "Only the crew leader…" error chip), opening the Photo Sheet and deleting a misdropped photo (expect optimistic removal then GCS delete), filtering by `hend` and confirming filter narrows the grid before drop.
+
+Do not skip any item silently. If something can't be built as specified, document the actual constraint and what you did instead.

@@ -1,0 +1,242 @@
+# Replit Prompt — Extra Billable Campaign, Slice 5: Field Crew Leader Polish
+
+## Context
+
+This is **Slice 5 of 5** of the Extra Billable Campaign feature — the small finishing slice. Slices 1–4 built the schema, the crew assignment kanban, the property grid with iMessage drop zones, and the Billing Queue with bulk ticket generation. Slice 5 polishes the field-side experience for crew leaders so that when they log in on their phones, the new extra_billable campaigns surface naturally next to the chemical and irrigation work they already see.
+
+This is intentionally a small slice — most of the field-side flow already works thanks to the existing `CampaignItemDetail.tsx` and the API-level filtering Slice 2 added. Slice 5 fills in the remaining UX gaps: a home-dashboard widget showing the user's active assignments, a couple of list-page filter tweaks, and consistent labeling.
+
+The Slice 5 deployable end-state: a crew leader logs into their phone, sees a "My Active Batches" widget on the field home dashboard with a count of properties they're responsible for and a one-tap link to the list, taps in, sees their assigned properties grouped by campaign with photo and completion progress, taps a property to land in the existing CampaignItemDetail flow, takes photos / marks complete, comes back to the list and sees their progress update.
+
+This slice should land in a deployable, production-quality state. After it ships, the entire Extra Billable Campaign feature is complete from end to end.
+
+## Existing context (do not duplicate or replace)
+
+Slices 1–4 must already be merged before starting Slice 5. If anything from those slices is missing, stop and surface it in Deliverables before proceeding.
+
+Critical pre-existing pieces this slice depends on:
+
+- **Field-role API filtering** from Slice 2: `GET /api/campaigns` and `GET /api/campaigns/:id` already filter extra_billable campaigns to those where the user is in any of the campaign's `campaign_crew_members`. Items within a campaign are filtered to ones the user can access. Slice 5 piggybacks on this — no new filter logic is needed at the API layer for the campaigns list and campaign detail.
+- **`CampaignItemDetail.tsx`** is the existing per-property detail page — works as-is for extra_billable items because the underlying photo/checklist/mark-complete flow is the same. Slice 5 does NOT modify it.
+- **`<FieldHomeDashboard>`** at `client/src/pages/FieldHomeDashboard.tsx` is the existing field-role landing page. Slice 5 adds a new widget here.
+- **`<MyTicketsPreview>`** at `client/src/components/MyTicketsPreview.tsx` is an existing dashboard widget showing the user's assigned tickets — Slice 5's new widget mirrors its visual pattern (header, count badge, list of items, link to a full list).
+- **`<CampaignsList>`** at `client/src/pages/CampaignsList.tsx` already filters by role server-side — for field-role users it shows only their accessible campaigns. Slice 5 adds a small categorization tweak so extra_billable campaigns are visually distinct in the list (icon + color + filter chip).
+- **i18next convention:** flat camelCase keys inside the existing top-level `campaigns: { ... }` object in `en.ts` and `es.ts`. Mirror the prefixing patterns from earlier slices.
+- **Stack:** React 18 + TS + Vite + Tailwind + shadcn/ui (Radix) + Wouter + TanStack Query v5 + RHF + Zod + Drizzle + Postgres + i18next. No new dependencies.
+
+Read `FieldHomeDashboard.tsx`, `MyTicketsPreview.tsx`, `CampaignsList.tsx` (especially the field-role rendering branch around `:200`), and the Slice 1 `<ExtraBillableCampaignView>` component before writing code.
+
+## Schema changes
+
+**None.** Slice 5 is pure UI plus one new aggregation endpoint.
+
+## API endpoints
+
+### 1. New: my active batches summary
+
+```
+GET /api/me/extra-billable-batches
+```
+
+Returns campaigns where:
+
+- `category === "extra_billable"`
+- The current user is a member of any of the campaign's `campaign_crews` via `campaign_crew_members` (admin/office see all extra_billable campaigns regardless of crew membership — they get the same shape, just unfiltered)
+- The campaign's `status === "active"`
+
+Response shape:
+
+```ts
+{
+  batches: Array<{
+    campaignId: string;
+    campaignTitle: string;
+    windowStart: string;     // ISO date
+    windowEnd: string;       // ISO date
+    crewName: string;        // the user's crew name on this campaign
+    crewColor: string;
+    isLeader: boolean;       // true if the user is leaderUserId of the crew
+    assignedItemCount: number;
+    completedItemCount: number;
+    pendingItemCount: number;
+    photoCount: number;      // sum of photos across the user's assigned items in this campaign
+    nextDueDate: string | null; // earliest pending item's targetDate or campaign.windowEnd
+  }>;
+  totalAssignedItems: number;
+  totalPendingItems: number;
+}
+```
+
+This endpoint is what powers the dashboard widget (§1 below) and the dedicated "My Batches" list (§3 below). Compute it in a single query per user — do not make N+1 calls.
+
+Authorization: any authenticated user. Field-role users get filtered results; admin/office get unfiltered results (every active extra_billable campaign in the company).
+
+### 2. (No change) Reuse existing endpoints
+
+The campaigns list (`GET /api/campaigns`) already filters correctly per Slice 2. The campaign detail (`GET /api/campaigns/:id`) already filters items per Slice 2. The single-item endpoint (`GET /api/campaigns/:id/items/:itemId`) already enforces auth via `canAccessExtraBillableCampaignItem` per Slice 1. Slice 5 doesn't touch these.
+
+## UI / pages / components
+
+### 1. New widget: `<MyExtraBillableBatchesWidget>`
+
+Path: `client/src/components/MyExtraBillableBatchesWidget.tsx`. Mirrors the visual pattern of `<MyTicketsPreview>`. Render in `client/src/pages/FieldHomeDashboard.tsx` above (or alongside) `<MyTicketsPreview>` — make a judgment call based on the existing layout; keep similar widgets visually grouped.
+
+Layout:
+
+```
+┌─ My Active Batches ─────────────────  3 ─┐
+│ ▮ May 5 Spring Snow Branch Cleanup       │
+│   Crew 1 (lead) · 8 props · 3 done       │
+│   Window ends May 10                      │
+│ ─────────────────                         │
+│ ▮ Spring Cleanup 2026                     │
+│   North Side Crew · 12 props · 0 done    │
+│   Window ends May 22                      │
+│ ─────────────────                         │
+│ ▮ Hail Damage May 1                       │
+│   Crew 2 · 5 props · 5 done   ✓ all done │
+│   Window ends May 14                      │
+│                                           │
+│  [ View all batches → ]                   │
+└───────────────────────────────────────────┘
+```
+
+- Header: title + a count badge of total active batches (right-aligned).
+- Each batch row:
+  - Color swatch from the user's crew on that campaign (5px wide left bar)
+  - Campaign title (truncated, bold)
+  - Sub-line: crew name + `(lead)` if `isLeader`, then `{assignedItemCount} props · {completedItemCount} done`
+  - Right-aligned date: `Window ends {date}` or `Due {nextDueDate}` if more specific
+  - When `assignedItemCount === completedItemCount && assignedItemCount > 0`, show a green `✓ all done` chip on the right of the sub-line
+  - Tap/click → navigate to `/dashboard/campaigns/:campaignId` (existing detail route — for field-role users, the API filtering ensures they only see their items there)
+- Footer: "View all batches" link → navigates to `/dashboard/my-batches` (new route, see §3 below).
+- Hide the entire widget when `batches.length === 0`. Don't render an empty placeholder card on the dashboard.
+- Loading: Skeleton rows mirroring `MyTicketsPreview`'s skeleton.
+
+The widget refetches on a 60-second interval (matching the existing dashboard query convention if there is one — check `MyTicketsPreview.tsx`) plus on focus.
+
+### 2. CampaignsList — extra_billable visual treatment
+
+In `client/src/pages/CampaignsList.tsx`:
+
+- Add a fourth category icon and badge color in the row at `:204` (where `irrigation` already gets a `<Droplets>` icon). For `extra_billable`, use a `<ClipboardList>` (or `<Receipt>`) icon from `lucide-react` and the color `#f59e0b` (matching the Extra Billable ticket type).
+- The badge label uses the `campaigns.categoryExtraBillable` key from Slice 1.
+- Add a category filter chip row above the campaigns table (if not already there) with chips for All / General / Chemical / Irrigation / Extra Billable. Persist the active filter in the URL query string so the user's preference survives refresh.
+- For field-role users, the chip row is hidden if they have only one category visible to them.
+
+### 3. New page: `<MyBatchesPage>`
+
+Path: `client/src/pages/MyBatchesPage.tsx`. Route: `/dashboard/my-batches`. Add to the main router in `client/src/App.tsx`.
+
+Layout: a vertical stack of cards, one per active extra_billable batch. Each card is the same `<MyExtraBillableBatchesWidget>` row layout but expanded to include:
+
+- Tap-to-expand revealing the user's assigned items in that campaign, grouped as a list of small property rows (customer name, status badge, photo count, "Open" link to `CampaignItemDetail`).
+- A search input at the top of the page filters across all rows by customer name.
+- A status filter (All / Pending / Completed / Skipped).
+- A "Sort by" select: `Most pending`, `Closest due date`, `Most photos`.
+
+Empty state: `<EmptyState>` with `<Users>` icon and message "No active batches assigned to you right now."
+
+This page is a more detailed view of the dashboard widget — same data source, more depth. Refetches on focus.
+
+Add to the field-role nav (likely `<FieldAppLayout>` or wherever the existing field nav lives — search for the icon that links to `MyTickets`): an entry "My Batches" with the `<ClipboardList>` icon, route `/dashboard/my-batches`. Place after "My Tickets" and before any other field-only nav items. Use the i18n key `fieldNav.myBatches`.
+
+### 4. CampaignDetail — field-role helpful affordances
+
+In `client/src/components/ExtraBillableCampaignView.tsx` (and/or `CampaignDetail.tsx` where the category-specific render branches), when the viewer is a field-role user:
+
+- Hide the **Crews** tab (read-only field users don't manage crews).
+- Hide the **Billing Queue** tab (admin-only operation).
+- Hide the **Assignments** tab (admin-only).
+- The **Property Grid** tab is visible but every card's drop zone is disabled (see Slice 3's field-role behavior).
+- Add a top-of-page banner: `"You're {crewLabel} on this batch"` where `crewLabel` is `"the leader of Crew 1"` or `"a member of Crew 1"`.
+- The Properties tab table is the natural primary view — show by default for field users.
+
+### 5. CampaignItemDetail — small additions (optional / minimal)
+
+The existing `CampaignItemDetail.tsx` works as-is for extra_billable items. Two small additions:
+
+- Above the item header, when `item.assignedCampaignCrewId` is set and the campaign category is `extra_billable`, render a small chip: `"Crew: {crewName} (lead: {leaderName})"`. This gives the user context about who else is on the job.
+- The Slice 4 banner ("Ticket created on May 7 — view it →") is already added in Slice 4. No change here.
+
+If `CampaignItemDetail.tsx` is already deeply category-aware, integrate the chip in the natural place; if not, add it as a one-line component at the top of the body.
+
+### 6. i18next keys
+
+Add to the existing `campaigns` namespace (flat camelCase, both `en.ts` and `es.ts`):
+
+```ts
+myBatchesPageTitle: "My Batches",
+myBatchesEmptyTitle: "No active batches",
+myBatchesEmptyDescription: "No active batches assigned to you right now.",
+myBatchesViewAll: "View all batches →",
+myBatchesSearchPlaceholder: "Search across batches…",
+myBatchesSortMostPending: "Most pending",
+myBatchesSortClosestDue: "Closest due date",
+myBatchesSortMostPhotos: "Most photos",
+myBatchesAllDoneChip: "all done",
+myBatchesAsLeader: "(lead)",
+myBatchesWindowEnds: "Window ends {{date}}",
+myBatchesDueOn: "Due {{date}}",
+myBatchesPropsCompleted: "{{count}} props · {{completed}} done",
+itemCrewContextChip: "Crew: {{crewName}} (lead: {{leaderName}})",
+fieldRoleBannerLeader: "You're the leader of {{crew}} on this batch",
+fieldRoleBannerMember: "You're a member of {{crew}} on this batch",
+```
+
+Add to `fieldNav` namespace (or wherever the existing field nav strings live — find them, do not invent a new namespace):
+
+```ts
+myBatches: "My Batches",
+```
+
+If `fieldNav` doesn't exist as a namespace, find where `myTickets` / `myCustomers` / similar nav strings live and add `myBatches` alongside them.
+
+## Patterns and conventions
+
+- Match the visual cadence of `<MyTicketsPreview>` for the new widget — same header style, same row density, same skeleton pattern.
+- Use `data-testid` consistently: `data-testid="widget-my-batches"`, `data-testid="widget-my-batches-row-${campaignId}"`, `data-testid="page-my-batches"`, `data-testid="my-batches-search"`, etc.
+- All user-facing strings via i18next, both `en.ts` and `es.ts`.
+- The `/api/me/extra-billable-batches` endpoint should be a single query (with joins/aggregates) — N+1 is unacceptable for a dashboard widget that fires every 60 seconds for every field user.
+- Use existing `useToast` for any error states.
+- Use `lucide-react` for all icons — likely `<ClipboardList>` for the batch concept, `<Users>` for empty state.
+
+## Testing
+
+Add a `vitest` + `supertest` test file at `server/routes/me.extraBillableBatches.test.ts` covering:
+
+- Field-role user with crew membership in 2 active extra_billable campaigns sees both, with correct counts.
+- Field-role user with no crew membership in any extra_billable campaign sees an empty list.
+- Field-role user where they're a member of a crew but NOT the leader: `isLeader: false`.
+- Field-role user where they're the leader: `isLeader: true`.
+- Admin/office user sees ALL active extra_billable campaigns regardless of crew membership.
+- Archived campaigns are not included.
+- Cross-company isolation (a user in company A doesn't see batches from company B).
+
+Add a small client-side test for `<MyExtraBillableBatchesWidget>` covering: empty state hides the widget, "all done" chip renders when `assigned === completed && assigned > 0`, leader vs member badge.
+
+## Out of scope for this slice (do not build)
+
+- Push notifications when assigned to a new batch (post-v1).
+- SMS notifications to crew members when they're added to a crew (post-v1).
+- A read-only field-side "Other crew members' progress" view — the existing CampaignItemDetail covers what they need (post-v1 if requested).
+- Bulk actions in the My Batches page (mark multiple complete, etc.) — the existing per-item flow is fine for v1.
+- Map view of the user's assigned properties (post-v1).
+- A dedicated mobile app — this is the existing PWA behavior; no native code changes.
+- Offline support / queued uploads (post-v1, deeper work).
+
+## Deliverables
+
+When you finish, report back with:
+
+1. List of all new files created (paths).
+2. List of all files modified (paths + 1-line description).
+3. The exact endpoint added with method, path, role, and response shape.
+4. Confirmation that the endpoint is a single query (no N+1) — quote the SQL or the Drizzle query.
+5. List of new routes added to the frontend router and field-role nav.
+6. Confirmation that field-role users see the correct subset of tabs on the campaign detail (Property Grid only, drop zones disabled).
+7. The vitest test file path and the list of cases included.
+8. Any decisions you made where this prompt was ambiguous, and what you chose.
+9. A short manual test plan covering: logging in as a field user who is the leader of Crew 1 on one extra_billable campaign and a member of Crew 2 on another, confirming the dashboard widget shows both with the correct `(lead)` annotation; tapping into one and confirming only their assigned items are visible; opening "My Batches" and confirming the search/filter/sort all work; logging in as a field user with no crew memberships and confirming the widget is hidden; logging in as admin and confirming all active extra_billable campaigns appear in the same widget regardless of crew membership; archiving a campaign and confirming it disappears from the widget.
+
+Do not skip any item silently. If something can't be built as specified, document the actual constraint and what you did instead.
