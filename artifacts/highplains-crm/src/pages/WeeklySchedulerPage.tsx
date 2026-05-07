@@ -1,0 +1,1448 @@
+import { useState, useMemo, Fragment, useEffect } from "react";
+import { useTranslation } from "react-i18next";
+import { useQuery, useMutation } from "@tanstack/react-query";
+import {
+  DndContext,
+  DragOverlay,
+  closestCenter,
+  KeyboardSensor,
+  PointerSensor,
+  useSensor,
+  useSensors,
+  DragStartEvent,
+  DragEndEvent,
+  DragOverEvent,
+  useDroppable,
+  useDraggable,
+} from "@dnd-kit/core";
+import { CSS } from "@dnd-kit/utilities";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge";
+import { Input } from "@/components/ui/input";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogFooter,
+} from "@/components/ui/dialog";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from "@/components/ui/alert-dialog";
+import { ScrollArea } from "@/components/ui/scroll-area";
+import { Loader2, Plus, GripVertical, Clock, Users, Calendar, X, ChevronRight, AlertTriangle, Settings, Trash2, Lock, LockOpen, Copy, Pencil, MoreHorizontal, FileText } from "lucide-react";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import { Label } from "@/components/ui/label";
+import { useToast } from "@/hooks/use-toast";
+import { queryClient, apiRequest } from "@/lib/queryClient";
+import { useAuth } from "@/hooks/use-auth";
+import type {
+  MaintenanceCrew,
+  MaintenanceVisitConfig,
+  WeeklyScheduleTemplate,
+  ScheduleBlock,
+  Customer,
+  DayOfWeek,
+} from "@shared/schema";
+import { CREW_COLORS } from "@shared/schema";
+
+const DAYS_OF_WEEK: { key: DayOfWeek; labelKey: string; shortKey: string }[] = [
+  { key: "monday", labelKey: "days.monday", shortKey: "days.mon" },
+  { key: "tuesday", labelKey: "days.tuesday", shortKey: "days.tue" },
+  { key: "wednesday", labelKey: "days.wednesday", shortKey: "days.wed" },
+  { key: "thursday", labelKey: "days.thursday", shortKey: "days.thu" },
+  { key: "friday", labelKey: "days.friday", shortKey: "days.fri" },
+  { key: "saturday", labelKey: "days.saturday", shortKey: "days.sat" },
+];
+
+interface VisitConfigWithCustomer extends MaintenanceVisitConfig {
+  customer?: Customer;
+}
+
+interface ScheduleBlockWithDetails extends ScheduleBlock {
+  visitConfig?: VisitConfigWithCustomer;
+}
+
+interface DraggableBlockProps {
+  block: ScheduleBlockWithDetails;
+  canEdit: boolean;
+  onRemove: () => void;
+}
+
+function DraggableBlock({ block, canEdit, onRemove }: DraggableBlockProps) {
+  const { attributes, listeners, setNodeRef, transform, isDragging } = useDraggable({
+    id: block.id,
+    disabled: !canEdit,
+  });
+
+  const style = {
+    transform: CSS.Translate.toString(transform),
+    opacity: isDragging ? 0.5 : 1,
+  };
+
+  return (
+    <div
+      ref={setNodeRef}
+      style={style}
+      className="group bg-accent/50 rounded p-1.5 text-xs relative touch-none"
+      data-testid={`block-${block.id}`}
+    >
+      <div className="flex items-start gap-1">
+        <div
+          {...attributes}
+          {...listeners}
+          className={canEdit ? "cursor-grab active:cursor-grabbing" : ""}
+        >
+          <GripVertical className="h-3 w-3 text-muted-foreground shrink-0 mt-0.5" />
+        </div>
+        <div className="flex-1 min-w-0">
+          <div className="font-medium truncate">
+            {block.visitConfig?.customer?.name || "Unknown"}
+          </div>
+          <div className="flex items-center gap-1 text-muted-foreground mt-0.5">
+            <Clock className="h-3 w-3" />
+            {block.visitConfig?.estimatedDurationMinutes || 0}m
+          </div>
+        </div>
+        {canEdit && (
+          <Button
+            size="icon"
+            variant="ghost"
+            className="h-5 w-5 opacity-0 group-hover:opacity-100 transition-opacity"
+            onClick={(e) => {
+              e.stopPropagation();
+              onRemove();
+            }}
+            data-testid={`button-remove-block-${block.id}`}
+          >
+            <X className="h-3 w-3" />
+          </Button>
+        )}
+      </div>
+    </div>
+  );
+}
+
+interface DroppableCellProps {
+  crewId: string;
+  day: DayOfWeek;
+  blocks: ScheduleBlockWithDetails[];
+  canEdit: boolean;
+  onAddClick: () => void;
+  onRemoveBlock: (blockId: string) => void;
+  isOver: boolean;
+  totalMinutes: number;
+  capacityMinutes: number;
+}
+
+function DroppableCell({ crewId, day, blocks, canEdit, onAddClick, onRemoveBlock, isOver, totalMinutes, capacityMinutes }: DroppableCellProps) {
+  const { t } = useTranslation();
+  const { setNodeRef } = useDroppable({
+    id: `${crewId}::${day}`,
+  });
+
+  const isOverCapacity = totalMinutes > capacityMinutes;
+  const utilizationPercent = capacityMinutes > 0 ? Math.round((totalMinutes / capacityMinutes) * 100) : 0;
+  const totalHours = (totalMinutes / 60).toFixed(1);
+  const capacityHours = (capacityMinutes / 60).toFixed(1);
+
+  return (
+    <Card
+      ref={setNodeRef}
+      className={`min-h-[100px] p-1 transition-colors ${isOver ? "ring-2 ring-primary bg-accent/30" : ""}`}
+      data-testid={`cell-${crewId}-${day}`}
+    >
+      <div className="space-y-1">
+        {blocks.map((block) => (
+          <DraggableBlock
+            key={block.id}
+            block={block}
+            canEdit={canEdit}
+            onRemove={() => onRemoveBlock(block.id)}
+          />
+        ))}
+        {canEdit && (
+          <Button
+            variant="ghost"
+            size="sm"
+            className="w-full h-7 text-xs text-muted-foreground"
+            onClick={onAddClick}
+            data-testid={`button-add-${crewId}-${day}`}
+          >
+            <Plus className="h-3 w-3 mr-1" />
+            {t("common.add")}
+          </Button>
+        )}
+      </div>
+      {blocks.length > 0 && (
+        <div className={`mt-1 pt-1 border-t text-xs flex items-center justify-between ${isOverCapacity ? "text-destructive" : "text-muted-foreground"}`}>
+          <span className="flex items-center gap-1">
+            {isOverCapacity && <AlertTriangle className="h-3 w-3" />}
+            {totalHours}h / {capacityHours}h
+          </span>
+          <span className={isOverCapacity ? "font-medium" : ""}>{utilizationPercent}%</span>
+        </div>
+      )}
+    </Card>
+  );
+}
+
+function BlockOverlay({ block }: { block: ScheduleBlockWithDetails }) {
+  return (
+    <div className="bg-accent rounded p-1.5 text-xs shadow-lg border">
+      <div className="flex items-start gap-1">
+        <GripVertical className="h-3 w-3 text-muted-foreground shrink-0 mt-0.5" />
+        <div className="flex-1 min-w-0">
+          <div className="font-medium truncate">
+            {block.visitConfig?.customer?.name || "Unknown"}
+          </div>
+          <div className="flex items-center gap-1 text-muted-foreground mt-0.5">
+            <Clock className="h-3 w-3" />
+            {block.visitConfig?.estimatedDurationMinutes || 0}m
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+export default function WeeklySchedulerPage() {
+  const { t } = useTranslation();
+  const { user } = useAuth();
+  const { toast } = useToast();
+  const [selectedTemplateId, setSelectedTemplateId] = useState<string | null>(null);
+  const [showAddPropertyDialog, setShowAddPropertyDialog] = useState(false);
+  const [addPropertyTarget, setAddPropertyTarget] = useState<{ crewId: string; day: DayOfWeek } | null>(null);
+  const [searchProperty, setSearchProperty] = useState("");
+  const [activeBlockId, setActiveBlockId] = useState<string | null>(null);
+  const [overCellId, setOverCellId] = useState<string | null>(null);
+  const [showTemplateSettings, setShowTemplateSettings] = useState(false);
+  const [templateName, setTemplateName] = useState("");
+  const [seasonStartMonth, setSeasonStartMonth] = useState(4);
+  const [seasonEndMonth, setSeasonEndMonth] = useState(10);
+  const [showCrewManager, setShowCrewManager] = useState(false);
+  const [editingCrew, setEditingCrew] = useState<MaintenanceCrew | null>(null);
+  const [newCrewName, setNewCrewName] = useState("");
+  const [newCrewHours, setNewCrewHours] = useState(8);
+  const [newCrewActive, setNewCrewActive] = useState(true);
+  const [newCrewColor, setNewCrewColor] = useState<string>(CREW_COLORS[0]);
+  const [isLocked, setIsLocked] = useState(true);
+  const [showTemplateManager, setShowTemplateManager] = useState(false);
+  const [renamingTemplateId, setRenamingTemplateId] = useState<string | null>(null);
+  const [renameValue, setRenameValue] = useState("");
+  const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null);
+
+  const canEdit = user?.activeRole === "admin" || user?.activeRole === "office";
+  const allowEdit = canEdit && !isLocked;
+
+  const sensors = useSensors(
+    useSensor(PointerSensor, {
+      activationConstraint: {
+        distance: 8,
+      },
+    }),
+    useSensor(KeyboardSensor)
+  );
+
+  const { data: crews = [], isLoading: crewsLoading } = useQuery<MaintenanceCrew[]>({
+    queryKey: ["/api/maintenance-crews"],
+  });
+
+  const { data: templates = [], isLoading: templatesLoading } = useQuery<WeeklyScheduleTemplate[]>({
+    queryKey: ["/api/schedule-templates"],
+  });
+
+  const { data: visitConfigs = [], isLoading: configsLoading } = useQuery<MaintenanceVisitConfig[]>({
+    queryKey: ["/api/maintenance-visit-configs"],
+  });
+
+  const { data: customersResp } = useQuery<{ customers: Customer[]; total: number }>({
+    queryKey: ["/api/customers"],
+  });
+  const customers = customersResp?.customers ?? [];
+
+  const activeTemplate = templates.find((t) => t.id === selectedTemplateId) || templates.find((t) => t.isActive) || templates[0];
+
+  const activeCrews = crews.filter((c) => c.isActive);
+
+  useEffect(() => {
+    if (!templatesLoading && templates.length === 0 && canEdit && activeCrews.length > 0) {
+      createTemplateMutation.mutate();
+    }
+  }, [templatesLoading, templates.length, canEdit, activeCrews.length]);
+
+  const { data: blocks = [], isLoading: blocksLoading } = useQuery<ScheduleBlock[]>({
+    queryKey: ["/api/schedule-templates", activeTemplate?.id, "blocks"],
+    enabled: !!activeTemplate?.id,
+  });
+
+  const visitConfigsWithCustomers: VisitConfigWithCustomer[] = useMemo(() =>
+    visitConfigs.map((vc) => ({
+      ...vc,
+      customer: customers.find((c) => c.id === vc.customerId),
+    })),
+    [visitConfigs, customers]
+  );
+
+  const blocksWithDetails: ScheduleBlockWithDetails[] = useMemo(() =>
+    blocks.map((block) => ({
+      ...block,
+      visitConfig: visitConfigsWithCustomers.find((vc) => vc.id === block.visitConfigId),
+    })),
+    [blocks, visitConfigsWithCustomers]
+  );
+
+  const scheduledConfigIds = new Set(blocks.map((b) => b.visitConfigId));
+  const unscheduledConfigs = visitConfigsWithCustomers.filter(
+    (vc) => vc.isActive && !scheduledConfigIds.has(vc.id)
+  );
+
+  const addBlockMutation = useMutation({
+    mutationFn: async (data: { templateId: string; visitConfigId: string; crewId: string; dayOfWeek: DayOfWeek }) => {
+      return apiRequest("POST", `/api/schedule-templates/${data.templateId}/blocks`, {
+        visitConfigId: data.visitConfigId,
+        crewId: data.crewId,
+        dayOfWeek: data.dayOfWeek,
+        sortOrder: 0,
+      });
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/schedule-templates", activeTemplate?.id, "blocks"] });
+      setShowAddPropertyDialog(false);
+      setAddPropertyTarget(null);
+      setSearchProperty("");
+      toast({ title: t("schedule.propertyAdded") });
+    },
+    onError: () => {
+      toast({ title: t("schedule.propertyAdded"), variant: "destructive" });
+    },
+  });
+
+  const deleteBlockMutation = useMutation({
+    mutationFn: async (blockId: string) => {
+      return apiRequest("DELETE", `/api/schedule-blocks/${blockId}`);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/schedule-templates", activeTemplate?.id, "blocks"] });
+      toast({ title: t("schedule.propertyRemoved") });
+    },
+    onError: () => {
+      toast({ title: t("schedule.propertyRemoved"), variant: "destructive" });
+    },
+  });
+
+  const moveBlockMutation = useMutation({
+    mutationFn: async (data: { blockId: string; crewId: string; dayOfWeek: DayOfWeek }) => {
+      return apiRequest("PATCH", `/api/schedule-blocks/${data.blockId}`, {
+        crewId: data.crewId,
+        dayOfWeek: data.dayOfWeek,
+      });
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/schedule-templates", activeTemplate?.id, "blocks"] });
+      toast({ title: t("schedule.propertyMoved") });
+    },
+    onError: () => {
+      toast({ title: t("schedule.propertyMoved"), variant: "destructive" });
+    },
+  });
+
+  const createTemplateMutation = useMutation({
+    mutationFn: async () => {
+      const res = await apiRequest("POST", "/api/schedule-templates", { name: "New Schedule Template" });
+      return res.json() as Promise<WeeklyScheduleTemplate>;
+    },
+    onSuccess: (data: WeeklyScheduleTemplate) => {
+      queryClient.invalidateQueries({ queryKey: ["/api/schedule-templates"] });
+      setSelectedTemplateId(data.id);
+      toast({ title: t("schedule.templateCreated") });
+    },
+    onError: () => {
+      toast({ title: t("schedule.templateCreated"), variant: "destructive" });
+    },
+  });
+
+  const updateTemplateMutation = useMutation({
+    mutationFn: async (data: { id: string; name: string; seasonStartMonth: number; seasonEndMonth: number }) => {
+      return apiRequest("PATCH", `/api/schedule-templates/${data.id}`, {
+        name: data.name,
+        seasonStartMonth: data.seasonStartMonth,
+        seasonEndMonth: data.seasonEndMonth,
+      });
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/schedule-templates"] });
+      setShowTemplateSettings(false);
+      toast({ title: t("schedule.templateUpdated") });
+    },
+    onError: () => {
+      toast({ title: t("schedule.templateUpdated"), variant: "destructive" });
+    },
+  });
+
+  const deleteTemplateMutation = useMutation({
+    mutationFn: async (id: string) => {
+      return apiRequest("DELETE", `/api/schedule-templates/${id}`);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/schedule-templates"] });
+      setShowTemplateSettings(false);
+      setSelectedTemplateId(null);
+      toast({ title: t("schedule.templateDeleted") });
+    },
+    onError: () => {
+      toast({ title: t("schedule.templateDeleted"), variant: "destructive" });
+    },
+  });
+
+  const duplicateTemplateMutation = useMutation({
+    mutationFn: async (data: { id: string; name: string }) => {
+      const res = await apiRequest("POST", `/api/schedule-templates/${data.id}/duplicate`, { name: data.name });
+      return res.json() as Promise<WeeklyScheduleTemplate>;
+    },
+    onSuccess: (data: WeeklyScheduleTemplate) => {
+      queryClient.invalidateQueries({ queryKey: ["/api/schedule-templates"] });
+      setSelectedTemplateId(data.id);
+      toast({ title: t("schedule.templateDuplicated"), description: `Created "${data.name}"` });
+    },
+    onError: () => {
+      toast({ title: t("schedule.templateDuplicated"), variant: "destructive" });
+    },
+  });
+
+  const renameTemplateMutation = useMutation({
+    mutationFn: async (data: { id: string; name: string }) => {
+      return apiRequest("PATCH", `/api/schedule-templates/${data.id}`, { name: data.name });
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/schedule-templates"] });
+      setRenamingTemplateId(null);
+      setRenameValue("");
+      toast({ title: t("schedule.templateRenamed") });
+    },
+    onError: () => {
+      toast({ title: t("schedule.templateRenamed"), variant: "destructive" });
+    },
+  });
+
+  const createCrewMutation = useMutation({
+    mutationFn: async (data: { name: string; color: string; defaultHoursPerDay: number; isActive: boolean }) => {
+      return apiRequest("POST", "/api/maintenance-crews", data);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/maintenance-crews"] });
+      setNewCrewName("");
+      setNewCrewColor(CREW_COLORS[0]);
+      setNewCrewHours(8);
+      setNewCrewActive(true);
+      toast({ title: t("schedule.crewCreated") });
+    },
+    onError: () => {
+      toast({ title: t("schedule.crewCreated"), variant: "destructive" });
+    },
+  });
+
+  const updateCrewMutation = useMutation({
+    mutationFn: async (data: { id: string; name: string; color: string; defaultHoursPerDay: number; isActive: boolean }) => {
+      return apiRequest("PATCH", `/api/maintenance-crews/${data.id}`, {
+        name: data.name,
+        color: data.color,
+        defaultHoursPerDay: data.defaultHoursPerDay,
+        isActive: data.isActive,
+      });
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/maintenance-crews"] });
+      setEditingCrew(null);
+      toast({ title: t("schedule.crewUpdated") });
+    },
+    onError: () => {
+      toast({ title: t("schedule.crewUpdated"), variant: "destructive" });
+    },
+  });
+
+  const deleteCrewMutation = useMutation({
+    mutationFn: async (id: string) => {
+      return apiRequest("DELETE", `/api/maintenance-crews/${id}`);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/maintenance-crews"] });
+      toast({ title: t("schedule.crewDeleted") });
+    },
+    onError: () => {
+      toast({ title: t("schedule.crewDeleted"), variant: "destructive" });
+    },
+  });
+
+  const openCrewManager = () => {
+    setNewCrewName("");
+    setNewCrewColor(CREW_COLORS[0]);
+    setNewCrewHours(8);
+    setNewCrewActive(true);
+    setEditingCrew(null);
+    setShowCrewManager(true);
+  };
+
+  const startEditCrew = (crew: MaintenanceCrew) => {
+    setEditingCrew(crew);
+    setNewCrewName(crew.name);
+    setNewCrewColor(crew.color || CREW_COLORS[0]);
+    setNewCrewHours(crew.defaultHoursPerDay || 8);
+    setNewCrewActive(crew.isActive ?? true);
+  };
+
+  const handleSaveCrew = () => {
+    if (editingCrew) {
+      updateCrewMutation.mutate({
+        id: editingCrew.id,
+        name: newCrewName,
+        color: newCrewColor,
+        defaultHoursPerDay: newCrewHours,
+        isActive: newCrewActive,
+      });
+    } else {
+      createCrewMutation.mutate({
+        name: newCrewName,
+        color: newCrewColor,
+        defaultHoursPerDay: newCrewHours,
+        isActive: newCrewActive,
+      });
+    }
+  };
+
+  const cancelEditCrew = () => {
+    setEditingCrew(null);
+    setNewCrewName("");
+    setNewCrewColor(CREW_COLORS[0]);
+    setNewCrewHours(8);
+    setNewCrewActive(true);
+  };
+
+  const getBlocksForCell = (crewId: string, day: DayOfWeek) => {
+    return blocksWithDetails.filter((b) => b.crewId === crewId && b.dayOfWeek === day);
+  };
+
+  const getCellMinutes = (blocks: ScheduleBlockWithDetails[]) => {
+    return blocks.reduce((sum, block) => sum + (block.visitConfig?.estimatedDurationMinutes || 0), 0);
+  };
+
+  const getCrewCapacityMinutes = (crew: MaintenanceCrew) => {
+    return (crew.defaultHoursPerDay || 8) * 60;
+  };
+
+  const handleAddPropertyClick = (crewId: string, day: DayOfWeek) => {
+    if (!allowEdit) return;
+    setAddPropertyTarget({ crewId, day });
+    setShowAddPropertyDialog(true);
+  };
+
+  const openTemplateSettings = () => {
+    if (!activeTemplate) return;
+    setTemplateName(activeTemplate.name);
+    setSeasonStartMonth(activeTemplate.seasonStartMonth || 4);
+    setSeasonEndMonth(activeTemplate.seasonEndMonth || 10);
+    setShowTemplateSettings(true);
+  };
+
+  const handleSaveTemplate = () => {
+    if (!activeTemplate) return;
+    updateTemplateMutation.mutate({
+      id: activeTemplate.id,
+      name: templateName,
+      seasonStartMonth,
+      seasonEndMonth,
+    });
+  };
+
+  const MONTHS = [
+    { value: 1, labelKey: "months.january" },
+    { value: 2, labelKey: "months.february" },
+    { value: 3, labelKey: "months.march" },
+    { value: 4, labelKey: "months.april" },
+    { value: 5, labelKey: "months.mayFull" },
+    { value: 6, labelKey: "months.june" },
+    { value: 7, labelKey: "months.july" },
+    { value: 8, labelKey: "months.august" },
+    { value: 9, labelKey: "months.september" },
+    { value: 10, labelKey: "months.october" },
+    { value: 11, labelKey: "months.november" },
+    { value: 12, labelKey: "months.december" },
+  ];
+
+  const handleAddProperty = (configId: string) => {
+    if (!activeTemplate || !addPropertyTarget || !allowEdit) return;
+    addBlockMutation.mutate({
+      templateId: activeTemplate.id,
+      visitConfigId: configId,
+      crewId: addPropertyTarget.crewId,
+      dayOfWeek: addPropertyTarget.day,
+    });
+  };
+
+  const handleDragStart = (event: DragStartEvent) => {
+    setActiveBlockId(event.active.id as string);
+  };
+
+  const handleDragOver = (event: DragOverEvent) => {
+    setOverCellId(event.over?.id as string || null);
+  };
+
+  const handleDragEnd = (event: DragEndEvent) => {
+    const { active, over } = event;
+    setActiveBlockId(null);
+    setOverCellId(null);
+
+    if (!over || !allowEdit) return;
+
+    const blockId = active.id as string;
+    const targetCellId = over.id as string;
+
+    if (!targetCellId.includes("::")) return;
+
+    const [newCrewId, newDay] = targetCellId.split("::");
+    const block = blocksWithDetails.find((b) => b.id === blockId);
+
+    if (!block) return;
+
+    if (block.crewId === newCrewId && block.dayOfWeek === newDay) {
+      return;
+    }
+
+    moveBlockMutation.mutate({
+      blockId,
+      crewId: newCrewId,
+      dayOfWeek: newDay as DayOfWeek,
+    });
+  };
+
+  const filteredUnscheduled = unscheduledConfigs.filter((vc) =>
+    vc.customer?.name?.toLowerCase().includes(searchProperty.toLowerCase())
+  );
+
+  const activeBlock = activeBlockId ? blocksWithDetails.find((b) => b.id === activeBlockId) : null;
+
+  const isLoading = crewsLoading || templatesLoading || configsLoading || blocksLoading;
+
+  if (isLoading) {
+    return (
+      <div className="flex items-center justify-center min-h-[50vh]">
+        <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
+      </div>
+    );
+  }
+
+  if (activeCrews.length === 0) {
+    return (
+      <div className="space-y-6">
+        <div>
+          <h1 className="text-2xl md:text-3xl font-semibold tracking-tight" data-testid="text-page-title">
+            {t("schedule.title")}
+          </h1>
+          <p className="text-sm text-muted-foreground mt-0.5">
+            {t("schedule.builder")}
+          </p>
+        </div>
+        <Card>
+          <CardContent className="py-12 text-center">
+            <Users className="h-12 w-12 mx-auto text-muted-foreground mb-4" />
+            <h3 className="text-lg font-medium mb-2">{t("schedule.noCrewsFound")}</h3>
+            <p className="text-muted-foreground mb-4">
+              {t("schedule.noCrewsFound")}
+            </p>
+            {canEdit && (
+              <Button onClick={openCrewManager} data-testid="button-add-first-crew">
+                <Plus className="h-4 w-4 mr-2" />
+                {t("schedule.addCrew")}
+              </Button>
+            )}
+          </CardContent>
+        </Card>
+
+        <Dialog open={showCrewManager} onOpenChange={setShowCrewManager}>
+          <DialogContent className="sm:max-w-lg max-h-[90vh] flex flex-col">
+            <DialogHeader>
+              <DialogTitle>{t("schedule.crewManager")}</DialogTitle>
+            </DialogHeader>
+            <div className="overflow-y-auto flex-1 space-y-4 pr-1">
+              <div className="space-y-3 border rounded-md p-3">
+                <div className="text-sm font-medium">{editingCrew ? t("common.edit") : t("schedule.addCrew")}</div>
+                <div className="grid grid-cols-[1fr,100px] gap-2">
+                  <Input
+                    placeholder={t("schedule.crewName")}
+                    value={newCrewName}
+                    onChange={(e) => setNewCrewName(e.target.value)}
+                    data-testid="input-crew-name"
+                  />
+                  <Input
+                    type="number"
+                    min={1}
+                    max={24}
+                    placeholder={t("schedule.dailyCapacity")}
+                    value={newCrewHours}
+                    onChange={(e) => setNewCrewHours(Number(e.target.value))}
+                    data-testid="input-crew-hours"
+                  />
+                </div>
+                <div className="flex items-center justify-between">
+                  <Label className="flex items-center gap-2 text-sm">
+                    <input
+                      type="checkbox"
+                      checked={newCrewActive}
+                      onChange={(e) => setNewCrewActive(e.target.checked)}
+                      className="rounded border-input"
+                      data-testid="checkbox-crew-active"
+                    />
+                    {t("common.active")}
+                  </Label>
+                  <div className="flex gap-2">
+                    {editingCrew && (
+                      <Button size="sm" variant="ghost" onClick={cancelEditCrew}>
+                        {t("common.cancel")}
+                      </Button>
+                    )}
+                    <Button
+                      size="sm"
+                      onClick={handleSaveCrew}
+                      disabled={!newCrewName.trim() || createCrewMutation.isPending || updateCrewMutation.isPending}
+                      data-testid="button-save-crew"
+                    >
+                      {editingCrew ? t("common.save") : t("schedule.addCrew")}
+                    </Button>
+                  </div>
+                </div>
+              </div>
+
+              {crews.length > 0 && (
+                <div className="space-y-2">
+                  <div className="text-sm font-medium">{t("schedule.crew")}</div>
+                  {crews.map((crew) => (
+                    <div
+                      key={crew.id}
+                      className="flex items-center justify-between p-2 rounded border bg-card"
+                      data-testid={`crew-item-${crew.id}`}
+                    >
+                      <div className="flex items-center gap-2">
+                        <span className="font-medium text-sm">{crew.name}</span>
+                        <Badge variant={crew.isActive ? "default" : "secondary"} className="text-xs">
+                          {crew.isActive ? t("statuses.active") : t("statuses.inactive")}
+                        </Badge>
+                        <span className="text-xs text-muted-foreground">{crew.defaultHoursPerDay}h/day</span>
+                      </div>
+                      <div className="flex gap-1">
+                        <Button
+                          size="icon"
+                          variant="ghost"
+                          onClick={() => startEditCrew(crew)}
+                          data-testid={`button-edit-crew-${crew.id}`}
+                        >
+                          <Settings className="h-4 w-4" />
+                        </Button>
+                        <AlertDialog>
+                          <AlertDialogTrigger asChild>
+                            <Button
+                              size="icon"
+                              variant="ghost"
+                              disabled={deleteCrewMutation.isPending}
+                              data-testid={`button-delete-crew-${crew.id}`}
+                            >
+                              <Trash2 className="h-4 w-4" />
+                            </Button>
+                          </AlertDialogTrigger>
+                          <AlertDialogContent>
+                            <AlertDialogHeader>
+                              <AlertDialogTitle>{t("common.delete")} {t("schedule.crew")}</AlertDialogTitle>
+                              <AlertDialogDescription>
+                                {t("common.confirm")}
+                              </AlertDialogDescription>
+                            </AlertDialogHeader>
+                            <AlertDialogFooter>
+                              <AlertDialogCancel data-testid={`button-cancel-delete-crew-${crew.id}`}>{t("common.cancel")}</AlertDialogCancel>
+                              <AlertDialogAction
+                                onClick={() => deleteCrewMutation.mutate(crew.id)}
+                                className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                                data-testid={`button-confirm-delete-crew-${crew.id}`}
+                              >
+                                {t("common.delete")}
+                              </AlertDialogAction>
+                            </AlertDialogFooter>
+                          </AlertDialogContent>
+                        </AlertDialog>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+            <DialogFooter className="pt-4">
+              <Button variant="outline" onClick={() => setShowCrewManager(false)}>
+                {t("common.close")}
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-6">
+      <div className="flex items-center justify-between gap-3 flex-wrap">
+        <div>
+          <h1 className="text-2xl md:text-3xl font-semibold tracking-tight" data-testid="text-page-title">
+            {t("schedule.title")}
+          </h1>
+          <p className="text-sm text-muted-foreground mt-0.5">
+            {t("schedule.builder")}
+          </p>
+        </div>
+        <div className="flex items-center gap-2 flex-wrap">
+          <Select
+            value={activeTemplate?.id || ""}
+            onValueChange={(val) => setSelectedTemplateId(val)}
+          >
+            <SelectTrigger className="w-[200px]" data-testid="select-template">
+              <SelectValue placeholder={t("schedule.selectTemplate")} />
+            </SelectTrigger>
+            <SelectContent>
+              {templates.map((tmpl) => (
+                <SelectItem key={tmpl.id} value={tmpl.id}>
+                  {tmpl.name}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+          {canEdit && (
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={() => setShowTemplateManager(true)}
+              data-testid="button-manage-templates"
+            >
+              <FileText className="h-4 w-4 mr-1" />
+              {t("schedule.templateManager")}
+            </Button>
+          )}
+          {canEdit && (
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={openCrewManager}
+              data-testid="button-manage-crews"
+            >
+              <Users className="h-4 w-4 mr-1" />
+              {t("schedule.crewManager")}
+            </Button>
+          )}
+          {canEdit && (
+            <Button
+              size="sm"
+              variant={isLocked ? "secondary" : "default"}
+              onClick={() => {
+                if (!isLocked) {
+                  setShowAddPropertyDialog(false);
+                  setAddPropertyTarget(null);
+                }
+                setIsLocked(!isLocked);
+              }}
+              data-testid="button-toggle-lock"
+            >
+              {isLocked ? (
+                <>
+                  <Lock className="h-4 w-4 mr-1" />
+                  {t("schedule.lock")}
+                </>
+              ) : (
+                <>
+                  <LockOpen className="h-4 w-4 mr-1" />
+                  {t("schedule.unlock")}
+                </>
+              )}
+            </Button>
+          )}
+        </div>
+      </div>
+
+      {canEdit && !isLocked && (
+        <div className="flex items-center gap-2 p-2 rounded-md bg-amber-500/10 border border-amber-500/30 text-amber-600 dark:text-amber-400 text-sm">
+          <LockOpen className="h-4 w-4" />
+          <span>{t("schedule.unlock")}</span>
+        </div>
+      )}
+
+      <DndContext
+        sensors={sensors}
+        collisionDetection={closestCenter}
+        onDragStart={handleDragStart}
+        onDragOver={handleDragOver}
+        onDragEnd={handleDragEnd}
+      >
+        <div className="flex gap-6 flex-col lg:flex-row">
+          <div className="flex-1 overflow-x-auto">
+            <div className="min-w-[800px]">
+              <div className="grid gap-2" style={{ gridTemplateColumns: `180px repeat(${DAYS_OF_WEEK.length}, 1fr)` }}>
+                <div className="p-2 font-medium text-sm text-muted-foreground">{t("schedule.crew")}</div>
+                {DAYS_OF_WEEK.map((day) => (
+                  <div key={day.key} className="p-2 font-medium text-center text-sm">
+                    <span className="hidden sm:inline">{t(day.labelKey)}</span>
+                    <span className="sm:hidden">{t(day.shortKey)}</span>
+                  </div>
+                ))}
+
+                {activeCrews.map((crew) => (
+                  <Fragment key={crew.id}>
+                    <div className="p-2 flex items-start">
+                      <div>
+                        <div className="font-medium text-sm" data-testid={`text-crew-name-${crew.id}`}>
+                          {crew.name}
+                        </div>
+                        <div className="text-xs text-muted-foreground flex items-center gap-1 mt-0.5">
+                          <Clock className="h-3 w-3" />
+                          {crew.defaultHoursPerDay}h/day
+                        </div>
+                      </div>
+                    </div>
+                    {DAYS_OF_WEEK.map((day) => {
+                      const cellBlocks = getBlocksForCell(crew.id, day.key);
+                      const cellId = `${crew.id}::${day.key}`;
+                      const totalMinutes = getCellMinutes(cellBlocks);
+                      const capacityMinutes = getCrewCapacityMinutes(crew);
+                      return (
+                        <DroppableCell
+                          key={cellId}
+                          crewId={crew.id}
+                          day={day.key}
+                          blocks={cellBlocks}
+                          canEdit={allowEdit}
+                          onAddClick={() => handleAddPropertyClick(crew.id, day.key)}
+                          onRemoveBlock={(blockId) => deleteBlockMutation.mutate(blockId)}
+                          isOver={overCellId === cellId}
+                          totalMinutes={totalMinutes}
+                          capacityMinutes={capacityMinutes}
+                        />
+                      );
+                    })}
+                  </Fragment>
+                ))}
+              </div>
+            </div>
+          </div>
+
+          <Card className="w-full lg:w-80 shrink-0">
+            <CardHeader className="pb-2">
+              <CardTitle className="text-base flex items-center gap-2">
+                <Calendar className="h-4 w-4" />
+                {t("schedule.propertyUnscheduled")}
+              </CardTitle>
+            </CardHeader>
+            <CardContent>
+              {unscheduledConfigs.length === 0 ? (
+                <p className="text-sm text-muted-foreground text-center py-4">
+                  {t("schedule.noProperties")}
+                </p>
+              ) : (
+                <ScrollArea className="h-[400px] pr-3">
+                  <div className="space-y-2">
+                    {unscheduledConfigs.map((vc) => (
+                      <div
+                        key={vc.id}
+                        className="p-2 rounded border bg-card hover-elevate cursor-pointer"
+                        data-testid={`unscheduled-${vc.id}`}
+                      >
+                        <div className="font-medium text-sm truncate">
+                          {vc.customer?.name || "Unknown Customer"}
+                        </div>
+                        <div className="flex items-center gap-3 text-xs text-muted-foreground mt-1">
+                          <span className="flex items-center gap-1">
+                            <Clock className="h-3 w-3" />
+                            {vc.estimatedDurationMinutes}m
+                          </span>
+                          <span className="flex items-center gap-1">
+                            <Users className="h-3 w-3" />
+                            {vc.crewSize}
+                          </span>
+                          {vc.preferredDay && (
+                            <Badge variant="outline" className="text-xs capitalize">
+                              {vc.preferredDay.slice(0, 3)}
+                            </Badge>
+                          )}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </ScrollArea>
+              )}
+            </CardContent>
+          </Card>
+        </div>
+
+        <DragOverlay>
+          {activeBlock ? <BlockOverlay block={activeBlock} /> : null}
+        </DragOverlay>
+      </DndContext>
+
+      <Dialog open={showAddPropertyDialog} onOpenChange={setShowAddPropertyDialog}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>
+              {t("common.add")} {t("common.property")}{" "}
+              {addPropertyTarget && (
+                <span className="capitalize">
+                  {t(DAYS_OF_WEEK.find((d) => d.key === addPropertyTarget.day)?.labelKey || "")} -{" "}
+                  {activeCrews.find((c) => c.id === addPropertyTarget.crewId)?.name}
+                </span>
+              )}
+            </DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4">
+            <Input
+              placeholder={t("schedule.searchProperties")}
+              value={searchProperty}
+              onChange={(e) => setSearchProperty(e.target.value)}
+              data-testid="input-search-property"
+            />
+            <ScrollArea className="h-[300px]">
+              <div className="space-y-2">
+                {filteredUnscheduled.length === 0 ? (
+                  <p className="text-sm text-muted-foreground text-center py-4">
+                    {t("schedule.noProperties")}
+                  </p>
+                ) : (
+                  filteredUnscheduled.map((vc) => (
+                    <div
+                      key={vc.id}
+                      className="flex items-center justify-between p-2 rounded border bg-card hover-elevate cursor-pointer"
+                      onClick={() => handleAddProperty(vc.id)}
+                      data-testid={`select-property-${vc.id}`}
+                    >
+                      <div>
+                        <div className="font-medium text-sm">{vc.customer?.name}</div>
+                        <div className="text-xs text-muted-foreground">
+                          {vc.estimatedDurationMinutes}m - {vc.crewSize} crew
+                        </div>
+                      </div>
+                      <ChevronRight className="h-4 w-4 text-muted-foreground" />
+                    </div>
+                  ))
+                )}
+              </div>
+            </ScrollArea>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setShowAddPropertyDialog(false)}>
+              {t("common.cancel")}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={showTemplateManager} onOpenChange={(open) => {
+        setShowTemplateManager(open);
+        if (!open) {
+          setRenamingTemplateId(null);
+          setRenameValue("");
+          setDeleteConfirmId(null);
+        }
+      }}>
+        <DialogContent className="sm:max-w-lg max-h-[90vh] flex flex-col">
+          <DialogHeader>
+            <DialogTitle>{t("schedule.templateManager")}</DialogTitle>
+          </DialogHeader>
+          <div className="overflow-y-auto flex-1 space-y-4 pr-1">
+            <div className="space-y-2">
+              {templates.map((tmpl) => {
+                const blockCount = tmpl.id === activeTemplate?.id ? blocks.length : 0;
+                const isRenaming = renamingTemplateId === tmpl.id;
+                const isDeleting = deleteConfirmId === tmpl.id;
+
+                return (
+                  <div
+                    key={tmpl.id}
+                    className={`flex items-center justify-between gap-2 p-3 rounded-md border ${tmpl.id === activeTemplate?.id ? "border-primary/40 bg-accent/30" : "bg-card"}`}
+                    data-testid={`template-item-${tmpl.id}`}
+                  >
+                    <div className="flex-1 min-w-0">
+                      {isRenaming ? (
+                        <div className="flex items-center gap-2">
+                          <Input
+                            value={renameValue}
+                            onChange={(e) => setRenameValue(e.target.value)}
+                            onKeyDown={(e) => {
+                              if (e.key === "Enter" && renameValue.trim()) {
+                                renameTemplateMutation.mutate({ id: tmpl.id, name: renameValue.trim() });
+                              }
+                              if (e.key === "Escape") {
+                                setRenamingTemplateId(null);
+                                setRenameValue("");
+                              }
+                            }}
+                            autoFocus
+                            className="h-8"
+                            data-testid={`input-rename-template-${tmpl.id}`}
+                          />
+                          <Button
+                            size="sm"
+                            onClick={() => {
+                              if (renameValue.trim()) {
+                                renameTemplateMutation.mutate({ id: tmpl.id, name: renameValue.trim() });
+                              }
+                            }}
+                            disabled={!renameValue.trim() || renameTemplateMutation.isPending}
+                            data-testid={`button-save-rename-${tmpl.id}`}
+                          >
+                            {t("common.save")}
+                          </Button>
+                          <Button
+                            size="sm"
+                            variant="ghost"
+                            onClick={() => {
+                              setRenamingTemplateId(null);
+                              setRenameValue("");
+                            }}
+                          >
+                            <X className="h-4 w-4" />
+                          </Button>
+                        </div>
+                      ) : (
+                        <div>
+                          <div className="font-medium text-sm truncate">{tmpl.name}</div>
+                          <div className="text-xs text-muted-foreground mt-0.5">
+                            {tmpl.id === activeTemplate?.id && blockCount > 0
+                              ? `${blockCount} ${t("schedule.stops")}`
+                              : tmpl.isActive ? t("statuses.active") : t("statuses.inactive")
+                            }
+                            {tmpl.seasonStartMonth && tmpl.seasonEndMonth && (
+                              <span> &middot; {t(MONTHS.find(m => m.value === tmpl.seasonStartMonth)?.labelKey || "")?.slice(0,3)} - {t(MONTHS.find(m => m.value === tmpl.seasonEndMonth)?.labelKey || "")?.slice(0,3)}</span>
+                            )}
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                    {!isRenaming && (
+                      <div className="flex items-center gap-1 shrink-0">
+                        {isDeleting ? (
+                          <div className="flex items-center gap-1">
+                            <span className="text-xs text-destructive mr-1">{t("common.delete")}?</span>
+                            <Button
+                              size="sm"
+                              variant="destructive"
+                              onClick={() => {
+                                deleteTemplateMutation.mutate(tmpl.id);
+                                setDeleteConfirmId(null);
+                              }}
+                              disabled={deleteTemplateMutation.isPending}
+                              data-testid={`button-confirm-delete-template-${tmpl.id}`}
+                            >
+                              {t("common.yes")}
+                            </Button>
+                            <Button
+                              size="sm"
+                              variant="ghost"
+                              onClick={() => setDeleteConfirmId(null)}
+                            >
+                              {t("common.no")}
+                            </Button>
+                          </div>
+                        ) : (
+                          <>
+                            <Button
+                              size="icon"
+                              variant="ghost"
+                              onClick={() => {
+                                setSelectedTemplateId(tmpl.id);
+                                setShowTemplateManager(false);
+                              }}
+                              title={t("schedule.selectTemplate")}
+                              data-testid={`button-select-template-${tmpl.id}`}
+                            >
+                              <ChevronRight className="h-4 w-4" />
+                            </Button>
+                            <DropdownMenu>
+                              <DropdownMenuTrigger asChild>
+                                <Button size="icon" variant="ghost" data-testid={`button-template-menu-${tmpl.id}`}>
+                                  <MoreHorizontal className="h-4 w-4" />
+                                </Button>
+                              </DropdownMenuTrigger>
+                              <DropdownMenuContent align="end">
+                                <DropdownMenuItem
+                                  onClick={() => {
+                                    setRenamingTemplateId(tmpl.id);
+                                    setRenameValue(tmpl.name);
+                                  }}
+                                  data-testid={`menu-rename-template-${tmpl.id}`}
+                                >
+                                  <Pencil className="h-4 w-4 mr-2" />
+                                  {t("schedule.rename")}
+                                </DropdownMenuItem>
+                                <DropdownMenuItem
+                                  onClick={() => {
+                                    openTemplateSettings();
+                                    setShowTemplateManager(false);
+                                    setSelectedTemplateId(tmpl.id);
+                                  }}
+                                  data-testid={`menu-settings-template-${tmpl.id}`}
+                                >
+                                  <Settings className="h-4 w-4 mr-2" />
+                                  {t("schedule.templateSettings")}
+                                </DropdownMenuItem>
+                                <DropdownMenuItem
+                                  onClick={() => {
+                                    duplicateTemplateMutation.mutate({ id: tmpl.id, name: `${tmpl.name} (Copy)` });
+                                  }}
+                                  disabled={duplicateTemplateMutation.isPending}
+                                  data-testid={`menu-duplicate-template-${tmpl.id}`}
+                                >
+                                  <Copy className="h-4 w-4 mr-2" />
+                                  {t("schedule.duplicate")}
+                                </DropdownMenuItem>
+                                <DropdownMenuSeparator />
+                                <DropdownMenuItem
+                                  onClick={() => setDeleteConfirmId(tmpl.id)}
+                                  disabled={templates.length <= 1}
+                                  className="text-destructive"
+                                  data-testid={`menu-delete-template-${tmpl.id}`}
+                                >
+                                  <Trash2 className="h-4 w-4 mr-2" />
+                                  {t("common.delete")}
+                                </DropdownMenuItem>
+                              </DropdownMenuContent>
+                            </DropdownMenu>
+                          </>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+            <Button
+              variant="outline"
+              className="w-full"
+              onClick={() => createTemplateMutation.mutate()}
+              disabled={createTemplateMutation.isPending}
+              data-testid="button-new-template"
+            >
+              <Plus className="h-4 w-4 mr-2" />
+              {t("schedule.createTemplate")}
+            </Button>
+          </div>
+          <DialogFooter className="pt-4">
+            <Button variant="outline" onClick={() => setShowTemplateManager(false)}>
+              {t("common.close")}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={showTemplateSettings} onOpenChange={setShowTemplateSettings}>
+        <DialogContent className="max-h-[90vh] flex flex-col">
+          <DialogHeader>
+            <DialogTitle>{t("schedule.templateSettings")} - {activeTemplate?.name}</DialogTitle>
+          </DialogHeader>
+          <div className="overflow-y-auto flex-1 space-y-4 pr-1">
+            <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <Label>{t("schedule.seasonStart")}</Label>
+                <Select
+                  value={String(seasonStartMonth)}
+                  onValueChange={(val) => setSeasonStartMonth(Number(val))}
+                >
+                  <SelectTrigger data-testid="select-season-start">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {MONTHS.map((m) => (
+                      <SelectItem key={m.value} value={String(m.value)}>
+                        {t(m.labelKey)}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-2">
+                <Label>{t("schedule.seasonEnd")}</Label>
+                <Select
+                  value={String(seasonEndMonth)}
+                  onValueChange={(val) => setSeasonEndMonth(Number(val))}
+                >
+                  <SelectTrigger data-testid="select-season-end">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {MONTHS.map((m) => (
+                      <SelectItem key={m.value} value={String(m.value)}>
+                        {t(m.labelKey)}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+          </div>
+          <DialogFooter className="pt-4">
+            <Button variant="outline" onClick={() => setShowTemplateSettings(false)}>
+              {t("common.cancel")}
+            </Button>
+            <Button
+              onClick={handleSaveTemplate}
+              disabled={updateTemplateMutation.isPending}
+              data-testid="button-save-template"
+            >
+              {t("settings.saveChanges")}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={showCrewManager} onOpenChange={setShowCrewManager}>
+        <DialogContent className="sm:max-w-lg max-h-[90vh] flex flex-col">
+          <DialogHeader>
+            <DialogTitle>{t("schedule.crewManager")}</DialogTitle>
+          </DialogHeader>
+          <div className="overflow-y-auto flex-1 space-y-4 pr-1">
+            <div className="space-y-3 border rounded-md p-3">
+              <div className="text-sm font-medium">{editingCrew ? t("common.edit") : t("schedule.addCrew")}</div>
+              <div className="grid grid-cols-[1fr,100px] gap-2">
+                <Input
+                  placeholder={t("schedule.crewName")}
+                  value={newCrewName}
+                  onChange={(e) => setNewCrewName(e.target.value)}
+                  data-testid="input-crew-name"
+                />
+                <Input
+                  type="number"
+                  min={1}
+                  max={24}
+                  placeholder={t("schedule.dailyCapacity")}
+                  value={newCrewHours}
+                  onChange={(e) => setNewCrewHours(Number(e.target.value))}
+                  data-testid="input-crew-hours"
+                />
+              </div>
+              <div className="space-y-1.5">
+                <Label className="text-xs text-muted-foreground">{t("schedule.crewColor")}</Label>
+                <div className="flex flex-wrap gap-1.5">
+                  {CREW_COLORS.map((color) => (
+                    <button
+                      key={color}
+                      type="button"
+                      onClick={() => setNewCrewColor(color)}
+                      className={`w-7 h-7 rounded-md border-2 transition-all ${
+                        newCrewColor === color 
+                          ? "border-foreground scale-110" 
+                          : "border-transparent hover:scale-105"
+                      }`}
+                      style={{ backgroundColor: color }}
+                      data-testid={`color-${color}`}
+                    />
+                  ))}
+                </div>
+              </div>
+              <div className="flex items-center justify-between">
+                <Label className="flex items-center gap-2 text-sm">
+                  <input
+                    type="checkbox"
+                    checked={newCrewActive}
+                    onChange={(e) => setNewCrewActive(e.target.checked)}
+                    className="rounded border-input"
+                    data-testid="checkbox-crew-active"
+                  />
+                  {t("common.active")}
+                </Label>
+                <div className="flex gap-2">
+                  {editingCrew && (
+                    <Button size="sm" variant="ghost" onClick={cancelEditCrew}>
+                      {t("common.cancel")}
+                    </Button>
+                  )}
+                  <Button
+                    size="sm"
+                    onClick={handleSaveCrew}
+                    disabled={!newCrewName.trim() || createCrewMutation.isPending || updateCrewMutation.isPending}
+                    data-testid="button-save-crew"
+                  >
+                    {editingCrew ? t("common.save") : t("schedule.addCrew")}
+                  </Button>
+                </div>
+              </div>
+            </div>
+
+            {crews.length > 0 && (
+              <div className="space-y-2">
+                <div className="text-sm font-medium">{t("schedule.crew")}</div>
+                <ScrollArea className="max-h-[250px]">
+                  <div className="space-y-2 pr-2">
+                    {crews.map((crew) => (
+                      <div
+                        key={crew.id}
+                        className="flex items-center justify-between p-2 rounded border bg-card"
+                        data-testid={`crew-item-${crew.id}`}
+                      >
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <div 
+                            className="w-4 h-4 rounded-full shrink-0" 
+                            style={{ backgroundColor: crew.color || CREW_COLORS[0] }}
+                          />
+                          <span className="font-medium text-sm">{crew.name}</span>
+                          <Badge variant={crew.isActive ? "default" : "secondary"} className="text-xs">
+                            {crew.isActive ? t("statuses.active") : t("statuses.inactive")}
+                          </Badge>
+                          <span className="text-xs text-muted-foreground">{crew.defaultHoursPerDay}h/day</span>
+                        </div>
+                        <div className="flex gap-1">
+                          <Button
+                            size="icon"
+                            variant="ghost"
+                            onClick={() => startEditCrew(crew)}
+                            data-testid={`button-edit-crew-${crew.id}`}
+                          >
+                            <Settings className="h-4 w-4" />
+                          </Button>
+                          <Button
+                            size="icon"
+                            variant="ghost"
+                            onClick={() => deleteCrewMutation.mutate(crew.id)}
+                            disabled={deleteCrewMutation.isPending}
+                            data-testid={`button-delete-crew-${crew.id}`}
+                          >
+                            <Trash2 className="h-4 w-4" />
+                          </Button>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </ScrollArea>
+              </div>
+            )}
+          </div>
+          <DialogFooter className="pt-4">
+            <Button variant="outline" onClick={() => setShowCrewManager(false)}>
+              {t("common.close")}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </div>
+  );
+}

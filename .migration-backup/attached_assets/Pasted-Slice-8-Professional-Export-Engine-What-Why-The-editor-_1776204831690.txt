@@ -1,0 +1,229 @@
+Slice 8 — Professional Export Engine
+What & Why
+
+The editor can now create strong visual scope sheets, but the tool still is not truly professional until the exported output is dependable, clean, and proposal-ready. This slice turns the Visual Scope Tool from an internal drafting surface into a real deliverable generator.
+
+The biggest risk here is mismatch: if the export looks different from the editor, loses textures, breaks symbol sizing, or shifts layout elements, trust in the tool drops fast. This slice must focus on fidelity, consistency, and simplicity.
+
+Scope
+Add high-resolution PNG export
+Add PDF export
+Preserve full visual fidelity for:
+base image
+polygons
+textures
+symbols
+text
+callouts
+legend
+title block
+notes block
+Add export layout presets
+Add optional branded header/footer support
+Add export preview / export settings modal if helpful
+Export Types
+1. PNG Export
+
+Use cases:
+
+quick proposal attachments
+internal review
+image insertion into emails or other proposals
+
+Requirements:
+
+support high-resolution output
+preserve clean edges and text
+match on-screen layout as closely as possible
+2. PDF Export
+
+Use cases:
+
+customer-facing proposal exhibits
+board packets
+printable scope sheets
+archived project files
+
+Requirements:
+
+single-sheet export for now
+preserve editor layout faithfully
+maintain crisp text and readable legend
+Requirements
+Fidelity
+
+Exports must preserve:
+
+object positions
+layer visibility
+object scale
+line styles
+texture fills
+symbol rendering
+text placement
+legend layout
+title/notes composition
+Resolution
+Support export resolutions aligned with your sheet workflow
+At minimum:
+standard
+high-res
+PNG should be suitable for proposal insertion without visible degradation
+PDF should remain clean when zoomed/printed
+Layout Awareness
+
+Export should reflect:
+
+visible layers only
+current legend state
+current title block
+current notes block
+current sheet composition
+Output Stability
+Exporting should not mutate the editor state
+Export should not temporarily flatten or break the working document
+Errors should fail gracefully
+Recommended Export Presets
+A. Standard Proposal Sheet
+current sheet layout
+legend included
+title block included
+notes included
+B. Clean Visual Only
+no notes block
+no title block
+no legend if hidden
+image-forward output
+C. Internal Review
+all visible annotations
+optional debugging metadata off by default
+Done Looks Like
+User completes a visual scope sheet
+Clicks export
+Receives a PNG or PDF that looks nearly identical to the editor view
+Text remains sharp
+Textures render properly
+Symbols are correctly sized
+Legend is intact and readable
+Sheet can be dropped directly into a proposal or emailed as-is
+Guardrails
+Do NOT overbuild a print-layout engine
+Do NOT attempt multi-page project booklets yet
+Do NOT add 15 export options nobody will use
+Fidelity matters more than customization
+Keep the UI simple and predictable
+UX Notes
+Export Flow
+
+Suggested flow:
+
+Click Export
+Choose:
+PNG or PDF
+Standard or High-Res
+include branding on/off
+Generate file
+Done
+Optional Export Preview
+
+A lightweight preview is fine if easy, but not required if it slows delivery.
+The priority is reliable export, not a fancy modal.
+
+Branding Support
+
+At this stage, branding should stay light and controlled.
+
+Support:
+
+optional company name
+optional logo
+optional footer/header styling
+
+Do not overcomplicate this with full template theming yet.
+
+Later, branding can expand into:
+
+client-specific templates
+proposal pack styling
+theme presets
+Rendering Expectations
+
+This is the critical technical part.
+
+Export engine must correctly render:
+
+tiled textures at export resolution
+SVG or vector-like symbol quality
+crisp text and callout labels
+consistent line weights
+correct z-order/layer order
+rotated objects
+transparent/opaque elements correctly
+
+This slice should explicitly validate fidelity between:
+
+editor canvas
+exported PNG
+exported PDF
+Data Model Expectations
+
+No major schema overhaul should be required, but export logic must respect:
+
+layer visibility state
+object order
+legend settings
+sheet metadata
+layout type
+branding settings if enabled
+
+Potential export settings can be stored per sheet or user default:
+
+exportResolution
+includeBranding
+exportFormat default
+Test Plan
+Visual Fidelity
+Create a sheet with:
+textured polygons
+symbols
+line styles
+callouts
+title block
+notes block
+legend
+Export PNG and PDF
+Compare against editor visually
+Stress Cases
+many polygons
+many symbols
+rotated symbols
+multiple textures
+hidden layers
+moved legend
+long notes text
+Validation Checklist
+no missing objects
+no shifted positions
+no texture distortion
+no broken line styles
+no blurry text
+no export crashes
+no state mutation after export
+Done Looks Like for Approval
+Exported sheets are reliable enough for customer-facing use
+Users no longer need external cleanup in another design tool
+The Visual Scope Tool becomes a real proposal support system
+Professional output is now consistent and repeatable
+Important Warning for Replit
+
+Do not treat export as an afterthought.
+
+This slice should not be “just screenshot the canvas.”
+It needs to be treated as document-quality rendering with validation for:
+
+texture fidelity
+symbol sharpness
+layout consistency
+text readability
+
+If export is sloppy, all prior slices lose value.

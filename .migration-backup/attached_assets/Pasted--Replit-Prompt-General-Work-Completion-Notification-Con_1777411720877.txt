@@ -1,0 +1,272 @@
+# Replit Prompt — General Work Completion Notification
+
+## Context
+
+We have an existing "Work Completed" email that fires when a ticket is closed. The current version is too thin: just title, customer name, completion date, and an optional description. Property managers want a real recap — what was done, what was used, what the crew noticed, who was on site, and any photos. This slice upgrades the template and the data behind it.
+
+This is a follow-up to the chemical-treatment slices (slice 1: pre-visit campaign builder; slice 2: chemical treatment completion notice). It reuses infrastructure those slices put in place — specifically the visit-photo upload pipeline, the seeder-based template registry, and the preview-then-send-then-resend email pattern — but operates on **tickets**, not campaign visits.
+
+This slice should land in a deployable state. A later slice will tackle automated post-completion satisfaction surveys, multi-stop / multi-day ticket recaps, and any additional general-purpose templates we identify.
+
+**Critical: this template is trade-agnostic.** It must look clean for a 5-minute irrigation valve replacement, a half-day mulch install, a snow plow visit, and everything in between. Every section beyond the core recap must hide cleanly when its data is missing. Do not assume a particular trade.
+
+**Critical: this is the general work template — it does NOT replace the chemical-treatment completion email.** Chemical-applicator campaign visits continue to use `chemical-treatment-completion.html`. This template handles ticket completions for everything else (irrigation, mulch, tree work, snow, fence, general maintenance, etc.).
+
+## Existing context (do not duplicate or replace)
+
+The following already exist and should be extended:
+
+- The tickets table already exists and is the source for `ticketTitle`, `ticketDescription`, and `completionDate` used by the current template. Inspect it first — find it in `shared/schema.ts` under the most likely name (`tickets`, `service_tickets`, or similar). Do not rename or duplicate it.
+- The "Work Completed" template already exists as a row in the templates table. Find it by name or slug (likely `"Work Completed"` or `"work-completed"`). Update its body and merge variables; do not create a duplicate.
+- The visit-photo upload + signed-URL infrastructure from slice 2 already exists, including 7-day signed URLs, EXIF GPS stripping, and resize-on-upload to 1600px max. Reuse it for ticket photos — extend the existing storage helper rather than building a new one.
+- The `server/templates/seed.ts` registry-based seeder already exists. Add the updated work-completion template to the same registry.
+- The render-template helper from prior slices already supports the visit override → product default → fallback string pattern. For tickets there's no product layer; the precedence is simpler (ticket field → fallback string).
+- The "preview email / send / debounced resend" UI pattern from slice 2's visit-detail panel is established. Reuse the same component shape on the ticket-detail page rather than inventing a new one.
+- Stack: React 18 + TypeScript + Vite + Tailwind + shadcn/ui (Radix) + Wouter + TanStack Query v5 + React Hook Form + Zod + Drizzle ORM + Postgres + i18next (en + es). No new dependencies.
+- Multi-tenancy: every query filters by `companyId` from `UserWithContext`. No exceptions.
+
+If the ticket model already has fields like `assignedToUserId`, `completedAt`, `actualStartTime`, `actualEndTime`, or a checklist relation, reuse them. Inspect first; do not add duplicates.
+
+## Schema changes
+
+### 1. Additions to the tickets table
+
+Inspect first. Add only what's missing. The full set of fields the table needs to support this slice:
+
+- All existing fields (do not modify)
+- `completedAt` — timestamp, nullable. Reuse if a status timestamp already exists.
+- `completedByUserId` — varchar, FK → `users.id`, nullable.
+- `actualStartTime` — timestamp, nullable. When the crew actually arrived. Reuse if an existing time-tracking field covers this.
+- `actualEndTime` — timestamp, nullable. When the crew actually left.
+- `leadTechUserId` — varchar, FK → `users.id`, nullable. Lead on site. May equal the existing `assignedToUserId` for solo jobs.
+- `crewMemberUserIds` — varchar[], default `[]`. Other crew members on site. Excludes the lead.
+- `workSummaryForCustomer` — text, nullable. **Customer-facing recap** of what was done. This drives the most prominent section of the email. Required before the completion email can be sent (see API validation below). Distinct from any internal `description`/`notes`.
+- `materialsUsed` — text, nullable. Free-text. Future slice may structure this; for now, free-text is sufficient.
+- `areasWorked` — text, nullable. Free-text.
+- `recommendations` — text, nullable. Crew observations / suggested follow-up. Customer-visible.
+- `internalCompletionNotes` — text, nullable. Never shown to the customer. For office/crew use only.
+- `completionPhotoStorageKeys` — text[], default `[]`. Reuses slice 2's visit-photo storage layer.
+- `completionEmailSentAt` — timestamp, nullable. Set when the completion email is sent successfully.
+- `followUpTicketId` — varchar, FK → `tickets.id`, nullable. If completing this ticket spawned a follow-up, link it here.
+
+### 2. Optional: scope items
+
+If a ticket scope-items / checklist relation already exists (e.g., `ticket_items`, `ticket_scope`, or similar), inspect it. The completion email needs each item's `title`, `completed` flag, and a `deferralNote` field. **Add `deferralNote` (text, nullable) only if the table doesn't already have it.** Do not create a new scope-items table in this slice — if no such table exists, simply skip the scope checklist section in the template (it auto-hides via the conditional).
+
+### 3. Migrations
+
+Use the same idempotent `IF NOT EXISTS` pattern as existing startup migrations. Safe on existing databases.
+
+## API endpoints
+
+All endpoints check `companyId` from `UserWithContext`. Match existing route conventions.
+
+### Ticket completion
+
+Inspect the existing "complete ticket" endpoint. Likely it sets a status + timestamp. Extend it (do not replace) to accept the new fields:
+
+- `actualStartTime`, `actualEndTime`
+- `leadTechUserId`, `crewMemberUserIds`
+- `workSummaryForCustomer`
+- `materialsUsed`, `areasWorked`
+- `recommendations`
+- `internalCompletionNotes`
+- `completionPhotoStorageKeys` (array of keys returned by the photo upload endpoint below)
+- `followUpTicketId`
+
+Validation (Zod):
+
+- `actualEndTime`, when set, must be ≥ `actualStartTime`
+- `crewMemberUserIds` must not include `leadTechUserId` (no double-counting)
+- `followUpTicketId`, when set, must reference a ticket in the same `companyId` and not equal the ticket being completed
+- All other text fields are optional
+
+The endpoint should return the updated ticket row. It must NOT auto-send the completion email — sending is a separate explicit action so the office can review.
+
+### Ticket photos
+
+Reuse slice 2's photo storage logic but namespace by ticket. Add:
+
+- `POST /api/tickets/:id/photos` — multipart upload, up to 6 image files (`image/jpeg`, `image/png`, max 8 MB each). Validates MIME by magic bytes server-side. Strips EXIF GPS. Resizes to 1600px max long edge. Stores under `ticket-photos/{companyId}/{ticketId}/{uuid}.{ext}`. Appends to `completionPhotoStorageKeys`. Returns the updated array.
+- `DELETE /api/tickets/:id/photos/:storageKey` — removes a single photo from the array and storage.
+- `GET /api/tickets/:id/photo-urls` — returns `[{ storageKey, signedUrl, expiresAt }]` for embedding in the email. 7-day TTL.
+
+### Send completion email
+
+- `POST /api/tickets/:id/send-completion-email` — renders the template with the merge variables described below and sends. Sets `completionEmailSentAt`. Returns 409 if already sent within the last 60 seconds (debounce). Body optional: `{ resend: true }` allows explicitly re-sending after the debounce window. Returns 422 if `workSummaryForCustomer` is empty — that field is required for sending. The error message should explicitly tell the user to fill in the customer-facing recap.
+- `POST /api/tickets/:id/preview-completion-email` — renders the template with current values and returns the HTML. No state change.
+
+## Render-template helper
+
+Extend the existing helper to support a `"work-completion"` template context. Resolution rules:
+
+- `companyName`, `customerName` — from company + customer rows as today
+- `ticketTitle`, `ticketNumber`, `ticketDescription` — from the ticket row. `ticketNumber` should be whatever short reference identifier the system uses (e.g., `#10428`).
+- `serviceCategory` — from the ticket's category/service-type field. If your tickets don't have a category, fall back to a generic `"Service visit"`.
+- `completionDate` — `completedAt` formatted as `"April 28, 2026"` in the company's timezone
+- `timeOnSite` — derived from `actualStartTime` and `actualEndTime`. If both set: `"Arrived 9:15 AM, departed 11:30 AM (2h 15m)"`. If only `completedAt` is known: `"Completed at 11:30 AM"`. If nothing time-of-day is known: `"Completed today"`.
+- `workSummaryForCustomer` — required (the send endpoint blocks empty)
+- `materialsUsed`, `areasWorked`, `recommendations` — direct passthrough; sections in the template wrap in `{{#if}}` so empty values hide
+- `scopeItemsHtml` — server-rendered HTML of the ticket's scope items if a scope-items relation exists. Format:
+  ```
+  <div class="row done"><span class="icon">&#10003;</span><span>{{title}}</span></div>
+  ```
+  for completed items, and
+  ```
+  <div class="row deferred"><span class="icon">!</span><span>{{title}}<span class="deferred-note">Deferred: {{deferralNote}}</span></span></div>
+  ```
+  for deferred items. If no scope items exist on the ticket, the entire "Scope" section in the template should be omitted via `{{#if scopeItemsHtml}}`.
+- `completionPhotosHtml` — same shape as slice 2's helper for visit photos. Limit to first 6. Each `<img>` inline-styled to `width: calc(33% - 6px); border-radius: 4px; border: 1px solid #e5e7eb;`. If none, omit the section.
+- `leadTechName` — from `users.fullName` (or whatever the existing display field is) for `leadTechUserId`. Falls back to `assignedToUserId` if the lead isn't set.
+- `crewSummary` — string describing additional crew. If `crewMemberUserIds` is empty: `"Solo visit"`. If 1 additional: `"With {Name}"`. If 2: `"With {Name1} and {Name2}"`. If 3+: `"With {Name1}, {Name2}, and {N} others"`. Hide the line entirely if no lead and no crew.
+- `followUpTitle` / `followUpDetails` — if `followUpTicketId` is set, look up that ticket and render its title and (if scheduled) target date and ticket #. Otherwise omit the entire "Next Steps" section via conditional.
+- `contactPhone` / `contactEmail` — from company settings (same as prior slices)
+
+**Template conditionals.** Wrap each of these sections in `{{#if}}` checks so missing data produces a clean email, not empty boxes:
+
+- "Scope" → `scopeItemsHtml`
+- "Materials & Parts" → `materialsUsed`
+- "Areas Worked" → `areasWorked`
+- "Photos" → `completionPhotosHtml`
+- "Observations & Recommendations" → `recommendations`
+- "Next Steps" → `followUpTicketId` (or equivalently, `followUpTitle`)
+- "Crew On Site" → render only if at least one of `leadTechName` / `crewSummary !== "Solo visit"` is meaningful, OR always render but hide the crew line when solo. Either is acceptable; document which you chose.
+
+The "Reference" section always renders (ticket # is always available).
+
+**Fallback strings** (translate via i18next):
+
+- `serviceCategory` → "Service visit" (when no category on the ticket)
+- `timeOnSite` → "Completed today" (when no times are set)
+- `workSummaryForCustomer` → no fallback; the field is required for sending.
+
+## File storage
+
+Reuse slice 2's storage helper. Constraints (same as visit photos):
+
+- `image/jpeg` and `image/png` only, MIME validated by magic bytes
+- Max 8 MB per file
+- EXIF GPS stripped on upload
+- Resized to 1600px max long edge
+- Stored under `ticket-photos/{companyId}/{ticketId}/{uuid}.{ext}`
+- Signed URL TTL ≥ 7 days
+
+Document the actual TTL achieved and whether EXIF stripping/resize are in place if any of these aren't possible with the current storage layer.
+
+## UI changes
+
+### 1. Mark Ticket Complete form — extend existing flow
+
+Inspect the existing "complete ticket" UI. It is likely a modal or a side panel triggered from the ticket detail page or from a row action on the tickets list.
+
+Extend the form to capture the new fields. Suggested layout:
+
+- **Customer recap** (top of form, prominent — this is the most important field)
+  - `Work performed (visible to property manager)` — large textarea, required to send the email. Helper: "Write this in the property manager's language. Default value loads from the ticket title and description, but please edit before sending."
+  - Pre-fill with `[ticketTitle]\n\n[ticketDescription]` so the crew has a starting point rather than a blank box.
+
+- **Visit details**
+  - Lead tech (single-select user picker, defaults to `assignedToUserId`)
+  - Other crew (multi-select user picker)
+  - Arrival time (time picker, defaults to now)
+  - Departure time (time picker, defaults to now)
+
+- **Work specifics** (optional fields, in a clearly-labeled "Optional but recommended" group)
+  - Materials & parts (textarea)
+  - Areas worked (text input)
+  - Observations & recommendations (textarea, helper: "Anything the crew noticed that the property manager should know — wear, damage, suggested follow-up. This appears in the email.")
+
+- **Photos** (drag-drop multi-file upload, max 6, same dropzone shape as slice 2)
+
+- **Scope items** (only render if the ticket has scope items)
+  - Per-item: checkbox (completed) + an inline text field for "deferral note" if unchecked
+  - Header tip: "Anything you don't check will be shown to the property manager as deferred."
+
+- **Internal-only** (collapsed by default, separator above)
+  - Internal completion notes (textarea, helper: "These notes are NOT visible to the customer. For office and crew reference only.")
+  - Follow-up ticket (searchable picker of tickets in the same company; helper: "If you created a follow-up ticket, link it here so it appears in the customer's email.")
+
+Submit button: `Mark complete`.
+
+On submit, the existing complete-ticket endpoint persists everything. The user lands on the ticket detail view next.
+
+### 2. Ticket detail — completion + email controls
+
+After a ticket is marked complete, the ticket detail view should show:
+
+- A green "Completed" banner with `completedAt`, lead tech name, time-on-site duration, and a link to view photos inline.
+- A "Completion email" panel (reuse the visit-detail panel component shape from slice 2):
+  - Status: "Not yet sent" / "Sent {relative time} ago"
+  - Buttons: "Preview email" (opens sandboxed iframe Dialog using the preview endpoint), "Send completion email" (calls send endpoint; disabled within the 60s debounce; on success refetches and updates the sent-at), "Resend" (visible only after a successful send)
+  - Inline 422 handling: if `workSummaryForCustomer` is empty, the Send button is disabled with a tooltip explaining the customer-facing recap is required, plus a deep-link to the form's recap field.
+- Below the panel, a read-only summary of the customer-visible content (recap, materials, areas, recommendations, photos, follow-up) so the user can confirm what's about to go out without opening the full preview.
+
+### 3. Email template file
+
+Create `client/src/templates/work-completion-notification.html` with the contents of the finalized template that lives alongside this prompt at `work-completion-notification.html` — copy verbatim. Wrap the conditional sections (see "Template conditionals" above) using the same templating engine already in use (Handlebars-style based on the existing `{{#if}}` usage in the prior templates).
+
+Add the template to the existing `server/templates/seed.ts` registry alongside the chemical entries. Idempotent.
+
+The template's row in the database (currently named "Work Completed" or similar) must have:
+
+- Its body replaced from disk on startup
+- Its `mergeVariables` (or equivalent column) updated to:
+  ```
+  companyName, customerName,
+  ticketTitle, ticketNumber, ticketDescription, serviceCategory,
+  completionDate, timeOnSite,
+  workSummaryForCustomer,
+  scopeItemsHtml,
+  materialsUsed, areasWorked,
+  completionPhotosHtml,
+  recommendations,
+  followUpTitle, followUpDetails,
+  leadTechName, crewSummary,
+  contactPhone, contactEmail
+  ```
+
+If the existing row uses a different name, match by slug or stable ID — do not create a duplicate.
+
+## Patterns and conventions
+
+- Every user-facing string goes through i18next. Add new keys to both `en` and `es`. Machine-translate the `es` keys with `// TODO: human-review translation`.
+- Every new query filters by `companyId`. No exceptions.
+- Routes go in the most logically related existing route file. Prefer extending `server/routes/tickets.ts` (or whatever the existing tickets route file is) over creating a new one.
+- Use existing shadcn components — no new Radix primitives.
+- Loading: shadcn `Skeleton`. Errors: shadcn `Alert`.
+- All new icons from `lucide-react`.
+- Photo uploads happen immediately on file drop; the form stores the storage keys. Show per-file upload progress and allow remove during upload (same UX as slice 2).
+- Reuse the visit-photo storage helper rather than copy-pasting it. Parameterize on the storage prefix (`visit-photos/...` vs `ticket-photos/...`).
+
+## Out of scope for this slice (do not build)
+
+- Auto-sending completion emails when a ticket closes (sending stays explicit; office reviews first)
+- SMS completion notifications
+- Customer-facing satisfaction survey appended to the email
+- Bulk-mark-complete across tickets
+- AI-generated work summaries from photos or scope items
+- Structured (line-itemized) materials with quantities and unit prices — free-text only in this slice
+- Invoicing or attaching invoices to the email — that lives in a separate flow
+- A separate template for snow plow visits, irrigation visits, etc. — this slice intentionally keeps one general template that adapts via conditionals
+- Crew time-tracking automation — `actualStartTime` / `actualEndTime` are entered manually for now
+- Recurring ticket auto-creation when a follow-up is required
+
+## Deliverables
+
+When you finish, report back with:
+
+1. List of all new files created (paths)
+2. List of all files modified (paths + 1-line description of what changed)
+3. List of new database tables and columns added (none expected for tables; just columns)
+4. List of new API endpoints created
+5. Any UI routes touched
+6. The actual signed-URL TTL achieved for ticket photos, if it differs from 7 days
+7. Whether EXIF stripping and resize-on-upload are in place for ticket photos; if not, what the gap is
+8. Whether ticket scope items exist in the codebase, and how the template handles their absence if they don't
+9. Whether the existing tickets table already had `actualStartTime` / `actualEndTime` (or equivalent) and what you reused vs added
+10. The decision on the "Crew On Site" conditional (always render and hide solo line, vs hide entire section when solo)
+11. Any decisions you made where this prompt was ambiguous, and what you chose
+12. Any issues you ran into or anything you skipped, with reasons
+13. A short manual test plan covering: marking a ticket complete with a full set of fields filled in, marking one complete with only the required `workSummaryForCustomer`, attempting to send with the recap empty (expect 422), previewing the email, sending it, attempting an immediate resend (expect 429 / 409 debounce), explicit resend after the window
+
+Do not skip any item silently. If something can't be built (e.g., your storage helper doesn't expose a configurable prefix), say so explicitly with the actual constraint.

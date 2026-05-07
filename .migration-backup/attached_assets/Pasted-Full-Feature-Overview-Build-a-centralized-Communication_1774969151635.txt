@@ -1,0 +1,87 @@
+Full Feature Overview
+
+Build a centralized Communication Command Center inside the High Plains CRM that allows admins and office staff to manage all client communications from one place. The system should let users view all outbound communications, filter and group them by customer, property, contact, and communication type, manage reusable templates, compose and send new messages, save drafts, and maintain a permanent communication history tied directly to CRM records. This should not feel like a generic inbox. It should feel like an operational communication layer built specifically for High Plains, where every message can be tied to a customer, property, proposal, work order, invoice, or seasonal service event. The end result should give High Plains one place to control communication consistency, track what has been sent, reduce dropped follow-ups, and improve visibility across the company.
+
+Slice 1 — Communication Center Foundation
+What & Why
+
+Create the base Communication Command Center inside the admin CRM with the core structure, navigation, and data model foundation. This slice is about establishing the shell of the feature so future slices can plug into it cleanly.
+
+Done looks like
+New admin route for /admin/communications
+Page matches the existing High Plains CRM admin styling
+Main communication center layout exists with:
+left filter / navigation panel
+center communication list area
+right message preview / detail panel
+Seedable database tables created for communications and templates
+Communication list can load mock or seed data from database
+User can click a communication row and see a detail preview
+Communications can be visually tagged by type and status
+Basic filters exist for:
+customer
+property
+communication type
+status
+date range placeholder
+Main UI sections
+Top header
+title: Communication Command Center
+search bar
+buttons: New Message, Templates
+Left sidebar
+All Communications
+Drafts
+Sent
+Scheduled
+Follow-Ups
+Templates
+Center panel
+table/list of communications
+Right panel
+selected communication preview
+metadata block
+Core data model for this slice
+
+Create first-pass tables:
+
+communication_templates
+id
+name
+category
+subject
+body
+is_active
+created_by
+created_at
+updated_at
+communications
+id
+customer_id nullable
+property_id nullable
+contact_id nullable
+template_id nullable
+subject
+body
+communication_type (email, sms, letter, note)
+status (draft, sent, scheduled, failed)
+sent_by_user_id
+sent_at nullable
+created_at
+updated_at
+communication_links
+id
+communication_id
+link_type (proposal, work_order, invoice, service_event, customer, property)
+link_id
+Guardrails
+Keep styling aligned with current admin portal
+Do not implement real sending yet
+Build the layout and DB in a way that future slices can extend cleanly
+Keep right panel read-only for now
+Acceptance checks
+Route loads without errors
+Seed communications render in the list
+Clicking a row updates the preview panel
+Filters visually work at least for local/basic query state
+Tables are in place and queryable

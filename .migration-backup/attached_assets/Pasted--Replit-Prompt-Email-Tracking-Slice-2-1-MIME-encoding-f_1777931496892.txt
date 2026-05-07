@@ -1,0 +1,142 @@
+# Replit Prompt — Email Tracking Slice 2.1 (MIME encoding fixes)
+
+## Context
+
+Slice 2 (Gmail OAuth + outbound send) is complete and working for ASCII-only content. However, `server/services/gmailSender.ts` uses `Content-Transfer-Encoding: 7bit` for all bodies and doesn't RFC 2047-encode the `Subject` header. This means any email containing a curly quote, em-dash, accented character, emoji, or any non-ASCII character will either be mangled in transit or rejected.
+
+This prompt fixes the encoding so Slice 2 is production-ready. All changes are in the single file `server/services/gmailSender.ts` — do not touch anything else.
+
+## Fix 1: Encode bodies as base64
+
+**Problem:** Lines 47-48 and 53-54 of `gmailSender.ts` declare `Content-Transfer-Encoding: 7bit` for both the plain-text and HTML body parts. Lines 61-63 do the same for text-only messages. Bodies containing non-ASCII bytes will fail on strict mail servers.
+
+**Fix:** Encode both body parts using base64. Base64 is universally safe for any byte content and is the simplest correct choice.
+
+Replace the body-building section of `buildMimeMessage` so each body part declares `Content-Transfer-Encoding: base64` and the body itself is base64-encoded with line breaks every 76 characters (per RFC 2045).
+
+Add a small helper at the top of the file:
+
+```typescript
+function base64EncodeBody(text: string): string {
+  // RFC 2045: lines must be no longer than 76 chars
+  const encoded = Buffer.from(text, "utf8").toString("base64");
+  return encoded.match(/.{1,76}/g)?.join("\r\n") ?? encoded;
+}
+```
+
+Then in the multipart branch (currently lines 43-59), replace the body construction with:
+
+```typescript
+headers.push(`Content-Type: multipart/alternative; boundary="${boundary}"`);
+body = [
+  `--${boundary}`,
+  `Content-Type: text/plain; charset="UTF-8"`,
+  `Content-Transfer-Encoding: base64`,
+  ``,
+  base64EncodeBody(opts.bodyText),
+  ``,
+  `--${boundary}`,
+  `Content-Type: text/html; charset="UTF-8"`,
+  `Content-Transfer-Encoding: base64`,
+  ``,
+  base64EncodeBody(opts.bodyHtml),
+  ``,
+  `--${boundary}--`,
+].join("\r\n");
+```
+
+And in the text-only branch (currently lines 60-64), replace with:
+
+```typescript
+headers.push(`Content-Type: text/plain; charset="UTF-8"`);
+headers.push(`Content-Transfer-Encoding: base64`);
+body = base64EncodeBody(opts.bodyText);
+```
+
+## Fix 2: RFC 2047-encode the Subject header when needed
+
+**Problem:** Line 35 (`Subject: ${opts.subject}`) sends the subject literally. Subjects containing non-ASCII characters won't render correctly in many mail clients.
+
+**Fix:** Add a helper that RFC 2047-encodes the subject only when needed (pure-ASCII subjects pass through unchanged for readability).
+
+Add this helper near the top of the file:
+
+```typescript
+function encodeHeaderValue(value: string): string {
+  // RFC 2047 encoded-word: only encode if non-ASCII present
+  // eslint-disable-next-line no-control-regex
+  if (!/[^\x00-\x7F]/.test(value)) return value;
+  const encoded = Buffer.from(value, "utf8").toString("base64");
+  return `=?UTF-8?B?${encoded}?=`;
+}
+```
+
+Then replace the Subject line in the `headers` array (currently line 35):
+
+```typescript
+`Subject: ${encodeHeaderValue(opts.subject)}`,
+```
+
+## Fix 3: Properly format the From header when display name has special characters
+
+**Problem:** `gmailSender.ts` lines 95-97 build the From header as `${account.displayName} <${account.emailAddress}>`. RFC 5322 requires display names containing commas, semicolons, quotes, parentheses, angle brackets, or other special characters to be wrapped in double quotes (with internal quotes/backslashes escaped). Non-ASCII display names additionally need RFC 2047 encoding.
+
+**Fix:** Add a helper that produces a properly formatted From header, then use it.
+
+Add this helper near the other helpers:
+
+```typescript
+function formatAddressWithName(displayName: string | null | undefined, email: string): string {
+  if (!displayName) return email;
+  const trimmed = displayName.trim();
+  if (!trimmed) return email;
+
+  // If the display name has non-ASCII, RFC 2047 encode it (no quotes needed around encoded-words)
+  // eslint-disable-next-line no-control-regex
+  if (/[^\x00-\x7F]/.test(trimmed)) {
+    return `${encodeHeaderValue(trimmed)} <${email}>`;
+  }
+
+  // RFC 5322 special characters that require quoting
+  const needsQuoting = /[(),:;<>@\[\]\\".]/.test(trimmed);
+  if (needsQuoting) {
+    const escaped = trimmed.replace(/\\/g, "\\\\").replace(/"/g, '\\"');
+    return `"${escaped}" <${email}>`;
+  }
+
+  return `${trimmed} <${email}>`;
+}
+```
+
+Replace the `fromAddress` construction at lines 95-97 of `sendEmail` with:
+
+```typescript
+const fromAddress = formatAddressWithName(account.displayName, account.emailAddress);
+```
+
+## Verification
+
+After applying the changes, the file should contain three new helpers (`base64EncodeBody`, `encodeHeaderValue`, `formatAddressWithName`) and `buildMimeMessage` should no longer contain any reference to `7bit`. Run a quick search to confirm:
+
+- `grep -n "7bit" server/services/gmailSender.ts` should return zero hits
+- `grep -n "base64EncodeBody\|encodeHeaderValue\|formatAddressWithName" server/services/gmailSender.ts` should return at least 6 hits (3 definitions + 3+ usages)
+
+If you have a way to test send a sample email containing a curly quote (`'`), an em-dash (`—`), and an accented character (`café`) in both the subject and body, it should arrive at a Gmail inbox with all characters intact.
+
+## Out of scope
+
+- Do not touch `googleOAuth.ts`, the route files, or any UI components
+- Do not modify the `SendEmailOptions` interface
+- Do not change how `Message-ID` is generated
+- Do not add attachments support (later slice)
+- Do not change any other Slice 2 behavior
+
+## Deliverables
+
+When done, report back:
+
+1. Confirmation that the three helpers were added
+2. Confirmation that `7bit` no longer appears anywhere in `gmailSender.ts`
+3. Confirmation that the Subject header passes through `encodeHeaderValue`
+4. Confirmation that the From header passes through `formatAddressWithName`
+5. Anything you adjusted that wasn't in this prompt, and why

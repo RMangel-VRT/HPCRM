@@ -1,0 +1,51 @@
+I need a complete, factual inventory of the current state of this CRM codebase. Do not write any new code, suggest changes, or refactor anything — just report what exists. Be specific (file paths, function names, schema fields) rather than describing things in general terms. If something doesn't exist, say so explicitly rather than guessing.
+Please cover the following:
+1. Tech stack and architecture
+
+Frontend framework, backend framework, database, ORM, hosting
+Authentication system (provider, library, session vs JWT, where user identity lives)
+Background job / queue system, if any
+Any environment variables or secrets currently configured
+
+2. Data model
+
+List every table/model in the schema with its full field list and types
+Highlight relationships (foreign keys, joins)
+Pay special attention to: customers, users, communications, anything related to properties/communities, and any email- or contact-related tables
+
+3. Customer-related UI
+
+Where is the customer list page? File path and route
+Where is the single customer view? File path and route — describe its layout, what sections/tabs/cards exist, and what data each pulls in
+Where is the customer dashboard? Is it the same as the single customer view, or distinct? Describe its layout and components
+What modals or quick-view components already exist on customer pages?
+
+4. Existing communications functionality
+
+Is there a communications table or model? What fields does it have?
+Is there any existing UI for viewing communications on a customer record?
+Is there any existing form/UI for logging a communication manually?
+Any existing integration with email providers (SendGrid, Mailgun, Gmail, Postmark, etc.) — what is it used for today, and where in the code does it live?
+Any code related to email parsing, webhooks, or inbound mail?
+
+5. Properties / communities model
+
+How are properties or communities represented in the schema?
+How are managers assigned to properties? Can one manager handle multiple properties?
+How are customers linked to properties?
+
+6. Permissions and roles
+
+What user roles exist? Where are they defined and enforced?
+Are there any existing audit logs or activity tracking?
+
+7. Anything email-adjacent that already exists
+
+Notification system, alerts, email templates, scheduled emails, etc.
+Any OAuth integrations with Google or Microsoft
+
+8. Known gaps or TODOs
+
+Anything in the code marked TODO, FIXME, or commented out that's relevant to customers, communications, or email
+
+Format the output as a structured report with clear headings for each section. Include actual file paths (not descriptions like "the auth file"). When listing schema fields, use the actual field names and types from the code, not paraphrased versions. Aim for completeness over brevity — I'd rather have too much detail than have to ask follow-up questions.

@@ -1,0 +1,231 @@
+# Replit Prompt — Performance Optimization Slice
+
+## Context
+
+The CRM has accumulated several performance regressions that compound to make the app feel slow, especially on first load and on data-heavy pages (Customer Detail, Communications Center, Campaigns, Revenue Overview). An audit of `server/index.ts`, `server/storage.ts`, `server/routes.ts`, `shared/schema.ts`, and the client routing/bundling found a clear set of fixes ordered by impact-to-effort. This slice implements all of them in one pass so the wins compound.
+
+**This slice changes no product behavior.** No new features, no UX changes, no schema changes that affect data semantics. Anything that touches user-visible behavior is explicitly out of scope. If a fix risks behavior change, leave it and call it out in the deliverables.
+
+Work through the phases in order. After each phase, run `npm run check` (or equivalent) and verify the app boots and the affected pages still render before moving to the next phase. Report progress phase-by-phase in the final deliverables section.
+
+## Existing context (do not duplicate or replace)
+
+- The project uses Drizzle ORM, Neon serverless Postgres (via `@neondatabase/serverless`), Express, TanStack Query v5, Vite, wouter, and Shadcn/Radix on the client. Do not introduce new libraries unless explicitly listed below.
+- Multi-tenancy: every query filters by `companyId` from `UserWithContext`. Do not break this contract.
+- Existing migrations live in `migrations/*.sql` and are applied via `drizzle-kit push`. Runtime "migration" functions called from `server/index.ts` are an anti-pattern (Phase 4 cleans this up); do not add more of them.
+- The Replit deployment target is Autoscale, which means cold starts matter and background workers are unreliable.
+
+## Phase 1 — Database indexes (one migration file)
+
+Create a new migration file: `migrations/0007_performance_indexes.sql`. Use `CREATE INDEX IF NOT EXISTS` for every statement so it is idempotent. Mirror each index in `shared/schema.ts` inside the relevant `pgTable(..., (table) => ({ ... }))` block so future Drizzle generation stays in sync.
+
+Add the following indexes:
+
+- `contacts_customer_id_idx` on `contacts(customer_id)`
+- `contacts_company_id_idx` on `contacts(company_id)`
+- `notes_customer_id_idx` on `notes(customer_id)`
+- `notes_company_id_idx` on `notes(company_id)`
+- `contract_status_history_contract_id_idx` on `contract_status_history(contract_id)`
+- `tickets_contract_id_idx` on `tickets(contract_id)`
+- `tickets_equipment_id_idx` on `tickets(equipment_id)`
+- `tickets_company_created_at_idx` on `tickets(company_id, created_at DESC)`
+- `campaign_items_campaign_id_idx` on `campaign_items(campaign_id)`
+- `campaign_items_customer_id_idx` on `campaign_items(customer_id)`
+- `campaign_items_property_id_idx` on `campaign_items(property_id)` (only if column exists; check first)
+- `email_logs_customer_id_idx` on `email_logs(customer_id)`
+- `email_logs_ticket_id_idx` on `email_logs(ticket_id)`
+- `email_logs_company_created_at_idx` on `email_logs(company_id, created_at DESC)`
+- `proposals_customer_id_idx` on `proposals(customer_id)`
+- `proposals_company_id_idx` on `proposals(company_id)`
+- `equipment_tickets_equipment_id_idx` on `equipment_tickets(equipment_id)`
+- `communications_company_created_at_idx` on `communications(company_id, created_at DESC)`
+- `ticket_comment_mentions_comment_id_idx` on `ticket_comment_mentions(comment_id)` (only if not already present)
+
+Then add a trigram index for the customer-name search in `getCustomersPaginated`:
+
+```sql
+CREATE EXTENSION IF NOT EXISTS pg_trgm;
+CREATE INDEX IF NOT EXISTS customers_name_trgm_idx
+  ON customers USING gin (lower(name) gin_trgm_ops);
+```
+
+Verify the migration runs cleanly against the Replit Postgres instance. Do not touch any other migrations.
+
+## Phase 2 — Eliminate N+1s in `server/storage.ts`
+
+### 2a. `getCampaigns` (currently lines ~3097–3121)
+
+The current implementation iterates over every campaign and fires 5 queries per campaign (items, two assigned users, created user, season). Rewrite to issue at most 5 queries total regardless of campaign count:
+
+1. Fetch campaign rows with the existing `where` clause.
+2. Collect every distinct `assignedToId`, `assignedToId2`, `createdById`, and `seasonId`.
+3. Issue four parallel queries via `Promise.all`: all `campaign_items` for the campaign IDs (`inArray`), all users (`inArray`), all seasons (`inArray`), and the same companyId scope.
+4. Build lookup maps and assemble the final `CampaignWithProgress[]` in JS — same shape as before, identical fields.
+
+Preserve the existing return type, ordering (`desc(campaigns.createdAt)`), and the `assignedToId`/`assignedToId2` filter behavior exactly.
+
+### 2b. `getMonthlyRevenueData` (currently lines ~1449–1474)
+
+The current implementation calls `getCustomerRevenue` in a loop, which itself re-queries contracts and `contract_monthly_amounts` per contract. Replace the body so it:
+
+1. Fetches all customers, all contracts, and all `contract_monthly_amounts` for the company in 3 parallel queries — exactly the pattern `getRevenueOverview` already uses (lines ~1063–1144).
+2. Computes the `monthlyTotals` array in memory using the same date-range logic as `getCustomerRevenue` so totals match the rest of the system.
+3. Returns the same `MonthlyRevenueData[]` shape with month names `Jan`–`Dec` and `revenue` totals in dollars.
+
+Do not change `getCustomerRevenue` — it is still called per-customer from other code paths and refactoring it is out of scope. Just stop calling it from `getMonthlyRevenueData`.
+
+### 2c. Audit for accidental N+1s elsewhere
+
+Grep `server/storage.ts` for `for (const ... of ...)` blocks containing `await db.` or `await this.get*`. For each match, decide if it is an N+1 and either fix it (using the same bulk-fetch + map pattern as 2a/2b) or leave a `// PERF: candidate N+1, kept for now — see Phase 2c notes` comment if the fix is non-trivial. List every comment you added in the deliverables.
+
+## Phase 3 — Pagination and payload trimming
+
+### 3a. `/api/customers` always paginated
+
+In `server/routes.ts` (around line 2297), remove the "backward compat full list" branch. The endpoint should always go through `getCustomersPaginated`. Default to `page=1, limit=50` if not specified, cap `limit` at 200.
+
+Update every client call site that hits `/api/customers` to either pass `?page=1&limit=200` (when it really needs the full list, e.g., maps) or to consume the `{ customers, total }` response shape. Search the client for `"/api/customers"` and `["/api/customers"]` query keys to find them. The route-map endpoint at `/api/customers/route` is already filtered server-side; leave it alone.
+
+### 3b. Cap unbounded list queries at the storage layer
+
+In `server/storage.ts`, add a hard `limit(500)` ceiling to:
+
+- `getTickets`
+- `getCommunications` (after the SQL filter changes in 3c)
+- `getEmailLogs`
+- `getProposals`
+- `getAllContracts`
+
+This is a safety net, not user-facing pagination. Add a `// PERF: hard cap to protect against runaway responses` comment.
+
+### 3c. Push `getCommunications` filters into SQL
+
+The current `getCommunications` (around line 3407) loads everything and filters in JavaScript. Move the following into the SQL `WHERE` clause:
+
+- `view` ("drafts" / "sent" / "scheduled" / "followups") — translate to a `status` or `followUpStatus` predicate
+- `sentById` — `eq(communications.sentById, ...)`
+- `startDate`, `endDate`, `fromDate`, `toDate` — predicates on `coalesce(sent_at, created_at)` (use a `sql` template if needed)
+- `search` — use `ilike` against `subject` and `body`. Do NOT also search `customers.name` in SQL — it requires a join that's already happening but the trigram index from Phase 1 only covers `customers.name`; for now leave customer-name search in JS but cap the result set first
+
+Preserve the existing return shape `CommunicationWithDetails[]` exactly. The thread-reply-count secondary query can stay as-is.
+
+### 3d. Drop `htmlBody` from email log lists
+
+In `getEmailLogs` (around line 2748), remove `htmlBody` from the `.select(...)` projection. Add a separate `getEmailLogById` (already exists) that returns the full record including body. Update the `EmailLogWithDetails` type to make `htmlBody` optional or remove it from the list type, whichever causes fewer downstream type errors. Update any client code that read `htmlBody` from the list response to fetch it on demand.
+
+## Phase 4 — Server boot and logging cleanup
+
+### 4a. Remove runtime migrations from `server/index.ts`
+
+The startup block (currently lines ~54–85) calls 30+ async migration functions on every cold boot. Move them out of the request path:
+
+1. Keep the migration functions where they are defined in `server/routes.ts` so existing callers (if any) keep working.
+2. In `server/index.ts`, replace the entire `await migrate*()` block with a single guarded call:
+
+```ts
+if (process.env.RUN_STARTUP_MIGRATIONS === "true") {
+  await runStartupMigrations(); // a new function that calls all the existing migrate* fns in order
+}
+```
+
+3. Add a new `scripts/run-migrations.ts` that imports and calls `runStartupMigrations` once, then exits. Add a package.json script: `"migrate": "tsx scripts/run-migrations.ts"`. The intent is that we run this manually once after deploys, not on every cold boot.
+4. Document this change in `replit.md` under a new "Deployment" section: explain that `npm run migrate` should be invoked manually after deploys that include schema changes, and that runtime migrations are intentionally disabled for cold-start performance.
+
+Do not delete any `migrate*` function. Do not remove the existing `migrations/*.sql` migration files. The goal is only to stop running them on every server boot.
+
+### 4b. Trim the request logging middleware
+
+The middleware in `server/index.ts` (lines ~21–49) calls `JSON.stringify(capturedJsonResponse)` on every API response and then truncates to 80 characters. For a 1MB response this is wasted work. Replace the `if (capturedJsonResponse)` body with:
+
+```ts
+if (process.env.NODE_ENV !== "production" && capturedJsonResponse) {
+  const preview = JSON.stringify(capturedJsonResponse).slice(0, 200);
+  logLine += ` :: ${preview}`;
+}
+```
+
+In production, just log method, path, status, and duration.
+
+### 4c. Move `runAllAutomationRules` off `setInterval`
+
+The hourly `setInterval` in `server/index.ts` (lines ~124–126) does not run reliably on Replit Autoscale. Replace it with a new HTTP endpoint `POST /api/_internal/run-automation-rules` that calls `runAllAutomationRules`, protected by a shared-secret header check (`x-cron-token` against `process.env.CRON_SECRET`). Document in `replit.md` that this endpoint should be hit hourly by Replit Scheduled Deployments or an external cron service. Do not break local development — the existing dev-only `runDueDateNotifications()` call can remain.
+
+## Phase 5 — Client bundle and route-level lazy loading
+
+### 5a. Lazy-load every page in `client/src/App.tsx`
+
+The current `App.tsx` (lines ~23–66) statically imports 40+ page components, including the 5,000+ line `CustomerDetail.tsx`, the 3,500+ line `VisualScopeEditor.tsx`, plus map and PDF dependencies pulled in transitively. Convert every page import to `React.lazy`:
+
+```ts
+const Dashboard = lazy(() => import("@/pages/Dashboard"));
+const CustomersList = lazy(() => import("@/pages/CustomersList"));
+// ...etc for every page in the existing import list
+```
+
+Wrap the `<Switch>` returned from `renderRouteSwitch` in `<Suspense fallback={<LoadingScreen visible={true} />}>`. Reuse the existing `LoadingScreen` component — do not introduce a new one.
+
+Do not lazy-load `LoginPage` or `SetupPage` (they are needed before authentication completes). Do lazy-load everything else under `/dashboard/*` and `/admin`.
+
+### 5b. Vite manual chunks
+
+Update `vite.config.ts` to split the heaviest dependencies into their own chunks. Add a `build.rollupOptions.output.manualChunks` config that groups:
+
+- `maps`: `mapbox-gl`, `leaflet`, `react-leaflet`, `leaflet-omnivore`
+- `pdf`: `jspdf`, `jspdf-autotable`, `pdf-lib`, `pdfkit`
+- `charts`: `recharts`
+- `radix`: any package matching `@radix-ui/*`
+- `editor`: `framer-motion`, `embla-carousel-react`
+
+Set `build.chunkSizeWarningLimit` to `1500` so we still see warnings on regressions.
+
+### 5c. CustomerDetail query gating
+
+In `client/src/pages/CustomerDetail.tsx`, the page fires ~25 `useQuery` calls on mount. Make two changes:
+
+1. Replace the `allCustomers` fetch (around line 1128) with a debounced typeahead. Add a new endpoint `GET /api/customers/search?q=...&limit=20` in `server/routes.ts` that uses the trigram index from Phase 1. Update only the parent-customer-picker UI to call it. Do not remove `allCustomers` if other consumers exist; instead, find and update them.
+2. Identify the queries that are tab-specific (notes, contracts, tickets, proposals, communications, snow events, map layers, campaigns, sheets) and add `enabled:` flags so they only fire when their tab is active. Use whatever existing tab-state mechanism already controls visible content. Leave the customer-itself, contacts, and overview queries unconditional.
+
+These are surgical changes. If the file structure makes either change risky (e.g., the queries are deeply intertwined with derived state), leave a `// PERF TODO` comment and call it out in deliverables rather than refactoring blindly.
+
+## Out of scope for this slice (do not build)
+
+- Replacing TanStack Query's `staleTime: Infinity` configuration or changing cache invalidation patterns
+- List virtualization (`@tanstack/react-virtual` etc.) — separate slice
+- Refactoring `getCustomerRevenue` itself (still called per-customer from other paths)
+- Breaking up the giant `routes.ts` (13K lines) or `CustomerDetail.tsx` (5K lines) into smaller files
+- Any UI redesign or visible behavior change
+- Adding APM/monitoring tooling
+- Database connection pool tuning beyond what already exists
+- Touching authentication, session, or RBAC code
+
+## Patterns and conventions
+
+- All new code follows existing TypeScript strictness — no `any` unless the existing code in that file already does.
+- New SQL goes in the new migration file only. Do not edit existing migration files.
+- Drizzle schema changes (the index definitions inside `pgTable`) must be reflected in `shared/schema.ts` so future `drizzle-kit` generations don't undo them.
+- Every new comment that flags a known imperfection uses the prefix `// PERF:` so we can grep them later.
+- All lazy imports use the `@/pages/...` alias pattern that the existing static imports use.
+
+## Verification before reporting back
+
+1. `npm run check` passes with zero TypeScript errors.
+2. The app boots locally: `npm run dev` works and `/dashboard` loads after login.
+3. The customer list, customer detail, communications center, campaigns list, and revenue overview pages all render without runtime errors.
+4. The new migration applies cleanly to a fresh Postgres database (`npm run db:push` against an empty DB). If the project has a way to test migrations against a copy of production, prefer that.
+5. Check the production build: `npm run build` completes, and at least 6 separate JS chunks are emitted (verify in `dist/public/assets/`). Note approximate chunk sizes in deliverables.
+
+## Deliverables
+
+When you finish, report back with:
+
+1. List of all new files created (paths)
+2. List of all files modified (paths + 1-line description of what changed)
+3. The exact `0007_performance_indexes.sql` contents
+4. For Phase 2c, every `// PERF: candidate N+1` comment you added (file + line + 1-line context)
+5. For Phase 5c, every `// PERF TODO` you left and why
+6. Confirmation that each phase's verification step passed, or where it didn't and why
+7. Approximate bundle sizes from `npm run build`: total JS, plus the size of the `maps`, `pdf`, `charts`, and main app chunks
+8. Any decisions you made where this prompt was ambiguous, and what you chose
+9. Anything you skipped or could not complete, with a clear reason
+
+Do not skip any item silently. If a phase cannot be completed, stop and report rather than proceeding to later phases — Phase 1 unblocks Phase 2 in subtle ways (the trigram index is needed for Phase 5c's customer search endpoint), and Phase 4a needs to land cleanly before later deploys are safe.

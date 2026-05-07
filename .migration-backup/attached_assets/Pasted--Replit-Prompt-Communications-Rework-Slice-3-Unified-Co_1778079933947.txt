@@ -1,0 +1,126 @@
+# Replit Prompt — Communications Rework, Slice 3 (Unified Communications Page with Secondary Nav)
+
+## Context
+
+Slices 1 and 2 are complete. The backend now scopes mailbox-derived data per user with role-based defaults, captures both inbound and outbound Gmail mail, and dedupes against CRM-sent communications. This is **Slice 3 of 4** and it's the visible payoff: collapse `CommunicationsCenter` and `UnsortedInboxPage` into a single page with secondary navigation.
+
+The new page is `/dashboard/communications` and has four sub-tabs:
+- **Inbox** — inbound mail in the user's scope
+- **Sent** — outbound mail in the user's scope
+- **Unsorted** — triage queue in the user's scope
+- **All Communications** — the existing global filtered list (admin/office only)
+
+A `viewAs` selector in the page toolbar lets admin/office users narrow to a specific user or mailbox. All four tabs share that selector and the search/date-range state, so switching tabs preserves context.
+
+## Page structure
+
+`client/src/pages/CommunicationsCenter.tsx` becomes a thin shell:
+
+```tsx
+<CommunicationsPageShell>
+  <CommunicationsToolbar />               {/* search, date range, viewAs picker */}
+  <CommunicationsSecondaryNav active={tab} />
+  {tab === "inbox" && <InboxTab />}
+  {tab === "sent" && <SentTab />}
+  {tab === "unsorted" && <UnsortedTab />}
+  {tab === "all" && <AllCommunicationsTab />}
+</CommunicationsPageShell>
+```
+
+The active tab is controlled by URL: `/dashboard/communications/inbox`, `/dashboard/communications/sent`, `/dashboard/communications/unsorted`, `/dashboard/communications/all`. Default route `/dashboard/communications` redirects to the role-appropriate landing tab:
+- `admin` / `office` → `inbox` (their own; `viewAs=all` accessible from the picker)
+- `field` → `inbox`
+- everyone else → `inbox`
+
+If a user has no connected mailbox, `inbox` and `sent` show an empty state with a CTA: "Connect your mailbox in Settings → Mailbox Accounts".
+
+## New components
+
+Create under `client/src/components/customer/communications/`:
+
+- `CommunicationsPageShell.tsx` — wraps the page, holds shared state in a context: `{ search, fromDate, toDate, viewAs, setViewAs, ... }`.
+- `CommunicationsToolbar.tsx` — search input, date-range picker, `MailboxViewAsPicker` (already drafted in Slice 1; finalize here).
+- `CommunicationsSecondaryNav.tsx` — pill-style tabs that match the existing CRM secondary-nav style (look at `CustomerDetail.tsx` or another page that uses secondary nav for the pattern). Each tab shows a count badge: Inbox shows unread count for inbound in scope, Unsorted shows pending count, Sent shows count for current date filter, All shows total filtered count.
+- `InboxTab.tsx` — list of inbound communications in scope. Reuses the existing communications list-item component if there is one. Clicking a row opens the existing `CommunicationsQuickViewModal`. Includes filters: customer, from-address contains, has-attachments.
+- `SentTab.tsx` — list of outbound communications in scope. Same item component, plus a `Status` column (sent/draft/scheduled/failed). Filter for "sent via CRM" vs "sent in Gmail" using `routingMethod` (CRM-sent rows have no router run, so they have NULL `routingMethod`; Gmail-direct sends have `routingMethod = "email_match" | "thread_match" | "content_match"`).
+- `UnsortedTab.tsx` — extracted from current `UnsortedInboxPage`. Adds a direction filter (`inbound` | `outbound` | `all`) wired to the new `direction` query param from Slice 2. Triage actions (assign to customer, mark spam, archive) unchanged.
+- `AllCommunicationsTab.tsx` — extracted from current `CommunicationsCenter`. Keep all existing filters (type, status, customer, direction, date, mailboxIds). Visible only to `admin` and `office`; for other roles the tab isn't rendered in the secondary nav.
+
+All four tabs read from the existing list endpoints (with the new `viewAs` and `direction` params from Slices 1 and 2):
+- Inbox: `GET /api/communications?direction=inbound&viewAs=...`
+- Sent: `GET /api/communications?direction=outbound&viewAs=...`
+- Unsorted: `GET /api/unsorted-emails?status=pending&viewAs=...&direction=...`
+- All: `GET /api/communications?viewAs=...` (with whatever extra filters)
+
+Use TanStack Query and key the cache by `[endpoint, viewAs, ...filters]` so switching tabs and toggling viewAs is fast.
+
+## Routing changes
+
+`client/src/App.tsx`:
+
+```tsx
+<ProtectedRoute path="/dashboard/communications/:tab?" component={CommunicationsCenter}
+  allowedRoles={["admin", "office", "field_manager", "chemical_manager", "field",
+                 "irrigation_manager", "shop_manager", "mapping", "landscape_supervisor"]} />
+```
+
+Inside `CommunicationsCenter`, read `:tab` and gate `all` to admin/office (other roles get a 404 within the page if they URL-hack to `/all`).
+
+Keep `/dashboard/communications/unsorted` as a path that resolves to `?tab=unsorted` for back-compat in Slice 3 — Slice 4 deprecates the standalone path entirely.
+
+## Toolbar shared state
+
+Use a small React Context in `CommunicationsPageShell`. State persisted to URL (search, fromDate, toDate, viewAs) so a teammate can share a deep link to a specific view. Ephemeral state (selected row, scroll position) lives in component state.
+
+## Sidebar nav
+
+Update the sidebar component (find via `grep` for `CommunicationsCenter` or the existing nav entries) so:
+- "Communications" is a single top-level item that links to `/dashboard/communications/inbox`.
+- The "Unsorted Inbox" entry is removed from the sidebar.
+- A small badge on "Communications" shows the count of pending unsorted in the user's scope (poll every 60s, or invalidate when the unsorted list mutates).
+
+## Empty states
+
+Each tab needs a thoughtful empty state:
+- Inbox empty: "No mail in this view. Connect your mailbox in Settings or change the View As filter."
+- Sent empty: "Nothing sent in this view yet."
+- Unsorted empty (good!): "Inbox zero. Nothing to triage." with a checkmark.
+- All empty: "No communications match these filters."
+
+## Mobile
+
+Out of scope. The current pages aren't mobile-optimized; the new page can match the same desktop-first layout. Confirm it doesn't visually break at narrow widths but no special work.
+
+## Acceptance checklist
+
+- [ ] `/dashboard/communications` redirects to `/dashboard/communications/inbox` for the role-appropriate default.
+- [ ] All four sub-tabs render correctly and switching between them preserves search / date / `viewAs`.
+- [ ] As a `field` user, Inbox shows only my mail; All Communications tab is not visible.
+- [ ] As `admin`, the `viewAs` picker shows "All", "My Mailboxes", and a list of users with personal mailboxes; choosing a user filters every visible tab.
+- [ ] Unsorted tab has a direction filter and the triage actions still work.
+- [ ] Sent tab visually distinguishes CRM-sent rows from Gmail-direct rows (e.g., a small label/icon).
+- [ ] Counts in the secondary nav badges are accurate and update when items move (e.g., triaging an unsorted email decreases the Unsorted badge and increases Inbox's count if applicable).
+- [ ] Sidebar "Communications" entry shows pending-unsorted badge for the current user's scope.
+- [ ] No regressions on the per-customer Communications view (`CustomerDetail.tsx`'s communications section).
+
+## Files touched
+
+- `client/src/pages/CommunicationsCenter.tsx` — rewrite as shell
+- `client/src/pages/UnsortedInboxPage.tsx` — keep file as a thin wrapper that renders `<UnsortedTab />` for back-compat (Slice 4 will remove)
+- `client/src/components/customer/communications/CommunicationsPageShell.tsx` (new)
+- `client/src/components/customer/communications/CommunicationsToolbar.tsx` (new)
+- `client/src/components/customer/communications/CommunicationsSecondaryNav.tsx` (new)
+- `client/src/components/customer/communications/InboxTab.tsx` (new)
+- `client/src/components/customer/communications/SentTab.tsx` (new)
+- `client/src/components/customer/communications/UnsortedTab.tsx` (new — extract body of `UnsortedInboxPage`)
+- `client/src/components/customer/communications/AllCommunicationsTab.tsx` (new — extract body of current `CommunicationsCenter`)
+- `client/src/components/customer/communications/MailboxViewAsPicker.tsx` (finalize from Slice 1 stub)
+- `client/src/App.tsx` — broaden `allowedRoles`, parameterize `:tab`
+- Sidebar nav component — single Communications entry + badge
+
+## Things to NOT change in this slice
+
+- Backend endpoints — Slices 1 and 2 are done.
+- Sync logic — unchanged.
+- Removing the standalone `/dashboard/communications/unsorted` redirect — Slice 4.
+- The per-customer communications card on `CustomerDetail.tsx` — leaves as-is for now.

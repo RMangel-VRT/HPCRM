@@ -1,0 +1,201 @@
+# Replit Prompt — Communications Rework, Slice 1 (Per-User Mailbox Scoping & Role-Based Visibility)
+
+## Context
+
+The CRM has Gmail mailbox sync working. Inbound mail gets routed via `server/services/emailRouter.ts`: high-confidence matches go into the `communications` table; ambiguous CRM-relevant mail goes into `unsorted_emails`. The Communications page (`client/src/pages/CommunicationsCenter.tsx`) reads `/api/communications`. The Unsorted Inbox page (`client/src/pages/UnsortedInboxPage.tsx`) reads `/api/unsorted-emails`. Both routes are admin/office only and **show every mailbox's mail to every admin** — there is no per-user scoping.
+
+This is **Slice 1 of 4** in the Communications rework. Goal: make every list endpoint that touches mailbox-derived data understand "who is asking" and filter accordingly. **Backend only.** No UI changes in this slice except passing the new query params from the existing pages so they keep working.
+
+The next slices will add Sent-folder sync (Slice 2), the unified Communications page with secondary nav (Slice 3), and route cleanup (Slice 4).
+
+## What this slice does
+
+1. Defines a single canonical "viewer scope" rule that every mailbox-aware endpoint applies.
+2. Adds a `defaultMailboxVisibility` map to `settings` so the rule is configurable per company.
+3. Updates `storage.ts` and the three mailbox-aware routes to honor the scope.
+4. Backfills `mailbox_accounts.ownerUserId` for any existing rows where `accountType = "personal"` and the owner can be inferred (e.g., `emailAddress` matches a `users.email`). Don't fail startup if backfill is ambiguous — log and continue.
+
+## Visibility rule (canonical)
+
+For a request from user `U` with role `R` in company `C`, the visible set of `mailbox_account_id`s is:
+
+- Always include: every `mailbox_accounts` row where `companyId = C` AND (`accountType = "shared"` AND `R` is in the company's `defaultMailboxVisibility.shared` list).
+- Always include: every `mailbox_accounts` row where `companyId = C` AND `ownerUserId = U.id`.
+- For roles `admin` and `office`: include **all** mailboxes in `C`.
+- For other roles: respect the per-role override in `defaultMailboxVisibility` if present, otherwise apply the rule above.
+
+Plus a `viewAs` query param: if the requester is `admin`/`office` and passes `viewAs=<userId>` or `viewAs=all` or `viewAs=<mailboxAccountId>`, narrow/widen the visible set accordingly. Non-admin requesters get a 403 if they try to use `viewAs` for anyone other than themselves.
+
+Once the visible mailbox set is known, list endpoints filter their underlying tables by `mailbox_account_id IN (...)`.
+
+For the `communications` table specifically, also include rows where `mailboxAccountId IS NULL` AND `sentById = U.id` (these are CRM-logged communications that predate mailbox attribution). Admins always see NULL-mailbox rows.
+
+## Schema changes
+
+### `settings` — new column
+
+Add `defaultMailboxVisibility` to `settings`:
+
+```ts
+defaultMailboxVisibility: jsonb("default_mailbox_visibility").default(sql`'{}'::jsonb`),
+```
+
+The shape is:
+```ts
+{
+  shared: ("admin" | "office" | "field_manager" | "chemical_manager" | "field" | "irrigation_manager" | "shop_manager" | "mapping" | "landscape_supervisor")[],
+  perRole?: Partial<Record<RoleName, "own" | "all" | "shared_only">>
+}
+```
+
+Default value (set on insert if missing):
+```json
+{ "shared": ["admin", "office"], "perRole": { "field": "own" } }
+```
+
+Update `insertSettingsSchema` and exported types accordingly.
+
+### Migration
+
+Add to startup migrations:
+
+```sql
+ALTER TABLE settings ADD COLUMN IF NOT EXISTS default_mailbox_visibility JSONB DEFAULT '{}'::jsonb;
+UPDATE settings
+  SET default_mailbox_visibility = '{"shared":["admin","office"],"perRole":{"field":"own"}}'::jsonb
+  WHERE default_mailbox_visibility = '{}'::jsonb OR default_mailbox_visibility IS NULL;
+```
+
+### Backfill `mailbox_accounts.ownerUserId`
+
+One-time backfill at startup (idempotent — only update where `ownerUserId IS NULL` AND `accountType = 'personal'`):
+
+```sql
+UPDATE mailbox_accounts ma
+  SET owner_user_id = u.id
+  FROM users u
+  WHERE ma.owner_user_id IS NULL
+    AND ma.account_type = 'personal'
+    AND lower(ma.email_address) = lower(u.email);
+```
+
+If multiple users share an email (shouldn't happen — `users.email` is unique — but defensive), skip and log a warning.
+
+## New helper: `server/services/mailboxScope.ts`
+
+Single source of truth for visible mailbox sets. Exposes:
+
+```ts
+type ViewerContext = {
+  userId: string;
+  companyId: string;
+  role: CompanyUserRole;
+  viewAs?: string; // userId | mailboxAccountId | "all"
+};
+
+type VisibleMailboxes = {
+  mailboxIds: string[];          // empty array => no mailboxes visible
+  includeNullMailbox: boolean;   // for communications table fallback
+  scopeLabel: "self" | "all" | "user" | "mailbox" | "shared_only";
+};
+
+async function resolveVisibleMailboxes(ctx: ViewerContext): Promise<VisibleMailboxes>
+```
+
+`resolveVisibleMailboxes` reads `settings.defaultMailboxVisibility`, applies the rule above, and returns the set. Reject with a 403-shaped error (`{ status: 403, message: "..." }`) if the requester tries `viewAs` they're not allowed to use.
+
+Unit-test the resolver with these cases:
+- admin, no `viewAs` → all mailboxes for the company
+- office, `viewAs=all` → all mailboxes
+- office, `viewAs=<userId>` → that user's personal + shared (per `defaultMailboxVisibility.shared`)
+- field, no `viewAs` → only own personal mailbox
+- field, `viewAs=<otherUserId>` → 403
+- field_manager (no perRole override, no entry in `shared`) → all mailboxes (default)
+- field with `perRole.field = "shared_only"` and one shared mailbox → only that shared mailbox
+
+## API changes
+
+### `GET /api/communications`
+
+Currently in `server/routes.ts` around line 13997. Update the query handler:
+
+1. Build `ViewerContext` from `req.user` + `req.companyId` + `req.user.role` (the existing auth middleware should already attach these — verify).
+2. Call `resolveVisibleMailboxes(ctx)`.
+3. Pass `mailboxIds` + `includeNullMailbox` into `storage.getCommunications()`.
+4. New query param: `viewAs` (string, optional). Pass through into the context.
+
+Keep all existing filters (`type`, `status`, `customerId`, `direction`, `search`, `fromDate`, `toDate`, `mailboxIds`, pagination) working. The legacy `mailboxIds` query param now means "intersect with the visible set" — never widen beyond it.
+
+### `GET /api/unsorted-emails`
+
+`server/routes/unsortedEmails.ts`. Same treatment: resolve visible mailbox set, filter the query by `unsorted_emails.mailboxAccountId IN (visible)`. Add `viewAs` param.
+
+### `GET /api/mailbox-accounts`
+
+`server/routes/mailboxAccounts.ts`. Filter the listing the same way. Admin/office without `viewAs` still gets the full company list.
+
+### `POST /api/unsorted-emails/:id/route`
+
+If the unsorted email's `mailboxAccountId` is not in the requester's visible set, return 403. (Prevents a user from triaging another user's mailbox.)
+
+### `POST /api/mailbox-accounts/:id/sync`
+
+Same 403 rule.
+
+## Storage layer
+
+In `server/storage.ts`, update these methods to accept an optional `scope: { mailboxIds: string[]; includeNullMailbox: boolean }`:
+
+- `getCommunications(filters)` — when `scope` present, add `OR (mailbox_account_id IN (:mailboxIds) [+ optional sent_by_id IS NULL fallback])`. When `scope.mailboxIds` is empty AND `includeNullMailbox` is false, return `{ items: [], total: 0 }` — never leak.
+- `getUnsortedEmails(filters)` — when `scope` present, restrict to `mailbox_account_id IN (:mailboxIds)`. Empty mailbox set → empty result.
+- `getMailboxAccounts(filters)` — when `scope` present, restrict to `id IN (:mailboxIds)`. Empty mailbox set → empty result.
+
+Do not change call sites that pass no scope; the param is optional and the behavior is unchanged when absent (preserves backwards compat for any internal callers like `automationService` or `due-date-notifications`).
+
+## Frontend changes (minimal)
+
+The new page is Slice 3. For Slice 1 we only need to keep the existing pages working:
+
+- `CommunicationsCenter.tsx` — pass the current user's selected `viewAs` if present (default no `viewAs`, which means "use my role's default"). Add a small `<MailboxViewAsPicker />` placeholder in the toolbar visible only to `admin`/`office` for now (dropdown with: "All", "My Mailboxes", and per-user options). When changed, the page sends `viewAs=<value>` on the `/api/communications` request.
+- `UnsortedInboxPage.tsx` — same picker, same param on `/api/unsorted-emails`.
+- `MailboxAccountsSettingsPage.tsx` — list now naturally narrows for non-admins. Confirm the page still works for admins (should be unchanged).
+
+Everything else is deferred to Slice 3.
+
+## App.tsx route changes
+
+Add `"field"`, `"field_manager"`, `"chemical_manager"`, `"irrigation_manager"`, `"shop_manager"`, `"mapping"`, `"landscape_supervisor"` to `allowedRoles` for `/dashboard/communications` and `/dashboard/communications/unsorted`. The new scope rule is what actually enforces what they see — the route just decides whether they can land on the page at all.
+
+## Acceptance checklist
+
+- [ ] `settings.defaultMailboxVisibility` exists, defaults to `{"shared":["admin","office"],"perRole":{"field":"own"}}`.
+- [ ] `mailbox_accounts.ownerUserId` is populated for any personal mailbox whose `email_address` matches a `users.email`.
+- [ ] `resolveVisibleMailboxes` exists in `server/services/mailboxScope.ts` with full unit-test coverage of the cases listed above.
+- [ ] `GET /api/communications`, `GET /api/unsorted-emails`, `GET /api/mailbox-accounts` honor the rule and accept `viewAs`.
+- [ ] `POST /api/unsorted-emails/:id/route` and `POST /api/mailbox-accounts/:id/sync` 403 on out-of-scope mailbox.
+- [ ] Logging in as a `field` user with their own connected mailbox shows their own mail and only their own.
+- [ ] Logging in as `admin` shows all mail (unchanged behavior).
+- [ ] Logging in as `office` and choosing `viewAs=<a field user's id>` narrows the list to just that user's mailbox.
+- [ ] No existing automation, scheduled job, or background worker breaks (they don't pass `scope`, behavior is unchanged for them).
+
+## Files touched
+
+- `shared/schema.ts`
+- `server/services/mailboxScope.ts` (new)
+- `server/services/mailboxScope.test.ts` (new)
+- `server/routes.ts` (only the `/api/communications` block)
+- `server/routes/unsortedEmails.ts`
+- `server/routes/mailboxAccounts.ts`
+- `server/storage.ts` (three methods)
+- `server/index.ts` or wherever startup migrations run — add the migration + backfill
+- `client/src/pages/CommunicationsCenter.tsx` — add `viewAs` picker + thread param through
+- `client/src/pages/UnsortedInboxPage.tsx` — same
+- `client/src/components/customer/communications/MailboxViewAsPicker.tsx` (new, placeholder; final shape lands in Slice 3)
+- `client/src/App.tsx` — broaden `allowedRoles` for the two communications routes
+
+## Things to NOT change in this slice
+
+- Email sync logic — Slice 2.
+- The Communications page layout — Slice 3.
+- Sidebar nav — Slice 4.
+- Routing logic in `emailRouter.ts` — Slice 2 changes it for outbound; this slice leaves it alone.

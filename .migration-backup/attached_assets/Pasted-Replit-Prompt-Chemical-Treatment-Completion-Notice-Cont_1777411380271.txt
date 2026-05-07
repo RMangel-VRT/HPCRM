@@ -1,0 +1,218 @@
+Replit Prompt — Chemical Treatment Completion Notice
+Context
+This is the follow-up to the Chemical Treatment Campaign Builder slice that has already shipped. That earlier slice added the chemical_products catalog, target/backup date scheduling, the label PDF upload, applicator license fields on users, and the new pre-visit chemical-treatment-notification.html template.
+This slice does the post-visit half: when the applicator marks a visit complete, we send a richer completion notice that confirms what was actually applied, what the property manager should expect over the next 1–2 weeks, time-relevant care guidance, and an optional preview of the next scheduled visit. Property-manager complaints on the current completion email mirror what we heard on the pre-visit email — too thin, no product info, no "what now?" guidance.
+This slice should land in a deployable state. A later slice will automate things like reminder emails for upcoming visits, applicator self-serve reschedules, and any additional chemical-category templates we identify.
+Critical: the chemical_products table, applicator license fields on users, the campaign visit additions, and the pre-visit template already exist from the prior slice. Do not recreate or replace them. Inspect what's there and only add what's listed below.
+Existing context (from the prior slice — do not duplicate)
+These already exist and will be extended:
+
+chemical_products table with id, companyId, name, manufacturer, activeIngredient, epaRegNumber, category, defaultPurpose, defaultReentryInterval, defaultWateringInstructions, defaultMowingInstructions, defaultLabelStorageKey, defaultLabelFilename, notes, isActive. We will add a small number of new default fields below.
+The campaign visit / recipient table has targetDate, backupDate, timeWindowStart, timeWindowEnd, chemicalProductId, applicatorUserId, labelOverrideStorageKey, labelOverrideFilename, purposeOverride, reentryIntervalOverride, wateringInstructionsOverride, mowingInstructionsOverride, wasBumpedToBackup. We will add completion-specific fields below.
+users.applicatorLicenseNumber and users.applicatorLicenseState already exist.
+The "Chemical Treatment Notification" template row exists and is wired to client/src/templates/chemical-treatment-notification.html. The server/templates/seed.ts (or equivalent) registry-based seeder already exists. We will add a second template entry to the same registry.
+The campaign send pipeline already has a render-template helper that resolves merge variables with the precedence order: visit override → product default → fallback string. We will extend it for completion-specific variables.
+File-storage layer: chemical labels already use signed URLs with the established TTL. Photos uploaded in this slice should reuse the same storage layer.
+
+Stack: React 18 + TypeScript + Vite + Tailwind + shadcn/ui (Radix) + Wouter + TanStack Query v5 + React Hook Form + Zod + Drizzle ORM + Postgres + i18next (en + es). No new dependencies.
+Multi-tenancy: every query filters by companyId. No exceptions.
+Schema changes
+1. Additions to chemical_products
+Add only if missing — these augment the existing product record so completion emails can be product-driven without retyping.
+
+defaultPostApplicationExpectation — text, nullable. The "what to expect over the next 1–2 weeks" paragraph for the completion email. Examples: pre-emergent → "Pre-emergents work invisibly. You won't see immediate change; protection lasts approximately 12 weeks."; post-emergent broadleaf → "You should see broadleaf weeds curl and yellow within 3–5 days, with full dieback in 7–14 days. Some yellowing is expected and indicates the product is working."; fertilizer → "Greening typically appears within 7–10 days after the next watering or rainfall."
+defaultPostApplicationWatering — text, nullable. Watering guidance specific to after application (this is often different from pre-application guidance, e.g., "Water in lightly within 24 hours" vs "Avoid watering for 24 hours so the product can absorb").
+
+The existing defaultWateringInstructions field continues to drive the pre-visit email. The new defaultPostApplicationWatering drives the completion email. Do not rename or repurpose the existing field.
+2. Additions to the campaign visit / recipient table
+Inspect first. Add only what's missing:
+
+completedAt — timestamp, nullable. Reuse if your visit table already has a status timestamp for completion — do not add a duplicate. If only a status enum exists, add this column.
+completedByUserId — varchar, FK → users.id, nullable. Who marked the visit complete (may differ from applicatorUserId if the office logs it).
+actualAreasTreated — text, nullable. Free-text or comma-separated list of zones (e.g., "Front lawn, side strips, common area near pool"). Free-text is intentional — property layouts vary too much for a fixed enum.
+actualConditions — text, nullable. Single field, free-text. Examples: "62°F, light wind, dry". Keep light — this isn't a weather station.
+completionPhotoStorageKeys — text[], default []. Storage keys for photos taken at the visit. Cap at 6.
+completionNotes — text, nullable. Visit-specific observations the applicator wants to share with the property manager. This is a separate field from the pre-visit notes — pre-visit notes describe access/site instructions for the visit; completion notes describe what happened. Do not repurpose notes.
+postApplicationExpectationOverride — text, nullable. Per-visit override of the product's defaultPostApplicationExpectation.
+postApplicationWateringOverride — text, nullable. Per-visit override of defaultPostApplicationWatering.
+completionEmailSentAt — timestamp, nullable. Set when the completion email is sent successfully, so the UI can show "Sent X minutes ago" and prevent accidental double-sends.
+
+3. Migrations
+Add migration logic alongside the existing startup migrations using the same IF NOT EXISTS pattern. Idempotent and safe on existing databases.
+API endpoints
+All endpoints check companyId from authenticated UserWithContext. Match existing route conventions.
+Chemical product fields
+The existing PATCH /api/chemical-products/:id and POST /api/chemical-products endpoints must accept defaultPostApplicationExpectation and defaultPostApplicationWatering in their Zod schemas. No new endpoints needed.
+Campaign visit completion
+Inspect the existing "mark visit complete" endpoint. Likely it already exists and sets a status + timestamp. Extend it (do not replace) to accept the new fields:
+
+actualAreasTreated
+actualConditions
+completionPhotoStorageKeys (array of keys produced by the photo upload endpoint below)
+completionNotes
+postApplicationExpectationOverride
+postApplicationWateringOverride
+completedByUserId (auto-set from authenticated user)
+
+After persisting the visit completion, the endpoint should return the visit row (so the client can render the post-completion state without a refetch). It should NOT auto-send the completion email — sending is a separate explicit action so the office can review before triggering. See "Send completion email" below.
+Add these endpoints:
+
+POST /api/campaign-visits/:id/photos — multipart upload, accepts up to 6 image files (image/jpeg, image/png, max 8 MB each). Validates MIME by magic bytes server-side. Stores under visit-photos/{companyId}/{visitId}/{uuid}.jpg. Appends to completionPhotoStorageKeys. Returns the updated array.
+DELETE /api/campaign-visits/:id/photos/:storageKey — removes a single photo from the array and from storage.
+POST /api/campaign-visits/:id/send-completion-email — renders the completion template with the merge variables described in "Render-template helper" and sends via the existing email pipeline. Sets completionEmailSentAt. Returns 409 if already sent within the last 60 seconds (debounce). Body optional: { resend: true } allows explicitly re-sending after the debounce window.
+POST /api/campaign-visits/:id/preview-completion-email — renders the completion template with current values and returns the HTML, without sending. Used by the preview Dialog.
+
+Visit photo signed URLs
+Add a small helper endpoint or extend the existing one:
+
+GET /api/campaign-visits/:id/photo-urls — returns an array of { storageKey, signedUrl, expiresAt } for the visit's photos. Signed URLs must live ≥ 7 days so the email links keep working when property managers open the email later.
+
+Render-template helper
+The existing helper from the prior slice covers pre-visit variables. Extend it to handle the completion template's variable set. The helper takes the visit row and a template-context tag ("pre-visit" or "completion") and returns the resolved variables.
+Completion-specific variables and how to resolve them:
+
+companyName, customerName, campaignTitle — same as pre-visit
+completionDate — completedAt formatted as "April 28, 2026" in the company's timezone
+completionTime — completedAt formatted as "10:42 AM" in the company's timezone
+areasTreated — actualAreasTreated. If empty, omit the row via template conditional
+applicationConditions — actualConditions. If empty, omit the row via template conditional
+productName, activeIngredient, epaRegNumber — from the linked product
+purpose — purposeOverride || defaultPurpose || fallback
+labelAttachmentUrl / labelAttachmentName — same precedence as pre-visit (visit override → product default), 7-day signed URL
+postApplicationExpectation — postApplicationExpectationOverride || defaultPostApplicationExpectation || fallback
+reentryInterval — reentryIntervalOverride || defaultReentryInterval || fallback
+wateringInstructions — for the completion template, this resolves to postApplicationWateringOverride || defaultPostApplicationWatering || fallback. (For the pre-visit template, the existing helper already resolves it from wateringInstructionsOverride || defaultWateringInstructions. Same variable name, different field per template context.)
+mowingInstructions — mowingInstructionsOverride || defaultMowingInstructions || fallback
+nextVisitTitle / nextVisitDate — query the next chemical-applicator visit for the same customer where targetDate > today and ordering ascending. If none, omit the entire "Next Scheduled Visit" section via template conditional.
+completionPhotosHtml — server-rendered HTML string of <img> tags pointing at signed URLs. Limit to first 6. Each <img> should have inline style="width: calc(33% - 6px); border-radius: 4px; border: 1px solid #e5e7eb;". If no photos, omit the section.
+applicatorName / applicatorLicense — from the linked applicatorUserId (formatted as {license} ({state}))
+contactPhone / contactEmail — from company settings (same as pre-visit)
+notes — for the completion template, this resolves to completionNotes, not the pre-visit notes field. Document this clearly in the helper. If empty, omit the section.
+
+Template conditionals. The completion HTML as currently written assumes every variable has a value. Wrap these blocks in {{#if}} / {{else}} checks (matching the templating engine already in use — the existing pre-visit completion notification used {{#if notes}}, so Handlebars-style is established):
+
+areasTreated
+applicationConditions
+nextVisitTitle and nextVisitDate (wrap the whole "Next Scheduled Visit" section)
+completionPhotosHtml (wrap the whole "Photos from Today" section)
+notes
+
+Fallback strings (translate via i18next):
+
+purpose → "Routine seasonal lawn care application"
+reentryInterval → "1 to 2 hours, or until the product has fully dried"
+wateringInstructions (completion context) → "Resume normal watering after 24 hours."
+mowingInstructions → "any time after the lawn has dried"
+postApplicationExpectation → "Results vary by product. Contact us if you have questions about what to look for over the next 1–2 weeks."
+notes / completionNotes → empty string (template conditional hides the section)
+
+File storage
+Visit photos:
+
+Accept image/jpeg and image/png only
+Max 8 MB per file
+Validate MIME by magic bytes server-side, not just the Content-Type header
+Strip EXIF GPS data on upload (privacy; some property managers send these emails to owners)
+Store under visit-photos/{companyId}/{visitId}/{uuid}.{ext} so files can never leak across companies
+Resize/compress on upload to a max long-edge of 1600px to keep email sizes reasonable
+Signed URL TTL ≥ 7 days
+
+If the existing storage layer doesn't support EXIF stripping or resizing, document the actual behavior in Deliverables — do not introduce new image-processing infra in this slice unless trivial.
+UI changes
+1. Mark Visit Complete form — extend existing flow
+Inspect the existing "mark visit complete" UI. It is likely a button on the visit detail page or a row action. Extend the form/modal that captures completion (or add one if today the action is a single-button affair) with these fields:
+
+Areas treated — text input with helper "Free-text — list zones in the property manager's terms (e.g., front lawn, side strips, near pool)"
+Conditions at application — single text input with helper "Optional — temperature, wind, ground state. Helps the property manager have a complete record."
+Photos — drag-drop multi-file upload using shadcn-styled dropzone, max 6 files. Preview thumbnails with remove buttons. Use the photo upload endpoint above.
+Completion notes — textarea, labeled "Notes for the property manager (these appear on the completion email)"
+Customize this completion group, collapsed by default:
+
+Override post-application expectation (textarea, placeholder = product default with that default visible in helper text)
+Override post-application watering (text, same pattern)
+Override re-entry interval (text)
+Override mowing instructions (text)
+Override product label PDF (file upload, only relevant if a different label was actually used than what was scheduled)
+
+
+Submit button: "Mark visit complete"
+
+On submit, the existing complete-visit endpoint persists everything. The form should NOT trigger the email — the user lands on the visit detail view next.
+2. Visit detail — completion + email controls
+After a visit is marked complete, the visit detail view should show:
+
+A green "Completed" banner with completedAt formatted, the applicator name, and a link to view photos.
+A new "Completion email" panel with:
+
+Status: "Not yet sent" / "Sent {relative time} ago to {recipient address}"
+Buttons: "Preview email" (opens a sandboxed iframe Dialog using the preview endpoint), "Send completion email" (calls the send endpoint; disabled inside the 60s debounce window; on success, refetches and shows the new sent-at), and "Resend" (visible only after a successful send; calls send with { resend: true })
+Caption: "The preview shows exactly what the property manager will receive."
+
+
+
+If a visit is marked complete and the campaign category requires a completion email but it hasn't been sent within 24 hours, show an inline Alert reminding the user. Do not auto-send.
+3. Chemical Products settings — two new fields
+Extend the existing ChemicalProductForm modal (settings page from the prior slice) with two new fields placed in a clearly-labeled "Completion email defaults" group:
+
+Default post-application expectation (textarea, helper: "Customer-facing — what the property manager should expect over the next 1–2 weeks. Used in the completion email. Example: 'Broadleaf weeds will curl and yellow within 3–5 days, with full dieback in 7–14 days.'")
+Default post-application watering (text, helper: "Used in the completion email. Often different from pre-application watering — e.g., 'Water in lightly within 24 hours' vs 'No watering for 24 hours.'")
+
+Server validation must accept these fields. The existing label upload, internal notes, and active toggle stay as-is.
+4. Email template file
+Create client/src/templates/chemical-treatment-completion.html with the contents of the finalized template that lives alongside this prompt at chemical-treatment-completion.html — copy verbatim. Wrap the conditional sections (see "Template conditionals" above) using the templating engine already in use.
+Add the template to the existing server/templates/seed.ts registry alongside the pre-visit entry. The seeder reads the file from disk on startup and updates the row's body. Idempotent.
+The template's row in the database — likely currently named "Chemical Treatment Completed" or "Bluegrass Treatment Completed" — must:
+
+Have its body replaced from disk on startup
+Have its mergeVariables (or equivalent metadata column) updated to:
+
+  companyName, customerName, campaignTitle,
+  completionDate, completionTime,
+  areasTreated, applicationConditions,
+  productName, activeIngredient, epaRegNumber, purpose,
+  labelAttachmentUrl, labelAttachmentName,
+  postApplicationExpectation,
+  reentryInterval, wateringInstructions, mowingInstructions,
+  nextVisitTitle, nextVisitDate,
+  completionPhotosHtml,
+  applicatorName, applicatorLicense,
+  contactPhone, contactEmail,
+  notes
+If your existing template row uses a different name (e.g., the original "Bluegrass Treatment Completed"), match by slug or stable ID — do not create a duplicate row.
+Patterns and conventions
+
+Every user-facing string goes through i18next. Add new keys to both en and es translation files. Use machine translation as a starting point for es and add a // TODO: human-review translation comment.
+Every new query filters by companyId. No exceptions.
+New routes go in the most logically related existing route file. If you split into a new file, match existing conventions.
+Use existing shadcn components — don't import new Radix primitives that aren't already in use.
+Loading states: shadcn Skeleton. Error states: shadcn Alert.
+All new icons from lucide-react.
+Zod schemas shared between client and server via shared/ where the existing code already does this.
+Photo uploads must NOT block the form submit — upload happens immediately on file drop, and the form stores the resulting storage keys. Show per-file upload progress and allow remove during upload.
+
+Out of scope for this slice (do not build)
+
+Auto-sending completion emails when a visit is marked complete (we explicitly want the office to confirm before sending; automation comes later)
+SMS completion notifications
+A separate "completion confirmed by property manager" flow (we're not asking for an ack)
+Bulk-mark-complete across multiple visits
+AI-generated completion notes from photos
+Bulk import of historical completion emails for past visits
+Translation of the email body content (the template stays English; only the app UI is bilingual)
+Per-state regulatory-language enforcement on completion notices
+
+Deliverables
+When you finish, report back with:
+
+List of all new files created (paths)
+List of all files modified (paths + 1-line description of what changed)
+List of new database tables and columns added (none expected for tables; just columns)
+List of new API endpoints created
+List of new routes added to the frontend router and settings nav (none expected)
+The actual signed-URL TTL achieved for visit photos and label attachments, if it differs from the requested 7 days
+Whether EXIF stripping and resize-on-upload are in place for visit photos; if not, what the gap is
+Any decisions you made where this prompt was ambiguous, and what you chose
+Any issues you ran into or anything you skipped, with reasons
+A short manual test plan covering: editing a product to add post-application defaults, marking a visit complete with photos and overrides, previewing the completion email, sending it, attempting an immediate resend (expect debounce), explicit resend after the debounce window
+
+Do not skip any item silently. If something can't be built (e.g., the storage layer can't strip EXIF), say so explicitly with the actual constraint.

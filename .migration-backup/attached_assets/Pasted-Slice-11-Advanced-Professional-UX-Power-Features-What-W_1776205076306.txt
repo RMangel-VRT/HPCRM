@@ -1,0 +1,230 @@
+Slice 11 — Advanced Professional UX + Power Features
+What & Why
+
+At this point, the tool is fully functional and professional.
+This final slice is about speed, scale, and polish.
+
+Right now, a user can build great sheets.
+After this slice, a user can build them fast, cleanly, and at scale.
+
+This is what separates:
+
+a “good internal tool”
+from
+a tool your team actually prefers to use every day
+Scope
+Add multi-select + bulk editing
+Add group / ungroup
+Add alignment + distribution tools
+Add keyboard shortcuts
+Improve snapping + precision controls
+Add zoom + navigation improvements
+Add object list / selection panel
+Improve performance with large sheets
+Add copy/paste across sheets
+Core Features
+1. Multi-Select + Bulk Editing
+Objective
+
+Allow users to select and modify multiple objects at once.
+
+Capabilities
+Shift-click to select multiple objects
+Drag selection box
+Bulk move
+Bulk delete
+Bulk apply preset/style
+Done Looks Like
+User selects 10 trees → resizes all at once
+User selects multiple areas → applies new preset instantly
+2. Group / Ungroup
+Objective
+
+Let users treat multiple objects as one unit.
+
+Capabilities
+Group selected objects
+Move/scale/rotate group
+Ungroup back into individual objects
+Use Cases
+callout + leader line
+symbol clusters
+composed design elements
+3. Align + Distribute
+Objective
+
+Clean up layouts quickly.
+
+Capabilities
+Align left / center / right
+Align top / middle / bottom
+Distribute evenly (horizontal/vertical)
+Use Cases
+organizing callouts
+aligning notes blocks
+cleaning up layouts for export
+4. Keyboard Shortcuts
+Objective
+
+Speed up power users.
+
+Suggested Shortcuts
+Delete → remove object
+Cmd/Ctrl + D → duplicate
+Cmd/Ctrl + Z → undo
+Cmd/Ctrl + Shift + Z → redo
+Shift → constrain angles
+Arrow keys → nudge objects
+Cmd/Ctrl + C / V → copy/paste
+5. Snapping + Precision Controls
+Objective
+
+Make placement feel intentional, not sloppy.
+
+Features
+snap to grid (optional)
+snap to object edges
+snap to center points
+angle snapping for lines
+Done Looks Like
+edges line up cleanly
+callouts align nicely
+layouts feel professional
+6. Zoom + Navigation Improvements
+Objective
+
+Handle large properties and detailed work smoothly.
+
+Features
+zoom in/out (mouse + UI)
+zoom to fit
+zoom to selection
+pan (click + drag or spacebar)
+optional mini-map (nice-to-have)
+7. Object List / Selection Panel
+Objective
+
+Give visibility into all objects on the sheet.
+
+Capabilities
+list all objects by:
+type
+name
+layer
+click to select object
+search/filter objects
+quick visibility toggle
+Use Cases
+find hidden objects
+manage complex sheets
+debug clutter
+8. Copy / Paste Across Sheets
+Objective
+
+Reuse work across projects.
+
+Capabilities
+copy objects from one sheet
+paste into another sheet
+preserve:
+styles
+textures
+symbols
+labels
+9. Performance Optimization
+Objective
+
+Ensure tool remains fast with real-world usage.
+
+Requirements
+smooth interaction with:
+many polygons
+many symbols
+multiple textures
+no lag during:
+zoom
+pan
+selection
+efficient re-rendering
+Done Looks Like
+User builds a complex HOA sheet quickly
+Can select, move, and adjust large groups easily
+Layouts snap cleanly into place
+Navigation feels smooth even on large properties
+Tool feels intentional and polished, not clunky
+Guardrails
+Do NOT introduce complexity that slows basic users
+Keep advanced features discoverable but not intrusive
+Avoid turning UI into a cluttered control panel
+Performance must not degrade as features are added
+UX Notes
+Philosophy
+Default = simple
+Power = available when needed
+Progressive Complexity
+basic users: draw + export
+advanced users: leverage shortcuts + grouping + alignment
+Data Model Expectations
+
+Minimal changes required:
+
+grouping support (groupId or nested structure)
+multi-select state handling
+clipboard structure for copy/paste
+
+Avoid major schema rewrites at this stage.
+
+Test Plan
+Multi-Select
+select multiple objects
+move, delete, apply styles
+Grouping
+group objects
+move/scale group
+ungroup → verify integrity
+Alignment
+align various objects
+confirm visual consistency
+Navigation
+zoom/pan across large sheet
+verify no lag
+Copy/Paste
+copy between sheets
+confirm full fidelity
+Performance
+stress test:
+50+ symbols
+20+ polygons
+multiple textures
+confirm smooth interaction
+Done Looks Like for Final Approval
+Tool feels fast and professional
+Large sheets are manageable
+Power users can move quickly
+Output remains clean and consistent
+This is now a complete, production-ready system
+Final Outcome
+
+After Slice 11, your Visual Scope Tool is:
+
+✔ A Design Tool
+textures
+symbols
+structured drawing
+✔ A Communication Tool
+legend
+callouts
+notes
+layouts
+✔ A Proposal Tool
+clean exports
+consistent presentation
+professional output
+✔ A Planning Tool
+measurements
+counts
+takeoff-lite
+✔ A System
+presets
+templates
+repeatable workflows

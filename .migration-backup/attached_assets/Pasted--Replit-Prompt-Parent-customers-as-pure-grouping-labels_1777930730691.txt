@@ -1,0 +1,283 @@
+# Replit Prompt — Parent customers as pure grouping labels
+
+## Context
+
+The CRM currently treats a "parent" customer as both a grouping construct AND a real customer with its own data. The schema (`shared/schema.ts` lines 87–138) gives every customer a `parentCustomerId` self-reference and an `isParent` text flag, but nothing in the database, API, or UI prevents a parent from holding its own contracts, contacts, work orders, communications, proposals, tickets, service plans, notes, or invoices. As a result:
+
+- The customer search picker (`/api/customers/search`, `client/src/components/CustomerSearchInput.tsx`) returns parents and children mixed together with no visual distinction. Users can attach work orders, communications, proposals, etc. directly to a parent.
+- A child customer's detail page (`client/src/pages/CustomerDetail.tsx` lines 1139–1142, 2161–2171) shows the parent's contracts under a "Contracts managed by [parent name]" section — implying parents are umbrella accounts — but the parent's own page does *not* roll up child contracts, revenue, or work.
+- Revenue calculations (`server/storage.ts` `getCustomerRevenue` line 1004, `getRevenueOverview` line 1097) only ever look at one customer's own contracts. A parent with three child branches each holding $50k in contracts shows $0 (or whatever the parent itself happens to hold), not $150k.
+- The `isParent` flag is only set to `"false"` when the *last* child is unlinked (`server/routes.ts` lines 2696–2703), so parents that have been emptied out can stay flagged as parents indefinitely.
+
+**The intended business model.** A parent customer is a grouping label and a summary view, *never* a contract holder. Real-world example: "1st Bank" is the parent and the 11 1st Bank branches are the children. The contracts, work, communications, contacts, and invoices all belong to the individual branches. The parent record exists only so we can (a) group the branches together in lists and pickers, and (b) view a rolled-up summary across all branches.
+
+## Goal
+
+Make parent customers behave as pure grouping labels everywhere in the system:
+
+1. **Pickers** — when a user selects a customer for a contract, work order, communication, proposal, ticket, contact, note, service plan, invoice, etc., parents are grouped and visually demoted; selecting a parent expands its children rather than picking the parent itself.
+2. **API guard rails** — the server refuses to create or move operational records (contracts, work orders, tickets, proposals, communications, contacts, service plans, etc.) onto a customer where `isParent = "true"`.
+3. **Parent customer page = rollup dashboard** — viewing a parent shows aggregated totals across its children (revenue, active contracts, open tickets, recent communications, work-this-year), with drill-in to any individual child.
+4. **Data migration / audit** — produce a one-time audit so the customer can manually decide where to move any existing operational records currently attached to parents.
+
+## Non-goals
+
+- Do NOT delete or auto-migrate any existing operational records attached to parents. Produce an audit report only — the customer will move them by hand or via a follow-up slice.
+- Do NOT remove the `isParent` flag or `parentCustomerId` columns from the schema.
+- Do NOT change the customer-list (`CustomersList.tsx`) tree expansion behavior — that already groups parents and children correctly.
+- Do NOT change permissions/roles. Whoever can edit a child today can still edit it.
+- Do NOT change how billing, invoicing, QuickBooks sync, or any external integrations work in this slice. Operational guard rails only block *new* attachments; existing data flows continue to function.
+- No mobile redesign. Desktop only.
+
+---
+
+## Slice 1 — API guard rails and audit report
+
+### 1a. Block operational records from being attached to parent customers
+
+For each of the endpoints listed below, add a server-side check at the top of the handler: if the supplied `customerId` resolves to a customer with `isParent === "true"`, respond with **HTTP 400** and the JSON body:
+
+```json
+{
+  "error": "PARENT_CUSTOMER_NOT_ALLOWED",
+  "message": "This customer is a grouping for child properties and cannot hold operational records. Please pick a child property instead.",
+  "parentCustomerId": "<the parent id>"
+}
+```
+
+Apply this guard to the **CREATE** and **UPDATE** handlers for the following entities. (Search `server/routes.ts` and `server/routes/` for each.) Use the same constant error code so the frontend can recognize it uniformly:
+
+- `contracts` — POST `/api/contracts`, POST `/api/customers/:customerId/contracts`, PATCH `/api/contracts/:id` (when `customerId` is being changed)
+- `tickets` — POST `/api/tickets`, PATCH `/api/tickets/:id`
+- `proposals` — POST `/api/proposals`, PATCH `/api/proposals/:id`
+- `communications` — POST `/api/communications`, POST `/api/communication-threads`
+- `contacts` — POST `/api/customers/:customerId/contacts`
+- `notes` — POST `/api/customers/:customerId/notes`
+- `customerServicePlans` — POST `/api/customers/:id/service-plans`
+- `equipment` — POST `/api/equipment`
+- `markupSheets` — POST `/api/markup-sheets`
+- `visualScopeSheets` — POST `/api/visual-scope-sheets`
+- `campaignItems` — POST `/api/campaign-items`
+- `propertyMapLayers`, `propertyMapDocuments` — corresponding POST routes
+
+Implement the check as a small reusable helper in `server/storage.ts` or a new `server/utils/parentGuard.ts`:
+
+```ts
+export async function assertNotParentCustomer(customerId: string, companyId: string): Promise<void> {
+  const customer = await storage.getCustomerById(customerId, companyId);
+  if (!customer) throw new HttpError(404, "CUSTOMER_NOT_FOUND", "Customer not found");
+  if (customer.isParent === "true") {
+    throw new HttpError(400, "PARENT_CUSTOMER_NOT_ALLOWED",
+      "This customer is a grouping for child properties and cannot hold operational records. Please pick a child property instead.",
+      { parentCustomerId: customer.id });
+  }
+}
+```
+
+Call it at the top of each affected route. Use whatever HTTP-error abstraction the codebase already uses; if there's no `HttpError` helper, return the JSON directly with `res.status(400).json(...)`.
+
+### 1b. Auto-clear `isParent` when the last child is removed (already partially exists)
+
+The customer PATCH route (`server/routes.ts` lines 2696–2703) already handles this on child reassignment. Audit the **child DELETE** route (DELETE `/api/customers/:id` when the deleted customer has a `parentCustomerId`) and apply the same logic: after deletion, if the parent has no remaining children, set `parent.isParent = "false"` and clear `parent.parentCustomerId` if it was somehow set.
+
+### 1c. Auto-clear `isParent` and a one-time backfill on app startup
+
+In `server/routes.ts` (the existing migration block — see how `migrateEmailTrackingTables()` is structured), add a new function `reconcileIsParentFlags()` that runs once at startup:
+
+```sql
+-- For every customer flagged isParent = 'true' that has zero children, set isParent = 'false'
+UPDATE customers c
+SET is_parent = 'false'
+WHERE c.is_parent = 'true'
+  AND NOT EXISTS (SELECT 1 FROM customers x WHERE x.parent_customer_id = c.id);
+
+-- For every customer that has at least one child but is NOT flagged, fix the flag
+UPDATE customers c
+SET is_parent = 'true'
+WHERE c.is_parent = 'false'
+  AND EXISTS (SELECT 1 FROM customers x WHERE x.parent_customer_id = c.id);
+```
+
+Wire it into the same startup hook as the other migration helpers.
+
+### 1d. Operational-records audit report
+
+Add a new admin-only endpoint **GET `/api/admin/parent-customer-audit`** that returns a JSON report of every parent customer that currently holds operational records that should belong to a child:
+
+```json
+{
+  "parents": [
+    {
+      "customerId": "...",
+      "name": "1st Bank",
+      "childCount": 11,
+      "issues": {
+        "contracts": [{ "id": "...", "serviceType": "Maintenance", "startDate": "..." }],
+        "tickets": [...],
+        "proposals": [...],
+        "communications": [...],
+        "contacts": [...],
+        "notes": [...],
+        "servicePlans": [...]
+      }
+    }
+  ],
+  "summary": {
+    "totalParents": 14,
+    "parentsWithIssues": 3,
+    "totalRecordsToReview": 27
+  }
+}
+```
+
+Also expose it as a downloadable CSV at the same endpoint when the request includes `?format=csv`. Each row: `parent_id, parent_name, record_type, record_id, record_summary, child_count`. Permissions: admin/office only — match whatever middleware the existing admin endpoints use (search `server/routes.ts` for an admin-only example like `/api/admin/`).
+
+The customer will use this report to manually move each offending record to the correct child via the existing UI. **Do not auto-move anything.**
+
+### Slice 1 deliverables
+
+When done, report:
+
+1. List of routes where the parent guard was added.
+2. Confirmation the startup reconciliation function runs and produces a row count of how many `isParent` flags were corrected.
+3. URL of the audit endpoint and confirmation that GET returns JSON and `?format=csv` returns CSV.
+4. A sample of the audit output for the current production-like dataset (paste the JSON `summary` block).
+
+---
+
+## Slice 2 — Picker behavior: parents grayed, selecting a parent expands children
+
+### 2a. Update the search endpoint to return parent/child relationship metadata
+
+`GET /api/customers/search` (server/routes.ts ~line 2528, calling `getCustomerSearch` in `server/storage.ts` line 701) currently returns a flat `Customer[]`. Change the response shape to include the same fields plus `parentCustomerId` (already present on `Customer`) and `isParent` (already present). No schema change — these fields already exist; we just need the picker to use them.
+
+Additionally, when the search query matches a parent customer's name, also include all of that parent's children in the result set (deduped), so the picker can render the family. Add a new helper in `server/storage.ts`:
+
+```ts
+async getCustomerSearchWithChildren(companyId: string, query: string): Promise<Customer[]> {
+  const direct = await this.getCustomerSearch(companyId, query);
+  const parentIds = direct.filter(c => c.isParent === "true").map(c => c.id);
+  if (parentIds.length === 0) return direct;
+  const children = await db.select().from(customers)
+    .where(and(inArray(customers.parentCustomerId, parentIds), eq(customers.companyId, companyId)));
+  // dedupe by id
+  const merged = new Map<string, Customer>();
+  for (const c of [...direct, ...children]) merged.set(c.id, c);
+  return Array.from(merged.values());
+}
+```
+
+Update `GET /api/customers/search` to call the new helper.
+
+### 2b. Update `CustomerSearchInput.tsx` to render parents differently
+
+In `client/src/components/CustomerSearchInput.tsx`:
+
+1. Add a new optional prop `mode?: "operational" | "any"` (default: `"operational"`). In `"operational"` mode, parents are NOT directly selectable — clicking a parent expands its children inline.
+2. In the results dropdown, group results by their effective family:
+   - Standalone customers (no parent, not a parent themselves): rendered normally.
+   - Parent customers: rendered with a muted/grayed label, a small "Group of N properties" caption, and a chevron. They are non-selectable in `"operational"` mode (clicking them toggles their expansion).
+   - Child customers: rendered indented under their parent, with the parent's name shown as a subtle prefix or badge (e.g. "1st Bank · Main St Branch").
+3. Use the existing `hover-elevate` class for child rows, but on parent rows use a distinct muted style — gray background (`bg-muted`), reduced text contrast (`text-muted-foreground`), and `cursor-default` rather than `cursor-pointer` in operational mode.
+4. Add a `data-testid` attribute `option-customer-parent-${c.id}` for parent rows and `option-customer-child-${c.id}` for child rows so tests can distinguish.
+
+### 2c. Pass `mode="operational"` from every operational picker
+
+Search the codebase for usages of `CustomerSearchInput` and pass `mode="operational"` to all of them EXCEPT the customer-merge or customer-management screens where selecting a parent is legitimate. Specifically:
+
+- **Operational (pass `mode="operational"`):** anywhere a contract, ticket, proposal, communication, contact, note, service plan, invoice, work order, or campaign item is being created.
+- **Management (leave default `mode="any"` or pass `mode="any"` explicitly):** the "set parent of this customer" picker on the customer settings page.
+
+Run a grep for `<CustomerSearchInput` and audit each call site. List them in the deliverable.
+
+### 2d. Frontend handling of the `PARENT_CUSTOMER_NOT_ALLOWED` server error
+
+Even with the picker filtered, a malformed or stale request might still send a parent ID. In `client/src/lib/queryClient.ts` (or wherever the global error handler lives — search for existing toast-on-error logic), recognize the error code `PARENT_CUSTOMER_NOT_ALLOWED` and show a toast:
+
+> "That customer is a grouping for child properties. Please pick a child property instead."
+
+Don't redirect; just toast and let the user re-pick.
+
+### Slice 2 deliverables
+
+When done, report:
+
+1. Confirmation that `GET /api/customers/search` now returns parents AND their children when a parent name matches.
+2. Screenshot or description of the picker showing a parent grayed out with children indented beneath.
+3. List of every `CustomerSearchInput` call site and the `mode` it now uses.
+4. Confirmation that the global error toast fires on `PARENT_CUSTOMER_NOT_ALLOWED`.
+
+---
+
+## Slice 3 — Parent customer page becomes a rollup dashboard
+
+### 3a. New backend endpoint: parent rollup
+
+Add `GET /api/customers/:id/parent-rollup` which, when called on a customer with `isParent === "true"`, returns aggregated stats across all of its children:
+
+```json
+{
+  "parent": { "id": "...", "name": "1st Bank", "childCount": 11 },
+  "children": [
+    { "id": "...", "name": "1st Bank — Main St", "activeContractCount": 2, "openTicketCount": 1, "annualRevenue": 4500000, "lastCommunicationAt": "..." }
+    /* one entry per child */
+  ],
+  "totals": {
+    "activeContracts": 22,
+    "openTickets": 4,
+    "annualRevenueCents": 49500000,
+    "communicationsLast30Days": 17,
+    "completedWorkOrdersThisYear": 38
+  }
+}
+```
+
+If called on a non-parent customer, return HTTP 400 with `{ "error": "NOT_A_PARENT_CUSTOMER" }`.
+
+The `annualRevenueCents` total is the sum of every child's `getCustomerRevenue()` result for the current year. Reuse the existing helper rather than reimplementing.
+
+### 3b. New frontend route: parent dashboard
+
+In `client/src/pages/CustomerDetail.tsx` (or, preferably, a new file `client/src/pages/ParentCustomerDashboard.tsx` rendered from the same route when `customer.isParent === "true"`), render a parent-specific layout instead of the standard customer dashboard:
+
+- Header: parent name + "Group of N properties" caption + child count badge.
+- Summary cards row (use the same card styling as the existing CustomerDashboard): Active Contracts, Open Tickets, Annual Revenue (rolled up), Communications (last 30 days), Completed Work Orders YTD.
+- A children table listing each child with columns: Name, Active Contracts, Open Tickets, Annual Revenue, Last Communication. Each row links to that child's normal customer detail page.
+- A "Recent activity" feed showing the most recent 10 communications, work completions, and ticket changes across all children, each tagged with the child name they belong to.
+- **Hide all of the operational tabs** (Contracts, Tickets, Proposals, Communications, Contacts, Notes, Service Plan, Maps, etc.) when viewing a parent. Replace with a single "Children" tab (the table above) and a "Settings" tab (where the user can rename the parent, add/remove children, or convert the parent into a regular customer if they have zero children).
+
+The route logic: `client/src/pages/CustomerDetail.tsx` already fetches the customer record. Add an early branch — if `customer.isParent === "true"`, render `<ParentCustomerDashboard customer={customer} />` and short-circuit the normal layout.
+
+### 3c. Remove the "Contracts managed by [parent]" section from child pages
+
+The existing parent-contracts section in `CustomerDetail.tsx` lines 1139–1142 and 2161–2171 was only there because parents could hold contracts directly. With Slice 1's guard rails preventing new contracts on parents, and Slice 1d's audit letting you migrate existing ones, this section becomes dead UI. Delete it (the `parentContracts` query and the JSX block that renders it). After Slice 1's audit and manual cleanup, no parent should have contracts; if any are still there, the audit endpoint surfaces them.
+
+### Slice 3 deliverables
+
+When done, report:
+
+1. Confirmation that visiting any parent customer renders the rollup dashboard, not the standard layout.
+2. Output of `GET /api/customers/:id/parent-rollup` for one real parent in the system (paste the `totals` block).
+3. Confirmation that the "Contracts managed by [parent]" section is removed from the child page.
+4. Confirmation that no operational tabs (Contracts, Tickets, Proposals, etc.) appear when viewing a parent.
+
+---
+
+## Order of execution and safety
+
+Run the slices in the order above. **Do not** start Slice 3 until Slice 1's audit report has been reviewed by the customer and any operational records on parents have been moved to the correct child. (The customer will do this manually via the regular UI; that's why the audit is needed.) The parent dashboard in Slice 3 hides those records, so any unmoved data would silently disappear from view — which is exactly why we audit and migrate first.
+
+Each slice should land as its own PR. Don't combine them.
+
+## Out of scope (do not touch)
+
+- Schema changes other than what's described. Keep `parentCustomerId` and `isParent` as-is.
+- Customer-list (`CustomersList.tsx`) tree behavior — already correct.
+- QuickBooks, billing exports, snow routing, chemical campaign code — none of those need changes for this restructure.
+- Any new permissions/roles.
+- Any UI changes to mobile viewports.
+- Renaming or refactoring unrelated helpers, hooks, or utilities.
+
+## When you're done
+
+Reply with a numbered list of every file you touched, grouped by slice, plus the deliverable confirmations called out at the end of each slice. Do not "improve" anything outside the items listed above.

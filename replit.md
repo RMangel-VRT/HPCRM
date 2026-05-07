@@ -1,73 +1,68 @@
 # High Plains Property Maintenance CRM
 
-## Overview
-The High Plains Property Maintenance CRM centralizes and streamlines operations for landscaping companies. It provides robust management for customers, contacts, notes, and contracts, featuring a mobile-first ticketing system for field crew task management. The system aims to enhance service delivery efficiency and operational management through capabilities like role-based access control, advanced contract generation, and comprehensive communication tools. The project's vision is to become the leading operational CRM for property maintenance businesses.
+A full-featured property maintenance CRM for High Plains Property Maintenance — manages customers, tickets, contracts, campaigns, communications, scheduling, and visual scope mapping.
 
-## User Preferences
-Preferred communication style: Simple, everyday language.
-Test login credentials: randy@highplainsprop.com / Soccer03 (field role); mike@highplainsprop.com / Soccer03 (admin role)
+## Run & Operate
 
-## System Architecture
+- `pnpm --filter @workspace/api-server run dev` — run the API server (port 8080)
+- `pnpm --filter @workspace/highplains-crm run dev` — run the frontend (port from PORT env)
+- `pnpm run typecheck` — full typecheck across all packages
+- `pnpm --filter @workspace/db run push` — push DB schema changes (dev only)
+- Required env: `DATABASE_URL`, `SESSION_SECRET`
+- Test login: `mike@highplainsprop.com` / `Soccer03` (admin)
 
-### UI/UX
-The frontend is built with React 18+, TypeScript, Vite, Wouter, and TanStack Query. It utilizes Shadcn/ui and Radix UI primitives for components, with styling managed by Tailwind CSS, supporting custom theming and light/dark modes. The system offers full Spanish/English localization using i18next and react-i18next, with user language preferences stored and a toggle for switching.
+## Stack
 
-### Technical Implementation
-The backend uses Express.js and TypeScript. Authentication is handled by Passport.js with session-based management stored in PostgreSQL. It supports multi-tenancy with granular role-based access control (Admin, Office, Field Manager, Chemical Manager, Field, Irrigation Manager, Shop Manager). Data is persisted in PostgreSQL (Neon serverless) using Drizzle ORM and Drizzle Kit for migrations. Replit's object storage (Google Cloud Storage) is used for contract PDF documents, visual scope images, and ticket PDF attachments with company-scoped ACL and presigned URL uploads.
+- pnpm workspaces, Node.js 24, TypeScript 5.9
+- API: Express 5 (`artifacts/api-server/`)
+- Frontend: React + Vite + Tailwind v3 (`artifacts/highplains-crm/`)
+- DB: PostgreSQL + Drizzle ORM (`lib/db/`)
+- Sessions: `express-session` + `connect-pg-simple` + `passport` (local strategy)
+- Build: esbuild (CJS bundle for API)
 
-#### Core Features
-- **Contract Management:** Full lifecycle management, templating, variable substitution, and PDF export for 8 service types.
-- **Ticketing System:** Mobile-first, configurable ticket types, custom workflows, 3-phase project workflow, linked tickets, and automated invoice ticket generation.
-- **Weekly Schedule System:** Template-based drag-and-drop scheduling with capacity indicators and PDF export.
-- **Property Maps System:** KML-based layer mapping for field crews to view customer-specific property zones and service areas.
-- **Property Management:** Tracks Property Management Companies and Managers, integrated with customer management.
-- **Equipment Tracking:** CRUD operations for various equipment types, status tracking, and dedicated equipment ticketing workflows.
-- **Revenue Tracking:** Tracks contracted revenue by service type, with monthly/YTD totals, annual projections, and drill-down capabilities.
-- **Customer Detail Page:** Consolidated view of all customer information.
-- **Snow Storm Billing/Tracking:** Manages winter weather events, service assignments, and automated invoice ticket generation.
-- **Reports:** Exportable lists (Customer/Property, Contacts, Equipment, Contracts, Tickets Summary) with sortable, searchable data tables and CSV export.
-- **Email Notification System:** Transactional email notifications via SendGrid for events like "Work Completed" tickets, using a template/rule engine.
-- **Proposal Maker:** Tool for creating customer proposals, capturing scope, images, and generating branded PDF outputs.
-- **Visual Scope Sheet Tool:** Satellite map-based tool for creating property scope imagery with an interactive SVG overlay editor, server-side PNG export, and integration with Proposal Maker. Features texture fills, style presets, and sheet templates, alongside advanced UX features like multi-select, grouping, alignment tools, and keyboard shortcuts.
-- **Campaign System:** Batch property checklist system for organizing work (General, Chemical, Irrigation) with task assignment, completion tracking, notes, photos, and role-based permissions. Chemical campaigns include a 3-step communication workflow with automated emails and weather capture. Irrigation campaigns feature property-specific checklists.
-- **Email Tracking System:** Manages company email inboxes, routes inbound emails, and extends communication records with detailed email metadata. Includes UI for unsorted inbox management and mailbox account settings.
-- **Chemical Treatment Completion Notice:** Post-visit completion workflow for chemical treatment campaigns, including enhanced completion forms, completion details display, email management, and product settings.
-- **Communication Command Center:** Analytics dashboard for Admin/Office roles with insights into communication activities.
-- **Seasons Management System:** Allows grouping campaigns into named time periods for aggregated reporting, with CRUD operations and export capabilities.
-- **Checklist-Driven Navigation Panel:** A right-side detail panel for campaign item checklists enabling navigation to related screens from global operations or customer-specific views.
-- **Field Role Layout (FieldAppLayout):** Mobile-first layout for operational roles with a sticky top bar, scrollable content, and role-specific dashboards.
+## Where things live
 
-#### Communication Center
-A comprehensive communication lifecycle management system accessible to admin and office roles. It features a three-panel layout for navigation (All, Drafts, Scheduled, Follow-Ups), a filterable list of communications, and a detail panel for content and actions. Functionality includes message threading, reply actions, a compose drawer, schedule-send for admins, follow-up creation and management, and dashboard widgets for quick access to communication states.
+- `artifacts/api-server/src/routes/routes.ts` — main 16k-line CRM route file (registerRoutes)
+- `artifacts/api-server/src/auth.ts` — passport setup, session, login/logout endpoints
+- `artifacts/api-server/src/storage.ts` — database query layer
+- `artifacts/api-server/src/index.ts` — server entry point
+- `lib/db/src/schema/` — Drizzle schema (source of truth for DB types)
+- `artifacts/highplains-crm/src/shared/schema.ts` — frontend-compatible schema (drizzle stub, no pg imports)
+- `artifacts/highplains-crm/src/shared/drizzle-stub.ts` — minimal drizzle stub for frontend use
+- `artifacts/highplains-crm/src/App.tsx` — Wouter router with base path
+- `artifacts/highplains-crm/src/index.css` — brand theme (green #1a4d1a)
 
-## Running Migrations
+## Architecture decisions
 
-### SQL Migrations (structural — indexes, new columns)
+- OpenAPI spec skipped — frontend uses the original `apiRequest` fetch layer directly (no generated hooks)
+- `registerRoutes(app)` in `routes.ts` returns an HTTP server; `index.ts` calls it and invokes `server.listen()`
+- Frontend `@shared/*` alias points to `src/shared/` — drizzle stub replaces pg-core at build time so types work without bundling pg drivers
+- `canvas` package (used in `visualScopeRenderer.ts`) is dynamically imported — server starts even if native `.node` build is missing
+- Express 5 wildcard routes changed syntax: `/:param(*)` → `/*param`
 
-```bash
-npx tsx scripts/run-migrations.ts
-```
+## Product
 
-Runs every `.sql` file in `migrations/` in alphabetical order. Safe to run multiple times (all statements use `IF NOT EXISTS` / `IF EXISTS`).
+- Customer management (44+ properties), contracts, contact/notes tracking
+- Ticket/work order system with custom ticket types and statuses
+- Campaign management with checklists and progress tracking
+- Communication center (email/SMS templates, mailbox sync)
+- Visual scope mapping with markup overlays
+- Scheduling, maintenance crews, snow event tracking
+- Equipment tracking, service plans, chemical notifications
 
-### In-Process Data Migrations (TypeScript — backfills, schema normalisations)
+## User preferences
 
-Set the environment variable `RUN_STARTUP_MIGRATIONS=true` before starting the server, or call `runStartupMigrations()` from `server/routes.ts` directly from a one-off script.
+- Keep the existing `apiRequest` fetch layer — do not introduce OpenAPI/Orval codegen for the CRM frontend
+- Green brand color: `#1a4d1a`
 
-```bash
-RUN_STARTUP_MIGRATIONS=true npx tsx server/index.ts
-```
+## Gotchas
 
-After each deployment, run both migration types once in the order above.
+- `canvas` native module won't build in this environment — visual scope image export will fail at call time (server still starts)
+- Apply DB schema via migrations SQL files in `.migration-backup/migrations/` — `pnpm db push` is interactive and may hang
+- Password hashing uses Node.js `crypto.scrypt` in `hash.salt` format (hex)
+- Express 5 path-to-regexp changed wildcard syntax — use `/*param` not `/:param(*)`
+- Frontend schema at `src/shared/schema.ts` uses a drizzle stub — `$inferSelect` types resolve to `any` in the frontend (TypeScript-only impact, runtime is fine)
 
-## External Dependencies
+## Pointers
 
--   **UI Component Libraries:** Radix UI, Shadcn/ui, Lucide React, CMDK
--   **Form & Validation:** React Hook Form, Zod, @hookform/resolvers, Drizzle-Zod
--   **Date Handling:** date-fns
--   **Session & Security:** Passport.js (with passport-local), express-session, connect-pg-simple, Node.js crypto module
--   **Email:** SendGrid (@sendgrid/mail)
--   **PDF Generation:** PDFKit, pdf-lib
--   **Design System:** Google Fonts (Inter, JetBrains Mono)
--   **Mapping:** Mapbox
--   **Weather:** Open-Meteo API, Nominatim geocoding
+- See the `pnpm-workspace` skill for workspace structure, TypeScript setup, and package details

@@ -1,0 +1,237 @@
+# Replit Prompt — Chemical Pre-Visit Email & Form Cleanup
+
+## Context
+
+Property managers have been receiving chemical pre-visit emails that are cluttered with technical fields (manufacturer, active ingredient, time windows, applicator names, watering/mowing instructions) that either belong on the product label PDF or aren't useful in the email at all. We're trimming the pre-visit email down to the essentials, baking product-specific content into per-service-type template HTML, and moving the label PDF from the chemical product record to the notification template record so each campaign type owns its own label end-to-end.
+
+Net effect: the pre-visit email shrinks from 15 template variables to 7. The visit-setup form drops the product picker, applicator picker, time-window pickers, and four override fields. Each `chemical_notification_template` row becomes a self-contained "everything the customer sees for this kind of work" — HTML body + label PDF — and the per-visit form just captures dates, optional notes, and an optional per-visit label override.
+
+This slice handles the **pre-visit half only**. Post-visit cleanup is a follow-up slice.
+
+**Critical: do not touch the post-visit template, its send path, or the "Complete Work" dialog.** Those are scoped to the next slice.
+
+## Existing context (do not duplicate or replace)
+
+The following already exist:
+
+- `chemical_notification_templates` table in `shared/schema.ts` (line 1776) with `id`, `companyId`, `name`, `serviceType`, `isDefault`, `preVisitSubject`, `preVisitHtml`, `postVisitSubject`, `postVisitHtml`, `createdBy`, `createdAt`, `updatedAt`. Unique on `(name, companyId)`.
+- `chemicalProducts` table in `shared/schema.ts` (line 1737) with `labelPdfStorageKey`. **This stays — it remains useful for internal product/inventory tracking — but it stops being involved in customer email rendering.**
+- `campaigns.notificationTemplateId` FK to `chemical_notification_templates`.
+- `campaign_items.labelPdfOverrideKey` field for per-visit label override. **Keep this and its existing endpoints (`POST /api/campaigns/:id/items/:itemId/label`, `DELETE`, alias routes at `/api/campaign-visits/:id/label`).**
+- The four seeded templates per company in `server/templates/seed.ts` via `seedChemicalNotificationTemplates`: Broadleaf Weed Control, Fertilizer Application, Pre-Emergent Application, Crabgrass Treatment. Their pre-visit HTML currently includes a "Treatment Details" product box with rows for Product, Active Ingredients, Target Weeds, Re-Entry Interval, Mowing Instructions, Watering Instructions.
+- The Handlebars-based `renderTemplate` and `substituteVariables` in `server/services/emailService.ts` (lines 78 and 91). Both already handle `{{#if}}` blocks correctly. Don't reimplement.
+- The `ChemicalNotificationTemplates.tsx` admin page at `/dashboard/settings/notification-templates` with template form and live preview. Extend it; don't rebuild.
+- The visit-setup chemical fields on `CampaignItemDetail.tsx` (`chemTargetDate`, `chemBackupDate`, `chemTimeWindowStart`, `chemTimeWindowEnd`, `chemProductId`, `chemApplicatorId`, `chemWateringOverride`, `chemMowingOverride`, `chemReentryOverride`, `chemPurposeOverride`) and the `saveChemVisitMutation` that PATCHes them.
+- The pre-visit send path at `app.post("/api/campaigns/:id/items/:itemId/send-pre-comm", ...)` in `server/routes.ts`. The route currently hydrates product fields (`productName`, `productManufacturer`, `productActiveIngredient`, `productPurpose`, `reentryInterval`, `wateringInstructions`, `mowingInstructions`, `applicatorName`, `applicatorLicense`, `timeWindow`) from the linked chemical product and applicator user. Most of those go away.
+
+Stack: React 18 + TypeScript + Vite + Tailwind + shadcn/ui + Wouter + TanStack Query v5 + React Hook Form + Zod + Drizzle ORM + Postgres + i18next. No new dependencies.
+
+## Schema changes
+
+### 1. Additions to `chemical_notification_templates`
+
+Add the label-PDF columns to the template (so each service type owns its label):
+
+- `defaultLabelPdfStorageKey` — text, nullable. Storage key to the manufacturer's label PDF for this service type.
+- `defaultLabelPdfFilename` — text, nullable. Display filename (e.g., "LESCO-Three-Way-Label.pdf").
+
+Use the same `IF NOT EXISTS` migration pattern already in use in `server/index.ts` / `server/routes.ts`. Add the migration to `migrateChemicalNotificationTemplatesTable` (or wherever the template table's migration lives) so existing companies pick it up on next startup.
+
+### 2. No changes to `chemical_products`
+
+The `chemical_products.labelPdfStorageKey` column stays as-is. It's no longer read by the email send path, but the table remains useful for internal product tracking and inventory. Don't drop the column.
+
+### 3. No changes to `campaign_items`
+
+`labelPdfOverrideKey` remains as the per-visit override. The fields `chemicalProductId`, `applicatorUserId`, `timeWindowStart`, `timeWindowEnd`, `wateringInstructionsOverride`, `mowingInstructionsOverride`, `reentryIntervalOverride`, `purposeOverride` stay in the database for now (so existing campaign data isn't lost) but stop being read or written by the pre-visit code path. A future cleanup slice can drop them.
+
+## API endpoints
+
+All endpoints check `companyId` from `UserWithContext`. Match existing route conventions.
+
+### Template label PDF — new endpoints
+
+- `POST /api/chemical-notification-templates/:id/label` — multipart upload. Accepts a single `application/pdf` file, max 10 MB, MIME validated by magic bytes. Stores under `chemical-notification-template-labels/{companyId}/{templateId}.pdf`. Sets `defaultLabelPdfStorageKey` and `defaultLabelPdfFilename` on the template row. Admin-only. Returns the updated template.
+- `DELETE /api/chemical-notification-templates/:id/label` — clears `defaultLabelPdfStorageKey` and `defaultLabelPdfFilename`. Does not delete the underlying file (let storage cleanup handle it). Admin-only.
+- `GET /api/chemical-notification-templates/:id/label-url` — returns `{ signedUrl, expiresAt, filename }` for embedding in the email. **TTL must be ≥ 7 days** so the link in the email keeps working when property managers open it later.
+
+### Pre-visit send path — modifications
+
+In the existing `app.post("/api/campaigns/:id/items/:itemId/send-pre-comm", ...)` route in `server/routes.ts`:
+
+When the campaign has a `notificationTemplateId` set (which it should, per the new validation below), build the variables object with **only** these keys:
+
+```
+companyName
+customerName
+campaignTitle
+targetDate
+backupDate
+labelPdfUrl
+notes
+```
+
+Resolution rules:
+
+- `targetDate` — `customWindowStart` (from request body) if provided, else `targetItem.targetDate`, else `campaign.windowStart`. Format as a human-readable date (e.g., "May 15, 2025").
+- `backupDate` — `customWindowEnd` if provided, else `targetItem.backupDate`, else `campaign.windowEnd`. Same formatting.
+- `labelPdfUrl` — signed URL generated from `targetItem.labelPdfOverrideKey` if set, otherwise from the template's `defaultLabelPdfStorageKey`. If neither is set, render as empty string and the template's `{{#if labelPdfUrl}}` block hides the row. TTL ≥ 7 days.
+- `notes` — pass through from request body.
+
+**Remove** the following from the variables object built for chemical pre-visit emails:
+
+- `productName`, `productManufacturer`, `productActiveIngredient`, `productPurpose`
+- `reentryInterval`, `wateringInstructions`, `mowingInstructions`
+- `timeWindow`
+- `applicatorName`, `applicatorLicense`
+
+Stop calling the chemical product hydration helper for the pre-visit path. The product details are now baked into the template HTML for that service type.
+
+### Pre-visit send validation — new requirement
+
+A chemical campaign must have a `notificationTemplateId` selected before pre-visit emails can be sent. Add validation:
+
+If `campaign.notificationTemplateId` is null when the pre-visit send route is called, return `422` with error message: "This campaign does not have a notification template selected. Open the campaign and choose a template before sending notifications." (Translate via i18next.)
+
+The legacy fallback path (`processEmailEvent('campaign.chemical_pre_notice', ...)` against the disk-based `chemical-treatment-notification.html`) becomes unused for chemical campaigns. Leave the disk template and `processEmailEvent` registration in place — they're harmless and may still be triggered by other code paths or future use cases.
+
+## Storage methods
+
+Extend `IStorage` and `PgStorage` in `server/storage.ts` with:
+
+- `setChemicalNotificationTemplateLabel(id, companyId, storageKey, filename)` — sets `defaultLabelPdfStorageKey` + `defaultLabelPdfFilename` + `updatedAt`. Returns updated template.
+- `clearChemicalNotificationTemplateLabel(id, companyId)` — sets both label fields to null + `updatedAt`. Returns updated template.
+
+Use these from the new label endpoints rather than calling `updateChemicalNotificationTemplate` with a partial — the label is treated as a separate operation.
+
+## Seeded template HTML — content updates
+
+In `server/templates/seed.ts`, update the four `CHEM_NOTIF_TEMPLATE_SEEDS` entries' `preVisitHtml` so they:
+
+1. **Remove** the rows for "Active Ingredients", "Mowing Instructions", and "Watering Instructions" from the "Treatment Details" product box.
+2. **Remove** any references to `{{productName}}`, `{{productManufacturer}}`, `{{productActiveIngredient}}`, `{{productPurpose}}`, `{{reentryInterval}}`, `{{wateringInstructions}}`, `{{mowingInstructions}}`, `{{timeWindow}}`, `{{applicatorName}}`, `{{applicatorLicense}}` — the product/REI text is now hardcoded directly in the HTML for that service type.
+3. **Keep** the "Product" row (hardcoded with the product name for that service type), the "Target Weeds" row (or analogous service-specific row), and the "Re-Entry Interval" row (hardcoded for that service type).
+4. **Add** a new "Product Label & Safety Information" section that wraps `{{#if labelPdfUrl}}`...`{{/if}}` and renders a styled download button linking to `{{labelPdfUrl}}`. Use `{{labelPdfUrl}}` as a regular `{{double-stash}}` since it's a URL string, not raw HTML.
+
+Example structure for the new section (drop into each of the four pre-visit HTMLs):
+
+```html
+{{#if labelPdfUrl}}
+<div class="label-section" style="margin-top: 20px; text-align: center; background: #f9fafb; border: 1px dashed #d1d5db; border-radius: 6px; padding: 16px;">
+  <p style="margin: 0 0 6px; color: #6b7280; font-size: 13px; text-transform: uppercase; letter-spacing: 0.04em;">Product Label & Safety Information</p>
+  <a href="{{labelPdfUrl}}" style="display: inline-block; background: #1a5632; color: #ffffff; padding: 8px 16px; border-radius: 4px; text-decoration: none; font-weight: 600; font-size: 14px;">View Product Label (PDF)</a>
+  <p style="margin: 6px 0 0; color: #9ca3af; font-size: 12px;">Includes manufacturer, active ingredients, full ingredient list, precautionary statements, and first-aid information.</p>
+</div>
+{{/if}}
+```
+
+The body retains the simple property/campaign/date detail rows, the hardcoded product box (without the variables), the new label download section, an optional notes block (`{{#if notes}}`), and the footer.
+
+The seeder is already idempotent on name. Since the template names aren't changing, the seeder won't recreate templates that already exist. Therefore, the seeder must also **upsert the HTML content** when a template already exists, so the change rolls out to companies that already have these templates seeded. Add this logic: after the existence check, if the template exists *and* its `preVisitHtml` differs from the seed value, update it. Don't overwrite `preVisitSubject` (subjects are short and may have been customized; leave them alone). The four standard templates' HTML is the source of truth and should be re-synced on every startup.
+
+## UI changes
+
+### 1. `ChemicalNotificationTemplates.tsx` admin page
+
+Add a label-PDF uploader to the template form (the dialog that creates/edits a template):
+
+Below the post-visit HTML body section and before the variable reference panel, add a new section titled "Product Label PDF":
+
+- If `defaultLabelPdfFilename` is set on the editing template, show: filename + a "Replace" button + a "Remove" button.
+- Otherwise, show a drag-drop zone (shadcn-styled) accepting a single `application/pdf`, max 10 MB, with a "Click to upload" fallback button.
+- Upload immediately on drop using the `POST /api/chemical-notification-templates/:id/label` endpoint. Show progress. On success, refetch the template and show the new filename.
+- Helper text: "This label appears as a download link in the pre-visit and post-visit emails for campaigns using this template. Per-visit overrides are still supported."
+
+For the *create* flow (template doesn't exist yet), disable the label uploader with a tooltip "Save the template first, then upload a label." Once the template is saved, the dialog reopens in edit mode and the uploader becomes available.
+
+Update the `ChemicalNotificationTemplate` TypeScript type to include `defaultLabelPdfStorageKey: string | null` and `defaultLabelPdfFilename: string | null`.
+
+Update the templates list table to show a "Label" column with a checkmark icon when `defaultLabelPdfStorageKey` is set, and a muted dash otherwise.
+
+### 2. `CampaignItemDetail.tsx` visit-setup form
+
+Find the chemical visit details section (it uses state variables `chemTargetDate`, `chemBackupDate`, `chemTimeWindowStart`, `chemTimeWindowEnd`, `chemProductId`, `chemApplicatorId`, `chemWateringOverride`, `chemMowingOverride`, `chemReentryOverride`, `chemPurposeOverride`).
+
+**Remove from the form UI:**
+
+- The chemical product picker (`chemProductId`)
+- The applicator picker (`chemApplicatorId`)
+- The time window pickers (`chemTimeWindowStart`, `chemTimeWindowEnd`)
+- The override fields for watering, mowing, reentry, purpose
+
+**Keep:**
+
+- Target date picker (`chemTargetDate`)
+- Backup date picker (`chemBackupDate`)
+- The existing per-visit label override uploader (uses `labelPdfOverrideKey`)
+- The existing notes field
+
+**Remove the corresponding state variables and from the `saveChemVisitMutation` body.** Leave the database columns alone — existing data stays put. Just stop showing/sending these fields.
+
+The form should now be roughly: target date, backup date, optional per-visit label override, notes. That's it.
+
+Add a small read-only banner at the top of the visit-details section: "Email content for this visit comes from the **{{templateName}}** template. To change product details, edit the template in Settings → Notification Templates." (Use i18next.) Show the template name in bold; link "Settings → Notification Templates" to `/dashboard/settings/notification-templates`.
+
+If the campaign has no `notificationTemplateId` set, the banner instead reads: "This campaign has no notification template selected. Pre-visit emails cannot be sent until a template is chosen." With a link back to the campaign's template selector.
+
+### 3. Pre-visit send dialog
+
+Find the `showEmailConfirm === "pre"` dialog in `CampaignItemDetail.tsx`. The dialog currently has `preNoticeWindowStart` / `preNoticeWindowEnd` per-send override pickers. **Keep these** — they're still useful when the date slips between scheduling and sending the notice.
+
+Drop any references in the preview-display rendering to product/applicator/etc. fields if they exist. The preview should just render whatever the new variable set produces.
+
+Test that the preview iframe correctly shows the label download button when the template has a label uploaded, and hides it when no label is configured.
+
+## Compliance note
+
+A handful of US states require commercial pesticide applicators to disclose either their license number or company pesticide license on customer notifications. Colorado has rules under the Pesticide Applicators' Act. Removing `applicatorName` and `applicatorLicense` from the customer email may run afoul of state regulations.
+
+**Mitigation:** add a static company-level pesticide license display in the **footer** of every chemical pre-visit and post-visit template HTML, pulled from a new field on `companies` table or from existing settings. This satisfies most state disclosure requirements without per-applicator complexity.
+
+If `companies.pesticideLicenseNumber` doesn't exist, add it (text, nullable). Render it in the seeded template footers as something like:
+
+```
+{{#if pesticideLicenseNumber}}
+<p style="margin-top: 4px;">{{companyName}} Pesticide Applicator License: {{pesticideLicenseNumber}}</p>
+{{/if}}
+```
+
+Add `pesticideLicenseNumber` to the variable list resolved by the send path.
+
+If you cannot confirm the company pesticide license requirement before this slice runs, leave the field null and the conditional block hides cleanly. Surface a TODO in the deliverables that we still need to confirm Colorado's specific requirement and either populate the field or roll the per-applicator disclosure back in.
+
+## Patterns and conventions
+
+- All new strings go through i18next. Add keys to both `en` and `es` locales. Machine-translate `es` with `// TODO: human-review translation`.
+- Every query filters by `companyId`.
+- Use existing shadcn components only.
+- Loading: `Skeleton`. Errors: `Alert`. Icons: `lucide-react`.
+- File upload validates MIME by magic bytes server-side, not just `Content-Type`.
+- Reuse the existing visit-photo / label-PDF storage helper. Parameterize on the storage prefix (`chemical-notification-template-labels/{companyId}/{templateId}.pdf`).
+
+## Out of scope for this slice
+
+- Post-visit template, post-visit send path, or any "Complete Work" / completion email work — that's the next slice.
+- Dropping the now-unused `chemical_products.labelPdfStorageKey` or the unused `campaign_items` columns (`chemicalProductId`, `applicatorUserId`, etc.) — separate cleanup later.
+- Migrating existing per-product labels to template-level labels — admins re-upload labels onto templates as part of rollout. Document this in the deliverables so the user knows to upload labels after the slice ships.
+- Per-template service-type-specific email *subject* changes — keep existing subjects.
+- Auto-rescheduling logic when target date slips to backup — separate slice.
+- SMS notifications — out of scope.
+
+## Deliverables
+
+When you finish, report back with:
+
+1. List of new files created (paths)
+2. List of files modified (paths + 1-line description of what changed)
+3. New columns added to `chemical_notification_templates` and any new column on `companies` (if you added `pesticideLicenseNumber`)
+4. New API endpoints
+5. Confirmation that the four seeded templates have been updated with the new HTML and that the seeder upserts on existing companies' templates
+6. Confirmation of the actual signed-URL TTL achieved (target ≥ 7 days)
+7. Confirmation of which fields were removed from the visit-setup form and that their database columns were left intact
+8. Compliance status: did you add `pesticideLicenseNumber`? If so, is it being read into the template variables?
+9. Any decisions you made where this prompt was ambiguous, and what you chose
+10. Any issues you ran into or anything you skipped, with reasons
+11. A short manual test plan covering: uploading a label to a template via the admin page, creating a chemical campaign with that template selected, opening a campaign item, confirming the simplified visit-details form, sending a pre-visit email, verifying the recipient sees the new clean format with a working label download link
+
+Do not skip any item silently.

@@ -1,0 +1,241 @@
+Replit Prompt — Email Tracking System, Slice 1 (Schema + UI Shell)
+Context
+We are building a comprehensive email tracking system that will eventually sync inbound and outbound email between staff Gmail accounts and this CRM, with intelligent auto-routing of messages to the correct customer record. This is the first of four planned slices. The goal of this slice is to put all schema, API, and UI scaffolding in place so that subsequent slices (Gmail OAuth, inbound/outbound sync, retention/admin) can plug into a working foundation.
+Critical: do NOT implement Gmail OAuth, the Gmail API client, Pub/Sub, or any actual mail sync in this slice. Those come in slices 2 and 3. Build only what's listed below.
+Existing context (do not duplicate or replace)
+The following already exist and should be extended, not replaced:
+
+shared/schema.ts already contains communications, communication_threads, communication_templates, email_templates, email_rules, email_logs, communication_audit_log, and communication_automation_rules tables. Read these carefully before adding new fields — do not duplicate columns that already exist.
+A "Communications" tab already exists on the customer detail page, accessed via ?tab=communications on /dashboard/customers/:id. Its current implementation should be inspected and extended, not rebuilt from scratch.
+The customer "Overview" tab is rendered by client/src/components/customer/dashboard/CustomerDashboard.tsx. New cards are added to its responsive grid.
+All tables use companyId for multi-tenancy. Every new table must follow this pattern, and every new query must filter by the active company from UserWithContext.
+The project uses Drizzle ORM with migrations managed via drizzle-kit plus startup migration functions in server/index.ts. Add migrations the same way existing tables do.
+The project uses TanStack Query v5 for data fetching, React Hook Form + Zod for forms, Shadcn UI / Radix primitives for components, and i18next (en + es) for all user-facing strings. Follow these patterns; do not introduce new libraries.
+
+Schema changes
+1. New table: mailbox_accounts
+Represents a High Plains-owned email address that we send from and (eventually) sync. In this slice, we are only storing the metadata — no OAuth tokens, no sync state.
+Fields:
+
+id — varchar, PK, UUID
+companyId — varchar, FK → companies.id, not null
+emailAddress — text, not null, unique within company
+displayName — text (e.g., "Jessica Smith" or "Billing")
+accountType — text, not null — "personal" | "shared"
+ownerUserId — varchar, FK → users.id, nullable (only set when accountType = "personal")
+description — text, nullable (free-text, e.g., "Snow alerts inbox")
+isActive — boolean, not null, default true
+syncEnabled — boolean, not null, default false (will be flipped on once Gmail OAuth is connected in slice 2)
+lastSyncedAt — timestamp, nullable
+oauthProvider — text, nullable (placeholder for slice 2; will hold "google" etc.)
+oauthTokenJson — jsonb, nullable (placeholder for slice 2; encrypted token storage)
+createdAt, updatedAt — timestamp
+
+Add a unique constraint on (companyId, emailAddress).
+2. New table: unsorted_emails
+Catch-all queue for inbound emails that the auto-router cannot confidently assign to a customer. In this slice we are only creating the table and UI; nothing will populate it yet.
+Fields:
+
+id — varchar, PK, UUID
+companyId — varchar, FK → companies.id, not null
+mailboxAccountId — varchar, FK → mailbox_accounts.id, not null
+providerMessageId — text (Gmail's internal message ID; placeholder for slice 3)
+providerThreadId — text (Gmail's thread ID; placeholder for slice 3)
+subject — text
+bodyText — text
+bodyHtml — text
+fromAddress — text, not null
+fromName — text
+toAddresses — text[], not null
+ccAddresses — text[], default []
+receivedAt — timestamp, not null
+candidateCustomerIds — varchar[], default [] (router's best guesses)
+routingNotes — text (why it ended up unsorted)
+assignedToUserId — varchar, FK → users.id, nullable
+status — text, not null, default "pending" — "pending" | "routed" | "archived" | "spam"
+resolvedToCommunicationId — varchar, FK → communications.id, nullable (set once a user assigns this email to a customer)
+resolvedAt — timestamp, nullable
+resolvedByUserId — varchar, FK → users.id, nullable
+createdAt, updatedAt — timestamp
+
+3. Additions to communications table
+Inspect the existing communications table first. Add only fields that are missing. The full set the table should have is:
+
+All existing fields (do not modify)
+mailboxAccountId — varchar, FK → mailbox_accounts.id, nullable (which High Plains address sent/received this)
+subject — text
+bodyText — text
+bodyHtml — text
+fromAddress — text
+fromName — text
+toAddresses — text[], default []
+ccAddresses — text[], default []
+bccAddresses — text[], default []
+sentAt — timestamp, nullable
+receivedAt — timestamp, nullable
+providerThreadId — text (placeholder; for Gmail thread linking in slice 3)
+inReplyToMessageId — text (RFC822 In-Reply-To header; for threading)
+routingMethod — text, nullable — "manual" | "email_match" | "thread_match" | "content_match" | "llm_assist" (placeholder; only "manual" will be used in this slice)
+routingConfidence — real, nullable (0.0–1.0)
+attachmentsJson — jsonb, default [] (array of {filename, mimeType, sizeBytes, storageKey})
+
+If recipientEmail already exists on the table, leave it; new code should write toAddresses going forward.
+4. Migrations
+Add migration logic in server/index.ts (or wherever existing startup migrations live) using the same pattern as existing tables — IF NOT EXISTS checks for both tables and columns so the migration is idempotent and safe on existing databases.
+API endpoints
+All endpoints must check companyId from the authenticated UserWithContext. Follow existing route file conventions in server/routes/ (or wherever current routes live — match the pattern).
+Mailbox accounts
+
+GET /api/mailbox-accounts — list all mailbox accounts for the active company
+GET /api/mailbox-accounts/:id — single mailbox account
+POST /api/mailbox-accounts — create (admin only)
+PATCH /api/mailbox-accounts/:id — update (admin only)
+DELETE /api/mailbox-accounts/:id — soft delete by setting isActive = false
+
+Communications (extend existing endpoints; add if missing)
+
+GET /api/customers/:customerId/communications — paginated list of communications for a customer, with query params for direction, mailboxAccountId, dateFrom, dateTo. Order by sentAt / receivedAt desc.
+GET /api/customers/:customerId/communications/summary — returns { totalCount, lastContactAt, lastContactDirection, recentCount30d } for the Overview card
+GET /api/customers/:customerId/communications/recent — returns most recent 10 for the modal quick view
+POST /api/customers/:customerId/communications — manually log a communication. Body includes direction, mailboxAccountId (optional), subject, bodyText, fromAddress, toAddresses, sentAt or receivedAt. Sets routingMethod = "manual".
+PATCH /api/communications/:id — edit a manually logged communication
+DELETE /api/communications/:id — delete (admin only; logs to communication_audit_log)
+
+Unsorted inbox
+
+GET /api/unsorted-emails — list, paginated, filterable by status and mailboxAccountId
+GET /api/unsorted-emails/:id — single record with full body
+POST /api/unsorted-emails/:id/route — body { customerId, threadId? }. Creates a communications record from the unsorted email's contents, sets resolvedToCommunicationId, status → "routed", records resolvedByUserId and resolvedAt.
+POST /api/unsorted-emails/:id/archive — sets status → "archived"
+POST /api/unsorted-emails/:id/spam — sets status → "spam"
+POST /api/unsorted-emails/:id/assign — body { assignedToUserId }
+
+UI changes
+1. Customer Overview tab — new "Communications" card
+Add a new card to the responsive grid in client/src/components/customer/dashboard/CustomerDashboard.tsx, sized similarly to the existing cards (Annual Contract Value, Open Tickets, Next Service).
+Card content:
+
+Title: "Communications"
+Primary metric: "Last contact: 3 days ago" (relative date) — pulls from lastContactAt in the summary endpoint
+Secondary line: direction icon + "Outbound from Jessica via jessica@highplains.com" (or "Inbound from contact@acme.com" for inbound)
+Tertiary metric: "12 total · 4 in last 30 days"
+Action: a "View all" button that opens the quick-view modal (see below) and a smaller "+ Log" icon button that opens the manual-entry form
+
+Empty state when totalCount === 0: "No communications logged yet" + a "Log first communication" button.
+2. Quick-view modal — CommunicationsQuickViewModal
+Triggered from the Overview card's "View all" button. Use Shadcn Dialog. Layout:
+
+Header: customer name + total count
+Tabs at top: "All" | "Inbound" | "Outbound"
+Body: scrollable list of the most recent 10 communications, each row showing:
+
+Direction icon (arrow in / arrow out)
+From → To (addresses, truncated)
+Subject (bold)
+First ~80 chars of body preview
+Mailbox account badge (which High Plains address)
+Relative timestamp
+
+
+Click a row → expand inline to show full body (text first; toggle to HTML render if bodyHtml present)
+Footer: "Open full Communications tab" link → navigates to /dashboard/customers/:id?tab=communications, and a "+ Log communication" button
+
+3. Customer Communications tab — beef up
+Inspect what's currently rendered for ?tab=communications. Replace or extend it with the following layout:
+
+Top toolbar:
+
+Direction filter (All / Inbound / Outbound)
+Mailbox account filter (multi-select dropdown of active mailbox accounts)
+Date range filter
+Search box (searches subject + body)
+"+ Log communication" button (opens manual-entry form)
+
+
+Main area: conversation list grouped by threadId. Each thread is collapsible, showing thread subject, participant addresses, message count, and most recent message preview. Expanding shows individual messages in chronological order.
+Right sidebar (optional, on wide screens): list of any unsorted_emails whose candidateCustomerIds includes this customer, with a quick-route button. Empty in slice 1 but the UI should be present.
+
+4. Manual communication entry form
+Reusable component LogCommunicationForm. Fields:
+
+Direction (radio: Inbound / Outbound)
+Mailbox account (dropdown of active accounts; required for outbound, optional for inbound)
+Date/time (defaults to now)
+From address (auto-filled from mailbox account when outbound; manual when inbound)
+To addresses (chips input)
+CC addresses (chips input, collapsed by default)
+Subject
+Body (textarea, plain text only in slice 1)
+Submit button: "Log communication"
+
+Use React Hook Form + Zod. On submit, POST to /api/customers/:customerId/communications. Invalidate the relevant TanStack Query cache keys.
+5. Unsorted inbox page
+New top-level route: /dashboard/communications/unsorted. Add to the sidebar navigation under a new "Communications" section (or the most natural existing section).
+Layout:
+
+Page header: "Unsorted Inbox" + count badge
+Filters: status (default Pending), mailbox account, assigned to
+Two-pane layout: list on the left, detail view on the right
+List rows: from address, subject preview, received date, candidate customers (chips), assigned user
+Detail pane: full email content (subject, from, to, body), action buttons:
+
+"Route to customer" → searchable customer picker → on confirm, calls POST /api/unsorted-emails/:id/route
+"Archive"
+"Mark as spam"
+"Assign to..." → user picker
+
+
+
+In slice 1 this page will mostly show empty states, which is fine. Make sure the empty state explains that emails will appear here once Gmail sync is connected (slice 2/3).
+6. Mailbox accounts settings page
+New admin-only route: /dashboard/settings/mailbox-accounts. Add to the existing settings navigation.
+Layout:
+
+Page header + "Add mailbox account" button
+Table: email address, display name, type (personal/shared), owner (for personal), sync status badge ("Not connected" in slice 1), active toggle, edit/delete actions
+Add/edit modal:
+
+Email address
+Display name
+Type (radio: Personal / Shared)
+Owner (dropdown of users; only shown when Personal selected)
+Description (optional)
+Active toggle
+
+
+Sync status column shows "Not connected" with a disabled "Connect Gmail" button (placeholder for slice 2)
+
+Patterns and conventions
+
+Every user-facing string goes through i18next. Add new keys to both en and es translation files. Use machine translation as a starting point for es and add a // TODO: human-review translation comment.
+Every new query filters by companyId. No exceptions.
+New routes live in their own route file under server/routes/ if there are 3+ endpoints; otherwise extend an existing logically related file.
+New schema additions go in shared/schema.ts alongside existing tables, in alphabetical order if practical.
+Use existing Shadcn components — don't import new Radix primitives that aren't already in use.
+Loading states: use Shadcn Skeleton components, matching how existing pages handle loading.
+Error states: use Shadcn Alert components, matching existing patterns.
+All new icons from lucide-react (already in use).
+
+Out of scope for this slice (do not build)
+
+Gmail OAuth flow
+Gmail API client or message fetching
+Pub/Sub setup
+Auto-routing logic (email match, thread match, content match, LLM)
+Background sync workers
+Sending email through Gmail (continue using SendGrid for any existing automated sends — do not modify those flows)
+Retention policy enforcement, purge, export, litigation hold
+Audit log of email views (the existing communication_audit_log is fine; do not extend it in this slice)
+
+Deliverables
+When you finish, report back with:
+
+List of all new files created (paths)
+List of all files modified (paths + 1-line description of what changed)
+List of new database tables and columns added
+List of new API endpoints created
+List of new routes added to the frontend router and sidebar nav
+Any decisions you made where this prompt was ambiguous, and what you chose
+Any issues you ran into or anything you skipped, with reasons
+
+Do not skip any item silently. If something can't be built, say so explicitly.

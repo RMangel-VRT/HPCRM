@@ -1,0 +1,172 @@
+# Replit Prompt — Communications Rework, Slice 1.7 (Refocus Admin Mailbox Page)
+
+## Context
+
+Slice 1 added per-user scoping. Slice 1.5 gave every user a self-serve `/dashboard/settings/my-mailbox` page where they own creating and connecting their personal mailboxes. That makes the existing admin-facing `MailboxAccountsSettingsPage` feel mismatched: it's still the only place to do everything (create personal AND shared mailboxes, set ownership, etc.) when in reality admins should now only be managing shared resources and overseeing personal ones.
+
+This is **Slice 1.7 of 6** (between Slice 1.5 self-serve and Slice 2 sent-folder sync). Goal: refocus the admin page on what only admins should do — shared mailboxes, oversight of personal mailboxes, and company-wide mail settings. Pull personal-mailbox creation out of the admin path entirely.
+
+## What this slice does
+
+1. Renames `MailboxAccountsSettingsPage` → `SharedMailboxesAndOversightPage`. Route moves from wherever it currently lives to `/dashboard/settings/shared-mailboxes`. Old route 301s to the new one.
+2. Removes admin's ability to create personal mailboxes. The "New Mailbox" form on this page now creates **shared** mailboxes only — `accountType` is no longer a user-facing field.
+3. Restructures the page into three clearly-labeled sections:
+   - **Shared Mailboxes** (primary CRUD)
+   - **Personal Mailboxes (Oversight)** (read-only list + emergency disconnect)
+   - **Company Mail Settings** (visibility defaults, sync cadence)
+4. Adds UI for the `defaultMailboxVisibility` setting Slice 1 introduced.
+5. Backend: adds a guard on `POST /api/mailbox-accounts` that rejects `accountType: "personal"` from this admin endpoint (force routing through `POST /api/mailbox-accounts/mine` from Slice 1.5).
+6. Sidebar nav: rename the existing entry; ensure non-admins don't see it.
+
+## Why we're not folding this into Slice 4
+
+Slice 4 is dead-code and route-cleanup for the unified Communications page (Slice 3). This slice is its own product surface — the admin Settings area — and shipping it ahead of the Communications-page rework means admins benefit immediately and the admin page feels coherent before the Communications-page rewrite lands.
+
+## Schema changes
+
+None. All the data the new sections need already exists:
+
+- Shared mailboxes: `mailbox_accounts` with `accountType = "shared"`
+- Personal mailbox oversight: `mailbox_accounts` with `accountType = "personal"`, joined with `users` via `ownerUserId`
+- Company mail settings: `settings.defaultMailboxVisibility` (added in Slice 1)
+- Sync cadence: `mailbox_accounts.syncIntervalMinutes` already exists per-mailbox
+
+## Backend changes
+
+### `POST /api/mailbox-accounts` (admin-only create)
+
+Currently in `server/routes/mailboxAccounts.ts`, this endpoint accepts any `accountType`. Change behavior:
+
+1. If `accountType` is missing in the body, default to `"shared"`.
+2. If `accountType === "personal"`, return **400** with body:
+   ```json
+   { "error": "Personal mailboxes must be created via /api/mailbox-accounts/mine. Direct an admin to send users to /dashboard/settings/my-mailbox." }
+   ```
+3. If `accountType === "shared"`, proceed as today, but reject if `ownerUserId` is set (shared mailboxes don't have a single owner; assignment is via `defaultMailboxVisibility.shared` role list).
+4. Auth: requester must be `admin` or `office`.
+
+Add a unit test for each branch.
+
+### `PATCH /api/mailbox-accounts/:id` (admin-only edit)
+
+Add the same `accountType` immutability rule:
+
+- If the row is `personal`, **only the owner** (or admin via the new oversight endpoint below) can patch it.
+- If the row is `shared`, admin/office can patch as today, but rejecting any change to `accountType` or to `ownerUserId`.
+
+### `POST /api/mailbox-accounts/:id/admin-disconnect` (new)
+
+Emergency disconnect for personal mailboxes the admin doesn't own. Distinguishes from the user's own `/oauth/disconnect`:
+
+- Auth: `admin` or `office` only.
+- Behavior: clears `oauthTokenJson`, sets `syncStatus = "not_connected"`, `syncEnabled = false`. Identical to the user's disconnect except the actor is logged differently.
+- Audit: emit `mailbox.admin_disconnected` `{ adminUserId, mailboxAccountId, ownerUserId, reason? }`. Body accepts an optional `reason` string for the audit trail.
+
+The existing `POST /api/mailbox-accounts/:id/oauth/disconnect` keeps its current ownership check — only the owner can self-disconnect. This new endpoint exists separately so the audit trail is unambiguous.
+
+### `GET /api/settings/mail` (new)
+
+Returns the company's mail-related settings:
+
+```ts
+{
+  defaultMailboxVisibility: {
+    shared: RoleName[];
+    perRole?: Partial<Record<RoleName, "own" | "all" | "shared_only">>;
+  };
+  defaultSyncIntervalMinutes: number;   // current default for new mailboxes (defaults to 2)
+}
+```
+
+Auth: `admin` or `office`.
+
+### `PATCH /api/settings/mail` (new)
+
+Updates the same fields. Validates that `shared` only contains valid `RoleName` values and that `defaultSyncIntervalMinutes` is between 1 and 60.
+
+For now, `defaultSyncIntervalMinutes` is read-only on existing mailboxes — changing the company default does NOT retroactively update existing `mailbox_accounts.syncIntervalMinutes`. The page will note this clearly.
+
+Audit: `settings.mail_visibility_changed` and `settings.mail_sync_default_changed` on each successful patch.
+
+## UI changes
+
+### Page rename + route change
+
+- New file: `client/src/pages/SharedMailboxesAndOversightPage.tsx` (move and rename from `MailboxAccountsSettingsPage.tsx`).
+- Route: `/dashboard/settings/shared-mailboxes`, `allowedRoles={["admin", "office"]}`.
+- Old route `/dashboard/settings/mailbox-accounts` (or current path — verify in App.tsx) returns `<Redirect to="/dashboard/settings/shared-mailboxes" />`.
+- Page title and breadcrumb: "Shared Mailboxes & Oversight".
+
+If the file `MailboxAccountsSettingsPage.tsx` is referenced from non-route imports, leave a thin re-export shim for one release cycle, or update all the import sites in this slice.
+
+### Page structure
+
+Three top-level sections. Use the existing CRM section/card component pattern; avoid tabs (each section is small enough to live on the page; a sticky in-page nav at the top can jump between them).
+
+#### Section 1: Shared Mailboxes (primary)
+
+- Existing list, but filtered to `accountType = "shared"` only.
+- Existing "New Mailbox" button, but the form drops the `accountType` and `ownerUserId` fields.
+- Each row keeps: connect/reconnect/disconnect, edit, sync settings, "Manage backfill" link (Slice 2.5).
+- Empty state: "No shared mailboxes yet. Create one for any inbox the whole team should access (e.g., info@, dispatch@)."
+
+#### Section 2: Personal Mailboxes (Oversight)
+
+- Read-only list of every `accountType = "personal"` row in the company.
+- Columns: Owner (name + email), Mailbox address, Connected email, Status, Last synced, Pending unsorted (count).
+- Per row: View details (modal showing the same info read-only) and "Disconnect (admin)" button that calls the new `admin-disconnect` endpoint with a confirmation prompt that asks for an optional reason.
+- No edit, no delete (deletion is a `mailbox_accounts` cascade through the user — out of scope).
+- Sort: by owner name default; toggle to sort by status (errors first).
+- Empty state: "No personal mailboxes connected yet. Users can connect their own at Settings → My Mailbox."
+
+#### Section 3: Company Mail Settings
+
+- **Default visibility** subsection:
+  - "Roles that see shared mailboxes by default" — multi-select with the role enum values, persists `defaultMailboxVisibility.shared`.
+  - "Per-role overrides" — small table; for each role, a select of `own | all | shared_only` (default = blank, meaning "use the standard rule"). Persists `defaultMailboxVisibility.perRole`.
+  - Below: "What this means" expandable explainer with one sentence per role showing what they'll see in Communications.
+- **Default sync cadence** subsection:
+  - Number input (1-60) for `defaultSyncIntervalMinutes`. Note text: "Applies to newly connected mailboxes only. Existing mailboxes keep their current setting; change them individually."
+- Save button persists via `PATCH /api/settings/mail`. Show a toast on success.
+
+### Sidebar / settings nav
+
+- Rename "Mailbox Accounts" entry to "Shared Mailboxes". Keep it in the admin section.
+- The entry stays gated to `admin` and `office`.
+- Slice 1.5's user-facing "My Mailbox" entry remains unchanged.
+
+### Empty-state copy on personal-mailbox-related surfaces
+
+- Anywhere we previously said "Ask an admin to create your mailbox," replace with "Connect your mailbox at Settings → My Mailbox" (link).
+
+## Acceptance checklist
+
+- [ ] `/dashboard/settings/shared-mailboxes` renders with the three sections; old path redirects to it.
+- [ ] As `admin`, the "New Mailbox" form creates a shared mailbox; no `accountType` or `ownerUserId` field is visible.
+- [ ] `POST /api/mailbox-accounts` with `accountType: "personal"` returns 400 with the documented error.
+- [ ] As `admin`, the Personal Mailboxes Oversight section lists every user's personal mailbox; no edit affordance, but Disconnect (admin) works and writes an audit event.
+- [ ] As `admin`, changing `defaultMailboxVisibility` and `defaultSyncIntervalMinutes` persists and the explainer copy updates accordingly.
+- [ ] As `field` user, the sidebar entry is hidden and visiting `/dashboard/settings/shared-mailboxes` redirects to a 403.
+- [ ] Existing connect/reconnect/disconnect/sync flows on shared mailboxes work unchanged.
+- [ ] Slice 1.5's `/dashboard/settings/my-mailbox` page is unaffected.
+- [ ] No regressions on per-user scoping (Slice 1) — visibility settings UI just exposes what's already enforced.
+
+## Files touched
+
+- `server/routes/mailboxAccounts.ts` — guard on `POST` and `PATCH`; new `admin-disconnect` endpoint
+- `server/routes.ts` (or a new `server/routes/settings.ts`) — `GET`/`PATCH /api/settings/mail`
+- `server/storage.ts` — `getMailSettings`, `updateMailSettings`, `getCompanyPersonalMailboxes` (already may exist; verify)
+- `client/src/pages/SharedMailboxesAndOversightPage.tsx` (new — moved from `MailboxAccountsSettingsPage.tsx`)
+- `client/src/pages/MailboxAccountsSettingsPage.tsx` — delete (or thin re-export shim if simpler for the import audit)
+- `client/src/components/customer/communications/PersonalMailboxOversightTable.tsx` (new, small)
+- `client/src/components/customer/communications/CompanyMailSettingsForm.tsx` (new, small)
+- `client/src/App.tsx` — new route + redirect from old path; update lazy imports
+- Sidebar nav component — rename entry
+
+## Things to NOT change in this slice
+
+- The `mailbox_accounts` schema — no fields added or removed.
+- Live sync behavior — Slice 2.
+- Backfill logic — Slice 2.5; the "Manage backfill" link on shared mailbox rows just deep-links to the existing backfill UI.
+- Per-customer communications view.
+- Slice 1.5's user-facing My Mailbox page or its endpoints.

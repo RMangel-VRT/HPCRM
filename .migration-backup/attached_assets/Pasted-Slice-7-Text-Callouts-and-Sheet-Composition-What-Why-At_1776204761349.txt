@@ -1,0 +1,211 @@
+Slice 7 — Text, Callouts, and Sheet Composition
+What & Why
+
+At this point, the tool has strong visuals (textures, symbols) and clarity (legend), but it still lacks structured communication — the ability to guide a client through the scope. This slice introduces callouts, notes, and sheet composition so users can create clean, narrative-driven proposal exhibits instead of just annotated maps.
+
+This is the slice where your output starts to look like something you’d confidently send to an HOA board.
+
+Scope
+Add enhanced text tools
+Add numbered callouts
+Add leader lines / arrows
+Add title block system
+Add notes block
+Add sheet layout presets
+Improve overall composition of the sheet
+Components to Build
+1. Text Tool (Enhanced)
+
+Basic text exists — now make it usable.
+
+Support:
+
+free text placement
+multi-line text
+font size control
+bold / emphasis (optional)
+rotation
+alignment (left/center/right)
+text box resizing
+
+Use cases:
+
+labeling areas
+notes
+headers
+section titles
+2. Numbered Callouts (Critical Feature)
+
+This is huge for proposal clarity.
+
+Support:
+
+click to place numbered callout
+auto-increment numbering (1, 2, 3…)
+optional manual override
+attach optional text/description
+visual style:
+circle or badge with number
+leader line pointing to area/object
+
+Use cases:
+
+“1 — Remove existing turf and prep subgrade”
+“2 — Install cobble border”
+“3 — Add drip irrigation”
+3. Leader Lines / Arrows
+
+Support:
+
+arrow tool
+leader line from callout to target
+adjustable endpoints
+simple styling:
+line weight
+arrow head
+dashed/solid
+
+These connect callouts to actual work areas.
+
+4. Title Block
+
+Add a structured header for the sheet.
+
+Fields:
+
+Title (e.g., “Landscape Enhancement Plan”)
+Property / Community Name
+Date
+Optional project name
+Optional company name (High Plains branding later)
+
+Should be:
+
+movable
+editable
+included in export
+5. Notes Block
+
+A dedicated area for written scope.
+
+Support:
+
+multi-line text
+bullet-style formatting (simple)
+positioned on sheet
+optional visibility toggle
+
+Use cases:
+
+general scope description
+assumptions
+disclaimers
+phasing notes
+6. Sheet Layout Presets
+
+This is where you elevate from canvas → deliverable.
+
+Create preset layouts:
+
+A. Proposal Exhibit
+title block (top)
+main map centered
+legend in corner
+notes block bottom or side
+B. Scope Plan
+larger map focus
+callouts emphasized
+smaller legend
+C. Before / Concept (future-ready)
+side-by-side layout support placeholder
+D. Internal Planning Sheet
+less polished, more functional
+notes emphasized
+Requirements
+Callouts
+Each callout must:
+have a number
+be movable
+optionally connect to a point or object
+Numbers must remain stable unless user resets sequence
+Callouts must persist across save/load
+Text + Notes
+Must support editing after placement
+Must not degrade performance with multiple text blocks
+Must render cleanly in export
+Layout
+Layout elements (title, notes, legend) must:
+not overlap unpredictably
+be repositionable
+persist location
+Done Looks Like
+User creates a sheet with:
+textured areas
+symbols
+legend
+callouts explaining scope steps
+title + notes
+The sheet reads like a structured proposal
+A board member could understand the scope without additional explanation
+Guardrails
+Do NOT build full document editor (no rich text complexity)
+Do NOT overcomplicate layout system
+Keep typography simple and clean
+Avoid too many font/style options
+Maintain consistency across sheets
+UX Notes
+Callout Flow
+Select “Callout Tool”
+Click location → number appears
+Drag leader line to target
+Enter description (optional popup or inspector)
+Text Editing
+Double-click to edit text
+Show bounding box when selected
+Keep interactions familiar (Figma-lite, not Word)
+Layout Feel
+Think:
+clean margins
+balanced composition
+readable hierarchy
+Data Model Expectations
+
+Add support for:
+
+Text Objects
+id
+type: text
+content
+position
+size
+rotation
+style (font size, alignment)
+layerId
+Callout Objects
+id
+type: callout
+number
+position
+targetPosition (for leader line)
+label/description
+style
+layerId
+Sheet Metadata
+title
+propertyName
+date
+notesContent
+layoutType
+Test Plan
+Create a full proposal-style sheet
+Add multiple callouts and verify numbering
+Move callouts and adjust leader lines
+Edit text blocks and notes
+Save and reload → verify all content persists
+Verify no overlap issues with legend/title/notes
+Export and confirm layout integrity
+Done Looks Like for Approval
+The tool now communicates what the work is, not just where
+Sheets feel like client-facing proposal exhibits
+Callouts provide step-by-step clarity
+Notes and titles add structure and professionalism

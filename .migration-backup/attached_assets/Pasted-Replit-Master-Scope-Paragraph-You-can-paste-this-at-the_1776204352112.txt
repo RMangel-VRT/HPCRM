@@ -1,0 +1,49 @@
+Replit Master Scope Paragraph
+
+You can paste this at the top of the project:
+
+We are upgrading the existing Visual Scope Tool in the High Plains Internal CRM from a basic image-overlay markup feature into a professional landscape scope drafting and proposal exhibit tool. The upgraded system must support structured object-based editing on top of high-resolution satellite captures or uploaded images, a layered editing model, editable polygons and polylines, textured fills for mulch/groundcover materials, a categorized landscaping symbol library, automatic legend generation, clean callouts and sheet composition tools, and polished export behavior for proposal-ready PDF/PNG outputs. This is not intended to be CAD or GIS software; it should remain fast, intuitive, and visually strong, while being reliable enough for repeat internal use and professional customer-facing presentation. Each slice must preserve save/load integrity, maintain compatibility with existing Visual Scope records where possible, and avoid regressions in export quality.
+
+Slice 1 Prompt for Replit
+
+Here is the first one written in a paste-ready way:
+
+Slice 1 — Core Editor Refactor
+What & Why
+
+The current Visual Scope Tool behaves like a basic markup overlay, which makes future improvements fragile and inconsistent. Before adding professional features like textures, legends, and symbol libraries, we need to refactor the editor into a structured object-based system. The goal of this slice is to establish a stable editor architecture where the base image is a locked background layer and all annotations are real editable objects that can be selected, modified, saved, and reloaded reliably.
+
+Scope
+Treat the base image as a dedicated locked background layer
+Convert drawn elements into structured canvas objects
+Support individual selection of objects after placement
+Add basic move / resize / rotate / delete controls
+Add undo / redo support
+Add initial layer model foundation
+Ensure full sheet state can be saved and reloaded reliably
+Requirements
+Existing Visual Scope records should continue to open if possible
+The base image must remain non-destructive and locked by default
+Objects must persist as editable items after save/reload
+This architecture must support future layers such as Areas, Lines, Symbols, Text, and Legend
+Do not yet build the advanced texture or symbol systems in this slice
+Done Looks Like
+A user can open a scope sheet and see a locked base image
+A user can draw shapes/text and reselect them later for editing
+Objects are stored as structured data, not just flattened markup
+Undo and redo work during editing
+Saving and reopening the same sheet restores all objects correctly
+Guardrails
+Prioritize architecture and reliability over UI polish
+Keep the layer implementation lightweight for now
+Avoid introducing advanced styling features in this slice
+No export redesign yet
+No legend or texture work yet
+Test Plan
+Create a new sheet from satellite capture
+Add multiple objects of different types
+Move and modify those objects
+Save and reload the sheet
+Verify all objects preserve geometry, style, rotation, and placement
+Verify undo/redo does not corrupt state
+Verify base image remains locked and intact

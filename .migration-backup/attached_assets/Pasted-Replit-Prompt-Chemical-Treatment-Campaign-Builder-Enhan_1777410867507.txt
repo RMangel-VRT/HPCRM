@@ -1,0 +1,248 @@
+Replit Prompt — Chemical Treatment Campaign Builder Enhancements
+Context
+We are extending the existing Campaign system to better support our Chemical Applicator's workflow. He sends pre-visit notifications to property managers, and feedback is that the current notification is too thin: no product info, no firm date, no rain-out plan, no label attached. This slice adds (a) a reusable Chemical Products catalog, (b) target/backup date scheduling on a campaign visit, (c) a label PDF upload field, and (d) wires all of it through to the updated chemical-treatment-notification.html email template.
+This slice should land in a deployable state. After it's reviewed, a follow-up slice will handle automatic backup-date promotion, applicator self-serve rescheduling, and customer reply capture.
+Critical: do NOT replace the existing campaign system. Inspect what's there and extend it. The campaign types, scheduling, and send pipeline already work for other campaign categories — we're adding fields and one new template, not rewriting.
+Existing context (do not duplicate or replace)
+The following already exist and should be extended, not replaced:
+
+A campaign system already exists with categories, templates, recipients, and a send pipeline. Inspect the relevant tables in shared/schema.ts (likely named campaigns, campaign_recipients, campaign_visits, or similar — find them before writing code) and the matching routes/components. Extend these; do not create parallel tables.
+communication_templates and/or email_templates already exist in shared/schema.ts. The "Chemical Treatment Notification" template is one of these rows. We will replace its HTML body with the new version below and add the new merge variables.
+Customer detail, campaigns list, and admin settings pages all already exist. New routes go inside the existing routing tree, and new settings pages go inside the existing settings nav.
+Stack: React 18 + TypeScript + Vite + Tailwind + shadcn/ui (Radix) + Wouter + TanStack Query v5 + React Hook Form + Zod + Drizzle ORM + Postgres + i18next (en + es). No new dependencies.
+Multi-tenancy: every table has companyId, every query filters by the active company from UserWithContext. No exceptions.
+File uploads: inspect how attachments are currently stored (look for attachmentsJson on communications, or any storageKey pattern). Reuse the existing storage layer — do NOT introduce a new file backend.
+
+Read the existing campaign visit / campaign recipient logic before adding fields. If a targetDate or scheduledDate field already exists, do not add a duplicate.
+Schema changes
+1. New table: chemical_products
+Reusable catalog so the applicator picks a product instead of retyping product info on every campaign.
+Fields:
+
+id — varchar, PK, UUID
+companyId — varchar, FK → companies.id, not null
+name — text, not null (e.g., "Dimension 2EW")
+manufacturer — text, nullable
+activeIngredient — text, not null (e.g., "Dithiopyr 24%")
+epaRegNumber — text, not null
+category — text, not null — "pre-emergent" | "post-emergent" | "fertilizer" | "fungicide" | "insecticide" | "herbicide" | "other"
+defaultPurpose — text, nullable (e.g., "Pre-emergent crabgrass control")
+defaultReentryInterval — text, nullable (e.g., "1 to 2 hours, or until dry")
+defaultWateringInstructions — text, nullable (e.g., "Water in lightly within 24 hours")
+defaultMowingInstructions — text, nullable (e.g., "any time after the lawn dries")
+defaultLabelStorageKey — text, nullable (storage key for the manufacturer's label PDF)
+defaultLabelFilename — text, nullable (display filename, e.g., "Dimension-2EW-Label.pdf")
+notes — text, nullable (internal notes, not shown to customers)
+isActive — boolean, not null, default true
+createdAt, updatedAt — timestamp
+
+Add a unique constraint on (companyId, name).
+2. Additions to the existing campaign visit / recipient table
+Inspect first — these may partially exist. Add only what's missing:
+
+targetDate — date, not null (the planned visit date)
+backupDate — date, nullable (used if weather/scheduling delays target)
+timeWindowStart — time, nullable (e.g., 08:00)
+timeWindowEnd — time, nullable (e.g., 12:00)
+chemicalProductId — varchar, FK → chemical_products.id, nullable (only used for chemical-applicator campaigns)
+applicatorUserId — varchar, FK → users.id, nullable (which licensed applicator is assigned)
+labelOverrideStorageKey — text, nullable (per-visit override of the product default label)
+labelOverrideFilename — text, nullable
+purposeOverride — text, nullable (per-visit override of defaultPurpose)
+reentryIntervalOverride — text, nullable
+wateringInstructionsOverride — text, nullable
+mowingInstructionsOverride — text, nullable
+wasBumpedToBackup — boolean, not null, default false (placeholder for the follow-up slice)
+
+If a notes / additionalNotes column already exists on the visit row, leave it.
+3. Additions to users table
+Add only if missing:
+
+applicatorLicenseNumber — text, nullable (state pesticide applicator license)
+applicatorLicenseState — text, nullable (e.g., "CO")
+
+4. Updates to the chemical treatment email template
+The existing template row (find it by name or slug matching "Chemical Treatment Notification") needs its HTML body replaced with the new version stored at client/src/templates/chemical-treatment-notification.html (see UI section 5 below). The merge variable list for this template must be updated to include all variables the new template references.
+If your template table has a mergeVariables jsonb column or similar, populate it with this set:
+companyName, customerName, campaignTitle,
+targetDate, backupDate, timeWindow,
+productName, activeIngredient, epaRegNumber, purpose,
+labelAttachmentUrl, labelAttachmentName,
+reentryInterval, wateringInstructions, mowingInstructions,
+applicatorName, applicatorLicense,
+contactPhone, contactEmail,
+notes
+5. Migrations
+Add migration logic in server/index.ts (or wherever existing startup migrations live) using the same IF NOT EXISTS pattern as the existing tables. Migrations must be idempotent and safe on existing databases.
+API endpoints
+All endpoints check companyId from authenticated UserWithContext. Match existing route file conventions.
+Chemical products
+
+GET /api/chemical-products — list, filterable by category and isActive
+GET /api/chemical-products/:id — single product
+POST /api/chemical-products — create (admin or office role)
+PATCH /api/chemical-products/:id — update
+DELETE /api/chemical-products/:id — soft delete via isActive = false
+POST /api/chemical-products/:id/label — multipart upload, stores PDF, sets defaultLabelStorageKey + defaultLabelFilename. Reuse the existing file storage layer.
+DELETE /api/chemical-products/:id/label — removes the stored label
+
+Campaign visits — extend existing endpoints
+Wherever the existing endpoint creates or updates a campaign visit/recipient row, accept the new fields listed in Schema §2. Validate with Zod:
+
+targetDate required for chemical-applicator category campaigns
+backupDate optional but, when set, must be ≥ targetDate
+timeWindowEnd must be ≥ timeWindowStart when both are set
+chemicalProductId required when the campaign category is chemical applicator
+applicatorUserId required when category is chemical applicator
+
+Add one focused endpoint:
+
+POST /api/campaign-visits/:id/label — multipart upload that sets labelOverrideStorageKey + labelOverrideFilename for a single visit (used when the visit needs a label different from the product default)
+DELETE /api/campaign-visits/:id/label — clears the override
+
+Render-template helper
+The existing email send pipeline has a function that hydrates merge variables before sending. Extend it so that when sending a chemical-applicator campaign visit, it computes the variables in this order, falling back through each level:
+
+Visit-level overrides (purposeOverride, reentryIntervalOverride, etc.) win
+Otherwise, product defaults (defaultPurpose, defaultReentryInterval, etc.)
+Otherwise, a sensible string fallback (see "Fallback strings" below)
+
+labelAttachmentUrl should be a signed/short-lived URL to either the visit override file (if set) or the product default. labelAttachmentName is the corresponding filename.
+timeWindow is rendered as a single string: if both start and end are set, "8:00 AM – 12:00 PM"; if only start, "Starting around 8:00 AM"; if neither, "Morning" or "Afternoon" depending on a coarse field if present, else "To be confirmed".
+applicatorName and applicatorLicense come from the users row referenced by applicatorUserId. contactPhone and contactEmail come from the company settings (use whatever fields already exist there).
+Fallback strings when no value is available (these are user-facing — translate them via i18next):
+
+purpose → "Routine seasonal lawn care application"
+reentryInterval → "1 to 2 hours, or until the product has fully dried"
+wateringInstructions → "No special watering needed — normal irrigation is fine."
+mowingInstructions → "any time after the lawn has dried"
+notes → empty string (and the template should handle blank gracefully)
+
+File storage
+The chemical label PDFs are uploaded once per product (default) and optionally overridden per visit. Constraints:
+
+Accept application/pdf only
+Max file size: 10 MB
+Validate MIME by magic bytes server-side, not just Content-Type header
+Store under a path namespace that includes companyId (e.g., chemical-labels/{companyId}/{uuid}.pdf) so files can never leak across companies
+The signed URL generated for labelAttachmentUrl should expire in ≥ 7 days so the email link works for property managers who open it days later
+
+If the existing storage layer doesn't support 7-day signed URLs, document the actual TTL and call it out in the Deliverables.
+UI changes
+1. Chemical Products settings page
+New admin/office route: /dashboard/settings/chemical-products. Add to the existing settings navigation.
+Layout:
+
+Page header: "Chemical Products" + "Add product" button
+Table columns: Name, Manufacturer, Active Ingredient, EPA Reg #, Category badge, Label (✓ icon if uploaded), Active toggle, Edit/Delete actions
+Empty state: "No chemical products yet. Add your first product to use it in campaign visits."
+
+Add/edit modal (ChemicalProductForm):
+
+Name (required)
+Manufacturer (optional)
+Active ingredient (required)
+EPA registration number (required)
+Category (select)
+Default purpose (text, helper: "Customer-facing description of why this is applied")
+Default re-entry interval (text, helper: "How long before people/pets can re-enter the lawn")
+Default watering instructions (textarea)
+Default mowing instructions (textarea)
+Label PDF upload (drag-drop zone, shadcn-styled — show current filename if already uploaded, with replace/remove actions)
+Internal notes (textarea, helper: "Not shown to customers")
+Active toggle
+Submit: "Save product"
+
+Use React Hook Form + Zod. On submit, POST/PATCH and invalidate the products list cache.
+2. Campaign builder — new fields for chemical applicator category
+Inspect the existing campaign builder form. When the campaign's category is the chemical applicator one, render an additional ChemicalVisitDetails section. For other categories, this section is hidden — do not break their flows.
+Section layout (in order):
+
+Schedule group:
+
+Target date — shadcn Calendar inside a Popover, required
+Time window — two time pickers side-by-side, both optional. Helper text: "Estimated arrival window shown to property managers"
+Backup date — same calendar component, optional. Helper text: "Used only if weather or scheduling delays the target date." Default value: target date + 2 business days, but editable.
+Validation: backup must be ≥ target; time window end must be ≥ start
+
+
+Applicator group:
+
+Assigned applicator — searchable select of users with applicatorLicenseNumber populated. Required.
+Below the select, show a small read-only badge: "License #: ABC-1234 (CO)" — pulled from the selected user's license fields. If selected user has no license on file, show an inline warning: "This user doesn't have an applicator license on file. Add one in user settings before sending."
+
+
+Product group:
+
+Product — searchable select of active chemical_products, with a "+ Add new product" link below the dropdown that opens the same ChemicalProductForm modal in create mode (on save, auto-selects the new product). Required.
+Below the select, render a read-only summary card showing: product name, active ingredient, EPA #, default purpose, current label filename (with "View label" link). This makes it obvious to the applicator what's about to go out.
+
+
+Customize this visit group (collapsed by default):
+
+Purpose (text, placeholder = product's default)
+Re-entry interval (text, placeholder = product's default)
+Watering instructions (textarea, placeholder = product's default)
+Mowing instructions (textarea, placeholder = product's default)
+Override label PDF (file upload — shows "Using product default: filename.pdf" until a file is uploaded; once uploaded, shows override filename + "Revert to product default" link)
+Helper at top of the group: "Leave blank to use the product's defaults. Anything you enter here applies only to this campaign."
+
+
+Additional notes (textarea, optional) — flows into the {{notes}} template variable. Helper: "Anything specific to this property — gate codes, dog warnings, areas to avoid, etc."
+
+Form submission posts/patches the campaign visit endpoint with the new fields. Use React Hook Form + Zod with the validation rules specified.
+3. Campaign visit detail / preview
+Wherever campaign visits currently render in detail (admin preview, send-confirmation modal, etc.), add a "Preview email" button that pops a Dialog rendering the email template with all current values resolved. Use the same template-hydration helper from API §3 so what you preview is what gets sent.
+The preview Dialog should display:
+
+A small "Preview" badge at the top
+The rendered HTML in an iframe (sandboxed, srcdoc-based) — do NOT inject untrusted HTML directly into the document
+
+4. User settings — applicator license fields
+Wherever individual user profiles or admin user-management already exists, add two fields:
+
+Applicator License Number
+License State (select of US states; if you already have a state list utility, reuse it)
+
+These are optional fields — only the chemical applicator users need them.
+5. Email template file
+Create client/src/templates/chemical-treatment-notification.html with the contents of the template that has already been finalized (the file lives alongside this prompt at chemical-treatment-notification.html — copy it verbatim). On startup, the template seeder/migration that originally inserted the "Chemical Treatment Notification" row should now read this file and update the row's body. Do not hard-code the HTML inside server/index.ts — read it from disk so the same source of truth feeds the preview Dialog and the actual send.
+If a template-seeding utility doesn't exist, create one at server/templates/seed.ts that on startup ensures every template named in a small registry has its body synced from disk. Make it idempotent.
+Patterns and conventions
+
+Every user-facing string goes through i18next. Add new keys to both en and es translation files. Use machine translation as a starting point for es and add a // TODO: human-review translation comment.
+Every new query filters by companyId. No exceptions.
+New routes live in their own route file under server/routes/ if there are 3+ endpoints; otherwise extend the most logically related existing file.
+New schema additions go in shared/schema.ts alongside existing tables.
+Use existing shadcn components — don't import new Radix primitives that aren't already in use. Date pickers should use the Calendar + Popover pattern already used elsewhere.
+Loading states: shadcn Skeleton. Error states: shadcn Alert.
+All new icons from lucide-react.
+Zod schemas live next to or imported into both client form code and server route validation — share schemas via shared/ where the existing code already does this.
+File uploads must be virus-scanned only if the existing upload layer already does that; do not add new scanning infra in this slice.
+
+Out of scope for this slice (do not build)
+
+Automatic promotion of targetDate to backupDate when weather forecast triggers a bump
+Sending a "we've moved your visit" follow-up email when bumped
+Customer-facing reschedule confirmation links in the email
+SMS notifications
+Per-state pesticide notification regulation enforcement (we're providing the fields; verifying compliance is on the user)
+Bulk import of chemical products from a third-party database
+OCR / auto-extraction of fields from an uploaded label PDF
+Audit log of who edited a chemical product (the existing audit log is fine; do not extend it here)
+Translating the actual email body content into Spanish (the template stays English for now; only the app UI strings are translated)
+
+Deliverables
+When you finish, report back with:
+
+List of all new files created (paths)
+List of all files modified (paths + 1-line description of what changed)
+List of new database tables and columns added
+List of new API endpoints created
+List of new routes added to the frontend router and settings nav
+The actual signed-URL TTL achieved for label attachments, if it differs from the requested 7 days
+Any decisions you made where this prompt was ambiguous, and what you chose
+Any issues you ran into or anything you skipped, with reasons
+A short manual test plan covering: creating a product, uploading a label, building a chemical-applicator campaign visit, previewing the email, and sending a test send to the current user's email address
+
+Do not skip any item silently. If something can't be built (e.g., the file storage layer can't produce 7-day signed URLs), say so explicitly with the actual constraint.

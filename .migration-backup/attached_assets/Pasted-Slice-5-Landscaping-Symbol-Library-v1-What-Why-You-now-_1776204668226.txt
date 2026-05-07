@@ -1,0 +1,168 @@
+Slice 5 — Landscaping Symbol Library (v1)
+What & Why
+
+You now have strong area visualization (textures), but the tool is still missing point-based communication — trees, shrubs, boulders, irrigation components, and callouts. This slice introduces a structured symbol system so users can visually represent discrete elements on the property.
+
+This is a major step toward making the tool feel like a real landscape scope and design tool, not just an area highlighter.
+
+Scope
+Add a Symbol Tool (stamp-based placement)
+Build a categorized symbol library
+Allow:
+click-to-place symbols
+drag placement
+resize
+rotate
+duplicate
+Add symbol labeling support
+Add symbol counting foundation (used later for legend + takeoff)
+Ensure symbols behave as structured objects (not images pasted on canvas)
+Symbol Library Structure (v1)
+
+Keep this tight and high-quality. No fluff.
+
+🌳 Trees
+Deciduous tree
+Evergreen tree
+Tree removal (X or dashed circle)
+Stump grind
+Replacement tree (highlighted variant)
+🌿 Shrubs & Planting
+Shrub mass
+Specimen shrub
+Ornamental grass cluster
+Perennial grouping
+Remove shrub
+🪨 Rock & Hardscape
+Boulder
+Cobble accent
+Edging marker
+Path/step indicator
+💧 Irrigation / Drainage
+Valve box
+Controller
+Sprinkler head
+Drip zone indicator
+Drain inlet
+Pop-up emitter
+⚠️ Site / Scope Markers
+Repair area marker
+Hazard marker
+Install location
+Utility conflict
+General note marker
+Numbered callout (important for Slice 7)
+Requirements
+Placement & Interaction
+User selects a symbol from library
+Click or click-drag places symbol on canvas
+Symbol becomes a selectable object
+Symbol supports:
+move
+resize
+rotate
+duplicate
+delete
+Styling
+Symbols must have consistent:
+stroke weight
+color palette
+visual style
+Optional:
+color override (if simple to support)
+Labeling
+Each symbol supports:
+optional text label
+optional note field
+Labels should be toggleable (show/hide)
+Counting (Foundation Only)
+Each symbol instance stores:
+symbol type ID
+This will later allow:
+automatic counts in legend
+takeoff summaries
+Done Looks Like
+User can open symbol library and pick a category
+User places trees, shrubs, boulders, etc. onto the map
+Symbols can be resized and rotated cleanly
+Symbols persist after save/reload
+Symbols visually match the professional tone of the tool
+Multiple symbols can be placed quickly without friction
+Guardrails
+Do NOT overload with too many symbols
+Do NOT allow arbitrary image uploads yet
+Avoid cartoonish or overly detailed icons
+Keep symbols clean, minimal, and readable at multiple scales
+Do NOT build advanced grouping or multi-select yet (comes later)
+UX Notes
+Symbol Picker
+Panel or modal with:
+category tabs
+grid of symbols
+hover preview
+Keep it fast — no lag when switching categories
+Placement Flow
+Click symbol → cursor changes → click to place
+Optional:
+continuous placement mode (stamp multiple quickly)
+Selection
+Symbols should have clear bounding box when selected
+Rotation handle should be intuitive
+Resize should maintain aspect ratio by default
+Data Model Expectations
+
+Each symbol object should store:
+
+id
+type: symbol
+symbolTypeId (e.g., "deciduous_tree")
+position (x, y)
+scale
+rotation
+layerId
+label (optional)
+note (optional)
+style overrides (if any)
+
+Symbol definitions should be:
+
+centrally stored
+referenced by ID (not duplicated per object)
+Rendering Considerations
+Symbols must scale cleanly (SVG preferred over raster)
+Must render consistently in:
+editor
+export (next slices)
+Must remain legible at:
+zoomed-out overview
+zoomed-in detail
+Test Plan
+Place multiple symbols across different categories
+Resize and rotate symbols
+Duplicate symbols and confirm properties persist
+Add labels and verify they save/load correctly
+Mix symbols with textured polygons
+Save and reload sheet → verify all symbols intact
+Stress test with many symbols on one sheet
+Done Looks Like for Approval
+The tool now supports both:
+area-based communication (textures)
+point-based communication (symbols)
+Sheets begin to look like real landscape plans
+Users can clearly represent trees, planting, irrigation, and scope actions
+The foundation is ready for automatic legend generation
+Critical Setup for Next Slice
+
+Every symbol must have:
+
+a stable symbolTypeId
+a readable default name
+
+Example:
+
+"Deciduous Tree"
+"Tree Removal"
+"Boulder"
+"Valve Box"
+
+This is what feeds directly into the legend system in Slice 6.

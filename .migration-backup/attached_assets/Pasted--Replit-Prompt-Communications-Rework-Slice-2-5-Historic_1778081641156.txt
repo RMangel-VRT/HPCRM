@@ -1,0 +1,249 @@
+# Replit Prompt — Communications Rework, Slice 2.5 (Historical Mail Backfill)
+
+## Context
+
+Slices 1 and 2 of the Communications rework are in: per-user scoping is enforced at the API layer, and the live sync now captures both inbound (`INBOX`) and outbound (`SENT`) Gmail mail with Message-ID dedup, routing every message through `routeMessage()`.
+
+But live sync only goes forward. When a user connects their Gmail today, the CRM has no record of any mail before that moment. This is **Slice 2.5 of 4** (inserted between Slice 2 and the unified-page Slice 3 because the new UI looks much better with historical data populated). Goal: let a user pick a date range and backfill every Inbox + Sent message in that range through the same routing pipeline, with live progress visible on the mailbox settings page.
+
+## What this slice does
+
+1. New table `mailbox_backfill_runs` to track each backfill operation with progress + cancellation.
+2. New service `server/services/mailboxBackfillService.ts` that runs as an async background job — kicked off by an API call, returns immediately, processes pages of Gmail messages with rate-limit handling, and writes routed/unsorted/discarded counts as it goes.
+3. New endpoints to start, status-poll, and cancel a backfill.
+4. UI: a "Backfill historical mail" panel on `MailboxAccountsSettingsPage` with date range, scope checkboxes (Inbox / Sent — both default checked), a Start button, and a live progress bar + counters when a run is active.
+5. OAuth callback flow: after successful Gmail connection, return a flag that triggers the backfill panel to open prefilled (suggesting a default range — see below).
+
+## Schema changes
+
+### New table: `mailbox_backfill_runs`
+
+```ts
+export const mailboxBackfillRuns = pgTable("mailbox_backfill_runs", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  companyId: varchar("company_id").notNull().references(() => companies.id, { onDelete: "cascade" }),
+  mailboxAccountId: varchar("mailbox_account_id").notNull().references(() => mailboxAccounts.id, { onDelete: "cascade" }),
+  startedByUserId: varchar("started_by_user_id").references(() => users.id, { onDelete: "set null" }),
+  fromDate: timestamp("from_date").notNull(),
+  toDate: timestamp("to_date").notNull(),
+  includeInbox: boolean("include_inbox").notNull().default(true),
+  includeSent: boolean("include_sent").notNull().default(true),
+  status: text("status").notNull().$type<"queued" | "running" | "success" | "partial" | "error" | "cancelled">().default("queued"),
+  cancelRequested: boolean("cancel_requested").notNull().default(false),
+  startedAt: timestamp("started_at").notNull().defaultNow(),
+  finishedAt: timestamp("finished_at"),
+  // Progress
+  estimatedTotal: integer("estimated_total"),         // best-effort estimate from messages.list resultSizeEstimate
+  currentMonth: text("current_month"),                // e.g., "2026-03" — for the progress UI
+  // Counters (parallel to mailbox_sync_runs)
+  inboxFetched: integer("inbox_fetched").notNull().default(0),
+  inboxRouted: integer("inbox_routed").notNull().default(0),
+  inboxUnsorted: integer("inbox_unsorted").notNull().default(0),
+  inboxDiscarded: integer("inbox_discarded").notNull().default(0),
+  inboxDeduped: integer("inbox_deduped").notNull().default(0),
+  sentFetched: integer("sent_fetched").notNull().default(0),
+  sentRouted: integer("sent_routed").notNull().default(0),
+  sentUnsorted: integer("sent_unsorted").notNull().default(0),
+  sentDiscarded: integer("sent_discarded").notNull().default(0),
+  sentDeduped: integer("sent_deduped").notNull().default(0),
+  errorMessage: text("error_message"),
+}, (table) => ({
+  mailboxBackfillRunsMailboxStartedIdx: index("mailbox_backfill_runs_mailbox_started_idx").on(table.mailboxAccountId, table.startedAt),
+  // Only one active backfill per mailbox at a time — enforced in code, but indexed for fast lookup
+  mailboxBackfillRunsActiveIdx: index("mailbox_backfill_runs_active_idx").on(table.mailboxAccountId, table.status),
+}));
+```
+
+Add insert schema, types. Migration:
+
+```sql
+CREATE TABLE IF NOT EXISTS mailbox_backfill_runs (...);
+CREATE INDEX IF NOT EXISTS mailbox_backfill_runs_mailbox_started_idx
+  ON mailbox_backfill_runs(mailbox_account_id, started_at DESC);
+CREATE INDEX IF NOT EXISTS mailbox_backfill_runs_active_idx
+  ON mailbox_backfill_runs(mailbox_account_id, status);
+```
+
+## New service: `server/services/mailboxBackfillService.ts`
+
+Exposes:
+
+```ts
+async function startBackfill(args: {
+  mailboxAccountId: string;
+  startedByUserId: string;
+  fromDate: Date;
+  toDate: Date;
+  includeInbox: boolean;
+  includeSent: boolean;
+}): Promise<{ runId: string }>;
+
+async function runBackfill(runId: string): Promise<void>;       // worker entry
+async function requestCancel(runId: string): Promise<void>;
+async function getActiveBackfill(mailboxAccountId: string): Promise<MailboxBackfillRun | null>;
+async function getBackfillHistory(mailboxAccountId: string, limit = 10): Promise<MailboxBackfillRun[]>;
+```
+
+### `startBackfill` rules
+
+- Reject if there's already a `queued` or `running` run for the same `mailboxAccountId`. Return that run instead, so the UI can attach to it.
+- Reject if `toDate <= fromDate` or if `fromDate` is before 2004 (Gmail launch — keeps the search query cheap).
+- Reject if both `includeInbox` and `includeSent` are false.
+- Insert the row with `status = "queued"`.
+- Schedule `runBackfill(runId)` via `setImmediate` (or a small in-process queue if you'd rather throttle to N concurrent runs across the app — see "Concurrency limits").
+- Return `{ runId }` immediately so the API call can return.
+
+### `runBackfill` algorithm
+
+```
+1. Mark run as "running"; set startedAt.
+2. For each enabled label in [INBOX, SENT]:
+   a. Build Gmail search query: `after:<fromDate>/MM/DD before:<toDate>/MM/DD` plus label filter.
+      - INBOX: `q = "after:2026/01/01 before:2027/01/01"` + `labelIds: ["INBOX"]`
+      - SENT:  same `q` + `labelIds: ["SENT"]`
+   b. First page also returns `resultSizeEstimate` — if estimatedTotal is null on the run row, set it (sum of inbox+sent estimates).
+   c. Loop through pages (`pageToken` until undefined):
+      - Before each page, re-read run row; if `cancelRequested = true`, set status="cancelled" and return.
+      - For each message id in the page, call `messages.get` (full format).
+      - Update `currentMonth` based on the message's internal date when it changes.
+      - Run dedup: if `providerMessageId` already in `communications`, increment <label>Deduped, skip.
+      - Run `routeMessage(msg, { direction: label === "SENT" ? "outbound" : "inbound" })` (Slice 2 already added `direction`).
+      - Persist according to result (routed / unsorted / discarded), incrementing the appropriate counter.
+      - Update the run row's counters in batches (every 25 messages or end of page) to avoid hot-row contention.
+      - Sleep ~50ms between `messages.get` calls; on 429 use exponential backoff capped at 30s.
+3. When both labels done, set status:
+   - "success" if no errors
+   - "partial" if one label errored after some success
+   - "error" if it errored before any messages were processed
+   set finishedAt.
+```
+
+### Cancellation
+
+Worker re-reads `cancel_requested` from the DB at the top of every page (and every 25 messages within a page). When set, it finishes the current message, sets `status = "cancelled"`, and returns. UI keeps polling until status changes.
+
+### Concurrency limits
+
+In-process semaphore: max 3 simultaneous backfill runs across the whole server (configurable via `BACKFILL_CONCURRENCY` env). Additional runs stay `queued`. A simple promise-pool or `p-limit`-style helper is fine.
+
+Per-mailbox: only 1 active run at a time (enforced at `startBackfill`).
+
+### Resume after server restart
+
+On startup, sweep `mailbox_backfill_runs` where `status IN ('queued', 'running')` and re-queue them. Set `status = "queued"` and let the worker pick them up — the dedup check ensures already-processed messages are skipped, so the run is naturally resumable.
+
+## API changes
+
+### `POST /api/mailbox-accounts/:id/backfill`
+
+Body:
+
+```ts
+{
+  fromDate: string;       // ISO date
+  toDate: string;         // ISO date
+  includeInbox: boolean;
+  includeSent: boolean;
+}
+```
+
+Response:
+
+```ts
+{
+  runId: string;
+  status: "queued" | "running";  // returns existing active run if present
+}
+```
+
+Auth: requester must own the mailbox OR be `admin`/`office`. Apply `mailboxScope.resolveVisibleMailboxes` — if not in scope, 403.
+
+### `GET /api/mailbox-accounts/:id/backfill/status`
+
+Response:
+
+```ts
+{
+  active: MailboxBackfillRun | null;
+  history: MailboxBackfillRun[];   // last 10 runs, newest first
+}
+```
+
+Same auth. Polled by the UI every 5s while a run is active; stops polling when status is terminal.
+
+### `POST /api/mailbox-accounts/:id/backfill/:runId/cancel`
+
+Sets `cancel_requested = true`. Worker handles the rest.
+
+### Existing OAuth callback
+
+`server/routes/mailboxAccounts.ts` — the OAuth callback that completes Gmail connection currently redirects/returns success. Update the response (or the redirect URL) to include a `?promptBackfill=1` flag so the settings page knows to open the backfill panel prefilled with the suggested default range.
+
+## Default suggested range
+
+When the panel opens after a fresh OAuth connection, prefill:
+
+- `fromDate`: 90 days ago (covers most "I wish I had this conversation in the CRM" cases without an alarming volume)
+- `toDate`: now
+- `includeInbox`: true
+- `includeSent`: true
+
+User can change before clicking Start. The "Whole year" / "All of 2026" / "Last 6 months" quick-pick buttons should be present:
+
+- Last 30 days
+- Last 90 days (default)
+- Last 12 months
+- Year to date
+- Last full calendar year (e.g., 2025 if current year is 2026)
+- Custom range...
+
+## UI changes
+
+### `client/src/pages/MailboxAccountsSettingsPage.tsx`
+
+Add a `BackfillPanel` for each connected mailbox:
+
+- If no active run: form (range picker, scope checkboxes, quick-pick buttons, Start button).
+- If active run: progress card showing `{currentMonth}` ("Processing March 2026"), a determinate progress bar based on `processedSoFar / estimatedTotal` (fall back to indeterminate when `estimatedTotal` is null), per-label counters ("Inbox: 245 routed / 31 unsorted / 102 deduped"), and a Cancel button.
+- Below: collapsible "Recent backfills" list showing the last few runs with their date ranges, status, and final counts.
+
+Use TanStack Query with `refetchInterval: 5000` while a run is active; stop polling when the active run is null or terminal.
+
+### `client/src/components/customer/communications/BackfillPanel.tsx` (new)
+
+Pull the panel into its own component so it can be reused if we later add a backfill option from the unified Communications page (Slice 3 hook — out of scope here, but keep the boundary clean).
+
+### `?promptBackfill=1` handling
+
+When the settings page mounts and sees this query param, scroll to the just-connected mailbox's `BackfillPanel` and auto-open it.
+
+## Acceptance checklist
+
+- [ ] Connect a fresh Gmail account → settings page lands with the backfill panel open and prefilled to "Last 90 days".
+- [ ] Pick "All of 2026" (Jan 1 → Dec 31 2026) and start a backfill. Progress bar updates as messages come in. Final counts match the actual Gmail volume in that range (within dedup/discard expectations).
+- [ ] Cancel mid-run → status changes to `cancelled` within ~5 seconds, no further messages processed, partial counts preserved.
+- [ ] Re-run the same date range → message count rises only for genuinely-new mail; everything previously seen increments `*Deduped`, not `*Routed`/`*Unsorted`.
+- [ ] Server restart mid-run → on boot the run is re-queued and resumes; no duplicate communications created (dedup catches them).
+- [ ] Trying to start a 2nd run on the same mailbox while one is active → API returns the existing run instead of starting a new one.
+- [ ] As a `field` user with their own connected mailbox, can start/cancel/poll their own backfill but gets 403 trying to do the same to another user's mailbox.
+- [ ] Live sync continues to work in parallel — the 60s worker doesn't conflict with a backfill, and Message-ID dedup handles overlap.
+- [ ] No regressions on the existing `mailbox_sync_runs` flow.
+
+## Files touched
+
+- `shared/schema.ts` — add `mailbox_backfill_runs` table + insert schema + types
+- `server/services/mailboxBackfillService.ts` (new)
+- `server/services/mailboxBackfillService.test.ts` (new) — unit tests for query-building, page iteration, dedup, cancellation
+- `server/routes/mailboxAccounts.ts` — three new endpoints + OAuth-callback flag
+- `server/storage.ts` — `createMailboxBackfillRun`, `updateMailboxBackfillRun`, `getActiveMailboxBackfillRun`, `getMailboxBackfillHistory`
+- `server/index.ts` — startup sweep to resume orphaned runs; migration block
+- `client/src/pages/MailboxAccountsSettingsPage.tsx` — wire in `BackfillPanel`, handle `?promptBackfill=1`
+- `client/src/components/customer/communications/BackfillPanel.tsx` (new)
+
+## Things to NOT change in this slice
+
+- `routeMessage()` itself — Slice 2 already made it direction-aware.
+- `gmailSender.ts` — unchanged.
+- Live sync worker — unchanged. Backfill is purely additive.
+- Per-customer communications view — unchanged.
+- The unified Communications page — that's Slice 3.

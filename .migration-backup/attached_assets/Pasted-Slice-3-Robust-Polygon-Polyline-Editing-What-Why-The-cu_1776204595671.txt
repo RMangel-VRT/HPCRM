@@ -1,0 +1,95 @@
+Slice 3 — Robust Polygon / Polyline Editing
+What & Why
+
+The current drawing experience likely still feels fragile and one-shot even after moving to an object-based editor. For this tool to become a professional landscape scope system, area and line objects must be easy to refine after creation. Users need to draw service areas, bed edges, turf conversion zones, routes, and boundaries without feeling locked into their first click path. This slice makes polygons and polylines truly editable and much more usable for real field and proposal workflows.
+
+Scope
+Improve polygon creation flow
+Improve polyline creation flow
+Add visible vertex handles for selected polygons/polylines
+Allow dragging existing vertices
+Allow inserting new vertices on edges
+Allow removing vertices
+Add duplicate object action
+Add consistent close-shape behavior for polygons
+Add cancel/escape behavior during drawing
+Add line and area style controls needed for practical use
+Add optional angle snapping for line segments
+Add optional shift-to-constrain behavior for cleaner edges
+Improve selection hit areas for easier editing
+Requirements
+Polygon creation must feel clear and forgiving
+Users must be able to re-edit shapes after initial creation
+Selected polygons and polylines must show editable vertex points
+Users must be able to add/remove points without corrupting geometry
+Duplicate action must preserve style and transform settings
+Polylines must support:
+stroke width
+dash style
+opacity
+label/name
+Polygons must support:
+fill color
+fill opacity
+stroke color
+stroke width
+label/name
+Shape editing must save and reload reliably
+Geometry edits must support undo/redo cleanly
+Done Looks Like
+User can draw a polygon, save it, reopen it, and refine the boundary later
+User can draw a polyline for an edge/path/route and later reshape it point-by-point
+User can add missing vertices where needed
+User can remove bad points without redrawing the whole object
+Shapes feel flexible instead of permanent
+Drawing workflows feel much cleaner and more intentional
+Guardrails
+Do not add texture fills yet
+Do not add quantity calculations yet
+Do not build advanced CAD snapping logic
+Do not overcomplicate with bezier curves or spline editing
+Keep editing intuitive for normal internal users, not power-CAD users
+UX Notes
+Selected polygon/polyline should display clear vertex handles
+Hovering over an edge can reveal an “insert point” affordance
+Delete/backspace can remove selected points when in vertex-edit mode
+Escape should cancel in-progress drawing without breaking the editor
+Closing a polygon should be easy and visually obvious
+Duplicate should be available from toolbar, right-click menu, or inspector action if your UI supports it
+Suggested Editing Behaviors
+Click to place points
+Click start point to close polygon
+Double-click or Enter can also finish a shape if appropriate
+Shift key constrains segment angle for cleaner geometry
+Drag vertex to edit
+Click edge midpoint or plus-handle to insert vertex
+Select vertex and remove with delete action
+Data Model Expectations
+
+Ensure polygon/polyline objects store:
+
+ordered point array
+closed/open state
+styling properties
+layer assignment
+object name/label
+version-safe serialization for save/load
+any editor metadata needed for future measurement logic
+Test Plan
+Draw multiple polygons and polylines on a fresh sheet
+Reopen each shape and move vertices
+Insert and remove vertices repeatedly
+Duplicate shapes and verify copied style/state
+Save and reload edited shapes
+Confirm no geometry corruption on reopening
+Confirm undo/redo works during:
+initial drawing
+vertex edits
+duplication
+deletion
+Confirm selection remains usable even on smaller or narrow shapes
+Done Looks Like for Approval
+Polygon and polyline tools now feel like real editable drafting tools
+Users no longer need to redraw entire shapes for small corrections
+The editor becomes meaningfully more usable for landscape beds, turf conversions, routes, and boundaries
+This sets the stage for texture fills and more professional styling in the next slice

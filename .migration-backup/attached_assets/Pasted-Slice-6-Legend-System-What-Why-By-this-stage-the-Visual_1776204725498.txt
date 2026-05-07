@@ -1,0 +1,208 @@
+Slice 6 — Legend System
+What & Why
+
+By this stage, the Visual Scope Tool has textured areas and structured landscaping symbols, but the output still depends too much on the viewer guessing what those visuals mean. A professional landscape scope sheet needs a clear, polished legend that explains materials, symbols, and key line styles automatically. This slice ties the editor together into something that reads like a real proposal exhibit instead of a visual draft.
+
+The legend should not be a manual art project. It should be auto-generated from what is actually used on the sheet, while still allowing light editing and cleanup by the user.
+
+Scope
+Add a Legend object/panel to the sheet
+Auto-detect all used:
+textured area materials
+symbol types
+key line styles
+Generate legend entries automatically
+Allow the user to:
+show/hide legend entries
+rename legend labels
+reorder legend entries
+move the legend box on the sheet
+Support compact and expanded legend layouts
+Ensure legend renders cleanly in editor and export
+Legend Entry Types
+1. Material / Area Entries
+
+Generated from textured polygons and, if appropriate, solid-fill area presets.
+
+Examples:
+
+Bark Mulch Refresh
+Decorative Rock
+2–4" Cobble
+Turf Conversion Area
+Demo / Removal Zone
+
+Each entry should include:
+
+texture swatch
+label text
+2. Symbol Entries
+
+Generated from placed symbol instances.
+
+Examples:
+
+Deciduous Tree
+Tree Removal
+Boulder
+Valve Box
+Shrub Mass
+
+Each entry should include:
+
+symbol icon
+label text
+optional count display
+3. Line Style Entries
+
+Generated from line objects if they use meaningful styles that need explanation.
+
+Examples:
+
+Proposed Edging
+Drip Conversion Route
+Plow Route
+Boundary of Work
+
+Each entry should include:
+
+line sample
+label text
+Requirements
+Auto-Generation
+Legend must scan sheet contents and generate entries from actual usage
+Duplicate entries should be merged
+If 12 tree symbols are used, legend should show one tree symbol entry, not 12
+Unused textures/symbols/line styles should not appear by default
+User Controls
+User can toggle any legend entry on/off
+User can rename legend entry label without changing the underlying object type
+User can reorder entries manually
+User can choose whether symbol counts are shown
+User can reposition legend box anywhere on the sheet
+Layout Modes
+
+At minimum:
+
+Compact
+swatch/icon + short label
+Expanded
+more spacing, better for customer-facing exhibits
+Persistence
+Legend layout and edited labels must persist in saved sheet state
+Reopening the sheet must preserve:
+legend position
+hidden entries
+renamed entries
+display mode
+ordering
+Done Looks Like
+User adds textured mulch, cobble, and turf areas plus tree and boulder symbols
+Legend auto-builds with those entries
+User hides one unnecessary line item and renames another
+Legend can be moved to a corner of the sheet
+Export includes a polished legend without manual rebuilding
+Sheet becomes immediately more client-readable
+Guardrails
+Do NOT require the user to hand-build the legend from scratch
+Do NOT turn the legend into a spreadsheet editor
+Keep the UI simple and visual
+Avoid over-detecting meaningless styling differences as separate entries
+Focus on materials, symbols, and only important line styles
+UX Notes
+Legend Behavior
+Legend should exist as a movable sheet element
+It can be represented by a box with:
+title ("Legend" by default)
+grouped entries
+User can drag it to reposition
+Double-click or inspector controls can open legend settings
+Suggested Grouping
+
+Default grouping order:
+
+Materials
+Symbols
+Lines
+
+This keeps the legend intuitive and proposal-friendly.
+
+Suggested Controls
+
+Legend settings can include:
+
+show materials
+show symbols
+show lines
+show counts
+compact / expanded mode
+title text override
+Data Model Expectations
+
+Add legend data to saved sheet state:
+
+legendEnabled
+legendPosition
+legendMode (compact | expanded)
+legendTitle
+legendOrder
+hiddenLegendEntryIds
+customLegendLabels
+showSymbolCounts
+
+Each legend entry should be referenceable by a stable computed ID, such as:
+
+material:bark_mulch
+symbol:deciduous_tree
+line:proposed_edging
+
+This allows persistence without mutating underlying drawing objects.
+
+Detection Rules
+
+To avoid clutter and bad legend behavior:
+
+Materials
+
+Generate one entry per unique material/texture ID
+
+Symbols
+
+Generate one entry per unique symbolTypeId
+
+Lines
+
+Generate only if:
+
+line is marked legend-worthy
+or line uses a named preset / meaningful style
+
+Do not automatically legend every random line stroke variation unless it is intended to communicate a distinct scope meaning.
+
+Test Plan
+Build a sheet with multiple textured areas, repeated symbols, and a few styled lines
+Confirm legend auto-generates correctly
+Confirm duplicate materials/symbols collapse into single entries
+Hide some entries and save/reload
+Rename labels and save/reload
+Move legend box and save/reload
+Toggle symbol counts on/off
+Confirm export matches on-screen legend content and layout
+Remove all objects of one type and confirm legend updates cleanly
+Done Looks Like for Approval
+The tool now explains itself visually
+Users no longer need to build legends manually
+Proposal sheets become much more professional and client-friendly
+Areas, symbols, and line types now read as part of a unified design system
+This creates the bridge to polished sheet composition and customer-facing exports
+Important Implementation Note
+
+The legend should be derived first, editable second.
+
+That means:
+
+source of truth = objects used on sheet
+user can customize presentation
+but the legend remains tied to actual drawing content
+
+That prevents drift and keeps proposals accurate.

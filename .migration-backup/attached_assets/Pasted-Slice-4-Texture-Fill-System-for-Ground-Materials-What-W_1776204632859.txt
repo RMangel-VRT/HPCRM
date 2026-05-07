@@ -1,0 +1,128 @@
+Slice 4 — Texture Fill System for Ground Materials
+What & Why
+
+Up to this point, the tool is structurally sound but still visually basic. This slice is where the product starts to feel professional and landscape-specific. Instead of flat color fills, area polygons will represent real-world materials (mulch, rock, turf, etc.) using textures. This dramatically improves clarity in proposals and eliminates the “markup tool” look.
+
+Scope
+Add texture-based fills to polygon (area) objects
+Create a curated texture preset library
+Allow switching between solid fill and texture fill
+Support:
+texture scale
+opacity
+rotation (optional if easy)
+Maintain stroke (border) styling separately
+Add “material type” field to polygons
+Ensure textures render correctly in both:
+editor
+export (future slice dependency)
+Texture Preset Library (v1)
+
+Start with a tight, high-quality set:
+
+Organic / Softscape
+Bark mulch
+Cedar mulch
+Compost / amended soil
+Native/no-mow
+Turf (subtle pattern, not loud)
+Rock / Mineral
+Breeze / fines
+River rock
+Decorative rock
+2–4" cobble
+Crusher fines
+Utility / Scope
+Diagonal hatch (demo/remove)
+Crosshatch (replacement zone)
+Dot pattern (planting area)
+Light grid (work zone)
+Requirements
+Polygon objects must support a new fillType:
+solid
+texture
+Texture fills must:
+tile correctly (no stretching artifacts)
+scale consistently across zoom levels
+remain visually clean at export resolution
+Users must be able to:
+select a texture from preset library
+adjust scale (small / medium / large)
+adjust opacity
+Texture choice must persist in saved sheet state
+Texture must be tied to a material label (used later in legend)
+Fallback behavior:
+if texture fails to load, revert to solid fill gracefully
+Done Looks Like
+User draws a mulch bed and assigns “Bark Mulch” → it visually reads as mulch
+User draws a turf conversion area → it visually reads differently than mulch
+Areas are immediately distinguishable without labels
+The sheet begins to look like a real landscape concept plan
+Saved sheets reopen with textures intact and consistent
+Guardrails
+Do NOT allow custom texture uploads yet
+Do NOT overbuild a massive texture library
+Prioritize clarity over hyper-realism (avoid photoreal textures)
+Avoid heavy textures that clutter the drawing
+Keep patterns subtle and professional
+UX Notes
+Texture selector should live in the object inspector
+Show:
+preview swatches
+material name
+Switching between solid and texture should be seamless
+Default behavior:
+new polygons start as solid fill
+user upgrades to texture when desired
+Consider quick presets:
+“Mulch Area”
+“Rock Area”
+“Demo Area”
+Data Model Expectations
+
+Polygon object should now include:
+
+fillType: solid | texture
+fillColor (for solid)
+textureId (for preset reference)
+textureScale
+textureOpacity
+materialLabel (string, used later in legend)
+strokeColor
+strokeWidth
+layerId
+name
+
+Textures should be referenced via:
+
+stable preset IDs (not raw image paths)
+Rendering Considerations
+Texture tiling must be consistent between:
+canvas rendering
+export rendering
+Scaling should be independent of zoom (world-based, not screen-based)
+Avoid pixel distortion when zooming or exporting high-res
+Test Plan
+Create multiple polygons with different textures
+Adjust scale and opacity for each
+Save and reload sheet → verify textures persist correctly
+Zoom in/out → verify texture stability
+Duplicate textured objects → verify style carries over
+Apply/remove textures repeatedly → verify no rendering bugs
+Stress test with multiple textured areas overlapping
+Done Looks Like for Approval
+The tool visually transforms from “markup” to “design”
+Different material zones are immediately readable
+Sheets begin to look like real landscape proposals
+This unlocks the next critical feature: auto legend generation
+Critical Note (Important for Next Slice)
+
+Every textured polygon MUST carry a material label.
+
+Example:
+
+“Bark Mulch Refresh”
+“2–4" Cobble Install”
+“Turf Conversion Area”
+
+This is what powers the legend system in Slice 6.

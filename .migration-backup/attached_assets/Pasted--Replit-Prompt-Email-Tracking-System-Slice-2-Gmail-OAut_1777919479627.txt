@@ -1,0 +1,225 @@
+# Replit Prompt — Email Tracking System, Slice 2 (Gmail OAuth + Outbound)
+
+## Context
+
+Slice 1 of the Email Tracking System is complete (Tasks #210 and #246). The schema, API foundation, and UI shells are in place. Mailbox accounts can be created and managed but are not actually connected to Gmail.
+
+This is Slice 2. The goal is to let staff connect their personal Gmail accounts (and shared role inboxes) via per-user OAuth, and to start sending outbound communications through Gmail so they appear in the user's actual Sent folder. Inbound sync is **not** part of this slice — that's Slice 3.
+
+**Critical:** Do not implement Gmail message fetching, Pub/Sub, polling, inbound parsing, or auto-routing. Do not change any existing automated SendGrid flows (work completion notifications, chemical treatment notices, etc.). Build only what's listed below.
+
+## Slice 1 cleanup item
+
+Before starting Slice 2 work, fix one tightening item left from Slice 1:
+
+In `server/routes.ts`, in the `migrateEmailTrackingTables()` function, after the existing `sync_enabled` ADD COLUMN line, add this one line to enforce NOT NULL once the default has been applied:
+
+```
+await db.execute(sql`ALTER TABLE mailbox_accounts ALTER COLUMN sync_enabled SET NOT NULL`);
+```
+
+In `shared/schema.ts`, update the `mailboxAccounts` table definition so `syncEnabled` is `boolean("sync_enabled").notNull().default(false)` instead of `boolean("sync_enabled").default(false)`. Update the matching `insertMailboxAccountSchema` entry to `syncEnabled: z.boolean().default(false)` (drop the `.nullable().optional()`).
+
+## Environment variables (Replit Secrets)
+
+Add three new secrets in Replit:
+
+- `GOOGLE_OAUTH_CLIENT_ID` — from Google Cloud Console
+- `GOOGLE_OAUTH_CLIENT_SECRET` — from Google Cloud Console
+- `GOOGLE_OAUTH_REDIRECT_URI` — the absolute URL for `/api/mailbox-accounts/oauth/callback` on the deployed app (e.g., `https://hpcrm-randymangel.replit.app/api/mailbox-accounts/oauth/callback`)
+
+If these secrets are not set, the OAuth endpoints should return a clear error (`{ error: "Google OAuth is not configured. Contact your administrator." }`) rather than crashing.
+
+## Google Cloud Console setup (out of code; document for the user)
+
+The user (Randy) will need to:
+
+1. Create a Google Cloud Console project (or use an existing one)
+2. Enable the Gmail API
+3. Configure the OAuth consent screen — set User Type to "External" (assuming not all staff are on a single Workspace), add the three scopes listed below to the scope list, and add Randy's email as a test user during development
+4. Create an OAuth 2.0 Client ID — type "Web application" — with the authorized redirect URI matching `GOOGLE_OAUTH_REDIRECT_URI`
+5. Copy the client ID and secret into Replit Secrets
+
+Add a brief `docs/gmail-oauth-setup.md` file in the repo with these steps written out for future reference.
+
+## OAuth scopes to request
+
+Request these three scopes in the OAuth flow (so Slice 3 won't need to re-prompt):
+
+- `https://www.googleapis.com/auth/gmail.send` — send messages on behalf of the user
+- `https://www.googleapis.com/auth/gmail.modify` — read and label messages (needed for Slice 3 sync; requested now to avoid re-consent)
+- `https://www.googleapis.com/auth/userinfo.email` — read the connected user's email address (for verification)
+
+Also include `access_type=offline` and `prompt=consent` in the consent URL so we get a refresh token back.
+
+## New dependencies
+
+Add `googleapis` to package.json. This is the official Google Node.js client and handles OAuth, token refresh, and Gmail API calls.
+
+## New service file: `server/services/googleOAuth.ts`
+
+A small module that wraps OAuth client construction and token operations. Roughly:
+
+- `getOAuth2Client()` — returns a configured `OAuth2Client` from the `googleapis` package using the env vars; throws if not configured
+- `generateAuthUrl(state: string)` — returns the Google consent URL with the three scopes, `access_type=offline`, `prompt=consent`, and the provided state parameter
+- `exchangeCodeForTokens(code: string)` — exchanges the auth code for tokens; returns `{ access_token, refresh_token, expiry_date, id_token }`
+- `getUserEmail(accessToken: string)` — calls Google's userinfo endpoint to return the email of the connected account
+- `getValidAccessToken(mailboxAccountId: string)` — looks up the mailbox account, checks if the access token is expired (with 60s buffer), and refreshes it via the refresh token if so. Updates `oauthTokenJson` in the DB. Returns a valid access token string. Throws if no refresh token or refresh fails.
+- `revokeTokens(mailboxAccountId: string)` — calls Google's revoke endpoint and clears `oauthTokenJson` and sets `syncEnabled = false`, `syncStatus = "not_connected"`
+
+Token storage shape inside `oauthTokenJson`:
+
+```
+{
+  access_token: string,
+  refresh_token: string,
+  expiry_date: number,  // ms since epoch
+  scope: string,
+  token_type: string,
+  connected_at: string,  // ISO timestamp
+  connected_email: string  // the verified Google account email
+}
+```
+
+Note: tokens are stored unencrypted in `oauthTokenJson`. This is acceptable for now but should be flagged in `docs/gmail-oauth-setup.md` as a known limitation. Encryption at rest is a future concern.
+
+## New service file: `server/services/gmailSender.ts`
+
+Handles sending emails via the Gmail API.
+
+- `sendEmail(mailboxAccountId, { to, cc?, bcc?, subject, bodyText, bodyHtml? }) → { messageId, threadId }`
+
+Implementation:
+
+1. Call `getValidAccessToken(mailboxAccountId)` to get a fresh token
+2. Look up the mailbox account to get the from address
+3. Build an RFC 2822 MIME message (multipart/alternative if both text and HTML provided; text-only otherwise). Include `From`, `To`, `Cc`, `Bcc`, `Subject`, `Date`, `Message-ID` headers.
+4. Base64url-encode the MIME message
+5. Call `gmail.users.messages.send({ userId: 'me', requestBody: { raw: encoded } })`
+6. Return Gmail's `id` (Message-ID) and `threadId`
+
+Errors should be surfaced clearly — Gmail API quota errors, invalid recipients, and authentication failures all need distinct error messages so the UI can show something useful.
+
+## OAuth flow endpoints
+
+Add these to `server/routes/mailboxAccounts.ts` (extending the existing router):
+
+### `GET /:id/oauth/connect`
+
+Initiates OAuth for a specific mailbox account.
+
+- Auth: admin, OR the user is the owner of the mailbox (`accountType = "personal"` and `ownerUserId = currentUser.id`)
+- Validates that Google OAuth env vars are configured
+- Generates a CSRF state token: `${mailboxAccountId}:${randomHex(16)}` — store the random portion in the user's session under `oauthState`
+- Returns `{ authUrl: "https://accounts.google.com/o/oauth2/v2/auth?..." }` — the frontend will redirect the browser to this URL
+
+### `GET /oauth/callback`
+
+The redirect URI Google sends the user back to after consent.
+
+- Reads `code` and `state` from query params
+- Validates `state` matches what's stored in the session — if not, return a 403 HTML page that says "Invalid OAuth state — please try connecting again from the Mailbox Accounts settings page" with a link back to settings
+- Parses the `mailboxAccountId` from the state token
+- Calls `exchangeCodeForTokens(code)` to get tokens
+- Calls `getUserEmail(accessToken)` to verify the connected account
+- Looks up the mailbox account; if `connected_email` does not match the mailbox's `emailAddress`, return a 400 HTML page that says "The Google account you connected (`<connected_email>`) does not match this mailbox (`<mailbox.emailAddress>`). Please reconnect using the correct Google account." with a link back to settings
+- On success, save tokens to `oauthTokenJson`, set `syncEnabled = true`, `syncStatus = "connected"`, `oauthProvider = "google"`, `lastSyncedAt = now()`, then redirect the user to `/dashboard/settings/mailbox-accounts?connected=<mailboxAccountId>` so the UI can show a success toast
+
+### `POST /:id/oauth/disconnect`
+
+- Auth: same as connect (admin OR owner)
+- Calls `revokeTokens(mailboxAccountId)`
+- Returns `{ success: true }`
+
+### `GET /:id/oauth/status`
+
+Lightweight status endpoint for the UI.
+
+- Returns `{ syncEnabled, syncStatus, connectedEmail, connectedAt, hasRefreshToken }`
+- Never returns tokens themselves
+- This is what the settings page polls to show current connection state
+
+## Outbound send wiring
+
+The existing `POST /api/customers/:customerId/communications` endpoint (in `server/routes.ts` around line 14336) currently only stores the communication in the database; it doesn't actually send anything. Extend it as follows:
+
+When `direction === "outbound"` AND `status === "sent"` AND `mailboxAccountId` is provided AND that mailbox account has `syncEnabled === true`:
+
+1. Look up the mailbox account
+2. Call `gmailSender.sendEmail(...)` with the message contents
+3. On success, store the returned Gmail `messageId` in `providerMessageId` and `threadId` in `providerThreadId` on the communications record. Set `deliveryProvider = "gmail"`, `deliveryStatus = "sent"`, `sentAt = now()`.
+4. On failure, store `deliveryStatus = "failed"`, `failureReason = <error message>`, and return a 500 with the error so the UI can show it. Do NOT silently fall back to SendGrid — fail loudly.
+
+When the conditions above are not met (e.g., `mailboxAccountId` is null, or `syncEnabled` is false, or it's a manual log of an already-sent email), preserve current behavior — just store the record without actually sending.
+
+**Critical:** Do not modify the existing automated SendGrid send paths anywhere else in the codebase. Things like work completion notifications, chemical treatment notices, ticket reminders, etc. continue to use SendGrid. Slice 2 only adds the user-initiated send path through Gmail when a mailbox account is connected.
+
+## UI changes
+
+### `client/src/pages/MailboxAccountsSettingsPage.tsx`
+
+The page currently shows a disabled "Not connected" badge with a placeholder "Connect Gmail" button. Wire it up:
+
+For each mailbox account row, the sync status column shows one of:
+
+- **Not connected** — gray badge + active "Connect Gmail" button. Clicking calls `GET /api/mailbox-accounts/:id/oauth/connect`, then `window.location.href = response.authUrl` to start the OAuth flow.
+- **Connected** — green badge showing "Connected as `<connected_email>`" (from the `/oauth/status` endpoint). A small "Disconnect" button that confirms via Shadcn `AlertDialog` then calls `POST /:id/oauth/disconnect`.
+- **Error** — red badge "Connection error". Shows a "Reconnect" button.
+
+When the page loads with `?connected=<id>` in the URL, show a success toast: "Mailbox connected successfully". Use TanStack Query to invalidate `["/api/mailbox-accounts"]` and `["/api/mailbox-accounts", id, "oauth-status"]` so the row re-renders with the new state. Clean up the URL parameter after handling so it doesn't fire again on reload.
+
+Add a "Last connected" timestamp under the connected email, formatted with `formatDistanceToNow`.
+
+### `client/src/components/customer/communications/LogCommunicationForm.tsx`
+
+When direction is "Outbound" and a mailbox account is selected that has `syncEnabled = true`:
+
+- Show a small info banner under the form: "This message will be sent from `<emailAddress>` via Gmail."
+- The submit button label changes from "Log communication" to "Send via Gmail"
+- On submit, the existing POST endpoint will handle the actual send
+
+When direction is "Outbound" and the selected mailbox is NOT connected (or no mailbox is selected):
+
+- Show a different banner: "This will be logged as a sent communication but no email will actually be sent."
+- Submit button reads "Log communication"
+
+Inbound direction is unchanged — always just logs.
+
+If the send fails (500 from the API), show the error message clearly in the form, do not close the form, and keep the data filled in so the user can adjust and retry.
+
+## Patterns and conventions
+
+- All new user-facing strings go in i18n (en + es), following the existing `emailTracking` and `mailboxAccounts` namespaces in `client/src/i18n/locales/{en,es}.ts`. Use the `_review_es` sibling-key pattern for Spanish strings that need human review.
+- All new endpoints follow the same auth pattern as existing mailbox account routes — inline `activeRole` checks (not `requireCommPermission`).
+- Token refresh logic should never throw on the read path of UI components — if a refresh fails, set `syncStatus = "error"` on the mailbox account so the UI can prompt for reconnection, and return a clean error from any send attempts.
+- Don't log access or refresh tokens — even at debug level. Logs end up in places they shouldn't.
+- Use the existing `console.error("ENDPOINT error:", err)` logging pattern from the Slice 1 routes.
+
+## Out of scope
+
+- Inbound email sync (Slice 3)
+- Pub/Sub or watch subscriptions (Slice 3, if used at all)
+- Auto-routing of received emails (Slice 3)
+- LLM-assisted routing (Slice 3 or later)
+- Encryption at rest for OAuth tokens (note as a known limitation in the docs file)
+- Multi-account-per-user OAuth (each mailbox account connects to exactly one Google account)
+- Domain-wide delegation (per-user OAuth only)
+- Modifying existing automated SendGrid flows
+- Sending bulk email through Gmail (single-customer sends only)
+- Audit logging of every send (the existing `communication_audit_log` is sufficient)
+- Retention/purge/export functionality (Slice 4)
+
+## Deliverables
+
+When you finish, report back with:
+
+1. List of all new files created (paths)
+2. List of all files modified (paths + 1-line description)
+3. Confirmation that the Slice 1 cleanup item (`sync_enabled NOT NULL`) is done in both schema.ts and the migration
+4. Confirmation that `googleapis` is added to package.json
+5. The exact OAuth redirect URI you used in the documentation (so it can be configured in Google Cloud Console)
+6. Any decisions you made where this prompt was ambiguous, and what you chose
+7. Anything skipped, with reasons
+8. A short note on what the user (Randy) needs to do in Google Cloud Console before testing
+
+Do not skip any item silently.

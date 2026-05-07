@@ -1,0 +1,189 @@
+# Replit Prompt — Communications Rework, Slice 1.5 (Self-Serve Mailbox Connection)
+
+## Context
+
+Slice 1 of the Communications rework added per-user scoping to the list endpoints. But Slice 1 assumed `mailbox_accounts.ownerUserId` was already populated, and right now that only happens because an **admin manually creates** each row in `MailboxAccountsSettingsPage` (admin/office only) and assigns the owner via a dropdown. There is no path for a regular user — sales rep, field crew, anyone non-admin — to connect their own Gmail without an admin pre-creating their row.
+
+This is **Slice 1.5 of 5** (between Slice 1 scoping and Slice 2 sent-folder sync). Goal: every authenticated user can self-serve connecting their personal Gmail to the CRM in under a minute, no admin involvement required. The existing admin-driven flow remains for shared mailboxes and oversight.
+
+## What this slice does
+
+1. New page `/dashboard/settings/my-mailbox` accessible to **every authenticated user** (no role gate).
+2. New API: `POST /api/mailbox-accounts/mine` — creates a personal mailbox row for the requester, no admin required. Returns the row.
+3. New API: `GET /api/mailbox-accounts/mine` — lists the requester's personal mailboxes.
+4. The existing OAuth callback gets a small change: if the connected Google account email differs from the row's `emailAddress`, the row is **auto-updated** to match what Google returned (with a one-line audit log). Removes the most common failure mode for non-technical users.
+5. Admin's `MailboxAccountsSettingsPage` is unchanged in behavior but gains a small "Personal mailboxes" section showing every user's personal mailbox with status (for oversight).
+6. Empty states on the Communications page (Slice 3 will hook this in) and any other "you have no mailbox" surface link to `/dashboard/settings/my-mailbox`.
+
+## Why we're not rolling this into Slice 1
+
+Slice 1 is locked on backend list scoping. This is a UX/UI surface with its own auth-model implications (a non-admin endpoint that creates a record). Keeping it in its own slice means it can ship and be tested independently before touching the unified Communications page.
+
+## Schema changes
+
+None to the table shape. Two minor additions:
+
+### `mailbox_accounts` — soft constraint
+
+Personal mailboxes should be unique on `(companyId, ownerUserId, emailAddress)` so a user can have multiple personal mailboxes (e.g., personal Gmail + work Gmail) but can't accidentally create the same one twice. The existing unique constraint is `(companyId, emailAddress)` which is already strong enough for this — so no schema change needed, just enforce the existing behavior in the new endpoint.
+
+### Audit log entry
+
+If you have a generic audit/event table (`auditEngine.ts` is in the repo — check whether there's a writable audit log it owns), emit one event per relevant action:
+
+- `mailbox.self_created` — `{ userId, mailboxAccountId, emailAddress }`
+- `mailbox.email_autocorrected` — `{ userId, mailboxAccountId, oldEmail, newEmail }`
+- `mailbox.connected` — `{ userId, mailboxAccountId, connectedEmail }` (if not already emitted)
+
+If there's no audit log, just `console.info` with a structured prefix; don't block on building one.
+
+## API changes
+
+### `POST /api/mailbox-accounts/mine`
+
+**Auth:** any authenticated user with an active `companyUsers` row.
+
+**Body:**
+
+```ts
+{
+  emailAddress: string;     // user's claimed Gmail
+  displayName?: string;     // optional, defaults to user.name
+  description?: string;     // optional
+}
+```
+
+**Behavior:**
+
+1. Resolve the requester's active `companyId` from session.
+2. Validate `emailAddress` shape.
+3. Reject if a `mailbox_accounts` row already exists with `(companyId, emailAddress)` — return that row's id with a `{ alreadyExists: true }` flag. The UI will route the user to the connect/reconnect flow for it. (Don't auto-claim someone else's existing row, even within the same company — could be a shared mailbox.)
+4. Insert:
+   ```
+   companyId:    requester's
+   emailAddress: as provided
+   displayName:  body.displayName ?? requester.name
+   accountType:  "personal"
+   ownerUserId:  requester.id
+   isActive:     true
+   syncStatus:   "not_connected"
+   syncEnabled:  false
+   ```
+5. Emit `mailbox.self_created`.
+6. Return the new row.
+
+**Response:** `{ mailboxAccount: MailboxAccount, alreadyExists: boolean }`
+
+### `GET /api/mailbox-accounts/mine`
+
+**Auth:** any authenticated user.
+
+**Behavior:** returns every `mailbox_accounts` row in the requester's company where `accountType = "personal"` AND `ownerUserId = requester.id`. Includes the OAuth status (same shape as the existing `GET /api/mailbox-accounts/:id/oauth/status`) inline so the UI can render in one query.
+
+**Response:**
+
+```ts
+{
+  mailboxes: Array<MailboxAccount & {
+    syncStatus: "not_connected" | "connected" | "error";
+    connectedEmail: string | null;
+    connectedAt: string | null;
+  }>;
+}
+```
+
+### Existing endpoints — no changes
+
+`POST /api/mailbox-accounts/:id/oauth/connect` and the OAuth callback already enforce ownership at line 42 and line 95 of `server/routes/mailboxAccounts.ts`. The new self-serve flow uses these as-is.
+
+### OAuth callback — auto-correct email mismatch
+
+In `server/routes/mailboxAccounts.ts` around line 180, the current check is:
+
+```ts
+if (connectedEmail.toLowerCase() !== account.emailAddress.toLowerCase()) {
+  // returns 400 "address does not match"
+}
+```
+
+Change behavior to:
+
+1. If they match: continue as today.
+2. If they don't match AND `account.accountType === "personal"` AND `account.ownerUserId === user.id`:
+   - Check whether the `connectedEmail` is already used by another mailbox row in the same company (`SELECT id FROM mailbox_accounts WHERE company_id = ? AND email_address = ? AND id != ?`).
+     - If yes → reject with a clear error: "This Google account is already connected to another mailbox in your company."
+     - If no → update `account.emailAddress = connectedEmail`, emit `mailbox.email_autocorrected`, continue.
+3. If they don't match AND it's a `shared` mailbox → keep existing reject behavior. Shared mailbox addresses are deliberately set by an admin and shouldn't shift under them.
+
+Add a unit test for each branch.
+
+## UI: new page
+
+### `client/src/pages/MyMailboxPage.tsx` (new)
+
+Route: `/dashboard/settings/my-mailbox`
+
+Allowed roles: all (no `allowedRoles` on the `ProtectedRoute`, just authenticated).
+
+Layout:
+
+- **Header:** "My Mailbox" with a short blurb: "Connect your work email so the CRM can sync your inbox and sent mail."
+- **List of mailboxes** (from `GET /api/mailbox-accounts/mine`):
+  - For each: display name, email, sync status badge (using existing `SyncStatusBadge`), Connect/Reconnect/Disconnect buttons, last-synced-at, link to "Manage backfill" (Slice 2.5 will fill this in).
+- **"Add mailbox" button** at the top:
+  - Opens a small modal: email address (required), display name (optional, defaults to user.name).
+  - On submit, calls `POST /api/mailbox-accounts/mine`.
+  - On `alreadyExists: true`, the modal shows "A mailbox with this address already exists." with a button to go straight to the Connect flow for it (if owned by the user) or to ask an admin (if not).
+  - On success, the modal closes and the new mailbox appears in the list with a "Connect" button focused.
+- **Empty state** (no mailboxes yet): a single big "Connect your Gmail" CTA that opens the Add Mailbox modal prefilled with `requester.email`.
+
+The Connect button on each row hits the existing `GET /api/mailbox-accounts/:id/oauth/connect` endpoint, which returns an `{ authUrl }` the page redirects to. The OAuth callback returns to `MailboxAccountsSettingsPage` today via `settingsUrl` — change the redirect target to be context-aware: if the originating page was My Mailbox, redirect back there with `?connected=<id>`. Detect via a session field or a `from` query param on the connect call.
+
+### `client/src/components/customer/communications/EmptyMailboxCallout.tsx` (new, small)
+
+Reusable card: "You don't have a mailbox connected yet. [Connect now →]" → links to `/dashboard/settings/my-mailbox`. Slice 3 will drop this into Inbox/Sent empty states.
+
+### Sidebar / settings nav
+
+Add "My Mailbox" entry under the user's settings section (wherever profile/preferences live). Available to everyone. The existing admin "Mailbox Accounts" entry stays put under admin settings.
+
+### Admin's `MailboxAccountsSettingsPage` — small addition
+
+Add a collapsed-by-default "Personal mailboxes (oversight)" panel below the existing list. Shows every `accountType="personal"` row in the company with:
+
+- Owner name + email
+- Connected email (if connected)
+- Sync status
+- Last synced
+- A "View" link that opens a read-only details modal (don't let admins edit personal mailboxes — they belong to the user; admins can disconnect via the existing endpoint if they need to revoke access urgently)
+
+## Acceptance checklist
+
+- [ ] A `field` user with no admin support can: log in, navigate to /dashboard/settings/my-mailbox, click Add Mailbox, enter their Gmail, click Connect, complete OAuth, and end up on My Mailbox with status "connected" — under 90 seconds.
+- [ ] Same user enters the wrong email in the Add Mailbox modal but signs into the right Gmail account → row is auto-corrected, toast shown, status "connected".
+- [ ] Same user tries to add a Gmail address that's already a shared mailbox in their company → modal shows the "already exists" message and offers to ask an admin.
+- [ ] Same user tries to add the same Gmail twice → second attempt returns `alreadyExists: true` and routes them to Connect for the existing row.
+- [ ] A user can have multiple personal mailboxes (e.g., work@x.com and personal@x.com both connected) and both show up in their list.
+- [ ] An admin viewing the existing Mailbox Accounts page sees a Personal Mailboxes oversight panel listing every user's personal mailbox in the company.
+- [ ] OAuth callback auto-correct does NOT trigger for shared mailboxes — they still reject on mismatch.
+- [ ] Backfill (Slice 2.5) works the same way regardless of whether the mailbox was admin-created or self-created.
+- [ ] Existing admin-driven flow on `MailboxAccountsSettingsPage` is unchanged.
+
+## Files touched
+
+- `server/routes/mailboxAccounts.ts` — two new endpoints; OAuth callback auto-correct logic
+- `server/storage.ts` — `createMailboxAccount` already exists; add `getMyPersonalMailboxes(userId, companyId)`
+- `server/auditEngine.ts` (or just structured console logs) — emit the events listed above
+- `client/src/pages/MyMailboxPage.tsx` (new)
+- `client/src/components/customer/communications/EmptyMailboxCallout.tsx` (new)
+- `client/src/pages/MailboxAccountsSettingsPage.tsx` — add oversight panel
+- `client/src/App.tsx` — register `/dashboard/settings/my-mailbox` route, no role gate
+- Settings sidebar component — add "My Mailbox" entry
+
+## Things to NOT change in this slice
+
+- The Slice 1 scoping rule — already in place; this slice just gives users a way to populate the mailboxes that rule operates on.
+- Sent-folder sync — Slice 2.
+- Backfill UI — Slice 2.5 will add a "Manage backfill" affordance to the My Mailbox page; this slice just leaves a stub link.
+- The unified Communications page — Slice 3.
+- Admin's ability to create personal mailboxes on behalf of users — keep it for edge cases (e.g., onboarding scripts).

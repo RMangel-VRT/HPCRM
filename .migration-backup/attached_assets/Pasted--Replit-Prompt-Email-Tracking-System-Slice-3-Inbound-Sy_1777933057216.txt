@@ -1,0 +1,250 @@
+# Replit Prompt — Email Tracking System, Slice 3 (Inbound Sync + Auto-Routing)
+
+## Context
+
+Slices 1, 2, and 2.1 are complete. The CRM can: store communications, manage High Plains mailbox addresses, connect them to Gmail via OAuth, and send outbound emails through the connected Gmail account. The unsorted-inbox UI shell exists but has nothing flowing into it.
+
+This is Slice 3. The goal is to actually pull email from each connected Gmail account on a schedule, capture both inbound (from `INBOX`) and outbound-sent-elsewhere (from `SENT`), auto-route messages to the right customer record using deterministic signals, and drop ambiguous-but-CRM-relevant emails into the unsorted inbox for manual triage.
+
+**LLM-assisted routing is NOT part of this slice** — it'll be Slice 3.5. Slice 3 ships deterministic routing only (email match → thread match → content match → unsorted/discarded). This keeps the slice tractable and lets us measure how often we actually need the LLM before building it.
+
+**Pub/Sub push notifications are also NOT part of this slice** — cron-style polling per the original architecture decision. Pub/Sub can be added later if polling lag becomes a real complaint.
+
+## What gets pulled, what gets stored, what gets discarded
+
+A clear rule for what enters the database, applied to every fetched message:
+
+1. **Routed → stored as `communications`**: at least one tier of the routing ladder produces a confident match, OR the email was previously sent through the CRM (dedup case)
+2. **Unsorted → stored as `unsorted_emails`**: the email shows CRM signals (matches a customer contact address, mentions a customer name, contains a community/property name) but routing can't disambiguate
+3. **Discarded → not stored**: no CRM signals at all (personal emails, marketing, etc.)
+
+This is the "hybrid" approach: we capture broadly from Gmail but only persist what's CRM-relevant. Personal emails stay in Gmail and never enter our DB.
+
+## Schema changes
+
+### New table: `mailbox_sync_runs`
+
+Tracks each sync run per mailbox for observability and debugging.
+
+```
+id                varchar PK uuid
+companyId         varchar FK → companies.id, not null
+mailboxAccountId  varchar FK → mailbox_accounts.id, not null
+startedAt         timestamp not null defaultNow
+finishedAt        timestamp nullable
+status            text not null  // "running" | "success" | "partial" | "error"
+messagesFetched   integer default 0
+messagesRouted    integer default 0
+messagesUnsorted  integer default 0
+messagesDiscarded integer default 0
+messagesDeduped   integer default 0
+errorMessage      text nullable
+syncMethod        text  // "history" | "timestamp" | "manual"
+historyIdBefore   text nullable
+historyIdAfter    text nullable
+```
+
+Add an index on `(mailboxAccountId, startedAt desc)` for the UI status query.
+
+### New columns on `mailbox_accounts`
+
+Add three columns for sync state tracking:
+
+- `gmailHistoryId text` — Gmail's incremental sync cursor (resets when invalid)
+- `syncIntervalMinutes integer not null default 2` — per-mailbox polling cadence (lets users back off if needed)
+- `syncErrorCount integer not null default 0` — consecutive failure counter; if it crosses 5, set `syncStatus = "error"` and stop polling until reconnect
+
+### Migration
+
+Add to `migrateEmailTrackingTables()` in `server/routes.ts` (or, if cleaner, create a new `migrateEmailSyncTables()` and add it to `runStartupMigrations()`):
+
+```sql
+CREATE TABLE IF NOT EXISTS mailbox_sync_runs (...)
+CREATE INDEX IF NOT EXISTS mailbox_sync_runs_mailbox_idx ON mailbox_sync_runs(mailbox_account_id, started_at DESC)
+ALTER TABLE mailbox_accounts ADD COLUMN IF NOT EXISTS gmail_history_id TEXT
+ALTER TABLE mailbox_accounts ADD COLUMN IF NOT EXISTS sync_interval_minutes INTEGER NOT NULL DEFAULT 2
+ALTER TABLE mailbox_accounts ADD COLUMN IF NOT EXISTS sync_error_count INTEGER NOT NULL DEFAULT 0
+```
+
+Update `shared/schema.ts` to match, including insert schemas and exported types for the new table.
+
+## New service: `server/services/emailSyncService.ts`
+
+This is the meat of the slice. It exposes:
+
+- `syncMailbox(mailboxAccountId: string, manual = false): Promise<SyncRunResult>` — sync one mailbox; creates a `mailbox_sync_runs` row, fetches new messages, routes them, updates state. Idempotent — safe to call concurrently for different mailboxes; uses an in-memory Set lock to prevent overlapping runs of the same mailbox.
+- `syncAllMailboxes(): Promise<void>` — iterates every active mailbox where `syncEnabled = true` AND `syncStatus = "connected"`, calls `syncMailbox` for each. Per-mailbox try/catch so one failure doesn't break the rest.
+- `startSyncWorker(): void` — sets up a `setInterval` that calls `syncAllMailboxes` every 60 seconds (each mailbox is then gated by its own `syncIntervalMinutes` field — see below).
+
+### Sync algorithm for one mailbox
+
+1. **Acquire in-memory lock** for `mailboxAccountId`. If already locked, return early (no row created).
+2. **Skip if not due**: if `lastSyncedAt + syncIntervalMinutes` is still in the future, skip silently.
+3. **Insert `mailbox_sync_runs` row** with `status = "running"`, `syncMethod` set based on path below.
+4. **Get a valid access token** via `getValidAccessToken(mailboxAccountId)`. If this throws, mark the run `error`, increment `syncErrorCount`, return.
+5. **Fetch new messages**:
+   - If `gmailHistoryId` is set, call `gmail.users.history.list({ startHistoryId, historyTypes: ["messageAdded"] })`. Capture all message IDs from `messagesAdded` events. Path is `syncMethod = "history"`.
+   - If history call returns 404 (historyId expired) OR `gmailHistoryId` is null, fall back to `gmail.users.messages.list({ q: "after:<unix-timestamp-of-lastSyncedAt-minus-1h>" })` and paginate via `pageToken`. Path is `syncMethod = "timestamp"`. Cap at 200 messages per run to avoid overwhelming first-time syncs; pick up the rest next cycle.
+6. **Get the latest historyId** from `gmail.users.getProfile()` and store as `historyIdAfter`.
+7. **For each message ID** (deduped):
+   - Skip if `provider_message_id = <gmail-id>` already exists in `communications` or `unsorted_emails` for this company. Increment `messagesDeduped`.
+   - Otherwise, fetch full message: `gmail.users.messages.get({ id, format: "full" })`.
+   - Parse headers: `From`, `To`, `Cc`, `Subject`, `Date`, `Message-ID`, `In-Reply-To`, `References`.
+   - Parse body: walk MIME parts to extract text and HTML; decode base64url. Capture attachment metadata (filename, mimeType, size) without downloading attachment data.
+   - Determine `direction`: if `From` matches the mailbox's `emailAddress`, direction is `"outbound"`; otherwise `"inbound"`.
+   - Run the routing ladder (next section). Based on result, either insert into `communications` (with `mailboxAccountId`, `providerMessageId`, `providerThreadId`, `routingMethod`, `routingConfidence`, body parts, addresses, `sentAt` for outbound or `receivedAt` for inbound), insert into `unsorted_emails`, or discard.
+   - Increment counters appropriately.
+8. **Update mailbox**: set `gmailHistoryId = historyIdAfter`, `lastSyncedAt = now()`, `syncStatus = "connected"`, `syncErrorCount = 0`.
+9. **Finalize sync run**: status = `"success"` (or `"partial"` if any individual messages errored).
+10. **Release the lock.**
+
+On any uncaught error: mark sync run `"error"`, store `errorMessage`, increment `syncErrorCount`. If `syncErrorCount >= 5`, set the mailbox's `syncStatus = "error"` so the UI prompts for reconnect.
+
+### Routing ladder (deterministic only; LLM is Slice 3.5)
+
+For each parsed message, run these tiers in order, stop at first match:
+
+**Tier 1 — Direct email match.** If `From` (for inbound) or any of `To`/`Cc` (for outbound) exactly matches an email in any `contacts.emails` array for a customer in this company, route to that customer. Confidence 0.95. `routingMethod = "email_match"`.
+
+**Tier 2 — Thread continuity.** If the message's `In-Reply-To` header matches an existing `communications.providerMessageId` OR the Gmail `threadId` matches an existing `communications.providerThreadId`, route to the same customer as that prior communication. Confidence 0.90. `routingMethod = "thread_match"`.
+
+**Tier 3 — Content keyword match.** Build a list of {customerId, searchTerms} where `searchTerms` is the customer's `name`, `customerNumber`, and `street` (if non-empty). Lowercase and search subject and first 5000 chars of body text for any of these. If exactly one customer matches, route to them. Confidence 0.70. `routingMethod = "content_match"`. If multiple customers match, that's an unsorted candidate (see below).
+
+**Tier 4 — Property/community match.** Same as tier 3 but searching `property_management_companies.name` and `property_managers.name`. If exactly one PMC match yields exactly one customer linked to it, route. Confidence 0.60. `routingMethod = "content_match"`.
+
+**Tier 5 — Unsorted with candidates.** If any tier produced multiple matches, store as `unsorted_email` with `candidateCustomerIds` populated and `routingNotes` explaining what matched (e.g., "Content match: 3 customers matched 'Pine Ridge'").
+
+**Tier 6 — Discard.** If no tier produced any match at all, do not store. Increment `messagesDiscarded`.
+
+### Special case: dedup of CRM-sent outbound
+
+When the sync sees an outbound message with `providerMessageId` matching one we already stored from Slice 2's send path, treat it as already-stored (don't double-insert) but optionally update the existing row's `providerThreadId` if it wasn't set (since the send response gives us the thread ID after the fact).
+
+### Routing helpers should live in their own file
+
+Put the routing logic in `server/services/emailRouter.ts` so it's testable in isolation:
+
+```typescript
+export interface RoutingResult {
+  decision: "routed" | "unsorted" | "discard";
+  customerId?: string;
+  routingMethod?: "email_match" | "thread_match" | "content_match";
+  routingConfidence?: number;
+  candidateCustomerIds?: string[];
+  routingNotes?: string;
+}
+
+export async function routeMessage(
+  companyId: string,
+  parsedMessage: ParsedGmailMessage
+): Promise<RoutingResult>
+```
+
+`emailSyncService.ts` calls `routeMessage` and acts on the result.
+
+## Worker registration
+
+In `server/index.ts`, after the existing `runDueDateNotifications` setup, import and call `startSyncWorker()` from the new service. The worker self-gates per mailbox, so one global tick is fine.
+
+```typescript
+import { startSyncWorker } from "./services/emailSyncService";
+// ...after existing setup:
+if (process.env.NODE_ENV !== "test") {
+  startSyncWorker();
+}
+```
+
+If `process.env.DISABLE_EMAIL_SYNC === "true"`, do NOT start the worker (gives a kill switch for debugging).
+
+## API endpoints
+
+Add to `server/routes/mailboxAccounts.ts`:
+
+### `POST /:id/sync`
+
+Manually trigger a sync for one mailbox. Same auth as connect/disconnect. Calls `syncMailbox(id, true)`. Returns the resulting `mailbox_sync_runs` row.
+
+### `GET /:id/sync-runs`
+
+Returns the 20 most recent `mailbox_sync_runs` rows for this mailbox, newest first. Used by the settings page to show sync history.
+
+### `GET /sync-summary`
+
+Returns aggregate stats across all mailboxes for the active company:
+
+```
+{
+  totalActive: 5,
+  connected: 3,
+  errors: 1,
+  notConnected: 1,
+  lastRunAt: "2026-...",
+  messagesRoutedLast24h: 42,
+  messagesUnsortedLast24h: 7
+}
+```
+
+Used by the unsorted inbox page header to show overall health.
+
+## UI changes
+
+### `MailboxAccountsSettingsPage.tsx`
+
+Add a "Sync now" button next to the connection status for each connected mailbox. Calls `POST /api/mailbox-accounts/:id/sync`. Show a spinner during the call, then a toast with the result counts ("Pulled 12 new messages: 9 routed, 2 unsorted, 1 discarded").
+
+Add a small expandable "Sync history" section per mailbox that shows the last 5 sync runs from `GET /:id/sync-runs` — timestamp, status badge, message counts. Collapsed by default.
+
+Add an editable "Sync interval" field (1, 2, 5, 10, 30 minutes) so users can throttle a noisy mailbox. PATCHes `syncIntervalMinutes` via the existing PATCH endpoint.
+
+### `UnsortedInboxPage.tsx`
+
+The empty state message currently says emails will appear once Gmail sync is connected. Now that sync is real, update the empty state to differentiate between "no mailboxes connected" and "no unsorted emails right now":
+
+- If `GET /sync-summary` shows `connected === 0`: "Connect a mailbox to start receiving emails."
+- If `connected > 0` but no unsorted emails: "All clear — every recent email was auto-routed to a customer." Show the `messagesRoutedLast24h` count for context.
+
+When a user routes an unsorted email to a customer, also invalidate the customer's communications query so the routed email shows up immediately in their record.
+
+In the row detail pane, render `routingNotes` (e.g., "Content match: 3 customers matched 'Pine Ridge'") and clickable chips for each `candidateCustomerIds` so a user can route with one click.
+
+### Communications tab on customer page
+
+The existing `CommunicationListTab.tsx` already exists from Slice 1. Make sure the right sidebar slot for "unsorted candidates" now actually queries `GET /api/unsorted-emails?candidateCustomerId=<currentCustomerId>` and renders any matches. Each row gets a "This belongs here" button that routes that unsorted email to the current customer (calls the existing `POST /api/unsorted-emails/:id/route`).
+
+This requires extending the unsorted-emails GET endpoint to accept a `candidateCustomerId` filter — small addition, just adds an SQL `WHERE candidate_customer_ids @> ARRAY[$1]::varchar[]` clause.
+
+## Patterns and conventions
+
+- All new endpoints follow the same auth pattern as existing mailbox-accounts routes
+- All new user-facing strings go in `client/src/i18n/locales/{en,es}.ts` under the existing `emailTracking` namespace
+- The sync worker logs are critical for debugging — use `console.log` with a `[email-sync]` prefix on every line so they're easy to grep. Log the mailbox ID, message counts, and sync method on every run. Do NOT log message bodies, addresses, or anything sensitive — just IDs and counts.
+- Token refresh logic in `getValidAccessToken` already handles re-auth; the sync service should not implement its own refresh
+- For Gmail API errors specifically: 429 (rate limit) should set sync run to `"partial"` and back off; 401/403 should set the mailbox to `syncStatus = "error"` and require reconnect; everything else gets logged and counted
+
+## Out of scope
+
+- LLM-assisted routing (Slice 3.5 — only after we've measured deterministic routing accuracy in real usage)
+- Pub/Sub push notifications (deferred indefinitely; only if polling lag becomes a real complaint)
+- Attachment file downloads (we capture metadata only in this slice; downloading bodies will be Slice 4 alongside retention/storage)
+- Multi-replica safe locking (in-memory lock is fine for single-instance Replit deployment; revisit if scaling)
+- Smart filtering at the Gmail-query level (we filter post-fetch, which is simpler; revisit if quota becomes an issue)
+- Sent-folder-only catch-up of historical emails (sync only pulls forward from `lastSyncedAt`; backfilling history is a separate concern)
+- Bidirectional label sync (we don't apply Gmail labels back to mark messages as "in CRM")
+- Auto-creating new customer records from unknown senders (tier 6 discards rather than guesses)
+- Webhooks/notifications when an email arrives (the unsorted inbox page is the only surface for now)
+
+## Deliverables
+
+When you finish, report back with:
+
+1. List of all new files created (paths)
+2. List of all files modified (paths + 1-line description)
+3. Confirmation that the new schema additions are in `shared/schema.ts` AND the migration
+4. Confirmation that `startSyncWorker()` is called from `server/index.ts` and gated behind `DISABLE_EMAIL_SYNC`
+5. The exact log prefix you chose (should be `[email-sync]` per the spec, but confirm)
+6. How you handled the in-memory lock (Set, Map, third-party lib?)
+7. Any decisions you made where this prompt was ambiguous, and what you chose
+8. Anything you skipped, with reasons
+9. A sanity-check list: with one mailbox connected, send yourself a test email from a known customer's contact email and confirm it lands in that customer's communications. Send yourself a test email from a random unknown address and confirm nothing is stored. Send yourself a test email from an unknown address that mentions a customer name in the subject and confirm it lands in the unsorted inbox with that customer in `candidateCustomerIds`.
+
+Do not skip any item silently.
