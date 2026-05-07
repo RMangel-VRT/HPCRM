@@ -1,0 +1,358 @@
+# Replit Prompt — Extra Billable Campaign, Slice 1: Foundation
+
+## Context
+
+We are adding a new campaign category — **Extra Billable** — to the existing Campaign system. The use case: any time a batch of properties needs one-off billable work that falls outside contracts (heavy spring snow branch removal, hail damage cleanup, seasonal cleanups, ad-hoc bid batches, etc.), an admin creates one campaign, picks the customers, builds custom field crews for the job, divides properties among the crews, and the system later turns each completed property into an Extra Billable ticket with its photos attached.
+
+This is the same shape as the existing General / Chemical / Irrigation campaigns, plus the property-impact-to-ticket pattern that already works for Snow Events. We are not building a parallel system — we are extending the campaign tables and adding a new category that wires to the existing Extra Billable ticket type.
+
+This is **Slice 1 of 5**. Slice 1 lays the schema foundation and the basic admin flows: creating an Extra Billable campaign, picking customers, building per-campaign custom crews, defining the per-campaign checklist, and seeing a basic table view of properties with their crew assignments. **No drag-drop crew assignment UI in this slice** (Slice 2). **No property grid with drop zones in this slice** (Slice 3). **No ticket generation in this slice** (Slice 4). The deployable end-state of Slice 1 is: an admin can fully set up the campaign and its crews. The crew leader can already see and act on their assigned items via the existing `CampaignItemDetail.tsx` mobile flow because the underlying tables are the same.
+
+This slice should land in a deployable, production-quality state. Do not stub anything you say you've built. If a piece can't be cleanly extended, document it in Deliverables and propose an alternative — do not create parallel tables.
+
+## Existing context (do not duplicate or replace)
+
+The following already exist and **must be extended, not replaced**. Inspect first.
+
+- **Campaign system** in `shared/schema.ts`. Relevant tables: `campaigns` (~line 1815), `campaign_items` (~line 1848), `campaign_checklist_tasks` (~line 1944), `campaign_item_task_completions` (~line 1958), `campaign_checklist_audit_log` (~line 1973). Category enum is `text("category").$type<"general" | "chemical" | "irrigation">().notNull().default("general")`. We add a fourth value to that enum.
+- **Campaign UI** in `client/src/pages/CampaignsList.tsx` (creation dialog ~line 261 onward, with `category` state and category select at ~line 518) and `client/src/pages/CampaignDetail.tsx` (with `isChemicalCampaign` / `isIrrigationCampaign` flags ~line 340). We add an `isExtraBillableCampaign` flag and a corresponding render branch — do not fork into a separate page.
+- **CampaignItemDetail** at `client/src/pages/CampaignItemDetail.tsx` already supports per-item photo upload (`handlePhotoUpload`, `/api/campaigns/photo-upload-url` flow ~line 442), a checklist (`toggleChecklistTaskMutation` ~line 536), notes, mark-complete, and exception types. **Reuse it untouched** for the field crew leader's per-property flow. Slice 1 only needs to ensure access control filters items by the new crew-leader assignment (see API §5).
+- **Extra Billable ticket type** is created and maintained by `ensureExtraBillableTicketType()` in `server/routes.ts` (~line 727). Statuses: New, Ready to Schedule, In Progress, Work Completed, Ready for Billing, Done. We do **not** modify this in Slice 1 — Slice 4 uses it.
+- **Ticket links** in `shared/schema.ts` (`ticket_links` ~line 843) with linkType `"source_of"` will be used in Slice 4 to link generated tickets back to the campaign item. Not used in Slice 1.
+- **Add Properties dialog pattern** at `client/src/pages/SnowEventDetail.tsx:494` (the customer multi-select with bulk-select, search input, and bulk-create endpoint). Slice 1 reuses this same pattern for picking customers into an Extra Billable campaign. Do not invent a new pattern.
+- **Multi-tenancy:** every table has `companyId`, every query filters by `user.activeCompanyId` from `UserWithContext`. No exceptions.
+- **Stack:** React 18 + TypeScript + Vite + Tailwind + shadcn/ui (Radix) + Wouter + TanStack Query v5 + React Hook Form + Zod + Drizzle ORM + Postgres + i18next (en + es). No new dependencies in this slice.
+- **Roles:** the `admin` and `office` roles can manage campaigns. The `field` role acts as the per-item crew leader / member. Use the existing role-check helpers — do not invent new ones.
+
+Read `CampaignsList.tsx`, `CampaignDetail.tsx`, `CampaignItemDetail.tsx`, and `SnowEventDetail.tsx` end-to-end before writing code. The patterns there are the ones to follow.
+
+## Schema changes
+
+All changes go in `shared/schema.ts`. Add Drizzle indexes that match the existing convention (snake_case `<table>_<column>_idx`).
+
+### 1. Extend the `campaigns.category` enum
+
+Add `"extra_billable"` to the union type. Existing values stay.
+
+```ts
+category: text("category").$type<"general" | "chemical" | "irrigation" | "extra_billable">().notNull().default("general"),
+```
+
+Update `insertCampaignSchema` and any Zod enum that mirrors this. No data migration is needed — existing rows keep their current values.
+
+No new top-level columns on `campaigns` itself. The existing `title`, `description`, `windowStart`, `windowEnd`, `assignedToId`, `assignedToId2`, `seasonId`, `status`, `createdById` cover everything for this category. The admin types the storm/event narrative into `description`.
+
+### 2. New columns on `campaign_items`
+
+Add the following four columns. **Inspect first** to make sure nothing similar already exists with a different name — if it does, reuse it and call out the deviation in Deliverables.
+
+- `assignedCampaignCrewId` — `varchar`, FK → `campaign_crews.id`, nullable, `ON DELETE SET NULL`. The crew this property is assigned to. Null = unassigned.
+- `billingStatus` — `text`, not null, default `"not_created"`. `$type<"not_created" | "ticket_created" | "invoiced" | "paid">()`. Mirrors `snow_event_property_impacts.billingStatus`.
+- `ticketId` — `varchar`, nullable. References `tickets.id` via `ON DELETE SET NULL` (use a deferred FK if the table-load order requires — match the existing pattern in `snow_event_property_impacts`). The Extra Billable ticket generated from this item, when one exists.
+- `estimatedAmount` — `numeric(10, 2)`, nullable. Per-property dollar estimate the admin can enter at setup time. Optional; left null in v1, filled in by the admin opportunistically. Slice 4 will use this if present when creating tickets.
+
+Add an index `campaign_items_assigned_campaign_crew_id_idx` on `assignedCampaignCrewId`. Update `insertCampaignItemSchema` accordingly with `.nullable().optional()` for all four.
+
+### 3. New table: `campaign_crews`
+
+Per-campaign custom crew. The admin builds these fresh on every Extra Billable campaign — they are **not** the same thing as `maintenance_crews`.
+
+```ts
+export const campaignCrews = pgTable("campaign_crews", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  campaignId: varchar("campaign_id").notNull().references(() => campaigns.id, { onDelete: "cascade" }),
+  companyId: varchar("company_id").notNull().references(() => companies.id, { onDelete: "cascade" }),
+  name: text("name").notNull(),
+  color: text("color").notNull().default("#2563eb"),
+  leaderUserId: varchar("leader_user_id").references(() => users.id, { onDelete: "set null" }),
+  displayOrder: integer("display_order").notNull().default(0),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+}, (table) => ({
+  campaignCrewsCampaignIdIdx: index("campaign_crews_campaign_id_idx").on(table.campaignId),
+  campaignCrewsCompanyIdIdx: index("campaign_crews_company_id_idx").on(table.companyId),
+  campaignCrewsNameUnique: unique().on(table.campaignId, table.name),
+}));
+```
+
+`color` defaults to a blue but the admin can override per crew (used for visual distinction in Slice 2's assignment board). `leaderUserId` is nullable so a crew can be created and named before the leader is picked, but for any crew that has properties assigned to it, leader **must** be set — enforce in the API handlers, not in DB constraints (so partially-created crews don't break the schema).
+
+### 4. New table: `campaign_crew_members`
+
+Pure join table. The leader is also one row in here (so demoting a leader doesn't accidentally strip them from the crew). The leader's leadership is recorded by `campaign_crews.leaderUserId`, not by a flag here.
+
+```ts
+export const campaignCrewMembers = pgTable("campaign_crew_members", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  campaignCrewId: varchar("campaign_crew_id").notNull().references(() => campaignCrews.id, { onDelete: "cascade" }),
+  userId: varchar("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+}, (table) => ({
+  uniqueCrewMember: unique().on(table.campaignCrewId, table.userId),
+  campaignCrewMembersCrewIdIdx: index("campaign_crew_members_crew_id_idx").on(table.campaignCrewId),
+}));
+```
+
+When a crew is created, **automatically insert a member row for the leader** if `leaderUserId` is set on creation. When the leader is changed via PATCH, automatically add a row for the new leader if not already present. Never silently delete a member row when a leader is replaced — keep the demoted user as a regular member; admin must explicitly remove them.
+
+### 5. Insert/select schemas + types
+
+Add `insertCampaignCrewSchema`, `InsertCampaignCrew`, `CampaignCrew` and the same trio for `campaignCrewMembers`. Mirror the existing patterns at the bottom of each table block in `shared/schema.ts`.
+
+Add a derived type:
+
+```ts
+export type CampaignCrewWithMembers = CampaignCrew & {
+  leaderName: string | null;
+  members: { userId: string; name: string }[];
+  itemCount: number;
+  completedCount: number;
+  photoCount: number;
+};
+```
+
+This is what the crew list endpoint returns (used by the campaign detail page).
+
+### 6. Migrations
+
+Add a startup migration in the same place the existing `migrateCampaignItemsNewColumns` etc. live in `server/routes.ts` (around lines 1455–1750). Idempotent SQL using `ADD COLUMN IF NOT EXISTS` and `CREATE TABLE IF NOT EXISTS`. Three migration functions (or one consolidated):
+
+1. `migrateCampaignItemsExtraBillableColumns` — adds the four new columns to `campaign_items`.
+2. `migrateCampaignCrewsTable` — creates `campaign_crews` with indexes and unique constraint.
+3. `migrateCampaignCrewMembersTable` — creates `campaign_crew_members` with indexes and unique constraint.
+
+Wire them into the existing startup-migrations list. Also add the equivalent forward-only `.sql` files under `migrations/` matching the existing alphabetical-ordering convention (see `replit.md` "Running Migrations" section).
+
+The category enum extension does **not** require a migration — it's a TypeScript type guard, not a Postgres enum. Existing data is unaffected.
+
+## API endpoints
+
+All endpoints check `req.isAuthenticated()` and read `companyId` from `req.user as UserWithContext`. Match the existing route-file structure — these can live alongside the existing campaign routes in `server/routes.ts` (do not create a new file unless the existing pattern demands it).
+
+### 1. Extend campaign creation
+
+The existing `POST /api/campaigns` endpoint accepts a `category`. Add `"extra_billable"` to the accepted Zod enum. When category is `"extra_billable"`:
+
+- `assignedToId2` is allowed (already supported).
+- A `customerIds: string[]` array is required (already supported by the existing flow — verify this; if not, accept it on this category only). Each customer becomes a `campaign_items` row with `status: "pending"`, `billingStatus: "not_created"`, `assignedCampaignCrewId: null`.
+- A `checklistTasks: { label: string; order: number }[]` array is optional — when provided, create `campaign_checklist_tasks` rows. Reuse the same flow the irrigation campaign uses (see `CampaignsList.tsx` ~line 411–413).
+
+No change needed for general/chemical/irrigation campaigns.
+
+### 2. Crew CRUD
+
+```
+GET    /api/campaigns/:campaignId/crews
+POST   /api/campaigns/:campaignId/crews
+PATCH  /api/campaigns/:campaignId/crews/:crewId
+DELETE /api/campaigns/:campaignId/crews/:crewId
+```
+
+- `GET` returns `CampaignCrewWithMembers[]`. Compute `leaderName` from the joined user, `members` from `campaign_crew_members` joined with users, `itemCount` / `completedCount` / `photoCount` from `campaign_items` aggregations (LEFT JOINs with COUNT). Order by `displayOrder` then `createdAt`.
+- `POST` body: `{ name, color?, leaderUserId?, memberUserIds?: string[] }`. Validates name is non-empty and unique within the campaign. If `leaderUserId` is set, automatically inserts a `campaign_crew_members` row for the leader (don't require client to also pass them in `memberUserIds`). `displayOrder` defaults to (max existing order + 1).
+- `PATCH` body: `{ name?, color?, leaderUserId?, memberUserIds?: string[], displayOrder? }`. When `leaderUserId` changes: ensure new leader is also in members (insert if not). When `memberUserIds` is provided: full replace, but **never remove the current leader** — return a 400 if the new member set excludes the leader. The client must change leader first, then trim members.
+- `DELETE` is rejected with 400 if any `campaign_items` row still references the crew via `assignedCampaignCrewId`. The client should reassign or unassign first. (Slice 2 builds the bulk-reassign endpoint; Slice 1 client uses per-row reassignment via the basic table view.)
+
+Authorization: admin/office only.
+
+### 3. Crew member CRUD (convenience)
+
+```
+POST   /api/campaigns/:campaignId/crews/:crewId/members
+DELETE /api/campaigns/:campaignId/crews/:crewId/members/:userId
+```
+
+Used when the admin opens an existing crew and wants to add or remove one user without doing a full PATCH. Validation: cannot remove the current leader via this endpoint (must change leader first). Authorization: admin/office.
+
+### 4. Single-item crew assignment (basic)
+
+```
+PATCH /api/campaigns/:campaignId/items/:itemId/assigned-crew
+```
+
+Body: `{ assignedCampaignCrewId: string | null }`. Updates one row. Authorization: admin/office. Slice 2 will add the bulk-assign endpoint; this one stays for one-off reassignments and is what the basic table view in Slice 1 uses.
+
+### 5. Field-leader scoping for item access
+
+This is the central authorization rule for the new category. It **augments** the existing campaign item access checks.
+
+- **Read access** to a `campaign_items` row in an `extra_billable` campaign: admin/office (any), OR the user is in `campaign_crew_members` for the row's `assignedCampaignCrewId`.
+- **Write access** (photo upload, mark complete, toggle checklist, edit notes, set exceptionType): admin/office (any), OR the user is `campaign_crews.leaderUserId` for the row's `assignedCampaignCrewId`. **Crew members who are not the leader cannot write.**
+
+Implement this as a helper `canAccessExtraBillableCampaignItem(user, item, mode: "read" | "write")` and call it inside every campaign-item handler that touches a row whose parent campaign has `category: "extra_billable"`. For other categories, the existing access rules still apply unchanged.
+
+Apply the same filter at list-fetch time: when a `field`-role user calls `GET /api/campaigns/:id/items` (or whatever the existing list endpoint is) on an extra_billable campaign, return only items whose crew membership includes them. When a `field`-role user calls the campaigns list, an extra_billable campaign should appear if and only if they are a member of any of its crews.
+
+Test that the leader-only write rule cannot be bypassed by a crew-member POSTing to `/api/campaigns/:cid/items/:iid/completion-photos/upload` directly.
+
+## UI / pages / components
+
+### 1. New Campaign dialog — fourth category tile
+
+In `CampaignsList.tsx`, find the category Select at ~line 518–537 and add a fourth `SelectItem`:
+
+```tsx
+<SelectItem value="extra_billable" data-testid="select-campaign-category-extra-billable">
+  {t("campaigns.categoryExtraBillable")}
+</SelectItem>
+```
+
+Add the matching state-machine branch in the form's onSubmit and validation: `extra_billable` campaigns require `customerIds.length > 0` (same as general/irrigation), and may include `checklistTasks`. No new required fields beyond the existing campaign basics (title, description, windowStart, windowEnd, assignedToId).
+
+After successful creation, navigate to `/dashboard/campaigns/:id` (existing route). The detail page handles the rest.
+
+### 2. Campaign detail — category-specific render branch
+
+In `CampaignDetail.tsx`, alongside `isChemicalCampaign` / `isIrrigationCampaign` (~line 340), add:
+
+```ts
+const isExtraBillableCampaign = campaign?.category === "extra_billable";
+```
+
+When `isExtraBillableCampaign` is true, render a `<ExtraBillableCampaignView>` component (new, see §3 below) **in place of** the default item-list render. Keep the existing campaign header (title, dates, status, badges) — only the body region changes.
+
+Add a new badge variant in the header for `extra_billable` (use a `lucide-react` icon like `Receipt` or `ClipboardList` and the color `#f59e0b` to match the Extra Billable ticket type already styled at routes.ts:742).
+
+### 3. New component: `<ExtraBillableCampaignView>`
+
+Path: `client/src/components/ExtraBillableCampaignView.tsx`. Accepts `campaignId: string` and renders a tabbed interface with **three tabs**:
+
+- **Properties** — visible in Slice 1, Slices 2 and 3 will swap parts of it
+- **Crews** — the focus of Slice 1
+- **Billing Queue** — show a placeholder "Available after Slice 4 ships" disabled tab; the API path is set up but the UI isn't built yet
+
+#### Properties tab (Slice 1: basic table)
+
+A simple shadcn `<Table>` listing campaign items. Columns:
+
+| Customer | City | Crew | Status | Photos | Actions |
+|---|---|---|---|---|---|
+
+- **Customer**: `customerName` linking to `/dashboard/customers/:customerId`
+- **City**: `customerCity` (already on the row)
+- **Crew**: a `<CrewPill>` showing the assigned crew name and color, or "Unassigned" if null. Clicking it opens an inline `<Select>` to reassign to another crew on this campaign or "Unassigned." Persists via `PATCH /api/campaigns/:cid/items/:iid/assigned-crew`.
+- **Status**: existing `pending | completed | skipped` badge
+- **Photos**: count from `item.photos.length` (existing array column)
+- **Actions**: a button "Open" that links to `/dashboard/campaigns/:cid/items/:iid` (the existing CampaignItemDetail page)
+
+Above the table:
+
+- A search input (filters by customer name and city, client-side)
+- An "Add properties" button that opens the existing-pattern dialog (copy from `SnowEventDetail.tsx:494`-ish): customer multi-select with checkboxes, search, bulk-add. Posts to the existing campaign-item creation endpoint. Wire it to refresh the items list on success.
+- Counters row: "Total: 50  ·  Assigned: 32  ·  Unassigned: 18  ·  Complete: 4"
+
+This view is intentionally minimal in Slice 1 — Slice 3 will swap most of it for the property grid with drop zones. Keep the table component cleanly separated so Slice 3 can replace it under a tab toggle.
+
+#### Crews tab (Slice 1: full CRUD)
+
+A list of the campaign's crews, each as a card showing:
+
+- Crew name (large, with the crew color as a left-border swatch)
+- Leader name + avatar (from the `users` row)
+- Member count: "Mike (lead) · Carlos · Jose" (truncate at 3, then "+ N more")
+- Counters: "12 properties · 38 photos · 4 complete"
+- Edit button (opens crew dialog in edit mode)
+- Delete button (disabled with tooltip "Reassign properties first" if `itemCount > 0`)
+
+Above the cards: an "Add crew" button that opens the same dialog in create mode.
+
+**Crew dialog** (shadcn `<Dialog>`):
+
+- Name input (required, max 60 chars, must be unique within campaign — enforce client + server)
+- Color input — a small palette of 8 preset hex colors (use the existing `CREW_COLORS` palette in `shared/schema.ts:961` if it exists; if not, define a new `CAMPAIGN_CREW_COLORS` const there with 8 distinct hues including the existing `#2563eb`)
+- Leader select — searchable Select of users in the company. Use the existing user-search pattern.
+- Members multi-select — existing user multi-select pattern. Auto-includes the leader (visually pinned to the top, can't be removed without changing leader first). Other members can be added/removed freely.
+- Save / Cancel
+
+On save: POST or PATCH the crew endpoint, invalidate the crews query, close dialog. Show toast on success / error.
+
+### 4. New i18next keys
+
+Translation files are TypeScript object literals at `client/src/i18n/locales/en.ts` and `es.ts` (NOT JSON files). The convention is **a single level of namespace nesting** — top-level objects like `campaigns: { ... }` (which spans `en.ts:1393` to ~`:1640`) — with **flat camelCase keys inside**, prefixed for sub-categories (the existing chemical workflow uses prefixes like `chemStepPre`, `chemWeatherTemp`, `chemCompletionEmailSent`). Do NOT introduce dot-nested or deeply nested keys — that breaks the existing pattern. Mirror the `chem*` style with a `crew*` prefix and an `extraBillable*` prefix where appropriate, and reuse existing keys (`pending`, `completed`, `archived`, `markComplete`, `addPhoto`, etc.) wherever they already cover what we need.
+
+Add the following keys **inside the existing `campaigns: { ... }` object** in both `en.ts` and `es.ts`. Place them after the existing category keys (around `:1458`) and existing item keys (around `:1452`), grouping related keys together. English first; Spanish via machine translation — match the rest of `es.ts` (the existing file has no special review-marker convention, so just translate inline).
+
+```ts
+// Inside the existing `campaigns: { ... }` object literal in en.ts and es.ts:
+
+categoryExtraBillable: "Extra Billable Batch",
+extraBillableDescription: "Batch of properties needing one-off billable work — storm cleanup, seasonal cleanup, etc. Generates Extra Billable tickets when complete.",
+extraBillableTabProperties: "Properties",
+extraBillableTabCrews: "Crews",
+extraBillableTabBillingQueue: "Billing Queue",
+extraBillableTabBillingQueuePlaceholder: "Available once tickets are generated.",
+
+// Crew CRUD (campaigns-namespace; the schedule namespace has its own crewCreated/crewName etc. — do NOT reuse those)
+crewAdd: "Add crew",
+crewEdit: "Edit crew",
+crewName: "Crew name",
+crewColor: "Color",
+crewLeader: "Leader",
+crewMembers: "Members",
+crewItemCount: "{{count}} properties",
+crewPhotoCount: "{{count}} photos",
+crewCompletedCount: "{{count}} complete",
+crewCreated: "Crew created",
+crewUpdated: "Crew updated",
+crewDeleted: "Crew deleted",
+crewDeleteBlocked: "Reassign properties before deleting",
+crewNameRequired: "Crew name is required",
+crewNameDuplicate: "A crew with this name already exists",
+crewLeaderInMembers: "The leader is automatically a crew member",
+crewCannotRemoveLeader: "Change the leader before removing this user",
+
+// Property table bits — note the existing `assignedTo` (~:1405) is for users, not crews; use a distinct key
+itemUnassigned: "Unassigned",
+itemAssignedToCrew: "Assigned to {{crew}}",
+itemSummaryCounts: "Total: {{total}} · Assigned: {{assigned}} · Unassigned: {{unassigned}} · Complete: {{complete}}",
+addProperties: "Add properties",  // only add this if it doesn't already exist; if `addPhoto` / `addTask` style is in use, mirror that
+```
+
+Confirm before adding `addProperties` whether it exists already — `selectProperties`, `searchProperties`, etc. are present, so a similar key may exist; reuse if so.
+
+Use `useTranslation()` and `t("campaigns.crewItemCount", { count: 12 })` etc. on the client side — the existing chemical UI is the reference pattern for `{{count}}` interpolation (see `en.ts:292`, `:550`, `:1011`).
+
+## Patterns and conventions
+
+- Every user-facing string goes through i18next (en + es). Where existing campaign translations already cover something, reuse the key — do not duplicate.
+- Every new query filters by `companyId`. No exceptions.
+- Schema additions go in `shared/schema.ts` alongside existing tables. Drizzle `pgTable` patterns must match the existing style (snake_case column names in `text(...)` calls, camelCase property names, indexes named `<table>_<column>_idx`).
+- Use existing shadcn components — no new Radix primitives that aren't already in use. Use the existing color palette in `tailwind.config.ts`.
+- Loading states: shadcn `Skeleton`. Error states: shadcn `Alert`. Toasts: existing `useToast` hook.
+- All new icons from `lucide-react`.
+- Reuse the existing `apiRequest` / `queryClient` helpers from `client/src/lib/queryClient`.
+- Zod schemas are shared via `shared/` where the existing code already does this.
+- Use `data-testid` attributes on every interactive element following the existing convention (e.g., `data-testid="button-add-crew"`, `data-testid="row-crew-${id}"`).
+- The leader-only write rule MUST be enforced server-side, not relied upon in the UI alone. Add a focused unit test (using `vitest` and `supertest`, matching the existing `mailboxAccounts.oauthReconnect.test.ts` pattern) that confirms a non-leader crew member gets 403 when attempting `POST /api/campaigns/:cid/items/:iid/completion-photos/upload` on an extra_billable campaign item.
+
+## Out of scope for this slice (do not build)
+
+- Drag-drop crew assignment kanban board (Slice 2)
+- Bulk reassignment endpoint (Slice 2)
+- Property grid view with drop zones for photos from iMessage / desktop (Slice 3)
+- Multi-file drop endpoint (Slice 3)
+- Generate Extra Billable Tickets button + endpoint (Slice 4)
+- Photo transfer from campaign_item → ticket on conversion (Slice 4)
+- Source-of `ticket_links` rows linking generated tickets back to campaign items (Slice 4)
+- Field crew leader's home dashboard widget for "My Active Batches" (Slice 5)
+- Campaign templates / cloning a previous storm's crew layout (post-v1)
+- Per-property pricing input UI (Slice 4 may surface `estimatedAmount`; Slice 1 just adds the column)
+- Cloning crews from `maintenance_crews` standing roster (post-v1)
+- SMS/email notification to crew leaders when assigned (post-v1)
+- Map view of properties (post-v1)
+
+## Deliverables
+
+When you finish, report back with:
+
+1. List of all new files created (paths).
+2. List of all files modified (paths + 1-line description of what changed).
+3. List of new database tables and columns added, with the exact migration SQL run.
+4. List of new API endpoints created, with their HTTP method, path, and required role.
+5. Any places where the existing schema or routes turned out to differ from what this prompt assumed — call out the actual file/line and what you adjusted.
+6. The exact Zod schemas added or extended, with file paths.
+7. Any decisions you made where this prompt was ambiguous, and what you chose.
+8. Any issues you ran into or anything you skipped, with reasons.
+9. Confirmation that the leader-only write rule has the `vitest` test described above, plus the test file path.
+10. A short manual test plan covering: creating an Extra Billable campaign with 5 customers, adding 2 custom crews each with a leader and 1 extra member, assigning 3 properties to crew A and 2 to crew B via the inline reassignment Select on the Properties tab, logging in as the crew A leader and confirming they see only their 3 properties on `CampaignItemDetail`, logging in as the crew A *member* (non-leader) and confirming they can read but get a 403 on photo upload, deleting an empty crew (success) and a non-empty crew (blocked with the "Reassign properties first" toast).
+
+Do not skip any item silently. If something can't be built as specified, document the actual constraint and what you did instead.

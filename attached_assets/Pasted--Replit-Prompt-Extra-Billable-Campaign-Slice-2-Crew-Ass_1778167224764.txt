@@ -1,0 +1,249 @@
+# Replit Prompt — Extra Billable Campaign, Slice 2: Crew Assignment Board
+
+## Context
+
+This is **Slice 2 of 5** of the Extra Billable Campaign feature. Slice 1 (foundation) added the schema, the new "Extra Billable Batch" category in the New Campaign dialog, custom per-campaign crew CRUD with leader-only write authorization, and a basic Properties table on the campaign detail page where the admin can reassign one property at a time via an inline Select.
+
+**Slice 2 replaces that single-property reassignment UX with a proper drag-drop crew assignment board** — a kanban-style view on the same campaign detail page where unassigned properties sit in a left-hand pool and each crew is its own column. The admin drags properties from the pool to a crew column to assign them, between crew columns to reassign, and back to the pool to unassign. Shift-click multi-select lets the admin grab a stack of properties and drop them all at once.
+
+The drag-drop here is **dnd-kit** (the same library used by `client/src/pages/WeeklySchedulerPage.tsx` for the weekly schedule template builder — mirror that pattern). This is **not** the iMessage drag-drop UX from Slice 3 — those are file drops from outside the browser, which dnd-kit does not handle. Slice 2 is purely intra-page dragging of property cards.
+
+This slice should land in a deployable, production-quality state. After it ships, an admin can divide 50 properties among 3 crews in a couple of minutes, crew leaders log in on their phones and see only their assigned properties using the existing `CampaignItemDetail.tsx` mobile flow, and crew members see those properties read-only.
+
+Slice 2 is self-contained: it does not block Slice 3 (Property Grid with file drop zones) or Slice 4 (Ticket Generation). The Properties tab table from Slice 1 stays — the new Crew Assignment view is a separate tab.
+
+## Existing context (do not duplicate or replace)
+
+Slice 1 must already be merged before starting Slice 2. If anything from Slice 1 is missing, stop and surface it in Deliverables before proceeding.
+
+The following patterns are established by Slice 1 or earlier work — extend them, do not parallel-build:
+
+- **Schema:** `campaigns.category` includes `"extra_billable"`. `campaign_items` has `assignedCampaignCrewId`, `billingStatus`, `ticketId`, `estimatedAmount`. Tables `campaign_crews` and `campaign_crew_members` exist. All in `shared/schema.ts`.
+- **Crew CRUD endpoints** are at `GET/POST /api/campaigns/:campaignId/crews`, `PATCH/DELETE /api/campaigns/:campaignId/crews/:crewId`, plus member add/remove convenience endpoints. Reuse them — Slice 2 doesn't change crew CRUD.
+- **Single-item crew assignment:** `PATCH /api/campaigns/:campaignId/items/:itemId/assigned-crew` exists from Slice 1. Slice 2 adds the **bulk** version alongside it; the per-item endpoint stays for one-off reassignment from places other than the board.
+- **Authorization helper:** `canAccessExtraBillableCampaignItem(user, item, mode)` from Slice 1. Slice 2 reuses it. Bulk-assign is admin/office-only — it does not delegate to the helper because the helper is for per-item reads/writes by crew leaders.
+- **Existing dnd-kit pattern** lives in `client/src/pages/WeeklySchedulerPage.tsx` (~1448 lines). Imports: `DndContext`, `DragOverlay`, `closestCenter`, `PointerSensor`, `KeyboardSensor`, `useSensor`, `useSensors`, `DragStartEvent`, `DragOverEvent`, `DragEndEvent`, `useDraggable`, `useDroppable` from `@dnd-kit/core`; `CSS` from `@dnd-kit/utilities`. Pattern: a `DraggableBlock` component (~line 94) with a grip handle that holds `attributes` + `listeners`, leaving the rest of the card free for other interactions; a `DroppableCell` component (~line 160) using `useDroppable({id})` and visualizing `isOver` via a ring; lifecycle handlers `handleDragStart` / `handleDragOver` / `handleDragEnd` (~lines 604–638); composite drop IDs joined with `::`; `DragOverlay` for the floating preview. **Read this file end-to-end before writing the board.** Match the lifecycle, the visual feedback, the grip pattern, and the `data-testid` conventions.
+- **Existing `<ExtraBillableCampaignView>` from Slice 1** at `client/src/components/ExtraBillableCampaignView.tsx` already has three tabs: Properties, Crews, Billing Queue (placeholder). Slice 2 adds a **fourth tab**: "Assignments" — placed between "Properties" and "Crews" so the natural left-to-right flow is *see your properties → assign them to crews → manage your crews → review billing*. Or replace this if the team prefers; just don't fork into a different page.
+- **i18next convention:** flat camelCase keys inside the existing top-level `campaigns: { ... }` object in `client/src/i18n/locales/en.ts` (~line 1393) and `es.ts`. Do not introduce dotted nesting. Mirror Slice 1's `crew*` and `extraBillable*` prefixes.
+- **Stack:** React 18 + TS + Vite + Tailwind + shadcn/ui (Radix) + Wouter + TanStack Query v5 + RHF + Zod + Drizzle + Postgres + i18next. No new dependencies. `@dnd-kit/core`, `@dnd-kit/sortable`, `@dnd-kit/utilities` are already in `package.json`.
+- **Multi-tenancy:** every table has `companyId`, every query filters by `user.activeCompanyId`. No exceptions.
+
+Read `WeeklySchedulerPage.tsx`, the Slice 1 `ExtraBillableCampaignView.tsx`, the existing campaign endpoint at `server/routes.ts:12260`, and `CampaignItemDetail.tsx` before writing code.
+
+## Schema changes
+
+**None.** Slice 2 is pure UI + a single new endpoint + an extension of an existing endpoint's filter logic. If you discover during implementation that a schema change is genuinely needed, stop and call it out — do not silently add columns.
+
+## API endpoints
+
+### 1. New: bulk crew assignment
+
+```
+POST /api/campaigns/:campaignId/items/bulk-assign-crew
+```
+
+Body:
+
+```ts
+{
+  itemIds: string[];                    // 1..N campaign_item ids in this campaign
+  assignedCampaignCrewId: string | null; // null = move to Unassigned
+}
+```
+
+Behavior:
+
+- Authentication required. **Admin or office role only** — return 403 for any other role. Do NOT call `canAccessExtraBillableCampaignItem` here; this is an admin operation.
+- Validate `itemIds` is a non-empty array of valid UUIDs (Zod). Cap length at 500 to avoid runaway requests.
+- Validate the parent campaign exists for `user.activeCompanyId` and has `category: "extra_billable"`. Return 400 with a clear message if the category check fails — bulk crew assignment doesn't apply to other categories.
+- Validate every `itemId` belongs to this campaign and to `user.activeCompanyId`. Reject the whole batch with 400 + the offending IDs if any don't.
+- If `assignedCampaignCrewId` is non-null: validate it's a crew on this campaign. **Reject with 400 if the crew has no `leaderUserId` set** — items cannot be assigned to a leaderless crew. The error message should be `"Set a leader on this crew before assigning properties to it"` (use an i18next key on the client).
+- Update all matching rows in a single transaction. Set `updatedAt` on each.
+- Return `{ updated: number, items: CampaignItem[] }` — the full updated rows, so the client can use the response to update its query cache without a refetch.
+
+### 2. Extend: campaigns list and campaign-by-id for field users
+
+The existing campaign-by-id endpoint at `server/routes.ts:12260` currently restricts field/landscape_supervisor users to campaigns where `assignedToId === user.id || assignedToId2 === user.id`. For `extra_billable` campaigns, this rule is **insufficient** because crew leaders/members may not be either of those two assignees but still need access.
+
+Update the access check inside that endpoint and in the campaigns-list endpoint (find it nearby — likely `GET /api/campaigns`) so that:
+
+- For **non-extra_billable** campaigns: existing rule unchanged.
+- For **extra_billable** campaigns: a `field`-role (or other operational-role) user is granted access if they are in `campaign_crew_members` for any crew on the campaign, OR if they're the campaign's `assignedToId` / `assignedToId2`.
+
+Item-level read filtering inside the same endpoint:
+
+- For `field`-role users on an `extra_billable` campaign: include only items whose `assignedCampaignCrewId` is a crew that the user is a member of. Other items are stripped from the response (don't 403 the whole campaign — just hide the items).
+- Admin/office: no filtering.
+
+Centralize this filter in a small helper `filterExtraBillableCampaignItems(items, user, crewMembershipsByCrewId)` so it's testable and reusable. Slice 4's billing-queue endpoint will use it too.
+
+### 3. (No change) Reuse the per-item endpoint
+
+`PATCH /api/campaigns/:campaignId/items/:itemId/assigned-crew` (from Slice 1) stays exactly as is. The board uses **bulk-assign-crew** for every drag, even when only one item is being dragged — that keeps the client code path uniform and lets the bulk endpoint be the single source of truth for assignment validation. The single-item endpoint remains for non-board callers (e.g., the Properties-tab inline Select from Slice 1).
+
+## UI / pages / components
+
+### 1. New tab: "Assignments"
+
+In `client/src/components/ExtraBillableCampaignView.tsx`, add a fourth tab between "Properties" and "Crews":
+
+```
+Properties | Assignments | Crews | Billing Queue
+```
+
+The default landing tab when opening an extra_billable campaign with `unassignedCount > 0` is **Assignments** (so the admin's natural first action is to divide properties); when everything is assigned, default to **Properties**. Persist the last-selected tab in `localStorage` keyed by campaign ID — but the `unassignedCount > 0` rule wins on first visit per campaign.
+
+Add the i18next key `extraBillableTabAssignments: "Assignments"` (and Spanish equivalent) to the existing `campaigns` namespace.
+
+### 2. New component: `<CrewAssignmentBoard>`
+
+Path: `client/src/components/CrewAssignmentBoard.tsx`. Accepts `campaignId: string`. Top-level layout:
+
+```
++------------------+----------------------------------+
+| Unassigned (12)  | [ Crew 1 (8) ][ Crew 2 (5) ]...  |
+| [search]         |                                   |
+| [ filter chips ] |                                   |
+| ─────────────    | ─────────────  ──────────────    |
+| (property cards) | (property cards) (cards)         |
+| (scrollable)     | (each col scrollable)            |
++------------------+----------------------------------+
+```
+
+- Left-hand **Unassigned column** is a fixed-width drop zone (240–280px) with its own scrollable list of unassigned items.
+- **Crew columns** scroll horizontally inside a flex container if the screen is narrow. Each column is also a drop zone.
+- **No day-of-week axis** — this is a one-axis kanban (crew only).
+
+Component composition (mirror the WeeklySchedulerPage pattern):
+
+- `<DndContext>` wraps the whole board with `sensors` (PointerSensor with `activationConstraint: { distance: 5 }` to allow click-without-drag, plus KeyboardSensor for accessibility) and `collisionDetection={closestCenter}`.
+- `<DraggablePropertyCard>` for each property — `useDraggable({id: item.id, disabled: !canEdit})`. Display: customer name, city, photo count badge, status badge if not pending. Grip icon on the left holds `attributes` + `listeners` so the rest of the card can be clicked to open the item detail page.
+- `<DroppableCrewColumn>` for each crew + the unassigned column. `useDroppable({id: crewId | "unassigned"})`. The column container shows a primary ring when `isOver`. Inside: header with crew name + color swatch + counters; scrollable list of cards.
+- `<DragOverlay>` renders a translucent floating card during drag. If the drag is multi-select, render a stack-of-cards overlay with a small "+N" badge in the corner.
+- Lifecycle: `handleDragStart` captures the active id (and the full selected set if multi-select is active and the active id is one of the selected); `handleDragOver` updates the `overColumnId` state for ring feedback; `handleDragEnd` calls the bulk-assign mutation with the array of moving ids and the target column.
+
+### 3. Multi-select behavior
+
+dnd-kit doesn't support multi-drag natively, so build it explicitly:
+
+- Maintain `selectedItemIds: Set<string>` in the board's state.
+- Plain click on a card → toggle that one card's selection (and clear all others if it was a fresh click on an unselected card; keep selection if clicking an already-selected card).
+- Shift-click → range-select within the **same column**, between the last-clicked card and the shift-clicked card. Range selection across columns is not supported (would be confusing); shift-clicking in a different column starts a new range from that column.
+- Cmd/Ctrl-click → toggle the clicked card without affecting other selections.
+- Esc → clear selection.
+- Selected cards get a thick primary-color border and a subtle scale.
+- A small floating action bar appears at the top-right of the board when selection size ≥ 2: `"3 selected · Assign to ▼ · Clear"`. The dropdown lists every crew + Unassigned and triggers the bulk-assign endpoint without needing a drag — for accessibility and for users who prefer click-driven workflows.
+- When a drag starts on a selected card, the drag carries the entire selection. When a drag starts on an *unselected* card, the selection is cleared and the drag carries only that one card.
+- After a successful bulk move, clear the selection.
+
+### 4. Crew column header
+
+For each crew column header, render:
+
+- Color swatch (5px wide left bar matching `campaign_crews.color`)
+- Crew name (16px, bold)
+- Leader name (12px, muted): `"Lead: Mike"` (truncated if long)
+- Counters row, all from the `CampaignCrewWithMembers` shape Slice 1 returns: `"{itemCount} props · {photoCount} photos · {completedCount} done"` using existing i18n keys `crewItemCount`, `crewPhotoCount`, `crewCompletedCount` from Slice 1.
+- "Open crew" small icon button that switches to the Crews tab and scrolls to that crew's card (for editing leader/members).
+
+If the crew has **no leader assigned**, the column header shows a yellow `<Alert>` strip: `"No leader assigned — set one before adding properties"` with a button to open the crew editor. Drop attempts onto a leaderless column are blocked client-side with an inline toast: `"Set a leader on this crew first"`. (Server enforces the same rule per API §1; the client check is for fast feedback, not security.)
+
+### 5. Unassigned column
+
+Header: "Unassigned ({count})". Below the header: a search input that filters the unassigned cards by customer name and city, client-side. No filter chips needed in v1.
+
+The Unassigned column is a drop target like any crew column — drop on it to reassign back to unassigned. Use the literal id `"unassigned"` for the droppable; the bulk-assign mutation translates this to `assignedCampaignCrewId: null`.
+
+### 6. Property card (in either column)
+
+Layout:
+
+```
+[grip] Customer name           [photo count badge]
+       City, ST                [status badge if not pending]
+```
+
+`grip` is a `<GripVertical>` from lucide-react, only visible/enabled when the user has `admin` or `office` role.
+
+Click anywhere on the card (except the grip) → navigate to `/dashboard/campaigns/:campaignId/items/:itemId` (the existing CampaignItemDetail page).
+
+Photo count badge: just a number with a small camera icon if `photos.length > 0`, hidden if zero.
+
+### 7. Empty states
+
+- **No crews on the campaign:** the right side of the board shows a centered empty state with `<Users>` icon and the message `"Add a crew before assigning properties"` plus a button to switch to the Crews tab. The Unassigned column on the left still renders normally.
+- **No properties on the campaign:** show the entire board's empty state with a button to add properties (which switches back to the Properties tab and opens the Add Properties dialog from Slice 1). Don't render the columns.
+- **All properties assigned, no unassigned:** Unassigned column shows an empty-state message inline `"All properties assigned"`. Crew columns render normally.
+
+### 8. Mobile / narrow viewport
+
+The board is admin-facing and not part of the field-side mobile flow (crew leaders use `CampaignItemDetail.tsx`, untouched). On viewports narrower than `md` (768px), render the board as a vertically stacked list — Unassigned column on top, then each crew column. Drag-drop still works but the multi-select floating action bar fixes to the bottom of the screen instead of top-right. Don't fight the small-viewport case; just keep it usable.
+
+### 9. Quick actions on cards
+
+Right-click on a property card → small context menu (use shadcn `<ContextMenu>`):
+
+- Move to crew → submenu with each crew + Unassigned (one-click bulk-assign of just this card)
+- Open property detail
+- View customer
+
+For accessibility, also expose these via a `<DropdownMenu>` on a kebab icon that appears on card hover.
+
+### 10. Loading and error states
+
+- Initial load: shadcn `<Skeleton>` placeholders for columns and cards (~6 card placeholders per column).
+- Mutation pending: a subtle progress bar at the top of the board (Radix `<Progress>` indeterminate) while bulk-assign is in flight. Don't block the UI — let the user queue another drag if they want.
+- Mutation error: revert the optimistic update, show a toast with the server's error message.
+- Optimistic update: on `handleDragEnd`, immediately move the cards visually before the mutation resolves. On error, revert.
+
+## Patterns and conventions
+
+- Match the existing dnd-kit usage in `WeeklySchedulerPage.tsx` for sensor configuration, drag IDs, lifecycle handlers, and `<DragOverlay>` rendering. If you find a cleaner pattern, document the deviation in Deliverables but default to consistency.
+- Every interactive element gets a `data-testid` matching the existing convention. Examples: `data-testid="board-column-${crewId}"`, `data-testid="card-property-${itemId}"`, `data-testid="grip-property-${itemId}"`, `data-testid="button-bulk-assign-trigger"`, `data-testid="bulk-assign-action-${crewId}"`.
+- All user-facing strings via i18next, in both `en.ts` and `es.ts`, in the existing `campaigns` namespace, flat camelCase. Add only what's new — reuse Slice 1's `crewItemCount`, `crewPhotoCount`, `crewCompletedCount`, `itemUnassigned`, etc.
+- Optimistic updates use TanStack Query's `onMutate` / `onError` / `onSettled` lifecycle, mirroring whatever pattern `WeeklySchedulerPage.tsx`'s `moveBlockMutation` uses.
+- The `<CrewAssignmentBoard>` component must be < 500 lines. If it's growing past that, extract `<DroppableCrewColumn>`, `<DraggablePropertyCard>`, and `<MultiSelectActionBar>` into sibling files in the same `client/src/components/` directory.
+- Server-side: the bulk-assign endpoint goes inside `server/routes.ts` near the existing campaign-item endpoints (around line 12591). Match the logging, error-shape, and Zod-validation patterns of the routes immediately around it.
+
+## Testing
+
+Add a `vitest` + `supertest` test file at `server/routes/extraBillableCampaign.bulkAssign.test.ts` (or the closest existing testing convention — look at `server/routes/mailboxAccounts.oauthReconnect.test.ts` for the pattern) covering:
+
+- Bulk-assign succeeds for admin role, returns updated rows, and persists.
+- Bulk-assign returns 400 if any `itemId` doesn't belong to the campaign or company.
+- Bulk-assign returns 400 if the target crew has no leader.
+- Bulk-assign returns 403 for `field` role even if the user is a crew leader.
+- Bulk-assign returns 400 if the target campaign isn't `extra_billable`.
+
+Add a small client-side test for the multi-select state machine — click, shift-click within column, shift-click across column (treated as fresh range start), cmd/ctrl-click toggles, Esc clears. Use the existing testing-library setup (`@testing-library/react` + vitest).
+
+## Out of scope for this slice (do not build)
+
+- Property grid view with file drop zones from outside the browser (Slice 3).
+- Bulk photo upload from iMessage / desktop (Slice 3).
+- HEIC conversion changes (already in production for ticket photos; nothing to add).
+- Generate Tickets button or the ticket-generation endpoint (Slice 4).
+- Field crew leader's home dashboard widget (Slice 5).
+- Map view of property locations (post-v1).
+- Auto-assignment heuristics ("balance properties across crews") — manual only in v1.
+- Reordering the cards within a column (no sortOrder is captured for property cards in v1; assignment is order-agnostic).
+- Drag-and-drop reordering of crew columns themselves (use `displayOrder` set in the Crews tab Slice 1 dialog).
+- Cross-campaign assignment — every assignment is scoped to its campaign.
+- Mobile-touch optimization beyond what dnd-kit's PointerSensor gives by default.
+
+## Deliverables
+
+When you finish, report back with:
+
+1. List of all new files created (paths).
+2. List of all files modified (paths + 1-line description of what changed).
+3. The exact endpoint added with its method, path, required role, and Zod schema.
+4. The exact change made to the existing campaign-by-id and campaigns-list endpoints to include extra_billable crew-membership access — quote the diff.
+5. Confirmation that `WeeklySchedulerPage.tsx`'s dnd-kit pattern was the reference, with any deviations called out and justified.
+6. The exact multi-select rules implemented (click / shift / cmd / esc) so the QA test plan can verify them.
+7. The optimistic-update strategy used (which TanStack Query callbacks, which cache keys are touched).
+8. The vitest test file path and a list of the test cases included.
+9. Any decisions you made where this prompt was ambiguous, and what you chose.
+10. A short manual test plan covering: opening an extra_billable campaign with 30 unassigned properties and 3 crews, dragging a single property to Crew 1, shift-selecting 5 properties and dragging them to Crew 2, dragging one back to Unassigned, attempting to drop on a leaderless crew (expect block), right-click → Move to crew, and confirming the crew column counters update live in each case. Then logging in as the Crew 1 leader and confirming they see only Crew 1's items in `CampaignItemDetail`. Logging in as a non-leader Crew 1 member and confirming they see the items but get 403 on photo upload.
+
+Do not skip any item silently. If something can't be built as specified, document the actual constraint and what you did instead.
