@@ -24,6 +24,7 @@ import { ROLLUP_SERVICE_LABELS, campaignToRollupServiceType } from "../shared/se
 import { buildContractAuditRows } from "../auditEngine";
 import { seedChemicalEmailTemplates, seedChemicalNotificationTemplates } from "../templates/seed";
 import { assertNotParentCustomer } from "../utils/parentGuard";
+import { registerExtraBillablePhotoRoutes } from "./extraBillablePhotos";
 
 /**
  * Signed URL TTL for chemical product label attachments (in seconds).
@@ -16306,6 +16307,8 @@ ${pdfText.slice(0, 8000)}`;
       res.status(500).json({ error: "Internal server error" });
     }
   });
+
+  registerExtraBillablePhotoRoutes(app, { storage });
 
   const httpServer = createServer(app);
 

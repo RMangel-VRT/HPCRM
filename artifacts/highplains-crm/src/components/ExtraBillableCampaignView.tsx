@@ -26,9 +26,10 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { Plus, Users, X, Trash2, Pencil, Search, ExternalLink, Lock, Info, LayoutGrid } from "lucide-react";
+import { Plus, Users, X, Trash2, Pencil, Search, ExternalLink, Lock, Info, LayoutGrid, Table as TableIcon } from "lucide-react";
 import EmptyState from "@/components/EmptyState";
 import CrewAssignmentBoard from "@/components/CrewAssignmentBoard";
+import PropertyGrid from "@/components/extraBillable/PropertyGrid";
 import type { Campaign, CampaignItem, CampaignCrewWithMembers, CompanyUser, User as UserType } from "@shared/schema";
 
 interface CampaignDetailLike extends Campaign {
@@ -55,7 +56,7 @@ export default function ExtraBillableCampaignView({ campaign, campaignId }: Prop
   const { toast } = useToast();
   const { user } = useAuth();
   const isFieldOnlyRole = user?.activeRole === "field" || user?.activeRole === "landscape_supervisor";
-  type EBTab = "properties" | "assignments" | "crews" | "billing";
+  type EBTab = "grid" | "properties" | "assignments" | "crews" | "billing";
   const lastTabKey = `eb-campaign-tab-last:${campaignId}`;
   const seenKey = `eb-campaign-tab-seen:${campaignId}`;
   const hasUnassigned = useMemo(
@@ -63,13 +64,14 @@ export default function ExtraBillableCampaignView({ campaign, campaignId }: Prop
     [campaign.items],
   );
   const initialTab: EBTab = (() => {
-    if (typeof window === "undefined") return "properties";
+    if (typeof window === "undefined") return "grid";
     const seen = window.localStorage.getItem(seenKey);
     // First-visit override: unassigned items route to Assignments regardless of last selection
+    if (isFieldOnlyRole) return "grid";
     if (!seen && hasUnassigned) return "assignments";
     const last = window.localStorage.getItem(lastTabKey) as EBTab | null;
-    if (last && ["properties", "assignments", "crews", "billing"].includes(last)) return last;
-    return "properties";
+    if (last && ["grid", "properties", "assignments", "crews", "billing"].includes(last)) return last;
+    return "grid";
   })();
   const [tab, setTabState] = useState<EBTab>(initialTab);
   const setTab = useCallback((next: EBTab) => {
@@ -131,8 +133,9 @@ export default function ExtraBillableCampaignView({ campaign, campaignId }: Prop
   const counters = useMemo(() => {
     const completed = items.filter(i => i.status === "completed").length;
     const photos = items.reduce((acc, i) => acc + ((i.completionPhotoStorageKeys?.length) || 0), 0);
+    const gridPhotos = items.reduce((acc, i) => acc + ((i.photos?.length) || 0), 0);
     const estimated = items.reduce((acc, i) => acc + Number(i.estimatedAmount || 0), 0);
-    return { total: items.length, completed, photos, estimated };
+    return { total: items.length, completed, photos, gridPhotos, estimated };
   }, [items]);
 
   const assignItemMutation = useMutation({
@@ -172,42 +175,74 @@ export default function ExtraBillableCampaignView({ campaign, campaignId }: Prop
           <span>{t("campaigns.extraBillableFieldViewBanner")}</span>
         </div>
       )}
-      {!isFieldOnlyRole && (
-        <div className="flex items-center gap-1 flex-wrap">
-          <Button
-            variant={tab === "properties" ? "default" : "outline"}
-            size="sm"
-            onClick={() => setTab("properties")}
-            data-testid="button-eb-tab-properties"
-          >
-            {t("campaigns.extraBillableTabProperties")}
-          </Button>
-          <Button
-            variant={tab === "assignments" ? "default" : "outline"}
-            size="sm"
-            onClick={() => setTab("assignments")}
-            data-testid="button-eb-tab-assignments"
-          >
-            <LayoutGrid className="w-4 h-4 mr-1" />
-            {t("campaigns.extraBillableTabAssignments")}
-          </Button>
-          <Button
-            variant={tab === "crews" ? "default" : "outline"}
-            size="sm"
-            onClick={() => setTab("crews")}
-            data-testid="button-eb-tab-crews"
-          >
-            {t("campaigns.extraBillableTabCrews")}
-          </Button>
-          <Button
-            variant={tab === "billing" ? "default" : "outline"}
-            size="sm"
-            onClick={() => setTab("billing")}
-            data-testid="button-eb-tab-billing"
-          >
-            {t("campaigns.extraBillableTabBillingQueue")}
-          </Button>
-        </div>
+      <div className="flex items-center gap-1 flex-wrap">
+        <Button
+          variant={tab === "grid" ? "default" : "outline"}
+          size="sm"
+          onClick={() => setTab("grid")}
+          data-testid="button-eb-tab-grid"
+        >
+          <LayoutGrid className="w-4 h-4 mr-1" />
+          {t("campaigns.extraBillableTabPropertyGrid")}
+        </Button>
+        <Button
+          variant={tab === "properties" ? "default" : "outline"}
+          size="sm"
+          onClick={() => setTab("properties")}
+          data-testid="button-eb-tab-properties"
+        >
+          <TableIcon className="w-4 h-4 mr-1" />
+          {t("campaigns.extraBillableTabProperties")}
+        </Button>
+        {!isFieldOnlyRole && (
+          <>
+            <Button
+              variant={tab === "assignments" ? "default" : "outline"}
+              size="sm"
+              onClick={() => setTab("assignments")}
+              data-testid="button-eb-tab-assignments"
+            >
+              <LayoutGrid className="w-4 h-4 mr-1" />
+              {t("campaigns.extraBillableTabAssignments")}
+            </Button>
+            <Button
+              variant={tab === "crews" ? "default" : "outline"}
+              size="sm"
+              onClick={() => setTab("crews")}
+              data-testid="button-eb-tab-crews"
+            >
+              {t("campaigns.extraBillableTabCrews")}
+            </Button>
+            <Button
+              variant={tab === "billing" ? "default" : "outline"}
+              size="sm"
+              onClick={() => setTab("billing")}
+              data-testid="button-eb-tab-billing"
+            >
+              {t("campaigns.extraBillableTabBillingQueue")}
+            </Button>
+          </>
+        )}
+      </div>
+
+      {tab === "grid" && (
+        <Card>
+          <CardContent className="p-4 space-y-3">
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
+              <CounterTile label={t("campaigns.extraBillablePropertyCount")} value={String(counters.total)} testId="counter-eb-grid-properties" />
+              <CounterTile label={t("campaigns.extraBillableCompletedCount")} value={`${counters.completed} / ${counters.total}`} testId="counter-eb-grid-completed" />
+              <CounterTile label={t("campaigns.extraBillablePhotosCount")} value={String(counters.gridPhotos)} testId="counter-eb-grid-photos" />
+              <CounterTile label={t("campaigns.extraBillableTotalEstimated")} value={`$${counters.estimated.toFixed(2)}`} testId="counter-eb-grid-estimated" />
+            </div>
+            <PropertyGrid
+              campaignId={campaignId}
+              items={items}
+              crews={crews}
+              isAdminOrOffice={isAdminOffice}
+              currentUserId={user?.id ?? null}
+            />
+          </CardContent>
+        </Card>
       )}
 
       {tab === "properties" && (

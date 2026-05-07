@@ -1623,6 +1623,42 @@ const es = {
     extraBillableFieldViewBanner: "Estas viendo una vista limitada — solo se muestran las propiedades de tu cuadrilla asignada. La gestion de cuadrillas y la facturacion son manejadas por el personal de oficina.", // TODO: human-review translation
     crewContextChip: "Cuadrilla: {{name}}", // TODO: human-review translation
     crewContextChipLeader: "Lider de Cuadrilla: {{name}}", // TODO: human-review translation
+    extraBillableTabPropertyGrid: "Cuadrícula de Propiedades", // TODO: human-review translation
+    extraBillableGridDropHint: "Suelta fotos aquí", // TODO: human-review translation
+    extraBillableGridDropping: "Suelta para subir", // TODO: human-review translation
+    extraBillableGridSwitchToTable: "Vista de tabla", // TODO: human-review translation
+    extraBillableGridSwitchToGrid: "Vista de cuadrícula", // TODO: human-review translation
+    extraBillableGridSortLabel: "Ordenar", // TODO: human-review translation
+    extraBillableGridSortNewest: "Más recientes primero", // TODO: human-review translation
+    extraBillableGridSortName: "Nombre (A–Z)", // TODO: human-review translation
+    extraBillableGridSortPhotosAsc: "Menos fotos primero", // TODO: human-review translation
+    extraBillableGridSortPhotosDesc: "Más fotos primero", // TODO: human-review translation
+    extraBillableGridFilterCrew: "Cuadrilla", // TODO: human-review translation
+    extraBillableGridFilterAll: "Todas las cuadrillas", // TODO: human-review translation
+    extraBillableGridFilterUnassigned: "Sin asignar", // TODO: human-review translation
+    extraBillableGridStatusFilter: "Estado", // TODO: human-review translation
+    extraBillableGridStatusAll: "Cualquier estado", // TODO: human-review translation
+    extraBillableGridStatusPending: "Pendiente", // TODO: human-review translation
+    extraBillableGridStatusCompleted: "Completado", // TODO: human-review translation
+    extraBillableGridEmpty: "Ninguna propiedad coincide con los filtros.", // TODO: human-review translation
+    extraBillableGridViewPhotos: "Ver fotos", // TODO: human-review translation
+    extraBillablePhotoUploadFailed: "Error al subir la foto", // TODO: human-review translation
+    extraBillablePhotoForbidden: "Solo el líder de la cuadrilla asignada puede subir fotos a esta propiedad.", // TODO: human-review translation
+    extraBillablePhotoInvalidType: "Solo se permiten imágenes JPEG, PNG, WebP y HEIC.", // TODO: human-review translation
+    extraBillablePhotoMaxReached: "Esta propiedad ya alcanzó el máximo de fotos.", // TODO: human-review translation
+    extraBillablePhotoUploadProgress: "{{done}} de {{total}} subidas", // TODO: human-review translation
+    extraBillablePhotoUploadDone: "{{count}} foto(s) subida(s)", // TODO: human-review translation
+    extraBillablePhotoUploadPartial: "{{done}} de {{total}} subidas — {{failed}} fallaron", // TODO: human-review translation
+    extraBillablePhotoSheetTitle: "Fotos – {{name}}", // TODO: human-review translation
+    extraBillablePhotoEmpty: "Aún no hay fotos — arrastra imágenes a la tarjeta para agregarlas.", // TODO: human-review translation
+    extraBillablePhotoDelete: "Eliminar foto", // TODO: human-review translation
+    extraBillablePhotoDeleteConfirm: "¿Eliminar esta foto? No se puede deshacer.", // TODO: human-review translation
+    extraBillablePhotoDeleted: "Foto eliminada", // TODO: human-review translation
+    extraBillablePhotoDeleteFailed: "Error al eliminar la foto", // TODO: human-review translation
+    extraBillableLightboxClose: "Cerrar", // TODO: human-review translation
+    extraBillableLightboxNext: "Foto siguiente", // TODO: human-review translation
+    extraBillableLightboxPrev: "Foto anterior", // TODO: human-review translation
+    extraBillableLightboxCounter: "{{current}} de {{total}}", // TODO: human-review translation
     crewItemCount: "{{count}} propiedades", // TODO: human-review translation
     crewPhotoCount: "{{count}} fotos", // TODO: human-review translation
     crewCompletedCount: "{{count}} completadas", // TODO: human-review translation

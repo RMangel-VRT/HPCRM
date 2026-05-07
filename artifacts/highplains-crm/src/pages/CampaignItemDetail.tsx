@@ -263,6 +263,10 @@ export default function CampaignItemDetail() {
   const canReopen = ["admin", "office", "chemical_manager"].includes(user?.activeRole || "");
   const isChemicalCampaign = campaign?.category === "chemical";
   const isIrrigationCampaign = campaign?.category === "irrigation";
+
+  // Extra-billable photo writes go through the dedicated raw-byte
+  // /photos/drop endpoint so they get HEIC-converted, sharp-resized, and
+  // EXIF-stripped server-side (instead of the legacy presigned-PUT flow).
   const isExtraBillableCampaign = campaign?.category === "extra_billable";
 
   const { data: ebCrews = [] } = useQuery<Array<{ id: string; name: string; color: string; leaderUserId: string; leaderName?: string }>>({
@@ -450,25 +454,83 @@ export default function CampaignItemDetail() {
     if (!file) return;
     setUploading(true);
     try {
-      const res = await apiRequest("POST", "/api/campaigns/photo-upload-url");
-      const { uploadURL, objectPath } = await res.json();
-      const uploadRes = await fetch(uploadURL, {
-        method: "PUT",
-        headers: { "Content-Type": file.type },
-        body: file,
-      });
-      if (!uploadRes.ok) throw new Error("Upload failed");
-      const newPhotos = [...photos, objectPath];
-      setPhotos(newPhotos);
-      updateItemMutation.mutate({ photos: newPhotos });
-    } catch {
-      toast({ title: t("campaigns.photoUploadFailed"), variant: "destructive" });
+      if (isExtraBillableCampaign) {
+        // Raw-byte drop endpoint — server processes HEIC/sharp/EXIF and
+        // appends the resulting key to campaign_items.photos[] itself, so we
+        // don't need to call updateItemMutation.
+        const buffer = await file.arrayBuffer();
+        const res = await fetch(
+          `/api/campaigns/${campaignId}/items/${itemId}/photos/drop`,
+          {
+            method: "POST",
+            credentials: "include",
+            headers: { "Content-Type": file.type || "application/octet-stream" },
+            body: buffer,
+          },
+        );
+        if (!res.ok) {
+          let key = "extraBillablePhotoUploadFailed";
+          try {
+            const data = await res.json();
+            if (data?.error) key = data.error;
+          } catch { /* ignore */ }
+          throw new Error(key);
+        }
+        const data = (await res.json()) as { photos?: string[] };
+        if (Array.isArray(data.photos)) setPhotos(data.photos);
+        queryClient.invalidateQueries({ queryKey: ["/api/campaigns", campaignId] });
+        queryClient.invalidateQueries({
+          queryKey: ["/api/campaigns", campaignId, "items", itemId, "photo-urls"],
+        });
+      } else {
+        const res = await apiRequest("POST", "/api/campaigns/photo-upload-url");
+        const { uploadURL, objectPath } = await res.json();
+        const uploadRes = await fetch(uploadURL, {
+          method: "PUT",
+          headers: { "Content-Type": file.type },
+          body: file,
+        });
+        if (!uploadRes.ok) throw new Error("Upload failed");
+        const newPhotos = [...photos, objectPath];
+        setPhotos(newPhotos);
+        updateItemMutation.mutate({ photos: newPhotos });
+      }
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "photoUploadFailed";
+      const known = [
+        "extraBillablePhotoForbidden",
+        "extraBillablePhotoInvalidType",
+        "extraBillablePhotoUploadFailed",
+      ];
+      const titleKey = known.find((k) => message.includes(k))
+        ? `campaigns.${known.find((k) => message.includes(k))}`
+        : "campaigns.photoUploadFailed";
+      toast({ title: t(titleKey), variant: "destructive" });
     } finally {
       setUploading(false);
     }
   };
 
-  const removePhoto = (idx: number) => {
+  const removePhoto = async (idx: number) => {
+    const target = photos[idx];
+    if (isExtraBillableCampaign && target) {
+      try {
+        const res = await fetch(
+          `/api/campaigns/${campaignId}/items/${itemId}/photos/${target}`,
+          { method: "DELETE", credentials: "include" },
+        );
+        if (!res.ok) throw new Error("delete failed");
+        const data = (await res.json()) as { photos?: string[] };
+        if (Array.isArray(data.photos)) setPhotos(data.photos);
+        queryClient.invalidateQueries({ queryKey: ["/api/campaigns", campaignId] });
+        queryClient.invalidateQueries({
+          queryKey: ["/api/campaigns", campaignId, "items", itemId, "photo-urls"],
+        });
+      } catch {
+        toast({ title: t("campaigns.photoUploadFailed"), variant: "destructive" });
+      }
+      return;
+    }
     const newPhotos = photos.filter((_, i) => i !== idx);
     setPhotos(newPhotos);
     updateItemMutation.mutate({ photos: newPhotos });
