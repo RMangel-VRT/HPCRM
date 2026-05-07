@@ -99,7 +99,7 @@ export default function InboxTab() {
   const { search, fromDate, toDate, viewAs } = useCommunicationsShell();
   const [selectedComm, setSelectedComm] = useState<CommunicationWithDetails | null>(null);
   const searchString = useSearch();
-  const focusId = new URLSearchParams(searchString).get("focus");
+  const focusId = new URLSearchParams(searchString).get("focusId");
   const [highlightId, setHighlightId] = useState<string | null>(focusId);
   const rowRefs = useRef<Record<string, HTMLButtonElement | null>>({});
 

@@ -50,6 +50,7 @@ import { Link, useLocation } from "wouter";
 import logoImage from "@assets/LOGO_-_SPREAD-06_1773353516653.png";
 import { useTranslation } from "react-i18next";
 import { useQuery } from "@tanstack/react-query";
+import { Badge } from "@/components/ui/badge";
 import type { Customer } from "@shared/schema";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import {
@@ -209,8 +210,7 @@ export default function AppSidebar({
     }
 
     if (userRole === "admin" || userRole === "office") {
-      items.push({ title: t("emailTracking.communicationsTitle"), url: "/dashboard/communications", icon: MessagesSquare });
-      items.push({ title: t("nav.inbox"), url: "/dashboard/communications/unsorted", icon: Mail });
+      items.push({ title: t("emailTracking.communicationsTitle"), url: "/dashboard/communications/inbox", icon: MessagesSquare });
     }
 
     if (userRole === "admin" || userRole === "office" || userRole === "field_manager" || userRole === "chemical_manager") {
@@ -256,8 +256,22 @@ export default function AppSidebar({
 
   const isActive = (url: string) => {
     if (url === "/dashboard") return location === "/dashboard";
+    if (url === "/dashboard/communications/inbox") return location.startsWith("/dashboard/communications");
     return location === url || location.startsWith(url + "/");
   };
+
+  const { data: pendingUnsortedData } = useQuery<{ length: number } | unknown[]>({
+    queryKey: ["/api/unsorted-emails", "sidebar-badge"],
+    queryFn: async () => {
+      const res = await fetch("/api/unsorted-emails?status=pending&limit=100", { credentials: "include" });
+      if (!res.ok) return [];
+      return res.json();
+    },
+    enabled: userRole === "admin" || userRole === "office",
+    refetchInterval: 60_000,
+    staleTime: 50_000,
+  });
+  const pendingUnsortedCount = Array.isArray(pendingUnsortedData) ? pendingUnsortedData.length : 0;
 
   return (
     <Sidebar
@@ -354,16 +368,24 @@ export default function AppSidebar({
           <SidebarGroup>
             <SidebarGroupLabel>{t("nav.management")}</SidebarGroupLabel>
             <SidebarMenu>
-              {managementItems.map((item) => (
-                <SidebarMenuItem key={item.title}>
-                  <SidebarMenuButton asChild isActive={isActive(item.url)}>
-                    <Link href={item.url} data-testid={`link-${item.title.toLowerCase().replace(/\s+/g, '-')}`}>
-                      <item.icon className="w-4 h-4" />
-                      <span>{item.title}</span>
-                    </Link>
-                  </SidebarMenuButton>
-                </SidebarMenuItem>
-              ))}
+              {managementItems.map((item) => {
+                const isComms = item.url === "/dashboard/communications/inbox";
+                return (
+                  <SidebarMenuItem key={item.title}>
+                    <SidebarMenuButton asChild isActive={isActive(item.url)}>
+                      <Link href={item.url} data-testid={`link-${item.title.toLowerCase().replace(/\s+/g, '-')}`}>
+                        <item.icon className="w-4 h-4" />
+                        <span>{item.title}</span>
+                        {isComms && pendingUnsortedCount > 0 && (
+                          <Badge className="ml-auto text-xs py-0 px-1.5 min-w-0 no-default-active-elevate" data-testid="badge-pending-unsorted-sidebar">
+                            {pendingUnsortedCount > 99 ? "99+" : pendingUnsortedCount}
+                          </Badge>
+                        )}
+                      </Link>
+                    </SidebarMenuButton>
+                  </SidebarMenuItem>
+                );
+              })}
             </SidebarMenu>
           </SidebarGroup>
         )}

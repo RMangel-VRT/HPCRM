@@ -26,7 +26,9 @@ import {
   User,
   Settings,
   Loader2,
+  CheckCircle2,
 } from "lucide-react";
+import { useAuth } from "@/hooks/use-auth";
 import { formatDistanceToNow, format } from "date-fns";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
@@ -530,6 +532,7 @@ interface SyncSummary {
 
 export default function UnsortedTab({ viewAs: viewAsProp, onViewAsChange }: UnsortedTabProps = {}) {
   const { t } = useTranslation();
+  const { user } = useAuth();
   const [statusFilter, setStatusFilter] = useState<StatusFilter>("pending");
   const [directionFilter, setDirectionFilter] = useState<DirectionFilter>("all");
   const [mailboxFilter, setMailboxFilter] = useState("");
@@ -596,6 +599,19 @@ export default function UnsortedTab({ viewAs: viewAsProp, onViewAsChange }: Unso
   const pendingCount = emails.filter(e => e.status === "pending").length;
   const hasConnectedMailboxes = (syncSummary?.connected ?? 0) > 0;
   const hasAnyMailboxes = (syncSummary?.totalActive ?? 0) > 0 || mailboxAccounts.length > 0;
+  const isPendingFilter = statusFilter === "pending" || statusFilter === "all";
+
+  const { data: todayRoutedEmails = [] } = useQuery<UnsortedEmail[]>({
+    queryKey: ["/api/unsorted-emails", "routed-today", user?.id],
+    queryFn: async () => {
+      const res = await fetch("/api/unsorted-emails?status=routed&resolvedToday=true&limit=100", { credentials: "include" });
+      if (!res.ok) return [];
+      return res.json();
+    },
+    enabled: filteredEmails.length === 0 && isPendingFilter && hasConnectedMailboxes,
+    staleTime: 60_000,
+  });
+  const todayRoutedCount = todayRoutedEmails.length;
 
   const renderEmptyState = () => {
     if (!hasAnyMailboxes) {
@@ -615,7 +631,7 @@ export default function UnsortedTab({ viewAs: viewAsProp, onViewAsChange }: Unso
         </div>
       );
     }
-    if (!hasConnectedMailboxes && (statusFilter === "all" || statusFilter === "pending")) {
+    if (!hasConnectedMailboxes && isPendingFilter) {
       return (
         <div className="flex flex-col items-center justify-center h-full gap-3 p-6">
           <Inbox className="w-10 h-10 text-muted-foreground" />
@@ -632,16 +648,26 @@ export default function UnsortedTab({ viewAs: viewAsProp, onViewAsChange }: Unso
         </div>
       );
     }
+    if (isPendingFilter && hasConnectedMailboxes && todayRoutedCount > 0) {
+      return (
+        <div className="flex flex-col items-center justify-center h-full gap-3 p-6" data-testid="empty-state-all-caught-up">
+          <CheckCircle2 className="w-10 h-10 text-green-500" />
+          <p className="font-medium text-sm" data-testid="text-all-caught-up">
+            All caught up — you routed {todayRoutedCount} email{todayRoutedCount !== 1 ? "s" : ""} today
+          </p>
+        </div>
+      );
+    }
     return (
       <div className="flex flex-col items-center justify-center h-full gap-2 p-6">
         <Inbox className="w-10 h-10 text-muted-foreground" />
         <p className="font-medium text-sm" data-testid="text-inbox-empty">
-          {statusFilter === "all" || statusFilter === "pending"
+          {isPendingFilter
             ? t("emailTracking.unsortedInboxEmptyClear")
             : t("emailTracking.noStatusEmails", { status: t(`emailTracking.status${statusFilter.charAt(0).toUpperCase() + statusFilter.slice(1)}`) })}
         </p>
         <p className="text-muted-foreground text-sm text-center max-w-sm">
-          {statusFilter === "all" || statusFilter === "pending"
+          {isPendingFilter
             ? (syncSummary?.lastRunAt
                 ? t("emailTracking.syncSummaryLastRun", {
                     time: formatDistanceToNow(new Date(syncSummary.lastRunAt), { addSuffix: true }),
@@ -649,7 +675,7 @@ export default function UnsortedTab({ viewAs: viewAsProp, onViewAsChange }: Unso
                 : t("emailTracking.syncSummaryNeverRun"))
             : t("emailTracking.unsortedInboxFilterDesc")}
         </p>
-        {(statusFilter === "all" || statusFilter === "pending") && syncSummary && (
+        {isPendingFilter && syncSummary && (
           <p className="text-xs text-muted-foreground" data-testid="text-sync-24h-stats">
             {t("emailTracking.syncStats24h", {
               routed: syncSummary.messagesRoutedLast24h,

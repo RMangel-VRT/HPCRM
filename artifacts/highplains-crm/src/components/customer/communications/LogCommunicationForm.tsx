@@ -36,6 +36,7 @@ interface LogCommunicationFormProps {
   customerId: string;
   onSuccess?: () => void;
   onCancel?: () => void;
+  defaultMailboxAccountId?: string;
 }
 
 function AddressChipsInput({ value, onChange, placeholder, testId }: {
@@ -76,7 +77,7 @@ function AddressChipsInput({ value, onChange, placeholder, testId }: {
   );
 }
 
-export default function LogCommunicationForm({ customerId, onSuccess, onCancel }: LogCommunicationFormProps) {
+export default function LogCommunicationForm({ customerId, onSuccess, onCancel, defaultMailboxAccountId }: LogCommunicationFormProps) {
   const { t } = useTranslation();
   const { toast } = useToast();
   const [showCc, setShowCc] = useState(false);
@@ -96,7 +97,7 @@ export default function LogCommunicationForm({ customerId, onSuccess, onCancel }
     resolver: zodResolver(formSchema),
     defaultValues: {
       direction: "outbound",
-      mailboxAccountId: undefined,
+      mailboxAccountId: defaultMailboxAccountId,
       dateTime: localIso,
       fromAddress: "",
       toAddresses: [],

@@ -107,7 +107,7 @@ export function CommunicationsToolbar() {
   const activeMailboxes = mailboxAccounts.filter(m => m.isActive);
   const hasMailbox = activeMailboxes.length > 0;
 
-  const defaultMailboxAccountId = activeMailboxes.length === 1 ? activeMailboxes[0].id : undefined;
+  const defaultMailboxAccountId = activeMailboxes[0]?.id;
 
   const hasDateFilter = fromDate || toDate;
 

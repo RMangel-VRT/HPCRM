@@ -14361,13 +14361,16 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const legacyIds = new Set((req.query.mailboxIds as string).split(",").filter(Boolean));
       items = items.filter(c => c.mailboxAccountId && legacyIds.has(c.mailboxAccountId));
     }
+    const tab = direction === "inbound" ? "inbox" : direction === "outbound" ? "sent" : "all";
     if (req.query.page !== undefined) {
       const page = Math.max(1, parseInt(req.query.page as string) || 1);
       const limit = Math.min(Math.max(1, parseInt(req.query.limit as string) || 50), 200);
       const total = items.length;
       const data = items.slice((page - 1) * limit, page * limit);
+      console.info(`[communications.list] user=${user.id} role=${user.activeRole} tab=${tab} viewAs=${viewAs ?? null} returned=${data.length} totalAvailable=${total}`);
       return res.json({ data, total, page, limit });
     }
+    console.info(`[communications.list] user=${user.id} role=${user.activeRole} tab=${tab} viewAs=${viewAs ?? null} returned=${items.length} totalAvailable=${items.length}`);
     res.json(items);
   });
 
