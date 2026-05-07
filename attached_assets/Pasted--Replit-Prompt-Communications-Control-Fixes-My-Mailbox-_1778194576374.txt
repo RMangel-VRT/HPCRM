@@ -1,0 +1,570 @@
+# Replit Prompt — Communications Control Fixes (My Mailbox Backfill + Inbox/Sent Delete + Sorted Badges + Seed Cleanup)
+
+## Context
+
+After porting the Communications Rework into the live workspace, three concrete gaps remain that are making the system feel uncontrollable:
+
+1. The **"Manage backfill" button on My Mailbox is a stubbed disabled button** (tooltip says "available in a future update"). The underlying `BackfillPanel` component, the `/api/mailbox-accounts/:id/backfill` endpoints, and the role check that allows personal-mailbox owners are all already built and shipping. The button just was never wired up.
+2. The **Inbox/Sent/All tabs have no row-level delete affordance**. The server's `DELETE /api/communications/:id` endpoint exists but is gated behind the `manage_automations` permission (`admin` only), and no UI calls it. Result: there's no way to remove the seed sample emails (`Spring Service Schedule Confirmation`, `Crew arriving today`, `Customer Meeting Notes`, `Summer Services Proposal Follow-Up`, `Annual Contract Renewal Notice`, `Monthly Service Report - March 2026`, `Service cancellation notice`) inserted by `seedCommunicationsBootstrap` on first server start, or to delete any test/garbage row that a user has decided is wrong.
+3. The **Inbox tab shows the customer name as small grey text after the from-address** but never makes it visually clear when an email has been correctly linked to a customer vs. is unsorted vs. was hand-routed through the Unsorted queue. There's no at-a-glance "this is sorted" feedback.
+
+This prompt closes all three. It is mostly mechanical wiring — every piece of backend it depends on already exists.
+
+This must land in a deployable, production-quality state. No stubs, no `// TODO` comments hiding incomplete code paths.
+
+## Existing context (do not duplicate or replace)
+
+Read these before writing code.
+
+- **`artifacts/highplains-crm/src/pages/MyMailboxPage.tsx`** — lines 340–349 contain the disabled "Manage backfill" stub. The page renders one `MailboxRow` per personal mailbox in the `mailboxes.map(...)` loop near line 410.
+- **`artifacts/highplains-crm/src/components/customer/communications/BackfillPanel.tsx`** — fully implemented (385 lines). Takes `mailboxAccountId: string` and optional `autoOpen: boolean`. Already used on `MailboxAccountsSettingsPage.tsx` line 624 and `SharedMailboxesAndOversightPage.tsx` line 419. Reuse it as-is.
+- **`artifacts/api-server/src/routes/mailboxAccounts.ts`** — backfill routes at lines 813–893. The `canAccessMailboxBackfill` helper (line 806) already returns `true` for personal mailbox owners (`account.accountType === "personal" && account.ownerUserId === user.id`). No backend changes required for this slice.
+- **`artifacts/api-server/src/routes/routes.ts`**:
+  - `seedCommunications` (~line 60) — the function that inserts the sample emails.
+  - `seedCommunicationsBootstrap` (~line 2166) — runs on startup, only if a company has zero communications.
+  - `requireCommPermission` and the role sets at lines 2481–2491.
+  - `app.delete("/api/communications/:id", requireCommPermission("manage_automations"), ...)` at line 14499 — the existing delete handler.
+- **`artifacts/highplains-crm/src/pages/communications/InboxTab.tsx`** and **`SentTab.tsx`** — read-only row lists. Each row is a `<button>` that opens `CommunicationsQuickViewModal`. We will add a Trash icon button next to the row content and an AlertDialog confirm.
+- **`artifacts/highplains-crm/src/shared/schema.ts`**:
+  - `CommunicationWithDetails` type at line 2815 — extend it (Step 4) with `wasManuallySorted?: boolean` and `manuallySortedByName?: string | null`.
+  - `unsortedEmails` table at line 2623 — has `resolvedToCommunicationId` (varchar, nullable) and `resolvedByUserId` (varchar, FK to users). These already exist.
+- **Stack:** React 19 + TypeScript + Vite + Tailwind + shadcn/ui (Radix) + Wouter + TanStack Query v5 + Drizzle ORM + Postgres + i18next. No new dependencies.
+
+## Step 1 — Wire up self-serve backfill on My Mailbox
+
+In `artifacts/highplains-crm/src/pages/MyMailboxPage.tsx`:
+
+### 1a. Replace the stub button
+
+Inside `MailboxRow` (the function around line 220), the row layout currently has Connect/Disconnect buttons followed by the disabled "Manage backfill" stub. Replace the stub with a real toggle button:
+
+```tsx
+const [showBackfill, setShowBackfill] = useState(false);
+
+<Button
+  variant="ghost"
+  size="sm"
+  onClick={() => setShowBackfill(v => !v)}
+  className="gap-1 text-xs"
+  data-testid={`button-toggle-backfill-${account.id}`}
+  disabled={!isConnected}
+  title={isConnected ? undefined : "Connect Gmail before running a backfill"}
+>
+  {showBackfill ? "Hide backfill" : "Manage backfill"}
+</Button>
+```
+
+`isConnected` already exists in `MailboxRow` — it's the same flag that gates the Disconnect/Connect button swap. Reuse it; do not invent a new check.
+
+### 1b. Mount BackfillPanel below the row when toggled open
+
+Add the import at the top of `MyMailboxPage.tsx`:
+
+```tsx
+import BackfillPanel from "@/components/customer/communications/BackfillPanel";
+```
+
+After the row's flex container closes (still inside `MailboxRow`, but outside the action button row), conditionally render:
+
+```tsx
+{showBackfill && isConnected && (
+  <div className="mt-2">
+    <BackfillPanel mailboxAccountId={account.id} />
+  </div>
+)}
+```
+
+Use the same wrapper styling pattern that `MailboxAccountsSettingsPage.tsx` uses around its `<BackfillPanel>` (line 624) — match it so the visual treatment is consistent.
+
+### 1c. Verify
+
+- Connect a personal Gmail mailbox.
+- Click "Manage backfill" → panel expands.
+- Pick a date range, hit Start → an active run appears, count progresses, history populates after completion.
+- Disconnect → backfill button disables and tooltip explains why.
+- An admin/office user opening their own My Mailbox sees the same flow (the backend already permits it via `canAccessMailboxBackfill`).
+
+## Step 2 — Add row-level delete to Inbox and Sent tabs
+
+### 2a. Loosen the server-side permission
+
+In `artifacts/api-server/src/routes/routes.ts` at line 14499, change:
+
+```ts
+app.delete("/api/communications/:id", requireCommPermission("manage_automations"), async (req, res) => {
+```
+
+to:
+
+```ts
+app.delete("/api/communications/:id", requireCommPermission("send"), async (req, res) => {
+```
+
+`COMM_SEND_ROLES_SET` is `["admin", "office"]` (line 2484). Rationale: anyone allowed to send a communication on behalf of the company should be allowed to delete one. Field/manager roles cannot delete. Do **not** change `COMM_AUTOMATIONS_ROLES_SET` itself — automation-rule delete still belongs to admin only.
+
+While editing the handler, also write an audit log line so deletes are traceable. Use the existing `writeCommAuditLog` helper (defined just below `requireCommPermission` at line 2506):
+
+```ts
+app.delete("/api/communications/:id", requireCommPermission("send"), async (req, res) => {
+  const user = req.user as UserWithContext;
+  const existing = await storage.getCommunication(req.params.id, user.activeCompanyId);
+  if (!existing) return res.status(404).json({ error: "Not found" });
+  await storage.deleteCommunication(req.params.id, user.activeCompanyId);
+  await writeCommAuditLog(user.activeCompanyId, user.id, "communication.deleted", {
+    communicationId: req.params.id,
+    subject: existing.subject ?? null,
+    customerId: existing.customerId ?? null,
+  });
+  res.status(204).end();
+});
+```
+
+If `writeCommAuditLog`'s signature differs from the example above, match the actual signature. Don't invent fields. If `getCommunication` doesn't exist on `IStorage`, use the existing `getCommunicationById` (or whatever the codebase already uses for the GET-by-id route at line 14490ish).
+
+### 2b. Build a reusable DeleteCommunicationButton component
+
+Create `artifacts/highplains-crm/src/components/customer/communications/DeleteCommunicationButton.tsx`:
+
+```tsx
+import { useState } from "react";
+import { useMutation } from "@tanstack/react-query";
+import { Trash2, Loader2 } from "lucide-react";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from "@/components/ui/alert-dialog";
+import { Button } from "@/components/ui/button";
+import { apiRequest, queryClient } from "@/lib/queryClient";
+import { useToast } from "@/hooks/use-toast";
+
+interface DeleteCommunicationButtonProps {
+  communicationId: string;
+  subject?: string | null;
+  /** Query keys to invalidate after a successful delete. */
+  invalidateKeys?: unknown[][];
+  /** Optional callback after success (e.g. close a modal). */
+  onDeleted?: () => void;
+  /** Variant for icon-only inline use vs. labeled button. */
+  size?: "icon" | "sm";
+}
+
+export default function DeleteCommunicationButton({
+  communicationId,
+  subject,
+  invalidateKeys = [],
+  onDeleted,
+  size = "icon",
+}: DeleteCommunicationButtonProps) {
+  const { toast } = useToast();
+  const [open, setOpen] = useState(false);
+
+  const mutation = useMutation({
+    mutationFn: async () => {
+      const res = await apiRequest("DELETE", `/api/communications/${communicationId}`);
+      if (!res.ok && res.status !== 204) {
+        const text = await res.text().catch(() => "");
+        throw new Error(text || "Failed to delete");
+      }
+    },
+    onSuccess: () => {
+      toast({ title: "Communication deleted" });
+      invalidateKeys.forEach(k => queryClient.invalidateQueries({ queryKey: k }));
+      // Always invalidate the canonical list and count keys.
+      queryClient.invalidateQueries({ queryKey: ["/api/communications"] });
+      setOpen(false);
+      onDeleted?.();
+    },
+    onError: (err: Error) => {
+      toast({
+        title: "Failed to delete",
+        description: err.message,
+        variant: "destructive",
+      });
+    },
+  });
+
+  return (
+    <AlertDialog open={open} onOpenChange={setOpen}>
+      <AlertDialogTrigger asChild>
+        <Button
+          variant="ghost"
+          size={size === "icon" ? "icon" : "sm"}
+          className={size === "icon" ? "h-7 w-7 shrink-0 text-muted-foreground hover:text-destructive" : "gap-1.5 text-destructive"}
+          onClick={(e) => { e.stopPropagation(); /* don't trigger row click */ }}
+          data-testid={`button-delete-communication-${communicationId}`}
+          aria-label="Delete communication"
+        >
+          {mutation.isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : <Trash2 className="w-4 h-4" />}
+          {size === "sm" && <span>Delete</span>}
+        </Button>
+      </AlertDialogTrigger>
+      <AlertDialogContent onClick={(e) => e.stopPropagation()}>
+        <AlertDialogHeader>
+          <AlertDialogTitle>Delete this communication?</AlertDialogTitle>
+          <AlertDialogDescription>
+            {subject
+              ? <>The message <span className="font-medium">"{subject}"</span> will be permanently removed. This cannot be undone.</>
+              : "This message will be permanently removed. This cannot be undone."}
+          </AlertDialogDescription>
+        </AlertDialogHeader>
+        <AlertDialogFooter>
+          <AlertDialogCancel data-testid="button-delete-cancel">Cancel</AlertDialogCancel>
+          <AlertDialogAction
+            onClick={() => mutation.mutate()}
+            disabled={mutation.isPending}
+            data-testid="button-delete-confirm"
+            className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+          >
+            {mutation.isPending ? "Deleting…" : "Delete"}
+          </AlertDialogAction>
+        </AlertDialogFooter>
+      </AlertDialogContent>
+    </AlertDialog>
+  );
+}
+```
+
+The `e.stopPropagation()` on the button and dialog content is essential — Inbox/Sent rows are themselves `<button>` elements that open `CommunicationsQuickViewModal` on click, so without it the modal opens behind the confirm dialog.
+
+### 2c. Wire into Inbox and Sent rows
+
+In `artifacts/highplains-crm/src/pages/communications/InboxTab.tsx` and `SentTab.tsx`:
+
+1. Read the current user's role:
+
+   ```tsx
+   import { useAuth } from "@/hooks/use-auth";
+   // inside the component:
+   const { user } = useAuth();
+   const canDelete = user?.activeRole === "admin" || user?.activeRole === "office";
+   ```
+
+2. Import the new component:
+
+   ```tsx
+   import DeleteCommunicationButton from "@/components/customer/communications/DeleteCommunicationButton";
+   ```
+
+3. Inside the `items.map((comm) => ...)` row JSX, just before the closing `</button>` of the row (or in a sibling wrapper if the row's `<button>` doesn't allow nested interactive elements), render the delete button conditionally. Because the row is itself a `<button>`, **wrap each row in a relative container** and place the delete button in an absolutely-positioned slot or as a sibling, not nested inside the row button:
+
+   Restructure the row from:
+
+   ```tsx
+   <li key={comm.id}>
+     <button … className="…" onClick={() => setSelectedComm(comm)} data-testid={`row-inbox-${comm.id}`}>
+       {/* row contents */}
+     </button>
+   </li>
+   ```
+
+   to:
+
+   ```tsx
+   <li key={comm.id} className="relative group">
+     <button … className="… pr-12" onClick={() => setSelectedComm(comm)} data-testid={`row-inbox-${comm.id}`}>
+       {/* row contents — unchanged */}
+     </button>
+     {canDelete && (
+       <div className="absolute right-2 top-1/2 -translate-y-1/2 opacity-0 group-hover:opacity-100 focus-within:opacity-100 transition-opacity">
+         <DeleteCommunicationButton
+           communicationId={comm.id}
+           subject={comm.subject}
+           invalidateKeys={[
+             ["/api/communications", "inbox-tab", search, fromDate, toDate, viewAs],
+             ["/api/communications", "count", "inbound", search, fromDate, toDate, viewAs],
+           ]}
+         />
+       </div>
+     )}
+   </li>
+   ```
+
+   (Use `"sent-tab"` and `"outbound"` in the `invalidateKeys` for `SentTab.tsx`.)
+
+   The `pr-12` adds enough right-padding inside the row button so the row's content never overlaps with the absolute-positioned delete button. The `opacity-0 group-hover:opacity-100 focus-within:opacity-100` makes the delete button reveal on hover/keyboard focus — keeps the row visually quiet by default.
+
+4. Verify the row still keyboard-navigates correctly (Tab into row → Tab into delete button → Tab forward exits to the next row).
+
+### 2d. Wire into CommunicationsQuickViewModal (optional but recommended)
+
+In `artifacts/highplains-crm/src/components/customer/communications/CommunicationsQuickViewModal.tsx`, the `CommRow` component (around line 30) renders each communication inside the modal. Add a delete button to that row, gated by the same `canDelete` check, with `size="sm"` (labeled variant). Invalidate the `["/api/customers", customerId, "communications", "recent"]` query key the modal already uses on line 125 so the row disappears immediately on confirm.
+
+If the row layout doesn't have an obvious place for the action, put it next to the existing `expanded` toggle / `showHtml` controls.
+
+## Step 3 — Admin-only "Clear seed sample emails" escape hatch
+
+The fastest way to clear the 6 sample emails is a one-shot endpoint that recognizes them by their distinctive seed subjects.
+
+### 3a. Add the endpoint
+
+In `artifacts/api-server/src/routes/routes.ts`, add a new endpoint near the other communications routes (after the existing `app.delete("/api/communications/:id" ...)` block). Constrain to admin only via `requireCommPermission("manage_automations")`:
+
+```ts
+const SEED_COMMUNICATION_SUBJECTS = [
+  "Spring Service Schedule Confirmation",
+  "Crew arriving today",
+  "Customer Meeting Notes",
+  "Summer Services Proposal Follow-Up",
+  "Annual Contract Renewal Notice",
+  "Monthly Service Report - March 2026",
+  "Service cancellation notice",
+];
+
+app.post("/api/communications/clear-seed-data", requireCommPermission("manage_automations"), async (req, res) => {
+  const user = req.user as UserWithContext;
+  const result = await storage.deleteSeedCommunications(user.activeCompanyId, SEED_COMMUNICATION_SUBJECTS);
+  await writeCommAuditLog(user.activeCompanyId, user.id, "communication.seed_cleared", {
+    deletedCount: result.deletedCount,
+    subjects: SEED_COMMUNICATION_SUBJECTS,
+  });
+  res.json(result);
+});
+```
+
+If a different audit-log helper or signature exists, match it. Don't invent fields.
+
+### 3b. Add the storage method
+
+In `artifacts/api-server/src/storage.ts`:
+
+1. Add to the `IStorage` interface near the existing `deleteCommunication` declaration (line 413):
+
+   ```ts
+   deleteSeedCommunications(companyId: string, seedSubjects: string[]): Promise<{ deletedCount: number }>;
+   ```
+
+2. Implement in the class near the existing `deleteCommunication` body (line 4040):
+
+   ```ts
+   async deleteSeedCommunications(companyId: string, seedSubjects: string[]): Promise<{ deletedCount: number }> {
+     const rows = await db
+       .delete(communications)
+       .where(and(eq(communications.companyId, companyId), inArray(communications.subject, seedSubjects)))
+       .returning({ id: communications.id });
+     return { deletedCount: rows.length };
+   }
+   ```
+
+   Make sure `inArray` is imported from `drizzle-orm` (most files already have it; add to the import list if missing).
+
+### 3c. Add the UI
+
+In `AllCommunicationsTab.tsx`, the admin-only catch-all page, add a small "Clear seed sample emails" button visible to `admin` only. Place it in whatever toolbar or settings section is most natural — if there's no obvious slot, add a small section near the top labeled "Maintenance":
+
+```tsx
+const isAdmin = user?.activeRole === "admin";
+
+const clearSeedMutation = useMutation({
+  mutationFn: async () => {
+    const res = await apiRequest("POST", "/api/communications/clear-seed-data");
+    if (!res.ok) throw new Error("Failed to clear seed data");
+    return res.json() as Promise<{ deletedCount: number }>;
+  },
+  onSuccess: ({ deletedCount }) => {
+    toast({ title: `Removed ${deletedCount} seed communication${deletedCount === 1 ? "" : "s"}` });
+    queryClient.invalidateQueries({ queryKey: ["/api/communications"] });
+  },
+  onError: (err: Error) => toast({ title: err.message, variant: "destructive" }),
+});
+
+{isAdmin && (
+  <AlertDialog>
+    <AlertDialogTrigger asChild>
+      <Button variant="outline" size="sm" data-testid="button-clear-seed-data" className="gap-1.5">
+        <Trash2 className="w-4 h-4" />
+        Clear seed sample emails
+      </Button>
+    </AlertDialogTrigger>
+    <AlertDialogContent>
+      <AlertDialogHeader>
+        <AlertDialogTitle>Clear seed sample emails?</AlertDialogTitle>
+        <AlertDialogDescription>
+          Removes the demo communications inserted on first launch (Spring Service Schedule Confirmation, Crew arriving today, etc.). Real communications are not affected. This cannot be undone.
+        </AlertDialogDescription>
+      </AlertDialogHeader>
+      <AlertDialogFooter>
+        <AlertDialogCancel data-testid="button-clear-seed-cancel">Cancel</AlertDialogCancel>
+        <AlertDialogAction
+          onClick={() => clearSeedMutation.mutate()}
+          disabled={clearSeedMutation.isPending}
+          data-testid="button-clear-seed-confirm"
+          className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+        >
+          {clearSeedMutation.isPending ? "Clearing…" : "Clear"}
+        </AlertDialogAction>
+      </AlertDialogFooter>
+    </AlertDialogContent>
+  </AlertDialog>
+)}
+```
+
+The button hides for non-admin users. The endpoint is also gated on the server, so no client-side-only enforcement.
+
+## Step 4 — Sorted badges on Inbox emails
+
+Goal: at a glance, every Inbox row shows whether it has been linked to a customer and how. Three states:
+
+- **Auto-sorted** (green badge `Sorted → {customerName}`) — the email sync service matched a customer at ingest time.
+- **Manually sorted** (amber badge `Routed by {userName} → {customerName}`) — the email landed in Unsorted and a user routed it.
+- **No customer link** (no badge) — should be rare in Inbox since unmatched mail goes to Unsorted, but possible if the customer was deleted after routing.
+
+The data model already supports this distinction. `unsorted_emails.resolvedToCommunicationId` is the link from a triaged unsorted email to the resulting communications row. If a communication's `id` appears as a `resolvedToCommunicationId` somewhere, it was manually sorted.
+
+### 4a. Extend the API response shape
+
+In `artifacts/highplains-crm/src/shared/schema.ts`, extend `CommunicationWithDetails` (line 2815):
+
+```ts
+export type CommunicationWithDetails = Communication & {
+  customerName?: string | null;
+  contactName?: string | null;
+  sentByName?: string | null;
+  createdByName?: string | null;
+  templateName?: string | null;
+  isOverdue?: boolean;
+  replyCount?: number;
+  threadSubjectRoot?: string;
+  scheduledFor?: Date | string | null;
+  followUpDueAt?: Date | string | null;
+  followUpStatus?: string | null;
+  /** True if this communication was created by routing an unsorted email. */
+  wasManuallySorted?: boolean;
+  /** Display name of the user who routed it, if `wasManuallySorted`. */
+  manuallySortedByName?: string | null;
+};
+```
+
+### 4b. Populate it in the storage layer
+
+`artifacts/api-server/src/storage.ts:3841` (`getCommunications`) is the function backing `GET /api/communications`. After the main rows are fetched, do a single LEFT JOIN against `unsortedEmails` to find which communication ids were resolved from an unsorted email and who resolved them.
+
+Sketch (adapt to the file's existing query style — don't rewrite the whole function):
+
+```ts
+// After loading `rows: CommunicationWithDetails[]`:
+const resolvedRows = rows.length === 0 ? [] : await db
+  .select({
+    communicationId: unsortedEmails.resolvedToCommunicationId,
+    resolverName: users.name,
+  })
+  .from(unsortedEmails)
+  .leftJoin(users, eq(unsortedEmails.resolvedByUserId, users.id))
+  .where(and(
+    eq(unsortedEmails.companyId, companyId),
+    inArray(unsortedEmails.resolvedToCommunicationId, rows.map(r => r.id)),
+  ));
+
+const resolvedMap = new Map(resolvedRows.map(r => [r.communicationId!, r.resolverName ?? null]));
+
+return rows.map(r => ({
+  ...r,
+  wasManuallySorted: resolvedMap.has(r.id),
+  manuallySortedByName: resolvedMap.get(r.id) ?? null,
+}));
+```
+
+Imports needed at the top of `storage.ts` (most are already there): `inArray` from `drizzle-orm`, `unsortedEmails` and `users` from `@workspace/db`.
+
+Mirror the same enrichment in `getCommunicationById` (or whatever the single-row getter is) so the QuickViewModal also sees the badge fields. If there's a separate `getCommunicationsForCustomer` used by the modal's `["/api/customers", customerId, "communications", "recent"]` query, extend that too.
+
+### 4c. Render the badge in InboxTab rows
+
+In `artifacts/highplains-crm/src/pages/communications/InboxTab.tsx`, replace or augment the existing `InboxSourceBadge` to also handle the sorted-state badge. Suggested placement: keep the `Inbox Sync` badge (it indicates source), and add a sorted-state badge next to it. Add a new component:
+
+```tsx
+function SortedBadge({ comm }: { comm: CommunicationWithDetails }) {
+  if (!comm.customerId || !comm.customerName) return null;
+  if (comm.wasManuallySorted) {
+    return (
+      <Badge
+        variant="secondary"
+        className="text-xs shrink-0 bg-amber-100 text-amber-900 dark:bg-amber-900/30 dark:text-amber-300"
+        data-testid={`badge-inbox-routed-${comm.id}`}
+        title={comm.manuallySortedByName ? `Routed by ${comm.manuallySortedByName}` : "Manually routed"}
+      >
+        Routed → {comm.customerName}
+      </Badge>
+    );
+  }
+  return (
+    <Badge
+      variant="secondary"
+      className="text-xs shrink-0 bg-emerald-100 text-emerald-900 dark:bg-emerald-900/30 dark:text-emerald-300"
+      data-testid={`badge-inbox-sorted-${comm.id}`}
+      title="Auto-matched at ingest"
+    >
+      Sorted → {comm.customerName}
+    </Badge>
+  );
+}
+```
+
+Render `<SortedBadge comm={comm} />` next to `<InboxSourceBadge comm={comm} />` in each row's header line. With the badge present, you can also drop the inline `· {customerName}` text node beneath the from-address since the badge now carries that info — but verify it reads cleanly first; if it feels too sparse, leave the secondary text alone.
+
+The badge should also render in the QuickViewModal's `CommRow` for consistency.
+
+### 4d. Verify
+
+- A Gmail-synced inbound email auto-matched to a customer shows the green `Sorted → Acme Co.` badge.
+- An email routed manually from Unsorted into a customer shows the amber `Routed → Acme Co.` badge with the resolver's name on hover.
+- An email with no customer link shows no badge.
+- Hovering the amber badge reveals the resolver's name.
+- Existing tests (if any) for InboxTab still pass — adapt assertions if they relied on the old inline customer text.
+
+## Acceptance checklist
+
+- [ ] My Mailbox: each personal-mailbox row has a working "Manage backfill" toggle that mounts `BackfillPanel`. Disabled when not connected, with a tooltip explaining why.
+- [ ] Backfill flow end-to-end works for a personal mailbox owner (start, progress, history, cancel).
+- [ ] Inbox and Sent tab rows show a hover-revealed Trash icon for `admin`/`office`. Field/manager users see no delete affordance.
+- [ ] Clicking the icon opens an AlertDialog confirm. Confirming sends `DELETE /api/communications/:id` and the row disappears from the list and from the page count immediately on success.
+- [ ] Clicking the row body (not the icon) still opens `CommunicationsQuickViewModal` — `stopPropagation` works.
+- [ ] `DELETE /api/communications/:id` writes a `communication.deleted` audit log entry.
+- [ ] `requireCommPermission("send")` is the gate (not `manage_automations`); a `field` user gets 403.
+- [ ] Admin-only "Clear seed sample emails" button on the All Communications tab. Clicking it confirms, deletes the 6 known seed subjects, toasts the count, and the rows vanish.
+- [ ] Non-admin (including `office`) cannot see the Clear-seed button. Server returns 403 if they hit the endpoint directly.
+- [ ] Inbox rows display a green `Sorted → {customer}` badge for auto-matched emails and an amber `Routed → {customer}` badge for emails that came through Unsorted. Title attribute on the amber badge shows the resolver name.
+- [ ] No regressions in QuickViewModal — it still opens, still lists per-customer history, and inherits the same badge behavior.
+- [ ] `pnpm typecheck` is clean (no new errors vs. the pre-change baseline).
+- [ ] `pnpm --filter @workspace/highplains-crm run build` succeeds.
+- [ ] `pnpm --filter @workspace/api-server run build` succeeds.
+
+## Files touched
+
+### `artifacts/highplains-crm/`
+
+- `src/pages/MyMailboxPage.tsx` — replace the disabled stub button with a toggle; mount `BackfillPanel` conditionally; add `useState` and the `BackfillPanel` import.
+- `src/components/customer/communications/DeleteCommunicationButton.tsx` — new file.
+- `src/pages/communications/InboxTab.tsx` — restructure each row to a `relative` `<li>` with the row `<button>` and the absolute-positioned delete slot; import `useAuth` and `DeleteCommunicationButton`; render `SortedBadge`.
+- `src/pages/communications/SentTab.tsx` — same row restructure as InboxTab (no `SortedBadge` needed on Sent).
+- `src/pages/communications/AllCommunicationsTab.tsx` — admin-only "Clear seed sample emails" button + AlertDialog + mutation.
+- `src/components/customer/communications/CommunicationsQuickViewModal.tsx` — labeled delete button on each `CommRow` (admin/office only); render `SortedBadge` per row.
+- `src/shared/schema.ts` — extend `CommunicationWithDetails` with `wasManuallySorted` and `manuallySortedByName`.
+
+### `artifacts/api-server/`
+
+- `src/routes/routes.ts` — change the existing `DELETE /api/communications/:id` permission to `send`, write an audit log entry; add `POST /api/communications/clear-seed-data` (admin-only).
+- `src/storage.ts` — add `deleteSeedCommunications(companyId, seedSubjects)` to `IStorage` and implement it; enrich `getCommunications` (and the single-row / per-customer variants) with the manually-sorted LEFT JOIN.
+
+### Deleted
+
+- Nothing.
+
+## Things to NOT change in this slice
+
+- `seedCommunications` and `seedCommunicationsBootstrap` — leave the seed function in place; the goal is to give the user an explicit way to clear it, not to delete the seed mechanism (it's still useful for fresh demos).
+- Backfill backend routes — no schema or auth changes; the existing setup already permits self-serve.
+- Unsorted tab — it already has route/archive/spam actions and doesn't need a separate delete affordance for this slice. (`archive` is the soft delete for unsorted_emails.)
+- `requireCommPermission` itself or the `COMM_*_ROLES_SET` constants — only the one endpoint's permission level changes.
+- Drizzle schema — no migrations; `unsortedEmails.resolvedToCommunicationId` and `resolvedByUserId` already exist.
+- The Comms shell, secondary nav, or routing — they shipped clean in the previous port.
+
+## Why this exists
+
+After the multi-artifact restructure and the four Comms Rework slices, the user-facing controls felt asymmetric: connection works, sync works, browsing works, but the single most basic CRUD verb — **delete** — was never wired into the UI, the backfill UI on per-user My Mailbox was a stub, and the Inbox didn't communicate routing state visually. This slice closes those three gaps so admin/office users feel in control of their own communications surface.
