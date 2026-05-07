@@ -285,7 +285,7 @@ export const insertSettingsSchema = createInsertSchema(settings).omit({
   featureFlags: z.string().default('{}'),
   defaultMailboxVisibility: z.object({
     shared: z.array(z.string()).default([]),
-    perRole: z.record(z.enum(["own", "all", "shared_only"])).optional(),
+    perRole: z.record(z.string(), z.enum(["own", "all", "shared_only"])).optional(),
   }).optional(),
   defaultSyncIntervalMinutes: z.number().int().min(1).max(60).optional(),
 });
@@ -2289,7 +2289,7 @@ export const insertSheetTemplateSchema = createInsertSchema(sheetTemplates).omit
   createdAt: true,
 }).extend({
   name: z.string().min(1).max(100),
-  layerVisibility: z.record(z.boolean()).optional(),
+  layerVisibility: z.record(z.string(), z.boolean()).optional(),
   legendConfig: z.record(z.string(), z.any()).optional(),
   titleBlockFormat: z.record(z.string(), z.any()).optional(),
   notesLayout: z.record(z.string(), z.any()).optional(),
