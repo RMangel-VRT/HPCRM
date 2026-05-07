@@ -1,6 +1,7 @@
+import type { CampaignCrew, InsertCampaignCrew, CampaignCrewMember, CampaignCrewWithMembers } from "@workspace/db";
 import { type User, type InsertUser, type Customer, type InsertCustomer, type Contact, type InsertContact, type Company, type InsertCompany, type CompanyUser, type InsertCompanyUser, type Settings, type InsertSettings, type Note, type InsertNote, type Contract, type InsertContract, type ContractStatusHistory, type InsertContractStatusHistory, type ContractDocument, type InsertContractDocument, type ContractMonthlyAmount, type InsertContractMonthlyAmount, type CustomerRateSheet, type InsertCustomerRateSheet, type ContractService, type InsertContractService, type ContractTemplate, type InsertContractTemplate, type ContractBuilderDocument, type InsertContractBuilderDocument, type ContractBuilderSection, type InsertContractBuilderSection, type ContractBuilderVariable, type InsertContractBuilderVariable, type TicketType, type InsertTicketType, type TicketTypeStatus, type InsertTicketTypeStatus, type TicketTypeField, type InsertTicketTypeField, type Ticket, type InsertTicket, type TicketFieldValue, type InsertTicketFieldValue, type TicketStatusHistory, type InsertTicketStatusHistory, type TicketComment, type TicketCommentWithAuthor, type InsertTicketComment, type TicketCommentMention, type InsertTicketCommentMention, type TicketSource, type InsertTicketSource, type TicketLink, type InsertTicketLink, type TicketTypeCategory, type CustomerMapLayer, type InsertCustomerMapLayer, type CustomerMapDocument, type InsertCustomerMapDocument, type MaintenanceCrew, type InsertMaintenanceCrew, type MaintenanceVisitConfig, type InsertMaintenanceVisitConfig, type WeeklyScheduleTemplate, type InsertWeeklyScheduleTemplate, type ScheduleBlock, type InsertScheduleBlock, type TicketNotification, type InsertTicketNotification, type NotificationType, type PropertyManagementCompany, type InsertPropertyManagementCompany, type PropertyManager, type InsertPropertyManager, type PropertyManagerEmail, type InsertPropertyManagerEmail, type PropertyManagerPhone, type InsertPropertyManagerPhone, type PropertyManagerWithContacts, type Equipment, type InsertEquipment, type EquipmentFile, type InsertEquipmentFile, type EquipmentTicket, type InsertEquipmentTicket, type EquipmentTicketStatusHistory, type InsertEquipmentTicketStatusHistory, type EquipmentWithTicketCount, type SnowEvent, type InsertSnowEvent, type SnowEventAttachment, type InsertSnowEventAttachment, type SnowEventPropertyImpact, type InsertSnowEventPropertyImpact, type SnowEventWithDetails, type SnowEventPropertyImpactWithCustomer, type EmailTemplate, type InsertEmailTemplate, type EmailRule, type InsertEmailRule, type EmailLog, type InsertEmailLog, type EmailLogWithDetails, type Proposal, type InsertProposal, type ProposalFile, type InsertProposalFile, type ProposalWithDetails, type ProposalVersion, type InsertProposalVersion, type ProposalVersionWithUser, type VisualScopeSheet, type InsertVisualScopeSheet, type VisualScopeSheetWithCustomer, type Campaign, type InsertCampaign, type CampaignItem, type InsertCampaignItem, type CampaignWithProgress, type Season, type InsertSeason, type CampaignChecklistTask, type InsertCampaignChecklistTask, type CampaignItemTaskCompletion, type InsertCampaignItemTaskCompletion, type CampaignChecklistAuditLog, type InsertCampaignChecklistAuditLog, type CampaignChecklistAuditLogWithUser, type Communication, type InsertCommunication, type CommunicationTemplate, type InsertCommunicationTemplate, type CommunicationThread, type InsertCommunicationThread, type CommunicationLink, type InsertCommunicationLink, type CommunicationWithDetails, type CommunicationAnalytics, type InsertCommunicationAuditLog, type CommunicationAuditLog, type CommunicationAuditLogWithUser, type ChemicalProduct, type InsertChemicalProduct, type ChemicalNotificationTemplate, type InsertChemicalNotificationTemplate, type MailboxBackfillRun, type InsertMailboxBackfillRun } from "@workspace/db";
 import { db } from "./db";
-import { users, customers, contacts, companies, companyUsers, settings, notes, contracts, contractStatusHistory, contractDocuments, contractMonthlyAmounts, customerRateSheets, contractServices, contractTemplates, contractBuilderDocuments, contractBuilderSections, contractBuilderVariables, ticketTypes, ticketTypeStatuses, ticketTypeFields, tickets, ticketFieldValues, ticketStatusHistory, ticketComments, ticketCommentMentions, ticketSources, ticketLinks, customerMapLayers, customerMapDocuments, maintenanceCrews, maintenanceVisitConfigs, weeklyScheduleTemplates, scheduleBlocks, ticketNotifications, propertyManagementCompanies, propertyManagers, propertyManagerEmails, propertyManagerPhones, equipment, equipmentFiles, equipmentTickets, equipmentTicketStatusHistory, snowEvents, snowEventAttachments, snowEventPropertyImpacts, emailTemplates, emailRules, emailLogs, proposals, proposalFiles, proposalVersions, visualScopeSheets, campaigns, campaignItems, campaignChecklistTasks, campaignItemTaskCompletions, campaignChecklistAuditLog as campaignChecklistAuditLogTable, seasons, communications, communicationTemplates, communicationThreads, communicationLinks, communicationAuditLog, communicationAutomationRules, servicePlanTemplates, servicePlanTemplateItems, customerServicePlans, stylePresets, sheetTemplates, chemicalProducts, chemicalNotificationTemplates, mailboxBackfillRuns } from "@workspace/db";
+import { users, customers, contacts, companies, companyUsers, settings, notes, contracts, contractStatusHistory, contractDocuments, contractMonthlyAmounts, customerRateSheets, contractServices, contractTemplates, contractBuilderDocuments, contractBuilderSections, contractBuilderVariables, ticketTypes, ticketTypeStatuses, ticketTypeFields, tickets, ticketFieldValues, ticketStatusHistory, ticketComments, ticketCommentMentions, ticketSources, ticketLinks, customerMapLayers, customerMapDocuments, maintenanceCrews, maintenanceVisitConfigs, weeklyScheduleTemplates, scheduleBlocks, ticketNotifications, propertyManagementCompanies, propertyManagers, propertyManagerEmails, propertyManagerPhones, equipment, equipmentFiles, equipmentTickets, equipmentTicketStatusHistory, snowEvents, snowEventAttachments, snowEventPropertyImpacts, emailTemplates, emailRules, emailLogs, proposals, proposalFiles, proposalVersions, visualScopeSheets, campaigns, campaignItems, campaignChecklistTasks, campaignItemTaskCompletions, campaignChecklistAuditLog as campaignChecklistAuditLogTable, campaignCrews, campaignCrewMembers, seasons, communications, communicationTemplates, communicationThreads, communicationLinks, communicationAuditLog, communicationAutomationRules, servicePlanTemplates, servicePlanTemplateItems, customerServicePlans, stylePresets, sheetTemplates, chemicalProducts, chemicalNotificationTemplates, mailboxBackfillRuns } from "@workspace/db";
 import type { StylePreset, InsertStylePreset, SheetTemplate, InsertSheetTemplate, StylePresetType, StylePresetConfig } from "@workspace/db";
 import type { VisibleMailboxes } from "./services/mailboxScope";
 import type { CommunicationAutomationRule, InsertCommunicationAutomationRule, ServicePlanTemplateWithItems, ServicePlanTemplate, InsertServicePlanTemplate, ServicePlanTemplateItem, ServicePlanCategory, CustomerServicePlan, InsertCustomerServicePlan, ServiceFulfillmentRow } from "@workspace/db";
@@ -339,6 +340,16 @@ export interface IStorage {
   deleteVisualScopeSheet(id: string, companyId: string): Promise<void>;
 
   getCampaigns(companyId: string, assignedToId?: string): Promise<CampaignWithProgress[]>;
+  getCampaignCrews(campaignId: string, companyId: string): Promise<CampaignCrewWithMembers[]>;
+  getCampaignCrewById(crewId: string, companyId: string): Promise<CampaignCrew | undefined>;
+  createCampaignCrew(crew: InsertCampaignCrew): Promise<CampaignCrew>;
+  updateCampaignCrew(crewId: string, companyId: string, updates: Partial<InsertCampaignCrew>): Promise<CampaignCrew | undefined>;
+  deleteCampaignCrew(crewId: string, companyId: string): Promise<void>;
+  countCampaignItemsForCrew(crewId: string, companyId: string): Promise<number>;
+  getCampaignCrewMembers(crewId: string): Promise<CampaignCrewMember[]>;
+  addCampaignCrewMember(crewId: string, userId: string): Promise<CampaignCrewMember>;
+  removeCampaignCrewMember(crewId: string, userId: string): Promise<void>;
+  getCampaignIdsForUserCrews(userId: string, companyId: string): Promise<string[]>;
   getCampaignById(id: string, companyId: string): Promise<Campaign | undefined>;
   createCampaign(campaign: InsertCampaign): Promise<Campaign>;
   updateCampaign(id: string, companyId: string, updates: Partial<InsertCampaign>): Promise<Campaign | undefined>;
@@ -3470,6 +3481,125 @@ export class PgStorage implements IStorage {
       }
       return campaign;
     });
+  }
+
+  async getCampaignCrews(campaignId: string, companyId: string): Promise<CampaignCrewWithMembers[]> {
+    const crews = await db.select().from(campaignCrews)
+      .where(and(eq(campaignCrews.campaignId, campaignId), eq(campaignCrews.companyId, companyId)))
+      .orderBy(asc(campaignCrews.displayOrder), asc(campaignCrews.createdAt));
+    if (crews.length === 0) return [];
+    const crewIds = crews.map(c => c.id);
+    const [memberRows, itemAggRows, leaderRows] = await Promise.all([
+      db.select({ crewId: campaignCrewMembers.campaignCrewId, userId: campaignCrewMembers.userId, userName: users.name })
+        .from(campaignCrewMembers)
+        .innerJoin(users, eq(campaignCrewMembers.userId, users.id))
+        .where(inArray(campaignCrewMembers.campaignCrewId, crewIds)),
+      db.select({
+        crewId: campaignItems.assignedCampaignCrewId,
+        total: sql<number>`count(*)::int`,
+        completed: sql<number>`count(*) FILTER (WHERE ${campaignItems.status} = 'completed')::int`,
+        photos: sql<number>`COALESCE(SUM(COALESCE(array_length(${campaignItems.completionPhotoStorageKeys}, 1), 0)), 0)::int`,
+      })
+        .from(campaignItems)
+        .where(and(eq(campaignItems.companyId, companyId), inArray(campaignItems.assignedCampaignCrewId, crewIds)))
+        .groupBy(campaignItems.assignedCampaignCrewId),
+      db.select({ id: users.id, name: users.name })
+        .from(users)
+        .where(inArray(users.id, crews.map(c => c.leaderUserId))),
+    ]);
+    const membersByCrew = new Map<string, { userId: string; userName: string }[]>();
+    for (const m of memberRows) {
+      if (!membersByCrew.has(m.crewId)) membersByCrew.set(m.crewId, []);
+      membersByCrew.get(m.crewId)!.push({ userId: m.userId, userName: m.userName });
+    }
+    const aggByCrew = new Map<string, { total: number; completed: number; photos: number }>();
+    for (const r of itemAggRows) {
+      if (r.crewId) aggByCrew.set(r.crewId, { total: Number(r.total) || 0, completed: Number(r.completed) || 0, photos: Number(r.photos) || 0 });
+    }
+    const leaderById = new Map(leaderRows.map(u => [u.id, u.name]));
+    return crews.map(c => {
+      const agg = aggByCrew.get(c.id);
+      return {
+        ...c,
+        leaderName: leaderById.get(c.leaderUserId),
+        members: membersByCrew.get(c.id) ?? [],
+        itemCount: agg?.total ?? 0,
+        completedCount: agg?.completed ?? 0,
+        photoCount: agg?.photos ?? 0,
+      };
+    });
+  }
+
+  async getCampaignCrewById(crewId: string, companyId: string): Promise<CampaignCrew | undefined> {
+    const [row] = await db.select().from(campaignCrews)
+      .where(and(eq(campaignCrews.id, crewId), eq(campaignCrews.companyId, companyId)));
+    return row;
+  }
+
+  async createCampaignCrew(crew: InsertCampaignCrew): Promise<CampaignCrew> {
+    return db.transaction(async (tx) => {
+      const [row] = await tx.insert(campaignCrews).values(crew as typeof campaignCrews.$inferInsert).returning();
+      await tx.insert(campaignCrewMembers).values({
+        campaignCrewId: row.id,
+        userId: row.leaderUserId,
+      } as typeof campaignCrewMembers.$inferInsert).onConflictDoNothing();
+      return row;
+    });
+  }
+
+  async updateCampaignCrew(crewId: string, companyId: string, updates: Partial<InsertCampaignCrew>): Promise<CampaignCrew | undefined> {
+    return db.transaction(async (tx) => {
+      const [row] = await tx.update(campaignCrews)
+        .set({ ...updates, updatedAt: new Date() } as Partial<typeof campaignCrews.$inferInsert>)
+        .where(and(eq(campaignCrews.id, crewId), eq(campaignCrews.companyId, companyId)))
+        .returning();
+      if (row && updates.leaderUserId) {
+        await tx.insert(campaignCrewMembers).values({
+          campaignCrewId: row.id,
+          userId: row.leaderUserId,
+        } as typeof campaignCrewMembers.$inferInsert).onConflictDoNothing();
+      }
+      return row;
+    });
+  }
+
+  async deleteCampaignCrew(crewId: string, companyId: string): Promise<void> {
+    await db.delete(campaignCrews).where(and(eq(campaignCrews.id, crewId), eq(campaignCrews.companyId, companyId)));
+  }
+
+  async countCampaignItemsForCrew(crewId: string, companyId: string): Promise<number> {
+    const [row] = await db.select({ count: sql<number>`count(*)::int` })
+      .from(campaignItems)
+      .where(and(eq(campaignItems.assignedCampaignCrewId, crewId), eq(campaignItems.companyId, companyId)));
+    return Number(row?.count) || 0;
+  }
+
+  async getCampaignCrewMembers(crewId: string): Promise<CampaignCrewMember[]> {
+    return db.select().from(campaignCrewMembers).where(eq(campaignCrewMembers.campaignCrewId, crewId));
+  }
+
+  async addCampaignCrewMember(crewId: string, userId: string): Promise<CampaignCrewMember> {
+    const [row] = await db.insert(campaignCrewMembers)
+      .values({ campaignCrewId: crewId, userId } as typeof campaignCrewMembers.$inferInsert)
+      .onConflictDoNothing()
+      .returning();
+    if (row) return row;
+    const [existing] = await db.select().from(campaignCrewMembers)
+      .where(and(eq(campaignCrewMembers.campaignCrewId, crewId), eq(campaignCrewMembers.userId, userId)));
+    return existing;
+  }
+
+  async removeCampaignCrewMember(crewId: string, userId: string): Promise<void> {
+    await db.delete(campaignCrewMembers)
+      .where(and(eq(campaignCrewMembers.campaignCrewId, crewId), eq(campaignCrewMembers.userId, userId)));
+  }
+
+  async getCampaignIdsForUserCrews(userId: string, companyId: string): Promise<string[]> {
+    const rows = await db.select({ campaignId: campaignCrews.campaignId })
+      .from(campaignCrewMembers)
+      .innerJoin(campaignCrews, eq(campaignCrewMembers.campaignCrewId, campaignCrews.id))
+      .where(and(eq(campaignCrewMembers.userId, userId), eq(campaignCrews.companyId, companyId)));
+    return Array.from(new Set(rows.map(r => r.campaignId)));
   }
 
   async getSeasons(companyId: string): Promise<Season[]> {

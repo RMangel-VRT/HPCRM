@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { sql, pgTable, text, varchar, timestamp, unique, integer, jsonb, real, boolean, date, index, uniqueIndex, AnyPgColumn, createInsertSchema } from "./drizzle-stub";
+import { sql, pgTable, text, varchar, timestamp, unique, integer, jsonb, real, boolean, date, index, uniqueIndex, numeric, AnyPgColumn, createInsertSchema } from "./drizzle-stub";
 
 export const companies = pgTable("companies", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
@@ -1838,7 +1838,7 @@ export const campaigns = pgTable("campaigns", {
   assignedToId2: varchar("assigned_to_id2").references(() => users.id, { onDelete: "set null" }),
   windowStart: date("window_start").notNull(),
   windowEnd: date("window_end").notNull(),
-  category: text("category").$type<"general" | "chemical" | "irrigation">().notNull().default("general"),
+  category: text("category").$type<"general" | "chemical" | "irrigation" | "extra_billable">().notNull().default("general"),
   subtype: text("subtype").$type<"spring_turn_on" | "winterization" | "custom">(),
   status: text("status").$type<"active" | "completed" | "archived">().notNull().default("active"),
   seasonId: varchar("season_id").references(() => seasons.id, { onDelete: "set null" }),
@@ -1916,6 +1916,11 @@ export const campaignItems = pgTable("campaign_items", {
   reEntryIntervalOverride: text("re_entry_interval_override"),
   mowingRestrictionOverride: text("mowing_restriction_override"),
   completionEmailSentAt: timestamp("completion_email_sent_at"),
+  // Extra Billable campaign columns (Slice 1)
+  assignedCampaignCrewId: varchar("assigned_campaign_crew_id"),
+  billingStatus: text("billing_status").$type<"not_created" | "ticket_created" | "invoiced" | "paid">().notNull().default("not_created"),
+  ticketId: varchar("ticket_id"),
+  estimatedAmount: numeric("estimated_amount", { precision: 10, scale: 2 }),
   createdAt: timestamp("created_at").notNull().defaultNow(),
   updatedAt: timestamp("updated_at").notNull().defaultNow(),
 }, (table) => ({
@@ -2009,6 +2014,63 @@ export type CampaignChecklistAuditLog = typeof campaignChecklistAuditLog.$inferS
 export type CampaignChecklistAuditLogWithUser = CampaignChecklistAuditLog & {
   userName?: string;
   taskLabel?: string;
+};
+
+// Extra Billable Campaign Crews (Slice 1)
+export const campaignCrews = pgTable("campaign_crews", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  companyId: varchar("company_id").notNull().references(() => companies.id, { onDelete: "cascade" }),
+  campaignId: varchar("campaign_id").notNull().references(() => campaigns.id, { onDelete: "cascade" }),
+  name: text("name").notNull(),
+  color: text("color").notNull().default("#2563eb"),
+  displayOrder: integer("display_order").notNull().default(0),
+  leaderUserId: varchar("leader_user_id").notNull().references(() => users.id, { onDelete: "restrict" }),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  updatedAt: timestamp("updated_at").notNull().defaultNow(),
+}, (table) => ({
+  campaignCrewsCampaignIdx: index("campaign_crews_campaign_id_idx").on(table.campaignId),
+  campaignCrewsCompanyIdx: index("campaign_crews_company_id_idx").on(table.companyId),
+  campaignCrewsCampaignNameUnique: uniqueIndex("campaign_crews_campaign_name_unique").on(table.campaignId, table.name),
+}));
+
+export const insertCampaignCrewSchema = createInsertSchema(campaignCrews).omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+}).extend({
+  name: z.string().min(1, "Crew name is required"),
+  color: z.string().regex(/^#[0-9a-fA-F]{6}$/, "Color must be a hex code").default("#2563eb"),
+  leaderUserId: z.string().min(1, "Leader is required"),
+});
+
+export type InsertCampaignCrew = z.infer<typeof insertCampaignCrewSchema>;
+export type CampaignCrew = typeof campaignCrews.$inferSelect;
+
+export const campaignCrewMembers = pgTable("campaign_crew_members", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  campaignCrewId: varchar("campaign_crew_id").notNull().references(() => campaignCrews.id, { onDelete: "cascade" }),
+  userId: varchar("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+}, (table) => ({
+  campaignCrewMembersUnique: uniqueIndex("campaign_crew_members_crew_user_unique").on(table.campaignCrewId, table.userId),
+  campaignCrewMembersCrewIdx: index("campaign_crew_members_crew_id_idx").on(table.campaignCrewId),
+  campaignCrewMembersUserIdx: index("campaign_crew_members_user_id_idx").on(table.userId),
+}));
+
+export const insertCampaignCrewMemberSchema = createInsertSchema(campaignCrewMembers).omit({
+  id: true,
+  createdAt: true,
+});
+
+export type InsertCampaignCrewMember = z.infer<typeof insertCampaignCrewMemberSchema>;
+export type CampaignCrewMember = typeof campaignCrewMembers.$inferSelect;
+
+export type CampaignCrewWithMembers = CampaignCrew & {
+  leaderName?: string;
+  members: { userId: string; userName: string }[];
+  itemCount: number;
+  completedCount: number;
+  photoCount: number;
 };
 
 export type CampaignWithProgress = Campaign & {

@@ -17,6 +17,7 @@ export const real = (_n: string) => colBuilder();
 export const boolean = (_n: string) => colBuilder();
 export const jsonb = (_n: string) => colBuilder();
 export const date = (_n: string) => colBuilder();
+export const numeric = (_n: string, _o?: any) => colBuilder();
 export const unique = (..._a: any[]) => ({ on: (..._b: any[]) => ({}) });
 export const index = (_n: string) => ({ on: (..._a: any[]) => ({}), using: (..._a: any[]) => ({}) });
 export const uniqueIndex = (_n: string) => ({ on: (..._a: any[]) => ({}) });

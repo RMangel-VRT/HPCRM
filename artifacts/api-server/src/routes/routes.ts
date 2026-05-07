@@ -7,6 +7,7 @@ import { randomUUID } from "crypto";
 import { z } from "zod/v4";
 import { setupAuth, type UserWithContext } from "../auth";
 import { storage } from "../storage";
+import * as extraBillableAccess from "../lib/extraBillableAccess";
 import { db } from "../db";
 import { eq, and, inArray, sql, gte, lte, isNull, ne } from "drizzle-orm";
 import { insertCustomerSchema, insertContactSchema, insertCompanySchema, insertCompanyUserSchema, insertSettingsSchema, insertNoteSchema, insertContractSchema, insertContractDocumentSchema, insertContractBuilderDocumentSchema, insertContractBuilderSectionSchema, insertContractBuilderVariableSchema, insertTicketTypeSchema, insertTicketTypeStatusSchema, insertTicketTypeFieldSchema, insertTicketSchema, insertTicketFieldValueSchema, insertTicketStatusHistorySchema, insertTicketCommentSchema, insertTicketLinkSchema, insertCustomerMapLayerSchema, insertCustomerMapDocumentSchema, insertMaintenanceCrewSchema, insertMaintenanceVisitConfigSchema, insertWeeklyScheduleTemplateSchema, insertScheduleBlockSchema, insertEquipmentSchema, insertEquipmentFileSchema, insertEquipmentTicketSchema, insertEquipmentTicketStatusHistorySchema, insertSnowEventSchema, insertSnowEventPropertyImpactSchema, insertSnowEventAttachmentSchema, insertEmailTemplateSchema, insertEmailRuleSchema, insertCommunicationAutomationRuleSchema, SNOW_RANGES, tickets, ticketLinks, ticketTypes, ticketTypeStatuses, customers as customersTable, contacts as contactsTable, contracts as contractsTable, equipment as equipmentTable, users as usersTable, contractMonthlyAmounts, contractDocuments, contractServices, contractStatusHistory, companyUsers as companyUsersTable, insertCommunicationSchema, campaigns as campaignsTable, campaignItems as campaignItemsTable, chemicalProducts as chemicalProductsTable, insertChemicalProductSchema, insertChemicalNotificationTemplateSchema } from "@workspace/db";
@@ -12216,8 +12217,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
       checklistTasks?: { label: string; order: number }[];
       notificationTemplateId?: string;
     };
-    const validCategories = ["general", "chemical", "irrigation"];
-    const campaignCategory = (validCategories.includes(category || "") ? category : "general") as "general" | "chemical" | "irrigation";
+    const validCategories = ["general", "chemical", "irrigation", "extra_billable"];
+    const campaignCategory = (validCategories.includes(category || "") ? category : "general") as "general" | "chemical" | "irrigation" | "extra_billable";
     if (!title || !windowStart || !windowEnd || !customerIds || !Array.isArray(customerIds) || customerIds.length === 0) {
       return res.status(400).json({ error: "Missing required fields" });
     }
@@ -12301,7 +12302,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       },
       itemsData
     );
-    if (campaignCategory === "irrigation" && checklistTasks && checklistTasks.length > 0) {
+    if ((campaignCategory === "irrigation" || campaignCategory === "extra_billable") && checklistTasks && checklistTasks.length > 0) {
       for (const task of checklistTasks) {
         await storage.createCampaignChecklistTask({
           campaignId: campaign.id,
@@ -12322,9 +12323,30 @@ export async function registerRoutes(app: Express): Promise<Server> {
     const campaign = await storage.getCampaignById(req.params.id, user.activeCompanyId);
     if (!campaign) return res.status(404).json({ error: "Not found" });
     if ((user.activeRole === "field" || user.activeRole === "landscape_supervisor") && campaign.assignedToId !== user.id && campaign.assignedToId2 !== user.id) {
-      return res.status(403).send("Not assigned to this campaign");
+      let allowedViaCrew = false;
+      if (campaign.category === "extra_billable") {
+        const userCampaignIds = await storage.getCampaignIdsForUserCrews(user.id, user.activeCompanyId);
+        allowedViaCrew = userCampaignIds.includes(campaign.id);
+      }
+      if (!allowedViaCrew) {
+        return res.status(403).send("Not assigned to this campaign");
+      }
     }
-    const items = await storage.getCampaignItems(req.params.id, user.activeCompanyId);
+    let items = await storage.getCampaignItems(req.params.id, user.activeCompanyId);
+    // Field/landscape_supervisor on extra_billable: only see items for crews they belong to
+    // (always enforced for these roles, regardless of campaign-level assignment)
+    if (
+      campaign.category === "extra_billable" &&
+      (user.activeRole === "field" || user.activeRole === "landscape_supervisor")
+    ) {
+      const allCrews = await storage.getCampaignCrews(req.params.id, user.activeCompanyId);
+      const userCrewIds = new Set(
+        allCrews
+          .filter(c => c.leaderUserId === user.id || c.members.some(m => m.userId === user.id))
+          .map(c => c.id),
+      );
+      items = items.filter(i => i.assignedCampaignCrewId && userCrewIds.has(i.assignedCampaignCrewId));
+    }
     const assignedUser = campaign.assignedToId
       ? await storage.getUserById(campaign.assignedToId)
       : undefined;
@@ -12732,6 +12754,158 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
     await storage.deleteCampaign(req.params.id, user.activeCompanyId);
     res.json({ success: true });
+  });
+
+  // ─── Extra-Billable Campaign Crews & Access Helper ──────────────
+  const canAccessExtraBillableCampaignItem = (
+    user: UserWithContext,
+    item: { assignedCampaignCrewId?: string | null },
+    mode: "read" | "write",
+  ) => extraBillableAccess.canAccessExtraBillableCampaignItem(storage, user as unknown as extraBillableAccess.ExtraBillableAccessUser, item, mode);
+
+  app.get("/api/campaigns/:id/crews", async (req, res) => {
+    if (!req.isAuthenticated()) return res.status(401).send("Not authenticated");
+    const user = req.user as UserWithContext;
+    if (!campaignAllowedRoles.includes(user.activeRole)) return res.status(403).send("Insufficient permissions");
+    const campaign = await storage.getCampaignById(req.params.id, user.activeCompanyId);
+    if (!campaign) return res.status(404).json({ error: "Campaign not found" });
+    if (
+      (user.activeRole === "field" || user.activeRole === "landscape_supervisor") &&
+      campaign.category === "extra_billable"
+    ) {
+      const userCampaignIds = await storage.getCampaignIdsForUserCrews(user.id, user.activeCompanyId);
+      if (!userCampaignIds.includes(campaign.id)) {
+        return res.status(403).send("Not assigned to a crew on this campaign");
+      }
+    }
+    const crews = await storage.getCampaignCrews(req.params.id, user.activeCompanyId);
+    res.json(crews);
+  });
+
+  app.post("/api/campaigns/:id/crews", async (req, res) => {
+    if (!req.isAuthenticated()) return res.status(401).send("Not authenticated");
+    const user = req.user as UserWithContext;
+    if (user.activeRole !== "admin" && user.activeRole !== "office") {
+      return res.status(403).send("Only admin/office can create crews");
+    }
+    const campaign = await storage.getCampaignById(req.params.id, user.activeCompanyId);
+    if (!campaign) return res.status(404).json({ error: "Campaign not found" });
+    if (campaign.category !== "extra_billable") {
+      return res.status(400).json({ error: "Crews are only supported on extra-billable campaigns" });
+    }
+    const { name, color, leaderUserId } = req.body as { name?: string; color?: string; leaderUserId?: string };
+    if (!name || !leaderUserId) return res.status(400).json({ error: "name and leaderUserId required" });
+    const companyUsers = await storage.getCompanyUsersByCompanyId(user.activeCompanyId);
+    if (!companyUsers.some(cu => cu.userId === leaderUserId)) {
+      return res.status(400).json({ error: "Leader must be a member of this company" });
+    }
+    const crew = await storage.createCampaignCrew({
+      companyId: user.activeCompanyId,
+      campaignId: req.params.id,
+      name,
+      color: color || "#2563eb",
+      leaderUserId,
+    });
+    res.json(crew);
+  });
+
+  app.patch("/api/campaigns/:id/crews/:crewId", async (req, res) => {
+    if (!req.isAuthenticated()) return res.status(401).send("Not authenticated");
+    const user = req.user as UserWithContext;
+    if (user.activeRole !== "admin" && user.activeRole !== "office") {
+      return res.status(403).send("Only admin/office can edit crews");
+    }
+    const crew = await storage.getCampaignCrewById(req.params.crewId, user.activeCompanyId);
+    if (!crew || crew.campaignId !== req.params.id) return res.status(404).json({ error: "Crew not found" });
+    const { name, color, leaderUserId } = req.body as { name?: string; color?: string; leaderUserId?: string };
+    const updates: Partial<{ name: string; color: string; leaderUserId: string }> = {};
+    if (name !== undefined) updates.name = name;
+    if (color !== undefined) updates.color = color;
+    if (leaderUserId !== undefined) {
+      const companyUsers = await storage.getCompanyUsersByCompanyId(user.activeCompanyId);
+      if (!companyUsers.some(cu => cu.userId === leaderUserId)) {
+        return res.status(400).json({ error: "Leader must be a member of this company" });
+      }
+      updates.leaderUserId = leaderUserId;
+    }
+    const updated = await storage.updateCampaignCrew(req.params.crewId, user.activeCompanyId, updates);
+    res.json(updated);
+  });
+
+  app.delete("/api/campaigns/:id/crews/:crewId", async (req, res) => {
+    if (!req.isAuthenticated()) return res.status(401).send("Not authenticated");
+    const user = req.user as UserWithContext;
+    if (user.activeRole !== "admin" && user.activeRole !== "office") {
+      return res.status(403).send("Only admin/office can delete crews");
+    }
+    const crew = await storage.getCampaignCrewById(req.params.crewId, user.activeCompanyId);
+    if (!crew || crew.campaignId !== req.params.id) return res.status(404).json({ error: "Crew not found" });
+    const itemCount = await storage.countCampaignItemsForCrew(req.params.crewId, user.activeCompanyId);
+    if (itemCount > 0) {
+      return res.status(400).json({ error: "Cannot delete crew with assigned properties; reassign them first" });
+    }
+    await storage.deleteCampaignCrew(req.params.crewId, user.activeCompanyId);
+    res.json({ success: true });
+  });
+
+  app.post("/api/campaigns/:id/crews/:crewId/members", async (req, res) => {
+    if (!req.isAuthenticated()) return res.status(401).send("Not authenticated");
+    const user = req.user as UserWithContext;
+    if (user.activeRole !== "admin" && user.activeRole !== "office") {
+      return res.status(403).send("Only admin/office can manage crew members");
+    }
+    const crew = await storage.getCampaignCrewById(req.params.crewId, user.activeCompanyId);
+    if (!crew || crew.campaignId !== req.params.id) return res.status(404).json({ error: "Crew not found" });
+    const { userId } = req.body as { userId?: string };
+    if (!userId) return res.status(400).json({ error: "userId required" });
+    const companyUsers = await storage.getCompanyUsersByCompanyId(user.activeCompanyId);
+    if (!companyUsers.some(cu => cu.userId === userId)) {
+      return res.status(400).json({ error: "User must be a member of this company" });
+    }
+    const member = await storage.addCampaignCrewMember(req.params.crewId, userId);
+    res.json(member);
+  });
+
+  app.delete("/api/campaigns/:id/crews/:crewId/members/:userId", async (req, res) => {
+    if (!req.isAuthenticated()) return res.status(401).send("Not authenticated");
+    const user = req.user as UserWithContext;
+    if (user.activeRole !== "admin" && user.activeRole !== "office") {
+      return res.status(403).send("Only admin/office can manage crew members");
+    }
+    const crew = await storage.getCampaignCrewById(req.params.crewId, user.activeCompanyId);
+    if (!crew || crew.campaignId !== req.params.id) return res.status(404).json({ error: "Crew not found" });
+    if (req.params.userId === crew.leaderUserId) {
+      return res.status(400).json({ error: "Cannot remove the crew leader; change leader first" });
+    }
+    await storage.removeCampaignCrewMember(req.params.crewId, req.params.userId);
+    res.json({ success: true });
+  });
+
+  app.patch("/api/campaigns/:id/items/:itemId/crew", async (req, res) => {
+    if (!req.isAuthenticated()) return res.status(401).send("Not authenticated");
+    const user = req.user as UserWithContext;
+    if (user.activeRole !== "admin" && user.activeRole !== "office") {
+      return res.status(403).send("Only admin/office can reassign properties");
+    }
+    const campaign = await storage.getCampaignById(req.params.id, user.activeCompanyId);
+    if (!campaign) return res.status(404).json({ error: "Campaign not found" });
+    if (campaign.category !== "extra_billable") {
+      return res.status(400).json({ error: "Crew assignment only supported on extra-billable campaigns" });
+    }
+    const item = await storage.getCampaignItemById(req.params.itemId, user.activeCompanyId);
+    if (!item || item.campaignId !== req.params.id) return res.status(404).json({ error: "Item not found" });
+    const { assignedCampaignCrewId } = req.body as { assignedCampaignCrewId?: string | null };
+    if (assignedCampaignCrewId) {
+      const newCrew = await storage.getCampaignCrewById(assignedCampaignCrewId, user.activeCompanyId);
+      if (!newCrew || newCrew.campaignId !== req.params.id) {
+        return res.status(400).json({ error: "Invalid crew" });
+      }
+    }
+    const updated = await storage.updateCampaignItem(req.params.itemId, user.activeCompanyId, {
+      assignedCampaignCrewId: assignedCampaignCrewId ?? null,
+      updatedAt: new Date(),
+    });
+    res.json(updated);
   });
 
   // GET /api/operations/customer-service-summaries — summary rollup for all active customers with active contracts
@@ -15305,14 +15479,20 @@ ${pdfText.slice(0, 8000)}`;
     async (req, res) => {
       if (!req.isAuthenticated()) return res.status(401).send("Not authenticated");
       const user = req.user as UserWithContext;
-      const roles = ["admin", "office", "field_manager", "field", "chemical_manager"];
+      const roles = ["admin", "office", "field_manager", "field", "chemical_manager", "landscape_supervisor"];
       if (!roles.includes(user.activeRole)) return res.status(403).send("Insufficient permissions");
       try {
         const campaign = await storage.getCampaignById(req.params.id, user.activeCompanyId);
-        if (!campaign || campaign.category !== "chemical") return res.status(404).json({ error: "Chemical campaign not found" });
+        if (!campaign || (campaign.category !== "chemical" && campaign.category !== "extra_billable")) {
+          return res.status(404).json({ error: "Chemical or extra-billable campaign not found" });
+        }
         const items = await storage.getCampaignItems(req.params.id, user.activeCompanyId);
         const targetItem = items.find((i: { id: string }) => i.id === req.params.itemId);
         if (!targetItem) return res.status(404).json({ error: "Item not found" });
+        if (campaign.category === "extra_billable") {
+          const allowed = await canAccessExtraBillableCampaignItem(user, targetItem, "write");
+          if (!allowed) return res.status(403).send("Only the assigned crew leader can upload photos");
+        }
         const currentKeys: string[] = targetItem.completionPhotoStorageKeys || [];
         if (currentKeys.length >= 6) {
           return res.status(400).json({ error: "Maximum 6 photos per visit" });
@@ -15392,14 +15572,20 @@ ${pdfText.slice(0, 8000)}`;
   app.post("/api/campaigns/:id/items/:itemId/completion-photos", async (req, res) => {
     if (!req.isAuthenticated()) return res.status(401).send("Not authenticated");
     const user = req.user as UserWithContext;
-    const roles = ["admin", "office", "field_manager", "field", "chemical_manager"];
+    const roles = ["admin", "office", "field_manager", "field", "chemical_manager", "landscape_supervisor"];
     if (!roles.includes(user.activeRole)) return res.status(403).send("Insufficient permissions");
     try {
       const campaign = await storage.getCampaignById(req.params.id, user.activeCompanyId);
-      if (!campaign || campaign.category !== "chemical") return res.status(404).json({ error: "Chemical campaign not found" });
+      if (!campaign || (campaign.category !== "chemical" && campaign.category !== "extra_billable")) {
+        return res.status(404).json({ error: "Chemical or extra-billable campaign not found" });
+      }
       const items = await storage.getCampaignItems(req.params.id, user.activeCompanyId);
       const targetItem = items.find((i: { id: string }) => i.id === req.params.itemId);
       if (!targetItem) return res.status(404).json({ error: "Item not found" });
+      if (campaign.category === "extra_billable") {
+        const allowed = await canAccessExtraBillableCampaignItem(user, targetItem, "write");
+        if (!allowed) return res.status(403).send("Only the assigned crew leader can upload photos");
+      }
       const currentKeys: string[] = targetItem.completionPhotoStorageKeys || [];
       if (currentKeys.length >= 6) {
         return res.status(400).json({ error: "Maximum 6 photos per visit" });
@@ -15424,8 +15610,19 @@ ${pdfText.slice(0, 8000)}`;
   app.delete("/api/campaigns/:id/items/:itemId/completion-photos", async (req, res) => {
     if (!req.isAuthenticated()) return res.status(401).send("Not authenticated");
     const user = req.user as UserWithContext;
-    const roles = ["admin", "office", "field_manager", "field", "chemical_manager"];
+    const roles = ["admin", "office", "field_manager", "field", "chemical_manager", "landscape_supervisor"];
     if (!roles.includes(user.activeRole)) return res.status(403).send("Insufficient permissions");
+    {
+      const campaign = await storage.getCampaignById(req.params.id, user.activeCompanyId);
+      if (campaign?.category === "extra_billable") {
+        const items = await storage.getCampaignItems(req.params.id, user.activeCompanyId);
+        const targetItem = items.find((i: { id: string }) => i.id === req.params.itemId);
+        if (targetItem) {
+          const allowed = await canAccessExtraBillableCampaignItem(user, targetItem, "write");
+          if (!allowed) return res.status(403).send("Only the assigned crew leader can delete photos");
+        }
+      }
+    }
     const { storageKey } = req.body || {};
     if (!storageKey) return res.status(400).json({ error: "storageKey is required" });
     // Validate prefix: key must belong to this company and item

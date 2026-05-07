@@ -258,7 +258,7 @@ function CreateCampaignDialog({ open, onOpenChange }: { open: boolean; onOpenCha
   const [assignedToId2, setAssignedToId2] = useState<string>("");
   const [windowStart, setWindowStart] = useState<Date | undefined>(undefined);
   const [windowEnd, setWindowEnd] = useState<Date | undefined>(undefined);
-  const [category, setCategory] = useState<"general" | "chemical" | "irrigation">("general");
+  const [category, setCategory] = useState<"general" | "chemical" | "irrigation" | "extra_billable">("general");
   const [irrigationSubtype, setIrrigationSubtype] = useState<"spring_turn_on" | "winterization" | "custom">("spring_turn_on");
   const [checklistTasks, setChecklistTasks] = useState<{ label: string; order: number }[]>([]);
   const [selectedCustomerIds, setSelectedCustomerIds] = useState<Set<string>>(new Set());
@@ -533,6 +533,7 @@ function CreateCampaignDialog({ open, onOpenChange }: { open: boolean; onOpenCha
                   <SelectItem value="general" data-testid="select-campaign-category-general">{t("campaigns.categoryGeneral")}</SelectItem>
                   <SelectItem value="chemical" data-testid="select-campaign-category-chemical">{t("campaigns.categoryChemical")}</SelectItem>
                   <SelectItem value="irrigation" data-testid="select-campaign-category-irrigation">{t("campaigns.categoryIrrigation")}</SelectItem>
+                  <SelectItem value="extra_billable" data-testid="select-campaign-category-extra-billable">{t("campaigns.categoryExtraBillable")}</SelectItem>
 
                 </SelectContent>
               </Select>
