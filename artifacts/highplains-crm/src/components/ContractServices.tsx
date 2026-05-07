@@ -2,7 +2,7 @@ import { useState, useEffect } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import type { ContractService, InsertContractService } from "@shared/schema";
 import { insertContractServiceSchema } from "@shared/schema";
-import { SERVICE_CATALOG, MONTH_ABBREV, type ServiceType } from "../../../shared/serviceCatalog";
+import { SERVICE_CATALOG, MONTH_ABBREV, type ServiceType } from "@shared/serviceCatalog";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {

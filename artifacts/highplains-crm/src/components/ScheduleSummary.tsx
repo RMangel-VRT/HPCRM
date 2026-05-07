@@ -1,6 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
 import type { ContractService } from "@shared/schema";
-import { SERVICE_CATALOG, MONTH_ABBREV, type ServiceType } from "../../../shared/serviceCatalog";
+import { SERVICE_CATALOG, MONTH_ABBREV, type ServiceType } from "@shared/serviceCatalog";
 import {
   Table,
   TableBody,
