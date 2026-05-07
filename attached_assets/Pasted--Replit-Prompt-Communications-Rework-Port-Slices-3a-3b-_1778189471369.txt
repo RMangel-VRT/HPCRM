@@ -1,0 +1,335 @@
+# Replit Prompt — Communications Rework, Port Slices 3a/3b/3c/4 into the pnpm Multi-Artifact Workspace
+
+## Context
+
+The repo was restructured into a pnpm multi-artifact workspace in commit `84b25ec` ("Port High Plains CRM to pnpm multi-artifact workspace"). After that restructure, all live code lives under:
+
+- `artifacts/highplains-crm/` — the deployable web app (Vite + React)
+- `artifacts/api-server/` — the deployable Express API
+- `artifacts/highplains-mobile/`, `artifacts/mockup-sandbox/` — other artifacts
+- `lib/db/` — shared Drizzle schema, consumed by the api-server as `@workspace/db`
+
+The old `client/`, `server/`, and `shared/` trees were moved to `.migration-backup/` and are **not** part of `pnpm-workspace.yaml`. Anything written there is dead code that does not ship.
+
+Four Communications Rework slices ran across the restructure and **never reached the live workspace**. Their code is currently scattered across:
+
+- `client/src/pages/communications/*.tsx` (top-level `client/`, NOT in the workspace)
+- `.migration-backup/client/src/pages/CommunicationsCenter.tsx` (the new shell-based wrapper)
+- `.migration-backup/client/src/components/AppSidebar.tsx` (post-Slice-4 sidebar)
+- `.migration-backup/server/routes/unsortedEmails.ts` (Slice-4 backend additions)
+
+The deployable artifact still has the legacy 2,375-line monolithic `artifacts/highplains-crm/src/pages/CommunicationsCenter.tsx` and a sidebar with two separate "Communications" + "Inbox" entries.
+
+The four affected slices:
+
+- **Slice 3a (Task #331)** — Page shell + secondary nav. Created `CommunicationsPageShell`, `CommunicationsSecondaryNav`, and the initial `AllCommunicationsTab` (the legacy monolith content moved into a tab).
+- **Slice 3b (Task #332)** — Extracted `UnsortedTab` component (already reachable in the live artifact at `artifacts/highplains-crm/src/components/customer/communications/UnsortedTab.tsx` — the shell-based CommunicationsCenter wraps it).
+- **Slice 3c (Task #333)** — `InboxTab` and `SentTab`.
+- **Slice 4 (Task #334)** — Routing, sidebar merge, Compose button, focus deep-link, observability logging, `resolvedToday=true` filter, "all caught up" empty state.
+
+This prompt ports all of that work into the live artifacts. It is a **mechanical port plus rewiring**, not a redesign. The component code in `client/src/pages/communications/*.tsx` and the wrapper in `.migration-backup/client/src/pages/CommunicationsCenter.tsx` should be moved with minimal edits — only what's needed to compile under the new workspace.
+
+This must land in a deployable, production-quality state. After the port, `client/src/pages/communications/` should be deleted so it can never drift from the live copy again.
+
+## Source files (where the work currently lives)
+
+These are the files Replit needs to read first. All paths are relative to repo root.
+
+### Component code to port (move into the live artifact)
+
+| Source | Lines | Destination |
+|---|---|---|
+| `client/src/pages/communications/CommunicationsPageShell.tsx` | 73 | `artifacts/highplains-crm/src/pages/communications/CommunicationsPageShell.tsx` |
+| `client/src/pages/communications/CommunicationsSecondaryNav.tsx` | 95 | `artifacts/highplains-crm/src/pages/communications/CommunicationsSecondaryNav.tsx` |
+| `client/src/pages/communications/CommunicationsToolbar.tsx` | 191 | `artifacts/highplains-crm/src/pages/communications/CommunicationsToolbar.tsx` |
+| `client/src/pages/communications/AllCommunicationsTab.tsx` | 2260 | `artifacts/highplains-crm/src/pages/communications/AllCommunicationsTab.tsx` |
+| `client/src/pages/communications/InboxTab.tsx` | 220 | `artifacts/highplains-crm/src/pages/communications/InboxTab.tsx` |
+| `client/src/pages/communications/SentTab.tsx` | 215 | `artifacts/highplains-crm/src/pages/communications/SentTab.tsx` |
+
+### Wrapper / page-level files (replace what's in the live artifact)
+
+| Source | Destination |
+|---|---|
+| `.migration-backup/client/src/pages/CommunicationsCenter.tsx` (124 lines, the new shell-based version) | `artifacts/highplains-crm/src/pages/CommunicationsCenter.tsx` (currently the 2,375-line monolith — **replace it**) |
+| `.migration-backup/client/src/components/AppSidebar.tsx` (post-Slice-4 sidebar) | merge the comms section into `artifacts/highplains-crm/src/components/AppSidebar.tsx` |
+
+### Backend additions to port
+
+| Source | Destination |
+|---|---|
+| `.migration-backup/server/routes/unsortedEmails.ts` | `artifacts/api-server/src/routes/unsortedEmails.ts` (port the `resolvedToday=true` filter and observability log line) |
+
+The `gte` import for `resolvedToday` is from `drizzle-orm`. The api-server file already imports from drizzle-orm; just add `gte` to that import.
+
+## Rewiring needed during the port
+
+The source files were authored against the old `client/` aliases (`@/components/*`, `@shared/schema`). The live artifact uses the same aliases (`@` → `artifacts/highplains-crm/src/`, `@shared` → `artifacts/highplains-crm/src/shared/`), so most imports work as-is. Specifically:
+
+- `@/hooks/use-auth`, `@/hooks/use-toast`, `@/hooks/use-breadcrumbs`, `@/lib/queryClient`, `@/lib/utils` — all exist in artifacts/highplains-crm.
+- `@/components/ui/*` (button, badge, dialog, select, etc.) — all exist.
+- `@/components/customer/communications/UnsortedTab` — exists.
+- `@/components/customer/communications/CommunicationsQuickViewModal`, `LogCommunicationForm`, `MailboxViewAsPicker` — all exist.
+- `@/components/ComposeDrawer`, `CustomerSearchInput`, `DatePickerField` — all exist.
+- `@shared/schema` types (`Communication`, `CommunicationWithDetails`, `Customer`, `MailboxAccount`, `CommunicationTemplate`, `CommunicationAuditLogWithUser`, `CommunicationAutomationRule`, `COMMUNICATION_TEMPLATE_CATEGORIES`, `COMMUNICATION_TEMPLATE_CATEGORY_LABELS`) — all exist in `artifacts/highplains-crm/src/shared/schema.ts`. Verify each before assuming.
+
+If a `@shared/schema` import fails, check `artifacts/highplains-crm/src/shared/schema.ts` first. Do not add new imports from `lib/db` in the client — the client's `@shared/schema` is the canonical source for client-side types.
+
+## Step 1 — Move the six tab/shell files
+
+Copy these six files verbatim from `client/src/pages/communications/` to `artifacts/highplains-crm/src/pages/communications/`. Create the destination directory.
+
+Run a build (`pnpm --filter @workspace/highplains-crm run build` or the dev server) and fix any import-resolution errors. Expected fixes:
+
+- None for the components/ui imports — the artifact has the same shadcn set.
+- None for hooks — same names, same locations.
+- If `useSearch` from `wouter` is being called and `useSearch` returns the search string in some Wouter versions but the search-with-leading-`?` in others, just leave the source alone — the artifact already uses the same wouter version (see `pnpm-workspace.yaml` catalog).
+
+Do NOT modify any of the tab logic. Anything that needs tweaking is called out below in Step 2.
+
+## Step 2 — Replace the legacy CommunicationsCenter.tsx
+
+The current `artifacts/highplains-crm/src/pages/CommunicationsCenter.tsx` is the old 2,375-line monolith. Replace it with the 124-line shell-based wrapper from `.migration-backup/client/src/pages/CommunicationsCenter.tsx`. Verbatim copy is fine — the imports are already aligned with the artifact's aliases.
+
+Verify the shell wrapper:
+
+- Defaults to `/dashboard/communications/inbox` if no tab in URL.
+- Redirects unknown tabs to `/inbox`.
+- Hides the "all" tab from non-admin/office users (redirects to `/inbox`).
+- Wraps `UnsortedTab` in `UnsortedTabShellWrapper` so it picks up `viewAs` from the shell context.
+- Fetches inbox/sent counts via lightweight `?limit=1` queries and feeds them to `CommunicationsSecondaryNav`.
+
+Add a `ScrollArea` wrapper if the legacy page had one and the new shell doesn't — match the rest of the dashboard's height/scroll behavior.
+
+## Step 3 — Update App.tsx routes
+
+In `artifacts/highplains-crm/src/App.tsx`:
+
+1. Remove the lazy import for `UnsortedInboxPage` (`const UnsortedInboxPage = lazy(...)`) and the `<ProtectedRoute path="/dashboard/communications/unsorted" component={UnsortedInboxPage} ... />` line. The shell-based page handles `/communications/:tab?` including `tab="unsorted"`.
+
+2. Replace the existing communications route:
+
+   ```tsx
+   <ProtectedRoute path="/dashboard/communications" component={CommunicationsCenter} allowedRoles={[...]} />
+   ```
+
+   with a tab-aware version:
+
+   ```tsx
+   <ProtectedRoute path="/dashboard/communications/:tab?" component={CommunicationsCenter} allowedRoles={[...]} />
+   ```
+
+   Keep the same `allowedRoles` list as the existing route (admin, office, field, field_manager, chemical_manager, irrigation_manager, shop_manager, mapping, landscape_supervisor).
+
+3. If `artifacts/highplains-crm/src/pages/UnsortedInboxPage.tsx` exists, delete it (it's a 5-line file that just re-renders `UnsortedTab` — no longer needed).
+
+4. Search the artifact for any other lazy/static imports of `UnsortedInboxPage` and remove them.
+
+## Step 4 — AppSidebar merge
+
+In `artifacts/highplains-crm/src/components/AppSidebar.tsx`, apply the Slice-4 sidebar changes. Use `.migration-backup/client/src/components/AppSidebar.tsx` as the reference. The four diffs to apply:
+
+### 4a. Merge two nav items into one
+
+Find:
+
+```tsx
+items.push({ title: t("emailTracking.communicationsTitle"), url: "/dashboard/communications", icon: MessagesSquare });
+items.push({ title: t("nav.inbox"), url: "/dashboard/communications/unsorted", icon: Mail });
+```
+
+Replace with:
+
+```tsx
+items.push({ title: t("emailTracking.communicationsTitle"), url: "/dashboard/communications/inbox", icon: MessagesSquare });
+```
+
+The `Mail` icon import can stay if used elsewhere (e.g., the My Mailbox link).
+
+### 4b. Update isActive matcher
+
+Find the `isActive` helper and add a special case so any sub-tab still highlights "Communications":
+
+```tsx
+const isActive = (url: string) => {
+  if (url === "/dashboard") return location === "/dashboard";
+  if (url === "/dashboard/communications/inbox") return location.startsWith("/dashboard/communications");
+  return location === url || location.startsWith(url + "/");
+};
+```
+
+### 4c. Add pending-unsorted badge query
+
+Inside the `AppSidebar` component (alongside other `useQuery` calls, before the JSX return), add:
+
+```tsx
+const { data: pendingUnsortedData } = useQuery<{ length: number } | unknown[]>({
+  queryKey: ["/api/unsorted-emails", "sidebar-badge"],
+  queryFn: async () => {
+    const res = await fetch("/api/unsorted-emails?status=pending&limit=100", { credentials: "include" });
+    if (!res.ok) return [];
+    return res.json();
+  },
+  enabled: userRole === "admin" || userRole === "office",
+  refetchInterval: 60_000,
+  staleTime: 50_000,
+});
+const pendingUnsortedCount = Array.isArray(pendingUnsortedData) ? pendingUnsortedData.length : 0;
+```
+
+### 4d. Render the badge inside the management menu loop
+
+Find the section that renders `managementItems.map(...)` and update the menu item to conditionally render a badge:
+
+```tsx
+{managementItems.map((item) => {
+  const isComms = item.url === "/dashboard/communications/inbox";
+  return (
+    <SidebarMenuItem key={item.title}>
+      <SidebarMenuButton asChild isActive={isActive(item.url)}>
+        <Link href={item.url} data-testid={`link-${item.title.toLowerCase().replace(/\s+/g, '-')}`}>
+          <item.icon className="w-4 h-4" />
+          <span>{item.title}</span>
+          {isComms && pendingUnsortedCount > 0 && (
+            <Badge className="ml-auto text-xs py-0 px-1.5 min-w-0 no-default-active-elevate" data-testid="badge-pending-unsorted-sidebar">
+              {pendingUnsortedCount > 99 ? "99+" : pendingUnsortedCount}
+            </Badge>
+          )}
+        </Link>
+      </SidebarMenuButton>
+    </SidebarMenuItem>
+  );
+})}
+```
+
+If `Badge` isn't already imported, add `import { Badge } from "@/components/ui/badge";` at the top.
+
+The standalone `nav.inbox` translation key is no longer rendered — leave the i18n file alone, the key just becomes unused.
+
+## Step 5 — Backend port
+
+Apply two changes to `artifacts/api-server/src/routes/unsortedEmails.ts`. Reference `.migration-backup/server/routes/unsortedEmails.ts` lines 48 and 79–84.
+
+### 5a. Add `resolvedToday=true` query filter
+
+In the `router.get("/", ...)` handler, extend the destructured query string:
+
+```ts
+const { status, mailboxAccountId, assignedToUserId, candidateCustomerId, direction, page, limit: limitStr, resolvedToday } = req.query;
+```
+
+Add to the imports from `drizzle-orm`:
+
+```ts
+import { eq, and, desc, sql, inArray, gte } from "drizzle-orm";
+```
+
+After the existing `direction` filter block, insert:
+
+```ts
+// resolvedToday=true — filter to emails resolved today by the current user
+if (resolvedToday === "true") {
+  const todayStart = new Date();
+  todayStart.setHours(0, 0, 0, 0);
+  conditions.push(eq(unsortedEmails.resolvedByUserId, user.id));
+  conditions.push(gte(unsortedEmails.resolvedAt, todayStart));
+}
+```
+
+### 5b. Add observability log line
+
+After the `db.select(...).limit(...).offset(...)` call resolves but before `res.json(rows)`, add:
+
+```ts
+console.info(`[communications.list] user=${user.id} role=${user.activeRole} tab=unsorted viewAs=${viewAs ?? null} returned=${rows.length} totalAvailable=${rows.length}`);
+```
+
+Do NOT log subjects, addresses, or row contents. Keep it info-level. The two `returned`/`totalAvailable` counts are the same here since this endpoint doesn't paginate the count — that's fine, leave it as-is to match the spec.
+
+### 5c. Mirror the log line on /api/communications
+
+The Slice-4 commit also added an analogous log line on the main `/api/communications` GET handler. Find that endpoint in `artifacts/api-server/src/routes/routes.ts` (search for `app.get("/api/communications"`). Right before its `res.json(...)`, add:
+
+```ts
+const tab = (req.query.direction === "inbound") ? "inbox"
+  : (req.query.direction === "outbound") ? "sent"
+  : "all";
+console.info(`[communications.list] user=${user.id} role=${user.activeRole} tab=${tab} viewAs=${req.query.viewAs ?? null} returned=${rows.length} totalAvailable=${total ?? rows.length}`);
+```
+
+If the handler uses different variable names (`results`, `items`, etc.) match accordingly. If a `total` count is computed for pagination, use it; otherwise fall back to `rows.length`.
+
+## Step 6 — Compose button, focus deep-link, "all caught up" empty state
+
+These all land automatically once the six tab files are in `artifacts/highplains-crm/src/pages/communications/`, because the Slice-4 commit (b09b26f) already baked them into `CommunicationsToolbar.tsx`, `InboxTab.tsx`, and `UnsortedTab.tsx` (UnsortedTab lives in the artifact already and got its Slice-4 changes via that commit's edit to `.migration-backup/client/src/components/customer/communications/UnsortedTab.tsx`). Verify:
+
+- `CommunicationsToolbar.tsx` renders a Compose button when `mailboxes.length > 0`, with a 2-step dialog (CustomerSearchInput → LogCommunicationForm) and pre-fills `defaultMailboxAccountId` from the first active mailbox.
+- `InboxTab.tsx` reads `?focusId=` from `useSearch`, scrolls the matching row into view, and applies a highlight ring.
+- `UnsortedTab.tsx` in the live artifact (`artifacts/highplains-crm/src/components/customer/communications/UnsortedTab.tsx`) — confirm it has the "All caught up — you routed N emails today" state that queries `?resolvedToday=true&limit=100`. If not, port the relevant block from `.migration-backup/client/src/components/customer/communications/UnsortedTab.tsx`.
+
+## Step 7 — Delete the dangling top-level `client/` directory
+
+Once everything compiles and the new pages render correctly:
+
+```bash
+rm -rf client/
+```
+
+Verify nothing in `pnpm-workspace.yaml`, `tsconfig.json`, or `tsconfig.base.json` references it. Verify `git status` only shows the deletion and the new artifact files.
+
+The `.migration-backup/` tree is the historical reference and stays in the repo.
+
+## Step 8 — Smoke checklist
+
+- [ ] `pnpm install` succeeds.
+- [ ] `pnpm typecheck` is clean (or no worse than the pre-port baseline — the prior commit message acknowledged a few unrelated pre-existing errors in `lib/db/src/schema/schema.ts`, `api-server/src/storage.ts`, and `visualScopeRenderer.ts`; do not regress them).
+- [ ] `pnpm --filter @workspace/highplains-crm run build` succeeds.
+- [ ] Dev server: navigate to `/dashboard/communications` → redirects to `/dashboard/communications/inbox`.
+- [ ] All four tab paths render: `/inbox`, `/sent`, `/unsorted`, `/all`.
+- [ ] Non-admin user can't see the "All Communications" tab and is redirected from `/all` to `/inbox`.
+- [ ] Sidebar shows ONE "Communications" entry (no "Inbox" entry beside it). The badge appears when there are pending unsorted emails (admin/office only).
+- [ ] Compose button in the toolbar opens the 2-step dialog and pre-fills the mailbox.
+- [ ] `?focusId=<id>` on the inbox tab scrolls + highlights the matching row.
+- [ ] Unsorted tab shows the "All caught up" state when pending list is empty and the user has resolved at least one email today.
+- [ ] Backend logs `[communications.list] ...` lines on each list endpoint.
+- [ ] `client/` directory at repo root no longer exists.
+- [ ] No imports of `UnsortedInboxPage` anywhere in `artifacts/`.
+
+## Files touched
+
+### Created in `artifacts/highplains-crm/src/pages/communications/`
+
+- `CommunicationsPageShell.tsx`
+- `CommunicationsSecondaryNav.tsx`
+- `CommunicationsToolbar.tsx`
+- `AllCommunicationsTab.tsx`
+- `InboxTab.tsx`
+- `SentTab.tsx`
+
+### Replaced in `artifacts/highplains-crm/src/`
+
+- `pages/CommunicationsCenter.tsx` (replace 2,375-line monolith with 124-line shell wrapper)
+- `App.tsx` (drop UnsortedInboxPage, add `:tab?` param to communications route)
+- `components/AppSidebar.tsx` (merge two nav items, add badge query, render badge)
+
+### Edited in `artifacts/api-server/src/routes/`
+
+- `unsortedEmails.ts` (resolvedToday filter + observability log)
+- `routes.ts` (observability log on /api/communications)
+
+### Deleted
+
+- `artifacts/highplains-crm/src/pages/UnsortedInboxPage.tsx` (if it exists)
+- `client/` directory at repo root (entire tree)
+
+## Things to NOT change in this slice
+
+- Backend list endpoints' filtering or scoping logic — only ADD the resolvedToday filter and the log line. Leave `resolveVisibleMailboxes` and the existing condition pipeline untouched.
+- The Drizzle schema (`lib/db/src/schema/schema.ts`) — no schema changes needed; the relevant columns (`resolvedByUserId`, `resolvedAt`) already exist.
+- The mobile artifact (`artifacts/highplains-mobile/`) — out of scope.
+- Any of the Extra Billable Campaign code — out of scope.
+- The `.migration-backup/` tree — leave it as historical reference.
+- i18n keys — the `nav.inbox` key becomes unused but stays in `en.ts` / `es.ts`. Cleanup of unused keys is a separate effort.
+
+## Why this exists
+
+The Comms Rework slices were authored on a branch that wrote into the pre-restructure `client/` tree. When that branch landed after the restructure, the pnpm workspace had already been carved out — `client/` was no longer a workspace package. The result is functioning code that the build never sees. This port closes that gap and deletes the dangling directory so it can't happen again.
