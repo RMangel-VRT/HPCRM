@@ -31,6 +31,7 @@ import EmptyState from "@/components/EmptyState";
 import CrewAssignmentBoard from "@/components/CrewAssignmentBoard";
 import PropertyGrid from "@/components/extraBillable/PropertyGrid";
 import type { Campaign, CampaignItem, CampaignCrewWithMembers, CompanyUser, User as UserType } from "@shared/schema";
+import BillingQueueTab from "@/components/BillingQueueTab";
 
 interface CampaignDetailLike extends Campaign {
   items: (CampaignItem & { customerCity?: string | null })[];
@@ -91,6 +92,8 @@ export default function ExtraBillableCampaignView({ campaign, campaignId }: Prop
   const [crewDialogOpen, setCrewDialogOpen] = useState(false);
   const [editingCrew, setEditingCrew] = useState<CampaignCrewWithMembers | null>(null);
   const [search, setSearch] = useState("");
+  const [highlightItemId, setHighlightItemId] = useState<string | null>(null);
+  const [highlightCrewId, setHighlightCrewId] = useState<string | null>(null);
 
   const isAdminOffice = user?.activeRole === "admin" || user?.activeRole === "office";
 
@@ -213,14 +216,16 @@ export default function ExtraBillableCampaignView({ campaign, campaignId }: Prop
             >
               {t("campaigns.extraBillableTabCrews")}
             </Button>
-            <Button
-              variant={tab === "billing" ? "default" : "outline"}
-              size="sm"
-              onClick={() => setTab("billing")}
-              data-testid="button-eb-tab-billing"
-            >
-              {t("campaigns.extraBillableTabBillingQueue")}
-            </Button>
+            {isAdminOffice && (
+              <Button
+                variant={tab === "billing" ? "default" : "outline"}
+                size="sm"
+                onClick={() => setTab("billing")}
+                data-testid="button-eb-tab-billing"
+              >
+                {t("campaigns.extraBillableTabBillingQueue")}
+              </Button>
+            )}
           </>
         )}
       </div>
@@ -296,7 +301,11 @@ export default function ExtraBillableCampaignView({ campaign, campaignId }: Prop
                       const crew = item.assignedCampaignCrewId ? crewById.get(item.assignedCampaignCrewId) : null;
                       const photoCount = item.completionPhotoStorageKeys?.length || 0;
                       return (
-                        <tr key={item.id} className="border-b" data-testid={`row-eb-item-${item.id}`}>
+                        <tr
+                          key={item.id}
+                          className={`border-b ${highlightItemId === item.id ? "bg-yellow-50" : ""}`}
+                          data-testid={`row-eb-item-${item.id}`}
+                        >
                           <td className="p-2">
                             <Link href={`/customers/${item.customerId}`} className="hover:underline" data-testid={`link-customer-${item.id}`}>
                               {item.customerName}
@@ -387,6 +396,7 @@ export default function ExtraBillableCampaignView({ campaign, campaignId }: Prop
                   <CrewCard
                     key={crew.id}
                     crew={crew}
+                    isHighlighted={highlightCrewId === crew.id}
                     isAdminOffice={isAdminOffice}
                     onEdit={() => { setEditingCrew(crew); setCrewDialogOpen(true); }}
                     onDelete={() => {
@@ -402,15 +412,26 @@ export default function ExtraBillableCampaignView({ campaign, campaignId }: Prop
         </Card>
       )}
 
-      {tab === "billing" && (
-        <Card>
-          <CardContent className="p-6 text-center space-y-2" data-testid="billing-queue-placeholder">
-            <Lock className="w-8 h-8 mx-auto text-muted-foreground" />
-            <p className="text-sm text-muted-foreground">
-              {t("campaigns.extraBillableBillingQueueLocked")}
-            </p>
-          </CardContent>
-        </Card>
+      {tab === "billing" && isAdminOffice && (
+        <BillingQueueTab
+          campaignId={campaignId}
+          items={items}
+          crews={crews}
+          highlightItemId={highlightItemId}
+          onJumpToAssignments={(itemId) => {
+            setHighlightItemId(itemId);
+            setTab("properties");
+          }}
+          onJumpToCrews={(crewId) => {
+            const target = crews.find(c => c.id === crewId) || null;
+            setHighlightCrewId(crewId);
+            setTab("crews");
+            if (target) {
+              setEditingCrew(target);
+              setCrewDialogOpen(true);
+            }
+          }}
+        />
       )}
 
       {crewDialogOpen && (
@@ -438,17 +459,19 @@ function CounterTile({ label, value, testId }: { label: string; value: string; t
 function CrewCard({
   crew,
   isAdminOffice,
+  isHighlighted,
   onEdit,
   onDelete,
 }: {
   crew: CampaignCrewWithMembers;
   isAdminOffice: boolean;
+  isHighlighted?: boolean;
   onEdit: () => void;
   onDelete: () => void;
 }) {
   const { t } = useTranslation();
   return (
-    <div className="rounded-md border p-3 space-y-2" data-testid={`crew-card-${crew.id}`}>
+    <div className={`rounded-md border p-3 space-y-2 ${isHighlighted ? "ring-2 ring-yellow-400 bg-yellow-50" : ""}`} data-testid={`crew-card-${crew.id}`}>
       <div className="flex items-center justify-between gap-2 flex-wrap">
         <div className="flex items-center gap-2">
           <span className="inline-block w-3 h-3 rounded-full" style={{ backgroundColor: crew.color }} />

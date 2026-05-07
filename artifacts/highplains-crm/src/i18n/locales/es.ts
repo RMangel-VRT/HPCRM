@@ -1663,6 +1663,39 @@ const es = {
     crewPhotoCount: "{{count}} fotos", // TODO: human-review translation
     crewCompletedCount: "{{count}} completadas", // TODO: human-review translation
     itemUnassigned: "Sin asignar", // TODO: human-review translation
+    billingReadyLabel: "listas", // TODO: human-review translation
+    billingBilledLabel: "ya facturadas", // TODO: human-review translation
+    billingIneligibleLabel: "no elegibles", // TODO: human-review translation
+    billingEstTotal: "Total estimado", // TODO: human-review translation
+    billingGenerateAll: "Generar todos ({{count}})", // TODO: human-review translation
+    billingGenerateAllConfirm: "Generar tickets", // TODO: human-review translation
+    billingConfirmAllTitle: "¿Generar tickets facturables?", // TODO: human-review translation
+    billingConfirmAllDesc: "Esto creará {{count}} tickets de Trabajo Extra Facturable en estado 'Listo para Facturar'. ¿Continuar?", // TODO: human-review translation
+    billingGenerateAllResultTitle: "Generación masiva completa", // TODO: human-review translation
+    billingGenerateAllResultDesc: "Generados {{generated}} · Omitidos {{skipped}} · Fallidos {{failed}}", // TODO: human-review translation
+    billingGenerateAllFailed: "Error al generar tickets", // TODO: human-review translation
+    billingFailuresTitle: "Algunos elementos fallaron", // TODO: human-review translation
+    billingFailedGeneric: "Falló la generación", // TODO: human-review translation
+    billingRetryFailed: "Reintentar fallidos ({{count}})", // TODO: human-review translation
+    billingFilterReady: "Listas", // TODO: human-review translation
+    billingFilterBilled: "Ya facturadas", // TODO: human-review translation
+    billingFilterIneligible: "No elegibles", // TODO: human-review translation
+    billingNoReady: "No hay propiedades listas para facturar.", // TODO: human-review translation
+    billingNoBilled: "Aún no se han facturado propiedades.", // TODO: human-review translation
+    billingNoIneligible: "No hay propiedades no elegibles.", // TODO: human-review translation
+    billingTicketStatus: "Ticket", // TODO: human-review translation
+    billingViewTicket: "Ver ticket", // TODO: human-review translation
+    billingReason: "Motivo", // TODO: human-review translation
+    billingReasonNoCrew: "Sin equipo asignado", // TODO: human-review translation
+    billingReasonNoLeader: "El equipo no tiene líder", // TODO: human-review translation
+    billingSetLeader: "Asignar líder", // TODO: human-review translation
+    billingGenerateRow: "Generar", // TODO: human-review translation
+    billingGenerateRowConfirm: "¿Crear un ticket de Trabajo Extra Facturable para esta propiedad?", // TODO: human-review translation
+    billingGenerateOneSuccess: "Ticket creado", // TODO: human-review translation
+    billingGenerateOneFailed: "Error al crear el ticket", // TODO: human-review translation
+    billingSlowHint: "Aún trabajando — esto puede tardar un momento para muchas propiedades.", // TODO: human-review translation
+    billingTicketCreatedBanner: "✓ Ticket de Trabajo Extra Facturable creado el {{date}} — verlo →", // TODO: human-review translation
+    billingGenerateInline: "Generar ticket de Trabajo Extra Facturable", // TODO: human-review translation
   },
   chemicalProducts: {
     title: "Productos Quimicos", // TODO: human-review translation

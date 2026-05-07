@@ -268,10 +268,26 @@ export default function CampaignItemDetail() {
   // /photos/drop endpoint so they get HEIC-converted, sharp-resized, and
   // EXIF-stripped server-side (instead of the legacy presigned-PUT flow).
   const isExtraBillableCampaign = campaign?.category === "extra_billable";
+  const isAdminOffice = user?.activeRole === "admin" || user?.activeRole === "office";
 
   const { data: ebCrews = [] } = useQuery<Array<{ id: string; name: string; color: string; leaderUserId: string; leaderName?: string }>>({
     queryKey: ["/api/campaigns", campaignId, "crews"],
     enabled: !!campaignId && isExtraBillableCampaign,
+  });
+
+  const generateExtraBillableTicketMutation = useMutation({
+    mutationFn: async () => {
+      const res = await apiRequest("POST", `/api/campaigns/${campaignId}/items/${itemId}/generate-ticket`);
+      return await res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/campaigns", campaignId] });
+      queryClient.invalidateQueries({ queryKey: ["/api/campaigns", campaignId, "billing-summary"] });
+      toast({ title: t("campaigns.billingGenerateOneSuccess") });
+    },
+    onError: (e: Error) => {
+      toast({ title: e.message || t("campaigns.billingGenerateOneFailed"), variant: "destructive" });
+    },
   });
   const [showChemReset, setShowChemReset] = useState(false);
   const [chemVisitExpanded, setChemVisitExpanded] = useState(false);
@@ -782,6 +798,46 @@ export default function CampaignItemDetail() {
           </CardContent>
         </Card>
       )}
+
+      {isExtraBillableCampaign && item.ticketId && (
+        <Card className="border-green-600/40 bg-green-50" data-testid="banner-extra-billable-ticket-created">
+          <CardContent className="p-3">
+            <Link
+              href={`/dashboard/tickets/${item.ticketId}`}
+              className="flex items-center gap-2 text-sm text-green-800 hover:underline"
+              data-testid="link-extra-billable-ticket"
+            >
+              <CheckCircle2 className="w-4 h-4" />
+              <span className="font-medium">
+                {t("campaigns.billingTicketCreatedBanner", {
+                  date: item.updatedAt ? format(new Date(item.updatedAt), "PP") : "",
+                })}
+              </span>
+              <ExternalLink className="w-3.5 h-3.5 ml-auto" />
+            </Link>
+          </CardContent>
+        </Card>
+      )}
+
+      {isExtraBillableCampaign &&
+        isAdminOffice &&
+        item.status === "completed" &&
+        item.billingStatus === "not_created" &&
+        !item.ticketId && (
+          <Card data-testid="card-generate-extra-billable-inline">
+            <CardContent className="p-3 flex items-center justify-between gap-2">
+              <span className="text-sm text-muted-foreground">{t("campaigns.billingGenerateRowConfirm")}</span>
+              <Button
+                size="sm"
+                onClick={() => generateExtraBillableTicketMutation.mutate()}
+                disabled={generateExtraBillableTicketMutation.isPending}
+                data-testid="button-generate-extra-billable-inline"
+              >
+                {t("campaigns.billingGenerateInline")}
+              </Button>
+            </CardContent>
+          </Card>
+        )}
 
       {item.weatherTemp != null && item.weatherConditions && (
         <Card data-testid="card-weather-data">

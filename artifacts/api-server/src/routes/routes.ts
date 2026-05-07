@@ -8,6 +8,7 @@ import { z } from "zod/v4";
 import { setupAuth, type UserWithContext } from "../auth";
 import { storage } from "../storage";
 import * as extraBillableAccess from "../lib/extraBillableAccess";
+import { registerExtraBillableBillingRoutes, makeBucketCopyPhotoFn } from "./extraBillableBilling";
 import { db } from "../db";
 import { eq, and, inArray, sql, gte, lte, isNull, ne } from "drizzle-orm";
 import { insertCustomerSchema, insertContactSchema, insertCompanySchema, insertCompanyUserSchema, insertSettingsSchema, insertNoteSchema, insertContractSchema, insertContractDocumentSchema, insertContractBuilderDocumentSchema, insertContractBuilderSectionSchema, insertContractBuilderVariableSchema, insertTicketTypeSchema, insertTicketTypeStatusSchema, insertTicketTypeFieldSchema, insertTicketSchema, insertTicketFieldValueSchema, insertTicketStatusHistorySchema, insertTicketCommentSchema, insertTicketLinkSchema, insertCustomerMapLayerSchema, insertCustomerMapDocumentSchema, insertMaintenanceCrewSchema, insertMaintenanceVisitConfigSchema, insertWeeklyScheduleTemplateSchema, insertScheduleBlockSchema, insertEquipmentSchema, insertEquipmentFileSchema, insertEquipmentTicketSchema, insertEquipmentTicketStatusHistorySchema, insertSnowEventSchema, insertSnowEventPropertyImpactSchema, insertSnowEventAttachmentSchema, insertEmailTemplateSchema, insertEmailRuleSchema, insertCommunicationAutomationRuleSchema, SNOW_RANGES, tickets, ticketLinks, ticketTypes, ticketTypeStatuses, customers as customersTable, contacts as contactsTable, contracts as contractsTable, equipment as equipmentTable, users as usersTable, contractMonthlyAmounts, contractDocuments, contractServices, contractStatusHistory, companyUsers as companyUsersTable, insertCommunicationSchema, campaigns as campaignsTable, campaignItems as campaignItemsTable, chemicalProducts as chemicalProductsTable, insertChemicalProductSchema, insertChemicalNotificationTemplateSchema } from "@workspace/db";
@@ -12984,6 +12985,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
     res.json({ updated: updatedRows.length, items: updatedRows });
   });
+
+  // ===== Extra Billable Campaign — Billing Queue & Ticket Generation (Slice 4) =====
+  registerExtraBillableBillingRoutes(app, {
+    storage: storage as unknown as Parameters<typeof registerExtraBillableBillingRoutes>[1]["storage"],
+    ensureExtraBillableTicketType,
+    copyPhoto: makeBucketCopyPhotoFn(objectStorageClient, process.env.DEFAULT_OBJECT_STORAGE_BUCKET_ID),
+  });
+
 
   // GET /api/operations/customer-service-summaries — summary rollup for all active customers with active contracts
   app.get("/api/operations/customer-service-summaries", async (req, res) => {

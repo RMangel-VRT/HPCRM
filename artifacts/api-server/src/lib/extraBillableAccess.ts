@@ -10,6 +10,29 @@ export interface ExtraBillableAccessItem {
   assignedCampaignCrewId?: string | null;
 }
 
+export type ExtraBillableEligibilityResult =
+  | { eligible: true }
+  | { eligible: false; reason: "no_crew_assigned" | "crew_has_no_leader" | "already_billed" };
+
+export interface ExtraBillableEligibilityItem {
+  status: string;
+  billingStatus: string;
+  ticketId?: string | null;
+  assignedCampaignCrewId?: string | null;
+}
+
+export function classifyExtraBillableEligibility(
+  item: ExtraBillableEligibilityItem,
+  crewLeaderById: Map<string, string | null>,
+): ExtraBillableEligibilityResult {
+  if (item.billingStatus !== "not_created" || item.ticketId) return { eligible: false, reason: "already_billed" };
+  if (item.status !== "completed") return { eligible: false, reason: "no_crew_assigned" };
+  if (!item.assignedCampaignCrewId) return { eligible: false, reason: "no_crew_assigned" };
+  const leader = crewLeaderById.get(item.assignedCampaignCrewId);
+  if (!leader) return { eligible: false, reason: "crew_has_no_leader" };
+  return { eligible: true };
+}
+
 export async function canAccessExtraBillableCampaignItem(
   storage: Pick<IStorage, "getCampaignCrewById" | "getCampaignCrewMembers">,
   user: ExtraBillableAccessUser,
