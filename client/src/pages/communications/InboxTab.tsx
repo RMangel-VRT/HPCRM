@@ -1,5 +1,6 @@
-import { useState } from "react";
+import { useState, useEffect, useRef } from "react";
 import { useQuery } from "@tanstack/react-query";
+import { useSearch } from "wouter";
 import { ArrowDownLeft, Inbox, Mail, Settings } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -89,7 +90,7 @@ function NoResultsState() {
       data-testid="empty-state-no-results-inbox"
     >
       <Inbox className="w-10 h-10 text-muted-foreground/30" />
-      <p className="text-sm text-muted-foreground">No inbound messages match your filters</p>
+      <p className="text-sm text-muted-foreground">Nothing new in the last 30 days</p>
     </div>
   );
 }
@@ -97,6 +98,10 @@ function NoResultsState() {
 export default function InboxTab() {
   const { search, fromDate, toDate, viewAs } = useCommunicationsShell();
   const [selectedComm, setSelectedComm] = useState<CommunicationWithDetails | null>(null);
+  const searchString = useSearch();
+  const focusId = new URLSearchParams(searchString).get("focus");
+  const [highlightId, setHighlightId] = useState<string | null>(focusId);
+  const rowRefs = useRef<Record<string, HTMLButtonElement | null>>({});
 
   const params = new URLSearchParams({ page: "1", limit: "50", direction: "inbound" });
   if (search) params.set("search", search);
@@ -127,6 +132,18 @@ export default function InboxTab() {
   const hasNoMailbox = !mailboxLoading && mailboxAccounts.length === 0;
   const showNoMailboxCta = items.length === 0 && hasNoMailbox && noFiltersActive;
 
+  // Focus deep-link: scroll to and highlight the target row
+  useEffect(() => {
+    if (!focusId || isLoading) return;
+    const el = rowRefs.current[focusId];
+    if (el) {
+      el.scrollIntoView({ behavior: "smooth", block: "center" });
+      setHighlightId(focusId);
+      const timer = setTimeout(() => setHighlightId(null), 2500);
+      return () => clearTimeout(timer);
+    }
+  }, [focusId, isLoading, response]);
+
   return (
     <div className="flex flex-col flex-1 min-h-0 overflow-hidden" data-testid="tab-content-inbox">
       <div className="flex-1 overflow-y-auto">
@@ -144,11 +161,13 @@ export default function InboxTab() {
                 : comm.body
                   ? comm.body.slice(0, 80) + (comm.body.length > 80 ? "…" : "")
                   : "";
+              const isHighlighted = highlightId === comm.id;
 
               return (
                 <li key={comm.id}>
                   <button
-                    className="w-full flex items-start gap-3 px-4 py-3 text-left hover-elevate"
+                    ref={(el) => { rowRefs.current[comm.id] = el; }}
+                    className={`w-full flex items-start gap-3 px-4 py-3 text-left hover-elevate transition-all duration-500 ${isHighlighted ? "ring-2 ring-inset ring-primary bg-primary/5" : ""}`}
                     onClick={() => setSelectedComm(comm)}
                     data-testid={`row-inbox-${comm.id}`}
                   >

@@ -1,7 +1,7 @@
 import { Router } from "express";
 import { db } from "../db";
 import { unsortedEmails } from "@shared/schema";
-import { eq, and, desc, sql, inArray } from "drizzle-orm";
+import { eq, and, desc, sql, inArray, gte } from "drizzle-orm";
 import { storage } from "../storage";
 import type { UserWithContext } from "../auth";
 import { resolveVisibleMailboxes, MailboxScopeForbiddenError } from "../services/mailboxScope";
@@ -45,7 +45,7 @@ router.get("/", async (req, res) => {
       return res.json([]);
     }
 
-    const { status, mailboxAccountId, assignedToUserId, candidateCustomerId, direction, page, limit: limitStr } = req.query;
+    const { status, mailboxAccountId, assignedToUserId, candidateCustomerId, direction, page, limit: limitStr, resolvedToday } = req.query;
     const pageNum = Math.max(1, parseInt(page as string) || 1);
     const limitNum = Math.min(100, parseInt(limitStr as string) || 25);
     const offset = (pageNum - 1) * limitNum;
@@ -76,6 +76,13 @@ router.get("/", async (req, res) => {
     if (direction === "inbound" || direction === "outbound") {
       conditions.push(eq(unsortedEmails.direction, direction as "inbound" | "outbound"));
     }
+    // resolvedToday=true — filter to emails resolved today by the current user
+    if (resolvedToday === "true") {
+      const todayStart = new Date();
+      todayStart.setHours(0, 0, 0, 0);
+      conditions.push(eq(unsortedEmails.resolvedByUserId, user.id));
+      conditions.push(gte(unsortedEmails.resolvedAt, todayStart));
+    }
 
     const rows = await db.select()
       .from(unsortedEmails)
@@ -83,6 +90,7 @@ router.get("/", async (req, res) => {
       .orderBy(desc(unsortedEmails.receivedAt))
       .limit(limitNum)
       .offset(offset);
+    console.info(`[communications.list] user=${user.id} role=${user.activeRole} tab=unsorted viewAs=${viewAs ?? null} returned=${rows.length} totalAvailable=${rows.length}`);
     res.json(rows);
   } catch (err) {
     console.error("GET /api/unsorted-emails error:", err);

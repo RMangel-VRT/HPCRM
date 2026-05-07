@@ -14275,8 +14275,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const limit = Math.min(Math.max(1, parseInt(req.query.limit as string) || 50), 200);
       const total = items.length;
       const data = items.slice((page - 1) * limit, page * limit);
+      console.info(`[communications.list] user=${user.id} role=${user.activeRole} tab=${direction ?? "all"} viewAs=${viewAs ?? null} returned=${data.length} totalAvailable=${total}`);
       return res.json({ data, total, page, limit });
     }
+    console.info(`[communications.list] user=${user.id} role=${user.activeRole} tab=${direction ?? "all"} viewAs=${viewAs ?? null} returned=${items.length} totalAvailable=${items.length}`);
     res.json(items);
   });
 
