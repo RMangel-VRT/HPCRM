@@ -1,0 +1,27 @@
+kind = "mobile"
+previewPath = "/highplains-mobile/"
+title = "High Plains Mobile"
+version = "1.0.0"
+id = "artifacts/highplains-mobile"
+router = "expo-domain"
+
+[[integratedSkills]]
+name = "expo"
+version = "1.0.0"
+
+[[services]]
+ensurePreviewReachable = "/status"
+name = "expo"
+paths = [ "/highplains-mobile/" ]
+localPort = 19245
+
+[services.development]
+run = "pnpm --filter @workspace/highplains-mobile run dev"
+
+[services.production]
+build = [ "pnpm", "--filter", "@workspace/highplains-mobile", "run", "build" ]
+run = [ "pnpm", "--filter", "@workspace/highplains-mobile", "run", "serve" ]
+
+[services.env]
+PORT = "19245"
+BASE_PATH = "/highplains-mobile/"
