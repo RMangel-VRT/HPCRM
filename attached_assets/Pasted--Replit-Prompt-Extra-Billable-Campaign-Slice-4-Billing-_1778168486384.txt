@@ -1,0 +1,359 @@
+# Replit Prompt — Extra Billable Campaign, Slice 4: Billing Queue + Ticket Generation
+
+## Context
+
+This is **Slice 4 of 5** of the Extra Billable Campaign feature. Slices 1–3 added the schema, the crew assignment board, and the property grid with photo drop zones. Slice 4 closes the workflow: when the field work is done and crew leaders have marked properties complete with photos attached, the admin reviews the campaign and generates **Extra Billable tickets** in bulk — one ticket per completed property, photos attached, crew attribution set, all linked back to the campaign item for traceability.
+
+The pattern is exactly the existing `POST /api/snow-events/:eventId/generate-tickets` flow at `server/routes.ts:9483` — but creates **Extra Billable** tickets (not Invoice tickets) at the **"Ready for Billing"** status. We skip the Execution states (New / Ready to Schedule / In Progress / Work Completed) because the campaign-side workflow already covered those — the photos and notes from the property assignment ARE the execution record.
+
+The Slice 4 deployable end-state: an admin clicks "Billing Queue" tab on a finished extra_billable campaign, sees 47 completed-but-not-yet-billed properties listed, hits "Generate All Tickets," and watches 47 Extra Billable tickets appear at "Ready for Billing." Each ticket has the property's photos attached, the crew leader as `leadTechUserId`, all crew members in `crewMemberUserIds`, and the campaign item shows a link to its generated ticket. The existing ticket → invoice flow takes over from there.
+
+This slice should land in a deployable, production-quality state. After it ships, the full storm-cleanup-to-billable-ticket loop is closed. Slice 5 (field crew leader polish) is independent and small.
+
+## Existing context (do not duplicate or replace)
+
+Slices 1–3 must already be merged before starting Slice 4. If anything from those slices is missing, stop and surface it in Deliverables before proceeding.
+
+Critical pre-existing pieces this slice depends on:
+
+- **`campaign_items.billingStatus`** and **`campaign_items.ticketId`** columns from Slice 1. Slice 4 sets these.
+- **`campaign_items.estimatedAmount`** from Slice 1 — optional admin-keyed dollar estimate. Slice 4 surfaces it in the description if set; does NOT auto-populate any ticket-level price field (per the design decision: pricing stays admin-keyed at billing time).
+- **`ensureExtraBillableTicketType(companyId)`** at `server/routes.ts:727` returns `{ typeId, statuses: Map<string, string> }`. The 6 statuses are: `New`, `Ready to Schedule`, `In Progress`, `Work Completed`, `Ready for Billing`, `Done`. Slice 4 calls this helper and creates tickets at the `"Ready for Billing"` status id.
+- **Reference implementation:** `POST /api/snow-events/:eventId/generate-tickets` at `server/routes.ts:9483`. Slice 4's endpoint is structurally identical — read this end-to-end before writing the new endpoint and mirror its loop, error handling, and field shapes.
+- **Ticket schema:** `tickets` table at `shared/schema.ts:632`. Relevant fields for this slice: `customerId`, `ticketTypeId`, `currentStatusId`, `title`, `description`, `priority`, `photos` (text array), `assignedToId`, `leadTechUserId`, `crewMemberUserIds` (text array — INCLUDES the lead, see existing usage at `routes.ts:6740`), `workType: "extra_work"`, `billingBehavior: "invoice_required"`, `workCompletedDate`, `createdById`.
+- **GCS server-side copy:** `bucket.file(srcPath).copy(bucket.file(dstPath))` is a one-line API call that copies a blob within the same bucket without downloading. We use this for Slice 4's photo transfer.
+- **Slice 1 categorization rule:** the bulk-generate endpoint is admin/office-only (NOT field role, even crew leaders) — generating tickets is an admin operation. The existing `canAccessExtraBillableCampaignItem` helper from Slice 1 is not used here; this is a campaign-level operation.
+- **Stack:** React 18 + TS + Vite + Tailwind + shadcn/ui (Radix) + Wouter + TanStack Query v5 + RHF + Zod + Drizzle + Postgres + i18next. No new dependencies.
+
+Read `server/routes.ts:9483-9555` (snow-events generate-tickets), `server/routes.ts:727-808` (`ensureExtraBillableTicketType`), and the Slice 1 `<ExtraBillableCampaignView>` component before writing code.
+
+## Schema changes
+
+**None.** All required columns and ticket-type infrastructure already exist. If you find yourself adding schema, stop and explain why before proceeding.
+
+## API endpoints
+
+### 1. New: bulk ticket generation
+
+```
+POST /api/campaigns/:campaignId/generate-tickets
+```
+
+Body (optional):
+
+```ts
+{
+  itemIds?: string[];   // explicit subset to generate; if omitted, generates for all eligible items
+}
+```
+
+When `itemIds` is provided, validates every id belongs to this campaign and is eligible (see below); rejects with 400 + offending ids if any aren't. When omitted, the server picks up every eligible item.
+
+Authentication required. **Admin or office role only** — return 403 for any other role.
+
+Validation:
+
+- Parent campaign exists for `user.activeCompanyId`. 404 otherwise.
+- Campaign category is `"extra_billable"`. 400 otherwise — this endpoint is scoped.
+
+Item eligibility (server-side filter — applied automatically when `itemIds` is omitted, validated against when provided):
+
+- `status === "completed"` (skipped/pending items are not eligible)
+- `billingStatus === "not_created"` (already-billed items are skipped silently — endpoint is idempotent)
+- `assignedCampaignCrewId !== null` (items without a crew can't be billed because there's no leader to attribute the work)
+- The assigned crew has a `leaderUserId` set (defensive — Slice 1 enforces this at assignment time, but verify on generation in case data drift happened)
+
+Pre-flight ensures:
+
+- `ensureExtraBillableTicketType(user.activeCompanyId)` is called first to guarantee the ticket type exists. Capture the returned `typeId` and `statuses` map.
+- Look up the `"Ready for Billing"` status id from the map. If missing for any reason, return 500 with a clear error so an admin can investigate.
+
+Per-item processing (mirror the snow-events loop pattern):
+
+For each eligible item:
+
+1. **Resolve crew details.** Fetch `campaign_crews` row for `assignedCampaignCrewId`, plus all `campaign_crew_members` for that crew. Capture: `leaderUserId`, `memberUserIds[]` (which already includes the leader since Slice 1's CRUD adds the leader to the members table). Also fetch the customer row to get the latest customer name and any service-address fields needed for the title.
+
+2. **Build ticket title.** Format: `${campaign.title} — ${customerName}${customerCity ? " (" + customerCity + ")" : ""}`. Truncate at 200 characters if needed. Example: `"May 5 Spring Snow Branch Cleanup — Henderson Property Management (Lakewood)"`.
+
+3. **Build ticket description.** Multi-line text, blank-line-separated sections (omit any section whose source value is empty):
+
+   ```
+   Source campaign: ${campaign.title}
+   Campaign window: ${campaign.windowStart} – ${campaign.windowEnd}
+   Crew: ${crew.name}
+   Crew leader: ${leaderName}
+   Crew members: ${memberNames.join(", ")}
+
+   Photos: ${photos.length} attached
+
+   Notes from the field:
+   ${item.notes || "(none)"}
+
+   ${item.estimatedAmount ? "Estimated: $" + item.estimatedAmount : ""}
+   ```
+
+   Use real newlines, not template-literal escapes. The existing snow-events endpoint at `:9517-9524` shows the join-with-newlines-and-filter-falsy pattern — use that.
+
+4. **Copy photos via GCS server-side copy.** For each storage key in `item.photos[]`:
+
+   - `srcPath = item.photos[i]` (already a full `extra-billable-photos/...` path)
+   - `dstPath = "ticket-photos/" + companyId + "/" + ticketId + "/" + uuidv4() + ".jpg"`
+   - Where `ticketId` is generated client-side as a UUID before the ticket insert so the path is known up front. (If the existing `createTicket` flow doesn't accept a pre-generated id, generate the path immediately after insert and update — adapt to the existing pattern.)
+   - `await bucket.file(srcParts.join("/")).copy(bucket.file(dstParts.join("/")))` — use the same bucket/path-decomposition pattern at `server/routes.ts:15256-15260`.
+   - Collect the new `dstPath` strings into the new ticket's `photos[]` array.
+   - On a per-photo copy failure, log loudly but continue with the rest. Aggregate per-ticket photo-copy failures and include in the response.
+
+5. **Create the ticket.** Use `storage.createTicket({...})` with:
+
+   ```ts
+   {
+     companyId: user.activeCompanyId,
+     ticketTypeId: extraBillableTypeId,
+     currentStatusId: readyForBillingStatusId,
+     title,
+     description,
+     customerId: item.customerId,
+     priority: "normal",
+     workType: "extra_work",
+     billingBehavior: "invoice_required",
+     photos: copiedPhotoStorageKeys, // array
+     assignedToId: user.id, // matches snow-events pattern; the generator owns it until billing
+     leadTechUserId: leaderUserId,
+     crewMemberUserIds: memberUserIds, // includes the leader (existing convention, see routes.ts:6740)
+     workCompletedDate: item.completedAt ?? new Date(), // when the field marked it done
+     createdById: user.id,
+   }
+   ```
+
+   Do NOT auto-populate any price/amount field — `estimatedAmount` is included in the description text only. Pricing is admin-keyed downstream by the existing invoicing flow.
+
+6. **Update the campaign item.** Set:
+
+   ```ts
+   {
+     billingStatus: "ticket_created",
+     ticketId: ticket.id,
+   }
+   ```
+
+   This is the canonical campaign_item → ticket link. Do NOT create a `ticket_links` row — `ticket_links` is for ticket-to-ticket relationships only (see `shared/schema.ts:840`); the campaign_item→ticket relationship lives on `campaign_items.ticketId`.
+
+7. **Append to the response array.**
+
+Response shape:
+
+```ts
+{
+  generated: number;     // tickets successfully created
+  skipped: number;       // eligible items skipped (e.g., already had ticketId)
+  failed: number;        // items that errored out partway
+  results: Array<{
+    itemId: string;
+    customerName: string;
+    success: boolean;
+    ticketId?: string;
+    error?: string;
+    photoCopyFailures?: number; // count of photos that didn't transfer
+  }>;
+}
+```
+
+Each item is processed independently — a failure on item N does NOT roll back items 1..N-1. Total transaction wrapping is intentionally avoided so that 47 successes aren't lost because of 3 failures.
+
+Logging: on each successful generation, log at info level matching the existing pattern at `routes.ts:6722` and `:7544`: `"Generated Extra Billable ticket {ticketId} for campaign {campaignId} item {itemId} (\"{title}\")"`.
+
+### 2. New: per-item single ticket generation
+
+```
+POST /api/campaigns/:campaignId/items/:itemId/generate-ticket
+```
+
+Identical behavior to the bulk endpoint but for one item. Same eligibility checks. Returns the same per-item result shape. Used by the per-row "Generate" button on the Billing Queue.
+
+Implementation: factor the per-item generation logic into a helper `generateExtraBillableTicketForItem(item, campaign, user, ticketTypeInfo)` and call it from both endpoints. The bulk endpoint loops over eligible items calling the helper; the single endpoint validates item id then calls the helper once.
+
+### 3. New: campaign billing summary
+
+```
+GET /api/campaigns/:campaignId/billing-summary
+```
+
+Returns:
+
+```ts
+{
+  totalCompleted: number;
+  totalSkipped: number;
+  totalPending: number;
+  ticketsCreated: number;
+  notYetCreated: number;
+  ineligibleItems: Array<{
+    itemId: string;
+    customerName: string;
+    reason: "no_crew_assigned" | "crew_has_no_leader";
+  }>;
+  estimatedAmountTotal: number | null; // sum of estimatedAmount where set, null if none have it
+}
+```
+
+The Billing Queue UI uses this for its summary header and the "X items skipped — see why" expandable.
+
+Authorization: admin/office.
+
+## UI / pages / components
+
+### 1. Activate the "Billing Queue" tab
+
+In `client/src/components/ExtraBillableCampaignView.tsx`, the Billing Queue tab is currently a placeholder from Slice 1. Replace its empty state with the live `<BillingQueueTab>` component (see §2). The tab is visible to admin/office only — for `field`-role users, hide it entirely (don't render in the tab list).
+
+### 2. New component: `<BillingQueueTab>`
+
+Path: `client/src/components/BillingQueueTab.tsx`. Accepts `campaignId: string`. Layout:
+
+```
++------------------------------------------------------+
+| Billing Queue                                         |
+| 47 ready · 12 already billed · 8 ineligible          |
+| [ Generate All (47) ]                                 |
++------------------------------------------------------+
+| (filter: All / Ready / Already Billed / Ineligible)   |
++------------------------------------------------------+
+| Customer        | Crew    | Photos | Status  | Action |
+| Henderson       | Crew 1  |   8    | Ready   | [Gen]  |
+| Smith Family    | Crew 2  |   5    | Ready   | [Gen]  |
+| ...                                                    |
++------------------------------------------------------+
+```
+
+Top summary row pulls from `GET /api/campaigns/:cid/billing-summary`. Counters update live after each generation via TanStack Query invalidation.
+
+#### Generate All button
+
+- Disabled if `notYetCreated === 0`.
+- On click, opens an `<AlertDialog>` for confirmation: `"Generate {count} Extra Billable tickets? Each completed property becomes one ticket at 'Ready for Billing' status. This can't be undone individually — you'd have to delete tickets one at a time afterward."`
+- On confirm, fires `POST /api/campaigns/:cid/generate-tickets` (no body) and shows a loading state. Use a Radix `<Progress>` indeterminate while the bulk runs.
+- On response: show a results toast `"Generated {generated} tickets · {skipped} skipped · {failed} failed"` colored success/warning/error appropriately. If `failed > 0`, show an inline alert with a list of failures and a "Retry failed" button that re-fires the endpoint with `itemIds` set to just the failed items.
+- Invalidate the items query, the billing-summary query, and the tickets list query on success.
+
+#### Per-row Generate button
+
+- Same confirmation pattern via popover instead of full dialog (less ceremony for one item).
+- Calls the per-item endpoint.
+- Row updates in place to show "Ticket created" with a link icon → navigates to `/dashboard/tickets/:ticketId`.
+
+#### Filter tabs
+
+Three filter chips above the table: **Ready** (eligible items), **Already Billed** (`billingStatus !== "not_created"` — shows the link to the existing ticket), **Ineligible** (completed-but-no-crew, completed-but-leaderless-crew, or any other failure mode the summary surfaced).
+
+For each ineligible item, show the inline reason and a contextual fix button:
+- `"No crew assigned"` → button "Assign to crew" that switches to the Assignments tab and highlights this property.
+- `"Crew has no leader"` → button "Set leader" that switches to the Crews tab and opens the crew editor.
+
+#### Already Billed view
+
+Each row shows the linked ticket with its current status badge (fetched from the tickets endpoint or from a small embedded ticket lookup). Click → navigate to ticket detail.
+
+### 3. Campaign-item display addition
+
+On the existing `CampaignItemDetail.tsx` page (which is the per-property detail view), add a small banner at the top when `item.ticketId` is set:
+
+```
+┌──────────────────────────────────────────────────┐
+│  ✓  Ticket created on May 7 — view it →           │
+└──────────────────────────────────────────────────┘
+```
+
+Click navigates to `/dashboard/tickets/:ticketId`. Color: success-tinted background. Place above the existing item header.
+
+When `item.billingStatus === "not_created"` and the item is `completed`, show an inline button: `"Generate Extra Billable ticket"` that calls the per-item endpoint. Admin/office only — hide from field-role users.
+
+### 4. i18next keys
+
+Add to the existing `campaigns` namespace (flat camelCase, both `en.ts` and `es.ts`):
+
+```ts
+billingQueueTitle: "Billing Queue",
+billingSummaryReady: "{{count}} ready",
+billingSummaryAlreadyBilled: "{{count}} already billed",
+billingSummaryIneligible: "{{count}} ineligible",
+billingSummaryEstimatedTotal: "Est. total: ${{amount}}",
+generateAllTickets: "Generate All ({{count}})",
+generateOneTicket: "Generate ticket",
+generateConfirmTitle: "Generate {{count}} Extra Billable tickets?",
+generateConfirmDescription: "Each completed property becomes one ticket at 'Ready for Billing' status. Tickets must be deleted individually if you change your mind.",
+generateConfirmAction: "Generate {{count}}",
+generateConfirmCancel: "Cancel",
+generateInProgress: "Generating tickets…",
+generateResultsToast: "Generated {{generated}} · skipped {{skipped}} · failed {{failed}}",
+generateRetryFailed: "Retry failed",
+billingFilterReady: "Ready",
+billingFilterAlreadyBilled: "Already billed",
+billingFilterIneligible: "Ineligible",
+billingIneligibleNoCrew: "No crew assigned",
+billingIneligibleNoLeader: "Crew has no leader",
+billingFixAssignCrew: "Assign to crew",
+billingFixSetLeader: "Set leader",
+billingTicketCreatedBanner: "Ticket created {{date}} — view it →",
+billingViewTicket: "View ticket",
+billingTableCustomer: "Customer",
+billingTableCrew: "Crew",
+billingTablePhotos: "Photos",
+billingTableStatus: "Status",
+billingTableAction: "Action",
+billingStatusReady: "Ready",
+billingStatusTicketCreated: "Ticket created",
+```
+
+## Patterns and conventions
+
+- The bulk-generation endpoint must be **idempotent** — calling it twice in a row should generate zero tickets the second time (since all eligible items will have moved to `billingStatus: "ticket_created"`). Verify in tests.
+- Per-item processing must be independent — partial failures don't roll back successful generations.
+- Use `data-testid` on every interactive element. Examples: `data-testid="button-generate-all"`, `data-testid="row-billing-${itemId}"`, `data-testid="button-generate-row-${itemId}"`, `data-testid="link-ticket-${ticketId}"`.
+- All user-facing strings via i18next. Reuse existing keys where possible — e.g., `campaigns.completed` already exists.
+- The bulk endpoint should NOT block the request with a transaction. It loops, processes, and returns. For 100 items this could take 10–30 seconds (mostly photo copies). The client shows an indeterminate progress bar and a "this may take a moment" message after 5 seconds; do NOT add streaming/SSE in this slice — a single POST that returns when done is fine.
+- GCS photo copies use server-side `bucket.file(src).copy(bucket.file(dst))` — never download-then-reupload. The blobs stay in the same bucket; the copy is fast and free.
+- Match the existing logging patterns at `routes.ts:6722` and `:7544` — `console.log("Generated Extra Billable ticket {id} for campaign {cid} item {iid}")` etc.
+
+## Testing
+
+Add a `vitest` + `supertest` test file at `server/routes/extraBillableCampaign.generateTickets.test.ts` covering:
+
+- Bulk generation succeeds for 3 eligible items, returns counts and per-item results, sets `billingStatus` and `ticketId` on each.
+- Idempotency: second call to the bulk endpoint with no body returns `generated: 0, skipped: 3` (the items that already have tickets).
+- Items with `assignedCampaignCrewId === null` are filtered out and surface in the summary as `"no_crew_assigned"`.
+- Items where the assigned crew has `leaderUserId === null` are filtered out and surface as `"crew_has_no_leader"`.
+- Field role gets 403 even if they're a crew leader.
+- Cross-company access returns 404.
+- Wrong campaign category returns 400.
+- Per-item endpoint validates the item belongs to the campaign.
+- A simulated GCS copy failure on one photo of one item still allows the rest of the items to generate; the failed-item result has `photoCopyFailures: 1` but `success: true` (the ticket was created with the photos that did transfer).
+- The created tickets have correct `ticketTypeId` (Extra Billable), `currentStatusId` (Ready for Billing), `workType: "extra_work"`, `billingBehavior: "invoice_required"`, `leadTechUserId` set to the crew leader, `crewMemberUserIds` containing the leader plus all members.
+
+## Out of scope for this slice (do not build)
+
+- Auto-pricing tickets from `estimatedAmount` (it goes in the description only; pricing is admin-keyed at billing time).
+- Editing a generated ticket's photos from the campaign side after generation (use the ticket's own photo flow).
+- Un-generating / rolling back a ticket — admins delete the ticket the existing way and reset `campaign_items.billingStatus` manually if needed. v2 work.
+- Bulk delete of generated tickets.
+- Email notification to the customer when the ticket is created (existing ticket workflows handle this if configured).
+- Streaming / progress events from the bulk endpoint (single POST is fine for v1).
+- Field crew leader's home dashboard widget (Slice 5).
+- Cross-campaign reporting on extra-billable revenue (defer to v2 or use the existing reports infrastructure).
+
+## Deliverables
+
+When you finish, report back with:
+
+1. List of all new files created (paths).
+2. List of all files modified (paths + 1-line description).
+3. The exact endpoints added with method, path, role, request/response schemas.
+4. Confirmation that `ensureExtraBillableTicketType` was reused (not re-implemented), and the exact lookup used to find the "Ready for Billing" status id.
+5. The exact ticket field shape produced (`workType`, `billingBehavior`, `leadTechUserId`, `crewMemberUserIds`, etc.) — copy your `storage.createTicket()` call into the deliverable.
+6. The GCS photo-copy strategy — confirm server-side `bucket.file().copy()` was used and the destination path scheme.
+7. The eligibility-filter rules implemented and the ineligible-reason taxonomy.
+8. The vitest test file path and the list of cases included.
+9. Any decisions you made where this prompt was ambiguous, and what you chose.
+10. A short manual test plan covering: building a campaign with 5 properties, completing 4 of them with photos, leaving 1 incomplete; setting up 2 crews; assigning 4 properties across the crews; opening Billing Queue, confirming 4 ready and 0 ineligible; clicking Generate All; verifying 4 Extra Billable tickets appear at "Ready for Billing" with photos; verifying `campaign_items.ticketId` is set; clicking Generate All a second time and confirming 0 generated, 4 skipped (idempotency); intentionally creating an unassigned completed property and confirming it shows as "no_crew_assigned" in Ineligible; using the contextual "Assign to crew" button to fix it; re-running Generate All for just that item.
+
+Do not skip any item silently. If something can't be built as specified, document the actual constraint and what you did instead.
