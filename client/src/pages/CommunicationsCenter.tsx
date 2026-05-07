@@ -1,10 +1,11 @@
 import { useParams, Redirect } from "wouter";
 import { useSetBreadcrumbs } from "@/hooks/use-breadcrumbs";
 import { useAuth } from "@/hooks/use-auth";
-import { CommunicationsPageShell } from "./communications/CommunicationsPageShell";
+import { CommunicationsPageShell, useCommunicationsShell } from "./communications/CommunicationsPageShell";
 import { CommunicationsToolbar } from "./communications/CommunicationsToolbar";
 import { CommunicationsSecondaryNav } from "./communications/CommunicationsSecondaryNav";
 import AllCommunicationsTab from "./communications/AllCommunicationsTab";
+import UnsortedTab from "@/components/customer/communications/UnsortedTab";
 import { Mail } from "lucide-react";
 
 const VALID_TABS = ["inbox", "sent", "unsorted", "all"] as const;
@@ -12,6 +13,11 @@ type Tab = typeof VALID_TABS[number];
 
 function isValidTab(t: string | undefined): t is Tab {
   return VALID_TABS.includes(t as Tab);
+}
+
+function UnsortedTabShellWrapper() {
+  const { viewAs, setViewAs } = useCommunicationsShell();
+  return <UnsortedTab viewAs={viewAs} onViewAsChange={setViewAs} />;
 }
 
 function PlaceholderTab({ label }: { label: string }) {
@@ -54,7 +60,7 @@ export default function CommunicationsCenter() {
         <div className="flex flex-1 min-h-0 overflow-hidden">
           {rawTab === "inbox" && <PlaceholderTab label="Inbox" />}
           {rawTab === "sent" && <PlaceholderTab label="Sent" />}
-          {rawTab === "unsorted" && <PlaceholderTab label="Unsorted" />}
+          {rawTab === "unsorted" && <UnsortedTabShellWrapper />}
           {rawTab === "all" && <AllCommunicationsTab />}
         </div>
       </div>
