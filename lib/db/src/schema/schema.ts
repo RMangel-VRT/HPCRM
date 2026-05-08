@@ -2740,6 +2740,7 @@ export const communications = pgTable("communications", {
   automationRuleName: text("automation_rule_name"),
   automationSourceRecordType: text("automation_source_record_type"),
   automationSourceRecordId: varchar("automation_source_record_id"),
+  deletedAt: timestamp("deleted_at"),
   createdAt: timestamp("created_at").notNull().defaultNow(),
   updatedAt: timestamp("updated_at").notNull().defaultNow(),
 }, (table) => ({
@@ -2749,6 +2750,7 @@ export const communications = pgTable("communications", {
   communicationsSentByIdIdx: index("communications_sent_by_id_idx").on(table.sentById),
   communicationsFollowUpStatusIdx: index("communications_follow_up_status_idx").on(table.followUpStatus),
   communicationsCompanyCreatedAtIdx: index("communications_company_created_at_idx").on(table.companyId, table.createdAt),
+  communicationsDeletedAtIdx: index("communications_deleted_at_idx").on(table.deletedAt),
 }));
 
 export const insertCommunicationSchema = createInsertSchema(communications).omit({

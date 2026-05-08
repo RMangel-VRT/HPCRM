@@ -24,7 +24,7 @@ import { users, customers, contacts, companies, companyUsers, settings, notes, c
 import type { StylePreset, InsertStylePreset, SheetTemplate, InsertSheetTemplate, StylePresetType, StylePresetConfig } from "@workspace/db";
 import type { VisibleMailboxes } from "./services/mailboxScope";
 import type { CommunicationAutomationRule, InsertCommunicationAutomationRule, ServicePlanTemplateWithItems, ServicePlanTemplate, InsertServicePlanTemplate, ServicePlanTemplateItem, ServicePlanCategory, CustomerServicePlan, InsertCustomerServicePlan, ServiceFulfillmentRow } from "@workspace/db";
-import { eq, and, or, sql, desc, asc, inArray, max, type SQL, getTableColumns } from "drizzle-orm";
+import { eq, and, or, sql, desc, asc, inArray, isNull, max, type SQL, getTableColumns } from "drizzle-orm";
 import session from "express-session";
 import connectPg from "connect-pg-simple";
 import { pool } from "./db";
@@ -411,7 +411,9 @@ export interface IStorage {
   createCommunication(communication: InsertCommunication): Promise<Communication>;
   updateCommunication(id: string, companyId: string, updates: Partial<InsertCommunication>): Promise<Communication | undefined>;
   deleteCommunication(id: string, companyId: string): Promise<void>;
-  deleteSeedCommunications(companyId: string, seedSubjects: string[]): Promise<number>;
+  restoreCommunication(id: string, companyId: string): Promise<Communication | undefined>;
+  deleteSeedCommunications(companyId: string, seedSubjects: string[]): Promise<string[]>;
+  restoreCommunications(ids: string[], companyId: string): Promise<string[]>;
   getCommunicationStats(companyId: string): Promise<{ drafts: number; scheduledToday: number; openFollowUps: number; overdueFollowUps: number }>;
   getCommunicationTemplates(companyId: string, includeArchived?: boolean): Promise<CommunicationTemplate[]>;
   getCommunicationTemplateById(id: string, companyId: string): Promise<CommunicationTemplate | undefined>;
@@ -3843,6 +3845,7 @@ export class PgStorage implements IStorage {
     // Build SQL WHERE conditions — push as many filters to the DB as possible
     const conditions: (ReturnType<typeof eq> | ReturnType<typeof and> | ReturnType<typeof or> | ReturnType<typeof sql> | undefined)[] = [
       eq(communications.companyId, companyId),
+      isNull(communications.deletedAt),
     ];
 
     if (filters?.status) {
@@ -3978,7 +3981,11 @@ export class PgStorage implements IStorage {
     if (threadIds.length > 0) {
       const allThreadComms = await db.select({ threadId: communications.threadId, count: sql<number>`count(*)` })
         .from(communications)
-        .where(and(eq(communications.companyId, companyId), inArray(communications.threadId, threadIds as string[])))
+        .where(and(
+          eq(communications.companyId, companyId),
+          inArray(communications.threadId, threadIds as string[]),
+          isNull(communications.deletedAt),
+        ))
         .groupBy(communications.threadId);
       for (const row of allThreadComms) {
         if (row.threadId) replyCounts.set(row.threadId, Number(row.count));
@@ -4019,7 +4026,11 @@ export class PgStorage implements IStorage {
   async getCommunicationByProviderMessageId(companyId: string, providerMessageId: string): Promise<Communication | null> {
     const [row] = await db.select()
       .from(communications)
-      .where(and(eq(communications.companyId, companyId), eq(communications.providerMessageId, providerMessageId)))
+      .where(and(
+        eq(communications.companyId, companyId),
+        eq(communications.providerMessageId, providerMessageId),
+        isNull(communications.deletedAt),
+      ))
       .limit(1);
     return row ?? null;
   }
@@ -4037,7 +4048,11 @@ export class PgStorage implements IStorage {
       .leftJoin(contacts, eq(communications.contactId, contacts.id))
       .leftJoin(users, eq(communications.sentById, users.id))
       .leftJoin(communicationTemplates, eq(communications.templateId, communicationTemplates.id))
-      .where(and(eq(communications.id, id), eq(communications.companyId, companyId)));
+      .where(and(
+        eq(communications.id, id),
+        eq(communications.companyId, companyId),
+        isNull(communications.deletedAt),
+      ));
     if (!rows[0]) return undefined;
     const row = rows[0];
     const now = new Date();
@@ -4077,19 +4092,48 @@ export class PgStorage implements IStorage {
     return row;
   }
   async deleteCommunication(id: string, companyId: string): Promise<void> {
-    await db.delete(communications).where(and(eq(communications.id, id), eq(communications.companyId, companyId)));
+    await db.update(communications)
+      .set({ deletedAt: new Date(), updatedAt: new Date() })
+      .where(and(
+        eq(communications.id, id),
+        eq(communications.companyId, companyId),
+        isNull(communications.deletedAt),
+      ));
   }
 
-  async deleteSeedCommunications(companyId: string, seedSubjects: string[]): Promise<number> {
-    if (seedSubjects.length === 0) return 0;
+  async restoreCommunication(id: string, companyId: string): Promise<Communication | undefined> {
+    const [row] = await db.update(communications)
+      .set({ deletedAt: null, updatedAt: new Date() })
+      .where(and(eq(communications.id, id), eq(communications.companyId, companyId)))
+      .returning();
+    return row;
+  }
+
+  async deleteSeedCommunications(companyId: string, seedSubjects: string[]): Promise<string[]> {
+    if (seedSubjects.length === 0) return [];
     const result = await db
-      .delete(communications)
+      .update(communications)
+      .set({ deletedAt: new Date(), updatedAt: new Date() })
       .where(and(
         eq(communications.companyId, companyId),
         inArray(communications.subject, seedSubjects),
+        isNull(communications.deletedAt),
       ))
       .returning({ id: communications.id });
-    return result.length;
+    return result.map(r => r.id);
+  }
+
+  async restoreCommunications(ids: string[], companyId: string): Promise<string[]> {
+    if (ids.length === 0) return [];
+    const result = await db
+      .update(communications)
+      .set({ deletedAt: null, updatedAt: new Date() })
+      .where(and(
+        eq(communications.companyId, companyId),
+        inArray(communications.id, ids),
+      ))
+      .returning({ id: communications.id });
+    return result.map(r => r.id);
   }
 
   async getCommunicationStats(companyId: string): Promise<{ drafts: number; scheduledToday: number; openFollowUps: number; overdueFollowUps: number }> {
@@ -4100,19 +4144,23 @@ export class PgStorage implements IStorage {
     const [draftsResult, scheduledTodayResult, openFollowUpsResult, overdueFollowUpsResult] = await Promise.all([
       db.select({ count: sql<number>`count(*)::int` }).from(communications).where(and(
         eq(communications.companyId, companyId),
+        isNull(communications.deletedAt),
         sql`${communications.status} = 'draft'`
       )),
       db.select({ count: sql<number>`count(*)::int` }).from(communications).where(and(
         eq(communications.companyId, companyId),
+        isNull(communications.deletedAt),
         sql`${communications.status} = 'scheduled'`,
         sql`${communications.scheduledFor} >= ${todayStart} AND ${communications.scheduledFor} < ${todayEnd}`
       )),
       db.select({ count: sql<number>`count(*)::int` }).from(communications).where(and(
         eq(communications.companyId, companyId),
+        isNull(communications.deletedAt),
         sql`${communications.followUpStatus} = 'open'`
       )),
       db.select({ count: sql<number>`count(*)::int` }).from(communications).where(and(
         eq(communications.companyId, companyId),
+        isNull(communications.deletedAt),
         sql`${communications.followUpStatus} IN ('open', 'snoozed')`,
         sql`${communications.followUpDueAt} < ${now}`
       )),
@@ -4171,12 +4219,15 @@ export class PgStorage implements IStorage {
     monthAgo.setDate(monthAgo.getDate() - 30);
     const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
 
+    const notDeleted = isNull(communications.deletedAt);
+
     const allSent = await db
       .select({ count: sql<number>`count(*)::int` })
       .from(communications)
       .where(
         and(
           eq(communications.companyId, companyId),
+          notDeleted,
           eq(communications.status, "sent"),
           gte(communications.sentAt, startDate),
           lte(communications.sentAt, endDate)
@@ -4189,6 +4240,7 @@ export class PgStorage implements IStorage {
       .where(
         and(
           eq(communications.companyId, companyId),
+          notDeleted,
           eq(communications.status, "sent"),
           gte(communications.sentAt, weekAgo)
         )
@@ -4200,6 +4252,7 @@ export class PgStorage implements IStorage {
       .where(
         and(
           eq(communications.companyId, companyId),
+          notDeleted,
           eq(communications.status, "sent"),
           gte(communications.sentAt, monthAgo)
         )
@@ -4211,6 +4264,7 @@ export class PgStorage implements IStorage {
       .where(
         and(
           eq(communications.companyId, companyId),
+          notDeleted,
           eq(communications.status, "scheduled")
         )
       );
@@ -4221,6 +4275,7 @@ export class PgStorage implements IStorage {
       .where(
         and(
           eq(communications.companyId, companyId),
+          notDeleted,
           eq(communications.followUpStatus, "open")
         )
       );
@@ -4231,6 +4286,7 @@ export class PgStorage implements IStorage {
       .where(
         and(
           eq(communications.companyId, companyId),
+          notDeleted,
           eq(communications.followUpStatus, "open"),
           gte(communications.followUpDueAt, now),
           lte(communications.followUpDueAt, weekAgo)
@@ -4243,7 +4299,7 @@ export class PgStorage implements IStorage {
         count: sql<number>`count(*)::int`,
       })
       .from(communications)
-      .where(and(eq(communications.companyId, companyId), eq(communications.status, "sent")))
+      .where(and(eq(communications.companyId, companyId), notDeleted, eq(communications.status, "sent")))
       .groupBy(communications.type);
 
     const byStaff = await db
@@ -4254,7 +4310,7 @@ export class PgStorage implements IStorage {
       })
       .from(communications)
       .leftJoin(users, eq(communications.sentById, users.id))
-      .where(and(eq(communications.companyId, companyId), eq(communications.status, "sent")))
+      .where(and(eq(communications.companyId, companyId), notDeleted, eq(communications.status, "sent")))
       .groupBy(communications.sentById, users.name)
       .orderBy(desc(sql`count`))
       .limit(5);
@@ -4267,7 +4323,7 @@ export class PgStorage implements IStorage {
       })
       .from(communications)
       .leftJoin(customers, eq(communications.customerId, customers.id))
-      .where(and(eq(communications.companyId, companyId), eq(communications.status, "sent")))
+      .where(and(eq(communications.companyId, companyId), notDeleted, eq(communications.status, "sent")))
       .groupBy(communications.customerId, customers.name)
       .orderBy(desc(sql`count`))
       .limit(5);
@@ -4280,7 +4336,7 @@ export class PgStorage implements IStorage {
       })
       .from(communications)
       .leftJoin(communicationTemplates, eq(communications.templateId, communicationTemplates.id))
-      .where(and(eq(communications.companyId, companyId), eq(communications.status, "sent")))
+      .where(and(eq(communications.companyId, companyId), notDeleted, eq(communications.status, "sent")))
       .groupBy(communications.templateId, communicationTemplates.name)
       .orderBy(desc(sql`count`))
       .limit(5);
@@ -4367,7 +4423,11 @@ export class PgStorage implements IStorage {
       .leftJoin(customers, eq(communications.customerId, customers.id))
       .leftJoin(contacts, eq(communications.contactId, contacts.id))
       .leftJoin(users, eq(communications.sentById, users.id))
-      .where(and(eq(communications.threadId, threadId), eq(communications.companyId, companyId)))
+      .where(and(
+        eq(communications.threadId, threadId),
+        eq(communications.companyId, companyId),
+        isNull(communications.deletedAt),
+      ))
       .orderBy(communications.createdAt);
 
     return rows.map(row => ({

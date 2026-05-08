@@ -8,6 +8,7 @@ import { format } from "date-fns";
 import { queryClient, apiRequest } from "@/lib/queryClient";
 import { useAuth } from "@/hooks/use-auth";
 import { useToast } from "@/hooks/use-toast";
+import { ToastAction } from "@/components/ui/toast";
 import { DatePickerField } from "@/components/DatePickerField";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -186,15 +187,54 @@ function ClearSeedSamplesButton() {
   const clearMutation = useMutation({
     mutationFn: async () => {
       const res = await apiRequest("POST", "/api/communications/clear-seed-data", {});
-      return res.json() as Promise<{ deletedCount: number }>;
+      return res.json() as Promise<{ deletedCount: number; deletedIds: string[] }>;
     },
     onSuccess: (data) => {
-      toast({
-        title: "Seed sample emails cleared",
-        description: `${data.deletedCount} sample communication${data.deletedCount === 1 ? "" : "s"} removed.`,
-      });
       queryClient.invalidateQueries({ queryKey: ["/api/communications"] });
       setOpen(false);
+
+      if (data.deletedCount === 0) {
+        toast({ title: "No seed samples to clear" });
+        return;
+      }
+
+      let undone = false;
+      const handle = toast({
+        title: "Seed sample emails cleared",
+        description: `${data.deletedCount} sample communication${data.deletedCount === 1 ? "" : "s"} removed.`,
+        duration: 10000,
+        action: (
+          <ToastAction
+            altText="Undo clear seed samples"
+            data-testid="button-undo-clear-seed-samples"
+            onClick={async (e) => {
+              e.preventDefault();
+              if (undone) return;
+              undone = true;
+              try {
+                const res = await apiRequest("POST", "/api/communications/restore-batch", {
+                  ids: data.deletedIds,
+                });
+                if (!res.ok) {
+                  const text = await res.text().catch(() => "");
+                  throw new Error(text || "Failed to restore communications");
+                }
+                handle.dismiss();
+                queryClient.invalidateQueries({ queryKey: ["/api/communications"] });
+                toast({ title: "Seed sample emails restored" });
+              } catch (err) {
+                toast({
+                  title: "Failed to undo",
+                  description: err instanceof Error ? err.message : String(err),
+                  variant: "destructive",
+                });
+              }
+            }}
+          >
+            Undo
+          </ToastAction>
+        ),
+      });
     },
     onError: (err: Error) => {
       toast({

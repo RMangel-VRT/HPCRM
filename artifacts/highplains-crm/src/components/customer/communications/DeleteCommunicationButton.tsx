@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useMutation } from "@tanstack/react-query";
-import { Trash2, Loader2 } from "lucide-react";
+import { Trash2, Loader2, Undo2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
   AlertDialog,
@@ -12,6 +12,7 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
+import { ToastAction } from "@/components/ui/toast";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 
@@ -23,6 +24,8 @@ export interface DeleteCommunicationButtonProps {
   onDeleted?: () => void;
 }
 
+const UNDO_WINDOW_MS = 10000;
+
 export default function DeleteCommunicationButton({
   communicationId,
   subject,
@@ -33,6 +36,13 @@ export default function DeleteCommunicationButton({
   const { toast } = useToast();
   const [open, setOpen] = useState(false);
 
+  const invalidateAll = () => {
+    queryClient.invalidateQueries({ queryKey: ["/api/communications"] });
+    for (const key of invalidateKeys) {
+      queryClient.invalidateQueries({ queryKey: key });
+    }
+  };
+
   const deleteMutation = useMutation({
     mutationFn: async () => {
       const res = await apiRequest("DELETE", `/api/communications/${communicationId}`);
@@ -42,13 +52,49 @@ export default function DeleteCommunicationButton({
       }
     },
     onSuccess: () => {
-      toast({ title: "Communication deleted" });
-      queryClient.invalidateQueries({ queryKey: ["/api/communications"] });
-      for (const key of invalidateKeys) {
-        queryClient.invalidateQueries({ queryKey: key });
-      }
+      invalidateAll();
       setOpen(false);
       onDeleted?.();
+
+      let undone = false;
+      const handle = toast({
+        title: "Communication deleted",
+        description: subject ? `"${subject}" was removed.` : "The communication was removed.",
+        duration: UNDO_WINDOW_MS,
+        action: (
+          <ToastAction
+            altText="Undo delete"
+            data-testid={`button-undo-delete-comm-${communicationId}`}
+            onClick={async (e) => {
+              e.preventDefault();
+              if (undone) return;
+              undone = true;
+              try {
+                const res = await apiRequest(
+                  "POST",
+                  `/api/communications/${communicationId}/restore`,
+                );
+                if (!res.ok) {
+                  const text = await res.text().catch(() => "");
+                  throw new Error(text || "Failed to restore communication");
+                }
+                handle.dismiss();
+                invalidateAll();
+                toast({ title: "Communication restored" });
+              } catch (err) {
+                toast({
+                  title: "Failed to undo delete",
+                  description: err instanceof Error ? err.message : String(err),
+                  variant: "destructive",
+                });
+              }
+            }}
+          >
+            <Undo2 className="w-3.5 h-3.5 mr-1" />
+            Undo
+          </ToastAction>
+        ),
+      });
     },
     onError: (err: Error) => {
       toast({
@@ -101,8 +147,8 @@ export default function DeleteCommunicationButton({
             <AlertDialogTitle>Delete this communication?</AlertDialogTitle>
             <AlertDialogDescription>
               {subject
-                ? `"${subject}" will be permanently removed. This action cannot be undone.`
-                : "This communication will be permanently removed. This action cannot be undone."}
+                ? `"${subject}" will be removed. You'll have a few seconds to undo from the toast.`
+                : "This communication will be removed. You'll have a few seconds to undo from the toast."}
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>

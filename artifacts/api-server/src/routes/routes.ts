@@ -14539,7 +14539,24 @@ export async function registerRoutes(app: Express): Promise<Server> {
         recipientEmail: existing.recipientEmail ?? null,
       },
     });
-    res.status(204).end();
+    // Return the id so the client can offer Undo for a brief window
+    res.status(200).json({ id: req.params.id });
+  });
+
+  // Restore a soft-deleted communication (Undo within the toast window)
+  app.post("/api/communications/:id/restore", requireCommPermission("send"), async (req, res) => {
+    const user = req.user as UserWithContext;
+    const restored = await storage.restoreCommunication(req.params.id, user.activeCompanyId);
+    if (!restored) return res.status(404).json({ error: "Not found" });
+    await writeCommAuditLog(user.activeCompanyId, user.id, "communication_restored", {
+      communicationId: req.params.id,
+      actionDetails: {
+        subject: restored.subject ?? null,
+        type: restored.type,
+        status: restored.status,
+      },
+    });
+    res.json(restored);
   });
 
   // Admin-only: clear demo/sample communications by their well-known seed subjects
@@ -14554,11 +14571,27 @@ export async function registerRoutes(app: Express): Promise<Server> {
       "Monthly Service Report - March 2026",
       "Service cancellation notice",
     ];
-    const deletedCount = await storage.deleteSeedCommunications(user.activeCompanyId, SEED_SUBJECTS);
+    const deletedIds = await storage.deleteSeedCommunications(user.activeCompanyId, SEED_SUBJECTS);
     await writeCommAuditLog(user.activeCompanyId, user.id, "communication_seed_cleared", {
-      actionDetails: { deletedCount, seedSubjects: SEED_SUBJECTS },
+      actionDetails: { deletedCount: deletedIds.length, seedSubjects: SEED_SUBJECTS },
     });
-    res.json({ deletedCount });
+    res.json({ deletedCount: deletedIds.length, deletedIds });
+  });
+
+  // Restore a batch of soft-deleted communications (Undo for the seed-cleanup batch)
+  app.post("/api/communications/restore-batch", requireCommPermission("manage_automations"), async (req, res) => {
+    const user = req.user as UserWithContext;
+    const ids: unknown = req.body?.ids;
+    if (!Array.isArray(ids) || !ids.every((x) => typeof x === "string")) {
+      return res.status(400).json({ error: "ids must be an array of strings" });
+    }
+    const restoredIds = await storage.restoreCommunications(ids as string[], user.activeCompanyId);
+    if (restoredIds.length > 0) {
+      await writeCommAuditLog(user.activeCompanyId, user.id, "communication_seed_restored", {
+        actionDetails: { restoredCount: restoredIds.length, restoredIds },
+      });
+    }
+    res.json({ restoredCount: restoredIds.length, restoredIds });
   });
 
   // GET /api/communication-templates
