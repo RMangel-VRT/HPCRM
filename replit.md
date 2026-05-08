@@ -24,7 +24,7 @@ Per the `database` skill, **only Replit's Publish flow may change the production
 **Adding a new Postgres extension — required order:**
 1. Install it on the **production** DB first via Replit's Production DB UI (Workspace → Database → switch to Production → run `CREATE EXTENSION IF NOT EXISTS <name>`). Extensions persist forever; this is a one-time per-DB step.
 2. Install it on the **development** DB (run `CREATE EXTENSION IF NOT EXISTS <name>` against `DATABASE_URL`) and add a dev-only safety-net migration in `.migration-backup/migrations/` (see `0014_ensure_pg_trgm.sql`) so freshly-bootstrapped dev DBs pick it up.
-3. Add the extension's allowlist entry in `scripts/src/check-required-extensions.ts` so the preflight guard knows it's expected.
+3. Add the extension to the cross-DB allowlist in `lib/db/src/required-extensions.ts` (`REQUIRED_EXTENSIONS`, plus an `OPERATOR_CLASS_TO_EXTENSION` entry if you're adding a new opclass). This file is the single source of truth read by `scripts/src/check-required-extensions.ts`.
 4. **Only then** add the schema object that depends on it (the operator class / index / type) to `lib/db/src/schema/`.
 
 If you reverse this order, the schema-drift / required-extensions validation will block the merge in dev, and even if it slips through, Publish will fail in prod.
