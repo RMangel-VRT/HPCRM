@@ -11,10 +11,23 @@ A full-featured property maintenance CRM for High Plains Property Maintenance �
 - `pnpm --filter @workspace/scripts run migrate` — apply any unapplied SQL files in `.migration-backup/migrations/` against `DATABASE_URL` (idempotent; tracks applied files in `_applied_sql_migrations`)
 - `pnpm --filter @workspace/scripts run migrate -- --baseline-existing` — first-run mode: marks already-present migrations as applied without re-running them, then applies anything truly new
 - `pnpm --filter @workspace/scripts run check-schema-drift` — reports tables/columns the Drizzle schema declares that are missing from the live DB (exits non-zero on drift); the API server also runs this on boot and logs a warning
+- `pnpm --filter @workspace/scripts run check-required-extensions` — fails if `lib/db/src/schema/` references any Postgres extension (e.g. `gin_trgm_ops` → `pg_trgm`) that is not installed in the live `DATABASE_URL`'s `pg_extension`. Wired into the `schema-drift` validation workflow so an extension-dependent schema change can't merge without the extension being present.
 - Required env: `DATABASE_URL`, `SESSION_SECRET`
 - Test login: `mike@highplainsprop.com` / `Soccer03` (admin)
-- Roll schema changes to production by clicking **Publish**. The api-server's `artifact.toml` does NOT wire any migration step into the production build/run, so `Publish` only ships code — DDL is not auto-applied. Two things make schema land in prod safely: (1) `artifacts/api-server/src/index.ts` runs `CREATE EXTENSION IF NOT EXISTS pg_trgm` and the schema-drift check on every boot, and (2) any unapplied SQL files in `.migration-backup/migrations/` need to be run against the prod DB by whoever has prod credentials (run `pnpm --filter @workspace/scripts run migrate` with `DATABASE_URL` pointed at prod). Do NOT push DDL to prod from the dev environment.
-- Postgres extensions the schema requires (currently just `pg_trgm` for the customer-name trigram index) are created at API server boot in `index.ts → ensureRequiredExtensions`. Add new extensions there too — Drizzle Kit's auto-generated DDL will not issue `CREATE EXTENSION` for you.
+
+### Production schema & extensions (read this before changing the schema)
+
+Per the `database` skill, **only Replit's Publish flow may change the production schema**. Publish auto-diffs the dev schema against prod and applies the SQL. Do NOT add deploy-build hooks, custom prod-targeted migration scripts, or startup-time DDL to "self-heal" prod — all three are explicit anti-patterns. The application's job is just to read/write data.
+
+**The one thing Publish does NOT generate: `CREATE EXTENSION`.** Drizzle Kit will never emit `CREATE EXTENSION pg_trgm`, so any schema object that depends on a non-default extension (e.g. the trigram index `customers_name_trgm_idx` → `gin_trgm_ops` → `pg_trgm`) will cause Publish to fail with `operator class "..." does not exist` on a target DB that lacks the extension.
+
+**Adding a new Postgres extension — required order:**
+1. Install it on the **production** DB first via Replit's Production DB UI (Workspace → Database → switch to Production → run `CREATE EXTENSION IF NOT EXISTS <name>`). Extensions persist forever; this is a one-time per-DB step.
+2. Install it on the **development** DB (run `CREATE EXTENSION IF NOT EXISTS <name>` against `DATABASE_URL`) and add a dev-only safety-net migration in `.migration-backup/migrations/` (see `0014_ensure_pg_trgm.sql`) so freshly-bootstrapped dev DBs pick it up.
+3. Add the extension's allowlist entry in `scripts/src/check-required-extensions.ts` so the preflight guard knows it's expected.
+4. **Only then** add the schema object that depends on it (the operator class / index / type) to `lib/db/src/schema/`.
+
+If you reverse this order, the schema-drift / required-extensions validation will block the merge in dev, and even if it slips through, Publish will fail in prod.
 
 ## Stack
 

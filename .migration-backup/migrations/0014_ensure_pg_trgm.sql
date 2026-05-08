@@ -1,6 +1,11 @@
 -- Ensure the pg_trgm extension is installed before any trigram-using DDL runs.
 -- The trigram index `customers_name_trgm_idx` (lib/db/src/schema/schema.ts) depends on
--- `gin_trgm_ops`, which is only available when pg_trgm is installed. Production
--- Publish failed because the prod DB did not have pg_trgm; this migration is the
--- migrate-runner side of the fix (the API server also creates the extension on boot).
+-- `gin_trgm_ops`, which is only available when pg_trgm is installed.
+--
+-- DEV-ONLY safety net. This file runs through `scripts/post-merge.sh` →
+-- `pnpm --filter @workspace/scripts run migrate` against the *development*
+-- DATABASE_URL after a task merges, so a freshly-bootstrapped dev DB picks
+-- up the extension automatically. Per the `database` skill, the production
+-- schema (including extensions) is owned by Replit's Publish flow + the
+-- production DB UI — the agent must NOT run this migration against prod.
 CREATE EXTENSION IF NOT EXISTS pg_trgm;

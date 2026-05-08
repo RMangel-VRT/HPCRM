@@ -24,14 +24,14 @@ args = "schema-drift"
 name = "schema-drift"
 author = "agent"
 
+[workflows.workflow.metadata]
+isValidation = true
+
 [[workflows.workflow.tasks]]
 task = "shell.exec"
 args = """
-pnpm --filter @workspace/scripts run check-schema-drift || (echo '
-❌ Schema drift detected. Add a SQL migration in .migration-backup/migrations/ that brings the live DB in sync with lib/db/src/schema/ (see 0013_mailbox_backfill_runs_created_at.sql for the pattern), then run: pnpm --filter @workspace/scripts run migrate' && exit 1)"""
-
-[workflows.workflow.metadata]
-isValidation = true
+pnpm --filter @workspace/scripts run check-required-extensions && pnpm --filter @workspace/scripts run check-schema-drift || (echo '
+  ❌ Schema drift or missing extension detected. If schema drift: add a SQL migration in .migration-backup/migrations/ (see 0013_mailbox_backfill_runs_created_at.sql for the pattern), then run: pnpm --filter @workspace/scripts run migrate. If a required Postgres extension is missing: see replit.md \"Production schema & extensions\" for the install order (prod first, then dev, then schema).' && exit 1)"""
 
 [agent]
 stack = "PNPM_WORKSPACE"

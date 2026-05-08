@@ -4,26 +4,6 @@ import app from "./app";
 import { logger } from "./lib/logger";
 import { registerRoutes } from "./routes/routes";
 
-async function ensureRequiredExtensions(): Promise<void> {
-  // The Drizzle schema declares a trigram index on customers.name using
-  // `gin_trgm_ops`, which requires the pg_trgm extension. Production Publish
-  // can fail building that index if pg_trgm isn't installed on the target DB.
-  // Create it idempotently on every boot. If the role lacks privilege (some
-  // managed Postgres setups install extensions out-of-band), log and continue
-  // — querying will surface the real problem at index-creation time.
-  try {
-    await pool.query("CREATE EXTENSION IF NOT EXISTS pg_trgm");
-    logger.info("Ensured required Postgres extensions (pg_trgm)");
-  } catch (err) {
-    logger.warn(
-      { err },
-      "Failed to ensure pg_trgm extension; continuing boot. " +
-        "If schema migrations rely on gin_trgm_ops, they will fail until " +
-        "pg_trgm is installed on this database (CREATE EXTENSION pg_trgm).",
-    );
-  }
-}
-
 async function warnIfSchemaDrift(): Promise<void> {
   try {
     const report = await checkSchemaDrift(pool);
@@ -50,20 +30,21 @@ if (Number.isNaN(port) || port <= 0) {
   throw new Error(`Invalid PORT value: "${rawPort}"`);
 }
 
-async function bootstrap(): Promise<void> {
-  // Install required Postgres extensions BEFORE doing anything that might run
-  // schema DDL (drift check, downstream migrations, or index creation). Doing
-  // this before server.listen also guarantees the extension is present before
-  // any traffic — and before any external deploy step that races with boot.
-  await ensureRequiredExtensions();
-  const server = await registerRoutes(app);
-  server.listen(port, () => {
-    logger.info({ port }, "Server listening");
-    void warnIfSchemaDrift();
+// Note: production schema (including Postgres extensions) is NOT this
+// process's responsibility. Replit's Publish flow diffs the dev schema
+// against prod and applies it; per the `database` skill, the application
+// must NOT do startup-time DDL or self-heal production. Required
+// extensions (currently just pg_trgm for the customers trigram index)
+// must be installed once per database via Replit's production DB tools
+// or, in dev, by running migration 0014_ensure_pg_trgm.sql.
+registerRoutes(app)
+  .then((server) => {
+    server.listen(port, () => {
+      logger.info({ port }, "Server listening");
+      void warnIfSchemaDrift();
+    });
+  })
+  .catch((err) => {
+    logger.error({ err }, "Failed to bootstrap server");
+    process.exit(1);
   });
-}
-
-bootstrap().catch((err) => {
-  logger.error({ err }, "Failed to bootstrap server");
-  process.exit(1);
-});
