@@ -26,6 +26,51 @@ import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/hooks/use-auth";
 import { formatDistanceToNow } from "date-fns";
 import BackfillPanel from "@/components/customer/communications/BackfillPanel";
+import type { MailboxBackfillRun } from "@shared/schema";
+
+interface BackfillStatusDto {
+  active: MailboxBackfillRun | null;
+  history: MailboxBackfillRun[];
+}
+
+function BackfillRunningPill({
+  mailboxAccountId,
+  enabled,
+  onClick,
+}: {
+  mailboxAccountId: string;
+  enabled: boolean;
+  onClick: () => void;
+}) {
+  const { data } = useQuery<BackfillStatusDto>({
+    queryKey: ["/api/mailbox-accounts", mailboxAccountId, "backfill", "status"],
+    queryFn: () =>
+      apiRequest("GET", `/api/mailbox-accounts/${mailboxAccountId}/backfill/status`).then(r => r.json()),
+    enabled,
+    refetchInterval: (query) => {
+      const d = query.state.data as BackfillStatusDto | undefined;
+      const isActive = d?.active && (d.active.status === "queued" || d.active.status === "running");
+      return isActive ? 5_000 : 15_000;
+    },
+    staleTime: 5_000,
+  });
+
+  const active = data?.active;
+  const isActive = !!active && (active.status === "queued" || active.status === "running");
+  if (!isActive) return null;
+
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className="inline-flex items-center gap-1 rounded-full border border-primary/30 bg-primary/10 px-2 py-0.5 text-xs font-medium text-primary hover-elevate"
+      data-testid={`pill-backfill-running-${mailboxAccountId}`}
+    >
+      <Loader2 className="w-3 h-3 animate-spin" />
+      Backfill running…
+    </button>
+  );
+}
 
 interface PersonalMailboxDto {
   id: string;
@@ -277,7 +322,16 @@ function MailboxRow({ account }: MailboxRowProps) {
             </p>
           )}
         </div>
-        <SyncStatusBadge status={status} connectedEmail={connectedEmail} />
+        <div className="flex items-center gap-2 flex-wrap">
+          {isConnected && (
+            <BackfillRunningPill
+              mailboxAccountId={account.id}
+              enabled={isConnected}
+              onClick={() => setBackfillOpen(true)}
+            />
+          )}
+          <SyncStatusBadge status={status} connectedEmail={connectedEmail} />
+        </div>
       </div>
 
       {isError && (
