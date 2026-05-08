@@ -62,6 +62,9 @@ A full-featured property maintenance CRM for High Plains Property Maintenance �
 
 - `canvas` native module won't build in this environment — visual scope image export will fail at call time (server still starts)
 - Apply DB schema via `pnpm --filter @workspace/scripts run migrate` (preferred) — runs unapplied SQL files in `.migration-backup/migrations/` against `DATABASE_URL` and tracks them in `_applied_sql_migrations`. `pnpm db push` is interactive and may hang. On a database that was migrated by hand previously, run once with `-- --baseline-existing` to seed the tracker without re-running existing files
+- `--baseline-existing` only suppresses errors for objects that already exist; it does NOT add missing columns to a partially-created table. If the drift checker still reports missing columns after a baseline run, write a small targeted `ALTER TABLE ... ADD COLUMN IF NOT EXISTS` migration (see `0013_mailbox_backfill_runs_created_at.sql` for the pattern)
+- `scripts/post-merge.sh` runs `pnpm install` and then the migration runner with `--baseline-existing` so freshly-merged task branches auto-apply any new SQL migrations
+- Production schema changes: this repo does NOT push DDL to the prod DB from the dev environment. To roll a schema change to production, click **Publish** — the deploy pipeline runs the migration runner against the prod DB. If a prod-only column is still missing after publish, add a targeted `ALTER ... IF NOT EXISTS` migration file and publish again
 - Password hashing uses Node.js `crypto.scrypt` in `hash.salt` format (hex)
 - Express 5 path-to-regexp changed wildcard syntax — use `/*param` not `/:param(*)`
 - Frontend schema at `src/shared/schema.ts` uses a drizzle stub — `$inferSelect` types resolve to `any` in the frontend (TypeScript-only impact, runtime is fine)
