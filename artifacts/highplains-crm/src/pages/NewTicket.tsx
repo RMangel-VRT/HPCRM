@@ -50,6 +50,7 @@ import {
 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { queryClient, apiRequest } from "@/lib/queryClient";
+import { extractApiErrorMessage } from "@/lib/apiError";
 import { DatePickerField } from "@/components/DatePickerField";
 import type { Customer, TicketType, CompanyUser, User, WorkType } from "@shared/schema";
 import { WORK_TYPE_CATALOG } from "@shared/workTypeCatalog";
@@ -329,7 +330,7 @@ export default function NewTicket() {
       toast({ title: t('newTicket.prospectCreated') });
     },
     onError: (error: Error) => {
-      toast({ title: t('newTicket.createFailed'), description: error.message, variant: "destructive" });
+      toast({ title: t('newTicket.createFailed'), description: extractApiErrorMessage(error) ?? error.message, variant: "destructive" });
     },
   });
 
@@ -382,7 +383,7 @@ export default function NewTicket() {
       navigate(`/dashboard/tickets/${ticket.id}`);
     },
     onError: (error: Error) => {
-      toast({ title: t('newTicket.createFailed'), description: error.message, variant: "destructive" });
+      toast({ title: t('newTicket.createFailed'), description: extractApiErrorMessage(error) ?? error.message, variant: "destructive" });
     },
   });
 

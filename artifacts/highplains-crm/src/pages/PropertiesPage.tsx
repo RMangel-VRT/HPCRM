@@ -39,6 +39,7 @@ const insertPropertySchema = z.object({
 type InsertProperty = z.infer<typeof insertPropertySchema>;
 type Property = InsertProperty & { id: string; companyId: string; createdAt: string; updatedAt: string };
 import { apiRequest, queryClient } from "@/lib/queryClient";
+import { extractApiErrorMessage } from "@/lib/apiError";
 import { Plus, MapPin, User, Phone, Mail, Building, Trash2, Pencil } from "lucide-react";
 
 export default function PropertiesPage() {
@@ -133,8 +134,8 @@ function PropertyCard({ property, onEdit }: { property: Property; onEdit: () => 
       queryClient.invalidateQueries({ queryKey: ["/api/properties"] });
       toast({ title: t("propertiesPage.deleted") });
     },
-    onError: () => {
-      toast({ title: "Failed to delete property", variant: "destructive" });
+    onError: (err: Error) => {
+      toast({ title: "Failed to delete property", description: extractApiErrorMessage(err), variant: "destructive" });
     },
   });
 
@@ -278,8 +279,8 @@ function PropertyDialog({ property, onClose }: { property: Property | null; onCl
       onClose();
       form.reset();
     },
-    onError: () => {
-      toast({ title: "Failed to create property", variant: "destructive" });
+    onError: (err: Error) => {
+      toast({ title: "Failed to create property", description: extractApiErrorMessage(err), variant: "destructive" });
     },
   });
 
@@ -293,8 +294,8 @@ function PropertyDialog({ property, onClose }: { property: Property | null; onCl
       toast({ title: t("propertiesPage.updated") });
       onClose();
     },
-    onError: () => {
-      toast({ title: "Failed to update property", variant: "destructive" });
+    onError: (err: Error) => {
+      toast({ title: "Failed to update property", description: extractApiErrorMessage(err), variant: "destructive" });
     },
   });
 

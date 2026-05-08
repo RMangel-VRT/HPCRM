@@ -42,6 +42,7 @@ import { Label } from "@/components/ui/label";
 import { Plus, Edit, Trash2 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest, queryClient } from "@/lib/queryClient";
+import { extractApiErrorMessage } from "@/lib/apiError";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -85,10 +86,10 @@ export default function ContractServices({ contractId, canEdit }: ContractServic
       setEditingService(null);
       form.reset();
     },
-    onError: () => {
+    onError: (err: Error) => {
       toast({
         title: "Error",
-        description: "Failed to add service",
+        description: extractApiErrorMessage(err) ?? "Failed to add service",
         variant: "destructive",
       });
     },
@@ -108,10 +109,10 @@ export default function ContractServices({ contractId, canEdit }: ContractServic
       setEditingService(null);
       form.reset();
     },
-    onError: () => {
+    onError: (err: Error) => {
       toast({
         title: "Error",
-        description: "Failed to update service",
+        description: extractApiErrorMessage(err) ?? "Failed to update service",
         variant: "destructive",
       });
     },
@@ -128,10 +129,10 @@ export default function ContractServices({ contractId, canEdit }: ContractServic
         description: "Service removed successfully",
       });
     },
-    onError: () => {
+    onError: (err: Error) => {
       toast({
         title: "Error",
-        description: "Failed to remove service",
+        description: extractApiErrorMessage(err) ?? "Failed to remove service",
         variant: "destructive",
       });
     },

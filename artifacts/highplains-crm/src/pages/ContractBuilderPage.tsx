@@ -2,6 +2,7 @@ import { useState, useEffect, useMemo } from "react";
 import { useTranslation } from "react-i18next";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { queryClient, apiRequest } from "@/lib/queryClient";
+import { extractApiErrorMessage } from "@/lib/apiError";
 import { useSetBreadcrumbs } from "@/hooks/use-breadcrumbs";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -319,7 +320,7 @@ export default function ContractBuilderPage() {
       console.error('[Contract Builder] onError called with error:', error);
       toast({
         title: t("common.error"),
-        description: error.message,
+        description: extractApiErrorMessage(error) ?? error.message,
         variant: "destructive",
       });
     },
@@ -356,7 +357,7 @@ export default function ContractBuilderPage() {
     onError: (error: Error) => {
       toast({
         title: t("common.error"),
-        description: error.message,
+        description: extractApiErrorMessage(error) ?? error.message,
         variant: "destructive",
       });
     },
@@ -386,7 +387,7 @@ export default function ContractBuilderPage() {
     onError: (error: Error) => {
       toast({
         title: t("common.error"),
-        description: error.message,
+        description: extractApiErrorMessage(error) ?? error.message,
         variant: "destructive",
       });
     },
@@ -411,7 +412,7 @@ export default function ContractBuilderPage() {
     onError: (error: Error) => {
       toast({
         title: t("common.error"),
-        description: error.message,
+        description: extractApiErrorMessage(error) ?? error.message,
         variant: "destructive",
       });
     },
@@ -443,31 +444,11 @@ export default function ContractBuilderPage() {
       // Navigate to customer detail page, contracts tab
       setLocation(`/customers/${data.contract.customerId}`);
     },
-    onError: (error: any) => {
+    onError: (error: Error) => {
       console.error('[Publish] onError called:', error);
-      
-      // Extract user-friendly error message from various error formats
-      let errorMessage = "An error occurred while publishing the contract";
-      
-      if (error.message) {
-        // Try to parse JSON error message from API
-        try {
-          // Format: "400: {"error":"message"}"
-          const match = error.message.match(/\d+:\s*(\{.*\})/);
-          if (match) {
-            const jsonError = JSON.parse(match[1]);
-            errorMessage = jsonError.error || errorMessage;
-          } else {
-            errorMessage = error.message;
-          }
-        } catch {
-          errorMessage = error.message;
-        }
-      }
-      
       toast({
         title: t("common.error"),
-        description: errorMessage,
+        description: extractApiErrorMessage(error) ?? "An error occurred while publishing the contract",
         variant: "destructive",
       });
     },
@@ -678,7 +659,7 @@ export default function ContractBuilderPage() {
     onError: (error: Error) => {
       toast({
         title: t("common.error"),
-        description: error.message,
+        description: extractApiErrorMessage(error) ?? error.message,
         variant: "destructive",
       });
     },
@@ -703,7 +684,7 @@ export default function ContractBuilderPage() {
     onError: (error: Error) => {
       toast({
         title: t("common.error"),
-        description: error.message,
+        description: extractApiErrorMessage(error) ?? error.message,
         variant: "destructive",
       });
     },

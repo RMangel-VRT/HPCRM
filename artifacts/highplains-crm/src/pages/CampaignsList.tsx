@@ -4,6 +4,7 @@ import { Link, useLocation } from "wouter";
 import { useTranslation } from "react-i18next";
 import { useAuth } from "@/hooks/use-auth";
 import { apiRequest, queryClient } from "@/lib/queryClient";
+import { extractApiErrorMessage } from "@/lib/apiError";
 import { useToast } from "@/hooks/use-toast";
 import { format } from "date-fns";
 import { DatePickerField } from "@/components/DatePickerField";
@@ -361,20 +362,9 @@ function CreateCampaignDialog({ open, onOpenChange }: { open: boolean; onOpenCha
       navigate(`/dashboard/campaigns/${data.id}`);
     },
     onError: (err: Error) => {
-      let description: string | undefined;
-      const msg = err?.message ?? "";
-      const colonIdx = msg.indexOf(":");
-      const body = colonIdx >= 0 ? msg.slice(colonIdx + 1).trim() : msg;
-      try {
-        const parsed = JSON.parse(body);
-        if (parsed && typeof parsed.error === "string") description = parsed.error;
-        else if (parsed && typeof parsed.message === "string") description = parsed.message;
-      } catch {
-        if (body) description = body;
-      }
       toast({
         title: t("campaigns.createFailed"),
-        description,
+        description: extractApiErrorMessage(err),
         variant: "destructive",
       });
     },

@@ -36,6 +36,7 @@ import { WORK_TYPE_CATALOG } from "@shared/workTypeCatalog";
 import { useAuth } from "@/hooks/use-auth";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest, queryClient } from "@/lib/queryClient";
+import { extractApiErrorMessage } from "@/lib/apiError";
 import QuickAddToDo from "@/components/QuickAddToDo";
 import BatchTicketDialog from "@/components/BatchTicketDialog";
 
@@ -429,7 +430,7 @@ export default function TicketsList() {
     onError: (error: Error) => {
       toast({ 
         title: "Failed to delete tickets", 
-        description: error.message || "An unexpected error occurred",
+        description: extractApiErrorMessage(error) ?? "An unexpected error occurred",
         variant: "destructive" 
       });
     },

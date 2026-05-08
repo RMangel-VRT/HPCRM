@@ -45,6 +45,7 @@ import { format } from "date-fns";
 import { DatePickerField } from "@/components/DatePickerField";
 import { useToast } from "@/hooks/use-toast";
 import { queryClient, apiRequest } from "@/lib/queryClient";
+import { extractApiErrorMessage } from "@/lib/apiError";
 import { useAuth } from "@/hooks/use-auth";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
@@ -260,7 +261,7 @@ function ContractCard({ contract, customerId, canUploadDocuments, onUploadClick,
     onError: (error: Error) => {
       toast({
         title: t("common.error"),
-        description: error.message,
+        description: extractApiErrorMessage(error) ?? error.message,
         variant: "destructive",
       });
     },
@@ -281,7 +282,7 @@ function ContractCard({ contract, customerId, canUploadDocuments, onUploadClick,
     onError: (error: Error) => {
       toast({
         title: t("common.error"),
-        description: error.message,
+        description: extractApiErrorMessage(error) ?? error.message,
         variant: "destructive",
       });
     },
@@ -302,7 +303,7 @@ function ContractCard({ contract, customerId, canUploadDocuments, onUploadClick,
     onError: (error: Error) => {
       toast({
         title: t("common.error"),
-        description: error.message,
+        description: extractApiErrorMessage(error) ?? error.message,
         variant: "destructive",
       });
     },
@@ -340,7 +341,7 @@ function ContractCard({ contract, customerId, canUploadDocuments, onUploadClick,
     onError: (error: Error) => {
       toast({
         title: t("common.error"),
-        description: error.message,
+        description: extractApiErrorMessage(error) ?? error.message,
         variant: "destructive",
       });
     },
@@ -1244,7 +1245,7 @@ export default function CustomerDetail() {
     onError: (error: Error) => {
       toast({
         title: t("common.error"),
-        description: error.message,
+        description: extractApiErrorMessage(error) ?? error.message,
         variant: "destructive",
       });
     },
@@ -1363,7 +1364,7 @@ export default function CustomerDetail() {
       } else {
         toast({
           title: t("common.error"),
-          description: error.message,
+          description: extractApiErrorMessage(error) ?? error.message,
           variant: "destructive",
         });
       }
@@ -1404,7 +1405,7 @@ export default function CustomerDetail() {
     onError: (error: Error) => {
       toast({
         title: t("common.error"),
-        description: error.message,
+        description: extractApiErrorMessage(error) ?? error.message,
         variant: "destructive",
       });
     },
@@ -1428,7 +1429,7 @@ export default function CustomerDetail() {
     onError: (error: Error) => {
       toast({
         title: t("common.error"),
-        description: error.message,
+        description: extractApiErrorMessage(error) ?? error.message,
         variant: "destructive",
       });
     },
@@ -1448,7 +1449,7 @@ export default function CustomerDetail() {
     onError: (error: Error) => {
       toast({
         title: t("common.error"),
-        description: error.message,
+        description: extractApiErrorMessage(error) ?? error.message,
         variant: "destructive",
       });
     },
@@ -1481,7 +1482,7 @@ export default function CustomerDetail() {
     onError: (error: Error) => {
       toast({
         title: t("common.error"),
-        description: error.message,
+        description: extractApiErrorMessage(error) ?? error.message,
         variant: "destructive",
       });
     },
@@ -1503,7 +1504,7 @@ export default function CustomerDetail() {
     onError: (error: Error) => {
       toast({
         title: t("common.error"),
-        description: error.message,
+        description: extractApiErrorMessage(error) ?? error.message,
         variant: "destructive",
       });
     },
@@ -1523,7 +1524,7 @@ export default function CustomerDetail() {
     onError: (error: Error) => {
       toast({
         title: t("common.error"),
-        description: error.message,
+        description: extractApiErrorMessage(error) ?? error.message,
         variant: "destructive",
       });
     },
@@ -3707,7 +3708,7 @@ function RateSheetSection({ customerId }: { customerId: string }) {
     onError: (error: Error) => {
       toast({
         title: t("common.error"),
-        description: error.message || t("customerDetail.rateSheetError"),
+        description: extractApiErrorMessage(error) ?? t("customerDetail.rateSheetError"),
         variant: "destructive",
       });
     },

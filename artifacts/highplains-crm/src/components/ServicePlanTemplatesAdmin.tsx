@@ -12,6 +12,7 @@ import { Separator } from "@/components/ui/separator";
 import { Plus, Pencil, Trash2, X, Copy, Users } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest, queryClient } from "@/lib/queryClient";
+import { extractApiErrorMessage } from "@/lib/apiError";
 import { SERVICE_PLAN_CATEGORIES, SERVICE_PLAN_CATEGORY_LABELS } from "@shared/schema";
 import type { ServicePlanTemplateWithItems } from "@shared/schema";
 
@@ -42,8 +43,8 @@ export default function ServicePlanTemplatesAdmin() {
       toast({ title: "Success", description: "Template created" });
       closeDialog();
     },
-    onError: () => {
-      toast({ title: "Error", description: "Failed to create template", variant: "destructive" });
+    onError: (err: Error) => {
+      toast({ title: "Error", description: extractApiErrorMessage(err) ?? "Failed to create template", variant: "destructive" });
     },
   });
 
@@ -56,8 +57,8 @@ export default function ServicePlanTemplatesAdmin() {
       toast({ title: "Success", description: "Template updated" });
       closeDialog();
     },
-    onError: () => {
-      toast({ title: "Error", description: "Failed to update template", variant: "destructive" });
+    onError: (err: Error) => {
+      toast({ title: "Error", description: extractApiErrorMessage(err) ?? "Failed to update template", variant: "destructive" });
     },
   });
 
@@ -70,8 +71,8 @@ export default function ServicePlanTemplatesAdmin() {
       toast({ title: "Success", description: "Template deleted" });
       setDeleteConfirmId(null);
     },
-    onError: () => {
-      toast({ title: "Error", description: "Failed to delete template", variant: "destructive" });
+    onError: (err: Error) => {
+      toast({ title: "Error", description: extractApiErrorMessage(err) ?? "Failed to delete template", variant: "destructive" });
     },
   });
 
@@ -90,8 +91,8 @@ export default function ServicePlanTemplatesAdmin() {
       queryClient.invalidateQueries({ queryKey: ["/api/service-plan-templates"] });
       toast({ title: "Success", description: "Template duplicated" });
     },
-    onError: () => {
-      toast({ title: "Error", description: "Failed to duplicate template", variant: "destructive" });
+    onError: (err: Error) => {
+      toast({ title: "Error", description: extractApiErrorMessage(err) ?? "Failed to duplicate template", variant: "destructive" });
     },
   });
 

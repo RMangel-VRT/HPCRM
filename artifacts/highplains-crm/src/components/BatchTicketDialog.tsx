@@ -34,6 +34,7 @@ import {
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/hooks/use-auth";
 import { queryClient, apiRequest } from "@/lib/queryClient";
+import { extractApiErrorMessage } from "@/lib/apiError";
 import { format } from "date-fns";
 import type { TicketType, TicketTypeStatus, CompanyUser, User, Customer } from "@shared/schema";
 
@@ -187,8 +188,8 @@ export default function BatchTicketDialog({
       
       handleClose();
     },
-    onError: () => {
-      toast({ title: "Failed to create tickets", variant: "destructive" });
+    onError: (err: Error) => {
+      toast({ title: "Failed to create tickets", description: extractApiErrorMessage(err), variant: "destructive" });
     },
   });
 
