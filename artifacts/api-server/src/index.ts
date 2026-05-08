@@ -50,12 +50,20 @@ if (Number.isNaN(port) || port <= 0) {
   throw new Error(`Invalid PORT value: "${rawPort}"`);
 }
 
-registerRoutes(app).then((server) => {
+async function bootstrap(): Promise<void> {
+  // Install required Postgres extensions BEFORE doing anything that might run
+  // schema DDL (drift check, downstream migrations, or index creation). Doing
+  // this before server.listen also guarantees the extension is present before
+  // any traffic — and before any external deploy step that races with boot.
+  await ensureRequiredExtensions();
+  const server = await registerRoutes(app);
   server.listen(port, () => {
     logger.info({ port }, "Server listening");
-    void ensureRequiredExtensions().then(() => warnIfSchemaDrift());
+    void warnIfSchemaDrift();
   });
-}).catch((err) => {
-  logger.error({ err }, "Failed to register routes");
+}
+
+bootstrap().catch((err) => {
+  logger.error({ err }, "Failed to bootstrap server");
   process.exit(1);
 });
