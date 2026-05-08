@@ -5,7 +5,8 @@
   "type": "module",
   "exports": {
     ".": "./src/index.ts",
-    "./schema": "./src/schema/index.ts"
+    "./schema": "./src/schema/index.ts",
+    "./check-drift": "./src/check-drift.ts"
   },
   "scripts": {
     "push": "drizzle-kit push --config ./drizzle.config.ts",

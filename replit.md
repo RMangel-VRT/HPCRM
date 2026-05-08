@@ -8,6 +8,9 @@ A full-featured property maintenance CRM for High Plains Property Maintenance �
 - `pnpm --filter @workspace/highplains-crm run dev` — run the frontend (port from PORT env)
 - `pnpm run typecheck` — full typecheck across all packages
 - `pnpm --filter @workspace/db run push` — push DB schema changes (dev only)
+- `pnpm --filter @workspace/scripts run migrate` — apply any unapplied SQL files in `.migration-backup/migrations/` against `DATABASE_URL` (idempotent; tracks applied files in `_applied_sql_migrations`)
+- `pnpm --filter @workspace/scripts run migrate -- --baseline-existing` — first-run mode: marks already-present migrations as applied without re-running them, then applies anything truly new
+- `pnpm --filter @workspace/scripts run check-schema-drift` — reports tables/columns the Drizzle schema declares that are missing from the live DB (exits non-zero on drift); the API server also runs this on boot and logs a warning
 - Required env: `DATABASE_URL`, `SESSION_SECRET`
 - Test login: `mike@highplainsprop.com` / `Soccer03` (admin)
 
@@ -58,7 +61,7 @@ A full-featured property maintenance CRM for High Plains Property Maintenance �
 ## Gotchas
 
 - `canvas` native module won't build in this environment — visual scope image export will fail at call time (server still starts)
-- Apply DB schema via migrations SQL files in `.migration-backup/migrations/` — `pnpm db push` is interactive and may hang
+- Apply DB schema via `pnpm --filter @workspace/scripts run migrate` (preferred) — runs unapplied SQL files in `.migration-backup/migrations/` against `DATABASE_URL` and tracks them in `_applied_sql_migrations`. `pnpm db push` is interactive and may hang. On a database that was migrated by hand previously, run once with `-- --baseline-existing` to seed the tracker without re-running existing files
 - Password hashing uses Node.js `crypto.scrypt` in `hash.salt` format (hex)
 - Express 5 path-to-regexp changed wildcard syntax — use `/*param` not `/:param(*)`
 - Frontend schema at `src/shared/schema.ts` uses a drizzle stub — `$inferSelect` types resolve to `any` in the frontend (TypeScript-only impact, runtime is fine)
