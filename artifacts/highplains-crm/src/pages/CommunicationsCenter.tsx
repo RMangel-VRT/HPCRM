@@ -1,7 +1,9 @@
+import { useEffect } from "react";
 import { useParams, Redirect } from "wouter";
 import { useQuery } from "@tanstack/react-query";
 import { useSetBreadcrumbs } from "@/hooks/use-breadcrumbs";
 import { useAuth } from "@/hooks/use-auth";
+import { setLastCommsTab } from "@/lib/last-comms-tab";
 import { CommunicationsPageShell, useCommunicationsShell } from "./communications/CommunicationsPageShell";
 import { CommunicationsToolbar } from "./communications/CommunicationsToolbar";
 import { CommunicationsSecondaryNav } from "./communications/CommunicationsSecondaryNav";
@@ -107,7 +109,15 @@ export default function CommunicationsCenter() {
 
   return (
     <CommunicationsPageShell>
+      <CommunicationsCenterRemember tab={rawTab} />
       <CommunicationsCenterInner rawTab={rawTab} />
     </CommunicationsPageShell>
   );
+}
+
+function CommunicationsCenterRemember({ tab }: { tab: Tab }) {
+  useEffect(() => {
+    setLastCommsTab(tab);
+  }, [tab]);
+  return null;
 }

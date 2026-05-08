@@ -57,6 +57,18 @@ import {
   resolveCustomersRouteAsync,
   resolveCustomersRouteSync,
 } from "@/lib/last-viewed-customer";
+import {
+  commsTabHref,
+  getLastCommsTab,
+  isValidCommsTab,
+  type CommsTab,
+} from "@/lib/last-comms-tab";
+import { useEffect, useState } from "react";
+import {
+  SidebarMenuSub,
+  SidebarMenuSubButton,
+  SidebarMenuSubItem,
+} from "@/components/ui/sidebar";
 
 const CUSTOMERS_LIST_PATH = "/dashboard/customers";
 
@@ -210,7 +222,7 @@ export default function AppSidebar({
     }
 
     if (userRole === "admin" || userRole === "office") {
-      items.push({ title: t("emailTracking.communicationsTitle"), url: "/dashboard/communications/inbox", icon: MessagesSquare });
+      items.push({ title: t("emailTracking.communicationsTitle"), url: "/dashboard/communications", icon: MessagesSquare });
     }
 
     if (userRole === "admin" || userRole === "office" || userRole === "field_manager" || userRole === "chemical_manager") {
@@ -256,9 +268,42 @@ export default function AppSidebar({
 
   const isActive = (url: string) => {
     if (url === "/dashboard") return location === "/dashboard";
-    if (url === "/dashboard/communications/inbox") return location.startsWith("/dashboard/communications");
+    if (url === "/dashboard/communications") return location.startsWith("/dashboard/communications");
     return location === url || location.startsWith(url + "/");
   };
+
+  const [lastCommsTab, setLastCommsTabState] = useState<CommsTab>(() => getLastCommsTab());
+  useEffect(() => {
+    const onChange = (e: Event) => {
+      const detail = (e as CustomEvent).detail;
+      if (isValidCommsTab(detail)) setLastCommsTabState(detail);
+    };
+    const onStorage = (e: StorageEvent) => {
+      if (e.key === "communications:lastTab" && isValidCommsTab(e.newValue)) {
+        setLastCommsTabState(e.newValue);
+      }
+    };
+    window.addEventListener("communications:lastTab-changed", onChange);
+    window.addEventListener("storage", onStorage);
+    return () => {
+      window.removeEventListener("communications:lastTab-changed", onChange);
+      window.removeEventListener("storage", onStorage);
+    };
+  }, []);
+
+  const onCommsRoute = location.startsWith("/dashboard/communications");
+  const currentCommsTab: CommsTab | null = (() => {
+    const m = location.match(/^\/dashboard\/communications\/([^/?#]+)/);
+    return m && isValidCommsTab(m[1]) ? m[1] : null;
+  })();
+  const commsSubTabs: { id: CommsTab; label: string; adminOnly?: boolean }[] = [
+    { id: "inbox", label: "Inbox" },
+    { id: "sent", label: "Sent" },
+    { id: "unsorted", label: "Unsorted" },
+    { id: "all", label: "All Communications", adminOnly: true },
+  ];
+  const isAdminOrOffice = userRole === "admin" || userRole === "office";
+  const visibleCommsSubTabs = commsSubTabs.filter((t) => !t.adminOnly || isAdminOrOffice);
 
   const { data: pendingUnsortedData } = useQuery<{ length: number } | unknown[]>({
     queryKey: ["/api/unsorted-emails", "sidebar-badge"],
@@ -369,11 +414,12 @@ export default function AppSidebar({
             <SidebarGroupLabel>{t("nav.management")}</SidebarGroupLabel>
             <SidebarMenu>
               {managementItems.map((item) => {
-                const isComms = item.url === "/dashboard/communications/inbox";
+                const isComms = item.url === "/dashboard/communications";
+                const commsHref = isComms ? commsTabHref(lastCommsTab) : item.url;
                 return (
                   <SidebarMenuItem key={item.title}>
                     <SidebarMenuButton asChild isActive={isActive(item.url)}>
-                      <Link href={item.url} data-testid={`link-${item.title.toLowerCase().replace(/\s+/g, '-')}`}>
+                      <Link href={isComms ? commsHref : item.url} data-testid={`link-${item.title.toLowerCase().replace(/\s+/g, '-')}`}>
                         <item.icon className="w-4 h-4" />
                         <span>{item.title}</span>
                         {isComms && pendingUnsortedCount > 0 && (
@@ -383,6 +429,26 @@ export default function AppSidebar({
                         )}
                       </Link>
                     </SidebarMenuButton>
+                    {isComms && onCommsRoute && (
+                      <SidebarMenuSub data-testid="sidebar-comms-subnav">
+                        {visibleCommsSubTabs.map((sub) => {
+                          const subActive = currentCommsTab === sub.id;
+                          return (
+                            <SidebarMenuSubItem key={sub.id}>
+                              <SidebarMenuSubButton
+                                asChild
+                                isActive={subActive}
+                                data-testid={`sidebar-link-comms-${sub.id}`}
+                              >
+                                <Link href={commsTabHref(sub.id)}>
+                                  <span>{sub.label}</span>
+                                </Link>
+                              </SidebarMenuSubButton>
+                            </SidebarMenuSubItem>
+                          );
+                        })}
+                      </SidebarMenuSub>
+                    )}
                   </SidebarMenuItem>
                 );
               })}
