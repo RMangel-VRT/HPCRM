@@ -11,6 +11,28 @@ env = { "CI" = "true" }
 [workflows]
 runButton = "Project"
 
+[[workflows.workflow]]
+name = "Project"
+mode = "parallel"
+author = "agent"
+
+[[workflows.workflow.tasks]]
+task = "workflow.run"
+args = "schema-drift"
+
+[[workflows.workflow]]
+name = "schema-drift"
+author = "agent"
+
+[[workflows.workflow.tasks]]
+task = "shell.exec"
+args = """
+pnpm --filter @workspace/scripts run check-schema-drift || (echo '
+❌ Schema drift detected. Add a SQL migration in .migration-backup/migrations/ that brings the live DB in sync with lib/db/src/schema/ (see 0013_mailbox_backfill_runs_created_at.sql for the pattern), then run: pnpm --filter @workspace/scripts run migrate' && exit 1)"""
+
+[workflows.workflow.metadata]
+isValidation = true
+
 [agent]
 stack = "PNPM_WORKSPACE"
 expertMode = true
