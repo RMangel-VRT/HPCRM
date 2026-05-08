@@ -13,7 +13,8 @@ A full-featured property maintenance CRM for High Plains Property Maintenance �
 - `pnpm --filter @workspace/scripts run check-schema-drift` — reports tables/columns the Drizzle schema declares that are missing from the live DB (exits non-zero on drift); the API server also runs this on boot and logs a warning
 - Required env: `DATABASE_URL`, `SESSION_SECRET`
 - Test login: `mike@highplainsprop.com` / `Soccer03` (admin)
-- Roll schema changes to production by clicking **Publish** — the deploy pipeline runs the migration runner against the prod DB. Do NOT push DDL to prod from the dev environment
+- Roll schema changes to production by clicking **Publish**. The api-server's `artifact.toml` does NOT wire any migration step into the production build/run, so `Publish` only ships code — DDL is not auto-applied. Two things make schema land in prod safely: (1) `artifacts/api-server/src/index.ts` runs `CREATE EXTENSION IF NOT EXISTS pg_trgm` and the schema-drift check on every boot, and (2) any unapplied SQL files in `.migration-backup/migrations/` need to be run against the prod DB by whoever has prod credentials (run `pnpm --filter @workspace/scripts run migrate` with `DATABASE_URL` pointed at prod). Do NOT push DDL to prod from the dev environment.
+- Postgres extensions the schema requires (currently just `pg_trgm` for the customer-name trigram index) are created at API server boot in `index.ts → ensureRequiredExtensions`. Add new extensions there too — Drizzle Kit's auto-generated DDL will not issue `CREATE EXTENSION` for you.
 
 ## Stack
 
