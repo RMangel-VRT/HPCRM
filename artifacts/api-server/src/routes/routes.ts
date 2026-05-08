@@ -12195,7 +12195,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
     if (!campaignAllowedRoles.includes(user.activeRole)) {
       return res.status(403).send("Insufficient permissions");
     }
-    if (user.activeRole === "admin") {
+    // Admin and office staff see every campaign in their company; the per-user
+    // assignment filter only applies to field-level roles.
+    if (user.activeRole === "admin" || user.activeRole === "office") {
       const allCampaigns = await storage.getCampaigns(user.activeCompanyId);
       return res.json(allCampaigns);
     }
@@ -12230,11 +12232,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
     if (user.activeRole !== "admin" && user.activeRole !== "office") {
       return res.status(403).send("Only admin/office can create campaigns");
     }
-    const { title, description, assignedToId, assignedToId2, windowStart, windowEnd, customerIds, category, subtype, checklistTasks, notificationTemplateId } = req.body as {
+    const rawBody = req.body as {
       title?: string;
       description?: string;
-      assignedToId?: string;
-      assignedToId2?: string;
+      assignedToId?: string | null;
+      assignedToId2?: string | null;
       windowStart?: string;
       windowEnd?: string;
       customerIds?: string[];
@@ -12243,6 +12245,17 @@ export async function registerRoutes(app: Express): Promise<Server> {
       checklistTasks?: { label: string; order: number }[];
       notificationTemplateId?: string;
     };
+    const { title, description, windowStart, windowEnd, customerIds, category, subtype, checklistTasks, notificationTemplateId } = rawBody;
+    // Defensively normalize empty / sentinel assignee values to null so the
+    // membership check below doesn't try to look up "" or "none".
+    const normalizeAssignee = (v: string | null | undefined): string | null => {
+      if (!v) return null;
+      const t = v.trim();
+      if (!t || t === "none") return null;
+      return t;
+    };
+    const assignedToId = normalizeAssignee(rawBody.assignedToId);
+    const assignedToId2 = normalizeAssignee(rawBody.assignedToId2);
     const validCategories = ["general", "chemical", "irrigation", "extra_billable"];
     const campaignCategory = (validCategories.includes(category || "") ? category : "general") as "general" | "chemical" | "irrigation" | "extra_billable";
     if (!title || !windowStart || !windowEnd || !customerIds || !Array.isArray(customerIds) || customerIds.length === 0) {
@@ -12258,9 +12271,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
         if (!assigneeCompanyUser) {
           return res.status(400).json({ error: "Assignee must be a member of this company" });
         }
-        if (campaignCategory === "chemical" && assigneeCompanyUser.role !== "chemical_manager") {
-          return res.status(400).json({ error: "Chemical campaigns must be assigned to a chemical manager" });
-        }
+        // Chemical role preference is enforced as guidance in the UI (the
+        // assignee dropdown for chemical campaigns only lists chemical
+        // managers). Don't hard-block at the API layer — admins should be
+        // able to assign whoever they want without being told the campaign
+        // can't be created.
       }
       if (assignedToId2) {
         const assignee2CompanyUser = companyUsers.find(cu => cu.userId === assignedToId2);
@@ -12639,15 +12654,25 @@ export async function registerRoutes(app: Express): Promise<Server> {
     if (user.activeRole !== "admin" && user.activeRole !== "office") {
       return res.status(403).send("Only admin/office can update campaigns");
     }
-    const { status, title, description, assignedToId, assignedToId2, windowStart, windowEnd } = req.body as {
+    const rawPatch = req.body as {
       status?: string;
       title?: string;
       description?: string;
-      assignedToId?: string;
-      assignedToId2?: string;
+      assignedToId?: string | null;
+      assignedToId2?: string | null;
       windowStart?: string;
       windowEnd?: string;
     };
+    const { status, title, description, windowStart, windowEnd } = rawPatch;
+    const normalizeAssigneePatch = (v: string | null | undefined): string | null | undefined => {
+      if (v === undefined) return undefined;
+      if (v === null) return null;
+      const t = v.trim();
+      if (!t || t === "none") return null;
+      return t;
+    };
+    const assignedToId = normalizeAssigneePatch(rawPatch.assignedToId);
+    const assignedToId2 = normalizeAssigneePatch(rawPatch.assignedToId2);
     const validStatuses = ["active", "completed", "archived"];
     if (status !== undefined && !validStatuses.includes(status)) {
       return res.status(400).json({ error: "Invalid status value" });

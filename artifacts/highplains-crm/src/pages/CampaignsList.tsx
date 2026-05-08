@@ -360,8 +360,23 @@ function CreateCampaignDialog({ open, onOpenChange }: { open: boolean; onOpenCha
       onOpenChange(false);
       navigate(`/dashboard/campaigns/${data.id}`);
     },
-    onError: () => {
-      toast({ title: t("campaigns.createFailed"), variant: "destructive" });
+    onError: (err: Error) => {
+      let description: string | undefined;
+      const msg = err?.message ?? "";
+      const colonIdx = msg.indexOf(":");
+      const body = colonIdx >= 0 ? msg.slice(colonIdx + 1).trim() : msg;
+      try {
+        const parsed = JSON.parse(body);
+        if (parsed && typeof parsed.error === "string") description = parsed.error;
+        else if (parsed && typeof parsed.message === "string") description = parsed.message;
+      } catch {
+        if (body) description = body;
+      }
+      toast({
+        title: t("campaigns.createFailed"),
+        description,
+        variant: "destructive",
+      });
     },
   });
 
