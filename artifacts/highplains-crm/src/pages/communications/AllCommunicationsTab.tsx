@@ -21,6 +21,17 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from "@/components/ui/alert-dialog";
+import {
   Popover,
   PopoverContent,
   PopoverTrigger,
@@ -150,6 +161,8 @@ const ACTION_TYPE_LABELS: Record<string, string> = {
   template_edited: "Template Edited",
   template_archived: "Template Archived",
   communication_sent: "Communication Sent",
+  communication_deleted: "Communication Deleted",
+  communication_seed_cleared: "Seed Samples Cleared",
   scheduled_send_cancelled: "Scheduled Send Cancelled",
   automation_edited: "Automation Edited",
   automation_toggled: "Automation Toggled",
@@ -160,10 +173,74 @@ const ACTION_TYPE_VARIANTS: Record<string, string> = {
   template_edited: "bg-blue-100 text-blue-800 dark:bg-blue-900/40 dark:text-blue-300",
   template_archived: "bg-orange-100 text-orange-800 dark:bg-orange-900/40 dark:text-orange-300",
   communication_sent: "bg-green-100 text-green-800 dark:bg-green-900/40 dark:text-green-300",
+  communication_deleted: "bg-red-100 text-red-800 dark:bg-red-900/40 dark:text-red-300",
+  communication_seed_cleared: "bg-red-100 text-red-800 dark:bg-red-900/40 dark:text-red-300",
   scheduled_send_cancelled: "bg-yellow-100 text-yellow-800 dark:bg-yellow-900/40 dark:text-yellow-300",
   automation_edited: "bg-purple-100 text-purple-800 dark:bg-purple-900/40 dark:text-purple-300",
   automation_toggled: "bg-indigo-100 text-indigo-800 dark:bg-indigo-900/40 dark:text-indigo-300",
 };
+
+function ClearSeedSamplesButton() {
+  const { toast } = useToast();
+  const [open, setOpen] = useState(false);
+  const clearMutation = useMutation({
+    mutationFn: async () => {
+      const res = await apiRequest("POST", "/api/communications/clear-seed-data", {});
+      return res.json() as Promise<{ deletedCount: number }>;
+    },
+    onSuccess: (data) => {
+      toast({
+        title: "Seed sample emails cleared",
+        description: `${data.deletedCount} sample communication${data.deletedCount === 1 ? "" : "s"} removed.`,
+      });
+      queryClient.invalidateQueries({ queryKey: ["/api/communications"] });
+      setOpen(false);
+    },
+    onError: (err: Error) => {
+      toast({
+        title: "Failed to clear seed samples",
+        description: err.message,
+        variant: "destructive",
+      });
+    },
+  });
+  return (
+    <AlertDialog open={open} onOpenChange={setOpen}>
+      <AlertDialogTrigger asChild>
+        <Button
+          size="sm"
+          variant="outline"
+          className="gap-1 text-xs h-7 text-destructive border-destructive/30 hover:bg-destructive/10"
+          data-testid="button-clear-seed-samples"
+        >
+          <Trash2 className="w-3 h-3" />
+          Clear seed sample emails
+        </Button>
+      </AlertDialogTrigger>
+      <AlertDialogContent>
+        <AlertDialogHeader>
+          <AlertDialogTitle>Clear seed sample emails?</AlertDialogTitle>
+          <AlertDialogDescription>
+            This permanently removes the demo communications that ship with the CRM
+            (e.g. "Spring Service Schedule Confirmation", "Crew arriving today").
+            Real communications are not affected. This action is logged in the audit log.
+          </AlertDialogDescription>
+        </AlertDialogHeader>
+        <AlertDialogFooter>
+          <AlertDialogCancel data-testid="button-cancel-clear-seed-samples">Cancel</AlertDialogCancel>
+          <AlertDialogAction
+            onClick={(e) => { e.preventDefault(); clearMutation.mutate(); }}
+            disabled={clearMutation.isPending}
+            data-testid="button-confirm-clear-seed-samples"
+          >
+            {clearMutation.isPending ? <Loader2 className="w-3.5 h-3.5 animate-spin mr-1" /> : <Trash2 className="w-3.5 h-3.5 mr-1" />}
+            Clear samples
+          </AlertDialogAction>
+        </AlertDialogFooter>
+      </AlertDialogContent>
+    </AlertDialog>
+  );
+}
 
 function ActionTypeBadge({ actionType }: { actionType: string }) {
   const colorClass = ACTION_TYPE_VARIANTS[actionType] ?? "bg-muted text-muted-foreground";
@@ -2213,6 +2290,7 @@ export default function AllCommunicationsTab() {
             <div className="p-4 border-b space-y-3 shrink-0">
               <div className="flex items-center justify-between gap-3">
                 <h2 className="text-sm font-semibold capitalize" data-testid="text-view-title">{sectionFilter} Communications</h2>
+                {permissions.isAdmin && <ClearSeedSamplesButton />}
               </div>
               <div className="flex items-center gap-2 overflow-x-auto pb-1 no-scrollbar">
                 <Select value={typeFilter} onValueChange={setTypeFilter}>

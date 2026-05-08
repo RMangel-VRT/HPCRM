@@ -25,6 +25,7 @@ import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/hooks/use-auth";
 import { formatDistanceToNow } from "date-fns";
+import BackfillPanel from "@/components/customer/communications/BackfillPanel";
 
 interface PersonalMailboxDto {
   id: string;
@@ -222,6 +223,7 @@ interface MailboxRowProps {
 function MailboxRow({ account }: MailboxRowProps) {
   const { toast } = useToast();
   const [isConnecting, setIsConnecting] = useState(false);
+  const [backfillOpen, setBackfillOpen] = useState(false);
 
   const disconnectMutation = useMutation({
     mutationFn: () => apiRequest("POST", `/api/mailbox-accounts/${account.id}/oauth/disconnect`, {}),
@@ -338,16 +340,22 @@ function MailboxRow({ account }: MailboxRowProps) {
         )}
 
         <Button
-          variant="ghost"
+          variant="outline"
           size="sm"
-          disabled
-          className="gap-1 text-xs text-muted-foreground cursor-not-allowed"
+          className="gap-1 text-xs"
+          onClick={() => setBackfillOpen(v => !v)}
+          disabled={!isConnected}
+          aria-expanded={backfillOpen}
+          title={isConnected ? undefined : "Connect this mailbox to manage backfill"}
           data-testid={`button-manage-backfill-${account.id}`}
-          title="Manage backfill — available in a future update"
         >
-          Manage backfill
+          {isConnected && backfillOpen ? "Hide backfill" : "Manage backfill"}
         </Button>
       </div>
+
+      {isConnected && backfillOpen && (
+        <BackfillPanel mailboxAccountId={account.id} autoOpen />
+      )}
     </div>
   );
 }

@@ -14496,10 +14496,44 @@ export async function registerRoutes(app: Express): Promise<Server> {
     res.json(comm);
   });
 
-  app.delete("/api/communications/:id", requireCommPermission("manage_automations"), async (req, res) => {
+  app.delete("/api/communications/:id", requireCommPermission("send"), async (req, res) => {
     const user = req.user as UserWithContext;
+    const existing = await storage.getCommunicationById(req.params.id, user.activeCompanyId);
+    if (!existing) return res.status(404).json({ error: "Not found" });
     await storage.deleteCommunication(req.params.id, user.activeCompanyId);
+    await writeCommAuditLog(user.activeCompanyId, user.id, "communication_deleted", {
+      communicationId: req.params.id,
+      actionDetails: {
+        subject: existing.subject ?? null,
+        type: existing.type,
+        direction: existing.direction,
+        status: existing.status,
+        customerId: existing.customerId ?? null,
+        customerName: existing.customerName ?? null,
+        fromAddress: existing.fromAddress ?? null,
+        recipientEmail: existing.recipientEmail ?? null,
+      },
+    });
     res.status(204).end();
+  });
+
+  // Admin-only: clear demo/sample communications by their well-known seed subjects
+  app.post("/api/communications/clear-seed-data", requireCommPermission("manage_automations"), async (req, res) => {
+    const user = req.user as UserWithContext;
+    const SEED_SUBJECTS = [
+      "Spring Service Schedule Confirmation",
+      "Crew arriving today",
+      "Customer Meeting Notes",
+      "Summer Services Proposal Follow-Up",
+      "Annual Contract Renewal Notice",
+      "Monthly Service Report - March 2026",
+      "Service cancellation notice",
+    ];
+    const deletedCount = await storage.deleteSeedCommunications(user.activeCompanyId, SEED_SUBJECTS);
+    await writeCommAuditLog(user.activeCompanyId, user.id, "communication_seed_cleared", {
+      actionDetails: { deletedCount, seedSubjects: SEED_SUBJECTS },
+    });
+    res.json({ deletedCount });
   });
 
   // GET /api/communication-templates

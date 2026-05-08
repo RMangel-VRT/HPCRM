@@ -10,6 +10,8 @@ import { formatDistanceToNow } from "date-fns";
 import type { CommunicationWithDetails, MailboxAccount } from "@shared/schema";
 import { useCommunicationsShell } from "./CommunicationsPageShell";
 import CommunicationsQuickViewModal from "@/components/customer/communications/CommunicationsQuickViewModal";
+import DeleteCommunicationButton from "@/components/customer/communications/DeleteCommunicationButton";
+import { useAuth } from "@/hooks/use-auth";
 
 interface PaginatedResponse {
   data: CommunicationWithDetails[];
@@ -38,6 +40,39 @@ function InboxSourceBadge({ comm }: { comm: CommunicationWithDetails }) {
       Inbox Sync
     </Badge>
   );
+}
+
+function SortRoutingBadge({ comm }: { comm: CommunicationWithDetails }) {
+  if (!comm.customerId) return null;
+  const customer = comm.customerName ?? "customer";
+  if (comm.wasManuallySorted) {
+    const title = comm.manuallySortedByName
+      ? `Manually routed by ${comm.manuallySortedByName}`
+      : "Manually routed";
+    return (
+      <Badge
+        variant="outline"
+        className="text-xs shrink-0 border-amber-300 text-amber-800 bg-amber-50 dark:border-amber-700 dark:text-amber-300 dark:bg-amber-900/20"
+        title={title}
+        data-testid={`badge-routed-${comm.id}`}
+      >
+        Routed → {customer}
+      </Badge>
+    );
+  }
+  if (comm.mailboxAccountId) {
+    return (
+      <Badge
+        variant="outline"
+        className="text-xs shrink-0 border-emerald-300 text-emerald-800 bg-emerald-50 dark:border-emerald-700 dark:text-emerald-300 dark:bg-emerald-900/20"
+        title="Auto-matched by inbox sync"
+        data-testid={`badge-sorted-${comm.id}`}
+      >
+        Sorted → {customer}
+      </Badge>
+    );
+  }
+  return null;
 }
 
 function LoadingSkeleton() {
@@ -97,6 +132,8 @@ function NoResultsState() {
 
 export default function InboxTab() {
   const { search, fromDate, toDate, viewAs } = useCommunicationsShell();
+  const { user } = useAuth();
+  const canDelete = user?.activeRole === "admin" || user?.activeRole === "office";
   const [selectedComm, setSelectedComm] = useState<CommunicationWithDetails | null>(null);
   const searchString = useSearch();
   const focusId = new URLSearchParams(searchString).get("focusId");
@@ -164,10 +201,10 @@ export default function InboxTab() {
               const isHighlighted = highlightId === comm.id;
 
               return (
-                <li key={comm.id}>
+                <li key={comm.id} className="group relative">
                   <button
                     ref={(el) => { rowRefs.current[comm.id] = el; }}
-                    className={`w-full flex items-start gap-3 px-4 py-3 text-left hover-elevate transition-all duration-500 ${isHighlighted ? "ring-2 ring-inset ring-primary bg-primary/5" : ""}`}
+                    className={`w-full flex items-start gap-3 px-4 py-3 ${canDelete ? "pr-12" : ""} text-left hover-elevate transition-all duration-500 ${isHighlighted ? "ring-2 ring-inset ring-primary bg-primary/5" : ""}`}
                     onClick={() => setSelectedComm(comm)}
                     data-testid={`row-inbox-${comm.id}`}
                   >
@@ -181,6 +218,7 @@ export default function InboxTab() {
                           {comm.subject || "(No subject)"}
                         </span>
                         <InboxSourceBadge comm={comm} />
+                        <SortRoutingBadge comm={comm} />
                       </div>
                       <p className="text-xs text-muted-foreground truncate mt-0.5">
                         <span data-testid={`text-inbox-from-${comm.id}`}>{fromAddr}</span>
@@ -199,6 +237,14 @@ export default function InboxTab() {
                       {formatDate(timestamp)}
                     </span>
                   </button>
+                  {canDelete && (
+                    <div className="absolute right-2 top-1/2 -translate-y-1/2 opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 transition-opacity">
+                      <DeleteCommunicationButton
+                        communicationId={comm.id}
+                        subject={comm.subject}
+                      />
+                    </div>
+                  )}
                 </li>
               );
             })}

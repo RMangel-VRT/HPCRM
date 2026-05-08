@@ -2169,7 +2169,7 @@ export const communicationAuditLog = pgTable("communication_audit_log", {
   companyId: varchar("company_id").notNull().references(() => companies.id, { onDelete: "cascade" }),
   communicationId: varchar("communication_id").references(() => communications.id, { onDelete: "set null" }),
   templateId: varchar("template_id").references(() => communicationTemplates.id, { onDelete: "set null" }),
-  actionType: text("action_type").notNull().$type<"template_created" | "template_edited" | "template_archived" | "communication_sent" | "scheduled_send_cancelled" | "automation_edited" | "automation_toggled">(),
+  actionType: text("action_type").notNull().$type<"template_created" | "template_edited" | "template_archived" | "communication_sent" | "communication_deleted" | "communication_seed_cleared" | "scheduled_send_cancelled" | "automation_edited" | "automation_toggled">(),
   actionByUserId: varchar("action_by_user_id").references(() => users.id, { onDelete: "set null" }),
   actionDetails: jsonb("action_details"),
   createdAt: timestamp("created_at").notNull().defaultNow(),
@@ -2179,7 +2179,7 @@ export const insertCommunicationAuditLogSchema = createInsertSchema(communicatio
   id: true,
   createdAt: true,
 }).extend({
-  actionType: z.enum(["template_created", "template_edited", "template_archived", "communication_sent", "scheduled_send_cancelled", "automation_edited", "automation_toggled"]),
+  actionType: z.enum(["template_created", "template_edited", "template_archived", "communication_sent", "communication_deleted", "communication_seed_cleared", "scheduled_send_cancelled", "automation_edited", "automation_toggled"]),
 });
 
 export type InsertCommunicationAuditLog = z.infer<typeof insertCommunicationAuditLogSchema>;

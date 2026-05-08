@@ -20,7 +20,7 @@ export interface MyExtraBillableBatch {
 }
 import { type User, type InsertUser, type Customer, type InsertCustomer, type Contact, type InsertContact, type Company, type InsertCompany, type CompanyUser, type InsertCompanyUser, type Settings, type InsertSettings, type Note, type InsertNote, type Contract, type InsertContract, type ContractStatusHistory, type InsertContractStatusHistory, type ContractDocument, type InsertContractDocument, type ContractMonthlyAmount, type InsertContractMonthlyAmount, type CustomerRateSheet, type InsertCustomerRateSheet, type ContractService, type InsertContractService, type ContractTemplate, type InsertContractTemplate, type ContractBuilderDocument, type InsertContractBuilderDocument, type ContractBuilderSection, type InsertContractBuilderSection, type ContractBuilderVariable, type InsertContractBuilderVariable, type TicketType, type InsertTicketType, type TicketTypeStatus, type InsertTicketTypeStatus, type TicketTypeField, type InsertTicketTypeField, type Ticket, type InsertTicket, type TicketFieldValue, type InsertTicketFieldValue, type TicketStatusHistory, type InsertTicketStatusHistory, type TicketComment, type TicketCommentWithAuthor, type InsertTicketComment, type TicketCommentMention, type InsertTicketCommentMention, type TicketSource, type InsertTicketSource, type TicketLink, type InsertTicketLink, type TicketTypeCategory, type CustomerMapLayer, type InsertCustomerMapLayer, type CustomerMapDocument, type InsertCustomerMapDocument, type MaintenanceCrew, type InsertMaintenanceCrew, type MaintenanceVisitConfig, type InsertMaintenanceVisitConfig, type WeeklyScheduleTemplate, type InsertWeeklyScheduleTemplate, type ScheduleBlock, type InsertScheduleBlock, type TicketNotification, type InsertTicketNotification, type NotificationType, type PropertyManagementCompany, type InsertPropertyManagementCompany, type PropertyManager, type InsertPropertyManager, type PropertyManagerEmail, type InsertPropertyManagerEmail, type PropertyManagerPhone, type InsertPropertyManagerPhone, type PropertyManagerWithContacts, type Equipment, type InsertEquipment, type EquipmentFile, type InsertEquipmentFile, type EquipmentTicket, type InsertEquipmentTicket, type EquipmentTicketStatusHistory, type InsertEquipmentTicketStatusHistory, type EquipmentWithTicketCount, type SnowEvent, type InsertSnowEvent, type SnowEventAttachment, type InsertSnowEventAttachment, type SnowEventPropertyImpact, type InsertSnowEventPropertyImpact, type SnowEventWithDetails, type SnowEventPropertyImpactWithCustomer, type EmailTemplate, type InsertEmailTemplate, type EmailRule, type InsertEmailRule, type EmailLog, type InsertEmailLog, type EmailLogWithDetails, type Proposal, type InsertProposal, type ProposalFile, type InsertProposalFile, type ProposalWithDetails, type ProposalVersion, type InsertProposalVersion, type ProposalVersionWithUser, type VisualScopeSheet, type InsertVisualScopeSheet, type VisualScopeSheetWithCustomer, type Campaign, type InsertCampaign, type CampaignItem, type InsertCampaignItem, type CampaignWithProgress, type Season, type InsertSeason, type CampaignChecklistTask, type InsertCampaignChecklistTask, type CampaignItemTaskCompletion, type InsertCampaignItemTaskCompletion, type CampaignChecklistAuditLog, type InsertCampaignChecklistAuditLog, type CampaignChecklistAuditLogWithUser, type Communication, type InsertCommunication, type CommunicationTemplate, type InsertCommunicationTemplate, type CommunicationThread, type InsertCommunicationThread, type CommunicationLink, type InsertCommunicationLink, type CommunicationWithDetails, type CommunicationAnalytics, type InsertCommunicationAuditLog, type CommunicationAuditLog, type CommunicationAuditLogWithUser, type ChemicalProduct, type InsertChemicalProduct, type ChemicalNotificationTemplate, type InsertChemicalNotificationTemplate, type MailboxBackfillRun, type InsertMailboxBackfillRun } from "@workspace/db";
 import { db } from "./db";
-import { users, customers, contacts, companies, companyUsers, settings, notes, contracts, contractStatusHistory, contractDocuments, contractMonthlyAmounts, customerRateSheets, contractServices, contractTemplates, contractBuilderDocuments, contractBuilderSections, contractBuilderVariables, ticketTypes, ticketTypeStatuses, ticketTypeFields, tickets, ticketFieldValues, ticketStatusHistory, ticketComments, ticketCommentMentions, ticketSources, ticketLinks, customerMapLayers, customerMapDocuments, maintenanceCrews, maintenanceVisitConfigs, weeklyScheduleTemplates, scheduleBlocks, ticketNotifications, propertyManagementCompanies, propertyManagers, propertyManagerEmails, propertyManagerPhones, equipment, equipmentFiles, equipmentTickets, equipmentTicketStatusHistory, snowEvents, snowEventAttachments, snowEventPropertyImpacts, emailTemplates, emailRules, emailLogs, proposals, proposalFiles, proposalVersions, visualScopeSheets, campaigns, campaignItems, campaignChecklistTasks, campaignItemTaskCompletions, campaignChecklistAuditLog as campaignChecklistAuditLogTable, campaignCrews, campaignCrewMembers, seasons, communications, communicationTemplates, communicationThreads, communicationLinks, communicationAuditLog, communicationAutomationRules, servicePlanTemplates, servicePlanTemplateItems, customerServicePlans, stylePresets, sheetTemplates, chemicalProducts, chemicalNotificationTemplates, mailboxBackfillRuns } from "@workspace/db";
+import { users, customers, contacts, companies, companyUsers, settings, notes, contracts, contractStatusHistory, contractDocuments, contractMonthlyAmounts, customerRateSheets, contractServices, contractTemplates, contractBuilderDocuments, contractBuilderSections, contractBuilderVariables, ticketTypes, ticketTypeStatuses, ticketTypeFields, tickets, ticketFieldValues, ticketStatusHistory, ticketComments, ticketCommentMentions, ticketSources, ticketLinks, customerMapLayers, customerMapDocuments, maintenanceCrews, maintenanceVisitConfigs, weeklyScheduleTemplates, scheduleBlocks, ticketNotifications, propertyManagementCompanies, propertyManagers, propertyManagerEmails, propertyManagerPhones, equipment, equipmentFiles, equipmentTickets, equipmentTicketStatusHistory, snowEvents, snowEventAttachments, snowEventPropertyImpacts, emailTemplates, emailRules, emailLogs, proposals, proposalFiles, proposalVersions, visualScopeSheets, campaigns, campaignItems, campaignChecklistTasks, campaignItemTaskCompletions, campaignChecklistAuditLog as campaignChecklistAuditLogTable, campaignCrews, campaignCrewMembers, seasons, communications, communicationTemplates, communicationThreads, communicationLinks, communicationAuditLog, communicationAutomationRules, mailboxAccounts, unsortedEmails, servicePlanTemplates, servicePlanTemplateItems, customerServicePlans, stylePresets, sheetTemplates, chemicalProducts, chemicalNotificationTemplates, mailboxBackfillRuns } from "@workspace/db";
 import type { StylePreset, InsertStylePreset, SheetTemplate, InsertSheetTemplate, StylePresetType, StylePresetConfig } from "@workspace/db";
 import type { VisibleMailboxes } from "./services/mailboxScope";
 import type { CommunicationAutomationRule, InsertCommunicationAutomationRule, ServicePlanTemplateWithItems, ServicePlanTemplate, InsertServicePlanTemplate, ServicePlanTemplateItem, ServicePlanCategory, CustomerServicePlan, InsertCustomerServicePlan, ServiceFulfillmentRow } from "@workspace/db";
@@ -411,6 +411,7 @@ export interface IStorage {
   createCommunication(communication: InsertCommunication): Promise<Communication>;
   updateCommunication(id: string, companyId: string, updates: Partial<InsertCommunication>): Promise<Communication | undefined>;
   deleteCommunication(id: string, companyId: string): Promise<void>;
+  deleteSeedCommunications(companyId: string, seedSubjects: string[]): Promise<number>;
   getCommunicationStats(companyId: string): Promise<{ drafts: number; scheduledToday: number; openFollowUps: number; overdueFollowUps: number }>;
   getCommunicationTemplates(companyId: string, includeArchived?: boolean): Promise<CommunicationTemplate[]>;
   getCommunicationTemplateById(id: string, companyId: string): Promise<CommunicationTemplate | undefined>;
@@ -3952,6 +3953,26 @@ export class PgStorage implements IStorage {
       .orderBy(desc(sql`COALESCE(${communications.sentAt}, ${communications.receivedAt}, ${communications.createdAt})`))
       .limit(500); // PERF: hard cap to prevent unbounded payload
 
+    // Manual-sort enrichment: which comms came from a manually-routed unsorted email?
+    const commIds = rows.map(r => r.comm.id);
+    const sortMeta = new Map<string, { resolvedByName: string | null }>();
+    if (commIds.length > 0) {
+      const sortRows = await db.select({
+        commId: unsortedEmails.resolvedToCommunicationId,
+        resolvedByName: users.name,
+      })
+        .from(unsortedEmails)
+        .leftJoin(users, eq(unsortedEmails.resolvedByUserId, users.id))
+        .where(and(
+          eq(unsortedEmails.companyId, companyId),
+          eq(unsortedEmails.status, "routed"),
+          inArray(unsortedEmails.resolvedToCommunicationId, commIds),
+        ));
+      for (const r of sortRows) {
+        if (r.commId) sortMeta.set(r.commId, { resolvedByName: r.resolvedByName });
+      }
+    }
+
     const threadIds = Array.from(new Set(rows.map(r => r.comm.threadId).filter(Boolean)));
     const replyCounts = new Map<string, number>();
     if (threadIds.length > 0) {
@@ -3965,15 +3986,20 @@ export class PgStorage implements IStorage {
     }
 
     const now = new Date();
-    let result = rows.map(r => ({
-      ...r.comm,
-      customerName: r.customerName ?? undefined,
-      contactName: r.contactName ?? undefined,
-      sentByName: r.sentByName ?? undefined,
-      templateName: r.templateName ?? undefined,
-      replyCount: r.comm.threadId ? (replyCounts.get(r.comm.threadId) ?? 1) - 1 : 0,
-      isOverdue: r.comm.followUpStatus === "open" && r.comm.followUpDueAt != null && r.comm.followUpDueAt < now,
-    })) as CommunicationWithDetails[];
+    let result = rows.map(r => {
+      const meta = sortMeta.get(r.comm.id);
+      return {
+        ...r.comm,
+        customerName: r.customerName ?? undefined,
+        contactName: r.contactName ?? undefined,
+        sentByName: r.sentByName ?? undefined,
+        templateName: r.templateName ?? undefined,
+        replyCount: r.comm.threadId ? (replyCounts.get(r.comm.threadId) ?? 1) - 1 : 0,
+        isOverdue: r.comm.followUpStatus === "open" && r.comm.followUpDueAt != null && r.comm.followUpDueAt < now,
+        wasManuallySorted: !!meta,
+        manuallySortedByName: meta?.resolvedByName ?? null,
+      };
+    }) as CommunicationWithDetails[];
 
     // Customer-name search stays in JS (not pushed to SQL) per phase-3 spec
     if (filters?.search) {
@@ -4015,6 +4041,17 @@ export class PgStorage implements IStorage {
     if (!rows[0]) return undefined;
     const row = rows[0];
     const now = new Date();
+    const [sortRow] = await db.select({
+      resolvedByName: users.name,
+    })
+      .from(unsortedEmails)
+      .leftJoin(users, eq(unsortedEmails.resolvedByUserId, users.id))
+      .where(and(
+        eq(unsortedEmails.companyId, companyId),
+        eq(unsortedEmails.status, "routed"),
+        eq(unsortedEmails.resolvedToCommunicationId, id),
+      ))
+      .limit(1);
     return {
       ...row.comm,
       customerName: row.customerName ?? undefined,
@@ -4022,6 +4059,8 @@ export class PgStorage implements IStorage {
       sentByName: row.sentByName ?? undefined,
       templateName: row.templateName ?? undefined,
       isOverdue: row.comm.followUpStatus === "open" && row.comm.followUpDueAt != null && row.comm.followUpDueAt < now,
+      wasManuallySorted: !!sortRow,
+      manuallySortedByName: sortRow?.resolvedByName ?? null,
     };
   }
 
@@ -4039,6 +4078,18 @@ export class PgStorage implements IStorage {
   }
   async deleteCommunication(id: string, companyId: string): Promise<void> {
     await db.delete(communications).where(and(eq(communications.id, id), eq(communications.companyId, companyId)));
+  }
+
+  async deleteSeedCommunications(companyId: string, seedSubjects: string[]): Promise<number> {
+    if (seedSubjects.length === 0) return 0;
+    const result = await db
+      .delete(communications)
+      .where(and(
+        eq(communications.companyId, companyId),
+        inArray(communications.subject, seedSubjects),
+      ))
+      .returning({ id: communications.id });
+    return result.length;
   }
 
   async getCommunicationStats(companyId: string): Promise<{ drafts: number; scheduledToday: number; openFollowUps: number; overdueFollowUps: number }> {

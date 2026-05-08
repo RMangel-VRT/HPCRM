@@ -15,6 +15,8 @@ import { ArrowDownLeft, ArrowUpRight, ChevronDown, ChevronUp, Code, ExternalLink
 import { formatDistanceToNow } from "date-fns";
 import type { CommunicationWithDetails } from "@shared/schema";
 import LogCommunicationForm from "./LogCommunicationForm";
+import DeleteCommunicationButton from "./DeleteCommunicationButton";
+import { useAuth } from "@/hooks/use-auth";
 
 interface CommunicationsQuickViewModalProps {
   open: boolean;
@@ -25,7 +27,7 @@ interface CommunicationsQuickViewModalProps {
   onOpenFullTab?: () => void;
 }
 
-function CommRow({ comm }: { comm: CommunicationWithDetails }) {
+function CommRow({ comm, customerId, canDelete }: { comm: CommunicationWithDetails; customerId: string; canDelete: boolean }) {
   const { t } = useTranslation();
   const [expanded, setExpanded] = useState(false);
   const [showHtml, setShowHtml] = useState(false);
@@ -56,6 +58,25 @@ function CommRow({ comm }: { comm: CommunicationWithDetails }) {
                 {t("emailTracking.mailboxBadge")}
               </Badge>
             )}
+            {comm.customerId && comm.wasManuallySorted ? (
+              <Badge
+                variant="outline"
+                className="text-xs shrink-0 border-amber-300 text-amber-800 bg-amber-50 dark:border-amber-700 dark:text-amber-300 dark:bg-amber-900/20"
+                title={comm.manuallySortedByName ? `Manually routed by ${comm.manuallySortedByName}` : "Manually routed"}
+                data-testid={`badge-routed-${comm.id}`}
+              >
+                Routed → {comm.customerName ?? "customer"}
+              </Badge>
+            ) : comm.customerId && comm.mailboxAccountId ? (
+              <Badge
+                variant="outline"
+                className="text-xs shrink-0 border-emerald-300 text-emerald-800 bg-emerald-50 dark:border-emerald-700 dark:text-emerald-300 dark:bg-emerald-900/20"
+                title="Auto-matched by inbox sync"
+                data-testid={`badge-sorted-${comm.id}`}
+              >
+                Sorted → {comm.customerName ?? "customer"}
+              </Badge>
+            ) : null}
           </div>
           <p className="text-xs text-muted-foreground truncate">{fromAddr}</p>
           {bodyPreview && !expanded && (
@@ -65,6 +86,16 @@ function CommRow({ comm }: { comm: CommunicationWithDetails }) {
         <div className="shrink-0 text-xs text-muted-foreground">
           {timestamp ? formatDistanceToNow(new Date(timestamp), { addSuffix: true }) : "—"}
         </div>
+        {canDelete && (
+          <div className="shrink-0" onClick={(e) => e.stopPropagation()}>
+            <DeleteCommunicationButton
+              communicationId={comm.id}
+              subject={comm.subject}
+              variant="text"
+              invalidateKeys={[["/api/customers", customerId, "communications", "recent"]]}
+            />
+          </div>
+        )}
         <div className="shrink-0">
           {expanded ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />}
         </div>
@@ -119,6 +150,8 @@ export default function CommunicationsQuickViewModal({
   onOpenFullTab,
 }: CommunicationsQuickViewModalProps) {
   const { t } = useTranslation();
+  const { user } = useAuth();
+  const canDelete = user?.activeRole === "admin" || user?.activeRole === "office";
   const [showLogForm, setShowLogForm] = useState(false);
 
   const { data: recentComms = [], isLoading } = useQuery<CommunicationWithDetails[]>({
@@ -165,17 +198,17 @@ export default function CommunicationsQuickViewModal({
                   <TabsContent value="all" className="flex-1 overflow-y-auto space-y-2 mt-2">
                     {recentComms.length === 0
                       ? <p className="text-sm text-muted-foreground text-center py-8">{t("emailTracking.communicationsNone")}</p>
-                      : recentComms.map(c => <CommRow key={c.id} comm={c} />)}
+                      : recentComms.map(c => <CommRow key={c.id} comm={c} customerId={customerId} canDelete={canDelete} />)}
                   </TabsContent>
                   <TabsContent value="inbound" className="flex-1 overflow-y-auto space-y-2 mt-2">
                     {inbound.length === 0
                       ? <p className="text-sm text-muted-foreground text-center py-8">{t("emailTracking.noInbound")}</p>
-                      : inbound.map(c => <CommRow key={c.id} comm={c} />)}
+                      : inbound.map(c => <CommRow key={c.id} comm={c} customerId={customerId} canDelete={canDelete} />)}
                   </TabsContent>
                   <TabsContent value="outbound" className="flex-1 overflow-y-auto space-y-2 mt-2">
                     {outbound.length === 0
                       ? <p className="text-sm text-muted-foreground text-center py-8">{t("emailTracking.noOutbound")}</p>
-                      : outbound.map(c => <CommRow key={c.id} comm={c} />)}
+                      : outbound.map(c => <CommRow key={c.id} comm={c} customerId={customerId} canDelete={canDelete} />)}
                   </TabsContent>
                 </>
               )}

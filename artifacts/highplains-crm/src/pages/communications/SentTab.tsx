@@ -9,6 +9,8 @@ import { formatDistanceToNow } from "date-fns";
 import type { CommunicationWithDetails, MailboxAccount } from "@shared/schema";
 import { useCommunicationsShell } from "./CommunicationsPageShell";
 import CommunicationsQuickViewModal from "@/components/customer/communications/CommunicationsQuickViewModal";
+import DeleteCommunicationButton from "@/components/customer/communications/DeleteCommunicationButton";
+import { useAuth } from "@/hooks/use-auth";
 
 interface PaginatedResponse {
   data: CommunicationWithDetails[];
@@ -103,6 +105,8 @@ function NoResultsState() {
 
 export default function SentTab() {
   const { search, fromDate, toDate, viewAs } = useCommunicationsShell();
+  const { user } = useAuth();
+  const canDelete = user?.activeRole === "admin" || user?.activeRole === "office";
   const [selectedComm, setSelectedComm] = useState<CommunicationWithDetails | null>(null);
 
   const params = new URLSearchParams({ page: "1", limit: "50", direction: "outbound" });
@@ -153,9 +157,9 @@ export default function SentTab() {
                   : "";
 
               return (
-                <li key={comm.id}>
+                <li key={comm.id} className="group relative">
                   <button
-                    className="w-full flex items-start gap-3 px-4 py-3 text-left hover-elevate"
+                    className={`w-full flex items-start gap-3 px-4 py-3 ${canDelete ? "pr-12" : ""} text-left hover-elevate`}
                     onClick={() => setSelectedComm(comm)}
                     data-testid={`row-sent-${comm.id}`}
                   >
@@ -194,6 +198,14 @@ export default function SentTab() {
                       {formatDate(timestamp)}
                     </span>
                   </button>
+                  {canDelete && (
+                    <div className="absolute right-2 top-1/2 -translate-y-1/2 opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 transition-opacity">
+                      <DeleteCommunicationButton
+                        communicationId={comm.id}
+                        subject={comm.subject}
+                      />
+                    </div>
+                  )}
                 </li>
               );
             })}
