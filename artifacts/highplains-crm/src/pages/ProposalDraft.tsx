@@ -136,6 +136,7 @@ export default function ProposalDraft() {
       }
     },
     onError: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/proposals", id] });
       toast({ title: t("common.error"), description: t("common.saving"), variant: "destructive" });
     },
   });
@@ -767,7 +768,40 @@ export default function ProposalDraft() {
 
       <Card>
         <CardHeader>
-          <CardTitle className="text-base">{t("proposals.photoAppendix")}</CardTitle>
+          <div className="flex items-center justify-between gap-2 flex-wrap">
+            <CardTitle className="text-base">{t("proposals.photoAppendix")}</CardTitle>
+            <div className="flex items-center gap-2" role="group" aria-label={t("proposals.photoLayout")}>
+              <span className="text-xs text-muted-foreground">{t("proposals.photoLayout")}:</span>
+              <div className="inline-flex rounded-md border overflow-hidden">
+                <button
+                  type="button"
+                  className={`px-2.5 py-1 text-xs ${(proposal.photoLayout ?? "large") === "large" ? "bg-primary text-primary-foreground" : "bg-background hover:bg-muted"}`}
+                  onClick={() => {
+                    if ((proposal.photoLayout ?? "large") === "large") return;
+                    queryClient.setQueryData(["/api/proposals", id], (old: any) => old ? { ...old, photoLayout: "large" } : old);
+                    saveMutation.mutate({ photoLayout: "large" });
+                  }}
+                  data-testid="button-photo-layout-large"
+                  aria-pressed={(proposal.photoLayout ?? "large") === "large"}
+                >
+                  {t("proposals.photoLayoutLarge")}
+                </button>
+                <button
+                  type="button"
+                  className={`px-2.5 py-1 text-xs border-l ${proposal.photoLayout === "grid" ? "bg-primary text-primary-foreground" : "bg-background hover:bg-muted"}`}
+                  onClick={() => {
+                    if (proposal.photoLayout === "grid") return;
+                    queryClient.setQueryData(["/api/proposals", id], (old: any) => old ? { ...old, photoLayout: "grid" } : old);
+                    saveMutation.mutate({ photoLayout: "grid" });
+                  }}
+                  data-testid="button-photo-layout-grid"
+                  aria-pressed={proposal.photoLayout === "grid"}
+                >
+                  {t("proposals.photoLayoutGrid")}
+                </button>
+              </div>
+            </div>
+          </div>
         </CardHeader>
         <CardContent>
           {images.length === 0 && (

@@ -10714,7 +10714,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
     if (!existing) return res.status(404).send("Not found");
     if (await assertNotParentCustomer(existing.customerId, user.activeCompanyId, res)) return;
     const { title, proposalDate, estimateNumber, scopeOfWork, ticketId,
-            visualScopeSheetId, vsIncludeBase, vsIncludeOverlay } = req.body;
+            visualScopeSheetId, vsIncludeBase, vsIncludeOverlay, photoLayout } = req.body;
+    if (photoLayout !== undefined && photoLayout !== "large" && photoLayout !== "grid") {
+      return res.status(400).json({ error: "photoLayout must be 'large' or 'grid'" });
+    }
     const updated = await storage.updateProposal(req.params.id, user.activeCompanyId, {
       ...(title !== undefined && { title }),
       ...(proposalDate !== undefined && { proposalDate }),
@@ -10724,6 +10727,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       ...(visualScopeSheetId !== undefined && { visualScopeSheetId: visualScopeSheetId || null }),
       ...(vsIncludeBase !== undefined && { vsIncludeBase: !!vsIncludeBase }),
       ...(vsIncludeOverlay !== undefined && { vsIncludeOverlay: !!vsIncludeOverlay }),
+      ...(photoLayout !== undefined && { photoLayout }),
     });
     if (!updated) return res.status(404).send("Not found");
     res.json(updated);
@@ -11238,49 +11242,110 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const appLeft = LM;
       const appContentWidth = appPageWidth - LM - RM;
 
-      const captionReserve = 55;
-      const captionY = appPageHeight - RM - 35;
-      const maxImgWidth = appContentWidth;
+      const drawHeading = () => {
+        appendixDoc.fillColor(BRAND)
+          .fontSize(13)
+          .font('Helvetica-Bold')
+          .text('PROJECT IMAGES', appLeft, LM, { width: appContentWidth, align: 'center' });
+        const dividerY = LM + 20;
+        const dividerX = appLeft + (appContentWidth - 200) / 2;
+        appendixDoc.moveTo(dividerX, dividerY)
+          .lineTo(dividerX + 200, dividerY)
+          .strokeColor(BRAND)
+          .lineWidth(0.5)
+          .stroke();
+      };
 
-      for (let idx = 0; idx < imageBuffers.length; idx++) {
-        const img = imageBuffers[idx];
-        if (idx > 0) appendixDoc.addPage();
+      const layout = proposal.photoLayout === 'grid' ? 'grid' : 'large';
 
-        let currentImgTopY: number;
-        let currentMaxImgHeight: number;
+      if (layout === 'large') {
+        const captionReserve = 55;
+        const captionY = appPageHeight - RM - 35;
+        const maxImgWidth = appContentWidth;
 
-        if (idx === 0) {
-          // Draw PROJECT IMAGES heading at top of first image page
-          appendixDoc.fillColor(BRAND)
-            .fontSize(13)
-            .font('Helvetica-Bold')
-            .text('PROJECT IMAGES', appLeft, LM, { width: appContentWidth, align: 'center' });
-          const dividerY = LM + 20;
-          const dividerX = appLeft + (appContentWidth - 200) / 2;
-          appendixDoc.moveTo(dividerX, dividerY)
-            .lineTo(dividerX + 200, dividerY)
-            .strokeColor(BRAND)
-            .lineWidth(0.5)
-            .stroke();
-          currentImgTopY = LM + 36;
-          currentMaxImgHeight = appPageHeight - currentImgTopY - RM - captionReserve;
-        } else {
-          currentImgTopY = LM;
-          currentMaxImgHeight = appPageHeight - LM - RM - captionReserve;
+        for (let idx = 0; idx < imageBuffers.length; idx++) {
+          const img = imageBuffers[idx];
+          if (idx > 0) appendixDoc.addPage();
+
+          let currentImgTopY: number;
+          let currentMaxImgHeight: number;
+
+          if (idx === 0) {
+            drawHeading();
+            currentImgTopY = LM + 36;
+            currentMaxImgHeight = appPageHeight - currentImgTopY - RM - captionReserve;
+          } else {
+            currentImgTopY = LM;
+            currentMaxImgHeight = appPageHeight - LM - RM - captionReserve;
+          }
+
+          try {
+            appendixDoc.image(img.buffer, appLeft, currentImgTopY, {
+              fit: [maxImgWidth, currentMaxImgHeight],
+              align: 'center',
+            });
+          } catch (err) {
+            console.error(`Proposal PDF: failed to render image "${img.filename}":`, err);
+            throw Object.assign(new Error(`Image "${img.filename}" could not be rendered. It may be corrupted or an unsupported format (JPG and PNG are supported).`), { statusCode: 400 });
+          }
+          if (img.caption && img.caption.trim()) {
+            appendixDoc.fillColor('#666666').fontSize(9.5).font('Helvetica')
+              .text(img.caption.trim(), appLeft, captionY, { width: appContentWidth, align: 'center' });
+          }
         }
+      } else {
+        // Grid layout: 2 columns × 3 rows on Letter portrait
+        const COLS = 2;
+        const ROWS = 3;
+        const PER_PAGE = COLS * ROWS;
+        const GUTTER = 14;
+        const CAPTION_H = 22;
+        const HEADING_H = 36;
 
-        try {
-          appendixDoc.image(img.buffer, appLeft, currentImgTopY, {
-            fit: [maxImgWidth, currentMaxImgHeight],
-            align: 'center',
-          });
-        } catch (err) {
-          console.error(`Proposal PDF: failed to render image "${img.filename}":`, err);
-          throw Object.assign(new Error(`Image "${img.filename}" could not be rendered. It may be corrupted or an unsupported format (JPG and PNG are supported).`), { statusCode: 400 });
-        }
-        if (img.caption && img.caption.trim()) {
-          appendixDoc.fillColor('#666666').fontSize(9.5).font('Helvetica')
-            .text(img.caption.trim(), appLeft, captionY, { width: appContentWidth, align: 'center' });
+        const cellWidth = (appContentWidth - GUTTER * (COLS - 1)) / COLS;
+
+        for (let idx = 0; idx < imageBuffers.length; idx++) {
+          const img = imageBuffers[idx];
+          const pageIdx = Math.floor(idx / PER_PAGE);
+          const cellIdx = idx % PER_PAGE;
+          if (idx > 0 && cellIdx === 0) appendixDoc.addPage();
+
+          const isFirstPage = pageIdx === 0;
+          if (cellIdx === 0 && isFirstPage) {
+            drawHeading();
+          }
+
+          const gridTopY = isFirstPage ? LM + HEADING_H : LM;
+          const gridBottomY = appPageHeight - RM;
+          const gridHeight = gridBottomY - gridTopY;
+          const cellHeight = (gridHeight - GUTTER * (ROWS - 1)) / ROWS;
+
+          const row = Math.floor(cellIdx / COLS);
+          const col = cellIdx % COLS;
+          const cellX = appLeft + col * (cellWidth + GUTTER);
+          const cellY = gridTopY + row * (cellHeight + GUTTER);
+          const imgAreaH = cellHeight - CAPTION_H;
+
+          try {
+            appendixDoc.image(img.buffer, cellX, cellY, {
+              fit: [cellWidth, imgAreaH],
+              align: 'center',
+              valign: 'center',
+            });
+          } catch (err) {
+            console.error(`Proposal PDF: failed to render image "${img.filename}":`, err);
+            throw Object.assign(new Error(`Image "${img.filename}" could not be rendered. It may be corrupted or an unsupported format (JPG and PNG are supported).`), { statusCode: 400 });
+          }
+
+          if (img.caption && img.caption.trim()) {
+            appendixDoc.fillColor('#666666').fontSize(8.5).font('Helvetica')
+              .text(img.caption.trim(), cellX, cellY + imgAreaH + 4, {
+                width: cellWidth,
+                height: CAPTION_H - 4,
+                align: 'center',
+                ellipsis: true,
+              });
+          }
         }
       }
 

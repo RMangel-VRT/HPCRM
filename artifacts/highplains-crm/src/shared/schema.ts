@@ -1593,6 +1593,7 @@ export const proposals = pgTable("proposals", {
   visualScopeSheetId: varchar("visual_scope_sheet_id").references(() => visualScopeSheets.id, { onDelete: "set null" }),
   vsIncludeBase: boolean("vs_include_base").notNull().default(false),
   vsIncludeOverlay: boolean("vs_include_overlay").notNull().default(false),
+  photoLayout: varchar("photo_layout").notNull().default("large"),
   createdAt: timestamp("created_at").notNull().defaultNow(),
 }, (table) => ({
   proposalsCompanyIdIdx: index("proposals_company_id_idx").on(table.companyId),
