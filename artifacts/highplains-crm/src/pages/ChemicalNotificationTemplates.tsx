@@ -57,6 +57,14 @@ type ChemicalNotificationTemplate = {
   postVisitHtml: string;
   defaultLabelPdfStorageKey: string | null;
   defaultLabelPdfFilename: string | null;
+  productName: string | null;
+  activeIngredient: string | null;
+  epaRegNumber: string | null;
+  purposeText: string | null;
+  reentryInterval: string | null;
+  wateringInstructions: string | null;
+  mowingInstructions: string | null;
+  postApplicationExpectation: string | null;
   createdAt: string;
   updatedAt: string;
 };
@@ -136,6 +144,14 @@ const BLANK_FORM = {
   preVisitHtml: "",
   postVisitSubject: "",
   postVisitHtml: "",
+  productName: "",
+  activeIngredient: "",
+  epaRegNumber: "",
+  purposeText: "",
+  reentryInterval: "",
+  wateringInstructions: "",
+  mowingInstructions: "",
+  postApplicationExpectation: "",
 };
 
 type PreviewWithDataState = {
@@ -280,6 +296,14 @@ export default function ChemicalNotificationTemplates() {
       preVisitHtml: tpl.preVisitHtml,
       postVisitSubject: tpl.postVisitSubject,
       postVisitHtml: tpl.postVisitHtml,
+      productName: tpl.productName || "",
+      activeIngredient: tpl.activeIngredient || "",
+      epaRegNumber: tpl.epaRegNumber || "",
+      purposeText: tpl.purposeText || "",
+      reentryInterval: tpl.reentryInterval || "",
+      wateringInstructions: tpl.wateringInstructions || "",
+      mowingInstructions: tpl.mowingInstructions || "",
+      postApplicationExpectation: tpl.postApplicationExpectation || "",
     });
     setShowForm(true);
     setPreviewMode(null);
@@ -709,6 +733,95 @@ export default function ChemicalNotificationTemplates() {
                   </div>
                 </div>
               )}
+            </div>
+
+            <Separator />
+
+            <div className="space-y-4">
+              <div>
+                <h3 className="font-semibold text-sm">Product Details (defaults)</h3>
+                <p className="text-xs text-muted-foreground mt-1">
+                  These values are merged into rendered emails as defaults for the matching template variables.
+                  Per-visit overrides on the campaign item still take precedence.
+                </p>
+              </div>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div className="space-y-1.5">
+                  <Label className="text-xs">Product Name</Label>
+                  <Input
+                    value={form.productName}
+                    onChange={(e) => setForm(f => ({ ...f, productName: e.target.value }))}
+                    placeholder="e.g. Trimec Classic"
+                    data-testid="input-product-name"
+                  />
+                </div>
+                <div className="space-y-1.5">
+                  <Label className="text-xs">Active Ingredient</Label>
+                  <Input
+                    value={form.activeIngredient}
+                    onChange={(e) => setForm(f => ({ ...f, activeIngredient: e.target.value }))}
+                    placeholder="e.g. 2,4-D, MCPP, Dicamba"
+                    data-testid="input-active-ingredient"
+                  />
+                </div>
+                <div className="space-y-1.5">
+                  <Label className="text-xs">EPA Reg #</Label>
+                  <Input
+                    value={form.epaRegNumber}
+                    onChange={(e) => setForm(f => ({ ...f, epaRegNumber: e.target.value }))}
+                    placeholder="e.g. 2217-543"
+                    data-testid="input-epa-reg-number"
+                  />
+                </div>
+                <div className="space-y-1.5">
+                  <Label className="text-xs">Re-entry Interval</Label>
+                  <Input
+                    value={form.reentryInterval}
+                    onChange={(e) => setForm(f => ({ ...f, reentryInterval: e.target.value }))}
+                    placeholder="e.g. Until dry (typically 1–2 hours)"
+                    data-testid="input-reentry-interval"
+                  />
+                </div>
+                <div className="space-y-1.5 sm:col-span-2">
+                  <Label className="text-xs">Purpose</Label>
+                  <Input
+                    value={form.purposeText}
+                    onChange={(e) => setForm(f => ({ ...f, purposeText: e.target.value }))}
+                    placeholder="e.g. Selective control of broadleaf weeds"
+                    data-testid="input-purpose-text"
+                  />
+                </div>
+                <div className="space-y-1.5">
+                  <Label className="text-xs">Watering Instructions</Label>
+                  <Textarea
+                    value={form.wateringInstructions}
+                    onChange={(e) => setForm(f => ({ ...f, wateringInstructions: e.target.value }))}
+                    placeholder="e.g. Do not water for 24 hours after application."
+                    rows={2}
+                    data-testid="textarea-watering-instructions"
+                  />
+                </div>
+                <div className="space-y-1.5">
+                  <Label className="text-xs">Mowing Instructions</Label>
+                  <Textarea
+                    value={form.mowingInstructions}
+                    onChange={(e) => setForm(f => ({ ...f, mowingInstructions: e.target.value }))}
+                    placeholder="e.g. Wait at least 48 hours before mowing."
+                    rows={2}
+                    data-testid="textarea-mowing-instructions"
+                  />
+                </div>
+                <div className="space-y-1.5 sm:col-span-2">
+                  <Label className="text-xs">Post-Application Expectation</Label>
+                  <Textarea
+                    value={form.postApplicationExpectation}
+                    onChange={(e) => setForm(f => ({ ...f, postApplicationExpectation: e.target.value }))}
+                    placeholder="e.g. Visible weed wilt within 5–7 days; full control in 2–3 weeks."
+                    rows={2}
+                    data-testid="textarea-post-application-expectation"
+                  />
+                </div>
+              </div>
             </div>
 
             <Separator />

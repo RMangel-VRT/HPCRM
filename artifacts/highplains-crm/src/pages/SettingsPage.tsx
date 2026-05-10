@@ -4,7 +4,7 @@ import { useQuery, useMutation } from "@tanstack/react-query";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
-import { useLocation } from "wouter";
+import { useLocation, Link } from "wouter";
 import { useSetBreadcrumbs } from "@/hooks/use-breadcrumbs";
 import { useAuth } from "@/hooks/use-auth";
 import { Button } from "@/components/ui/button";
@@ -1061,8 +1061,9 @@ export default function SettingsPage() {
         </TabsContent>
 
         <TabsContent value="email-templates" className="space-y-6">
-          <div className="rounded-md border border-blue-200 bg-blue-50 dark:border-blue-800 dark:bg-blue-950/30 px-4 py-3 text-sm text-blue-800 dark:text-blue-300">
-            <strong>Note:</strong> These are system notification templates for automated emails (welcome emails, ticket alerts, etc.). For reusable outreach templates to compose messages to customers, visit the <strong>Communication Command Center</strong> and select "Manage Templates" from the left panel.
+          <div className="rounded-md border border-blue-200 bg-blue-50 dark:border-blue-800 dark:bg-blue-950/30 px-4 py-3 text-sm text-blue-800 dark:text-blue-300" data-testid="banner-chem-templates-moved">
+            These are system notification templates for non-chemical events (welcome emails, ticket alerts, work completion). Chemical campaign templates are managed under{" "}
+            <Link href="/dashboard/settings/notification-templates" className="underline font-medium">Settings → Notification Templates</Link>.
           </div>
           <Card>
             <CardHeader>
@@ -1163,6 +1164,28 @@ export default function SettingsPage() {
 
         <TabsContent value="chemical-products" className="space-y-6">
           <ChemicalProductsAdmin />
+        </TabsContent>
+
+        <TabsContent value="notification-templates" className="space-y-6" data-testid="content-notification-templates">
+          <Card>
+            <CardHeader>
+              <CardTitle>Chemical Notification Templates</CardTitle>
+              <CardDescription>
+                Pre-visit and post-visit emails sent for chemical campaigns. Templates include per-template product details
+                (product name, active ingredient, EPA reg #, re-entry interval, watering / mowing instructions, post-application
+                expectation) that are merged into rendered emails as defaults.
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              <Link
+                href="/dashboard/settings/notification-templates"
+                className="inline-flex items-center gap-1 text-sm font-medium text-primary underline"
+                data-testid="link-open-notification-templates"
+              >
+                Open Notification Templates
+              </Link>
+            </CardContent>
+          </Card>
         </TabsContent>
 
       </Tabs>

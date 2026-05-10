@@ -1,16 +1,20 @@
 import sgMail from '@sendgrid/mail';
-import { readFileSync } from 'fs';
-import { join } from 'path';
 import Handlebars from 'handlebars';
 import { storage } from '../storage';
-import type { EmailLog, InsertEmailLog, EmailRule, CampaignItem, ChemicalProduct } from '@workspace/db';
+import type { EmailLog, InsertEmailLog, EmailRule, CampaignItem, ChemicalProduct, ChemicalNotificationTemplate } from '@workspace/db';
 import { getEmailFallbacks, formatTimeWindowWithFallback } from '../i18n/emailFallbacks';
 
-function loadTemplateFile(filename: string): string | null {
-  try {
-    return readFileSync(join(__dirname, '../templates', filename), 'utf-8');
-  } catch {
-    return null;
+/**
+ * Thrown by renderChemicalNotificationTemplate when no template can be resolved
+ * for a chemical campaign. Routes should map this to HTTP 400 with the message.
+ */
+export class MissingChemicalNotificationTemplateError extends Error {
+  status = 400 as const;
+  constructor() {
+    super(
+      'This company has no chemical notification templates configured. Visit Settings \u2192 Notification Templates to create one.',
+    );
+    this.name = 'MissingChemicalNotificationTemplateError';
   }
 }
 
@@ -377,48 +381,10 @@ export function getDefaultWorkCompletedTemplate() {
   };
 }
 
-export function getDefaultChemicalPreNoticeTemplate() {
-  // NOTE: Use {{{tripleStash}}} for variables containing raw HTML (photos, HTML fragments, etc.). Plain {{var}} HTML-escapes its value.
-  const htmlBody =
-    loadTemplateFile('chemical-treatment-notification.html') ||
-    `<!DOCTYPE html><html><body><p>{{companyName}} — Upcoming Chemical Treatment for {{customerName}}. Scheduled: {{windowStart}} - {{windowEnd}}.</p><p>{{companyName}} - Property Maintenance Services</p></body></html>`;
-
-  return {
-    name: 'Chemical Treatment Notice',
-    subject: 'Upcoming Chemical Treatment: {{customerName}}',
-    htmlBody,
-    textBody: `Upcoming Chemical Treatment: {{customerName}}\n\nThis is to inform you that a chemical treatment application is scheduled for your property.\n\nProperty: {{customerName}}\nCampaign: {{campaignTitle}}\nScheduled Window: {{windowStart}} - {{windowEnd}}\n\nPlease ensure that pets, children, and sensitive items are kept away from treated areas during and after application.\n\nIf you have any questions, please contact us.\n\n{{companyName}} - Property Maintenance Services`,
-    category: 'transactional' as const,
-    isActive: true,
-  };
-}
-
-export function getDefaultChemicalPostNoticeTemplate() {
-  // NOTE: Use {{{tripleStash}}} for variables containing raw HTML (photos, HTML fragments, etc.). Plain {{var}} HTML-escapes its value.
-  const htmlBody =
-    loadTemplateFile('chemical-treatment-completion.html') ||
-    `<!DOCTYPE html><html><body><p>{{companyName}} — Chemical Treatment Completed for {{customerName}} on {{completionDate}}.</p><p>{{companyName}} - Property Maintenance Services</p></body></html>`;
-
-  return {
-    name: 'Chemical Treatment Completion',
-    subject: 'Chemical Treatment Completed: {{customerName}}',
-    htmlBody,
-    textBody: `Chemical Treatment Completed: {{customerName}}\n\nA chemical treatment has been completed at your property.\n\nProperty: {{customerName}}\nCampaign: {{campaignTitle}}\nCompleted On: {{completionDate}}\n\n{{textSections}}\n\nIf you have any questions about this treatment, please contact us directly.\n\n{{companyName}} - Property Maintenance Services`,
-    category: 'transactional' as const,
-    isActive: true,
-  };
-}
-
-export function getDefaultChemicalTreatmentNotificationTemplate() {
-  return {
-    name: 'Chemical Treatment Notification',
-    subject: 'Scheduled Chemical Treatment \u2014 {{customerName}}',
-    htmlBody: loadTemplateFile('chemical-treatment-notification.html'),
-    textBody: `Scheduled Chemical Treatment: {{customerName}}\n\nThis is to notify you of an upcoming chemical treatment at your property.\n\nProperty: {{customerName}}\nCampaign: {{campaignTitle}}\nScheduled Date: {{targetDate}}\nBackup Date: {{backupDate}}\nService Window: {{timeWindow}}\nProduct: {{productName}}\nManufacturer: {{productManufacturer}}\nActive Ingredient: {{productActiveIngredient}}\nPurpose: {{productPurpose}}\nRe-entry Interval: {{reentryInterval}}\nWatering: {{wateringInstructions}}\nMowing: {{mowingInstructions}}\nApplicator: {{applicatorName}} ({{applicatorLicense}})\n\nPlease keep pets and children off treated areas until dry.\n\n{{companyName}} \u2014 Property Maintenance Services`,
-    category: 'transactional' as const,
-    isActive: true,
-  };
-}
+// The pre-#392 disk-template helpers and registry-based renderer were removed
+// when the chemical email pipeline was consolidated onto the
+// chemical_notification_templates table. Use
+// renderChemicalNotificationTemplate(...) below instead.
 
 /**
  * Formats a time window string from start and end values.
@@ -443,45 +409,63 @@ export function buildChemicalNotificationVariables(
   item: Partial<CampaignItem>,
   product: ChemicalProduct | null | undefined,
   campaign: { title: string; windowStart: string; windowEnd: string },
-  company: { name: string; phone?: string | null; email?: string | null },
+  company: { name: string; phone?: string | null; email?: string | null; pesticideLicenseNumber?: string | null },
   customerName: string,
   applicatorName?: string | null,
   applicatorLicense?: string | null,
   labelAttachmentUrl?: string | null,
+  labelAttachmentName?: string | null,
   locale?: string | null,
 ): Record<string, string> {
   const fb = getEmailFallbacks(locale);
-  // Per-visit override → product default → locale-aware i18n fallback string
-  const purpose = (item as any).purposeOverride ?? (product as any)?.purposeDescription ?? fb.generalPurpose;
-  const reentry = (item as any).reentryIntervalOverride ?? (product as any)?.reentryIntervalHours;
-  const watering = (item as any).wateringInstructionsOverride ?? (product as any)?.wateringInstructions ?? fb.wateringInstructions;
-  const mowing = (item as any).mowingInstructionsOverride ?? (product as any)?.mowingInstructions ?? fb.mowingInstructions;
-  const timeWindow = formatTimeWindowWithFallback((item as any).timeWindowStart, (item as any).timeWindowEnd, locale);
-  return {
+  // Per-visit overrides ONLY for the canonical keys consumed by the new
+  // chemical_notification_templates HTML (productName/activeIngredient/
+  // epaRegNumber/purpose/reentryInterval/wateringInstructions/
+  // mowingInstructions/postApplicationExpectation). When a visit has no
+  // override, we deliberately omit the key so the renderer's
+  // template-metadata defaults (baseFromTemplate) win — the template is the
+  // source of truth for product details.
+  const purposeOverride = item.purposeOverride;
+  const reentryOverride = item.reentryIntervalOverride;
+  const wateringOverride = item.wateringInstructionsOverride;
+  const mowingOverride = item.mowingInstructionsOverride;
+  const timeWindow = formatTimeWindowWithFallback(item.timeWindowStart, item.timeWindowEnd, locale);
+  const out: Record<string, string> = {
     companyName: company.name || '',
     companyPhone: company.phone || fb.seeCompanyContact,
     companyEmail: company.email || '',
+    // Canonical contact-block keys consumed by the new templates.
+    contactPhone: company.phone || '',
+    contactEmail: company.email || '',
     customerName: customerName || '',
     campaignTitle: campaign.title || '',
-    targetDate: (item as any).targetDate || campaign.windowStart || fb.toBeScheduled,
-    backupDate: (item as any).backupDate || fb.toBeDetermined,
+    targetDate: item.targetDate || campaign.windowStart || fb.toBeScheduled,
+    backupDate: item.backupDate || fb.toBeDetermined,
     timeWindow,
     windowStart: campaign.windowStart || '',
     windowEnd: campaign.windowEnd || '',
-    productName: product?.name || fb.seeTreatmentDocumentation,
-    productManufacturer: (product as any)?.manufacturer || '',
-    productCategory: (product as any)?.category || '',
-    productEpaRegNumber: product?.epaRegistrationNumber || '',
+    // Legacy `product*`-prefixed keys retained empty for backwards-compat
+    // with any custom email_templates body that may still reference them.
+    // (Pre-#392 disk templates have been removed; the `chemical_products`
+    // table does not carry `manufacturer` / `category` columns.)
+    productManufacturer: '',
+    productCategory: '',
     productSignalWord: product?.signalWord || '',
-    productActiveIngredient: product?.activeIngredient || '',
-    productPurpose: purpose,
-    reentryInterval: reentry != null ? `${reentry} hours` : fb.seeProductLabel,
-    wateringInstructions: watering,
-    mowingInstructions: mowing,
     applicatorName: applicatorName || fb.licensedApplicator,
     applicatorLicense: applicatorLicense || '',
+    pesticideLicenseNumber: company.pesticideLicenseNumber || '',
+    labelAttachmentName: labelAttachmentName || '',
     labelAttachmentUrl: labelAttachmentUrl || '',
   };
+  // Only emit canonical product/treatment keys when there is a true
+  // per-visit override. Empty string would still clobber template metadata
+  // (the renderer treats explicit empty as "use template default"), so we
+  // omit instead.
+  if (purposeOverride && String(purposeOverride).trim().length > 0) out.purpose = String(purposeOverride);
+  if (reentryOverride !== undefined && reentryOverride !== null && String(reentryOverride).trim().length > 0) out.reentryInterval = String(reentryOverride);
+  if (wateringOverride && String(wateringOverride).trim().length > 0) out.wateringInstructions = String(wateringOverride);
+  if (mowingOverride && String(mowingOverride).trim().length > 0) out.mowingInstructions = String(mowingOverride);
+  return out;
 }
 
 export function buildChemicalCompletionEmailVars(params: {
@@ -492,6 +476,7 @@ export function buildChemicalCompletionEmailVars(params: {
   completionTime?: string;
   nextVisitTitle?: string;
   applicatorName?: string;
+  applicatorLicense?: string;
   areasTreated?: string;
   applicationConditions?: string;
   notes?: string;
@@ -499,17 +484,34 @@ export function buildChemicalCompletionEmailVars(params: {
   reEntryInterval?: string;
   mowingRestriction?: string;
   wateringInstructions?: string;
+  mowingInstructions?: string;
   photoHtmlThumbs?: string;
   nextVisitDate?: string;
+  productName?: string;
+  activeIngredient?: string;
+  epaRegNumber?: string;
+  purpose?: string;
+  labelAttachmentUrl?: string;
+  labelAttachmentName?: string;
+  contactPhone?: string;
+  contactEmail?: string;
+  pesticideLicenseNumber?: string;
 }): Record<string, string> {
   const {
     companyName, customerName, campaignTitle, completionDate,
     completionTime = '', nextVisitTitle = 'Next Scheduled Visit',
-    applicatorName = '', areasTreated = '', applicationConditions = '',
+    applicatorName = '', applicatorLicense = '',
+    areasTreated = '', applicationConditions = '',
     notes = '', postApplicationExpectation = '', reEntryInterval = '',
     mowingRestriction = '', wateringInstructions = '',
+    mowingInstructions = '',
     photoHtmlThumbs = '', nextVisitDate = '',
+    productName = '', activeIngredient = '', epaRegNumber = '', purpose = '',
+    labelAttachmentUrl = '', labelAttachmentName = '',
+    contactPhone = '', contactEmail = '', pesticideLicenseNumber = '',
   } = params;
+  const resolvedMowingInstructions = mowingInstructions || mowingRestriction;
+  const resolvedReentryInterval = reEntryInterval;
 
   // Build plain-text sections for the textBody template
   const textParts: string[] = [];
@@ -524,8 +526,17 @@ export function buildChemicalCompletionEmailVars(params: {
   if (mowingRestriction) textParts.push(`Mowing Restriction: ${mowingRestriction}`);
   if (wateringInstructions) textParts.push(`Watering Instructions: ${wateringInstructions}`);
 
-  // Return flat key-value pairs; disk-based HTML templates use {{#if var}}...{{/if}} for conditional sections
-  return {
+  // Return flat key-value pairs; HTML templates use {{#if var}}...{{/if}} for conditional sections.
+  // Both legacy keys (reEntryInterval/photoHtmlThumbs/mowingRestriction) and the canonical
+  // keys consumed by the new chemical_notification_templates HTML
+  // (reentryInterval/completionPhotosHtml/mowingInstructions plus the product-detail
+  // and contact-block keys) are emitted so callers don't have to know which
+  // template is downstream.
+  // Canonical product/treatment keys consumed by the new chemical
+  // notification templates are deliberately omitted when the caller did
+  // not pass a per-visit override, so the renderer's template-metadata
+  // defaults win. Empty string would still clobber the template default.
+  const out: Record<string, string> = {
     companyName,
     customerName,
     campaignTitle,
@@ -533,41 +544,132 @@ export function buildChemicalCompletionEmailVars(params: {
     completionTime,
     nextVisitTitle,
     applicatorName,
+    applicatorLicense,
     areasTreated,
     applicationConditions,
     notes,
-    postApplicationExpectation,
-    reEntryInterval,
-    mowingRestriction,
-    wateringInstructions,
     photoHtmlThumbs,
+    completionPhotosHtml: photoHtmlThumbs,
     nextVisitDate,
+    labelAttachmentUrl,
+    labelAttachmentName,
+    contactPhone,
+    contactEmail,
+    pesticideLicenseNumber,
+    // Legacy aliases kept for backwards-compat with any pre-#392 custom
+    // email body still using these names.
+    reEntryInterval: resolvedReentryInterval,
+    mowingRestriction,
     textSections: textParts.join('\n'),
   };
+  if (postApplicationExpectation && postApplicationExpectation.trim().length > 0) out.postApplicationExpectation = postApplicationExpectation;
+  if (resolvedReentryInterval && resolvedReentryInterval.trim().length > 0) out.reentryInterval = resolvedReentryInterval;
+  if (resolvedMowingInstructions && resolvedMowingInstructions.trim().length > 0) out.mowingInstructions = resolvedMowingInstructions;
+  if (wateringInstructions && wateringInstructions.trim().length > 0) out.wateringInstructions = wateringInstructions;
+  if (productName && productName.trim().length > 0) out.productName = productName;
+  if (activeIngredient && activeIngredient.trim().length > 0) out.activeIngredient = activeIngredient;
+  if (epaRegNumber && epaRegNumber.trim().length > 0) out.epaRegNumber = epaRegNumber;
+  if (purpose && purpose.trim().length > 0) out.purpose = purpose;
+  return out;
 }
 
 /**
- * Context-tagged render helper for chemical email templates.
- * Loads the appropriate disk template by context tag, then substitutes
- * variables using the shared renderTemplate engine.
- *
- * @param context 'pre-visit' | 'completion' — which template to render
- * @param vars    flat key→value map (from buildChemicalCompletionEmailVars or
- *                equivalent pre-visit var builder)
+ * Auto-derive a plain-text fallback body from the rendered HTML. This is a
+ * thin best-effort conversion (strip tags, decode common entities, collapse
+ * whitespace) so SendGrid's `text/plain` mime part is never empty for
+ * chemical notification emails.
  */
-export function renderChemicalEmail(
-  context: 'pre-visit' | 'completion',
+function htmlToTextFallback(html: string): string {
+  return html
+    .replace(/<style[\s\S]*?<\/style>/gi, '')
+    .replace(/<script[\s\S]*?<\/script>/gi, '')
+    .replace(/<head[\s\S]*?<\/head>/gi, '')
+    .replace(/<br\s*\/?>/gi, '\n')
+    .replace(/<\/(p|div|li|tr|h[1-6])>/gi, '\n')
+    .replace(/<[^>]+>/g, '')
+    .replace(/&nbsp;/g, ' ')
+    .replace(/&amp;/g, '&')
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .replace(/&middot;/g, '·')
+    .replace(/&mdash;/g, '—')
+    .replace(/[ \t]+\n/g, '\n')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim();
+}
+
+/**
+ * Resolve a chemical notification template for a campaign.
+ *
+ * Priority:
+ *   1. The campaign's selected `notificationTemplateId`.
+ *   2. The company's `isDefault: true` chemical notification template.
+ *
+ * If neither resolves to a row, throws `MissingChemicalNotificationTemplateError`,
+ * which routes should map to HTTP 400 with the embedded message.
+ */
+export async function resolveChemicalNotificationTemplate(
+  campaign: { notificationTemplateId?: string | null },
+  companyId: string,
+): Promise<ChemicalNotificationTemplate> {
+  if (campaign.notificationTemplateId) {
+    const tpl = await storage.getChemicalNotificationTemplate(
+      campaign.notificationTemplateId,
+      companyId,
+    );
+    if (tpl) return tpl;
+  }
+  const all = await storage.getChemicalNotificationTemplates(companyId);
+  const fallback = all.find(t => t.isDefault) ?? null;
+  if (fallback) return fallback;
+  throw new MissingChemicalNotificationTemplateError();
+}
+
+/**
+ * Resolve a chemical notification template (per resolveChemicalNotificationTemplate)
+ * and render its `pre`- or `post`-visit subject and HTML body using the supplied
+ * variable map merged with the template's per-template product-detail metadata.
+ *
+ * Caller-supplied vars take precedence over template metadata so per-visit
+ * overrides (e.g. visit-specific product, applicator, label PDF URL) win.
+ */
+export async function renderChemicalNotificationTemplate(
+  campaign: { notificationTemplateId?: string | null },
+  companyId: string,
+  kind: 'pre' | 'post',
   vars: Record<string, string>,
-): string {
-  const fileMap: Record<string, string> = {
-    'pre-visit': 'chemical-treatment-notification.html',
-    'completion': 'chemical-treatment-completion.html',
+): Promise<{ subject: string; html: string; textBody: string; templateId: string; templateName: string }> {
+  const tpl = await resolveChemicalNotificationTemplate(campaign, companyId);
+
+  // Template metadata as defaults; non-empty caller vars override.
+  const baseFromTemplate: Record<string, string> = {
+    productName: tpl.productName ?? '',
+    activeIngredient: tpl.activeIngredient ?? '',
+    epaRegNumber: tpl.epaRegNumber ?? '',
+    purpose: tpl.purposeText ?? '',
+    reentryInterval: tpl.reentryInterval ?? '',
+    wateringInstructions: tpl.wateringInstructions ?? '',
+    mowingInstructions: tpl.mowingInstructions ?? '',
+    postApplicationExpectation: tpl.postApplicationExpectation ?? '',
   };
-  const fileName = fileMap[context];
-  const template = loadTemplateFile(fileName) ?? (
-    context === 'pre-visit'
-      ? `<p>{{companyName}} — Upcoming Chemical Treatment for {{customerName}}. Scheduled: {{windowStart}} - {{windowEnd}}.</p>`
-      : `<p>{{companyName}} — Chemical Treatment Completed for {{customerName}} on {{completionDate}}.</p>`
-  );
-  return renderTemplate(template, vars);
+  const merged: Record<string, string> = { ...baseFromTemplate };
+  for (const [k, v] of Object.entries(vars)) {
+    if (v !== undefined && v !== null && String(v).length > 0) {
+      merged[k] = String(v);
+    } else if (!(k in merged)) {
+      merged[k] = '';
+    }
+  }
+
+  const subject = kind === 'pre' ? tpl.preVisitSubject : tpl.postVisitSubject;
+  const html = kind === 'pre' ? tpl.preVisitHtml : tpl.postVisitHtml;
+  const renderedHtml = renderTemplate(html, merged);
+  return {
+    subject: renderTemplate(subject, merged),
+    html: renderedHtml,
+    // Auto-generated plain-text fallback so the SendGrid text part is never empty.
+    textBody: htmlToTextFallback(renderedHtml),
+    templateId: tpl.id,
+    templateName: tpl.name,
+  };
 }

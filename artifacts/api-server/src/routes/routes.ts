@@ -17,13 +17,14 @@ import { insertCommunicationTemplateSchema, insertServicePlanTemplateSchema, ins
 import { runAutomationRule, runAllAutomationRules } from "../services/automationService";
 import { ObjectStorageService, ObjectNotFoundError, objectStorageClient, signObjectURL } from "../objectStorage";
 import { ObjectPermission, ObjectAccessGroupType, setObjectAclPolicy } from "../objectAcl";
-import { processEmailEvent, resendEmail, sendEmail, getDefaultWorkCompletedTemplate, getDefaultChemicalPreNoticeTemplate, getDefaultChemicalPostNoticeTemplate, getDefaultChemicalTreatmentNotificationTemplate, buildChemicalNotificationVariables, formatTimeWindow, buildChemicalCompletionEmailVars, renderTemplate, renderChemicalEmail } from '../services/emailService';
+import { processEmailEvent, resendEmail, sendEmail, getDefaultWorkCompletedTemplate, buildChemicalNotificationVariables, formatTimeWindow, buildChemicalCompletionEmailVars, renderTemplate, renderChemicalNotificationTemplate, resolveChemicalNotificationTemplate, MissingChemicalNotificationTemplateError } from '../services/emailService';
+import { migrateRemoveChemicalEmailTemplates } from '../services/legacyChemEmailCleanup';
 import heicConvert from 'heic-convert';
 import multer from 'multer';
 import { renderVisualScope, renderVisualScopeExport, type ExportType, type ExportPreset } from "../visualScopeRenderer";
 import { ROLLUP_SERVICE_LABELS, campaignToRollupServiceType } from "../shared/serviceCatalog";
 import { buildContractAuditRows } from "../auditEngine";
-import { seedChemicalEmailTemplates, seedChemicalNotificationTemplates } from "../templates/seed";
+import { seedChemicalNotificationTemplates } from "../templates/seed";
 import { assertNotParentCustomer } from "../utils/parentGuard";
 import { registerExtraBillablePhotoRoutes } from "./extraBillablePhotos";
 
@@ -2201,22 +2202,10 @@ export async function seedCommunicationTemplatesBootstrap(): Promise<void> {
   }
 }
 
-// Startup bootstrap: seed chemical email templates for every company (idempotent).
-// Uses the file-backed HTML template in server/templates/chemical-treatment-notification.html
-// and checks by template name to avoid duplicate inserts (upsert-by-name semantics).
-export async function seedChemicalEmailTemplatesBootstrap(): Promise<void> {
-  console.log("Running startup bootstrap: Seeding chemical email templates...");
-  try {
-    const companies = await storage.getCompanies();
-    for (const company of companies) {
-      await seedChemicalEmailTemplates(company.id, storage);
-      await seedChemicalNotificationTemplates(company.id, storage);
-    }
-    console.log("Chemical email templates seed bootstrap complete");
-  } catch (error) {
-    console.error("Error during chemical email templates seed bootstrap:", error);
-  }
-}
+// Chemical notification template seeding + legacy cleanup runs from
+// `seedEmailTemplatesAndRules(companyId)` inside `registerRoutes`.
+
+export { migrateRemoveChemicalEmailTemplates };
 
 export async function migrateCommunicationsTable(): Promise<void> {
   console.log("Migrating communications tables...");
@@ -10419,10 +10408,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
         });
       }
 
-      // Chemical email templates: delegated to registry-based seeder in server/templates/seed.ts
-      await seedChemicalEmailTemplates(companyId, storage);
-      // Chemical notification templates: seed four standard templates per company
+      // Chemical notification templates: seed the eight standard templates per company,
+      // then run the per-company legacy cleanup of System-1 email_templates / email_rules.
       await seedChemicalNotificationTemplates(companyId, storage);
+      await migrateRemoveChemicalEmailTemplates(companyId);
     } catch (err) {
       console.error("Failed to seed email templates:", err);
     }
@@ -12514,7 +12503,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       if (type !== "post" && customWindowStart && customWindowEnd && customWindowStart > customWindowEnd) {
         return res.status(400).json({ error: "Window start date must be before or equal to window end date" });
       }
-      const eventKey = type === "post" ? "campaign.chemical_post_notice" : type === "notification" ? "campaign.chemical_notification" : "campaign.chemical_pre_notice";
+      const renderKind: 'pre' | 'post' = type === "post" ? 'post' : 'pre';
       const campaign = await storage.getCampaignById(req.params.id, user.activeCompanyId);
       if (!campaign) return res.status(404).json({ error: "Campaign not found" });
       const targetItem = (await storage.getCampaignItems(req.params.id, user.activeCompanyId))
@@ -12522,7 +12511,6 @@ export async function registerRoutes(app: Express): Promise<Server> {
       if (!targetItem) return res.status(404).json({ error: "Item not found" });
       const company = await storage.getCompanyById(user.activeCompanyId);
       const { email: recipientEmail, contactName } = await resolveChemRecipientEmail(targetItem.customerId, user.activeCompanyId);
-      const rules = await storage.getEmailRulesByEvent(eventKey, user.activeCompanyId);
       let subject = "";
       let htmlBody = "";
       let templateName = "";
@@ -12547,10 +12535,18 @@ export async function registerRoutes(app: Express): Promise<Server> {
         }
       }
 
-      // Resolve label URL: visit override → product default (priority model)
+      // Resolve label URL with the SAME fallback chain that send paths use
+      // (`resolveChemLabelAttachment` → `resolveChemicalNotificationTemplate`),
+      // so preview parity matches what the recipient would actually receive:
+      //   visit override → notification template default → product default.
       let labelAttachmentUrl: string | null = null;
       try {
-        const labelStorageKey = targetItem.labelPdfOverrideKey || product?.labelPdfStorageKey || null;
+        const fallbackTpl = await resolveChemicalNotificationTemplate(campaign, user.activeCompanyId).catch(() => null);
+        const labelStorageKey =
+          targetItem.labelPdfOverrideKey ||
+          fallbackTpl?.defaultLabelPdfStorageKey ||
+          product?.labelPdfStorageKey ||
+          null;
         if (labelStorageKey) {
           const { bucketName, objectName } = (function parseGcsPath(path: string) {
             const parts = path.replace(/^\//, "").split("/");
@@ -12562,76 +12558,64 @@ export async function registerRoutes(app: Express): Promise<Server> {
         // Non-fatal: preview still renders without label URL
       }
 
-      // Use notification template if campaign has one selected and this is a pre/post preview
-      const notifTemplate = (type === "pre" || type === "post") && campaign.notificationTemplateId
-        ? await storage.getChemicalNotificationTemplate(campaign.notificationTemplateId, user.activeCompanyId)
-        : null;
-
-      if (notifTemplate && (type === "pre" || type === "post")) {
-        templateName = notifTemplate.name;
-        // Resolve label PDF URL: visit override → template default (for preview)
-        let previewLabelPdfUrl = '';
-        try {
-          const labelKey = targetItem.labelPdfOverrideKey || notifTemplate.defaultLabelPdfStorageKey || null;
-          if (labelKey) {
-            const { bucketName: lbBucket, objectName: lbObject } = (function parseGcsPath(p: string) {
-              const parts = p.replace(/^\//, "").split("/");
-              return { bucketName: parts[0], objectName: parts.slice(1).join("/") };
-            })(labelKey);
-            previewLabelPdfUrl = await signObjectURL({ bucketName: lbBucket, objectName: lbObject, method: "GET", ttlSec: TEMPLATE_LABEL_TTL_SEC });
-          }
-        } catch { previewLabelPdfUrl = ''; }
-        const notifVars: Record<string, string> = {
-          companyName: company?.name || '',
-          customerName: targetItem.customerName,
-          campaignTitle: campaign.title,
-          targetDate: (type !== "post" && customWindowStart) ? customWindowStart : campaign.windowStart,
-          backupDate: (type !== "post" && customWindowEnd) ? customWindowEnd : campaign.windowEnd,
-          notes: '',
-          labelPdfUrl: previewLabelPdfUrl,
-          pesticideLicenseNumber: company?.pesticideLicenseNumber || '',
-          ...(type === "post" ? { completionDate: resolveChemCompletionDate(targetItem), areasTreated: '', applicationConditions: '', nextVisitDate: '' } : {}),
+      try {
+        // Use the EXACT same variable builders as the send paths so the
+        // preview is byte-for-byte parity with what the recipient will
+        // actually receive (subject + body + merge fields).
+        //   - "notification" / "pre" → `buildChemicalNotificationVariables`
+        //     (the notification blast reuses the pre-visit template).
+        //   - "post" → `buildChemicalCompletionEmailVars`
+        const companyForBuilder = {
+          name: company?.name || '',
+          phone: company?.phone ?? null,
+          email: company?.billingEmail ?? null,
+          pesticideLicenseNumber: company?.pesticideLicenseNumber ?? null,
         };
-        const rawSubject = type === "post" ? notifTemplate.postVisitSubject : notifTemplate.preVisitSubject;
-        const rawHtml = type === "post" ? notifTemplate.postVisitHtml : notifTemplate.preVisitHtml;
-        subject = renderTemplate(rawSubject, notifVars);
-        htmlBody = renderTemplate(rawHtml, notifVars);
-      } else if (rules.length > 0) {
-        const template = await storage.getEmailTemplateById(rules[0].templateId, user.activeCompanyId);
-        if (template) {
-          templateName = template.name;
-          const baseVars: Record<string, string> = type === "notification"
-            ? buildChemicalNotificationVariables(
-                targetItem,
-                product,
-                campaign,
-                { name: company?.name || '', phone: null, email: company?.billingEmail ?? null },
-                targetItem.customerName,
-                applicatorName,
-                applicatorLicense,
-                labelAttachmentUrl,
-                user.language ?? 'en',
-              )
-            : {
-                companyName: company?.name || '',
-                companyPhone: '',
-                companyEmail: company?.billingEmail || '',
-                customerName: targetItem.customerName,
-                campaignTitle: campaign.title,
-                windowStart: (type !== "post" && customWindowStart) ? customWindowStart : campaign.windowStart,
-                windowEnd: (type !== "post" && customWindowEnd) ? customWindowEnd : campaign.windowEnd,
-                ...(type === "post" ? { completionDate: resolveChemCompletionDate(targetItem) } : {}),
-                notes: '',
-                labelAttachmentUrl: labelAttachmentUrl || '',
-              };
-          subject = template.subject;
-          htmlBody = template.htmlBody;
-          for (const [key, val] of Object.entries(baseVars)) {
-            const regex = new RegExp(`\\{\\{${key}\\}\\}`, 'g');
-            subject = subject.replace(regex, val);
-            htmlBody = htmlBody.replace(regex, val);
-          }
+        const previewVars: Record<string, string> = type === "post"
+          ? buildChemicalCompletionEmailVars({
+              companyName: company?.name || '',
+              customerName: targetItem.customerName,
+              campaignTitle: campaign.title,
+              completionDate: resolveChemCompletionDate(targetItem),
+              applicatorName: applicatorName || '',
+              applicatorLicense: applicatorLicense || '',
+              productName: product?.name || '',
+              labelAttachmentUrl: labelAttachmentUrl || '',
+              contactPhone: company?.phone || '',
+              contactEmail: company?.billingEmail || '',
+              pesticideLicenseNumber: company?.pesticideLicenseNumber || '',
+            })
+          : buildChemicalNotificationVariables(
+              {
+                ...targetItem,
+                ...(customWindowStart ? { targetDate: customWindowStart } : {}),
+                ...(customWindowEnd ? { backupDate: customWindowEnd } : {}),
+              },
+              product,
+              campaign,
+              companyForBuilder,
+              targetItem.customerName,
+              applicatorName,
+              applicatorLicense,
+              labelAttachmentUrl,
+              null,
+              user.language ?? 'en',
+            );
+        if (labelAttachmentUrl) previewVars.labelAttachmentUrl = labelAttachmentUrl;
+        const rendered = await renderChemicalNotificationTemplate(
+          campaign,
+          user.activeCompanyId,
+          renderKind,
+          previewVars,
+        );
+        subject = rendered.subject;
+        htmlBody = rendered.html;
+        templateName = rendered.templateName;
+      } catch (err) {
+        if (err instanceof MissingChemicalNotificationTemplateError) {
+          return res.status(400).json({ error: err.message });
         }
+        throw err;
       }
       res.json({ recipientEmail: recipientEmail || null, subject, htmlBody, templateName, contactName: contactName || null, labelAttachmentUrl });
     } catch (error) {
@@ -13310,20 +13294,55 @@ export async function registerRoutes(app: Express): Promise<Server> {
           return res.status(400).json({ error: "No recipient email available. Add a contact or property manager with an email address." });
         }
         try {
-          const emailResults = await processEmailEvent('campaign.chemical_pre_notice', user.activeCompanyId, {
-            companyName: company?.name || '',
-            customerName: targetItem.customerName,
-            campaignTitle: campaign.title,
-            windowStart: campaign.windowStart,
-            windowEnd: campaign.windowEnd,
-            notes: notes || '',
-          }, {
+          const { url: labelAttachmentUrl, name: labelAttachmentName } = await resolveChemLabelAttachment(targetItem, campaign, user.activeCompanyId);
+          const { name: applicatorName, license: applicatorLicense } = await resolveChemApplicator(targetItem, user.id, campaign);
+          const { subject, html, textBody, templateId, templateName } = await renderChemicalNotificationTemplate(
+            campaign,
+            user.activeCompanyId,
+            'pre',
+            {
+              companyName: company?.name || '',
+              customerName: targetItem.customerName,
+              campaignTitle: campaign.title,
+              targetDate: targetItem.targetDate || campaign.windowStart || '',
+              backupDate: targetItem.backupDate || campaign.windowEnd || '',
+              timeWindow: formatTimeWindow(targetItem.timeWindowStart, targetItem.timeWindowEnd),
+              contactPhone: company?.phone || '',
+              contactEmail: company?.billingEmail || '',
+              notes: notes || '',
+              pesticideLicenseNumber: company?.pesticideLicenseNumber || '',
+              labelAttachmentUrl,
+              labelAttachmentName,
+              applicatorName,
+              applicatorLicense,
+            },
+          );
+          // Structured audit log: records the chem notification template
+          // actually used for this send. Compensates for the fact that
+          // `email_logs.template_id` cannot store the chem template id
+          // (FK is to `email_templates`, see note below).
+          req.log?.info({
+            event: 'chem_notification_send',
+            kind: 'pre',
+            campaignId: campaign.id,
+            itemId: targetItem.id,
+            chemTemplateId: templateId,
+            chemTemplateName: templateName,
+          }, 'chemical notification email send');
+          // NOTE: `templateId` from `renderChemicalNotificationTemplate` is a
+          // `chemical_notification_templates.id`, NOT an `email_templates.id`.
+          // `email_logs.template_id` FKs to `email_templates`, so we must NOT
+          // pass the chem template id here — doing so would cause an FK
+          // violation on insert and fail the send. Pass `undefined` instead;
+          // the chem template id is recoverable from the campaign + send time.
+          const sentLog = await sendEmail(recipientEmail, subject, html, textBody, {
+            companyId: user.activeCompanyId,
             customerId: targetItem.customerId,
-            toEmail: recipientEmail,
             sentById: user.id,
+            templateId: undefined,
+            variables: {},
           });
-          const sentLog = emailResults.find(l => l.status === "sent");
-          if (!sentLog) {
+          if (sentLog.status !== "sent") {
             return res.status(502).json({ error: "Email delivery failed. Please try again." });
           }
           chemUpdates.workflowStep = "work_in_progress";
@@ -13331,6 +13350,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
           chemUpdates.preCommSentById = user.id;
           chemUpdates.preCommEmailLogId = sentLog.id;
         } catch (emailErr) {
+          if (emailErr instanceof MissingChemicalNotificationTemplateError) {
+            return res.status(400).json({ error: emailErr.message });
+          }
           console.error("Failed to send chemical pre-notice email:", emailErr);
           return res.status(500).json({ error: "Failed to send pre-work notification email" });
         }
@@ -13363,19 +13385,39 @@ export async function registerRoutes(app: Express): Promise<Server> {
           return res.status(400).json({ error: "No recipient email available. Add a contact or property manager with an email address." });
         }
         try {
-          const emailResults = await processEmailEvent('campaign.chemical_post_notice', user.activeCompanyId, {
-            companyName: company?.name || '',
-            customerName: targetItem.customerName,
-            campaignTitle: campaign.title,
-            completionDate: resolveChemCompletionDate(targetItem),
-            notes: notes || '',
-          }, {
+          const { url: labelAttachmentUrl, name: labelAttachmentName } = await resolveChemLabelAttachment(targetItem, campaign, user.activeCompanyId);
+          const completionPhotosHtml = await resolveChemCompletionPhotosHtml(targetItem);
+          const { name: applicatorName, license: applicatorLicense } = await resolveChemApplicator(targetItem, user.id, campaign);
+          const { subject, html, textBody, templateId, templateName } = await renderChemicalNotificationTemplate(
+            campaign,
+            user.activeCompanyId,
+            'post',
+            {
+              companyName: company?.name || '',
+              customerName: targetItem.customerName,
+              campaignTitle: campaign.title,
+              completionDate: resolveChemCompletionDate(targetItem),
+              contactPhone: company?.phone || '',
+              contactEmail: company?.billingEmail || '',
+              notes: notes || '',
+              pesticideLicenseNumber: company?.pesticideLicenseNumber || '',
+              labelAttachmentUrl,
+              labelAttachmentName,
+              completionPhotosHtml,
+              photoHtmlThumbs: completionPhotosHtml,
+              applicatorName,
+              applicatorLicense,
+            },
+          );
+          req.log?.info({ event: 'chem_notification_send', kind: 'post', campaignId: campaign.id, itemId: targetItem.id, chemTemplateId: templateId, chemTemplateName: templateName }, 'chemical notification email send');
+          const sentLog = await sendEmail(recipientEmail, subject, html, textBody, {
+            companyId: user.activeCompanyId,
             customerId: targetItem.customerId,
-            toEmail: recipientEmail,
             sentById: user.id,
+            templateId: undefined,
+            variables: {},
           });
-          const sentLog = emailResults.find(l => l.status === "sent");
-          if (!sentLog) {
+          if (sentLog.status !== "sent") {
             return res.status(502).json({ error: "Email delivery failed. Please try again." });
           }
           let postCommCompletedAt = new Date();
@@ -13391,6 +13433,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
           chemUpdates.completedAt = postCommCompletedAt;
           chemUpdates.postCommEmailLogId = sentLog.id;
         } catch (emailErr) {
+          if (emailErr instanceof MissingChemicalNotificationTemplateError) {
+            return res.status(400).json({ error: emailErr.message });
+          }
           console.error("Failed to send chemical post-notice email:", emailErr);
           return res.status(500).json({ error: "Failed to send post-completion notification email" });
         }
@@ -13435,10 +13480,18 @@ export async function registerRoutes(app: Express): Promise<Server> {
             if (licNum) notifApplicatorLicense = licState ? `${licNum} (${licState})` : licNum;
           }
         }
-        // Resolve label URL: visit override → product default
+        // Resolve label URL using the SAME fallback chain as
+        // `resolveChemLabelAttachment` (visit override → notification
+        // template default → product default) so the send_notification
+        // path matches pre/post send paths exactly.
         let notifLabelUrl: string | null = null;
+        const notifFallbackTpl = await resolveChemicalNotificationTemplate(campaign, user.activeCompanyId).catch(() => null);
         try {
-          const labelStorageKey = targetItem.labelPdfOverrideKey || notifProduct?.labelPdfStorageKey || null;
+          const labelStorageKey =
+            targetItem.labelPdfOverrideKey ||
+            notifFallbackTpl?.defaultLabelPdfStorageKey ||
+            notifProduct?.labelPdfStorageKey ||
+            null;
           if (labelStorageKey) {
             const { bucketName, objectName } = (function parseGcsPath(path: string) {
               const parts = path.replace(/^\//, "").split("/");
@@ -13451,25 +13504,37 @@ export async function registerRoutes(app: Express): Promise<Server> {
           targetItem,
           notifProduct,
           campaign,
-          { name: company?.name || '', phone: null, email: company?.billingEmail ?? null },
+          { name: company?.name || '', phone: company?.phone ?? null, email: company?.billingEmail ?? null, pesticideLicenseNumber: company?.pesticideLicenseNumber ?? null },
           targetItem.customerName,
           notifApplicatorName,
           notifApplicatorLicense,
           notifLabelUrl,
+          null,
           user.language ?? 'en',
         );
         try {
-          const emailResults = await processEmailEvent('campaign.chemical_notification', user.activeCompanyId, notifVars, {
+          const { subject, html, textBody, templateId, templateName } = await renderChemicalNotificationTemplate(
+            campaign,
+            user.activeCompanyId,
+            'pre',
+            notifVars,
+          );
+          req.log?.info({ event: 'chem_notification_send', kind: 'notification', campaignId: campaign.id, itemId: targetItem.id, chemTemplateId: templateId, chemTemplateName: templateName }, 'chemical notification email send');
+          const sentLog = await sendEmail(recipientEmail, subject, html, textBody, {
+            companyId: user.activeCompanyId,
             customerId: targetItem.customerId,
-            toEmail: recipientEmail,
             sentById: user.id,
+            templateId: undefined,
+            variables: {},
           });
-          const sentLog = emailResults.find(l => l.status === "sent");
-          if (!sentLog) {
+          if (sentLog.status !== "sent") {
             return res.status(502).json({ error: "Notification email delivery failed. Please try again." });
           }
           // Record that notification was sent (reuse preCommSentAt fields if not yet set; otherwise noop)
         } catch (emailErr) {
+          if (emailErr instanceof MissingChemicalNotificationTemplateError) {
+            return res.status(400).json({ error: emailErr.message });
+          }
           console.error("Failed to send chemical notification email:", emailErr);
           return res.status(500).json({ error: "Failed to send notification email" });
         }
@@ -13699,48 +13764,45 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(400).json({ error: "No recipient email available. Provide an email address or add a contact/property manager." });
       }
       try {
-        const notifTemplate = campaign.notificationTemplateId
-          ? await storage.getChemicalNotificationTemplate(campaign.notificationTemplateId, user.activeCompanyId)
-          : null;
-        if (!notifTemplate) {
-          return res.status(422).json({ error: "NO_NOTIFICATION_TEMPLATE", message: "This campaign has no notification template assigned. Assign a template in campaign settings before sending." });
-        }
-        let sentLog: { id: string; status: string } | undefined;
-        if (notifTemplate) {
-          let labelPdfUrl = "";
-          const labelStorageKey = targetItem.labelPdfOverrideKey || notifTemplate.defaultLabelPdfStorageKey || null;
-          if (labelStorageKey) {
-            try {
-              const { bucketName: pcBucket, objectName: pcObject } = (function parseGcsPath(p: string) {
-                const parts = p.replace(/^\//, "").split("/");
-                return { bucketName: parts[0], objectName: parts.slice(1).join("/") };
-              })(labelStorageKey);
-              labelPdfUrl = await signObjectURL({ bucketName: pcBucket, objectName: pcObject, method: "GET", ttlSec: TEMPLATE_LABEL_TTL_SEC });
-            } catch { labelPdfUrl = ""; }
-          }
-          const templateVars: Record<string, string> = {
+        const { url: labelAttachmentUrl, name: labelAttachmentName } = await resolveChemLabelAttachment(targetItem, campaign, user.activeCompanyId);
+        const { name: applicatorName, license: applicatorLicense } = await resolveChemApplicator(targetItem, user.id, campaign);
+        const { subject, html, textBody, templateId, templateName } = await renderChemicalNotificationTemplate(
+          campaign,
+          user.activeCompanyId,
+          'pre',
+          {
             companyName: company?.name || '',
             customerName: targetItem.customerName,
             campaignTitle: campaign.title,
-            targetDate: customWindowStart?.trim() || campaign.windowStart,
-            backupDate: customWindowEnd?.trim() || campaign.windowEnd,
+            targetDate: customWindowStart?.trim() || campaign.windowStart || '',
+            backupDate: customWindowEnd?.trim() || campaign.windowEnd || '',
+            timeWindow: formatTimeWindow(targetItem.timeWindowStart, targetItem.timeWindowEnd),
+            contactPhone: company?.phone || '',
+            contactEmail: company?.billingEmail || '',
             notes: notes || '',
-            labelPdfUrl,
+            labelAttachmentUrl,
+            labelAttachmentName,
+            applicatorName,
+            applicatorLicense,
             pesticideLicenseNumber: company?.pesticideLicenseNumber || '',
-          };
-          const log = await sendEmail(recipientEmail, notifTemplate.preVisitSubject, notifTemplate.preVisitHtml, null, {
-            companyId: user.activeCompanyId,
-            customerId: targetItem.customerId,
-            sentById: user.id,
-            variables: templateVars,
-          });
-          sentLog = log;
-        }
-        if (!sentLog || sentLog.status !== "sent") {
+          },
+        );
+        req.log?.info({ event: 'chem_notification_send', kind: 'pre', campaignId: campaign.id, itemId: targetItem.id, chemTemplateId: templateId, chemTemplateName: templateName }, 'chemical notification email send');
+        const sentLog = await sendEmail(recipientEmail, subject, html, textBody, {
+          companyId: user.activeCompanyId,
+          customerId: targetItem.customerId,
+          sentById: user.id,
+          templateId: undefined,
+          variables: {},
+        });
+        if (sentLog.status !== "sent") {
           return res.status(502).json({ error: "Email delivery failed. Please try again." });
         }
         chemUpdates.preCommEmailLogId = sentLog.id;
       } catch (emailErr) {
+        if (emailErr instanceof MissingChemicalNotificationTemplateError) {
+          return res.status(400).json({ error: emailErr.message });
+        }
         console.error("Failed to send chemical pre-notice email:", emailErr);
         return res.status(500).json({ error: "Failed to send pre-work notification email" });
       }
@@ -13824,50 +13886,53 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(400).json({ error: "No recipient email available. Provide an email address or add a contact/property manager." });
       }
       try {
-        const notifTemplate = campaign.notificationTemplateId
-          ? await storage.getChemicalNotificationTemplate(campaign.notificationTemplateId, user.activeCompanyId)
-          : null;
-        let sentLog: { id: string; status: string } | undefined;
-        if (notifTemplate) {
-          const resolvedCompletionDate = completedAtStr
-            ? (() => { const d = new Date(completedAtStr + "T12:00:00"); return isNaN(d.getTime()) ? resolveChemCompletionDate(targetItem) : d.toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' }); })()
-            : resolveChemCompletionDate(targetItem);
-          const templateVars: Record<string, string> = {
+        const resolvedCompletionDate = completedAtStr
+          ? (() => { const d = new Date(completedAtStr + "T12:00:00"); return isNaN(d.getTime()) ? resolveChemCompletionDate(targetItem) : d.toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' }); })()
+          : resolveChemCompletionDate(targetItem);
+        const { url: labelAttachmentUrl, name: labelAttachmentName } = await resolveChemLabelAttachment(targetItem, campaign, user.activeCompanyId);
+        const completionPhotosHtml = await resolveChemCompletionPhotosHtml(targetItem);
+        const { name: applicatorName, license: applicatorLicense } = await resolveChemApplicator(targetItem, user.id, campaign);
+        const { subject, html, textBody, templateId, templateName } = await renderChemicalNotificationTemplate(
+          campaign,
+          user.activeCompanyId,
+          'post',
+          {
             companyName: company?.name || '',
             customerName: targetItem.customerName,
             campaignTitle: campaign.title,
             completionDate: resolvedCompletionDate,
+            contactPhone: company?.phone || '',
+            contactEmail: company?.billingEmail || '',
             notes: notes || '',
             areasTreated: areasTreated || '',
             applicationConditions: applicationConditions || '',
             nextVisitDate: nextVisitDate || '',
-          };
-          const log = await sendEmail(recipientEmail, notifTemplate.postVisitSubject, notifTemplate.postVisitHtml, null, {
-            companyId: user.activeCompanyId,
-            customerId: targetItem.customerId,
-            sentById: user.id,
-            variables: templateVars,
-          });
-          sentLog = log;
-        } else {
-          const emailResults = await processEmailEvent('campaign.chemical_post_notice', user.activeCompanyId, {
-            companyName: company?.name || '',
-            customerName: targetItem.customerName,
-            campaignTitle: campaign.title,
-            completionDate: resolveChemCompletionDate(targetItem),
-            notes: notes || '',
-          }, {
-            customerId: targetItem.customerId,
-            toEmail: recipientEmail,
-            sentById: user.id,
-          });
-          sentLog = emailResults.find(l => l.status === "sent");
-        }
-        if (!sentLog || sentLog.status !== "sent") {
+            nextVisitTitle: nextVisitDate ? 'Next Scheduled Visit' : '',
+            pesticideLicenseNumber: company?.pesticideLicenseNumber || '',
+            labelAttachmentUrl,
+            labelAttachmentName,
+            completionPhotosHtml,
+            photoHtmlThumbs: completionPhotosHtml,
+            applicatorName,
+            applicatorLicense,
+          },
+        );
+        req.log?.info({ event: 'chem_notification_send', kind: 'post', campaignId: campaign.id, itemId: targetItem.id, chemTemplateId: templateId, chemTemplateName: templateName }, 'chemical notification email send');
+        const sentLog = await sendEmail(recipientEmail, subject, html, textBody, {
+          companyId: user.activeCompanyId,
+          customerId: targetItem.customerId,
+          sentById: user.id,
+          templateId: undefined,
+          variables: {},
+        });
+        if (sentLog.status !== "sent") {
           return res.status(502).json({ error: "Email delivery failed. Please try again." });
         }
         chemUpdates.postCommEmailLogId = sentLog.id;
       } catch (emailErr) {
+        if (emailErr instanceof MissingChemicalNotificationTemplateError) {
+          return res.status(400).json({ error: emailErr.message });
+        }
         console.error("Failed to send chemical post-notice email:", emailErr);
         return res.status(500).json({ error: "Failed to send post-completion notification email" });
       }
@@ -15928,36 +15993,121 @@ ${pdfText.slice(0, 8000)}`;
     }
   });
 
+  // Label-PDF fallback for chemical visits, shared by all send + preview
+  // paths: visit override → template default → product default.
+  async function resolveChemLabelAttachment(
+    targetItem: { labelPdfOverrideKey?: string | null; chemicalProductId?: string | null },
+    campaign: { notificationTemplateId?: string | null },
+    companyId: string,
+  ): Promise<{ url: string; name: string }> {
+    let url = '';
+    let name = '';
+    try {
+      const tpl = await resolveChemicalNotificationTemplate(campaign, companyId).catch(() => null);
+      let productLabelKey: string | null = null;
+      if (targetItem.chemicalProductId) {
+        const [prod] = await db.select({ labelPdfStorageKey: chemicalProductsTable.labelPdfStorageKey })
+          .from(chemicalProductsTable)
+          .where(and(eq(chemicalProductsTable.id, targetItem.chemicalProductId), eq(chemicalProductsTable.companyId, companyId)));
+        productLabelKey = prod?.labelPdfStorageKey ?? null;
+      }
+      const storageKey =
+        targetItem.labelPdfOverrideKey ||
+        tpl?.defaultLabelPdfStorageKey ||
+        productLabelKey ||
+        null;
+      name = tpl?.defaultLabelPdfFilename || '';
+      if (storageKey) {
+        const parts = storageKey.replace(/^\//, '').split('/');
+        url = await signObjectURL({
+          bucketName: parts[0],
+          objectName: parts.slice(1).join('/'),
+          method: 'GET',
+          ttlSec: TEMPLATE_LABEL_TTL_SEC,
+        });
+      }
+    } catch { /* non-fatal */ }
+    return { url, name };
+  }
+
+  async function resolveChemCompletionPhotosHtml(
+    targetItem: { completionPhotoStorageKeys?: string[] | null },
+  ): Promise<string> {
+    const keys: string[] = targetItem.completionPhotoStorageKeys || [];
+    if (keys.length === 0) return '';
+    const parts = await Promise.all(keys.map(async (storageKey) => {
+      try {
+        const segments = storageKey.replace(/^\//, '').split('/');
+        const url = await signObjectURL({
+          bucketName: segments[0],
+          objectName: segments.slice(1).join('/'),
+          method: 'GET',
+          ttlSec: TEMPLATE_LABEL_TTL_SEC,
+        });
+        return `<img class="photo-thumb" src="${url}" alt="Site photo" />`;
+      } catch {
+        return '';
+      }
+    }));
+    return parts.filter(Boolean).join('');
+  }
+
+  // Resolves applicator name + license for a chemical visit. Precedence:
+  // visit's `applicatorUserId` → `workCompletedById` → triggering user.
+  async function resolveChemApplicator(
+    targetItem: { applicatorUserId?: string | null; workCompletedById?: string | null },
+    triggeringUserId: string,
+    campaign?: { assignedToId?: string | null; assignedToId2?: string | null } | null,
+  ): Promise<{ name: string; license: string }> {
+    // Precedence: workCompletedById (post-visit shows actual on-site
+    // applicator; null pre-visit) → applicatorUserId → campaign assignees
+    // → triggeringUserId fallback.
+    const userId =
+      targetItem.workCompletedById ||
+      targetItem.applicatorUserId ||
+      campaign?.assignedToId ||
+      campaign?.assignedToId2 ||
+      triggeringUserId;
+    if (!userId) return { name: '', license: '' };
+    try {
+      const [appl] = await db
+        .select({ name: usersTable.name, applicatorLicenseNumber: usersTable.applicatorLicenseNumber, applicatorLicenseState: usersTable.applicatorLicenseState })
+        .from(usersTable)
+        .where(eq(usersTable.id, userId));
+      if (!appl) return { name: '', license: '' };
+      const licNum = appl.applicatorLicenseNumber;
+      const licState = appl.applicatorLicenseState;
+      const license = licNum ? (licState ? `${licNum} (${licState})` : licNum) : '';
+      return { name: appl.name || '', license };
+    } catch {
+      return { name: '', license: '' };
+    }
+  }
+
   // ─── Helper: resolve completion email context ────────────────────────────────
 
   async function resolveChemItemEmailContext(
     targetItem: CampaignItem,
-    campaign: { title: string },
+    campaign: { title: string; notificationTemplateId?: string | null },
     companyId: string,
     companyName: string,
     includePhotoHtml: boolean = true,
+    companyExtras: { phone?: string | null; email?: string | null; pesticideLicenseNumber?: string | null } = {},
   ) {
-    // Resolve chemical product for defaults
-    let product: ChemicalProduct | undefined;
-    if (targetItem.chemicalProductId) {
-      product = await storage.getChemicalProductById(targetItem.chemicalProductId, companyId).catch(() => undefined);
-    }
-
-    // Resolve overrides with product default fallback, then i18n default when both absent
+    // Per-visit OVERRIDES only — when absent, we leave the canonical key
+    // empty so the template metadata in `chemical_notification_templates`
+    // wins inside `renderChemicalNotificationTemplate`. Product-level
+    // defaults are used only as a per-visit override fallback when the
+    // visit explicitly references a chemical product but the user has
+    // not set a visit-specific override on top of that.
     const postApplicationExpectation =
-      targetItem.postApplicationExpectationOverride?.trim() ||
-      product?.defaultPostApplicationExpectation?.trim() ||
-      'No specific post-application instructions provided. Contact us if you have questions.';
+      targetItem.postApplicationExpectationOverride?.trim() || '';
     const wateringInstructions =
-      targetItem.postApplicationWateringOverride?.trim() ||
-      product?.defaultPostApplicationWatering?.trim() ||
-      'No specific watering instructions provided.';
+      targetItem.postApplicationWateringOverride?.trim() || '';
     const reEntryInterval =
-      targetItem.reEntryIntervalOverride?.trim() ||
-      product?.reEntryInterval?.trim() || '';
+      targetItem.reEntryIntervalOverride?.trim() || '';
     const mowingRestriction =
-      targetItem.mowingRestrictionOverride?.trim() ||
-      product?.mowingRestriction?.trim() || '';
+      targetItem.mowingRestrictionOverride?.trim() || '';
 
     // Resolve applicator name (company-scoped: verify membership before fetching user record)
     let applicatorName = '';
@@ -16026,6 +16176,25 @@ ${pdfText.slice(0, 8000)}`;
       }
     }
 
+    // Resolve label attachment URL for the post-visit "View Product Label" block.
+    // Uses the same selected-or-default template fallback as the renderer so
+    // emails sent from a company-default template still get the default label.
+    let labelAttachmentUrl = '';
+    let labelAttachmentName = '';
+    try {
+      const fallbackTpl = await resolveChemicalNotificationTemplate(campaign, companyId).catch(() => null);
+      const labelStorageKey = targetItem.labelPdfOverrideKey || fallbackTpl?.defaultLabelPdfStorageKey || null;
+      labelAttachmentName = fallbackTpl?.defaultLabelPdfFilename || '';
+      if (labelStorageKey) {
+        const parts = labelStorageKey.replace(/^\//, '').split('/');
+        labelAttachmentUrl = await signObjectURL({
+          bucketName: parts[0],
+          objectName: parts.slice(1).join('/'),
+          method: 'GET',
+          ttlSec: TEMPLATE_LABEL_TTL_SEC,
+        });
+      }
+    } catch { /* non-fatal */ }
     return buildChemicalCompletionEmailVars({
       companyName,
       customerName: targetItem.customerName,
@@ -16040,8 +16209,20 @@ ${pdfText.slice(0, 8000)}`;
       reEntryInterval,
       mowingRestriction,
       wateringInstructions,
+      mowingInstructions: mowingRestriction,
       photoHtmlThumbs,
       nextVisitDate,
+      nextVisitTitle: nextVisitDate ? 'Next Scheduled Visit' : '',
+      // productName / activeIngredient / epaRegNumber are intentionally
+      // omitted — template metadata is the source of truth.
+      productName: '',
+      activeIngredient: '',
+      epaRegNumber: '',
+      labelAttachmentUrl,
+      labelAttachmentName,
+      contactPhone: companyExtras.phone || '',
+      contactEmail: companyExtras.email || '',
+      pesticideLicenseNumber: companyExtras.pesticideLicenseNumber || '',
     });
   }
 
@@ -16060,24 +16241,32 @@ ${pdfText.slice(0, 8000)}`;
       if (!targetItem) return res.status(404).json({ error: "Item not found" });
       const company = await storage.getCompanyById(user.activeCompanyId);
       const { email: recipientEmail, contactName } = await resolveChemRecipientEmail(targetItem.customerId, user.activeCompanyId);
-      const rules = await storage.getEmailRulesByEvent("campaign.chemical_post_notice", user.activeCompanyId);
       let subject = "";
       let htmlBody = "";
       let templateName = "";
-      if (rules.length > 0) {
-        const template = await storage.getEmailTemplateById(rules[0].templateId, user.activeCompanyId);
-        if (template) {
-          templateName = template.name;
-          const emailVars = await resolveChemItemEmailContext(
-            targetItem,
-            campaign,
-            user.activeCompanyId,
-            company?.name || '',
-            true,
-          );
-          subject = renderTemplate(template.subject, emailVars);
-          htmlBody = renderTemplate(template.htmlBody, emailVars);
+      try {
+        const emailVars = await resolveChemItemEmailContext(
+          targetItem,
+          campaign,
+          user.activeCompanyId,
+          company?.name || '',
+          true,
+          { phone: company?.phone, email: company?.billingEmail, pesticideLicenseNumber: company?.pesticideLicenseNumber },
+        );
+        const rendered = await renderChemicalNotificationTemplate(
+          campaign,
+          user.activeCompanyId,
+          'post',
+          emailVars,
+        );
+        subject = rendered.subject;
+        htmlBody = rendered.html;
+        templateName = rendered.templateName;
+      } catch (err) {
+        if (err instanceof MissingChemicalNotificationTemplateError) {
+          return res.status(400).json({ error: err.message });
         }
+        throw err;
       }
       res.json({ recipientEmail: recipientEmail || null, subject, htmlBody, templateName, contactName: contactName || null });
     } catch (error) {
@@ -16128,15 +16317,32 @@ ${pdfText.slice(0, 8000)}`;
         user.activeCompanyId,
         company?.name || '',
         true,
+        { phone: company?.phone, email: company?.billingEmail, pesticideLicenseNumber: company?.pesticideLicenseNumber },
       );
       if (notes) emailVars['notes'] = notes;
-      const emailResults = await processEmailEvent('campaign.chemical_post_notice', user.activeCompanyId, emailVars, {
-        customerId: targetItem.customerId,
-        toEmail: recipientEmail,
-        sentById: user.id,
-      });
-      const sentLog = emailResults.find(l => l.status === "sent");
-      if (!sentLog) {
+      let sentLog;
+      try {
+        const { subject, html, textBody, templateId, templateName } = await renderChemicalNotificationTemplate(
+          campaign,
+          user.activeCompanyId,
+          'post',
+          emailVars,
+        );
+        req.log?.info({ event: 'chem_notification_send', kind: 'post', campaignId: campaign.id, itemId: targetItem.id, chemTemplateId: templateId, chemTemplateName: templateName }, 'chemical notification email send');
+        sentLog = await sendEmail(recipientEmail, subject, html, textBody, {
+          companyId: user.activeCompanyId,
+          customerId: targetItem.customerId,
+          sentById: user.id,
+          templateId: undefined,
+          variables: {},
+        });
+      } catch (err) {
+        if (err instanceof MissingChemicalNotificationTemplateError) {
+          return res.status(400).json({ error: err.message });
+        }
+        throw err;
+      }
+      if (sentLog.status !== "sent") {
         return res.status(502).json({ error: "Email delivery failed. Please try again." });
       }
       const updatedItem = await storage.updateCampaignItem(req.params.itemId, user.activeCompanyId, {

@@ -15,3 +15,4 @@ export const db = drizzle(pool, { schema });
 
 export * from "./schema";
 export * from "./required-extensions";
+export * from "./legacy-chem-email-keys";

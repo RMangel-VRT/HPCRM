@@ -1431,8 +1431,6 @@ const es = {
     chemEmailDebouncePending: "Espere 60 segundos antes de reenviar", // TODO: human-review translation
     chemEmailSubject: "Asunto",
     chemEmailBody: "Cuerpo del Correo",
-    chemTemplatePreName: "Aviso de Tratamiento Quimico",
-    chemTemplatePostName: "Completado de Tratamiento Quimico",
     chemConfirmSend: "Enviar y Avanzar",
     chemSkippedState: "Este elemento ha sido omitido y el flujo esta inactivo.",
     chemNoRecipientManual: "No se encontro correo de administrador de propiedad o contacto. Ingrese un correo abajo para enviar manualmente.",

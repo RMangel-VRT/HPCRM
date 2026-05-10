@@ -1524,8 +1524,6 @@ const en = {
     chemEmailDebouncePending: "Please wait 60 seconds before resending",
     chemEmailSubject: "Subject",
     chemEmailBody: "Email Body",
-    chemTemplatePreName: "Chemical Treatment Notice",
-    chemTemplatePostName: "Chemical Treatment Completion",
     chemConfirmSend: "Send & Advance",
     chemSkippedState: "This item has been skipped and the workflow is inactive.",
     chemNoRecipientManual: "No property manager or contact email found. Enter an email address below to send manually.",

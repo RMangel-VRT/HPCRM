@@ -1,0 +1,11 @@
+-- 0016_placeholder.sql
+--
+-- Intentional no-op placeholder to keep migration filenames contiguous
+-- between 0015 and 0017. The original 0016 slot was claimed by a draft
+-- migration that was never finalized; rather than re-number 0017 (which
+-- is already tracked as applied in some environments via
+-- _applied_sql_migrations), this empty file fills the gap so operators
+-- and tooling that expect contiguous numbering see no missing entry.
+--
+-- Safe to re-run: SELECT 1 has no side effects.
+SELECT 1;
