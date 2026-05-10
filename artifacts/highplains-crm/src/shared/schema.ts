@@ -1934,6 +1934,7 @@ export const campaignItems = pgTable("campaign_items", {
   reEntryIntervalOverride: text("re_entry_interval_override"),
   mowingRestrictionOverride: text("mowing_restriction_override"),
   completionEmailSentAt: timestamp("completion_email_sent_at"),
+  customTemplateVars: jsonb("custom_template_vars").$type<Record<string, string>>(),
   // Extra Billable campaign columns (Slice 1)
   assignedCampaignCrewId: varchar("assigned_campaign_crew_id"),
   billingStatus: text("billing_status").$type<"not_created" | "ticket_created" | "invoiced" | "paid">().notNull().default("not_created"),

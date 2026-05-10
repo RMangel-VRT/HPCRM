@@ -18,6 +18,118 @@ export class MissingChemicalNotificationTemplateError extends Error {
   }
 }
 
+/**
+ * Variables in chemical notification templates that are always populated by
+ * the server from the campaign / item / company / template metadata. These
+ * are hidden from any user-facing variable form and are protected from being
+ * overwritten by user-supplied template var maps.
+ */
+export const CHEM_SYSTEM_TEMPLATE_VARS: ReadonlySet<string> = new Set([
+  // identity / campaign
+  'companyName', 'customerName', 'customerFirstName', 'campaignTitle',
+  // applicator / licensing
+  'applicatorName', 'applicatorLicense', 'pesticideLicenseNumber',
+  'licensedApplicator',
+  // contact
+  'contactPhone', 'contactEmail',
+  // product / treatment metadata (template / product driven)
+  'productName', 'activeIngredient', 'epaRegNumber', 'purpose',
+  'reentryInterval', 'reEntryInterval',
+  'wateringInstructions', 'mowingInstructions', 'mowingRestriction',
+  'postApplicationExpectation',
+  'productManufacturer', 'productCategory', 'productSignalWord',
+  // label
+  'labelAttachmentUrl', 'labelAttachmentName',
+  // photos
+  'photoHtmlThumbs', 'completionPhotosHtml',
+  // computed / cosmetic
+  'completionTime', 'nextVisitTitle', 'timeWindow', 'textSections',
+]);
+
+export type ChemTemplateVarSpec = {
+  name: string;
+  label: string;
+  type: 'date' | 'textarea' | 'text';
+};
+
+const CHEM_VAR_TOKEN_RE = /\{\{\s*(?:#if\s+)?([a-zA-Z_][a-zA-Z0-9_]*)\s*\}\}/g;
+const CHEM_CONTROL_TOKENS = new Set(['if', 'else', 'each', 'unless', 'with']);
+
+/**
+ * Extract every Handlebars-style `{{var}}` and `{{#if var}}` identifier from
+ * the supplied template source strings. Control tokens (`else`, `/if`, etc.)
+ * are filtered out. Returns variable names in first-seen order, deduplicated.
+ */
+export function extractChemTemplateVarNames(...sources: string[]): string[] {
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const src of sources) {
+    if (!src) continue;
+    CHEM_VAR_TOKEN_RE.lastIndex = 0;
+    let m: RegExpExecArray | null;
+    while ((m = CHEM_VAR_TOKEN_RE.exec(src)) !== null) {
+      const name = m[1];
+      if (CHEM_CONTROL_TOKENS.has(name)) continue;
+      if (seen.has(name)) continue;
+      seen.add(name);
+      out.push(name);
+    }
+  }
+  return out;
+}
+
+function specForChemVariable(name: string): ChemTemplateVarSpec {
+  const lower = name.toLowerCase();
+  let type: ChemTemplateVarSpec['type'] = 'text';
+  if (/(date|window|target|backup)/.test(lower)) type = 'date';
+  else if (/(notes?|areas?|conditions?|instructions?|expectation|description|message|comments?)/.test(lower)) type = 'textarea';
+  const label = name
+    .replace(/([A-Z])/g, ' $1')
+    .replace(/_/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .replace(/^./, (c) => c.toUpperCase());
+  return { name, label, type };
+}
+
+/**
+ * Classify the variables referenced by a chemical notification template
+ * (pre- or post-visit) into system-resolved (hidden from form) and user-supplied.
+ */
+export function classifyChemTemplateVariables(
+  template: ChemicalNotificationTemplate,
+  kind: 'pre' | 'post',
+): { user: ChemTemplateVarSpec[]; system: string[] } {
+  const subject = kind === 'pre' ? template.preVisitSubject : template.postVisitSubject;
+  const html = kind === 'pre' ? template.preVisitHtml : template.postVisitHtml;
+  const all = extractChemTemplateVarNames(subject, html);
+  const user: ChemTemplateVarSpec[] = [];
+  const system: string[] = [];
+  for (const name of all) {
+    if (CHEM_SYSTEM_TEMPLATE_VARS.has(name)) system.push(name);
+    else user.push(specForChemVariable(name));
+  }
+  return { user, system };
+}
+
+/**
+ * Drop any caller-supplied variable that's in the protected
+ * CHEM_SYSTEM_TEMPLATE_VARS set so a user-supplied form value can never
+ * clobber a server-resolved system value.
+ */
+export function filterUserChemTemplateVars(
+  vars: Record<string, unknown> | null | undefined,
+): Record<string, string> {
+  if (!vars || typeof vars !== 'object') return {};
+  const out: Record<string, string> = {};
+  for (const [k, v] of Object.entries(vars)) {
+    if (!k || CHEM_SYSTEM_TEMPLATE_VARS.has(k)) continue;
+    if (v === null || v === undefined) continue;
+    out[k] = String(v);
+  }
+  return out;
+}
+
 
 let connectionSettings: any;
 

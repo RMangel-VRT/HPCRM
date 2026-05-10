@@ -196,6 +196,21 @@ export default function CampaignItemDetail() {
   const [postCommAreasTreated, setPostCommAreasTreated] = useState("");
   const [postCommApplicationConditions, setPostCommApplicationConditions] = useState("");
   const [postCommNextVisitDate, setPostCommNextVisitDate] = useState("");
+  // Dynamic chemical-template variable form state. When the resolved
+  // notification template exposes user-supplied `{{variables}}`, the dialog
+  // renders inputs for each one and submits the values as `templateVars`.
+  // When no template is resolvable, we fall back to the legacy fixed inputs.
+  type ChemTemplateVarSpec = { name: string; label: string; type: 'date' | 'textarea' | 'text' };
+  type ChemTemplateVarSpecResponse = {
+    hasTemplate: boolean;
+    templateName: string | null;
+    kind: 'pre' | 'post';
+    userVariables: ChemTemplateVarSpec[];
+    systemVariables: string[];
+    values: Record<string, string>;
+  };
+  const [templateVarSpec, setTemplateVarSpec] = useState<ChemTemplateVarSpecResponse | null>(null);
+  const [formVars, setFormVars] = useState<Record<string, string>>({});
   const [showIrrigationCompleteDialog, setShowIrrigationCompleteDialog] = useState(false);
   const [irrigationCompleteDate, setIrrigationCompleteDate] = useState("");
   const [pendingIrrigationTaskId, setPendingIrrigationTaskId] = useState<string | null>(null);
@@ -359,7 +374,7 @@ export default function CampaignItemDetail() {
   }, [item?.completionEmailSentAt, emailDebounceTick]);
 
   const updateItemMutation = useMutation({
-    mutationFn: async (data: { status?: string; notes?: string; skipReason?: string; exceptionType?: string | null; photos?: string[]; chemAction?: string; overrideEmail?: string; completionDate?: string; weatherTemp?: number; weatherWindSpeed?: number; weatherWindDirection?: string; weatherHumidity?: number; weatherConditions?: string; customWindowStart?: string; customWindowEnd?: string; completedAt?: string; workCompletedAt?: string; areasTreated?: string; applicationConditions?: string; nextVisitDate?: string }) => {
+    mutationFn: async (data: { status?: string; notes?: string; skipReason?: string; exceptionType?: string | null; photos?: string[]; chemAction?: string; overrideEmail?: string; completionDate?: string; weatherTemp?: number; weatherWindSpeed?: number; weatherWindDirection?: string; weatherHumidity?: number; weatherConditions?: string; customWindowStart?: string; customWindowEnd?: string; completedAt?: string; workCompletedAt?: string; areasTreated?: string; applicationConditions?: string; nextVisitDate?: string; templateVars?: Record<string, string> }) => {
       if (data.chemAction && data.chemAction !== "reset" && data.chemAction !== "finish_without_comms") {
         const routeMap: Record<string, string> = {
           send_pre_communication: "send-pre-comm",
@@ -368,7 +383,7 @@ export default function CampaignItemDetail() {
         };
         const route = routeMap[data.chemAction];
         if (route) {
-          const body: Record<string, string | undefined> = { notes: data.notes };
+          const body: Record<string, unknown> = { notes: data.notes };
           if (data.overrideEmail) body.overrideEmail = data.overrideEmail;
           if (data.customWindowStart) body.customWindowStart = data.customWindowStart;
           if (data.customWindowEnd) body.customWindowEnd = data.customWindowEnd;
@@ -377,6 +392,7 @@ export default function CampaignItemDetail() {
           if (data.areasTreated) body.areasTreated = data.areasTreated;
           if (data.applicationConditions) body.applicationConditions = data.applicationConditions;
           if (data.nextVisitDate) body.nextVisitDate = data.nextVisitDate;
+          if (data.templateVars) body.templateVars = data.templateVars;
           const res = await apiRequest("POST", `/api/campaigns/${campaignId}/items/${itemId}/${route}`, body);
           return res.json();
         }
@@ -453,6 +469,43 @@ export default function CampaignItemDetail() {
     } finally {
       setSendingCompletionEmail(false);
     }
+  };
+
+  // Loads the dynamic-form spec for the chemical notification template (pre
+  // or post), seeds the form values, then triggers an initial preview so the
+  // dialog opens with both the template-driven inputs and a rendered email.
+  const loadChemTemplateForm = async (kind: 'pre' | 'post', seedOverrides: Record<string, string> = {}) => {
+    let spec: ChemTemplateVarSpecResponse | null = null;
+    try {
+      const res = await fetch(
+        `/api/campaigns/${campaignId}/items/${itemId}/template-variables?kind=${kind}`,
+        { credentials: 'include' },
+      );
+      if (res.ok) spec = await res.json();
+    } catch {}
+    setTemplateVarSpec(spec);
+    const initVars: Record<string, string> = { ...(spec?.values || {}), ...seedOverrides };
+    if (spec?.hasTemplate) {
+      // Make sure every declared user variable exists as a controlled input.
+      for (const v of spec.userVariables) {
+        if (initVars[v.name] === undefined) initVars[v.name] = '';
+      }
+    }
+    setFormVars(initVars);
+    await refreshChemPreview(kind, initVars);
+  };
+
+  // Re-renders the email preview using the current template-var map. Uses the
+  // POST variant of the preview endpoint so user-supplied vars flow through.
+  const refreshChemPreview = async (kind: 'pre' | 'post', vars: Record<string, string>) => {
+    try {
+      const res = await apiRequest(
+        'POST',
+        `/api/campaigns/${campaignId}/items/${itemId}/preview-email`,
+        { type: kind, templateVars: vars },
+      );
+      if (res.ok) setEmailPreview(await res.json());
+    } catch {}
   };
 
   const handleLoadCompletionEmailPreview = async () => {
@@ -1460,13 +1513,12 @@ export default function CampaignItemDetail() {
                       setPreNoticeWindowEnd(initEnd);
                       setLoadingPreview(true);
                       setManualEmail("");
-                      try {
-                        const params = new URLSearchParams({ type: "pre" });
-                        if (initStart) params.set("windowStart", initStart);
-                        if (initEnd) params.set("windowEnd", initEnd);
-                        const res = await fetch(`/api/campaigns/${campaignId}/items/${itemId}/preview-email?${params}`, { credentials: "include" });
-                        if (res.ok) setEmailPreview(await res.json());
-                      } catch {}
+                      // Seed window dates into the dynamic form via the
+                      // canonical PRE template var names.
+                      const seed: Record<string, string> = {};
+                      if (initStart) seed.windowStart = initStart;
+                      if (initEnd) seed.windowEnd = initEnd;
+                      await loadChemTemplateForm('pre', seed);
                       setLoadingPreview(false);
                       setShowEmailConfirm("pre");
                     }}
@@ -1499,20 +1551,24 @@ export default function CampaignItemDetail() {
                     onClick={async () => {
                       setLoadingPreview(true);
                       setManualEmail("");
-                      setPostCommDate(todayDateString());
-                      try {
-                        const res = await fetch(`/api/campaigns/${campaignId}/items/${itemId}/preview-email?type=post`, { credentials: "include" });
-                        if (res.ok) setEmailPreview(await res.json());
-                      } catch {}
-                      setLoadingPreview(false);
+                      const today = todayDateString();
+                      setPostCommDate(today);
+                      // Seed today's date and weather conditions into the
+                      // dynamic form via the canonical POST template var names.
+                      let conditionsSeed = "";
                       if (item.weatherConditions || item.weatherTemp != null) {
                         const parts: string[] = [];
                         if (item.weatherTemp != null) parts.push(`${item.weatherTemp}°F`);
                         if (item.weatherWindSpeed != null) parts.push(`Wind ${item.weatherWindSpeed} mph${item.weatherWindDirection ? ` ${item.weatherWindDirection}` : ""}`);
                         if (item.weatherHumidity != null) parts.push(`Humidity ${item.weatherHumidity}%`);
                         if (item.weatherConditions) parts.push(item.weatherConditions);
-                        setPostCommApplicationConditions(parts.join(", "));
+                        conditionsSeed = parts.join(", ");
+                        setPostCommApplicationConditions(conditionsSeed);
                       }
+                      const seed: Record<string, string> = { completionDate: today };
+                      if (conditionsSeed) seed.applicationConditions = conditionsSeed;
+                      await loadChemTemplateForm('post', seed);
+                      setLoadingPreview(false);
                       setShowEmailConfirm("post");
                     }}
                     disabled={updateItemMutation.isPending || loadingPreview}
@@ -2332,7 +2388,7 @@ export default function CampaignItemDetail() {
         </DialogContent>
       </Dialog>
 
-      <Dialog open={!!showEmailConfirm} onOpenChange={() => { setShowEmailConfirm(null); setEmailPreview(null); setManualEmail(""); setPreNoticeWindowStart(""); setPreNoticeWindowEnd(""); setPostCommDate(""); setPostCommAreasTreated(""); setPostCommApplicationConditions(""); setPostCommNextVisitDate(""); }}>
+      <Dialog open={!!showEmailConfirm} onOpenChange={() => { setShowEmailConfirm(null); setEmailPreview(null); setManualEmail(""); setPreNoticeWindowStart(""); setPreNoticeWindowEnd(""); setPostCommDate(""); setPostCommAreasTreated(""); setPostCommApplicationConditions(""); setPostCommNextVisitDate(""); setTemplateVarSpec(null); setFormVars({}); }}>
         <DialogContent className="max-w-lg" data-testid="dialog-chem-email-compose">
           <div className="space-y-4">
             <div className="flex items-center gap-2">
@@ -2365,90 +2421,147 @@ export default function CampaignItemDetail() {
                   </div>
                 )}
               </div>
-              {showEmailConfirm === "pre" && (
-                <div className="space-y-2">
-                  <Label className="text-xs text-muted-foreground">{t("campaigns.chemPreNoticeWindow")}</Label>
-                  <div className="grid grid-cols-2 gap-2">
-                    <div>
-                      <Label className="text-xs text-muted-foreground">{t("campaigns.chemWindowStart")}</Label>
-                      <DatePickerField
-                        value={preNoticeWindowStart ? new Date(preNoticeWindowStart + 'T00:00:00') : undefined}
-                        onChange={(date) => {
-                          const newStart = date ? format(date, 'yyyy-MM-dd') : '';
-                          setPreNoticeWindowStart(newStart);
-                          (async () => {
-                            try {
-                              const params = new URLSearchParams({ type: "pre" });
-                              if (newStart) params.set("windowStart", newStart);
-                              if (preNoticeWindowEnd) params.set("windowEnd", preNoticeWindowEnd);
-                              const res = await fetch(`/api/campaigns/${campaignId}/items/${itemId}/preview-email?${params}`, { credentials: "include" });
-                              if (res.ok) setEmailPreview(await res.json());
-                            } catch {}
-                          })();
-                        }}
-                        data-testid="input-pre-notice-window-start"
-                      />
+              {templateVarSpec?.hasTemplate ? (
+                templateVarSpec.userVariables.length === 0 ? (
+                  <div className="text-xs text-muted-foreground italic" data-testid="text-template-no-inputs">
+                    No additional inputs needed for this template.
+                  </div>
+                ) : (
+                  <div className="space-y-3" data-testid="form-template-vars">
+                    {templateVarSpec.userVariables.map((v) => {
+                      const value = formVars[v.name] ?? '';
+                      const updateVar = (next: string) => {
+                        const updated = { ...formVars, [v.name]: next };
+                        setFormVars(updated);
+                        // Mirror canonical names back to legacy state so the
+                        // mutation submit can derive dedicated request fields.
+                        if (showEmailConfirm === 'pre') {
+                          if (v.name === 'windowStart') setPreNoticeWindowStart(next);
+                          if (v.name === 'windowEnd') setPreNoticeWindowEnd(next);
+                        } else if (showEmailConfirm === 'post') {
+                          if (v.name === 'completionDate') setPostCommDate(next);
+                          if (v.name === 'areasTreated') setPostCommAreasTreated(next);
+                          if (v.name === 'applicationConditions') setPostCommApplicationConditions(next);
+                          if (v.name === 'nextVisitDate') setPostCommNextVisitDate(next);
+                        }
+                        void refreshChemPreview(showEmailConfirm as 'pre' | 'post', updated);
+                      };
+                      return (
+                        <div key={v.name}>
+                          <Label className="text-xs text-muted-foreground">{v.label}</Label>
+                          {v.type === 'date' ? (
+                            <DatePickerField
+                              value={value ? new Date(value + 'T00:00:00') : undefined}
+                              onChange={(date) => updateVar(date ? format(date, 'yyyy-MM-dd') : '')}
+                              data-testid={`input-template-var-${v.name}`}
+                            />
+                          ) : v.type === 'textarea' ? (
+                            <Textarea
+                              value={value}
+                              onChange={(e) => updateVar(e.target.value)}
+                              rows={3}
+                              data-testid={`input-template-var-${v.name}`}
+                            />
+                          ) : (
+                            <Input
+                              value={value}
+                              onChange={(e) => updateVar(e.target.value)}
+                              data-testid={`input-template-var-${v.name}`}
+                            />
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+                )
+              ) : (
+                <>
+                  {showEmailConfirm === "pre" && (
+                    <div className="space-y-2">
+                      <Label className="text-xs text-muted-foreground">{t("campaigns.chemPreNoticeWindow")}</Label>
+                      <div className="grid grid-cols-2 gap-2">
+                        <div>
+                          <Label className="text-xs text-muted-foreground">{t("campaigns.chemWindowStart")}</Label>
+                          <DatePickerField
+                            value={preNoticeWindowStart ? new Date(preNoticeWindowStart + 'T00:00:00') : undefined}
+                            onChange={(date) => {
+                              const newStart = date ? format(date, 'yyyy-MM-dd') : '';
+                              setPreNoticeWindowStart(newStart);
+                              (async () => {
+                                try {
+                                  const params = new URLSearchParams({ type: "pre" });
+                                  if (newStart) params.set("windowStart", newStart);
+                                  if (preNoticeWindowEnd) params.set("windowEnd", preNoticeWindowEnd);
+                                  const res = await fetch(`/api/campaigns/${campaignId}/items/${itemId}/preview-email?${params}`, { credentials: "include" });
+                                  if (res.ok) setEmailPreview(await res.json());
+                                } catch {}
+                              })();
+                            }}
+                            data-testid="input-pre-notice-window-start"
+                          />
+                        </div>
+                        <div>
+                          <Label className="text-xs text-muted-foreground">{t("campaigns.chemWindowEnd")}</Label>
+                          <DatePickerField
+                            value={preNoticeWindowEnd ? new Date(preNoticeWindowEnd + 'T00:00:00') : undefined}
+                            onChange={(date) => {
+                              const newEnd = date ? format(date, 'yyyy-MM-dd') : '';
+                              setPreNoticeWindowEnd(newEnd);
+                              (async () => {
+                                try {
+                                  const params = new URLSearchParams({ type: "pre" });
+                                  if (preNoticeWindowStart) params.set("windowStart", preNoticeWindowStart);
+                                  if (newEnd) params.set("windowEnd", newEnd);
+                                  const res = await fetch(`/api/campaigns/${campaignId}/items/${itemId}/preview-email?${params}`, { credentials: "include" });
+                                  if (res.ok) setEmailPreview(await res.json());
+                                } catch {}
+                              })();
+                            }}
+                            data-testid="input-pre-notice-window-end"
+                          />
+                        </div>
+                      </div>
                     </div>
-                    <div>
-                      <Label className="text-xs text-muted-foreground">{t("campaigns.chemWindowEnd")}</Label>
-                      <DatePickerField
-                        value={preNoticeWindowEnd ? new Date(preNoticeWindowEnd + 'T00:00:00') : undefined}
-                        onChange={(date) => {
-                          const newEnd = date ? format(date, 'yyyy-MM-dd') : '';
-                          setPreNoticeWindowEnd(newEnd);
-                          (async () => {
-                            try {
-                              const params = new URLSearchParams({ type: "pre" });
-                              if (preNoticeWindowStart) params.set("windowStart", preNoticeWindowStart);
-                              if (newEnd) params.set("windowEnd", newEnd);
-                              const res = await fetch(`/api/campaigns/${campaignId}/items/${itemId}/preview-email?${params}`, { credentials: "include" });
-                              if (res.ok) setEmailPreview(await res.json());
-                            } catch {}
-                          })();
-                        }}
-                        data-testid="input-pre-notice-window-end"
-                      />
+                  )}
+                  {showEmailConfirm === "post" && (
+                    <div className="space-y-3">
+                      <div>
+                        <Label className="text-xs text-muted-foreground">Completion Date *</Label>
+                        <DatePickerField
+                          value={postCommDate ? new Date(postCommDate + 'T00:00:00') : undefined}
+                          onChange={(date) => setPostCommDate(date ? format(date, 'yyyy-MM-dd') : '')}
+                          data-testid="input-post-comm-date"
+                        />
+                      </div>
+                      <div>
+                        <Label className="text-xs text-muted-foreground">Areas Treated</Label>
+                        <Input
+                          value={postCommAreasTreated}
+                          onChange={(e) => setPostCommAreasTreated(e.target.value)}
+                          placeholder="e.g. Front lawn, side beds"
+                          data-testid="input-post-comm-areas-treated"
+                        />
+                      </div>
+                      <div>
+                        <Label className="text-xs text-muted-foreground">Application Conditions</Label>
+                        <Input
+                          value={postCommApplicationConditions}
+                          onChange={(e) => setPostCommApplicationConditions(e.target.value)}
+                          placeholder="e.g. Temp 68°F, wind calm, partly cloudy"
+                          data-testid="input-post-comm-conditions"
+                        />
+                      </div>
+                      <div>
+                        <Label className="text-xs text-muted-foreground">Next Visit Date</Label>
+                        <DatePickerField
+                          value={postCommNextVisitDate ? new Date(postCommNextVisitDate + 'T00:00:00') : undefined}
+                          onChange={(date) => setPostCommNextVisitDate(date ? format(date, 'yyyy-MM-dd') : '')}
+                          data-testid="input-post-comm-next-visit"
+                        />
+                      </div>
                     </div>
-                  </div>
-                </div>
-              )}
-              {showEmailConfirm === "post" && (
-                <div className="space-y-3">
-                  <div>
-                    <Label className="text-xs text-muted-foreground">Completion Date *</Label>
-                    <DatePickerField
-                      value={postCommDate ? new Date(postCommDate + 'T00:00:00') : undefined}
-                      onChange={(date) => setPostCommDate(date ? format(date, 'yyyy-MM-dd') : '')}
-                      data-testid="input-post-comm-date"
-                    />
-                  </div>
-                  <div>
-                    <Label className="text-xs text-muted-foreground">Areas Treated</Label>
-                    <Input
-                      value={postCommAreasTreated}
-                      onChange={(e) => setPostCommAreasTreated(e.target.value)}
-                      placeholder="e.g. Front lawn, side beds"
-                      data-testid="input-post-comm-areas-treated"
-                    />
-                  </div>
-                  <div>
-                    <Label className="text-xs text-muted-foreground">Application Conditions</Label>
-                    <Input
-                      value={postCommApplicationConditions}
-                      onChange={(e) => setPostCommApplicationConditions(e.target.value)}
-                      placeholder="e.g. Temp 68°F, wind calm, partly cloudy"
-                      data-testid="input-post-comm-conditions"
-                    />
-                  </div>
-                  <div>
-                    <Label className="text-xs text-muted-foreground">Next Visit Date</Label>
-                    <DatePickerField
-                      value={postCommNextVisitDate ? new Date(postCommNextVisitDate + 'T00:00:00') : undefined}
-                      onChange={(date) => setPostCommNextVisitDate(date ? format(date, 'yyyy-MM-dd') : '')}
-                      data-testid="input-post-comm-next-visit"
-                    />
-                  </div>
-                </div>
+                  )}
+                </>
               )}
               <div>
                 <Label className="text-xs text-muted-foreground">{t("campaigns.chemEmailTemplate")}</Label>
@@ -2473,7 +2586,7 @@ export default function CampaignItemDetail() {
             </div>
             <Separator />
             <div className="flex flex-col-reverse sm:flex-row sm:justify-end gap-2">
-              <Button variant="outline" className="w-full sm:w-auto" onClick={() => { setShowEmailConfirm(null); setEmailPreview(null); setManualEmail(""); setPreNoticeWindowStart(""); setPreNoticeWindowEnd(""); setPostCommDate(""); setPostCommAreasTreated(""); setPostCommApplicationConditions(""); setPostCommNextVisitDate(""); }} data-testid="button-cancel-email">
+              <Button variant="outline" className="w-full sm:w-auto" onClick={() => { setShowEmailConfirm(null); setEmailPreview(null); setManualEmail(""); setPreNoticeWindowStart(""); setPreNoticeWindowEnd(""); setPostCommDate(""); setPostCommAreasTreated(""); setPostCommApplicationConditions(""); setPostCommNextVisitDate(""); setTemplateVarSpec(null); setFormVars({}); }} data-testid="button-cancel-email">
                 {t("common.cancel")}
               </Button>
               <Button
@@ -2481,15 +2594,20 @@ export default function CampaignItemDetail() {
                 onClick={() => {
                   const action = showEmailConfirm === "pre" ? "send_pre_communication" : "send_post_communication";
                   const effectiveEmail = emailPreview?.recipientEmail || manualEmail.trim();
-                  const customWindowStart = showEmailConfirm === "pre" ? preNoticeWindowStart : undefined;
-                  const customWindowEnd = showEmailConfirm === "pre" ? preNoticeWindowEnd : undefined;
-                  const completedAt = showEmailConfirm === "post" ? postCommDate : undefined;
-                  const areasTreated = showEmailConfirm === "post" ? postCommAreasTreated : undefined;
-                  const applicationConditions = showEmailConfirm === "post" ? postCommApplicationConditions : undefined;
-                  const nextVisitDate = showEmailConfirm === "post" ? postCommNextVisitDate : undefined;
+                  const isDynamic = !!templateVarSpec?.hasTemplate;
+                  // In dynamic mode the server derives mapped values from
+                  // `templateVars` directly, so we omit the legacy dedicated
+                  // request fields to keep send/preview parity unambiguous.
+                  const customWindowStart = !isDynamic && showEmailConfirm === "pre" ? preNoticeWindowStart : undefined;
+                  const customWindowEnd = !isDynamic && showEmailConfirm === "pre" ? preNoticeWindowEnd : undefined;
+                  const completedAt = !isDynamic && showEmailConfirm === "post" ? postCommDate : undefined;
+                  const areasTreated = !isDynamic && showEmailConfirm === "post" ? postCommAreasTreated : undefined;
+                  const applicationConditions = !isDynamic && showEmailConfirm === "post" ? postCommApplicationConditions : undefined;
+                  const nextVisitDate = !isDynamic && showEmailConfirm === "post" ? postCommNextVisitDate : undefined;
+                  const templateVars = isDynamic ? formVars : undefined;
                   setShowEmailConfirm(null);
                   setEmailPreview(null);
-                  updateItemMutation.mutate({ chemAction: action, notes, overrideEmail: !emailPreview?.recipientEmail ? effectiveEmail : undefined, customWindowStart, customWindowEnd, completedAt, areasTreated, applicationConditions, nextVisitDate });
+                  updateItemMutation.mutate({ chemAction: action, notes, overrideEmail: !emailPreview?.recipientEmail ? effectiveEmail : undefined, customWindowStart, customWindowEnd, completedAt, areasTreated, applicationConditions, nextVisitDate, templateVars });
                   setManualEmail("");
                   setPreNoticeWindowStart("");
                   setPreNoticeWindowEnd("");
@@ -2497,8 +2615,10 @@ export default function CampaignItemDetail() {
                   setPostCommAreasTreated("");
                   setPostCommApplicationConditions("");
                   setPostCommNextVisitDate("");
+                  setTemplateVarSpec(null);
+                  setFormVars({});
                 }}
-                disabled={updateItemMutation.isPending || (!emailPreview?.recipientEmail && (!manualEmail.trim() || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(manualEmail.trim()))) || (showEmailConfirm === "post" && !postCommDate)}
+                disabled={updateItemMutation.isPending || (!emailPreview?.recipientEmail && (!manualEmail.trim() || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(manualEmail.trim()))) || (showEmailConfirm === "post" && !(templateVarSpec?.hasTemplate ? (formVars.completionDate ?? postCommDate) : postCommDate))}
                 data-testid="button-confirm-send-email"
               >
                 {updateItemMutation.isPending && <Loader2 className="w-4 h-4 mr-1 animate-spin" />}

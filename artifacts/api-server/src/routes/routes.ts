@@ -17,7 +17,8 @@ import { insertCommunicationTemplateSchema, insertServicePlanTemplateSchema, ins
 import { runAutomationRule, runAllAutomationRules } from "../services/automationService";
 import { ObjectStorageService, ObjectNotFoundError, objectStorageClient, signObjectURL } from "../objectStorage";
 import { ObjectPermission, ObjectAccessGroupType, setObjectAclPolicy } from "../objectAcl";
-import { processEmailEvent, resendEmail, sendEmail, getDefaultWorkCompletedTemplate, buildChemicalNotificationVariables, formatTimeWindow, buildChemicalCompletionEmailVars, renderTemplate, renderChemicalNotificationTemplate, resolveChemicalNotificationTemplate, MissingChemicalNotificationTemplateError } from '../services/emailService';
+import { processEmailEvent, resendEmail, sendEmail, getDefaultWorkCompletedTemplate, buildChemicalNotificationVariables, formatTimeWindow, buildChemicalCompletionEmailVars, renderTemplate, renderChemicalNotificationTemplate, resolveChemicalNotificationTemplate, MissingChemicalNotificationTemplateError, classifyChemTemplateVariables, filterUserChemTemplateVars, CHEM_SYSTEM_TEMPLATE_VARS } from '../services/emailService';
+import type { ChemTemplateVarSpec } from '../services/emailService';
 import { migrateRemoveChemicalEmailTemplates } from '../services/legacyChemEmailCleanup';
 import heicConvert from 'heic-convert';
 import multer from 'multer';
@@ -12556,7 +12557,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     return { email: recipientEmail || null, contactName: primaryContact?.name || null };
   }
 
-  app.get("/api/campaigns/:id/items/:itemId/email-preview", async (req, res) => {
+  const emailPreviewHandler: express.RequestHandler = async (req, res) => {
     if (!req.isAuthenticated()) return res.status(401).send("Not authenticated");
     const user = req.user as UserWithContext;
     const emailRoles = ["admin", "office", "chemical_manager"];
@@ -12564,7 +12565,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
       return res.status(403).send("Insufficient permissions");
     }
     try {
-      const { type, windowStart: customWindowStart, windowEnd: customWindowEnd } = req.query as { type?: string; windowStart?: string; windowEnd?: string };
+      // Body wins over query so POSTs from the dynamic form pass live values.
+      const body = (req.body || {}) as { type?: string; windowStart?: string; windowEnd?: string; templateVars?: Record<string, unknown> };
+      const userTemplateVars = filterUserChemTemplateVars(body.templateVars);
+      const q = req.query as { type?: string; windowStart?: string; windowEnd?: string };
+      const type = body.type ?? q.type;
+      const customWindowStart = body.windowStart ?? q.windowStart;
+      const customWindowEnd = body.windowEnd ?? q.windowEnd;
       if (type !== "post" && customWindowStart && customWindowEnd && customWindowStart > customWindowEnd) {
         return res.status(400).json({ error: "Window start date must be before or equal to window end date" });
       }
@@ -12667,11 +12674,16 @@ export async function registerRoutes(app: Express): Promise<Server> {
               user.language ?? 'en',
             );
         if (labelAttachmentUrl) previewVars.labelAttachmentUrl = labelAttachmentUrl;
+        // Caller-supplied user template var values overlay the system context.
+        // System keys are protected by `filterUserChemTemplateVars`, and the
+        // renderer's "non-empty wins" semantics mean an empty user value never
+        // clobbers a real system value.
+        const mergedVars = { ...previewVars, ...userTemplateVars };
         const rendered = await renderChemicalNotificationTemplate(
           campaign,
           user.activeCompanyId,
           renderKind,
-          previewVars,
+          mergedVars,
         );
         subject = rendered.subject;
         htmlBody = rendered.html;
@@ -12687,14 +12699,102 @@ export async function registerRoutes(app: Express): Promise<Server> {
       console.error("Error fetching email preview:", error);
       res.status(500).json({ error: "Internal server error" });
     }
-  });
+  };
 
-  // Alias for email-preview with task-specified URL pattern (preserves query params)
-  app.get("/api/campaigns/:id/items/:itemId/preview-email", (req, res) => {
-    const qs = Object.keys(req.query).length > 0
-      ? "?" + new URLSearchParams(req.query as Record<string, string>).toString()
-      : "";
-    res.redirect(307, `/api/campaigns/${req.params.id}/items/${req.params.itemId}/email-preview${qs}`);
+  app.get("/api/campaigns/:id/items/:itemId/email-preview", emailPreviewHandler);
+  // GET alias preserves the original behaviour (no body, query-only).
+  app.get("/api/campaigns/:id/items/:itemId/preview-email", emailPreviewHandler);
+  // POST variant accepts a `templateVars` body for live form previews.
+  app.post("/api/campaigns/:id/items/:itemId/preview-email", emailPreviewHandler);
+
+  // Returns the dynamic input spec (user-supplied variables + system variables)
+  // for the chemical notification template that would render this item's pre-
+  // or post-visit email, plus pre-fill values pulled from the item's existing
+  // dedicated columns and any saved custom template var values.
+  app.get("/api/campaigns/:id/items/:itemId/template-variables", async (req, res) => {
+    if (!req.isAuthenticated()) return res.status(401).send("Not authenticated");
+    const user = req.user as UserWithContext;
+    const emailRoles = ["admin", "office", "chemical_manager"];
+    if (!emailRoles.includes(user.activeRole)) return res.status(403).send("Insufficient permissions");
+    try {
+      const kindRaw = String(req.query.kind || 'pre');
+      const kind: 'pre' | 'post' = kindRaw === 'post' ? 'post' : 'pre';
+      const campaign = await storage.getCampaignById(req.params.id, user.activeCompanyId);
+      if (!campaign || campaign.category !== 'chemical') return res.status(404).json({ error: "Chemical campaign not found" });
+      const items = await storage.getCampaignItems(req.params.id, user.activeCompanyId);
+      const targetItem = items.find((i: { id: string }) => i.id === req.params.itemId) as CampaignItem | undefined;
+      if (!targetItem) return res.status(404).json({ error: "Item not found" });
+      // The dynamic form is only driven by an *explicitly selected* campaign
+      // template. When no template is selected on the campaign we report
+      // `hasTemplate: false` so the frontend renders the legacy fixed form,
+      // even if a company default template would otherwise resolve.
+      if (!campaign.notificationTemplateId) {
+        return res.json({ hasTemplate: false, templateId: null, templateName: null, kind, userVariables: [], systemVariables: [], values: {} });
+      }
+      let template;
+      try {
+        template = await resolveChemicalNotificationTemplate(campaign, user.activeCompanyId);
+      } catch (err) {
+        if (err instanceof MissingChemicalNotificationTemplateError) {
+          return res.json({ hasTemplate: false, templateId: null, templateName: null, kind, userVariables: [], systemVariables: [], values: {} });
+        }
+        throw err;
+      }
+      const { user: userVariables, system: systemVariables } = classifyChemTemplateVariables(template, kind);
+
+      const customVars = (targetItem.customTemplateVars || {}) as Record<string, string>;
+      const formatDate = (d: Date | string | null | undefined): string => {
+        if (!d) return '';
+        const dt = d instanceof Date ? d : new Date(d);
+        if (isNaN(dt.getTime())) return '';
+        const yyyy = dt.getFullYear();
+        const mm = String(dt.getMonth() + 1).padStart(2, '0');
+        const dd = String(dt.getDate()).padStart(2, '0');
+        return `${yyyy}-${mm}-${dd}`;
+      };
+
+      const dedicated: Record<string, string> = {};
+      if (kind === 'pre') {
+        const ts = (targetItem.targetDate ? String(targetItem.targetDate) : '') || (campaign.windowStart ? String(campaign.windowStart) : '');
+        const bs = (targetItem.backupDate ? String(targetItem.backupDate) : '') || (campaign.windowEnd ? String(campaign.windowEnd) : '');
+        if (ts) {
+          dedicated['targetDate'] = ts;
+          dedicated['windowStart'] = ts;
+        }
+        if (bs) {
+          dedicated['backupDate'] = bs;
+          dedicated['windowEnd'] = bs;
+        }
+        if (targetItem.notes) dedicated['notes'] = targetItem.notes;
+      } else {
+        // Prefer the persisted `completedAt` (the date the user actually
+        // entered when sending the post-comm) so the form re-opens with
+        // exactly the value last submitted; fall back to `workCompletedAt`
+        // for items that never had a post-comm sent yet.
+        const completedDate = formatDate((targetItem.completedAt ?? targetItem.workCompletedAt) as Date | null);
+        if (completedDate) dedicated['completionDate'] = completedDate;
+        if (targetItem.actualAreasTreated) dedicated['areasTreated'] = targetItem.actualAreasTreated;
+        if (targetItem.actualConditions) dedicated['applicationConditions'] = targetItem.actualConditions;
+        if (targetItem.completionNotes) dedicated['notes'] = targetItem.completionNotes;
+      }
+
+      // Saved custom values win over dedicated-column derived values, so the
+      // form re-loads exactly what the user last typed.
+      const values: Record<string, string> = { ...dedicated, ...customVars };
+
+      res.json({
+        hasTemplate: true,
+        templateId: template.id,
+        templateName: template.name,
+        kind,
+        userVariables,
+        systemVariables,
+        values,
+      });
+    } catch (error) {
+      console.error("Error fetching template variables:", error);
+      res.status(500).json({ error: "Internal server error" });
+    }
   });
 
   app.patch("/api/campaigns/:id", async (req, res) => {
@@ -13817,8 +13917,22 @@ export async function registerRoutes(app: Express): Promise<Server> {
       if ((targetItem.workflowStep ?? "pre_communication") !== "pre_communication") {
         return res.status(400).json({ error: "Item is not in pre-communication step" });
       }
-      const { notes, overrideEmail, customWindowStart, customWindowEnd } = req.body || {};
-      if (customWindowStart && customWindowEnd && customWindowStart.trim() > customWindowEnd.trim()) {
+      const { notes, overrideEmail, customWindowStart, customWindowEnd, templateVars: rawTemplateVars } = req.body || {};
+      // User-supplied template variable map from the dynamic form. Known
+      // names (windowStart/windowEnd/targetDate/backupDate/notes) feed the
+      // dedicated request fields below if those were not provided directly,
+      // and the full filtered map is overlaid on the render context with
+      // system keys protected.
+      const userTemplateVars = filterUserChemTemplateVars(rawTemplateVars);
+      // Dynamic-form values win over the legacy dedicated request fields so
+      // the resolved email body and the persisted item state always match
+      // what the user typed in the form (and what the live preview rendered).
+      const effectiveWindowStart =
+        userTemplateVars['windowStart'] ?? userTemplateVars['targetDate'] ?? customWindowStart;
+      const effectiveWindowEnd =
+        userTemplateVars['windowEnd'] ?? userTemplateVars['backupDate'] ?? customWindowEnd;
+      const effectiveNotes = userTemplateVars['notes'] ?? notes;
+      if (effectiveWindowStart && effectiveWindowEnd && effectiveWindowStart.trim() > effectiveWindowEnd.trim()) {
         return res.status(400).json({ error: "Window start date must be before or equal to window end date" });
       }
       const chemUpdates: Partial<InsertCampaignItem & { updatedAt: Date }> = { updatedAt: new Date() };
@@ -13831,26 +13945,31 @@ export async function registerRoutes(app: Express): Promise<Server> {
       try {
         const { url: labelAttachmentUrl, name: labelAttachmentName } = await resolveChemLabelAttachment(targetItem, campaign, user.activeCompanyId);
         const { name: applicatorName, license: applicatorLicense } = await resolveChemApplicator(targetItem, user.id, campaign);
+        const baseVars: Record<string, string> = {
+          companyName: company?.name || '',
+          customerName: targetItem.customerName,
+          campaignTitle: campaign.title,
+          targetDate: effectiveWindowStart?.trim() || campaign.windowStart || '',
+          backupDate: effectiveWindowEnd?.trim() || campaign.windowEnd || '',
+          timeWindow: formatTimeWindow(targetItem.timeWindowStart, targetItem.timeWindowEnd),
+          contactPhone: company?.phone || '',
+          contactEmail: company?.billingEmail || '',
+          notes: effectiveNotes || '',
+          labelAttachmentUrl,
+          labelAttachmentName,
+          applicatorName,
+          applicatorLicense,
+          pesticideLicenseNumber: company?.pesticideLicenseNumber || '',
+        };
+        // User-supplied vars overlay the base; system keys are already
+        // stripped by `filterUserChemTemplateVars`, so server-resolved
+        // values (companyName, applicator, license, label, etc.) win.
+        const mergedVars = { ...userTemplateVars, ...baseVars };
         const { subject, html, textBody, templateId, templateName } = await renderChemicalNotificationTemplate(
           campaign,
           user.activeCompanyId,
           'pre',
-          {
-            companyName: company?.name || '',
-            customerName: targetItem.customerName,
-            campaignTitle: campaign.title,
-            targetDate: customWindowStart?.trim() || campaign.windowStart || '',
-            backupDate: customWindowEnd?.trim() || campaign.windowEnd || '',
-            timeWindow: formatTimeWindow(targetItem.timeWindowStart, targetItem.timeWindowEnd),
-            contactPhone: company?.phone || '',
-            contactEmail: company?.billingEmail || '',
-            notes: notes || '',
-            labelAttachmentUrl,
-            labelAttachmentName,
-            applicatorName,
-            applicatorLicense,
-            pesticideLicenseNumber: company?.pesticideLicenseNumber || '',
-          },
+          mergedVars,
         );
         req.log?.info({ event: 'chem_notification_send', kind: 'pre', campaignId: campaign.id, itemId: targetItem.id, chemTemplateId: templateId, chemTemplateName: templateName }, 'chemical notification email send');
         const sentLog = await sendEmail(recipientEmail, subject, html, textBody, {
@@ -13874,7 +13993,32 @@ export async function registerRoutes(app: Express): Promise<Server> {
       chemUpdates.workflowStep = "work_in_progress";
       chemUpdates.preCommSentAt = new Date();
       chemUpdates.preCommSentById = user.id;
-      if (notes !== undefined) chemUpdates.notes = notes;
+      if (effectiveNotes !== undefined) chemUpdates.notes = effectiveNotes;
+      // Persist mapped window dates to their dedicated date columns so
+      // downstream views (calendar, schedule, post-comm flow) keep working
+      // exactly the way they did before the dynamic form existed.
+      if (effectiveWindowStart) chemUpdates.targetDate = effectiveWindowStart;
+      if (effectiveWindowEnd) chemUpdates.backupDate = effectiveWindowEnd;
+      // Persist any user-supplied template var values that don't map to a
+      // dedicated column so the dynamic form can re-prefill them next time.
+      // Mapped names (notes/targetDate/backupDate/windowStart/windowEnd) are
+      // already captured in dedicated request fields above and on the item
+      // columns, so we strip them out before persisting the leftovers.
+      const PRE_MAPPED_NAMES = new Set(['notes', 'targetDate', 'backupDate', 'windowStart', 'windowEnd']);
+      const customLeftover: Record<string, string> = {};
+      for (const [k, v] of Object.entries(userTemplateVars)) {
+        if (PRE_MAPPED_NAMES.has(k)) continue;
+        customLeftover[k] = v;
+      }
+      const existingCustom = (targetItem.customTemplateVars || {}) as Record<string, string>;
+      const mergedCustom = { ...existingCustom, ...customLeftover };
+      // Always persist the full map (mapped + unmapped) so re-opening the form
+      // shows exactly the previously-submitted values, regardless of whether
+      // the matching dedicated column is also being updated.
+      for (const [k, v] of Object.entries(userTemplateVars)) mergedCustom[k] = v;
+      if (Object.keys(mergedCustom).length > 0) {
+        chemUpdates.customTemplateVars = mergedCustom;
+      }
       const updated = await storage.updateCampaignItem(req.params.itemId, user.activeCompanyId, chemUpdates);
       if (!updated) return res.status(404).json({ error: "Not found" });
       res.json(updated);
@@ -13942,7 +14086,16 @@ export async function registerRoutes(app: Express): Promise<Server> {
       if (targetItem.workflowStep !== "work_completed") {
         return res.status(400).json({ error: "Item is not in work-completed step" });
       }
-      const { notes, overrideEmail, completedAt: completedAtStr, areasTreated, applicationConditions, nextVisitDate } = req.body || {};
+      const { notes, overrideEmail, completedAt: completedAtStr, areasTreated, applicationConditions, nextVisitDate, templateVars: rawTemplateVars } = req.body || {};
+      const userTemplateVars = filterUserChemTemplateVars(rawTemplateVars);
+      // Dynamic-form template vars win over the legacy dedicated request
+      // fields so the resolved email body and persisted item columns always
+      // match what the user typed in the form (and what the preview showed).
+      const effectiveCompletedAtStr = userTemplateVars['completionDate'] ?? completedAtStr;
+      const effectiveAreasTreated = userTemplateVars['areasTreated'] ?? areasTreated;
+      const effectiveApplicationConditions = userTemplateVars['applicationConditions'] ?? applicationConditions;
+      const effectiveNextVisitDate = userTemplateVars['nextVisitDate'] ?? nextVisitDate;
+      const effectiveNotes = userTemplateVars['notes'] ?? notes;
       const chemUpdates: Partial<InsertCampaignItem & { updatedAt: Date }> = { updatedAt: new Date() };
       const company = await storage.getCompanyById(user.activeCompanyId);
       const { email: resolvedEmail } = await resolveChemRecipientEmail(targetItem.customerId, user.activeCompanyId);
@@ -13951,36 +14104,40 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(400).json({ error: "No recipient email available. Provide an email address or add a contact/property manager." });
       }
       try {
-        const resolvedCompletionDate = completedAtStr
-          ? (() => { const d = new Date(completedAtStr + "T12:00:00"); return isNaN(d.getTime()) ? resolveChemCompletionDate(targetItem) : d.toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' }); })()
+        const resolvedCompletionDate = effectiveCompletedAtStr
+          ? (() => { const d = new Date(effectiveCompletedAtStr + "T12:00:00"); return isNaN(d.getTime()) ? resolveChemCompletionDate(targetItem) : d.toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' }); })()
           : resolveChemCompletionDate(targetItem);
         const { url: labelAttachmentUrl, name: labelAttachmentName } = await resolveChemLabelAttachment(targetItem, campaign, user.activeCompanyId);
         const completionPhotosHtml = await resolveChemCompletionPhotosHtml(targetItem);
         const { name: applicatorName, license: applicatorLicense } = await resolveChemApplicator(targetItem, user.id, campaign);
+        const baseVars: Record<string, string> = {
+          companyName: company?.name || '',
+          customerName: targetItem.customerName,
+          campaignTitle: campaign.title,
+          completionDate: resolvedCompletionDate,
+          contactPhone: company?.phone || '',
+          contactEmail: company?.billingEmail || '',
+          notes: effectiveNotes || '',
+          areasTreated: effectiveAreasTreated || '',
+          applicationConditions: effectiveApplicationConditions || '',
+          nextVisitDate: effectiveNextVisitDate || '',
+          nextVisitTitle: effectiveNextVisitDate ? 'Next Scheduled Visit' : '',
+          pesticideLicenseNumber: company?.pesticideLicenseNumber || '',
+          labelAttachmentUrl,
+          labelAttachmentName,
+          completionPhotosHtml,
+          photoHtmlThumbs: completionPhotosHtml,
+          applicatorName,
+          applicatorLicense,
+        };
+        // Caller user vars overlay base; protected system keys already
+        // stripped by `filterUserChemTemplateVars`.
+        const mergedVars = { ...userTemplateVars, ...baseVars };
         const { subject, html, textBody, templateId, templateName } = await renderChemicalNotificationTemplate(
           campaign,
           user.activeCompanyId,
           'post',
-          {
-            companyName: company?.name || '',
-            customerName: targetItem.customerName,
-            campaignTitle: campaign.title,
-            completionDate: resolvedCompletionDate,
-            contactPhone: company?.phone || '',
-            contactEmail: company?.billingEmail || '',
-            notes: notes || '',
-            areasTreated: areasTreated || '',
-            applicationConditions: applicationConditions || '',
-            nextVisitDate: nextVisitDate || '',
-            nextVisitTitle: nextVisitDate ? 'Next Scheduled Visit' : '',
-            pesticideLicenseNumber: company?.pesticideLicenseNumber || '',
-            labelAttachmentUrl,
-            labelAttachmentName,
-            completionPhotosHtml,
-            photoHtmlThumbs: completionPhotosHtml,
-            applicatorName,
-            applicatorLicense,
-          },
+          mergedVars,
         );
         req.log?.info({ event: 'chem_notification_send', kind: 'post', campaignId: campaign.id, itemId: targetItem.id, chemTemplateId: templateId, chemTemplateName: templateName }, 'chemical notification email send');
         const sentLog = await sendEmail(recipientEmail, subject, html, textBody, {
@@ -14002,8 +14159,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(500).json({ error: "Failed to send post-completion notification email" });
       }
       let postCommCompletedAt = new Date();
-      if (completedAtStr) {
-        const parsed = new Date(completedAtStr + "T12:00:00");
+      if (effectiveCompletedAtStr) {
+        const parsed = new Date(effectiveCompletedAtStr + "T12:00:00");
         if (!isNaN(parsed.getTime())) postCommCompletedAt = parsed;
       }
       chemUpdates.workflowStep = "post_communication";
@@ -14012,7 +14169,20 @@ export async function registerRoutes(app: Express): Promise<Server> {
       chemUpdates.status = "completed";
       chemUpdates.completedById = user.id;
       chemUpdates.completedAt = postCommCompletedAt;
-      if (notes !== undefined) chemUpdates.notes = notes;
+      if (effectiveNotes !== undefined) chemUpdates.notes = effectiveNotes;
+      // Persist mapped post-comm vars to their dedicated columns (used by
+      // reports/exports/print views) so dynamic-form values aren't trapped
+      // only in the customTemplateVars JSON blob.
+      if (effectiveAreasTreated !== undefined) chemUpdates.actualAreasTreated = effectiveAreasTreated;
+      if (effectiveApplicationConditions !== undefined) chemUpdates.actualConditions = effectiveApplicationConditions;
+      if (effectiveNotes !== undefined) chemUpdates.completionNotes = effectiveNotes;
+      // Persist the full user-supplied template var map so the form
+      // re-prefills exactly the previously-submitted values when re-opened.
+      const existingCustomPost = (targetItem.customTemplateVars || {}) as Record<string, string>;
+      const mergedCustomPost = { ...existingCustomPost, ...userTemplateVars };
+      if (Object.keys(mergedCustomPost).length > 0) {
+        chemUpdates.customTemplateVars = mergedCustomPost;
+      }
       const updated = await storage.updateCampaignItem(req.params.itemId, user.activeCompanyId, chemUpdates);
       if (!updated) return res.status(404).json({ error: "Not found" });
       const allItems = await storage.getCampaignItems(req.params.id, user.activeCompanyId);
@@ -16293,12 +16463,13 @@ ${pdfText.slice(0, 8000)}`;
 
   // ─── Preview completion email ────────────────────────────────────────────────
 
-  app.get("/api/campaigns/:id/items/:itemId/preview-completion-email", async (req, res) => {
+  const previewCompletionEmailHandler: express.RequestHandler = async (req, res) => {
     if (!req.isAuthenticated()) return res.status(401).send("Not authenticated");
     const user = req.user as UserWithContext;
     const emailRoles = ["admin", "office", "chemical_manager"];
     if (!emailRoles.includes(user.activeRole)) return res.status(403).send("Insufficient permissions");
     try {
+      const userTemplateVars = filterUserChemTemplateVars((req.body || {}).templateVars);
       const campaign = await storage.getCampaignById(req.params.id, user.activeCompanyId);
       if (!campaign || campaign.category !== "chemical") return res.status(404).json({ error: "Chemical campaign not found" });
       const items = await storage.getCampaignItems(req.params.id, user.activeCompanyId);
@@ -16318,11 +16489,15 @@ ${pdfText.slice(0, 8000)}`;
           true,
           { phone: company?.phone, email: company?.billingEmail, pesticideLicenseNumber: company?.pesticideLicenseNumber },
         );
+        // User-supplied template var values overlay the system context.
+        // Filter has already stripped protected keys, so server values for
+        // companyName/applicator/photos/etc. cannot be clobbered.
+        const mergedVars = { ...userTemplateVars, ...emailVars };
         const rendered = await renderChemicalNotificationTemplate(
           campaign,
           user.activeCompanyId,
           'post',
-          emailVars,
+          mergedVars,
         );
         subject = rendered.subject;
         htmlBody = rendered.html;
@@ -16338,7 +16513,10 @@ ${pdfText.slice(0, 8000)}`;
       console.error("Error generating completion email preview:", error);
       res.status(500).json({ error: "Internal server error" });
     }
-  });
+  };
+
+  app.get("/api/campaigns/:id/items/:itemId/preview-completion-email", previewCompletionEmailHandler);
+  app.post("/api/campaigns/:id/items/:itemId/preview-completion-email", previewCompletionEmailHandler);
 
   // ─── Send completion email ───────────────────────────────────────────────────
 
@@ -16368,7 +16546,9 @@ ${pdfText.slice(0, 8000)}`;
           return res.status(409).json({ error: "Completion email was sent recently. Please wait 60 seconds before sending again." });
         }
       }
-      const { overrideEmail, notes } = req.body || {};
+      const { overrideEmail, notes, templateVars: rawTemplateVars } = req.body || {};
+      const userTemplateVars = filterUserChemTemplateVars(rawTemplateVars);
+      const effectiveNotes = notes ?? userTemplateVars['notes'];
       const company = await storage.getCompanyById(user.activeCompanyId);
       const { email: resolvedEmail } = await resolveChemRecipientEmail(targetItem.customerId, user.activeCompanyId);
       const recipientEmail = overrideEmail?.trim() || resolvedEmail;
@@ -16384,14 +16564,17 @@ ${pdfText.slice(0, 8000)}`;
         true,
         { phone: company?.phone, email: company?.billingEmail, pesticideLicenseNumber: company?.pesticideLicenseNumber },
       );
-      if (notes) emailVars['notes'] = notes;
+      if (effectiveNotes) emailVars['notes'] = effectiveNotes;
+      // User-supplied vars overlay the resolved system context. The filter
+      // already stripped protected keys, so server values win for those.
+      const mergedVars = { ...userTemplateVars, ...emailVars };
       let sentLog;
       try {
         const { subject, html, textBody, templateId, templateName } = await renderChemicalNotificationTemplate(
           campaign,
           user.activeCompanyId,
           'post',
-          emailVars,
+          mergedVars,
         );
         req.log?.info({ event: 'chem_notification_send', kind: 'post', campaignId: campaign.id, itemId: targetItem.id, chemTemplateId: templateId, chemTemplateName: templateName }, 'chemical notification email send');
         sentLog = await sendEmail(recipientEmail, subject, html, textBody, {
@@ -16410,10 +16593,21 @@ ${pdfText.slice(0, 8000)}`;
       if (sentLog.status !== "sent") {
         return res.status(502).json({ error: "Email delivery failed. Please try again." });
       }
-      const updatedItem = await storage.updateCampaignItem(req.params.itemId, user.activeCompanyId, {
+      // Persist user-supplied template vars (full map) so re-opening the
+      // form re-prefills exactly what was submitted. Mapped fields like
+      // areasTreated/applicationConditions/notes/completionDate are still
+      // owned by their dedicated columns and will pre-fill from those if
+      // the custom map is missing them.
+      const existingCustom = (targetItem.customTemplateVars || {}) as Record<string, string>;
+      const mergedCustom = { ...existingCustom, ...userTemplateVars };
+      const itemPatch: Partial<InsertCampaignItem> = {
         completionEmailSentAt: new Date(),
         postCommEmailLogId: sentLog.id,
-      });
+      };
+      if (Object.keys(mergedCustom).length > 0) {
+        itemPatch.customTemplateVars = mergedCustom;
+      }
+      const updatedItem = await storage.updateCampaignItem(req.params.itemId, user.activeCompanyId, itemPatch);
       res.json(updatedItem);
     } catch (error) {
       console.error("Error in send-completion-email:", error);
