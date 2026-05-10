@@ -1,0 +1,180 @@
+# Replit Prompt — Chemical Template Consolidation: One System
+
+## Context
+
+The system currently has **two parallel template systems** for chemical-campaign emails, and they have drifted apart in both content and quality. We are consolidating onto the newer one — the **Notification Templates** system at `/dashboard/settings/notification-templates`, backed by the `chemical_notification_templates` table and the `ChemicalNotificationTemplates.tsx` page — and tearing the older one out. After this slice, there is exactly one place an admin edits chemical-campaign emails, exactly one schema that backs them, and exactly one render path that fires when a chemical campaign sends mail.
+
+This slice does not touch non-chemical templates. The Settings → **Email Templates** tab continues to exist for `ticket.work_completed`, welcome emails, and other non-chemical event-rule templates. We are only removing the *chemical* surface area from System 1.
+
+This slice should land in a deployable, production-quality state. Do not stub anything you say you've built. The two original template designs (200+ line polished HTML with greeting, attachment block, applicator card, post-application care list, completion checkmark banner, photos grid, etc.) are sitting in the project root as `chemical-treatment-notification.html` and `chemical-treatment-completion.html` — those are the design source of truth and must be reflected in the consolidated System 2 templates.
+
+## The two systems we are merging
+
+### System 1 — to be removed (chemical entries only)
+
+- **DB:** rows in `email_templates` named `"Chemical Treatment Notice"` and `"Chemical Treatment Completion"`, plus their `email_rules` rows for events `campaign.chemical_pre_notice` and `campaign.chemical_post_notice`.
+- **Disk:** `artifacts/api-server/src/templates/chemical-treatment-notification.html` (96 lines, degraded) and `chemical-treatment-completion.html` (112 lines, degraded).
+- **Seeder:** `seedChemicalEmailTemplates()` and `CHEMICAL_TEMPLATE_REGISTRY` in `artifacts/api-server/src/templates/seed.ts`.
+- **Service exports:** `getDefaultChemicalPreNoticeTemplate`, `getDefaultChemicalPostNoticeTemplate`, `getDefaultChemicalTreatmentNotificationTemplate`, `renderChemicalEmail`, and the `loadTemplateFile()` calls that read those two HTML files in `artifacts/api-server/src/services/emailService.ts`.
+- **Render path:** the three `processEmailEvent('campaign.chemical_pre_notice' | 'campaign.chemical_post_notice' | 'campaign.chemical_notification', …)` callsites in `artifacts/api-server/src/routes/routes.ts` (lines 13288, 13341, 13437, 13828, 16041 — confirm with grep before editing).
+
+### System 2 — to remain as the single source of truth
+
+- **DB:** `chemical_notification_templates` table. Columns include `name`, `serviceType`, `isDefault`, `preVisitSubject`, `preVisitHtml`, `postVisitSubject`, `postVisitHtml`, `defaultLabelPdfStorageKey`, `defaultLabelPdfFilename`. One row per template, per company.
+- **UI:** `artifacts/highplains-crm/src/pages/ChemicalNotificationTemplates.tsx`, route `/dashboard/settings/notification-templates`.
+- **API:** `/api/chemical-notification-templates` CRUD, `/api/chemical-notification-templates/:id/preview`.
+- **Seeder:** `seedChemicalNotificationTemplates()` + `CHEM_NOTIF_TEMPLATE_SEEDS` (currently 4 service types) in `artifacts/api-server/src/templates/seed.ts`.
+- **Storage:** `getChemicalNotificationTemplate`, `getChemicalNotificationTemplates`, `createChemicalNotificationTemplate`, `updateChemicalNotificationTemplate`, `deleteChemicalNotificationTemplate` in `artifacts/api-server/src/storage.ts` (~lines 4744–4795).
+- **Campaign linkage:** `campaigns.notificationTemplateId` already exists and is populated by the campaign-create flow (`routes.ts` line ~12308). The campaign-detail send flows (`routes.ts` lines 12310, 12439, 12552) already resolve directly through this column for chemical campaigns.
+
+The plumbing is mostly there — what's missing is (a) the polished content, (b) full service-type coverage in the seeder, (c) the post-visit-sync bug fix, (d) the cutover of the three `processEmailEvent('campaign.chemical_*')` paths to System 2, and (e) the cleanup of System 1 chemical entries.
+
+## Existing context (do not duplicate or replace)
+
+- **The polished originals live in the project root:** `chemical-treatment-notification.html` and `chemical-treatment-completion.html`. Open both. The visual structure (header subtitle, greeting, target/backup date boxes, EPA registration row, "Product Label & Safety Information" attachment block, "Before we arrive" / "After the application" care lists, info-box, applicator card with phone/email links, completion checkmark banner, "What to Expect Next" expectation box, blue "Next Scheduled Visit" callout, 3-col photos grid, personal sign-off) is the structure to reflect in the consolidated System 2 templates. Do not paraphrase or strip — reproduce.
+- **Variable naming in the originals** (use these in the new templates): `{{companyName}}`, `{{customerName}}`, `{{campaignTitle}}`, `{{targetDate}}`, `{{backupDate}}`, `{{timeWindow}}`, `{{productName}}`, `{{activeIngredient}}`, `{{epaRegNumber}}`, `{{purpose}}`, `{{labelAttachmentUrl}}`, `{{labelAttachmentName}}`, `{{reentryInterval}}`, `{{wateringInstructions}}`, `{{mowingInstructions}}`, `{{applicatorName}}`, `{{applicatorLicense}}`, `{{contactPhone}}`, `{{contactEmail}}`, `{{notes}}`, `{{completionDate}}`, `{{completionTime}}`, `{{areasTreated}}`, `{{applicationConditions}}`, `{{postApplicationExpectation}}`, `{{nextVisitTitle}}`, `{{nextVisitDate}}`. For raw-HTML photo blocks use triple-stash: `{{{completionPhotosHtml}}}`. Standardize on these names — current code mixes `productActiveIngredient` / `productPurpose` / `photoHtmlThumbs`, etc. Pick the originals; add aliases in the var builder if needed for backward compatibility, but the templates themselves should use the original names.
+- **Variable builders** that feed the render: `buildChemicalNotificationVariables` (pre-visit) and `buildChemicalCompletionEmailVars` (completion) in `emailService.ts`. These need to be extended to emit every variable above, populated either from the campaign item, the linked notification template's defaults, the company record, the applicator user, or — for completion-only fields — from the work-completion form payload. Inspect both builders before editing.
+- **Stack:** React 18 + TypeScript + Vite + Tailwind + shadcn/ui (Radix) + Wouter + TanStack Query v5 + React Hook Form + Zod + Drizzle ORM + Postgres + i18next (en + es). No new dependencies.
+- **Multi-tenancy:** every read/write goes through `user.activeCompanyId`. The notification template registry is per-company (already correctly modeled). All seeders run per-company on bootstrap.
+- **Roles:** `admin` and `office` (and `chemical_manager` where applicable) can edit notification templates. Use the existing role checks — do not invent new ones.
+
+Read `ChemicalNotificationTemplates.tsx`, `emailService.ts`, `routes/routes.ts` (the chemical action handlers around lines 13270–13900 and the resend handler around 15971–16060), and the two original HTML files end-to-end before writing code.
+
+## Work items
+
+### 1. Restore the polished templates inside `seed.ts`
+
+In `artifacts/api-server/src/templates/seed.ts`, replace the `buildPreVisitHtml` and `buildPostVisitHtml` builders with versions that mirror the structure of the project-root originals. Concretely:
+
+- Move the full CSS block — including `.section-title` (green underline), `.date-box` + `.date-box.backup`, `.info-box`, `.attachment` (dashed-border block with green button), `.care-list`, `.applicator-card`, `.completed-banner` (with the green check circle), `.expect-box`, `.next-visit` (blue), `.photos`, `.signoff`, plus the existing shared rules — into the `SHARED_EMAIL_STYLES` constant. The two builders should compose the same HTML structure as the originals.
+- The pre-visit body must include: header w/ "Scheduled Lawn Care Notification" subtitle, "Hello {{customerName}}" lead paragraph, "Scheduled Visit" section with target + backup date boxes, "What We're Applying" section with `{{productName}} / {{activeIngredient}} / {{epaRegNumber}} / {{purpose}}` rows, attachment block with the `{{labelAttachmentUrl}}` button, "Day-of Guidance" with both care lists, info-box reassurance copy, "Your Applicator" card, additional notes row, and the personal sign-off. Use Handlebars conditionals (`{{#if labelAttachmentUrl}}`, `{{#if notes}}`) for fields that may be empty.
+- The post-visit body must include: header w/ "Lawn Care Visit Receipt" subtitle, the green check "Visit completed" banner with `{{completionDate}}` + `{{completionTime}}`, "Visit Summary" section, "What We Applied" section with the same product rows, attachment block, "What to Expect Next" expect-box with `{{postApplicationExpectation}}`, 24–48 hour care list, blue "Next Scheduled Visit" box (only when `nextVisitDate` present), "Photos from Today" using `{{{completionPhotosHtml}}}` (triple-stash — these are pre-rendered `<img>` tags), "Your Applicator" card, additional notes, sign-off.
+- Both builders take the per-service-type strings as parameters: `treatmentTitle`, `treatmentDescription`, the active-ingredient name, the EPA reg #, the purpose copy, the re-entry interval, the watering instructions, the mowing instructions, and the post-application expectation copy. The four current seeds populate these inline; do the same.
+
+### 2. Expand `CHEM_NOTIF_TEMPLATE_SEEDS` to all eight service types
+
+`SERVICE_TYPE_OPTIONS` in `ChemicalNotificationTemplates.tsx` exposes 8 service types in the UI dropdown. The seeder only ships 4. Add the missing four (`fungicide_application`, `insecticide_application`, `aeration_overseeding`, plus a generic `custom`). For each, supply realistic copy in the same shape as the existing 4 entries — product name, active ingredient, EPA reg # (or `"Not applicable"` for non-pesticide services like aeration), re-entry interval, watering / mowing instructions, and a post-application "what to expect" paragraph. The `custom` template should ship with placeholder copy plus a docstring comment noting that it is intended as the starting point an admin clones.
+
+### 3. Fix the seeder idempotency bug
+
+`seedChemicalNotificationTemplates` currently only syncs `preVisitHtml` when content changes; `postVisitHtml`, `preVisitSubject`, and `postVisitSubject` are never re-synced after the first seed. Change the update branch so that:
+
+- `preVisitHtml` and `postVisitHtml` re-sync when they differ from the seed (matches the existing System-1 convention of "structural HTML changes propagate").
+- Subjects are **not** re-synced (preserving company-level customisations, matching the System-1 `seedChemicalEmailTemplates` behavior).
+
+Add a single `console.log` per template that logs which field(s) were updated so future template ports are debuggable.
+
+### 4. Cut over the runtime render paths to System 2
+
+Replace the three `processEmailEvent('campaign.chemical_*', …)` callsites in `routes.ts` with direct lookups against System 2:
+
+- `routes.ts` ~13288 (`send_pre_communication`): resolve the campaign's `notificationTemplateId`. If null, fall back to the company's default template (the row with `isDefault=true`); if there is no default, return a 400 with a clear error message ("This company has no chemical notification templates configured. Visit Settings → Notification Templates to create one."). Render `tpl.preVisitSubject` + `tpl.preVisitHtml` through the same `renderTemplate(template, vars)` helper, then send via `sendEmail(...)` directly. Persist the resulting `EmailLog` exactly as `processEmailEvent` does — reuse a small helper if needed so the log fields stay consistent.
+- `routes.ts` ~13341 and ~13828 (`send_post_communication` / resend completion): same pattern, using `tpl.postVisitSubject` + `tpl.postVisitHtml`.
+- `routes.ts` ~13437 (`campaign.chemical_notification`): same pattern; if this event is conceptually distinct from pre-visit, use the pre-visit fields but document the deviation in a code comment.
+- `routes.ts` ~16041 (`/api/.../resend-completion-email`): same as 13341/13828.
+- `routes.ts` ~12502 (the `eventKey` resolver): retire this branch by replacing the `processEmailEvent` callers with the new helper. The string `"campaign.chemical_pre_notice"` should not appear in the codebase after this slice (grep to confirm).
+
+Extract a single `renderChemicalNotificationTemplate(campaign, item, kind: 'pre' | 'post', vars)` helper in `emailService.ts` so the four cutover sites share one codepath. The helper resolves the template, falls back to the company default, throws a typed error if neither exists, and returns the rendered subject + html + the textBody (text body can be a thin auto-generated fallback derived from the HTML for now — note this in a comment).
+
+### 5. Extend the variable builders to emit the full original-design variable set
+
+In `buildChemicalNotificationVariables` (pre-visit) and `buildChemicalCompletionEmailVars` (completion), populate the full set listed in **Existing context**. Sources:
+
+- `companyName`, `contactPhone`, `contactEmail` from `companies` (`getCompanyById`).
+- `customerName`, `campaignTitle`, `targetDate`, `backupDate`, `timeWindow` from the campaign + campaign item.
+- `productName`, `activeIngredient`, `epaRegNumber`, `purpose`, `reentryInterval`, `wateringInstructions`, `mowingInstructions` from the linked notification template's metadata. If those don't exist as columns yet, add them to `chemical_notification_templates` (see §6) — do not pull them from a free-text dump.
+- `labelAttachmentUrl`, `labelAttachmentName` from `defaultLabelPdfStorageKey` / `defaultLabelPdfFilename` on the template, signed via the existing `signObjectURL(...)` helper with `LABEL_URL_TTL_SEC` (matches the existing 1-hour constraint). If no label PDF is set, render the attachment block conditionally: `{{#if labelAttachmentUrl}} … {{/if}}`.
+- `applicatorName`, `applicatorLicense` from the resolved applicator user (`assignedToId` / `assignedToId2` on the campaign, or the user who triggered the action — match the existing precedence in `resolveChemRecipientEmail`).
+- `notes` from the request body (already present).
+- `completionDate`, `completionTime`, `areasTreated`, `applicationConditions`, `postApplicationExpectation`, `nextVisitTitle`, `nextVisitDate`, `completionPhotosHtml` from the work-completion form payload + the campaign item's photos. The photos HTML must be pre-built `<img>` tags so the template can `{{{...}}}` them safely.
+
+Add unit tests (or at minimum an integration test) for both builders so missing variables don't fail silently to empty strings.
+
+### 6. Schema additions for per-template product metadata
+
+If `chemical_notification_templates` does not already store the product/active-ingredient/EPA fields the templates depend on, add the following columns (`shared/schema.ts`). Inspect first; if any already exist with a similar name, reuse and call out the deviation.
+
+- `productName` — `text`, nullable. Free-text product display name.
+- `activeIngredient` — `text`, nullable.
+- `epaRegNumber` — `text`, nullable.
+- `purposeText` — `text`, nullable. The "Purpose of Application" copy.
+- `reentryInterval` — `text`, nullable.
+- `wateringInstructions` — `text`, nullable.
+- `mowingInstructions` — `text`, nullable.
+- `postApplicationExpectation` — `text`, nullable. The "what to expect over the next 1–2 weeks" paragraph.
+
+Add an idempotent startup migration that uses `ADD COLUMN IF NOT EXISTS` (match the existing migration helpers in `routes.ts` ~lines 1455–1750). Update `insertChemicalNotificationTemplateSchema` and `ChemicalNotificationTemplate` types accordingly.
+
+In the `ChemicalNotificationTemplates.tsx` editor, add form fields for these eight columns, grouped under a "Product details" section. They should be editable per template (so an admin can override the seeded copy for their specific product).
+
+### 7. Settings page changes
+
+In `artifacts/highplains-crm/src/pages/SettingsPage.tsx`:
+
+- The Email Templates tab keeps existing for non-chemical templates. After the migration in §8 runs, the chemical entries will already be gone from the API result, so no UI list-filtering should be necessary. **Verify** by booting the app post-migration and confirming the list shows only `Work Completed` (or whatever non-chemical entries remain).
+- Replace the help-text banner above the email-templates list (`SettingsPage.tsx` ~line 1065) with copy that no longer claims chemical templates live there. Suggested text: *"These are system notification templates for non-chemical events (welcome emails, ticket alerts, work completion). Chemical campaign templates are managed under Settings → Notification Templates."* Add a `<Link>` from that banner to `/dashboard/settings/notification-templates`.
+- The existing tab `<TabsTrigger value="notification-templates">` (~line 562) currently links nowhere actionable from inside the Settings page — it's only a tab label and the actual page is its own route. Either: (a) make the tab content a small landing card that links to `/dashboard/settings/notification-templates`, or (b) leave the tab definition but add a short description explaining that clicking it navigates to the dedicated page. Pick whichever is cleaner — do not duplicate the full template list inside the Settings tabs.
+- The compliance warning at `SettingsPage.tsx` ~line 601 ("One or more chemical notification templates include a pesticide license footer…") stays, since it concerns System 2.
+
+### 8. Data migration: remove System 1 chemical entries
+
+Add a one-time data-migration function `migrateRemoveChemicalEmailTemplates(companyId)` in the same place the existing migrations live in `routes.ts` (around lines 1455–1750). It runs once per company at bootstrap and:
+
+1. Looks up `email_rules` rows where `eventKey IN ('campaign.chemical_pre_notice', 'campaign.chemical_post_notice', 'campaign.chemical_notification')` for the company. Captures the `templateId`s.
+2. Deletes those `email_rules` rows.
+3. For each captured `templateId`, deletes the row from `email_templates` **only if** its `name` is `"Chemical Treatment Notice"` or `"Chemical Treatment Completion"` (defensive — don't delete templates an admin renamed and is using elsewhere).
+4. Logs a summary line per company: `Migrated chemical email templates for company {id}: removed {n} rules, {m} templates`.
+
+The migration must be idempotent — re-running it is a no-op. Wrap it in a `migration_status` row (or whatever existing once-per-company-flag mechanism is in use) so it doesn't run on every boot.
+
+Rollback note: keep the disk files until the migration ships in production and is confirmed clean for at least one deploy cycle, so we can resurrect them if a customer hits an unexpected gap. (See §9.)
+
+### 9. Delete the legacy code paths
+
+Once §8 is verified locally and the integration tests in §10 pass, delete:
+
+- `CHEMICAL_TEMPLATE_REGISTRY`, `seedChemicalEmailTemplates`, `getRegistryTemplate`, and the `loadHtmlFile` helper (only used by the registry) from `artifacts/api-server/src/templates/seed.ts`.
+- The bootstrap call to `seedChemicalEmailTemplates` in `routes.ts` ~line 2212 and the per-company call at ~line 10423.
+- `getDefaultChemicalPreNoticeTemplate`, `getDefaultChemicalPostNoticeTemplate`, `getDefaultChemicalTreatmentNotificationTemplate`, and `renderChemicalEmail` from `emailService.ts`.
+- The two disk files `artifacts/api-server/src/templates/chemical-treatment-notification.html` and `chemical-treatment-completion.html`.
+- The corresponding imports in `routes.ts` line 20.
+
+After deletion, grep the codebase for `chemical-treatment-notification`, `chemical-treatment-completion`, `getDefaultChemical*Template`, `renderChemicalEmail`, `campaign.chemical_pre_notice`, `campaign.chemical_post_notice`, `campaign.chemical_notification`, and `CHEMICAL_TEMPLATE_REGISTRY` — there should be zero hits in `artifacts/` after this slice. The same strings can remain in `attached_assets/` and `.migration-backup/` (those are reference, not live).
+
+### 10. Tests + acceptance
+
+Add tests at the layer that already exists in this codebase (do not introduce a new test framework). Minimum coverage:
+
+- **Render test:** for each of the 8 service types, render the pre-visit and post-visit templates with a fully populated variable map and assert the output contains the expected section markers (e.g. `"Scheduled Visit"`, `"What We're Applying"`, `"Visit completed"`, `"What to Expect Next"`, the EPA registration #, the applicator phone link).
+- **Optional-field test:** render the same templates with `labelAttachmentUrl`, `notes`, and `nextVisitDate` set to empty/null. Assert the corresponding sections are omitted (no broken HTML, no orphan section titles).
+- **Cutover test:** invoke the chemical-pre-communication route on a campaign with a `notificationTemplateId` set; assert the rendered HTML matches the linked template's `preVisitHtml` (after variable substitution) and not the legacy registry template.
+- **Fallback test:** invoke the same route on a chemical campaign whose `notificationTemplateId` is null; assert the company's `isDefault: true` template is used. With no default, assert the 400 error message.
+- **Migration test:** seed a company with both legacy `email_templates` chemical rows and their `email_rules`, run `migrateRemoveChemicalEmailTemplates`, assert the rows are gone, run it again, assert no error and no further deletes.
+- **UI smoke test:** load the Settings → Email Templates tab and assert "Chemical Treatment Notice" and "Chemical Treatment Completion" no longer appear. Load the Notification Templates page and assert all 8 seeded templates appear.
+
+Manual QA checklist for the deploy:
+
+1. Existing chemical campaign with a notificationTemplateId set: send pre-comm → email arrives with the polished design (greeting, target/backup date boxes, attachment, applicator card, sign-off).
+2. Same campaign: send post-comm → completion email shows the green check banner, "What to Expect Next" expectation box, photos grid, blue next-visit callout.
+3. Chemical campaign created **before** notification template selector existed (notificationTemplateId IS NULL): send pre-comm → uses the company default; if no default, returns the documented error.
+4. Settings → Email Templates: chemical entries gone, work-completion entry intact, banner copy points users to Notification Templates.
+5. Settings → Notification Templates page: 8 service types listed, full product-detail fields editable, preview endpoint renders the polished HTML.
+6. Re-deploy: bootstrap is fast (no double-seeding warnings, migration logs `0 removed` on second boot).
+
+## Deliverables
+
+A single PR that touches all of: `shared/schema.ts`, `artifacts/api-server/src/templates/seed.ts`, `artifacts/api-server/src/services/emailService.ts`, `artifacts/api-server/src/routes/routes.ts`, `artifacts/api-server/src/storage.ts` (only if §6 column additions need new query helpers), `artifacts/highplains-crm/src/pages/SettingsPage.tsx`, `artifacts/highplains-crm/src/pages/ChemicalNotificationTemplates.tsx`. Deletes the two disk template files. PR description must include:
+
+- A before/after screenshot pair of a rendered pre-visit email and a rendered post-visit email.
+- The exact grep output showing zero remaining references to the removed symbols.
+- Migration log output for one freshly seeded company and one re-run.
+- The QA checklist above with each item ticked.
+- Any deviations from this prompt with a one-line rationale.
+
+## Out of scope (do not do in this slice)
+
+- Generalizing the Notification Templates schema to non-chemical events (welcome emails, ticket alerts, etc.). The Email Templates tab continues to handle those via `email_rules` + `email_templates` for now. A future slice can collapse that system if desired.
+- Renaming the `chemical_notification_templates` table or page. The naming is fine; we can revisit if scope expands.
+- Multi-language template variants. Subjects + bodies stay English-only in this slice (matches current state).
+- Granular per-recipient template variants (e.g. different copy for property managers vs. residents). Out of scope; reuses the existing single template per service type.
+- Editing the i18n strings around "Email Templates" / "Notification Templates" tab labels beyond the help-text banner change in §7. The label translations stay as-is.
