@@ -3287,3 +3287,44 @@ export const recentPropertyViews = pgTable("recent_property_views", {
 }));
 
 export type RecentPropertyView = typeof recentPropertyViews.$inferSelect;
+
+// Mobile v1 Slice 3: ticket photos + free-text ticket notes.
+//
+// `ticket_photos` rows carry the storage_key (under
+// `ticket-photos/{companyId}/{ticketId}/{uuid}.{ext}`) plus per-row capture
+// metadata. `client_id` is the idempotency key supplied by the mobile upload
+// queue so a retried POST doesn't create a duplicate row.
+export const ticketPhotos = pgTable("ticket_photos", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  companyId: varchar("company_id").notNull().references(() => companies.id, { onDelete: "cascade" }),
+  ticketId: varchar("ticket_id").notNull().references(() => tickets.id, { onDelete: "cascade" }),
+  uploadedByUserId: varchar("uploaded_by_user_id").references(() => users.id, { onDelete: "set null" }),
+  storageKey: text("storage_key").notNull(),
+  contentType: text("content_type").notNull().default("image/jpeg"),
+  byteSize: integer("byte_size"),
+  width: integer("width"),
+  height: integer("height"),
+  capturedAt: timestamp("captured_at").notNull().defaultNow(),
+  clientId: varchar("client_id"),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+}, (table) => ({
+  ticketPhotosTicketIdx: index("ticket_photos_ticket_idx").on(table.ticketId, table.createdAt),
+}));
+
+export type TicketPhoto = typeof ticketPhotos.$inferSelect;
+export type InsertTicketPhoto = typeof ticketPhotos.$inferInsert;
+
+export const ticketNotes = pgTable("ticket_notes", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  companyId: varchar("company_id").notNull().references(() => companies.id, { onDelete: "cascade" }),
+  ticketId: varchar("ticket_id").notNull().references(() => tickets.id, { onDelete: "cascade" }),
+  authorUserId: varchar("author_user_id").references(() => users.id, { onDelete: "set null" }),
+  body: text("body").notNull(),
+  clientId: varchar("client_id"),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+}, (table) => ({
+  ticketNotesTicketIdx: index("ticket_notes_ticket_idx").on(table.ticketId, table.createdAt),
+}));
+
+export type TicketNote = typeof ticketNotes.$inferSelect;
+export type InsertTicketNote = typeof ticketNotes.$inferInsert;

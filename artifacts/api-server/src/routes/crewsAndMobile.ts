@@ -10,6 +10,8 @@ import {
   tickets,
   insertCrewSchema,
   ticketWorkItems,
+  ticketPhotos,
+  ticketNotes,
   serviceTypeTemplates,
   serviceTypeTemplateItems,
   insertServiceTypeTemplateSchema,
@@ -23,6 +25,7 @@ import {
   ticketTypes,
   ticketTypeStatuses,
 } from "@workspace/db";
+import { workItemMissingRequiredPhoto } from "./mobileTicketPhotosNotes";
 import { getSiteNotesForProperty, serializeSiteNote } from "../services/site-notes";
 import {
   authenticateMobileLogin,
@@ -498,6 +501,19 @@ export function registerCrewsAndMobileRoutes(app: Express): void {
     const siteNotes = c
       ? await getSiteNotesForProperty(c.id, t.serviceType ?? null)
       : [];
+    // Slice 3: surface real photo and free-form note counts so the mobile
+    // section headers ("Photos (n)", "Notes (n)") reflect what's actually
+    // stored server-side.
+    const [photoCountRow] = await db
+      .select({ n: sql<number>`count(*)::int` })
+      .from(ticketPhotos)
+      .where(eq(ticketPhotos.ticketId, t.id));
+    const [noteCountRow] = await db
+      .select({ n: sql<number>`count(*)::int` })
+      .from(ticketNotes)
+      .where(eq(ticketNotes.ticketId, t.id));
+    const photoCount = Number(photoCountRow?.n ?? 0);
+    const noteCount = Number(noteCountRow?.n ?? 0);
     res.json({
       id: t.id,
       title: t.title,
@@ -524,11 +540,8 @@ export function registerCrewsAndMobileRoutes(app: Express): void {
         : null,
       siteNotes: siteNotes.map(serializeSiteNote),
       workItems: items.map(serializeWorkItem),
-      // Photos and free-form notes land in Slices 3 / 4 — return zeros so
-      // the mobile UI can render the section stubs ("Photos (0)", "Notes (0)")
-      // without a contract change later.
-      photosCount: 0,
-      notesCount: 0,
+      photosCount: photoCount,
+      notesCount: noteCount,
       // True when the supervisor is viewing a cross-crew completed ticket
       // (Slice 5 property history). Mobile UI uses this to hide mutation
       // controls; mutation routes still enforce crew scoping server-side.
@@ -588,6 +601,21 @@ export function registerCrewsAndMobileRoutes(app: Express): void {
     if (!row) {
       res.status(404).json({ message: "Work item not found for your crew" });
       return;
+    }
+
+    // Slice 3 photo-required enforcement: when the supervisor toggles a
+    // photo-required item to complete, refuse unless at least one ticket photo
+    // was captured during this visit (≥ ticket.startedAt). The mobile UI
+    // surfaces the returned `code` so the crew sees an inline hint.
+    if (parsed.data.isComplete === true && row.wi.photoRequired) {
+      const missing = await workItemMissingRequiredPhoto(row.wi.id);
+      if (missing) {
+        res.status(422).json({
+          code: "PHOTO_REQUIRED",
+          message: "A photo is required before marking this item complete.",
+        });
+        return;
+      }
     }
 
     const now = new Date();

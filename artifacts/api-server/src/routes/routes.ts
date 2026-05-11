@@ -29,6 +29,7 @@ import { buildContractAuditRows } from "../auditEngine";
 import { seedChemicalNotificationTemplates } from "../templates/seed";
 import { assertNotParentCustomer } from "../utils/parentGuard";
 import { registerExtraBillablePhotoRoutes } from "./extraBillablePhotos";
+import { registerMobileTicketPhotosNotesRoutes } from "./mobileTicketPhotosNotes";
 
 /**
  * Signed URL TTL for chemical product label attachments (in seconds).
@@ -16938,6 +16939,7 @@ ${pdfText.slice(0, 8000)}`;
   });
 
   registerExtraBillablePhotoRoutes(app, { storage });
+  registerMobileTicketPhotosNotesRoutes(app);
 
   const httpServer = createServer(app);
 

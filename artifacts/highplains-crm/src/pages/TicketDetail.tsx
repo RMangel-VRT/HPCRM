@@ -1829,6 +1829,8 @@ export default function TicketDetail() {
             </Card>
           )}
 
+          <MobilePhotosNotesCard ticketId={ticketId} />
+
           {comments.length > 0 && (
             <Card data-testid="card-recent-comments">
               <CardHeader className="pb-2 flex flex-row items-center justify-between">
@@ -3333,5 +3335,98 @@ export default function TicketDetail() {
         </DialogContent>
       </Dialog>
     </div>
+  );
+}
+
+type MobilePhotoRow = {
+  id: string;
+  ticketId: string;
+  storageKey: string;
+  contentType: string;
+  byteSize: number | null;
+  width: number | null;
+  height: number | null;
+  capturedAt: string;
+  createdAt: string;
+  uploadedByUserId: string | null;
+  signedUrl: string | null;
+};
+
+type MobileNoteRow = {
+  id: string;
+  ticketId: string;
+  body: string;
+  authorUserId: string | null;
+  createdAt: string;
+};
+
+function MobilePhotosNotesCard({ ticketId }: { ticketId: string | undefined }) {
+  const { t } = useTranslation();
+  const photos = useQuery<MobilePhotoRow[]>({
+    queryKey: ["/api/tickets", ticketId, "mobile-photos"],
+    queryFn: () => apiRequest("GET", `/api/tickets/${ticketId}/mobile-photos`).then((r) => r.json()),
+    enabled: !!ticketId,
+  });
+  const notes = useQuery<MobileNoteRow[]>({
+    queryKey: ["/api/tickets", ticketId, "mobile-notes"],
+    queryFn: () => apiRequest("GET", `/api/tickets/${ticketId}/mobile-notes`).then((r) => r.json()),
+    enabled: !!ticketId,
+  });
+  const photoList = photos.data ?? [];
+  const noteList = notes.data ?? [];
+  if (!ticketId || (photoList.length === 0 && noteList.length === 0)) return null;
+  return (
+    <Card data-testid="card-mobile-captures">
+      <CardHeader className="pb-2">
+        <CardTitle className="text-sm">
+          {t("ticketDetail.mobileCaptures", "From the field crew")}
+        </CardTitle>
+      </CardHeader>
+      <CardContent className="space-y-3 pt-0">
+        {photoList.length > 0 && (
+          <div>
+            <p className="text-xs text-muted-foreground uppercase tracking-wide mb-1">
+              {t("ticketDetail.mobilePhotos", "Photos")} ({photoList.length})
+            </p>
+            <div className="grid grid-cols-3 gap-1.5">
+              {photoList.map((p) =>
+                p.signedUrl ? (
+                  <a
+                    key={p.id}
+                    href={p.signedUrl}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    data-testid={`mobile-photo-${p.id}`}
+                  >
+                    <img
+                      src={p.signedUrl}
+                      alt="Mobile crew photo"
+                      className="w-full h-20 object-cover rounded-md border"
+                    />
+                  </a>
+                ) : null,
+              )}
+            </div>
+          </div>
+        )}
+        {noteList.length > 0 && (
+          <div>
+            <p className="text-xs text-muted-foreground uppercase tracking-wide mb-1">
+              {t("ticketDetail.mobileNotes", "Notes")} ({noteList.length})
+            </p>
+            <div className="space-y-2">
+              {noteList.map((n) => (
+                <div key={n.id} className="text-sm border-l-2 pl-3 py-1">
+                  <p className="whitespace-pre-wrap">{n.body}</p>
+                  <p className="text-xs text-muted-foreground mt-0.5">
+                    {formatDistanceToNow(new Date(n.createdAt), { addSuffix: true })}
+                  </p>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+      </CardContent>
+    </Card>
   );
 }

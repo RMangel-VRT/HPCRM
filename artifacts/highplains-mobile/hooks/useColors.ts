@@ -22,3 +22,5 @@ export function useColors() {
       : colors.light;
   return { ...palette, radius: colors.radius };
 }
+
+export type Colors = ReturnType<typeof useColors>;

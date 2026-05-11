@@ -31,8 +31,12 @@ export function getLang(): Lang {
   return currentLang;
 }
 
-export function t(key: string, fallback?: string): string {
-  return dictionaries[currentLang][key] ?? dictionaries.en[key] ?? fallback ?? key;
+export function t(key: string, vars?: Record<string, string | number>, fallback?: string): string {
+  const raw = dictionaries[currentLang][key] ?? dictionaries.en[key] ?? fallback ?? key;
+  if (!vars) return raw;
+  return raw.replace(/\{\{(\w+)\}\}/g, (_, k: string) =>
+    vars[k] !== undefined ? String(vars[k]) : `{{${k}}}`,
+  );
 }
 
 export function useT() {

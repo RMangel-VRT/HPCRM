@@ -1,10 +1,13 @@
 import { Feather } from "@expo/vector-icons";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useLocalSearchParams, useNavigation } from "expo-router";
+import * as ImageManipulator from "expo-image-manipulator";
+import * as ImagePicker from "expo-image-picker";
 import React, { useCallback, useLayoutEffect, useMemo, useState } from "react";
 import {
   ActivityIndicator,
   Alert,
+  Image,
   KeyboardAvoidingView,
   Linking,
   Modal,
@@ -23,6 +26,16 @@ import { StatusPill, type MobileStopStatus } from "@/components/StatusPill";
 import { useColors } from "@/hooks/useColors";
 import { useT } from "@/i18n";
 import { ApiError, apiRequest } from "@/lib/api";
+import {
+  enqueueNote,
+  enqueuePhoto,
+  removeItem,
+  retryNow,
+  useTicketQueueItems,
+  onItemUploaded,
+  type QueueNoteItem,
+  type QueuePhotoItem,
+} from "@/lib/upload-queue";
 
 // Skip-reason chip codes — kept in sync with the server's
 // `MobileWorkItemSkipReason` enum in `lib/api-spec/openapi.yaml`.
@@ -167,8 +180,21 @@ export default function TicketDetailScreen() {
       }
       return { prev };
     },
-    onError: (_err, _vars, ctx) => {
+    onError: (err, _vars, ctx) => {
       if (ctx?.prev) queryClient.setQueryData(ticketKey(ticketId), ctx.prev);
+      // Slice 3: server enforces a photo before completing a photo-required
+      // work item. The inline "Add a photo first" affordance on the row is
+      // the primary UX; this alert is the fallback for the rare race where a
+      // queued photo failed to upload between render and the toggle tap.
+      if (
+        err instanceof ApiError &&
+        err.status === 422 &&
+        err.body &&
+        typeof err.body === "object" &&
+        (err.body as { code?: string }).code === "PHOTO_REQUIRED"
+      ) {
+        Alert.alert(t("ticket.workItems.photoRequired"), t("ticket.workItems.photoMissing"));
+      }
     },
     onSettled: (updated) => {
       setPendingItemId(null);
@@ -308,6 +334,28 @@ export default function TicketDetailScreen() {
   const completed = data?.mobileStatus === "complete" || data?.readOnly === true;
   const completing = completeMutation.isPending;
 
+  // Mirrors the server's photo-required rule (workItemMissingRequiredPhoto):
+  // a photo only "counts" if it was captured during the current visit, i.e.
+  // capturedAt >= ticket.startedAt. If startedAt is unknown, any photo
+  // counts (matches the server fallback). Both server photos and queued
+  // photos captured this session are considered so a freshly-snapped shot
+  // immediately clears the warning.
+  const serverPhotosQuery = useQuery<ServerPhoto[]>({
+    queryKey: ["m-ticket-photos", ticketId],
+    queryFn: () => apiRequest<ServerPhoto[]>(`/api/m/tickets/${ticketId}/photos`),
+    staleTime: 30_000,
+  });
+  const ticketQueueItems = useTicketQueueItems(ticketId);
+  const ticketHasPhoto = useMemo(
+    () =>
+      hasSessionPhoto(
+        data?.startedAt ?? null,
+        serverPhotosQuery.data ?? [],
+        ticketQueueItems,
+      ),
+    [data?.startedAt, serverPhotosQuery.data, ticketQueueItems],
+  );
+
   return (
     <View style={[styles.flex, { backgroundColor: colors.background }]}>
       <ScrollView
@@ -389,32 +437,21 @@ export default function TicketDetailScreen() {
                     item={item}
                     pending={pendingItemId === item.id}
                     disabled={completed}
+                    hasPhoto={ticketHasPhoto}
                     onToggle={() => toggleComplete(item)}
                     onSkip={() => openSkip(item)}
                     onUndoSkip={() => undoSkip(item)}
+                    onAddPhoto={() => void captureAndEnqueuePhoto(ticketId, t)}
                   />
                 ))}
               </View>
             )}
 
-            {/* Photos + Notes section stubs (full implementation in Slice 3/4).
-                These render as collapsed buttons that show counts and a
-                coming-soon alert, so the crew sees where these will live. */}
             <SectionTitle label={t("ticket.photos")} />
-            <StubSectionButton
-              icon="camera"
-              label={t("ticket.photos.add")}
-              count={data.photosCount}
-              onPress={() => Alert.alert(t("ticket.photos"), t("ticket.photos.comingSoon"))}
-            />
+            <PhotosCard ticketId={ticketId} />
 
             <SectionTitle label={t("ticket.notes")} />
-            <StubSectionButton
-              icon="message-square"
-              label={t("ticket.notes.add")}
-              count={data.notesCount}
-              onPress={() => Alert.alert(t("ticket.notes"), t("ticket.notes.comingSoon"))}
-            />
+            <NotesCard ticketId={ticketId} />
           </>
         ) : null}
       </ScrollView>
@@ -730,16 +767,20 @@ function WorkItemRow({
   item,
   pending,
   disabled,
+  hasPhoto,
   onToggle,
   onSkip,
   onUndoSkip,
+  onAddPhoto,
 }: {
   item: WorkItem;
   pending: boolean;
   disabled: boolean;
+  hasPhoto: boolean;
   onToggle: () => void;
   onSkip: () => void;
   onUndoSkip: () => void;
+  onAddPhoto: () => void;
 }) {
   const colors = useColors();
   const { t } = useT();
@@ -802,11 +843,26 @@ function WorkItemRow({
             <View
               style={[
                 styles.photoBadge,
-                { borderColor: colors.border, backgroundColor: colors.background },
+                {
+                  borderColor: !hasPhoto && !item.isComplete ? colors.destructive : colors.border,
+                  backgroundColor: colors.background,
+                },
               ]}
             >
-              <Feather name="camera" size={11} color={colors.mutedForeground} />
-              <Text style={[styles.photoBadgeText, { color: colors.mutedForeground }]}>
+              <Feather
+                name="camera"
+                size={11}
+                color={!hasPhoto && !item.isComplete ? colors.destructive : colors.mutedForeground}
+              />
+              <Text
+                style={[
+                  styles.photoBadgeText,
+                  {
+                    color:
+                      !hasPhoto && !item.isComplete ? colors.destructive : colors.mutedForeground,
+                  },
+                ]}
+              >
                 {t("ticket.workItems.photoRequired")}
               </Text>
             </View>
@@ -821,6 +877,18 @@ function WorkItemRow({
           <Text style={[styles.skipReason, { color: colors.mutedForeground }]} numberOfLines={3}>
             {item.skipNote}
           </Text>
+        ) : null}
+        {item.photoRequired && !hasPhoto && !item.isComplete && !skipped ? (
+          <View style={styles.addPhotoHintRow}>
+            <Text style={[styles.skipReason, { color: colors.destructive }]}>
+              {t("ticket.workItems.addPhotoFirst")}
+            </Text>
+            <Pressable onPress={onAddPhoto} hitSlop={6}>
+              <Text style={[styles.linkText, { color: colors.primary }]}>
+                {t("ticket.workItems.addPhotoShortcut")}
+              </Text>
+            </Pressable>
+          </View>
         ) : null}
         {!item.isComplete && !disabled ? (
           skipped ? (
@@ -842,37 +910,413 @@ function WorkItemRow({
   );
 }
 
-function StubSectionButton({
-  icon,
-  label,
-  count,
-  onPress,
-}: {
-  icon: React.ComponentProps<typeof Feather>["name"];
-  label: string;
-  count: number;
-  onPress: () => void;
-}) {
-  const colors = useColors();
+type ServerPhoto = {
+  id: string;
+  ticketId: string;
+  storageKey: string;
+  signedUrl: string | null;
+  contentType: string;
+  width: number | null;
+  height: number | null;
+  byteSize: number | null;
+  capturedAt: string | null;
+  createdAt: string;
+  uploadedByUserId: string | null;
+};
+
+type ServerNote = {
+  id: string;
+  ticketId: string;
+  body: string;
+  authorUserId: string | null;
+  createdAt: string;
+};
+
+/**
+ * Returns `true` if a photo for this ticket was captured during the current
+ * visit (capturedAt ≥ ticket.startedAt). Mirrors the server-side rule in
+ * `workItemMissingRequiredPhoto`. If `startedAt` is null any photo counts.
+ */
+function hasSessionPhoto(
+  startedAt: string | null,
+  serverPhotos: { capturedAt: string | null }[],
+  queued: (QueuePhotoItem | QueueNoteItem)[],
+): boolean {
+  const queuedPhotos = queued.filter((q): q is QueuePhotoItem => q.kind === "photo");
+  const startMs = startedAt ? new Date(startedAt).getTime() : Number.NaN;
+  if (!startedAt || Number.isNaN(startMs)) {
+    return serverPhotos.length > 0 || queuedPhotos.length > 0;
+  }
   return (
-    <Pressable
-      onPress={onPress}
-      accessibilityRole="button"
-      style={({ pressed }) => [
-        styles.stubBtn,
+    serverPhotos.some((p) => p.capturedAt !== null && new Date(p.capturedAt).getTime() >= startMs) ||
+    queuedPhotos.some((q) => new Date(q.capturedAt).getTime() >= startMs)
+  );
+}
+
+/**
+ * Capture a photo with the camera, resize/strip EXIF, and enqueue it for
+ * upload. Shared by the Photos card and the work-item row's "+ Photo"
+ * shortcut so both affordances follow the same code path.
+ */
+async function captureAndEnqueuePhoto(
+  ticketId: string,
+  t: (k: string) => string,
+): Promise<void> {
+  try {
+    const perm = await ImagePicker.requestCameraPermissionsAsync();
+    if (!perm.granted) {
+      Alert.alert(t("ticket.photos"), t("ticket.photos.permissionDenied"));
+      return;
+    }
+    const captured = await ImagePicker.launchCameraAsync({
+      mediaTypes: ImagePicker.MediaTypeOptions.Images,
+      quality: 1,
+      exif: false,
+    });
+    if (captured.canceled || !captured.assets?.[0]) return;
+    const asset = captured.assets[0];
+    // Resize to 2048 long edge + recompress JPEG → strips EXIF, caps bytes.
+    const longEdge = 2048;
+    const ratio =
+      asset.width && asset.height
+        ? Math.min(1, longEdge / Math.max(asset.width, asset.height))
+        : 1;
+    const targetW = asset.width ? Math.round(asset.width * ratio) : undefined;
+    const manipulated = await ImageManipulator.manipulateAsync(
+      asset.uri,
+      targetW ? [{ resize: { width: targetW } }] : [],
+      { compress: 0.85, format: ImageManipulator.SaveFormat.JPEG },
+    );
+    await enqueuePhoto({
+      ticketId,
+      sourceFileUri: manipulated.uri,
+      contentType: "image/jpeg",
+    });
+  } catch (err) {
+    Alert.alert(t("common.error"), err instanceof Error ? err.message : String(err));
+  }
+}
+
+function PhotosCard({ ticketId }: { ticketId: string }) {
+  const colors = useColors();
+  const { t } = useT();
+  const queryClient = useQueryClient();
+  const queueItems = useTicketQueueItems(ticketId);
+  const queuedPhotos = useMemo(
+    () => queueItems.filter((i): i is QueuePhotoItem => i.kind === "photo"),
+    [queueItems],
+  );
+  const photosQuery = useQuery<ServerPhoto[]>({
+    queryKey: ["m-ticket-photos", ticketId],
+    queryFn: () => apiRequest<ServerPhoto[]>(`/api/m/tickets/${ticketId}/photos`),
+    staleTime: 30_000,
+  });
+  // Refetch as each photo lands on the server (so confirmations appear
+  // immediately for multi-photo batches), and again once the queue fully
+  // drains as a safety net.
+  const queueLen = queueItems.length;
+  React.useEffect(() => {
+    if (queueLen === 0) {
+      void queryClient.invalidateQueries({ queryKey: ["m-ticket-photos", ticketId] });
+      void queryClient.invalidateQueries({ queryKey: ticketKey(ticketId) });
+    }
+  }, [queueLen, queryClient, ticketId]);
+  React.useEffect(() => {
+    return onItemUploaded((it) => {
+      if (it.kind !== "photo" || it.ticketId !== ticketId) return;
+      void queryClient.invalidateQueries({ queryKey: ["m-ticket-photos", ticketId] });
+    });
+  }, [queryClient, ticketId]);
+
+  const [viewerUri, setViewerUri] = useState<string | null>(null);
+
+  const onAdd = useCallback(() => {
+    void captureAndEnqueuePhoto(ticketId, t);
+  }, [ticketId, t]);
+
+  const onDelete = useCallback(
+    (photoId: string) => {
+      Alert.alert(t("ticket.photos.delete"), t("ticket.photos.deleteConfirm"), [
+        { text: t("ticket.skip.cancel"), style: "cancel" },
         {
-          backgroundColor: colors.card,
-          borderColor: colors.border,
-          opacity: pressed ? 0.85 : 1,
+          text: t("ticket.photos.delete"),
+          style: "destructive",
+          onPress: async () => {
+            try {
+              await apiRequest(`/api/m/photos/${photoId}`, { method: "DELETE" });
+              await queryClient.invalidateQueries({ queryKey: ["m-ticket-photos", ticketId] });
+              await queryClient.invalidateQueries({ queryKey: ticketKey(ticketId) });
+            } catch (err) {
+              Alert.alert(t("common.error"), err instanceof Error ? err.message : String(err));
+            }
+          },
         },
-      ]}
-    >
-      <Feather name={icon} size={16} color={colors.mutedForeground} />
-      <Text style={[styles.stubBtnLabel, { color: colors.foreground }]}>{label}</Text>
-      <View style={[styles.stubCount, { backgroundColor: colors.background, borderColor: colors.border }]}>
-        <Text style={[styles.stubCountText, { color: colors.mutedForeground }]}>{count}</Text>
-      </View>
-    </Pressable>
+      ]);
+    },
+    [t, queryClient, ticketId],
+  );
+
+  const photos = photosQuery.data ?? [];
+
+  return (
+    <View style={[styles.card, { backgroundColor: colors.card, borderColor: colors.border, gap: 12 }]}>
+      <Pressable
+        onPress={onAdd}
+        accessibilityRole="button"
+        accessibilityLabel={t("ticket.photos.add")}
+        style={({ pressed }) => [
+          styles.stubBtn,
+          {
+            backgroundColor: colors.background,
+            borderColor: colors.border,
+            opacity: pressed ? 0.85 : 1,
+          },
+        ]}
+      >
+        <Feather name="camera" size={16} color={colors.primary} />
+        <Text style={[styles.stubBtnLabel, { color: colors.foreground }]}>
+          {t("ticket.photos.add")}
+        </Text>
+        <View style={[styles.stubCount, { backgroundColor: colors.card, borderColor: colors.border }]}>
+          <Text style={[styles.stubCountText, { color: colors.mutedForeground }]}>
+            {photos.length + queuedPhotos.length}
+          </Text>
+        </View>
+      </Pressable>
+
+      {photos.length === 0 && queuedPhotos.length === 0 ? (
+        <Text style={[styles.muted, { color: colors.mutedForeground }]}>
+          {t("ticket.photos.empty")}
+        </Text>
+      ) : (
+        <View style={styles.photoGrid}>
+          {queuedPhotos.map((p) => {
+            const failing = p.attempts > 0;
+            return (
+              <View key={p.id} style={styles.photoTile}>
+                <Image
+                  source={{ uri: p.fileUri }}
+                  style={[styles.photoThumb, { borderColor: colors.border }]}
+                />
+                <View
+                  style={[
+                    styles.photoOverlay,
+                    {
+                      backgroundColor: failing
+                        ? "rgba(127,29,29,0.7)"
+                        : "rgba(0,0,0,0.45)",
+                    },
+                  ]}
+                >
+                  {failing ? (
+                    <Pressable
+                      onPress={() => void retryNow(p.id)}
+                      accessibilityRole="button"
+                      hitSlop={6}
+                    >
+                      <Text style={styles.photoOverlayText}>{t("ticket.photos.retry")}</Text>
+                    </Pressable>
+                  ) : (
+                    <>
+                      <ActivityIndicator size="small" color="#fff" />
+                      <Text style={styles.photoOverlayText}>{t("ticket.photos.uploading")}</Text>
+                    </>
+                  )}
+                </View>
+                {failing ? (
+                  <Pressable
+                    onPress={() => void removeItem(p.id)}
+                    accessibilityRole="button"
+                    accessibilityLabel={t("ticket.photos.delete")}
+                    style={[styles.photoDeleteBtn, { backgroundColor: colors.card }]}
+                    hitSlop={6}
+                  >
+                    <Feather name="x" size={12} color={colors.destructive} />
+                  </Pressable>
+                ) : null}
+              </View>
+            );
+          })}
+          {photos.map((p) => (
+            <View key={p.id} style={styles.photoTile}>
+              <Pressable
+                onPress={() => p.signedUrl && setViewerUri(p.signedUrl)}
+                accessibilityRole="imagebutton"
+                accessibilityLabel={t("ticket.photos")}
+                disabled={!p.signedUrl}
+                style={({ pressed }) => [{ opacity: pressed ? 0.85 : 1 }]}
+              >
+                {p.signedUrl ? (
+                  <Image
+                    source={{ uri: p.signedUrl }}
+                    style={[styles.photoThumb, { borderColor: colors.border }]}
+                  />
+                ) : (
+                  <View style={[styles.photoThumb, { borderColor: colors.border, backgroundColor: colors.background }]} />
+                )}
+              </Pressable>
+              <Pressable
+                onPress={() => onDelete(p.id)}
+                accessibilityRole="button"
+                accessibilityLabel={t("ticket.photos.delete")}
+                style={[styles.photoDeleteBtn, { backgroundColor: colors.card }]}
+                hitSlop={6}
+              >
+                <Feather name="x" size={12} color={colors.destructive} />
+              </Pressable>
+            </View>
+          ))}
+        </View>
+      )}
+
+      <Modal
+        visible={!!viewerUri}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setViewerUri(null)}
+      >
+        <Pressable
+          style={styles.viewerBackdrop}
+          onPress={() => setViewerUri(null)}
+          accessibilityLabel={t("ticket.photos.viewerClose")}
+        >
+          {viewerUri ? (
+            <Image
+              source={{ uri: viewerUri }}
+              style={styles.viewerImage}
+              resizeMode="contain"
+            />
+          ) : null}
+          <Pressable
+            onPress={() => setViewerUri(null)}
+            accessibilityRole="button"
+            accessibilityLabel={t("ticket.photos.viewerClose")}
+            style={styles.viewerClose}
+            hitSlop={10}
+          >
+            <Feather name="x" size={22} color="#fff" />
+          </Pressable>
+        </Pressable>
+      </Modal>
+    </View>
+  );
+}
+
+function NotesCard({ ticketId }: { ticketId: string }) {
+  const colors = useColors();
+  const { t } = useT();
+  const queryClient = useQueryClient();
+  const [draft, setDraft] = useState("");
+  const queueItems = useTicketQueueItems(ticketId);
+  const queuedNotes = useMemo(
+    () => queueItems.filter((i): i is QueueNoteItem => i.kind === "note"),
+    [queueItems],
+  );
+  const notesQuery = useQuery<ServerNote[]>({
+    queryKey: ["m-ticket-notes", ticketId],
+    queryFn: () => apiRequest<ServerNote[]>(`/api/m/tickets/${ticketId}/notes`),
+    staleTime: 30_000,
+  });
+  const queueLen = queueItems.length;
+  React.useEffect(() => {
+    if (queueLen === 0) {
+      void queryClient.invalidateQueries({ queryKey: ["m-ticket-notes", ticketId] });
+      void queryClient.invalidateQueries({ queryKey: ticketKey(ticketId) });
+    }
+  }, [queueLen, queryClient, ticketId]);
+
+  const onSave = useCallback(async () => {
+    const body = draft.trim();
+    if (!body) return;
+    setDraft("");
+    await enqueueNote({ ticketId, body });
+  }, [draft, ticketId]);
+
+  const notes = notesQuery.data ?? [];
+
+  return (
+    <View style={[styles.card, { backgroundColor: colors.card, borderColor: colors.border, gap: 10 }]}>
+      <TextInput
+        value={draft}
+        onChangeText={setDraft}
+        onBlur={() => {
+          // Auto-save on blur — saves crews from losing a note when they tap
+          // away to navigate or scroll. The button still works as a
+          // discoverable "Save" affordance.
+          if (draft.trim().length > 0) void onSave();
+        }}
+        placeholder={t("ticket.notes.placeholder")}
+        placeholderTextColor={colors.mutedForeground}
+        multiline
+        style={[
+          styles.notesInput,
+          { borderColor: colors.border, color: colors.foreground, backgroundColor: colors.background },
+        ]}
+      />
+      <Pressable
+        onPress={onSave}
+        disabled={draft.trim().length === 0}
+        accessibilityRole="button"
+        style={({ pressed }) => [
+          styles.modalPrimary,
+          {
+            alignSelf: "flex-end",
+            backgroundColor: colors.primary,
+            opacity: draft.trim().length === 0 ? 0.5 : pressed ? 0.85 : 1,
+          },
+        ]}
+      >
+        <Text style={[styles.modalPrimaryText, { color: colors.primaryForeground }]}>
+          {t("ticket.notes.save")}
+        </Text>
+      </Pressable>
+
+      {queuedNotes.length === 0 && notes.length === 0 ? (
+        <Text style={[styles.muted, { color: colors.mutedForeground }]}>
+          {t("ticket.notes.empty")}
+        </Text>
+      ) : (
+        <View style={{ gap: 10 }}>
+          {queuedNotes.map((n) => {
+            const failing = n.attempts > 0;
+            return (
+              <View
+                key={n.id}
+                style={[
+                  styles.noteRow,
+                  { borderColor: failing ? colors.destructive + "55" : colors.border },
+                ]}
+              >
+                <Text style={[styles.body, { color: colors.foreground }]}>{n.body}</Text>
+                <View style={styles.noteMetaRow}>
+                  <Text style={[styles.noteMeta, { color: failing ? colors.destructive : colors.mutedForeground }]}>
+                    {failing ? t("ticket.notes.failed") : t("ticket.notes.queued")}
+                  </Text>
+                  {failing ? (
+                    <Pressable onPress={() => void retryNow(n.id)} hitSlop={6}>
+                      <Text style={[styles.linkText, { color: colors.primary }]}>
+                        {t("ticket.photos.retry")}
+                      </Text>
+                    </Pressable>
+                  ) : null}
+                </View>
+              </View>
+            );
+          })}
+          {notes.map((n) => (
+            <View
+              key={n.id}
+              style={[styles.noteRow, { borderColor: colors.border }]}
+            >
+              <Text style={[styles.body, { color: colors.foreground }]}>{n.body}</Text>
+              <Text style={[styles.noteMeta, { color: colors.mutedForeground }]}>
+                {new Date(n.createdAt).toLocaleString()}
+              </Text>
+            </View>
+          ))}
+        </View>
+      )}
+    </View>
   );
 }
 
@@ -1017,6 +1461,69 @@ const styles = StyleSheet.create({
     alignItems: "center",
   },
   stubCountText: { fontFamily: "Inter_700Bold", fontSize: 12 },
+  photoGrid: { flexDirection: "row", flexWrap: "wrap", gap: 6 },
+  photoTile: { width: 96, height: 96, position: "relative" },
+  addPhotoHintRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: 10,
+    marginTop: 4,
+  },
+  viewerBackdrop: {
+    flex: 1,
+    backgroundColor: "rgba(0,0,0,0.92)",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  viewerImage: { width: "100%", height: "100%" },
+  viewerClose: {
+    position: "absolute",
+    top: 50,
+    right: 20,
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: "rgba(0,0,0,0.5)",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  photoThumb: { width: 96, height: 96, borderRadius: 10, borderWidth: 1 },
+  photoOverlay: {
+    position: "absolute",
+    left: 0,
+    right: 0,
+    top: 0,
+    bottom: 0,
+    borderRadius: 10,
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 4,
+  },
+  photoOverlayText: {
+    fontFamily: "Inter_700Bold",
+    fontSize: 11,
+    color: "#fff",
+    letterSpacing: 0.3,
+  },
+  photoDeleteBtn: {
+    position: "absolute",
+    top: 4,
+    right: 4,
+    width: 22,
+    height: 22,
+    borderRadius: 999,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  noteRow: {
+    borderWidth: 1,
+    borderRadius: 12,
+    padding: 12,
+    gap: 6,
+  },
+  noteMetaRow: { flexDirection: "row", alignItems: "center", gap: 10 },
+  noteMeta: { fontFamily: "Inter_500Medium", fontSize: 11, letterSpacing: 0.3 },
   retryBtn: { marginTop: 12, paddingHorizontal: 16, paddingVertical: 10, borderRadius: 10, alignSelf: "flex-start" },
   retryText: { fontFamily: "Inter_600SemiBold", fontSize: 13 },
 

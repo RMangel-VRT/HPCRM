@@ -292,6 +292,172 @@ paths:
           description: Caller is not assigned to a crew
         "404":
           description: Work item not found for this crew
+        "422":
+          description: Photo required before completing this work item
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MobilePhotoRequiredResponse"
+  /m/tickets/{id}/photos:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema: { type: string }
+    get:
+      operationId: mobileListTicketPhotos
+      tags: [mobile-ticket]
+      summary: List photos uploaded by the crew for this ticket
+      security:
+        - mobileBearer: []
+      responses:
+        "200":
+          description: Photos with short-lived signed URLs
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/MobileTicketPhoto"
+    post:
+      operationId: mobileUploadTicketPhoto
+      tags: [mobile-ticket]
+      summary: Upload a single processed JPEG / PNG / WebP / HEIC photo
+      description: |
+        Preferred form: `multipart/form-data` with a single binary `file` field
+        (per OpenAPI conventions). The server also accepts a raw image body
+        (one of the `image/*` content types or `application/octet-stream`) as
+        a low-overhead fallback for the mobile upload queue, which avoids the
+        cost of building a multipart body on-device. Both forms are subject
+        to the same 10 MB cap and validated by magic-byte sniffing.
+      security:
+        - mobileBearer: []
+      parameters:
+        - name: X-Client-Id
+          in: header
+          required: false
+          schema: { type: string, maxLength: 200 }
+          description: Idempotency key from the upload queue (uuid).
+        - name: X-Captured-At
+          in: header
+          required: false
+          schema: { type: string, format: date-time }
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required: [file]
+              properties:
+                file:
+                  type: string
+                  format: binary
+                  description: The image file (JPEG, PNG, WebP, or HEIC).
+          image/jpeg:
+            schema: { type: string, format: binary }
+          image/png:
+            schema: { type: string, format: binary }
+          image/webp:
+            schema: { type: string, format: binary }
+          image/heic:
+            schema: { type: string, format: binary }
+          application/octet-stream:
+            schema: { type: string, format: binary }
+      responses:
+        "201":
+          description: Photo created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MobileTicketPhoto"
+        "200":
+          description: Idempotent — existing photo returned
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MobileTicketPhoto"
+        "400": { description: Empty body }
+        "415": { description: Unsupported file type }
+        "422": { description: Could not process photo }
+  /m/photos/{photoId}:
+    parameters:
+      - name: photoId
+        in: path
+        required: true
+        schema: { type: string }
+    delete:
+      operationId: mobileDeleteTicketPhoto
+      tags: [mobile-ticket]
+      summary: Delete a photo (uploader only)
+      security:
+        - mobileBearer: []
+      responses:
+        "204": { description: Deleted }
+        "403": { description: Not the uploader }
+        "404": { description: Not found }
+  /m/tickets/{id}/notes:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema: { type: string }
+    get:
+      operationId: mobileListTicketNotes
+      tags: [mobile-ticket]
+      summary: List free-text notes the crew added to this ticket
+      security:
+        - mobileBearer: []
+      responses:
+        "200":
+          description: Notes (chronological)
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/MobileTicketNote"
+    post:
+      operationId: mobileCreateTicketNote
+      tags: [mobile-ticket]
+      summary: Add a free-text note
+      security:
+        - mobileBearer: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/MobileTicketNoteInput"
+      responses:
+        "201":
+          description: Note created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MobileTicketNote"
+        "200":
+          description: Idempotent — existing note returned
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MobileTicketNote"
+  /m/notes/{noteId}:
+    parameters:
+      - name: noteId
+        in: path
+        required: true
+        schema: { type: string }
+    delete:
+      operationId: mobileDeleteTicketNote
+      tags: [mobile-ticket]
+      summary: Delete a note (author only)
+      security:
+        - mobileBearer: []
+      responses:
+        "204": { description: Deleted }
+        "403": { description: Not the author }
+        "404": { description: Not found }
   /service-type-templates:
     get:
       operationId: listServiceTypeTemplates
@@ -956,6 +1122,54 @@ components:
           type: string
           nullable: true
       required: [id, mobileStatus]
+    MobileTicketPhoto:
+      type: object
+      properties:
+        id: { type: string }
+        ticketId: { type: string }
+        storageKey: { type: string }
+        contentType: { type: string }
+        byteSize: { type: integer, nullable: true }
+        width: { type: integer, nullable: true }
+        height: { type: integer, nullable: true }
+        capturedAt: { type: string, format: date-time }
+        createdAt: { type: string, format: date-time }
+        uploadedByUserId: { type: string, nullable: true }
+        signedUrl:
+          type: string
+          nullable: true
+          description: Short-lived (≥1h TTL) GET URL, or null if storage isn't configured.
+        signedUrlExpiresAt:
+          type: string
+          format: date-time
+          nullable: true
+      required: [id, ticketId, storageKey, contentType, capturedAt, createdAt]
+    MobileTicketNote:
+      type: object
+      properties:
+        id: { type: string }
+        ticketId: { type: string }
+        body: { type: string }
+        authorUserId: { type: string, nullable: true }
+        createdAt: { type: string, format: date-time }
+      required: [id, ticketId, body, createdAt]
+    MobileTicketNoteInput:
+      type: object
+      properties:
+        body: { type: string, minLength: 1, maxLength: 5000 }
+        clientId:
+          type: string
+          maxLength: 200
+          description: Idempotency key from the upload queue (uuid).
+      required: [body]
+    MobilePhotoRequiredResponse:
+      type: object
+      properties:
+        code:
+          type: string
+          enum: [PHOTO_REQUIRED]
+        message: { type: string }
+      required: [code, message]
     MobileMissingRequiredResponse:
       type: object
       properties:
