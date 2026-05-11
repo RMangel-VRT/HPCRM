@@ -10883,6 +10883,32 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  app.post("/api/proposals/:id/files/reorder", async (req, res) => {
+    if (!req.isAuthenticated()) return res.status(401).send("Not authenticated");
+    const user = req.user as UserWithContext;
+    if (!canAccessProposals(user.activeRole)) return res.status(403).send("Insufficient permissions");
+
+    const proposal = await storage.getProposal(req.params.id, user.activeCompanyId);
+    if (!proposal) return res.status(404).send("Proposal not found");
+
+    const { orderedFileIds } = req.body as { orderedFileIds?: unknown };
+    if (!Array.isArray(orderedFileIds) || !orderedFileIds.every(id => typeof id === "string")) {
+      return res.status(400).send("orderedFileIds must be an array of strings");
+    }
+
+    try {
+      const updated = await storage.reorderProposalImageFiles(
+        req.params.id,
+        user.activeCompanyId,
+        orderedFileIds as string[],
+      );
+      res.json(updated);
+    } catch (error) {
+      const msg = error instanceof Error ? error.message : "Failed to reorder files";
+      res.status(400).send(msg);
+    }
+  });
+
   app.patch("/api/proposals/:id/files/:fileId", async (req, res) => {
     if (!req.isAuthenticated()) return res.status(401).send("Not authenticated");
     const user = req.user as UserWithContext;

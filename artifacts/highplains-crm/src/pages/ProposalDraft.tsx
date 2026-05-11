@@ -1,5 +1,22 @@
 import { useState, useRef, useCallback, useEffect } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
+import {
+  DndContext,
+  PointerSensor,
+  KeyboardSensor,
+  useSensor,
+  useSensors,
+  closestCenter,
+  type DragEndEvent,
+} from "@dnd-kit/core";
+import {
+  SortableContext,
+  arrayMove,
+  sortableKeyboardCoordinates,
+  useSortable,
+  verticalListSortingStrategy,
+} from "@dnd-kit/sortable";
+import { CSS } from "@dnd-kit/utilities";
 import { Link, useLocation, useParams, useSearch } from "wouter";
 import { useTranslation } from "react-i18next";
 import { format } from "date-fns";
@@ -40,6 +57,7 @@ import {
   Link2,
   Unlink,
   AlertTriangle,
+  GripVertical,
 } from "lucide-react";
 import { Checkbox } from "@/components/ui/checkbox";
 import { apiRequest, queryClient } from "@/lib/queryClient";
@@ -52,6 +70,84 @@ function formatDateTime(ts: string | Date) {
     return d.toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" }) +
       " at " + d.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" });
   } catch { return String(ts); }
+}
+
+interface SortablePhotoRowProps {
+  img: ProposalFile;
+  captionDraft: string | undefined;
+  onCaptionChange: (val: string) => void;
+  onCaptionBlur: (val: string) => void;
+  onDelete: () => void;
+  captionPlaceholder: string;
+  dragLabel: string;
+}
+
+function SortablePhotoRow({
+  img,
+  captionDraft,
+  onCaptionChange,
+  onCaptionBlur,
+  onDelete,
+  captionPlaceholder,
+  dragLabel,
+}: SortablePhotoRowProps) {
+  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: img.id });
+  const style: React.CSSProperties = {
+    transform: CSS.Transform.toString(transform),
+    transition,
+    opacity: isDragging ? 0.5 : 1,
+  };
+  return (
+    <div
+      ref={setNodeRef}
+      style={style}
+      className="flex gap-3 items-start p-3 rounded-md border bg-background"
+      data-testid={`div-image-${img.id}`}
+    >
+      <button
+        type="button"
+        className="shrink-0 mt-1 cursor-grab active:cursor-grabbing text-muted-foreground hover:text-foreground touch-none"
+        aria-label={dragLabel}
+        title={dragLabel}
+        data-testid={`button-drag-image-${img.id}`}
+        {...attributes}
+        {...listeners}
+      >
+        <GripVertical className="w-4 h-4" />
+      </button>
+      <div className="w-16 h-16 rounded-md overflow-hidden shrink-0 bg-muted flex items-center justify-center">
+        <img
+          src={`/objects/${img.storageObjectPath.replace(/^\//, "")}`}
+          alt={img.caption ?? img.filename}
+          className="w-full h-full object-cover"
+          onError={(e) => {
+            (e.target as HTMLImageElement).style.display = "none";
+          }}
+          data-testid={`img-thumbnail-${img.id}`}
+        />
+      </div>
+      <div className="flex-1 min-w-0 space-y-1.5">
+        <p className="text-xs text-muted-foreground truncate">{img.filename}</p>
+        <Input
+          placeholder={captionPlaceholder}
+          value={captionDraft ?? img.caption ?? ""}
+          onChange={(e) => onCaptionChange(e.target.value)}
+          onBlur={(e) => onCaptionBlur(e.target.value)}
+          className="text-sm"
+          data-testid={`input-caption-${img.id}`}
+        />
+      </div>
+      <Button
+        size="icon"
+        variant="ghost"
+        onClick={onDelete}
+        className="shrink-0"
+        data-testid={`button-delete-image-${img.id}`}
+      >
+        <Trash2 className="w-4 h-4" />
+      </Button>
+    </div>
+  );
 }
 
 export default function ProposalDraft() {
@@ -189,6 +285,48 @@ export default function ProposalDraft() {
     },
     onError: () => {
       toast({ title: t("proposals.captionSaveFailed"), variant: "destructive" });
+    },
+  });
+
+  const sortableSensors = useSensors(
+    useSensor(PointerSensor, { activationConstraint: { distance: 5 } }),
+    useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates }),
+  );
+
+  const handlePhotoDragEnd = (event: DragEndEvent) => {
+    const { active, over } = event;
+    if (!over || active.id === over.id) return;
+    const oldIndex = images.findIndex(i => i.id === active.id);
+    const newIndex = images.findIndex(i => i.id === over.id);
+    if (oldIndex < 0 || newIndex < 0) return;
+    const newOrder = arrayMove(images, oldIndex, newIndex);
+    queryClient.setQueryData<ProposalWithDetails | undefined>(["/api/proposals", id], (old) => {
+      if (!old) return old;
+      const reorderedIds = new Map(newOrder.map((f, idx) => [f.id, idx] as const));
+      const updatedFiles = old.files.map(f => {
+        const newIdx = reorderedIds.get(f.id);
+        return newIdx === undefined ? f : { ...f, displayOrder: newIdx };
+      });
+      return { ...old, files: updatedFiles };
+    });
+    reorderImagesMutation.mutate(newOrder.map(f => f.id));
+  };
+
+  const reorderImagesMutation = useMutation({
+    mutationFn: async (orderedFileIds: string[]) => {
+      const res = await apiRequest("POST", `/api/proposals/${id}/files/reorder`, { orderedFileIds });
+      if (!res.ok) {
+        const msg = await res.text();
+        throw new Error(msg || "Failed to reorder photos");
+      }
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/proposals", id] });
+    },
+    onError: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/proposals", id] });
+      toast({ title: t("common.error"), variant: "destructive" });
     },
   });
 
@@ -809,48 +947,35 @@ export default function ProposalDraft() {
           )}
 
           {images.length > 0 && (
-            <div className="space-y-4 mb-4">
-              {images.map((img) => (
-                <div key={img.id} className="flex gap-3 items-start p-3 rounded-md border" data-testid={`div-image-${img.id}`}>
-                  <div className="w-16 h-16 rounded-md overflow-hidden shrink-0 bg-muted flex items-center justify-center">
-                    <img
-                      src={`/objects/${img.storageObjectPath.replace(/^\//, "")}`}
-                      alt={img.caption ?? img.filename}
-                      className="w-full h-full object-cover"
-                      onError={(e) => {
-                        (e.target as HTMLImageElement).style.display = "none";
-                      }}
-                      data-testid={`img-thumbnail-${img.id}`}
-                    />
-                  </div>
-                  <div className="flex-1 min-w-0 space-y-1.5">
-                    <p className="text-xs text-muted-foreground truncate">{img.filename}</p>
-                    <Input
-                      placeholder={t("proposals.captionPlaceholder")}
-                      value={captionDrafts[img.id] ?? img.caption ?? ""}
-                      onChange={(e) => setCaptionDrafts(prev => ({ ...prev, [img.id]: e.target.value }))}
-                      onBlur={(e) => {
-                        const val = e.target.value;
+            <DndContext
+              sensors={sortableSensors}
+              collisionDetection={closestCenter}
+              onDragEnd={handlePhotoDragEnd}
+            >
+              <SortableContext
+                items={images.map(i => i.id)}
+                strategy={verticalListSortingStrategy}
+              >
+                <div className="space-y-4 mb-4">
+                  {images.map((img) => (
+                    <SortablePhotoRow
+                      key={img.id}
+                      img={img}
+                      captionDraft={captionDrafts[img.id]}
+                      onCaptionChange={(val) => setCaptionDrafts(prev => ({ ...prev, [img.id]: val }))}
+                      onCaptionBlur={(val) => {
                         if (val !== (img.caption ?? "")) {
                           saveCaptionMutation.mutate({ fileId: img.id, caption: val });
                         }
                       }}
-                      className="text-sm"
-                      data-testid={`input-caption-${img.id}`}
+                      onDelete={() => setFileToDelete(img)}
+                      captionPlaceholder={t("proposals.captionPlaceholder")}
+                      dragLabel={t("proposals.dragToReorder", { defaultValue: "Drag to reorder" })}
                     />
-                  </div>
-                  <Button
-                    size="icon"
-                    variant="ghost"
-                    onClick={() => setFileToDelete(img)}
-                    className="shrink-0"
-                    data-testid={`button-delete-image-${img.id}`}
-                  >
-                    <Trash2 className="w-4 h-4" />
-                  </Button>
+                  ))}
                 </div>
-              ))}
-            </div>
+              </SortableContext>
+            </DndContext>
           )}
 
           <input

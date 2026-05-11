@@ -344,6 +344,7 @@ export interface IStorage {
   getProposalEstimatePdf(proposalId: string, companyId: string): Promise<ProposalFile | undefined>;
   createProposalFile(file: InsertProposalFile): Promise<ProposalFile>;
   updateProposalFile(id: string, companyId: string, updates: { caption?: string | null }): Promise<ProposalFile | undefined>;
+  reorderProposalImageFiles(proposalId: string, companyId: string, orderedIds: string[]): Promise<ProposalFile[]>;
   deleteProposalFile(id: string, companyId: string): Promise<void>;
   createProposalVersion(v: InsertProposalVersion): Promise<ProposalVersion>;
   getProposalVersions(proposalId: string, companyId: string): Promise<ProposalVersionWithUser[]>;
@@ -3164,6 +3165,41 @@ export class PgStorage implements IStorage {
       .where(and(eq(proposalFiles.id, id), eq(proposalFiles.companyId, companyId)))
       .returning();
     return result[0];
+  }
+
+  async reorderProposalImageFiles(proposalId: string, companyId: string, orderedIds: string[]): Promise<ProposalFile[]> {
+    return db.transaction(async (tx) => {
+      const existing = await tx.select().from(proposalFiles)
+        .where(and(
+          eq(proposalFiles.proposalId, proposalId),
+          eq(proposalFiles.companyId, companyId),
+          eq(proposalFiles.fileType, "image"),
+        ));
+      const orderedSet = new Set(orderedIds);
+      if (orderedSet.size !== orderedIds.length) {
+        throw new Error("Reorder list must not contain duplicate file ids");
+      }
+      const existingIds = new Set(existing.map(f => f.id));
+      if (orderedIds.length !== existing.length || !orderedIds.every(id => existingIds.has(id))) {
+        throw new Error("Reorder list must include exactly the proposal's image file ids");
+      }
+      for (let i = 0; i < orderedIds.length; i++) {
+        await tx.update(proposalFiles)
+          .set({ displayOrder: i })
+          .where(and(
+            eq(proposalFiles.id, orderedIds[i]),
+            eq(proposalFiles.proposalId, proposalId),
+            eq(proposalFiles.companyId, companyId),
+          ));
+      }
+      return tx.select().from(proposalFiles)
+        .where(and(
+          eq(proposalFiles.proposalId, proposalId),
+          eq(proposalFiles.companyId, companyId),
+          eq(proposalFiles.fileType, "image"),
+        ))
+        .orderBy(proposalFiles.displayOrder);
+    });
   }
 
   async deleteProposalFile(id: string, companyId: string): Promise<void> {
