@@ -696,6 +696,13 @@ export const tickets = pgTable("tickets", {
   completionPhotoStorageKeys: text("completion_photo_storage_keys").array().default(sql`ARRAY[]::text[]`),
   completionEmailSentAt: timestamp("completion_email_sent_at"),
   followUpTicketId: varchar("follow_up_ticket_id").references((): AnyPgColumn => tickets.id, { onDelete: "set null" }),
+  // Mobile v1 Slice 1: crew assignment + per-stop workflow status used by the mobile field-crew app.
+  // `mobileStatus` is the per-stop workflow state (not_started → in_progress → complete | skipped | flagged)
+  // and is intentionally separate from `currentStatusId` (which is the per-ticket-type custom status).
+  crewId: varchar("crew_id").references(() => crews.id, { onDelete: "set null" }),
+  routeOrder: integer("route_order"),
+  startedAt: timestamp("started_at"),
+  mobileStatus: text("mobile_status").notNull().$type<"not_started" | "in_progress" | "complete" | "skipped" | "flagged">().default("not_started"),
   createdById: varchar("created_by_id").notNull().references(() => users.id, { onDelete: "cascade" }),
   createdAt: timestamp("created_at").notNull().defaultNow(),
   updatedAt: timestamp("updated_at").notNull().defaultNow(),
@@ -706,6 +713,7 @@ export const tickets = pgTable("tickets", {
   ticketsContractIdIdx: index("tickets_contract_id_idx").on(table.contractId),
   ticketsCompanyCreatedAtIdx: index("tickets_company_created_at_idx").on(table.companyId, table.createdAt),
   ticketsEquipmentIdIdx: index("tickets_equipment_id_idx").on(table.equipmentId),
+  ticketsCompanyCrewDueDateIdx: index("tickets_company_crew_due_date_idx").on(table.companyId, table.crewId, table.dueDate),
 }));
 
 export const insertTicketSchema = createInsertSchema(tickets).omit({
@@ -749,6 +757,11 @@ export const insertTicketSchema = createInsertSchema(tickets).omit({
   completionPhotoStorageKeys: z.array(z.string()).nullable().optional(),
   completionEmailSentAt: z.coerce.date().nullable().optional(),
   followUpTicketId: z.string().nullable().optional(),
+  // Mobile v1 Slice 1
+  crewId: z.string().nullable().optional(),
+  routeOrder: z.number().int().nullable().optional(),
+  startedAt: z.coerce.date().nullable().optional(),
+  mobileStatus: z.enum(["not_started", "in_progress", "complete", "skipped", "flagged"]).default("not_started"),
 });
 
 export type InsertTicket = z.infer<typeof insertTicketSchema>;

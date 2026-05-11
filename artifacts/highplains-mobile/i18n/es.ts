@@ -12,8 +12,44 @@ const es: Record<string, string> = {
   "tabs.me": "Yo",
   "today.greeting": "Hoy",
   "today.subtitle": "Tu trabajo para hoy.",
+  // TODO: human-review translation
+  "today.crewLabel": "Cuadrilla",
+  // TODO: human-review translation
+  "today.dayNotStarted": "Día sin iniciar",
+  // TODO: human-review translation
+  "today.ofWord": "de",
+  // TODO: human-review translation
+  "today.stopsComplete": "paradas completadas",
+  // TODO: human-review translation
+  "today.startedAt": "Iniciado",
+  // TODO: human-review translation
+  "today.unscheduled": "Sin horario",
+  // TODO: human-review translation
+  "today.errorBanner": "No se pudo actualizar las paradas de hoy. Mostrando lo último visto.",
   "today.empty.title": "Nada programado aún",
   "today.empty.body": "Cuando le asignen trabajo a tu cuadrilla, aparecerá aquí.",
+  // TODO: human-review translation
+  "today.noCrew.title": "Sin cuadrilla asignada",
+  // TODO: human-review translation
+  "today.noCrew.body": "Aún no estás asignado a una cuadrilla. Pídele a tu administrador que te agregue.",
+  // TODO: human-review translation
+  "today.summary.total": "Paradas",
+  // TODO: human-review translation
+  "today.summary.inProgress": "Activas",
+  // TODO: human-review translation
+  "today.summary.complete": "Listas",
+  // TODO: human-review translation
+  "today.summary.flagged": "Marcadas",
+  // TODO: human-review translation
+  "today.status.notStarted": "Sin iniciar",
+  // TODO: human-review translation
+  "today.status.inProgress": "En progreso",
+  // TODO: human-review translation
+  "today.status.complete": "Completa",
+  // TODO: human-review translation
+  "today.status.skipped": "Omitida",
+  // TODO: human-review translation
+  "today.status.flagged": "Marcada",
   "properties.title": "Propiedades",
   "properties.subtitle": "Explora las propiedades que atiende tu cuadrilla.",
   "properties.empty.title": "Aún no hay propiedades",

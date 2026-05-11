@@ -14,6 +14,8 @@ tags:
     description: Mobile bearer-token auth (Slice 0)
   - name: crews
     description: Field crews administration
+  - name: mobile-today
+    description: Mobile Today screen (Slice 1)
 paths:
   /healthz:
     get:
@@ -102,6 +104,64 @@ paths:
                 $ref: "#/components/schemas/ErrorResponse"
         "403":
           description: Membership is no longer active or role no longer permitted
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+  /m/today:
+    get:
+      operationId: mobileToday
+      tags: [mobile-today]
+      summary: Today's stops for the authenticated supervisor's crew
+      security:
+        - mobileBearer: []
+      responses:
+        "200":
+          description: Today schedule
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MobileToday"
+        "401":
+          description: Missing or invalid token
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+  /m/tickets/{id}/start:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+    post:
+      operationId: mobileStartTicket
+      tags: [mobile-today]
+      summary: Mark a ticket as in-progress (idempotent)
+      security:
+        - mobileBearer: []
+      responses:
+        "200":
+          description: Updated stop status
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MobileTicketStatus"
+        "401":
+          description: Missing or invalid token
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "403":
+          description: Caller is not assigned to a crew
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "404":
+          description: Ticket not found for this crew
           content:
             application/json:
               schema:
@@ -352,6 +412,83 @@ components:
           type: string
         isActive:
           type: boolean
+    MobileStopStatus:
+      type: string
+      enum: [not_started, in_progress, complete, skipped, flagged]
+    MobileTodayStop:
+      type: object
+      properties:
+        id: { type: string }
+        title: { type: string }
+        priority:
+          type: string
+          enum: [low, normal, high, urgent]
+        mobileStatus:
+          $ref: "#/components/schemas/MobileStopStatus"
+        routeOrder:
+          type: integer
+          nullable: true
+        dueDate:
+          type: string
+          format: date-time
+          nullable: true
+        startedAt:
+          type: string
+          format: date-time
+          nullable: true
+        completedAt:
+          type: string
+          format: date-time
+          nullable: true
+        customerName:
+          type: string
+          nullable: true
+        customerAddress:
+          type: string
+          nullable: true
+        locationLabel:
+          type: string
+          nullable: true
+      required: [id, title, priority, mobileStatus]
+    MobileTodaySummary:
+      type: object
+      properties:
+        total: { type: integer }
+        notStarted: { type: integer }
+        inProgress: { type: integer }
+        complete: { type: integer }
+        skipped: { type: integer }
+        flagged: { type: integer }
+      required: [total, notStarted, inProgress, complete, skipped, flagged]
+    MobileToday:
+      type: object
+      properties:
+        date:
+          type: string
+        crewId:
+          type: string
+          nullable: true
+        crewName:
+          type: string
+          nullable: true
+        summary:
+          $ref: "#/components/schemas/MobileTodaySummary"
+        stops:
+          type: array
+          items:
+            $ref: "#/components/schemas/MobileTodayStop"
+      required: [date, summary, stops]
+    MobileTicketStatus:
+      type: object
+      properties:
+        id: { type: string }
+        mobileStatus:
+          $ref: "#/components/schemas/MobileStopStatus"
+        startedAt:
+          type: string
+          format: date-time
+          nullable: true
+      required: [id, mobileStatus]
     EligibleSupervisor:
       type: object
       properties:

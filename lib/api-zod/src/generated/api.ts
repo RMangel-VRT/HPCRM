@@ -83,6 +83,63 @@ export const MobileMeResponse = zod.object({
 });
 
 /**
+ * @summary Today's stops for the authenticated supervisor's crew
+ */
+export const MobileTodayResponse = zod.object({
+  date: zod.string(),
+  crewId: zod.string().nullish(),
+  crewName: zod.string().nullish(),
+  summary: zod.object({
+    total: zod.number(),
+    notStarted: zod.number(),
+    inProgress: zod.number(),
+    complete: zod.number(),
+    skipped: zod.number(),
+    flagged: zod.number(),
+  }),
+  stops: zod.array(
+    zod.object({
+      id: zod.string(),
+      title: zod.string(),
+      priority: zod.enum(["low", "normal", "high", "urgent"]),
+      mobileStatus: zod.enum([
+        "not_started",
+        "in_progress",
+        "complete",
+        "skipped",
+        "flagged",
+      ]),
+      routeOrder: zod.number().nullish(),
+      dueDate: zod.coerce.date().nullish(),
+      startedAt: zod.coerce.date().nullish(),
+      completedAt: zod.coerce.date().nullish(),
+      customerName: zod.string().nullish(),
+      customerAddress: zod.string().nullish(),
+      locationLabel: zod.string().nullish(),
+    }),
+  ),
+});
+
+/**
+ * @summary Mark a ticket as in-progress (idempotent)
+ */
+export const MobileStartTicketParams = zod.object({
+  id: zod.coerce.string(),
+});
+
+export const MobileStartTicketResponse = zod.object({
+  id: zod.string(),
+  mobileStatus: zod.enum([
+    "not_started",
+    "in_progress",
+    "complete",
+    "skipped",
+    "flagged",
+  ]),
+  startedAt: zod.coerce.date().nullish(),
+});
+
+/**
  * @summary List crews for the active company
  */
 export const ListCrewsResponseItem = zod

@@ -26,6 +26,8 @@ import type {
   HealthStatus,
   MobileLoginRequest,
   MobileSession,
+  MobileTicketStatus,
+  MobileToday,
   MobileUser,
 } from "./api.schemas";
 
@@ -343,6 +345,165 @@ export function useMobileMe<
 
   return { ...query, queryKey: queryOptions.queryKey };
 }
+
+/**
+ * @summary Today's stops for the authenticated supervisor's crew
+ */
+export const getMobileTodayUrl = () => {
+  return `/api/m/today`;
+};
+
+export const mobileToday = async (
+  options?: RequestInit,
+): Promise<MobileToday> => {
+  return customFetch<MobileToday>(getMobileTodayUrl(), {
+    ...options,
+    method: "GET",
+  });
+};
+
+export const getMobileTodayQueryKey = () => {
+  return [`/api/m/today`] as const;
+};
+
+export const getMobileTodayQueryOptions = <
+  TData = Awaited<ReturnType<typeof mobileToday>>,
+  TError = ErrorType<ErrorResponse>,
+>(options?: {
+  query?: UseQueryOptions<
+    Awaited<ReturnType<typeof mobileToday>>,
+    TError,
+    TData
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}) => {
+  const { query: queryOptions, request: requestOptions } = options ?? {};
+
+  const queryKey = queryOptions?.queryKey ?? getMobileTodayQueryKey();
+
+  const queryFn: QueryFunction<Awaited<ReturnType<typeof mobileToday>>> = ({
+    signal,
+  }) => mobileToday({ signal, ...requestOptions });
+
+  return { queryKey, queryFn, ...queryOptions } as UseQueryOptions<
+    Awaited<ReturnType<typeof mobileToday>>,
+    TError,
+    TData
+  > & { queryKey: QueryKey };
+};
+
+export type MobileTodayQueryResult = NonNullable<
+  Awaited<ReturnType<typeof mobileToday>>
+>;
+export type MobileTodayQueryError = ErrorType<ErrorResponse>;
+
+/**
+ * @summary Today's stops for the authenticated supervisor's crew
+ */
+
+export function useMobileToday<
+  TData = Awaited<ReturnType<typeof mobileToday>>,
+  TError = ErrorType<ErrorResponse>,
+>(options?: {
+  query?: UseQueryOptions<
+    Awaited<ReturnType<typeof mobileToday>>,
+    TError,
+    TData
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+  const queryOptions = getMobileTodayQueryOptions(options);
+
+  const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
+    queryKey: QueryKey;
+  };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+/**
+ * @summary Mark a ticket as in-progress (idempotent)
+ */
+export const getMobileStartTicketUrl = (id: string) => {
+  return `/api/m/tickets/${id}/start`;
+};
+
+export const mobileStartTicket = async (
+  id: string,
+  options?: RequestInit,
+): Promise<MobileTicketStatus> => {
+  return customFetch<MobileTicketStatus>(getMobileStartTicketUrl(id), {
+    ...options,
+    method: "POST",
+  });
+};
+
+export const getMobileStartTicketMutationOptions = <
+  TError = ErrorType<ErrorResponse>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof mobileStartTicket>>,
+    TError,
+    { id: string },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof mobileStartTicket>>,
+  TError,
+  { id: string },
+  TContext
+> => {
+  const mutationKey = ["mobileStartTicket"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof mobileStartTicket>>,
+    { id: string }
+  > = (props) => {
+    const { id } = props ?? {};
+
+    return mobileStartTicket(id, requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type MobileStartTicketMutationResult = NonNullable<
+  Awaited<ReturnType<typeof mobileStartTicket>>
+>;
+
+export type MobileStartTicketMutationError = ErrorType<ErrorResponse>;
+
+/**
+ * @summary Mark a ticket as in-progress (idempotent)
+ */
+export const useMobileStartTicket = <
+  TError = ErrorType<ErrorResponse>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof mobileStartTicket>>,
+    TError,
+    { id: string },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof mobileStartTicket>>,
+  TError,
+  { id: string },
+  TContext
+> => {
+  return useMutation(getMobileStartTicketMutationOptions(options));
+};
 
 /**
  * @summary List crews for the active company

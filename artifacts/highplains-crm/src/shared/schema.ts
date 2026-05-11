@@ -694,6 +694,11 @@ export const tickets = pgTable("tickets", {
   completionPhotoStorageKeys: text("completion_photo_storage_keys").array().default(sql`ARRAY[]::text[]`),
   completionEmailSentAt: timestamp("completion_email_sent_at"),
   followUpTicketId: varchar("follow_up_ticket_id").references((): AnyPgColumn => tickets.id, { onDelete: "set null" }),
+  // Mobile / crew routing fields
+  crewId: varchar("crew_id"),
+  routeOrder: integer("route_order"),
+  startedAt: timestamp("started_at"),
+  mobileStatus: text("mobile_status").$type<"not_started" | "in_progress" | "complete" | "skipped" | "flagged">().default("not_started"),
   createdById: varchar("created_by_id").notNull().references(() => users.id, { onDelete: "cascade" }),
   createdAt: timestamp("created_at").notNull().defaultNow(),
   updatedAt: timestamp("updated_at").notNull().defaultNow(),

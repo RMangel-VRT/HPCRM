@@ -69,6 +69,7 @@ import {
 import { useToast } from "@/hooks/use-toast";
 import { queryClient, apiRequest } from "@/lib/queryClient";
 import { DatePickerField } from "@/components/DatePickerField";
+import { CrewSelect, type CrewSelectOption } from "@/components/CrewSelect";
 import type { Ticket, TicketType, TicketTypeStatus, TicketTypeField, TicketFieldValue, TicketComment, TicketCommentWithAuthor, TicketStatusHistory, Customer, Contact, Contract, ContractService, WorkType, TicketLink, User as UserType, CompanyUser, CustomerRateSheet, EmailLogWithDetails, ProposalWithDetails } from "@shared/schema";
 import { WORK_TYPE_CATALOG } from "@shared/workTypeCatalog";
 import { format, formatDistanceToNow } from "date-fns";
@@ -189,6 +190,8 @@ export default function TicketDetail() {
     dueDate: Date | undefined;
     workCompletedDate: Date | undefined;
     invoiceCategory: "general_maintenance" | "snow" | null;
+    crewId: string | null;
+    routeOrder: string;
   }>({
     title: "",
     description: "",
@@ -196,6 +199,13 @@ export default function TicketDetail() {
     dueDate: undefined,
     workCompletedDate: undefined,
     invoiceCategory: null,
+    crewId: null,
+    routeOrder: "",
+  });
+
+  const { data: crewsList = [] } = useQuery<CrewSelectOption[]>({
+    queryKey: ["/api/crews"],
+    enabled: showEditDialog,
   });
   
   // Navigation for redirects
@@ -862,6 +872,11 @@ export default function TicketDetail() {
       dueDate: ticket.dueDate ? new Date(ticket.dueDate) : undefined,
       workCompletedDate: ticket.workCompletedDate ? new Date(ticket.workCompletedDate) : undefined,
       invoiceCategory: ticket.invoiceCategory as "general_maintenance" | "snow" | null,
+      crewId: ticket.crewId ?? null,
+      routeOrder:
+        ticket.routeOrder === null || ticket.routeOrder === undefined
+          ? ""
+          : String(ticket.routeOrder),
     });
     setShowEditDialog(true);
   };
@@ -875,6 +890,9 @@ export default function TicketDetail() {
       dueDate: editForm.dueDate ? new Date(editForm.dueDate.getFullYear(), editForm.dueDate.getMonth(), editForm.dueDate.getDate(), 12, 0, 0) : null,
       workCompletedDate: editForm.workCompletedDate ? new Date(editForm.workCompletedDate.getFullYear(), editForm.workCompletedDate.getMonth(), editForm.workCompletedDate.getDate(), 12, 0, 0) : null,
       invoiceCategory: editForm.invoiceCategory,
+      crewId: editForm.crewId,
+      routeOrder:
+        editForm.routeOrder.trim() === "" ? null : Number.parseInt(editForm.routeOrder, 10),
     };
     editTicketMutation.mutate(updates);
   };
@@ -2876,6 +2894,31 @@ export default function TicketDetail() {
                 onChange={(date) => setEditForm(prev => ({ ...prev, workCompletedDate: date }))}
                 data-testid="input-edit-workCompletedDate"
               />
+            </div>
+
+            <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <Label htmlFor="edit-crew">Field crew</Label>
+                <CrewSelect
+                  value={editForm.crewId}
+                  onChange={(v) => setEditForm((prev) => ({ ...prev, crewId: v }))}
+                  crews={crewsList}
+                  testId="select-edit-crew"
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="edit-routeOrder">Route order</Label>
+                <Input
+                  id="edit-routeOrder"
+                  type="number"
+                  inputMode="numeric"
+                  min={0}
+                  value={editForm.routeOrder}
+                  onChange={(e) => setEditForm((prev) => ({ ...prev, routeOrder: e.target.value }))}
+                  placeholder="e.g. 1"
+                  data-testid="input-edit-route-order"
+                />
+              </div>
             </div>
 
             {ticketType?.name === "Invoice" && (

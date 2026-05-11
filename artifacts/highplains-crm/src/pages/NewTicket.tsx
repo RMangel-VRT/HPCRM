@@ -52,6 +52,7 @@ import { useToast } from "@/hooks/use-toast";
 import { queryClient, apiRequest } from "@/lib/queryClient";
 import { extractApiErrorMessage } from "@/lib/apiError";
 import { DatePickerField } from "@/components/DatePickerField";
+import { CrewSelect, type CrewSelectOption } from "@/components/CrewSelect";
 import type { Customer, TicketType, CompanyUser, User, WorkType } from "@shared/schema";
 import { WORK_TYPE_CATALOG } from "@shared/workTypeCatalog";
 import { MapContainer, TileLayer, Marker, useMapEvents, useMap } from "react-leaflet";
@@ -140,6 +141,8 @@ export default function NewTicket() {
   const [description, setDescription] = useState("");
   const [priority, setPriority] = useState("normal");
   const [assignedToId, setAssignedToId] = useState<string | null>(null);
+  const [crewId, setCrewId] = useState<string | null>(null);
+  const [routeOrder, setRouteOrder] = useState<string>("");
   const [dueDate, setDueDate] = useState<Date | undefined>(undefined);
   const [workCompletedDate, setWorkCompletedDate] = useState<Date | undefined>(undefined);
   const [invoiceCategory, setInvoiceCategory] = useState<"general_maintenance" | "snow" | null>(null);
@@ -171,6 +174,10 @@ export default function NewTicket() {
 
   const { data: customersResp } = useQuery<{ customers: Customer[]; total: number }>({
     queryKey: ["/api/customers"],
+  });
+
+  const { data: crewsList = [] } = useQuery<CrewSelectOption[]>({
+    queryKey: ["/api/crews"],
   });
   const customers = customersResp?.customers ?? [];
 
@@ -357,6 +364,8 @@ export default function NewTicket() {
         description: description || null,
         priority,
         assignedToId: assignedToId,
+        crewId: crewId,
+        routeOrder: routeOrder.trim() === "" ? null : Number.parseInt(routeOrder, 10),
         dueDate: dueDate ? new Date(dueDate.getFullYear(), dueDate.getMonth(), dueDate.getDate(), 12, 0, 0) : null,
         locationLat: locationLat,
         locationLng: locationLng,
@@ -1508,6 +1517,38 @@ export default function NewTicket() {
                   All tickets must be assigned to a team member
                 </p>
               )}
+            </div>
+
+            <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <Label htmlFor="crew">Field crew</Label>
+                <CrewSelect
+                  value={crewId}
+                  onChange={setCrewId}
+                  crews={crewsList}
+                  testId="select-crew"
+                />
+                <p className="text-xs text-muted-foreground">
+                  Mobile crew that will see this stop in their day.
+                </p>
+              </div>
+
+              <div className="space-y-2">
+                <Label htmlFor="routeOrder">Route order</Label>
+                <Input
+                  id="routeOrder"
+                  type="number"
+                  inputMode="numeric"
+                  min={0}
+                  value={routeOrder}
+                  onChange={(e) => setRouteOrder(e.target.value)}
+                  placeholder="e.g. 1"
+                  data-testid="input-route-order"
+                />
+                <p className="text-xs text-muted-foreground">
+                  Lower numbers come first on the day's route.
+                </p>
+              </div>
             </div>
           </div>
 

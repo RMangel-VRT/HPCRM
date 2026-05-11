@@ -99,6 +99,64 @@ export interface CrewPatch {
   isActive?: boolean;
 }
 
+export type MobileStopStatus =
+  (typeof MobileStopStatus)[keyof typeof MobileStopStatus];
+
+export const MobileStopStatus = {
+  not_started: "not_started",
+  in_progress: "in_progress",
+  complete: "complete",
+  skipped: "skipped",
+  flagged: "flagged",
+} as const;
+
+export type MobileTodayStopPriority =
+  (typeof MobileTodayStopPriority)[keyof typeof MobileTodayStopPriority];
+
+export const MobileTodayStopPriority = {
+  low: "low",
+  normal: "normal",
+  high: "high",
+  urgent: "urgent",
+} as const;
+
+export interface MobileTodayStop {
+  id: string;
+  title: string;
+  priority: MobileTodayStopPriority;
+  mobileStatus: MobileStopStatus;
+  routeOrder?: number | null;
+  dueDate?: string | null;
+  startedAt?: string | null;
+  completedAt?: string | null;
+  customerName?: string | null;
+  customerAddress?: string | null;
+  locationLabel?: string | null;
+}
+
+export interface MobileTodaySummary {
+  total: number;
+  notStarted: number;
+  inProgress: number;
+  complete: number;
+  skipped: number;
+  flagged: number;
+}
+
+export interface MobileToday {
+  date: string;
+  crewId?: string | null;
+  crewName?: string | null;
+  summary: MobileTodaySummary;
+  stops: MobileTodayStop[];
+}
+
+export interface MobileTicketStatus {
+  id: string;
+  mobileStatus: MobileStopStatus;
+  startedAt?: string | null;
+}
+
 export interface EligibleSupervisor {
   id: string;
   name: string;
