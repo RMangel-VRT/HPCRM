@@ -33,6 +33,7 @@ import {
   Leaf,
   MessagesSquare,
   Activity,
+  Flag,
 } from "lucide-react";
 import {
   Dialog,
@@ -230,6 +231,10 @@ export default function AppSidebar({
     }
 
     if (userRole === "admin" || userRole === "office") {
+      items.push({ title: "Flags", url: "/dashboard/flags", icon: Flag });
+    }
+
+    if (userRole === "admin" || userRole === "office") {
       items.push({ title: t("nav.reports"), url: "/dashboard/reports", icon: FileBarChart });
     }
 
@@ -305,6 +310,19 @@ export default function AppSidebar({
   ];
   const isAdminOrOffice = userRole === "admin" || userRole === "office";
   const visibleCommsSubTabs = commsSubTabs.filter((t) => !t.adminOnly || isAdminOrOffice);
+
+  const { data: flagUnreadData } = useQuery<{ count: number }>({
+    queryKey: ["/api/flags/unread-count"],
+    queryFn: async () => {
+      const res = await fetch("/api/flags/unread-count", { credentials: "include" });
+      if (!res.ok) return { count: 0 };
+      return res.json();
+    },
+    enabled: userRole === "admin" || userRole === "office",
+    refetchInterval: 30_000,
+    staleTime: 25_000,
+  });
+  const flagUnreadCount = flagUnreadData?.count ?? 0;
 
   const { data: pendingUnsortedData } = useQuery<{ length: number } | unknown[]>({
     queryKey: ["/api/unsorted-emails", "sidebar-badge"],
@@ -416,6 +434,7 @@ export default function AppSidebar({
             <SidebarMenu>
               {managementItems.map((item) => {
                 const isComms = item.url === "/dashboard/communications";
+                const isFlags = item.url === "/dashboard/flags";
                 const commsHref = isComms ? commsTabHref(lastCommsTab) : item.url;
                 return (
                   <SidebarMenuItem key={item.title}>
@@ -426,6 +445,11 @@ export default function AppSidebar({
                         {isComms && pendingUnsortedCount > 0 && (
                           <Badge className="ml-auto text-xs py-0 px-1.5 min-w-0 no-default-active-elevate" data-testid="badge-pending-unsorted-sidebar">
                             {pendingUnsortedCount > 99 ? "99+" : pendingUnsortedCount}
+                          </Badge>
+                        )}
+                        {isFlags && flagUnreadCount > 0 && (
+                          <Badge variant="destructive" className="ml-auto text-xs py-0 px-1.5 min-w-0 no-default-active-elevate" data-testid="badge-flags-unread-sidebar">
+                            {flagUnreadCount > 99 ? "99+" : flagUnreadCount}
                           </Badge>
                         )}
                       </Link>

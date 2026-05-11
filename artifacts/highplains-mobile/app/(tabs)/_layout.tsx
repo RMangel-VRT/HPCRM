@@ -171,10 +171,16 @@ export default function TabLayout() {
                       <Text style={[styles.sheetRowTitle, { color: colors.foreground }]}>
                         {it.kind === "photo"
                           ? t("header.queue.itemPhoto")
-                          : t("header.queue.itemNote")}
+                          : it.kind === "note"
+                            ? t("header.queue.itemNote")
+                            : t("header.queue.itemFlag")}
                       </Text>
                       <Text style={[styles.sheetRowMeta, { color: colors.mutedForeground }]} numberOfLines={2}>
-                        {it.kind === "note" ? it.body : it.fileUri.split("/").pop()}
+                        {it.kind === "note"
+                          ? it.body
+                          : it.kind === "photo"
+                            ? it.fileUri.split("/").pop()
+                            : `${it.tag} (${it.fileUris.length} photo${it.fileUris.length === 1 ? "" : "s"})`}
                       </Text>
                     </View>
                     <View style={styles.sheetRowActions}>

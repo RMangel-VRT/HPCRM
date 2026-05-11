@@ -10,6 +10,7 @@ import { storage } from "../storage";
 import * as extraBillableAccess from "../lib/extraBillableAccess";
 import { registerExtraBillableBillingRoutes, makeBucketCopyPhotoFn } from "./extraBillableBilling";
 import { registerCrewsAndMobileRoutes } from "./crewsAndMobile";
+import { registerFlagsRoutes } from "./flags";
 import { db } from "../db";
 import { eq, and, inArray, sql, gte, lte, isNull, ne } from "drizzle-orm";
 import { insertCustomerSchema, insertContactSchema, insertCompanySchema, insertCompanyUserSchema, insertSettingsSchema, insertNoteSchema, insertContractSchema, insertContractDocumentSchema, insertContractBuilderDocumentSchema, insertContractBuilderSectionSchema, insertContractBuilderVariableSchema, insertTicketTypeSchema, insertTicketTypeStatusSchema, insertTicketTypeFieldSchema, insertTicketSchema, insertTicketFieldValueSchema, insertTicketStatusHistorySchema, insertTicketCommentSchema, insertTicketLinkSchema, insertCustomerMapLayerSchema, insertCustomerMapDocumentSchema, insertMaintenanceCrewSchema, insertMaintenanceVisitConfigSchema, insertWeeklyScheduleTemplateSchema, insertScheduleBlockSchema, insertEquipmentSchema, insertEquipmentFileSchema, insertEquipmentTicketSchema, insertEquipmentTicketStatusHistorySchema, insertSnowEventSchema, insertSnowEventPropertyImpactSchema, insertSnowEventAttachmentSchema, insertEmailTemplateSchema, insertEmailRuleSchema, insertCommunicationAutomationRuleSchema, SNOW_RANGES, tickets, ticketLinks, ticketTypes, ticketTypeStatuses, customers as customersTable, contacts as contactsTable, contracts as contractsTable, equipment as equipmentTable, users as usersTable, contractMonthlyAmounts, contractDocuments, contractServices, contractStatusHistory, companyUsers as companyUsersTable, insertCommunicationSchema, campaigns as campaignsTable, campaignItems as campaignItemsTable, chemicalProducts as chemicalProductsTable, insertChemicalProductSchema, insertChemicalNotificationTemplateSchema } from "@workspace/db";
@@ -2467,6 +2468,7 @@ async function autoPopulateServicePlansFromContract(contract: {
 export async function registerRoutes(app: Express): Promise<Server> {
   setupAuth(app);
   registerCrewsAndMobileRoutes(app);
+  registerFlagsRoutes(app);
 
   // ── Communication Center permission constants & helpers ──────────────────────
   // These must be defined early because they are used on routes registered

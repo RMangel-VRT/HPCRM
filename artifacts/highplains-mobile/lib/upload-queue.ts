@@ -38,7 +38,26 @@ export type QueueNoteItem = {
   lastError?: string;
 };
 
-export type QueueItem = QueuePhotoItem | QueueNoteItem;
+// Mobile v1 Slice 4 — flag composer entry. A flag is posted as a single
+// multipart request to /api/m/flags carrying tag + optional note + 1..N
+// already-resized JPEG file URIs. Photos are pre-processed (EXIF stripped /
+// resized) by the composer before enqueue so the worker just streams bytes.
+export type QueueFlagItem = {
+  kind: "flag";
+  id: string;            // local UUID — also the server's clientId
+  ticketId: string;      // mirrors photo/note shape so listItemsForTicket works; "" if none
+  tag: string;
+  note: string | null;
+  propertyId: string | null;
+  ticketLinkId: string | null; // optional ticket FK on the flag itself
+  fileUris: string[];    // file:// in queue dir (or web blob URLs)
+  capturedAt: string;    // ISO
+  attempts: number;
+  nextAttemptAt: number;
+  lastError?: string;
+};
+
+export type QueueItem = QueuePhotoItem | QueueNoteItem | QueueFlagItem;
 
 const QUEUE_KEY = "hp.upload-queue.v1";
 const QUEUE_DIR = `${FileSystem.documentDirectory ?? ""}queue/`;
@@ -177,6 +196,49 @@ export async function enqueueNote(args: { ticketId: string; body: string }): Pro
   return id;
 }
 
+export async function enqueueFlag(args: {
+  tag: string;
+  note: string | null;
+  propertyId: string | null;
+  ticketId: string | null;
+  sourceFileUris: string[]; // already resized + EXIF-stripped JPEGs
+  capturedAt?: Date;
+}): Promise<string> {
+  await ensureLoaded();
+  const id = genId();
+  const fileUris: string[] = [];
+  for (const src of args.sourceFileUris) {
+    if (Platform.OS === "web") {
+      fileUris.push(src);
+      continue;
+    }
+    try {
+      const dest = `${QUEUE_DIR}${id}-${fileUris.length}.jpg`;
+      await FileSystem.copyAsync({ from: src, to: dest });
+      fileUris.push(dest);
+    } catch {
+      fileUris.push(src);
+    }
+  }
+  const item: QueueFlagItem = {
+    kind: "flag",
+    id,
+    ticketId: args.ticketId ?? "",
+    tag: args.tag,
+    note: args.note,
+    propertyId: args.propertyId,
+    ticketLinkId: args.ticketId,
+    fileUris,
+    capturedAt: (args.capturedAt ?? new Date()).toISOString(),
+    attempts: 0,
+    nextAttemptAt: 0,
+  };
+  queue.push(item);
+  await persist();
+  void flush();
+  return id;
+}
+
 export async function removeItem(id: string): Promise<void> {
   await ensureLoaded();
   const idx = queue.findIndex((i) => i.id === id);
@@ -185,6 +247,12 @@ export async function removeItem(id: string): Promise<void> {
   queue.splice(idx, 1);
   if (item.kind === "photo" && item.fileUri.startsWith(QUEUE_DIR)) {
     try { await FileSystem.deleteAsync(item.fileUri, { idempotent: true }); } catch {}
+  } else if (item.kind === "flag") {
+    for (const uri of item.fileUris) {
+      if (uri.startsWith(QUEUE_DIR)) {
+        try { await FileSystem.deleteAsync(uri, { idempotent: true }); } catch {}
+      }
+    }
   }
   await persist();
 }
@@ -254,7 +322,10 @@ export function getStatus(): QueueStatus {
     const isFailing = item.attempts > 0 && item.nextAttemptAt > nowMs();
     if (isFailing) status.failing++;
     const bucket = (status.itemsByTicket[item.ticketId] ??= { photos: 0, notes: 0, failing: 0 });
-    if (item.kind === "photo") bucket.photos++; else bucket.notes++;
+    if (item.kind === "photo") bucket.photos++;
+    else if (item.kind === "note") bucket.notes++;
+    // flags are tracked in the queue but not surfaced in the per-ticket
+    // photo/note counters since they belong to the flags inbox, not the ticket.
     if (isFailing) bucket.failing++;
   }
   return status;
@@ -329,6 +400,35 @@ async function uploadNote(item: QueueNoteItem): Promise<void> {
   });
 }
 
+async function uploadFlag(item: QueueFlagItem): Promise<void> {
+  // Rebuild the multipart payload on every attempt so a retry after the
+  // process was killed still works (the file URIs survive across launches
+  // because they point into QUEUE_DIR).
+  const form = new FormData();
+  form.append("tag", item.tag);
+  if (item.note) form.append("note", item.note);
+  if (item.propertyId) form.append("propertyId", item.propertyId);
+  if (item.ticketLinkId) form.append("ticketId", item.ticketLinkId);
+  form.append("clientId", item.id);
+  for (let i = 0; i < item.fileUris.length; i++) {
+    const uri = item.fileUris[i];
+    if (Platform.OS === "web") {
+      const resp = await fetch(uri);
+      const blob = await resp.blob();
+      form.append("photos", blob, `flag-${i}.jpg`);
+    } else {
+      // RN-supported FormData file shape — TS doesn't model this on web's
+      // FormData type, hence the cast.
+      (form as unknown as { append: (n: string, v: unknown, fn?: string) => void }).append(
+        "photos",
+        { uri, name: `flag-${i}.jpg`, type: "image/jpeg" },
+        `flag-${i}.jpg`,
+      );
+    }
+  }
+  await apiRequest(`/api/m/flags`, { method: "POST", body: form as unknown as BodyInit });
+}
+
 function base64ToArrayBuffer(base64: string): ArrayBuffer {
   // Avoid relying on `atob` polyfills — use Buffer when available, manual
   // table decode otherwise.
@@ -361,13 +461,20 @@ async function flush(): Promise<void> {
       if (item.nextAttemptAt > now) continue;
       try {
         if (item.kind === "photo") await uploadPhoto(item);
-        else await uploadNote(item);
-        // Success — drop from queue (and clean up the file on disk).
+        else if (item.kind === "note") await uploadNote(item);
+        else await uploadFlag(item);
+        // Success — drop from queue (and clean up the file(s) on disk).
         const idx = queue.findIndex((i) => i.id === item.id);
         if (idx !== -1) {
           const removed = queue.splice(idx, 1)[0];
           if (removed.kind === "photo" && removed.fileUri.startsWith(QUEUE_DIR)) {
             try { await FileSystem.deleteAsync(removed.fileUri, { idempotent: true }); } catch {}
+          } else if (removed.kind === "flag") {
+            for (const uri of removed.fileUris) {
+              if (uri.startsWith(QUEUE_DIR)) {
+                try { await FileSystem.deleteAsync(uri, { idempotent: true }); } catch {}
+              }
+            }
           }
         }
         dirty = true;
@@ -390,6 +497,12 @@ async function flush(): Promise<void> {
             const removed = queue.splice(idx, 1)[0];
             if (removed.kind === "photo" && removed.fileUri.startsWith(QUEUE_DIR)) {
               try { await FileSystem.deleteAsync(removed.fileUri, { idempotent: true }); } catch {}
+            } else if (removed.kind === "flag") {
+              for (const uri of removed.fileUris) {
+                if (uri.startsWith(QUEUE_DIR)) {
+                  try { await FileSystem.deleteAsync(uri, { idempotent: true }); } catch {}
+                }
+              }
             }
           }
         }

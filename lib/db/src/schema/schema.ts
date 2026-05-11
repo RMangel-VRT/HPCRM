@@ -3328,3 +3328,58 @@ export const ticketNotes = pgTable("ticket_notes", {
 
 export type TicketNote = typeof ticketNotes.$inferSelect;
 export type InsertTicketNote = typeof ticketNotes.$inferInsert;
+
+// Mobile v1 Slice 4 — field flags. Short field reports posted from the
+// mobile app (irrigation issue, property damage, access problem, etc.) and
+// triaged by the office in the admin Flags inbox at /dashboard/flags.
+//
+// `tag` and `status` are stored as plain `text` rather than Postgres enums so
+// the FLAG_TAGS / FLAG_STATUSES list (lib/db/src/flag-tags.ts) can grow
+// without an enum-altering migration.
+export const flags = pgTable("flags", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  companyId: varchar("company_id").notNull().references(() => companies.id, { onDelete: "cascade" }),
+  createdByUserId: varchar("created_by_user_id").references(() => users.id, { onDelete: "set null" }),
+  crewId: varchar("crew_id").references(() => crews.id, { onDelete: "set null" }),
+  // Property = customers row (the CRM uses `customers` for both customers
+  // and individual properties). Optional; a flag can be raised without one.
+  propertyId: varchar("property_id").references(() => customers.id, { onDelete: "set null" }),
+  ticketId: varchar("ticket_id").references(() => tickets.id, { onDelete: "set null" }),
+  tag: text("tag").notNull(),
+  note: text("note"),
+  status: text("status").notNull().default("new"),
+  assignedToUserId: varchar("assigned_to_user_id").references(() => users.id, { onDelete: "set null" }),
+  resolution: text("resolution"),
+  resolvedAt: timestamp("resolved_at"),
+  clientId: varchar("client_id"),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  updatedAt: timestamp("updated_at").notNull().defaultNow(),
+}, (table) => ({
+  flagsCompanyStatusCreatedIdx: index("flags_company_status_created_idx").on(
+    table.companyId, table.status, table.createdAt,
+  ),
+  flagsCompanyCreatedIdx: index("flags_company_created_idx").on(table.companyId, table.createdAt),
+}));
+
+export type Flag = typeof flags.$inferSelect;
+export type InsertFlag = typeof flags.$inferInsert;
+
+export const flagPhotos = pgTable("flag_photos", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  companyId: varchar("company_id").notNull().references(() => companies.id, { onDelete: "cascade" }),
+  flagId: varchar("flag_id").notNull().references(() => flags.id, { onDelete: "cascade" }),
+  uploadedByUserId: varchar("uploaded_by_user_id").references(() => users.id, { onDelete: "set null" }),
+  storageKey: text("storage_key").notNull(),
+  contentType: text("content_type").notNull().default("image/jpeg"),
+  byteSize: integer("byte_size"),
+  width: integer("width"),
+  height: integer("height"),
+  capturedAt: timestamp("captured_at").notNull().defaultNow(),
+  clientId: varchar("client_id"),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+}, (table) => ({
+  flagPhotosFlagIdx: index("flag_photos_flag_idx").on(table.flagId, table.createdAt),
+}));
+
+export type FlagPhoto = typeof flagPhotos.$inferSelect;
+export type InsertFlagPhoto = typeof flagPhotos.$inferInsert;

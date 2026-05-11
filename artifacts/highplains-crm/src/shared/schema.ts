@@ -3044,3 +3044,19 @@ export const insertMailboxBackfillRunSchema = createInsertSchema(mailboxBackfill
 
 export type InsertMailboxBackfillRun = z.infer<typeof insertMailboxBackfillRunSchema>;
 export type MailboxBackfillRun = typeof mailboxBackfillRuns.$inferSelect;
+
+// Mobile v1 Slice 4 — flag tag taxonomy (mirrors lib/db/src/flag-tags.ts).
+export const FLAG_TAGS = [
+  { value: "irrigation_issue",     label: "Irrigation issue",     color: "#2563eb" },
+  { value: "property_damage",      label: "Property damage",      color: "#dc2626" },
+  { value: "access_problem",       label: "Access problem",       color: "#d97706" },
+  { value: "customer_interaction", label: "Customer interaction", color: "#7c3aed" },
+  { value: "material_needed",      label: "Material needed",      color: "#0d9488" },
+  { value: "safety_concern",       label: "Safety concern",       color: "#b91c1c" },
+  { value: "question",             label: "Question",             color: "#475569" },
+  { value: "other",                label: "Other",                color: "#6b7280" },
+] as const;
+export type FlagTag = (typeof FLAG_TAGS)[number]["value"];
+export const FLAG_STATUSES = ["new", "acknowledged", "in_progress", "resolved", "dismissed"] as const;
+export type FlagStatus = (typeof FLAG_STATUSES)[number];
+export const FLAG_NOTE_MAX_LENGTH = 280;

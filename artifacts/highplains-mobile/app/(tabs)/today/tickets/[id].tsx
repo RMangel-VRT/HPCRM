@@ -1,6 +1,6 @@
 import { Feather } from "@expo/vector-icons";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useLocalSearchParams, useNavigation } from "expo-router";
+import { useLocalSearchParams, useNavigation, useRouter } from "expo-router";
 import * as ImageManipulator from "expo-image-manipulator";
 import * as ImagePicker from "expo-image-picker";
 import React, { useCallback, useLayoutEffect, useMemo, useState } from "react";
@@ -136,11 +136,53 @@ export default function TicketDetailScreen() {
     staleTime: 15_000,
   });
 
-  useLayoutEffect(() => {
-    navigation.setOptions({ title: query.data?.title ?? "Ticket" });
-  }, [navigation, query.data?.title]);
-
   const data = query.data;
+
+  const router = useRouter();
+  const onPressFlag = useCallback(() => {
+    router.push({
+      pathname: "/flag/new",
+      params: {
+        ticketId,
+        ...(data?.customer?.id ? { propertyId: data.customer.id } : {}),
+        ...(data?.customer?.name ? { propertyName: data.customer.name } : {}),
+      },
+    });
+  }, [router, ticketId, data?.customer?.id, data?.customer?.name]);
+
+  // Slice 4: every mobile screen exposes a "+ Flag" affordance. The
+  // tabs layout already adds one to the tab header, but ticket detail
+  // pushes its own stack header (today/_layout.tsx) so we wire a
+  // headerRight here too. Pre-fills ticket + property context.
+  useLayoutEffect(() => {
+    navigation.setOptions({
+      title: query.data?.title ?? "Ticket",
+      headerRight: () => (
+        <Pressable
+          onPress={onPressFlag}
+          accessibilityRole="button"
+          accessibilityLabel={t("flag.add")}
+          hitSlop={10}
+          style={({ pressed }) => [
+            {
+              flexDirection: "row",
+              alignItems: "center",
+              gap: 4,
+              paddingHorizontal: 10,
+              paddingVertical: 6,
+              borderRadius: 14,
+              backgroundColor: colors.primary,
+              opacity: pressed ? 0.85 : 1,
+              marginRight: 8,
+            },
+          ]}
+        >
+          <Feather name="flag" size={13} color={colors.primaryForeground} />
+          <Feather name="plus" size={13} color={colors.primaryForeground} />
+        </Pressable>
+      ),
+    });
+  }, [navigation, query.data?.title, onPressFlag, t, colors.primary, colors.primaryForeground]);
 
   const patchItemMutation = useMutation({
     mutationFn: async (vars: {
@@ -314,13 +356,6 @@ export default function TicketDetailScreen() {
     patchItemMutation.mutate({ id: item.id, isComplete: !item.isComplete });
   };
 
-  const onPressFlag = useCallback(() => {
-    // Slice 4 will wire this to a real `/api/m/flags` endpoint. For now we
-    // surface the same coming-soon affordance the Today screen uses so the
-    // crew sees the entry point and the office knows where it'll live.
-    Alert.alert(t("flag.comingSoonTitle"), t("flag.comingSoonBody"));
-  }, [t]);
-
   const requiredMissingCount = useMemo(() => {
     if (!data) return 0;
     return data.workItems.filter(
@@ -351,7 +386,7 @@ export default function TicketDetailScreen() {
       hasSessionPhoto(
         data?.startedAt ?? null,
         serverPhotosQuery.data ?? [],
-        ticketQueueItems,
+        ticketQueueItems.filter((q): q is QueuePhotoItem | QueueNoteItem => q.kind !== "flag"),
       ),
     [data?.startedAt, serverPhotosQuery.data, ticketQueueItems],
   );

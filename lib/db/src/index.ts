@@ -17,3 +17,4 @@ export * from "./schema";
 export * from "./required-extensions";
 export * from "./password";
 export * from "./legacy-chem-email-keys";
+export * from "./flag-tags";

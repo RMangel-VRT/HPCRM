@@ -71,6 +71,8 @@ const MailboxAccountsSettingsPage = lazy(() => import("@/pages/MailboxAccountsSe
 const MyMailboxPage = lazy(() => import("@/pages/MyMailboxPage"));
 const SharedMailboxesAndOversightPage = lazy(() => import("@/pages/SharedMailboxesAndOversightPage"));
 const ChemicalNotificationTemplates = lazy(() => import("@/pages/ChemicalNotificationTemplates"));
+const FlagsInboxPage = lazy(() => import("@/pages/FlagsInboxPage"));
+const FlagDetailPage = lazy(() => import("@/pages/FlagDetailPage"));
 
 interface ErrorBoundaryProps {
   children: ReactNode;
@@ -285,6 +287,8 @@ function Router() {
         <ProtectedRoute path="/dashboard/contracts" component={ContractsOverview} allowedRoles={["admin", "office"]} />
         <ProtectedRoute path="/dashboard/revenue" component={RevenueOverview} allowedRoles={["admin", "office"]} />
         <ProtectedRoute path="/dashboard/notifications" component={NotificationsPage} allowedRoles={["admin", "office", ...allFieldRoles]} />
+        <ProtectedRoute path="/dashboard/flags/:id" component={FlagDetailPage} allowedRoles={["admin", "office"]} />
+        <ProtectedRoute path="/dashboard/flags" component={FlagsInboxPage} allowedRoles={["admin", "office"]} />
         <ProtectedRoute
           path="/dashboard/campaigns/:id/items/:itemId"
           component={CampaignItemDetail}
