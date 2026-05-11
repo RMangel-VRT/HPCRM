@@ -27,6 +27,7 @@ import { useColors } from "@/hooks/useColors";
 import { useT } from "@/i18n";
 import { ApiError, apiRequest } from "@/lib/api";
 import {
+  enqueueJsonMutation,
   enqueueNote,
   enqueuePhoto,
   removeItem,
@@ -137,6 +138,9 @@ export default function TicketDetailScreen() {
   });
 
   const data = query.data;
+  // Slice 7: queued-JSON rejection rollback (invalidate + alert) is now
+  // handled globally in app/_layout.tsx so it fires whether or not this
+  // screen is mounted when the queue drains.
 
   const router = useRouter();
   const onPressFlag = useCallback(() => {
@@ -195,10 +199,26 @@ export default function TicketDetailScreen() {
       if (vars.isComplete !== undefined) body.isComplete = vars.isComplete;
       if (vars.skipReason !== undefined) body.skipReason = vars.skipReason;
       if (vars.skipNote !== undefined) body.skipNote = vars.skipNote;
-      return apiRequest<WorkItem>(`/api/m/work-items/${vars.id}`, {
-        method: "PATCH",
-        body: JSON.stringify(body),
-      });
+      try {
+        return await apiRequest<WorkItem>(`/api/m/work-items/${vars.id}`, {
+          method: "PATCH",
+          body: JSON.stringify(body),
+        });
+      } catch (err) {
+        // ApiError → real server response (4xx/5xx); let onError handle it
+        // (e.g. PHOTO_REQUIRED rollback). Anything else is a network failure
+        // — enqueue and keep the optimistic UI in place; the queue worker
+        // will retry once we're back online.
+        if (err instanceof ApiError) throw err;
+        await enqueueJsonMutation({
+          ticketId,
+          op: "workItemPatch",
+          method: "PATCH",
+          path: `/api/m/work-items/${vars.id}`,
+          body,
+        });
+        return null;
+      }
     },
     onMutate: async (vars) => {
       setPendingItemId(vars.id);
@@ -246,27 +266,51 @@ export default function TicketDetailScreen() {
             ? { ...prev, workItems: prev.workItems.map((w) => (w.id === updated.id ? updated : w)) }
             : prev,
         );
-      } else {
-        queryClient.invalidateQueries({ queryKey: ticketKey(ticketId) });
       }
+      // Note: we deliberately don't invalidate here on a null result — that
+      // would clobber the offline-optimistic cache while the queued PATCH is
+      // still in flight. The queue worker invalidates via successListeners on
+      // the next online tick.
     },
   });
 
   const completeMutation = useMutation({
     mutationFn: async (vars: { overrideMissing?: boolean; overrideNote?: string }) => {
-      return apiRequest<{
-        id: string;
-        mobileStatus: MobileStopStatus;
-        completedAt: string | null;
-        completionOverrideNote: string | null;
-      }>(`/api/m/tickets/${ticketId}/complete`, {
-        method: "POST",
-        body: JSON.stringify({
-          completionNotes: completionNotes.trim() || undefined,
-          overrideMissing: vars.overrideMissing ?? false,
-          overrideNote: vars.overrideNote ?? undefined,
-        }),
-      });
+      const body = {
+        completionNotes: completionNotes.trim() || undefined,
+        overrideMissing: vars.overrideMissing ?? false,
+        overrideNote: vars.overrideNote ?? undefined,
+      };
+      try {
+        return await apiRequest<{
+          id: string;
+          mobileStatus: MobileStopStatus;
+          completedAt: string | null;
+          completionOverrideNote: string | null;
+        }>(`/api/m/tickets/${ticketId}/complete`, {
+          method: "POST",
+          body: JSON.stringify(body),
+        });
+      } catch (err) {
+        // Real server response (e.g. 409 MISSING_REQUIRED) → re-throw so
+        // onError can show the override modal. Network failure → queue and
+        // optimistically synthesize a "complete" response; the worker will
+        // re-POST once we're online.
+        if (err instanceof ApiError) throw err;
+        await enqueueJsonMutation({
+          ticketId,
+          op: "ticketComplete",
+          method: "POST",
+          path: `/api/m/tickets/${ticketId}/complete`,
+          body,
+        });
+        return {
+          id: ticketId,
+          mobileStatus: "complete" as MobileStopStatus,
+          completedAt: new Date().toISOString(),
+          completionOverrideNote: vars.overrideNote ?? null,
+        };
+      }
     },
     onSuccess: (resp) => {
       setMissing(null);

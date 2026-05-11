@@ -19,6 +19,7 @@ import { useAuth } from "@/contexts/AuthContext";
 import { useColors } from "@/hooks/useColors";
 import { useT } from "@/i18n";
 import { ApiError, apiRequest } from "@/lib/api";
+import { warmSyncFromAggregator } from "@/lib/persisted-query-client";
 
 type TodayStop = {
   id: string;
@@ -311,7 +312,14 @@ export default function TodayScreen() {
       refreshControl={
         <RefreshControl
           refreshing={query.isFetching && !isInitialLoading}
-          onRefresh={() => query.refetch()}
+          onRefresh={() => {
+            // Pull-to-refresh — warm every m-* cache from /api/m/sync first
+            // (cheap on the server, populates Week + Recent + Me alongside
+            // Today), then refetch this screen so any hydration mismatch
+            // resolves immediately.
+            void warmSyncFromAggregator();
+            void query.refetch();
+          }}
           tintColor={colors.primary}
           colors={[colors.primary]}
         />

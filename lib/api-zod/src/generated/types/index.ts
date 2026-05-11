@@ -34,6 +34,8 @@ export * from "./mobileSession";
 export * from "./mobileSiteNote";
 export * from "./mobileSiteNotes";
 export * from "./mobileStopStatus";
+export * from "./mobileSyncAggregator";
+export * from "./mobileSyncRecentProperty";
 export * from "./mobileTicketCompletion";
 export * from "./mobileTicketCustomer";
 export * from "./mobileTicketDetail";

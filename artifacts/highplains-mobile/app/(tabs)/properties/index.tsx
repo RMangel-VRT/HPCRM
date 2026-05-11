@@ -3,7 +3,6 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useFocusEffect, useRouter } from "expo-router";
 import React, { useCallback, useEffect, useMemo, useState } from "react";
 import {
-  ActivityIndicator,
   Pressable,
   RefreshControl,
   SectionList,
@@ -177,9 +176,42 @@ export default function PropertiesScreen() {
           </Pressable>
         ) : null}
       </View>
-      {query.isLoading ? (
-        <View style={[styles.center, { backgroundColor: colors.background }]}>
-          <ActivityIndicator color={colors.primary} />
+      {query.isLoading && !query.data ? (
+        <View style={styles.skeletonWrap}>
+          {[0, 1, 2, 3, 4].map((i) => (
+            <View
+              key={i}
+              style={[
+                styles.skeletonRow,
+                { backgroundColor: colors.card, borderColor: colors.border, opacity: 1 - i * 0.12 },
+              ]}
+            >
+              <View style={{ flex: 1, gap: 8 }}>
+                <View style={[styles.skeletonLine, { backgroundColor: colors.muted, width: "60%" }]} />
+                <View style={[styles.skeletonLine, { backgroundColor: colors.muted, width: "40%", height: 10 }]} />
+              </View>
+            </View>
+          ))}
+        </View>
+      ) : query.isError && !query.data ? (
+        <View style={[styles.empty, { backgroundColor: colors.card, borderColor: colors.border }]}>
+          <Text style={[styles.emptyTitle, { color: colors.destructive }]}>{t("common.error")}</Text>
+          <Text style={[styles.emptyBody, { color: colors.mutedForeground }]}>
+            {t("properties.empty.body")}
+          </Text>
+          <Pressable
+            onPress={() => query.refetch()}
+            accessibilityRole="button"
+            hitSlop={10}
+            style={({ pressed }) => [
+              styles.retryBtn,
+              { backgroundColor: colors.primary, opacity: pressed ? 0.85 : 1 },
+            ]}
+          >
+            <Text style={[styles.retryText, { color: colors.primaryForeground }]}>
+              {t("common.retry")}
+            </Text>
+          </Pressable>
         </View>
       ) : (
         <SectionList
@@ -257,4 +289,26 @@ const styles = StyleSheet.create({
   empty: { margin: 20, padding: 20, borderWidth: 1, borderRadius: 16, gap: 8 },
   emptyTitle: { fontFamily: "Inter_600SemiBold", fontSize: 17 },
   emptyBody: { fontFamily: "Inter_400Regular", fontSize: 14, lineHeight: 20 },
+  skeletonWrap: { padding: 12, gap: 8 },
+  skeletonRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    paddingHorizontal: 16,
+    paddingVertical: 14,
+    marginHorizontal: 4,
+    borderRadius: 12,
+    borderWidth: 1,
+    minHeight: 56,
+  },
+  skeletonLine: { height: 12, borderRadius: 6 },
+  retryBtn: {
+    marginTop: 12,
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+    borderRadius: 10,
+    alignSelf: "flex-start",
+    minHeight: 44,
+    justifyContent: "center",
+  },
+  retryText: { fontFamily: "Inter_600SemiBold", fontSize: 13 },
 });

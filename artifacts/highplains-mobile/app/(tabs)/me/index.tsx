@@ -219,8 +219,43 @@ export default function MeScreen() {
         <Text style={[styles.sectionTitle, { color: colors.foreground }]}>
           {t("me.recent.title")}
         </Text>
-        {recentQuery.isLoading ? (
-          <ActivityIndicator color={colors.primary} style={{ marginTop: 12 }} />
+        {recentQuery.isLoading && !recentQuery.data ? (
+          <View style={{ marginTop: 6 }}>
+            {[0, 1, 2].map((i) => (
+              <View
+                key={i}
+                style={[
+                  styles.recentRow,
+                  { opacity: 1 - i * 0.2 },
+                ]}
+              >
+                <View style={[styles.skelDot, { backgroundColor: colors.muted }]} />
+                <View style={{ flex: 1, gap: 6 }}>
+                  <View style={[styles.skelLine, { backgroundColor: colors.muted, width: "70%" }]} />
+                  <View style={[styles.skelLine, { backgroundColor: colors.muted, width: "45%", height: 10 }]} />
+                </View>
+              </View>
+            ))}
+          </View>
+        ) : recentQuery.isError && !recentQuery.data ? (
+          <View style={{ marginTop: 6, gap: 8 }}>
+            <Text style={[styles.meta, { color: colors.destructive }]}>
+              {t("common.error")}
+            </Text>
+            <Pressable
+              onPress={() => recentQuery.refetch()}
+              accessibilityRole="button"
+              hitSlop={10}
+              style={({ pressed }) => [
+                styles.retryBtnInline,
+                { backgroundColor: colors.primary, opacity: pressed ? 0.85 : 1 },
+              ]}
+            >
+              <Text style={{ color: colors.primaryForeground, fontFamily: "Inter_600SemiBold", fontSize: 12 }}>
+                {t("common.retry")}
+              </Text>
+            </Pressable>
+          </View>
         ) : (recentQuery.data?.items ?? []).length === 0 ? (
           <Text style={[styles.meta, { color: colors.mutedForeground, marginTop: 6 }]}>
             {t("me.recent.empty")}
@@ -354,7 +389,21 @@ function WeekStrip({
         {t("me.week.title")}
       </Text>
       {loading && !data ? (
-        <ActivityIndicator color={colors.primary} style={{ marginTop: 12 }} />
+        <View style={[styles.weekRow, { marginTop: 10 }]}>
+          {[0, 1, 2, 3, 4, 5, 6].map((i) => (
+            <View
+              key={i}
+              style={[
+                styles.weekCell,
+                { borderColor: colors.border, opacity: 0.6 },
+              ]}
+            >
+              <View style={[styles.skelLine, { backgroundColor: colors.muted, width: 24, height: 8 }]} />
+              <View style={[styles.skelLine, { backgroundColor: colors.muted, width: 16, height: 14, marginTop: 4 }]} />
+              <View style={[styles.skelLine, { backgroundColor: colors.muted, width: 14, height: 8, marginTop: 4 }]} />
+            </View>
+          ))}
+        </View>
       ) : !data || data.days.every((d) => d.total === 0) ? (
         <Text style={[styles.meta, { color: colors.mutedForeground, marginTop: 6 }]}>
           {t("me.week.empty")}
@@ -489,4 +538,14 @@ const styles = StyleSheet.create({
   },
   linkTitle: { fontFamily: "Inter_600SemiBold", fontSize: 15 },
   linkSub: { fontFamily: "Inter_400Regular", fontSize: 12, marginTop: 2 },
+  skelDot: { width: 18, height: 18, borderRadius: 9 },
+  skelLine: { height: 12, borderRadius: 6 },
+  retryBtnInline: {
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+    borderRadius: 10,
+    alignSelf: "flex-start",
+    minHeight: 36,
+    justifyContent: "center",
+  },
 });

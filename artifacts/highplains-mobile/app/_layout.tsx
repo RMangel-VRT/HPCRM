@@ -5,10 +5,11 @@ import {
   Inter_700Bold,
   useFonts,
 } from "@expo-google-fonts/inter";
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { PersistQueryClientProvider } from "@tanstack/react-query-persist-client";
 import { Stack, useRouter, useSegments } from "expo-router";
 import * as SplashScreen from "expo-splash-screen";
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
+import { Alert, AppState, type AppStateStatus } from "react-native";
 import { GestureHandlerRootView } from "react-native-gesture-handler";
 import { KeyboardProvider } from "react-native-keyboard-controller";
 import { SafeAreaProvider } from "react-native-safe-area-context";
@@ -16,21 +17,48 @@ import { SafeAreaProvider } from "react-native-safe-area-context";
 import { ErrorBoundary } from "@/components/ErrorBoundary";
 import { AuthProvider, useAuth } from "@/contexts/AuthContext";
 import { useColors } from "@/hooks/useColors";
+import { useT } from "@/i18n";
 import { loadInitialLang } from "@/i18n";
+import { installNetworkBridge, useOnline } from "@/lib/network";
+import { persistOptions, queryClient, warmSyncFromAggregator } from "@/lib/persisted-query-client";
+import { onItemFailed } from "@/lib/upload-queue";
 
 SplashScreen.preventAutoHideAsync();
 
-const queryClient = new QueryClient({
-  defaultOptions: {
-    queries: { retry: 1, refetchOnWindowFocus: false, staleTime: 30_000 },
-  },
-});
+// Mirror device connectivity into React Query + the upload queue. Safe to
+// call at module init — installs once.
+installNetworkBridge();
 
 function AuthGate() {
   const { user, loading } = useAuth();
   const segments = useSegments();
   const router = useRouter();
   const colors = useColors();
+  const online = useOnline();
+  const { t } = useT();
+  const lastWarmedAt = useRef(0);
+
+  // Slice 7: app-level handler for queued JSON mutations the server
+  // permanently rejects (4xx on replay). This must live above any
+  // particular screen so the rollback + user-facing error fire even if
+  // the supervisor isn't on the affected ticket when the queue drains
+  // (e.g. they enqueued a complete on ticket A then walked to ticket B
+  // while still offline). We invalidate the affected ticket and the
+  // Today list so any optimistic state revisits the server, and Alert
+  // the original message so the supervisor knows to act.
+  useEffect(() => {
+    return onItemFailed((it, err) => {
+      if (it.kind !== "json") return;
+      void queryClient.invalidateQueries({ queryKey: ["m-ticket", it.ticketId] });
+      void queryClient.invalidateQueries({ queryKey: ["m-today"] });
+      const serverMsg =
+        err.body && typeof err.body === "object" && "message" in err.body
+          && typeof (err.body as { message: unknown }).message === "string"
+          ? (err.body as { message: string }).message
+          : err.message;
+      Alert.alert(t("common.error"), serverMsg || t("header.queue.rejected"));
+    });
+  }, [t]);
 
   useEffect(() => {
     if (loading) return;
@@ -41,6 +69,25 @@ function AuthGate() {
       router.replace("/(tabs)/today");
     }
   }, [user, loading, segments, router]);
+
+  // Slice 7: warm every m-* React Query cache from /api/m/sync in one
+  // round-trip on (a) successful login and (b) app foreground transitions.
+  // Throttled to once per 30s so a quick background→foreground bounce
+  // doesn't hammer the API.
+  useEffect(() => {
+    if (!user || !online) return;
+    const warm = () => {
+      const now = Date.now();
+      if (now - lastWarmedAt.current < 30_000) return;
+      lastWarmedAt.current = now;
+      void warmSyncFromAggregator();
+    };
+    warm();
+    const sub = AppState.addEventListener("change", (s: AppStateStatus) => {
+      if (s === "active") warm();
+    });
+    return () => sub.remove();
+  }, [user, online]);
 
   return (
     <Stack
@@ -82,7 +129,7 @@ export default function RootLayout() {
   return (
     <SafeAreaProvider>
       <ErrorBoundary>
-        <QueryClientProvider client={queryClient}>
+        <PersistQueryClientProvider client={queryClient} persistOptions={persistOptions}>
           <GestureHandlerRootView style={{ flex: 1 }}>
             <KeyboardProvider>
               <AuthProvider>
@@ -90,7 +137,7 @@ export default function RootLayout() {
               </AuthProvider>
             </KeyboardProvider>
           </GestureHandlerRootView>
-        </QueryClientProvider>
+        </PersistQueryClientProvider>
       </ErrorBoundary>
     </SafeAreaProvider>
   );

@@ -39,6 +39,7 @@ import type {
   MobilePushUnsubscribeRequest,
   MobileRecentCompletionsResponse,
   MobileSession,
+  MobileSyncAggregator,
   MobileTicketCompletion,
   MobileTicketDetail,
   MobileTicketNote,
@@ -845,6 +846,86 @@ export const useMobileMeRemovePushSubscription = <
 > => {
   return useMutation(getMobileMeRemovePushSubscriptionMutationOptions(options));
 };
+
+/**
+ * One round-trip warm-up used by the mobile app on app foreground and
+on Today pull-to-refresh. The response is a superset of /m/today,
+/m/me/week, /m/me/recent-completions, and /m/me so the client can
+seed every `m-*` React Query key from one call.
+
+ * @summary Slice 7 aggregator — today + week + recent properties + me
+ */
+export const getMobileSyncUrl = () => {
+  return `/api/m/sync`;
+};
+
+export const mobileSync = async (
+  options?: RequestInit,
+): Promise<MobileSyncAggregator> => {
+  return customFetch<MobileSyncAggregator>(getMobileSyncUrl(), {
+    ...options,
+    method: "GET",
+  });
+};
+
+export const getMobileSyncQueryKey = () => {
+  return [`/api/m/sync`] as const;
+};
+
+export const getMobileSyncQueryOptions = <
+  TData = Awaited<ReturnType<typeof mobileSync>>,
+  TError = ErrorType<ErrorResponse>,
+>(options?: {
+  query?: UseQueryOptions<
+    Awaited<ReturnType<typeof mobileSync>>,
+    TError,
+    TData
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}) => {
+  const { query: queryOptions, request: requestOptions } = options ?? {};
+
+  const queryKey = queryOptions?.queryKey ?? getMobileSyncQueryKey();
+
+  const queryFn: QueryFunction<Awaited<ReturnType<typeof mobileSync>>> = ({
+    signal,
+  }) => mobileSync({ signal, ...requestOptions });
+
+  return { queryKey, queryFn, ...queryOptions } as UseQueryOptions<
+    Awaited<ReturnType<typeof mobileSync>>,
+    TError,
+    TData
+  > & { queryKey: QueryKey };
+};
+
+export type MobileSyncQueryResult = NonNullable<
+  Awaited<ReturnType<typeof mobileSync>>
+>;
+export type MobileSyncQueryError = ErrorType<ErrorResponse>;
+
+/**
+ * @summary Slice 7 aggregator — today + week + recent properties + me
+ */
+
+export function useMobileSync<
+  TData = Awaited<ReturnType<typeof mobileSync>>,
+  TError = ErrorType<ErrorResponse>,
+>(options?: {
+  query?: UseQueryOptions<
+    Awaited<ReturnType<typeof mobileSync>>,
+    TError,
+    TData
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+  const queryOptions = getMobileSyncQueryOptions(options);
+
+  const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
+    queryKey: QueryKey;
+  };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
 
 /**
  * @summary Today's stops for the authenticated supervisor's crew

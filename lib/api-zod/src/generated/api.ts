@@ -226,6 +226,196 @@ export const MobileMeRemovePushSubscriptionResponse = zod.object({
 });
 
 /**
+ * One round-trip warm-up used by the mobile app on app foreground and
+on Today pull-to-refresh. The response is a superset of /m/today,
+/m/me/week, /m/me/recent-completions, and /m/me so the client can
+seed every `m-*` React Query key from one call.
+
+ * @summary Slice 7 aggregator — today + week + recent properties + me
+ */
+export const mobileSyncResponseWeekDaysItemTotalMin = 0;
+
+export const mobileSyncResponseWeekDaysItemCompleteMin = 0;
+
+export const mobileSyncResponseWeekDaysItemFlaggedMin = 0;
+
+export const mobileSyncResponseTicketsItemPhotosCountMin = 0;
+
+export const mobileSyncResponseTicketsItemNotesCountMin = 0;
+
+export const mobileSyncResponseMePushDeviceCountMin = 0;
+
+export const MobileSyncResponse = zod
+  .object({
+    today: zod.object({
+      date: zod.string(),
+      crewId: zod.string().nullish(),
+      crewName: zod.string().nullish(),
+      summary: zod.object({
+        total: zod.number(),
+        notStarted: zod.number(),
+        inProgress: zod.number(),
+        complete: zod.number(),
+        skipped: zod.number(),
+        flagged: zod.number(),
+      }),
+      stops: zod.array(
+        zod.object({
+          id: zod.string(),
+          title: zod.string(),
+          priority: zod.enum(["low", "normal", "high", "urgent"]),
+          mobileStatus: zod.enum([
+            "not_started",
+            "in_progress",
+            "complete",
+            "skipped",
+            "flagged",
+          ]),
+          routeOrder: zod.number().nullish(),
+          dueDate: zod.coerce.date().nullish(),
+          startedAt: zod.coerce.date().nullish(),
+          completedAt: zod.coerce.date().nullish(),
+          customerName: zod.string().nullish(),
+          customerAddress: zod.string().nullish(),
+          locationLabel: zod.string().nullish(),
+        }),
+      ),
+    }),
+    week: zod.object({
+      startDate: zod.string(),
+      endDate: zod.string(),
+      crewId: zod.string().nullish(),
+      days: zod.array(
+        zod.object({
+          date: zod.string().describe("YYYY-MM-DD (server-local)"),
+          total: zod.number().min(mobileSyncResponseWeekDaysItemTotalMin),
+          complete: zod.number().min(mobileSyncResponseWeekDaysItemCompleteMin),
+          flagged: zod.number().min(mobileSyncResponseWeekDaysItemFlaggedMin),
+        }),
+      ),
+    }),
+    tickets: zod
+      .array(
+        zod.object({
+          id: zod.string(),
+          title: zod.string(),
+          description: zod.string().nullish(),
+          priority: zod.enum(["low", "normal", "high", "urgent"]),
+          mobileStatus: zod.enum([
+            "not_started",
+            "in_progress",
+            "complete",
+            "skipped",
+            "flagged",
+          ]),
+          serviceType: zod.string().nullish(),
+          dueDate: zod.coerce.date().nullish(),
+          startedAt: zod.coerce.date().nullish(),
+          completedAt: zod.coerce.date().nullish(),
+          completionNotes: zod.string().nullish(),
+          completionOverrideNote: zod.string().nullish(),
+          locationLabel: zod.string().nullish(),
+          locationLat: zod.number().nullish(),
+          locationLng: zod.number().nullish(),
+          customer: zod
+            .union([
+              zod.object({
+                id: zod.string(),
+                name: zod.string(),
+                address: zod.string().nullish(),
+                locationLat: zod.number().nullish(),
+                locationLng: zod.number().nullish(),
+              }),
+              zod.null(),
+            ])
+            .optional(),
+          siteNotes: zod.array(
+            zod.object({
+              id: zod.string(),
+              label: zod.string(),
+              value: zod.string(),
+              serviceType: zod.string().nullish(),
+              sortOrder: zod.number(),
+            }),
+          ),
+          workItems: zod.array(
+            zod.object({
+              id: zod.string(),
+              ticketId: zod.string(),
+              label: zod.string(),
+              instruction: zod.string().nullish(),
+              photoRequired: zod.boolean(),
+              sortOrder: zod.number(),
+              isRequired: zod.boolean(),
+              isComplete: zod.boolean(),
+              completedAt: zod.coerce.date().nullish(),
+              completedById: zod.string().nullish(),
+              skipReason: zod.string().nullish(),
+              skipNote: zod.string().nullish(),
+            }),
+          ),
+          photosCount: zod
+            .number()
+            .min(mobileSyncResponseTicketsItemPhotosCountMin),
+          notesCount: zod
+            .number()
+            .min(mobileSyncResponseTicketsItemNotesCountMin),
+        }),
+      )
+      .describe(
+        "Full per-ticket detail payloads for every stop on today's route, identical in shape to GET \/m\/tickets\/{id} responses. Lets the mobile client warm the m-ticket cache so unopened tickets still have site notes + work items available offline.",
+      ),
+    recentProperties: zod.array(
+      zod.object({
+        id: zod.string(),
+        name: zod.string().nullish(),
+        address: zod.string().nullish(),
+      }),
+    ),
+    me: zod.object({
+      id: zod.string(),
+      name: zod.string(),
+      email: zod.string().nullish(),
+      phone: zod.string().nullish(),
+      language: zod.enum(["en", "es"]).nullish(),
+      activeCompanyId: zod.string(),
+      activeRole: zod.enum([
+        "admin",
+        "office",
+        "field_manager",
+        "chemical_manager",
+        "field",
+        "irrigation_manager",
+        "shop_manager",
+        "mapping",
+        "landscape_supervisor",
+        "crew_supervisor",
+      ]),
+      isSuperAdminBool: zod.boolean().optional(),
+      crewId: zod
+        .string()
+        .nullish()
+        .describe("Active crew ID when the user supervises one (Slice 6+)."),
+      crewName: zod.string().nullish(),
+      notificationPrefs: zod
+        .object({
+          newTicketAssignment: zod.boolean(),
+          ticketReassignment: zod.boolean(),
+          flagResponse: zod.boolean(),
+        })
+        .optional(),
+      pushDeviceCount: zod
+        .number()
+        .min(mobileSyncResponseMePushDeviceCountMin)
+        .optional()
+        .describe(
+          "Number of Expo push tokens currently registered for this user.",
+        ),
+    }),
+  })
+  .describe("Aggregated payload returned by GET \/m\/sync.");
+
+/**
  * @summary Today's stops for the authenticated supervisor's crew
  */
 export const MobileTodayResponse = zod.object({

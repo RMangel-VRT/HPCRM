@@ -101,6 +101,141 @@ export interface MobileRecentCompletionsResponse {
   items: MobileRecentCompletion[];
 }
 
+export interface MobileSyncRecentProperty {
+  id: string;
+  name?: string | null;
+  address?: string | null;
+}
+
+export interface MobileTodaySummary {
+  total: number;
+  notStarted: number;
+  inProgress: number;
+  complete: number;
+  skipped: number;
+  flagged: number;
+}
+
+export type MobileTodayStopPriority =
+  (typeof MobileTodayStopPriority)[keyof typeof MobileTodayStopPriority];
+
+export const MobileTodayStopPriority = {
+  low: "low",
+  normal: "normal",
+  high: "high",
+  urgent: "urgent",
+} as const;
+
+export type MobileStopStatus =
+  (typeof MobileStopStatus)[keyof typeof MobileStopStatus];
+
+export const MobileStopStatus = {
+  not_started: "not_started",
+  in_progress: "in_progress",
+  complete: "complete",
+  skipped: "skipped",
+  flagged: "flagged",
+} as const;
+
+export interface MobileTodayStop {
+  id: string;
+  title: string;
+  priority: MobileTodayStopPriority;
+  mobileStatus: MobileStopStatus;
+  routeOrder?: number | null;
+  dueDate?: string | null;
+  startedAt?: string | null;
+  completedAt?: string | null;
+  customerName?: string | null;
+  customerAddress?: string | null;
+  locationLabel?: string | null;
+}
+
+export interface MobileToday {
+  date: string;
+  crewId?: string | null;
+  crewName?: string | null;
+  summary: MobileTodaySummary;
+  stops: MobileTodayStop[];
+}
+
+export type MobileTicketDetailPriority =
+  (typeof MobileTicketDetailPriority)[keyof typeof MobileTicketDetailPriority];
+
+export const MobileTicketDetailPriority = {
+  low: "low",
+  normal: "normal",
+  high: "high",
+  urgent: "urgent",
+} as const;
+
+export interface MobileTicketCustomer {
+  id: string;
+  name: string;
+  address?: string | null;
+  locationLat?: number | null;
+  locationLng?: number | null;
+}
+
+export interface MobileSiteNote {
+  id: string;
+  label: string;
+  value: string;
+  serviceType?: string | null;
+  sortOrder: number;
+}
+
+export interface TicketWorkItem {
+  id: string;
+  ticketId: string;
+  label: string;
+  instruction?: string | null;
+  photoRequired: boolean;
+  sortOrder: number;
+  isRequired: boolean;
+  isComplete: boolean;
+  completedAt?: string | null;
+  completedById?: string | null;
+  skipReason?: string | null;
+  skipNote?: string | null;
+}
+
+export interface MobileTicketDetail {
+  id: string;
+  title: string;
+  description?: string | null;
+  priority: MobileTicketDetailPriority;
+  mobileStatus: MobileStopStatus;
+  serviceType?: string | null;
+  dueDate?: string | null;
+  startedAt?: string | null;
+  completedAt?: string | null;
+  completionNotes?: string | null;
+  completionOverrideNote?: string | null;
+  locationLabel?: string | null;
+  locationLat?: number | null;
+  locationLng?: number | null;
+  customer?: MobileTicketCustomer | null;
+  siteNotes: MobileSiteNote[];
+  workItems: TicketWorkItem[];
+  /** @minimum 0 */
+  photosCount: number;
+  /** @minimum 0 */
+  notesCount: number;
+}
+
+/**
+ * Aggregated payload returned by GET /m/sync.
+ */
+export interface MobileSyncAggregator {
+  today: MobileToday;
+  week: MobileWeekResponse;
+  /** Full per-ticket detail payloads for every stop on today's route, identical in shape to GET /m/tickets/{id} responses. Lets the mobile client warm the m-ticket cache so unopened tickets still have site notes + work items available offline. */
+  tickets: MobileTicketDetail[];
+  recentProperties: MobileSyncRecentProperty[];
+  me: MobileUser;
+}
+
 export interface MobilePushSubscriptionRequest {
   /**
    * @minLength 1
@@ -157,58 +292,6 @@ export interface CrewPatch {
   isActive?: boolean;
 }
 
-export type MobileStopStatus =
-  (typeof MobileStopStatus)[keyof typeof MobileStopStatus];
-
-export const MobileStopStatus = {
-  not_started: "not_started",
-  in_progress: "in_progress",
-  complete: "complete",
-  skipped: "skipped",
-  flagged: "flagged",
-} as const;
-
-export type MobileTodayStopPriority =
-  (typeof MobileTodayStopPriority)[keyof typeof MobileTodayStopPriority];
-
-export const MobileTodayStopPriority = {
-  low: "low",
-  normal: "normal",
-  high: "high",
-  urgent: "urgent",
-} as const;
-
-export interface MobileTodayStop {
-  id: string;
-  title: string;
-  priority: MobileTodayStopPriority;
-  mobileStatus: MobileStopStatus;
-  routeOrder?: number | null;
-  dueDate?: string | null;
-  startedAt?: string | null;
-  completedAt?: string | null;
-  customerName?: string | null;
-  customerAddress?: string | null;
-  locationLabel?: string | null;
-}
-
-export interface MobileTodaySummary {
-  total: number;
-  notStarted: number;
-  inProgress: number;
-  complete: number;
-  skipped: number;
-  flagged: number;
-}
-
-export interface MobileToday {
-  date: string;
-  crewId?: string | null;
-  crewName?: string | null;
-  summary: MobileTodaySummary;
-  stops: MobileTodayStop[];
-}
-
 export interface MobileTicketStatus {
   id: string;
   mobileStatus: MobileStopStatus;
@@ -222,29 +305,6 @@ export interface MobileSiteNotes {
   irrigationControllerLocations?: string | null;
   accessNotes?: string | null;
   watchOutNotes?: string | null;
-}
-
-export interface MobileTicketCustomer {
-  id: string;
-  name: string;
-  address?: string | null;
-  locationLat?: number | null;
-  locationLng?: number | null;
-}
-
-export interface TicketWorkItem {
-  id: string;
-  ticketId: string;
-  label: string;
-  instruction?: string | null;
-  photoRequired: boolean;
-  sortOrder: number;
-  isRequired: boolean;
-  isComplete: boolean;
-  completedAt?: string | null;
-  completedById?: string | null;
-  skipReason?: string | null;
-  skipNote?: string | null;
 }
 
 export interface TicketWorkItemInput {
@@ -291,48 +351,6 @@ export interface MobileWorkItemPatch {
   skipReason?: MobileWorkItemSkipReason | null;
   /** @maxLength 2000 */
   skipNote?: string | null;
-}
-
-export type MobileTicketDetailPriority =
-  (typeof MobileTicketDetailPriority)[keyof typeof MobileTicketDetailPriority];
-
-export const MobileTicketDetailPriority = {
-  low: "low",
-  normal: "normal",
-  high: "high",
-  urgent: "urgent",
-} as const;
-
-export interface MobileSiteNote {
-  id: string;
-  label: string;
-  value: string;
-  serviceType?: string | null;
-  sortOrder: number;
-}
-
-export interface MobileTicketDetail {
-  id: string;
-  title: string;
-  description?: string | null;
-  priority: MobileTicketDetailPriority;
-  mobileStatus: MobileStopStatus;
-  serviceType?: string | null;
-  dueDate?: string | null;
-  startedAt?: string | null;
-  completedAt?: string | null;
-  completionNotes?: string | null;
-  completionOverrideNote?: string | null;
-  locationLabel?: string | null;
-  locationLat?: number | null;
-  locationLng?: number | null;
-  customer?: MobileTicketCustomer | null;
-  siteNotes: MobileSiteNote[];
-  workItems: TicketWorkItem[];
-  /** @minimum 0 */
-  photosCount: number;
-  /** @minimum 0 */
-  notesCount: number;
 }
 
 export interface MobileCompleteRequest {

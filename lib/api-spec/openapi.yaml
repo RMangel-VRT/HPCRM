@@ -267,6 +267,35 @@ paths:
           content:
             application/json:
               schema: { $ref: "#/components/schemas/ErrorResponse" }
+  /m/sync:
+    get:
+      operationId: mobileSync
+      tags: [mobile-today]
+      summary: Slice 7 aggregator — today + week + recent properties + me
+      description: |
+        One round-trip warm-up used by the mobile app on app foreground and
+        on Today pull-to-refresh. The response is a superset of /m/today,
+        /m/me/week, /m/me/recent-completions, and /m/me so the client can
+        seed every `m-*` React Query key from one call.
+      security:
+        - mobileBearer: []
+      responses:
+        "200":
+          description: Aggregated mobile snapshot
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MobileSyncAggregator"
+        "401":
+          description: Missing or invalid token
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorResponse" }
+        "403":
+          description: Mobile access disallowed for this role
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorResponse" }
   /m/today:
     get:
       operationId: mobileToday
@@ -1018,6 +1047,28 @@ components:
           type: array
           items: { $ref: "#/components/schemas/MobileRecentCompletion" }
       required: [items]
+    MobileSyncRecentProperty:
+      type: object
+      properties:
+        id: { type: string }
+        name: { type: string, nullable: true }
+        address: { type: string, nullable: true }
+      required: [id]
+    MobileSyncAggregator:
+      type: object
+      description: Aggregated payload returned by GET /m/sync.
+      properties:
+        today: { $ref: "#/components/schemas/MobileToday" }
+        week: { $ref: "#/components/schemas/MobileWeekResponse" }
+        tickets:
+          type: array
+          description: Full per-ticket detail payloads for every stop on today's route, identical in shape to GET /m/tickets/{id} responses. Lets the mobile client warm the m-ticket cache so unopened tickets still have site notes + work items available offline.
+          items: { $ref: "#/components/schemas/MobileTicketDetail" }
+        recentProperties:
+          type: array
+          items: { $ref: "#/components/schemas/MobileSyncRecentProperty" }
+        me: { $ref: "#/components/schemas/MobileUser" }
+      required: [today, week, tickets, recentProperties, me]
     MobilePushSubscriptionRequest:
       type: object
       properties:

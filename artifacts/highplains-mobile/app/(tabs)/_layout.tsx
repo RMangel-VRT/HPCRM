@@ -5,6 +5,7 @@ import { Alert, Modal, Platform, Pressable, ScrollView, StyleSheet, Text, View }
 
 import { useColors } from "@/hooks/useColors";
 import { useT } from "@/i18n";
+import { useOnline } from "@/lib/network";
 import {
   flushNow,
   removeItem,
@@ -20,6 +21,7 @@ export default function TabLayout() {
   const isWeb = Platform.OS === "web";
   const queue = useQueueStatus();
   const failingItems = useFailingQueueItems();
+  const online = useOnline();
   const [sheetOpen, setSheetOpen] = useState(false);
 
   const onAddFlag = () => {
@@ -38,12 +40,21 @@ export default function TabLayout() {
     }
   };
 
+  // Slice 7 sync chip — four states:
+  //   failing  → amber background, alert-triangle, count of pending
+  //   offline  → muted background, cloud-off, count if any pending
+  //   pending  → neutral background, upload-cloud, count
+  //   idle     → small green dot (online, queue empty)
+  // Failures use amber (warning) rather than destructive red — these are
+  // recoverable retry states the user can act on, not destructive errors.
   const syncTone =
     queue.failing > 0
-      ? { bg: colors.destructive, fg: colors.primaryForeground, icon: "alert-triangle" as const }
-      : queue.pending > 0
-        ? { bg: colors.background, fg: colors.foreground, icon: "upload-cloud" as const }
-        : null;
+      ? { bg: colors.warning, fg: colors.primaryForeground, icon: "alert-triangle" as const, label: String(queue.pending), dot: false }
+      : !online
+        ? { bg: colors.muted, fg: colors.mutedForeground, icon: "cloud-off" as const, label: queue.pending > 0 ? String(queue.pending) : "", dot: false }
+        : queue.pending > 0
+          ? { bg: colors.background, fg: colors.foreground, icon: "upload-cloud" as const, label: String(queue.pending), dot: false }
+          : { bg: "transparent", fg: colors.success, icon: "check" as const, label: "", dot: true };
 
   return (
     <>
@@ -73,7 +84,11 @@ export default function TabLayout() {
                   accessibilityLabel={
                     queue.failing > 0
                       ? t("header.queue.failed", { count: queue.failing })
-                      : t("header.queue.pending", { count: queue.pending })
+                      : !online
+                        ? t("header.queue.offline")
+                        : queue.pending > 0
+                          ? t("header.queue.pending", { count: queue.pending })
+                          : t("header.queue.online")
                   }
                   style={({ pressed }) => [
                     styles.syncChip,
@@ -84,10 +99,16 @@ export default function TabLayout() {
                     },
                   ]}
                 >
-                  <Feather name={syncTone.icon} size={12} color={syncTone.fg} />
-                  <Text style={[styles.syncText, { color: syncTone.fg }]}>
-                    {queue.pending}
-                  </Text>
+                  {syncTone.dot ? (
+                    <View style={[styles.onlineDot, { backgroundColor: syncTone.fg }]} />
+                  ) : (
+                    <Feather name={syncTone.icon} size={12} color={syncTone.fg} />
+                  )}
+                  {syncTone.label ? (
+                    <Text style={[styles.syncText, { color: syncTone.fg }]}>
+                      {syncTone.label}
+                    </Text>
+                  ) : null}
                 </Pressable>
               ) : null}
               <Pressable
@@ -173,14 +194,20 @@ export default function TabLayout() {
                           ? t("header.queue.itemPhoto")
                           : it.kind === "note"
                             ? t("header.queue.itemNote")
-                            : t("header.queue.itemFlag")}
+                            : it.kind === "json"
+                              ? it.op === "ticketComplete"
+                                ? t("header.queue.itemTicketComplete")
+                                : t("header.queue.itemWorkItem")
+                              : t("header.queue.itemFlag")}
                       </Text>
                       <Text style={[styles.sheetRowMeta, { color: colors.mutedForeground }]} numberOfLines={2}>
                         {it.kind === "note"
                           ? it.body
                           : it.kind === "photo"
                             ? it.fileUri.split("/").pop()
-                            : `${it.tag} (${it.fileUris.length} photo${it.fileUris.length === 1 ? "" : "s"})`}
+                            : it.kind === "json"
+                              ? it.path
+                              : `${it.tag} (${it.fileUris.length} photo${it.fileUris.length === 1 ? "" : "s"})`}
                       </Text>
                     </View>
                     <View style={styles.sheetRowActions}>
@@ -253,6 +280,7 @@ const styles = StyleSheet.create({
     borderWidth: 1,
   },
   syncText: { fontFamily: "Inter_700Bold", fontSize: 11 },
+  onlineDot: { width: 8, height: 8, borderRadius: 4 },
   sheetBackdrop: {
     flex: 1,
     backgroundColor: "rgba(0,0,0,0.45)",

@@ -1849,6 +1849,248 @@ export function registerCrewsAndMobileRoutes(app: Express): void {
     }
   });
 
+  // ── Mobile v1 Slice 7: offline sync aggregator ─────────────────────────────
+  //
+  // Single round-trip the mobile app calls on cold-start, foreground-resume,
+  // and reconnect to warm every cache that drives the read-only screens. The
+  // payload mirrors the keys the React Query persistence layer hydrates:
+  //   m-today, m-me, m-me-week, m-me-recent, m-properties (recent slice)
+  // Detail screens (m-ticket, m-property) still fetch per-id on demand.
+  app.get("/api/m/sync", requireMobileAuth(), async (req, res) => {
+    const u = req.user as UserWithContext;
+    const crewId = await resolveSupervisorCrewIdLocal(u.id, u.activeCompanyId);
+
+    // Today (live) — same shape as /api/m/today.
+    const dayStart = new Date();
+    dayStart.setHours(0, 0, 0, 0);
+    const dayEnd = new Date(dayStart.getTime() + 24 * 60 * 60 * 1000);
+
+    let crewName: string | null = null;
+    let todayStops: Array<Record<string, unknown>> = [];
+    const todaySummary = { total: 0, notStarted: 0, inProgress: 0, complete: 0, skipped: 0, flagged: 0 };
+    if (crewId) {
+      const [crewRow] = await db.select({ name: crews.name }).from(crews).where(eq(crews.id, crewId));
+      crewName = crewRow?.name ?? null;
+      const rows = await db
+        .select({
+          ticket: tickets,
+          customerName: customers.name,
+          customerStreet: customers.street,
+          customerCity: customers.city,
+          customerState: customers.state,
+          customerZip: customers.zip,
+        })
+        .from(tickets)
+        .leftJoin(customers, eq(tickets.customerId, customers.id))
+        .where(and(
+          eq(tickets.companyId, u.activeCompanyId),
+          eq(tickets.crewId, crewId),
+          gte(tickets.dueDate, dayStart),
+          lt(tickets.dueDate, dayEnd),
+          sql`COALESCE(${tickets.mobileStatus}, 'not_started') <> 'complete'`,
+        ))
+        .orderBy(sql`${tickets.routeOrder} ASC NULLS LAST`, asc(tickets.dueDate), asc(tickets.title));
+      todaySummary.total = rows.length;
+      for (const r of rows) {
+        const s = r.ticket.mobileStatus ?? "not_started";
+        if (s === "not_started") todaySummary.notStarted++;
+        else if (s === "in_progress") todaySummary.inProgress++;
+        else if (s === "complete") todaySummary.complete++;
+        else if (s === "skipped") todaySummary.skipped++;
+        else if (s === "flagged") todaySummary.flagged++;
+      }
+      todayStops = rows.map((r) => ({
+        id: r.ticket.id,
+        title: r.ticket.title,
+        priority: r.ticket.priority,
+        mobileStatus: r.ticket.mobileStatus ?? "not_started",
+        routeOrder: r.ticket.routeOrder,
+        dueDate: r.ticket.dueDate ? r.ticket.dueDate.toISOString() : null,
+        startedAt: r.ticket.startedAt ? r.ticket.startedAt.toISOString() : null,
+        completedAt: r.ticket.completedAt ? r.ticket.completedAt.toISOString() : null,
+        customerName: r.customerName ?? null,
+        customerAddress: r.customerStreet
+          ? `${r.customerStreet}, ${r.customerCity ?? ""} ${r.customerState ?? ""} ${r.customerZip ?? ""}`.replace(/\s+/g, " ").trim()
+          : null,
+        locationLabel: r.ticket.locationLabel ?? null,
+      }));
+    }
+
+    // Week strip — 7 days starting today.
+    const weekDays: { date: string; total: number; complete: number; flagged: number }[] = [];
+    for (let i = 0; i < 7; i++) {
+      const d = new Date(dayStart.getTime() + i * 24 * 60 * 60 * 1000);
+      weekDays.push({
+        date: `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`,
+        total: 0,
+        complete: 0,
+        flagged: 0,
+      });
+    }
+    if (crewId) {
+      const weekEnd = new Date(dayStart.getTime() + 7 * 24 * 60 * 60 * 1000);
+      const wkRows = await db
+        .select({ dueDate: tickets.dueDate, mobileStatus: tickets.mobileStatus })
+        .from(tickets)
+        .where(and(
+          eq(tickets.companyId, u.activeCompanyId),
+          eq(tickets.crewId, crewId),
+          gte(tickets.dueDate, dayStart),
+          lt(tickets.dueDate, weekEnd),
+        ));
+      for (const r of wkRows) {
+        if (!r.dueDate) continue;
+        const d = new Date(r.dueDate);
+        const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+        const bucket = weekDays.find((x) => x.date === key);
+        if (!bucket) continue;
+        bucket.total++;
+        const status = r.mobileStatus ?? "not_started";
+        if (status === "complete") bucket.complete++;
+        else if (status === "flagged") bucket.flagged++;
+      }
+    }
+
+    // Per-ticket details for today's stops — gives the mobile app full
+    // work-item / site-note offline access on cold-start without forcing
+    // the supervisor to open each ticket while still online. Mirrors the
+    // shape of GET /api/m/tickets/:id so the client can drop these
+    // payloads straight into the `m-ticket/:id` cache.
+    const todayTicketDetails = crewId
+      ? (await Promise.all(
+          todayStops.map(async (stop) => {
+            const tid = stop.id as string;
+            const row = await loadMobileTicket(tid, u.activeCompanyId, crewId);
+            if (!row) return null;
+            const t = row.ticket;
+            const c = row.customer;
+            const [items, siteNotes, photoCountRow, noteCountRow] = await Promise.all([
+              listWorkItems(t.id),
+              c ? getSiteNotesForProperty(c.id, t.serviceType ?? null) : Promise.resolve([]),
+              db
+                .select({ n: sql<number>`count(*)::int` })
+                .from(ticketPhotos)
+                .where(eq(ticketPhotos.ticketId, t.id))
+                .then((rows) => rows[0]),
+              db
+                .select({ n: sql<number>`count(*)::int` })
+                .from(ticketNotes)
+                .where(eq(ticketNotes.ticketId, t.id))
+                .then((rows) => rows[0]),
+            ]);
+            return {
+              id: t.id,
+              title: t.title,
+              description: t.description,
+              priority: t.priority,
+              mobileStatus: t.mobileStatus ?? "not_started",
+              serviceType: t.serviceType,
+              dueDate: t.dueDate ? t.dueDate.toISOString() : null,
+              startedAt: t.startedAt ? t.startedAt.toISOString() : null,
+              completedAt: t.completedAt ? t.completedAt.toISOString() : null,
+              completionNotes: t.completionNotes ?? null,
+              completionOverrideNote: t.completionOverrideNote ?? null,
+              locationLabel: t.locationLabel,
+              locationLat: t.locationLat,
+              locationLng: t.locationLng,
+              customer: c
+                ? {
+                    id: c.id,
+                    name: c.name,
+                    address: buildAddress(c),
+                    locationLat: c.locationLat,
+                    locationLng: c.locationLng,
+                  }
+                : null,
+              siteNotes: siteNotes.map(serializeSiteNote),
+              workItems: items.map(serializeWorkItem),
+              photosCount: Number(photoCountRow?.n ?? 0),
+              notesCount: Number(noteCountRow?.n ?? 0),
+              readOnly: isTicketPastDay(t.dueDate),
+            };
+          }),
+        )).filter((x): x is NonNullable<typeof x> => x !== null)
+      : [];
+
+    // Recent properties for the supervisor.
+    const recentRows = crewId
+      ? await db
+          .select({
+            id: customers.id,
+            name: customers.name,
+            street: customers.street,
+            city: customers.city,
+            state: customers.state,
+            zip: customers.zip,
+            customerType: customers.customerType,
+            ranking: customers.ranking,
+            viewedAt: recentPropertyViews.viewedAt,
+          })
+          .from(recentPropertyViews)
+          .innerJoin(customers, eq(recentPropertyViews.customerId, customers.id))
+          .where(and(
+            eq(recentPropertyViews.userId, u.id),
+            eq(recentPropertyViews.companyId, u.activeCompanyId),
+            eq(customers.companyId, u.activeCompanyId),
+          ))
+          .orderBy(desc(recentPropertyViews.viewedAt))
+          .limit(10)
+      : [];
+
+    // Me + notification prefs (mirrors /api/m/me).
+    const [meRow] = await db
+      .select({
+        prefs: users.notificationPrefsJson,
+        deviceCount: sql<number>`COALESCE(jsonb_array_length(${users.pushSubscriptionsJson}), 0)`,
+      })
+      .from(users)
+      .where(eq(users.id, u.id));
+
+    res.json({
+      serverTime: new Date().toISOString(),
+      today: {
+        date: dayStart.toISOString().slice(0, 10),
+        crewId,
+        crewName,
+        summary: todaySummary,
+        stops: todayStops,
+      },
+      week: {
+        startDate: weekDays[0].date,
+        endDate: weekDays[6].date,
+        crewId,
+        days: weekDays,
+      },
+      tickets: todayTicketDetails,
+      recentProperties: recentRows.map((r) => ({
+        id: r.id,
+        name: r.name,
+        address: r.street
+          ? `${r.street}, ${r.city ?? ""} ${r.state ?? ""} ${r.zip ?? ""}`.replace(/\s+/g, " ").trim()
+          : null,
+        city: r.city,
+        state: r.state,
+        customerType: r.customerType,
+        ranking: r.ranking,
+        viewedAt: r.viewedAt ? r.viewedAt.toISOString() : null,
+      })),
+      me: {
+        id: u.id,
+        name: u.name,
+        email: u.email,
+        phone: u.phone,
+        language: u.language,
+        activeCompanyId: u.activeCompanyId,
+        activeRole: u.activeRole,
+        isSuperAdminBool: u.isSuperAdminBool,
+        crewId,
+        crewName,
+        notificationPrefs: (meRow?.prefs as NotificationPrefs | null) ?? DEFAULT_NOTIFICATION_PREFS,
+        pushDeviceCount: Number(meRow?.deviceCount ?? 0),
+      },
+    });
+  });
+
   app.delete("/api/m/me/push-subscriptions", requireMobileAuth(), async (req, res) => {
     const u = req.user as UserWithContext;
     const token = typeof req.body?.expoPushToken === "string" ? req.body.expoPushToken : "";

@@ -57,7 +57,26 @@ export type QueueFlagItem = {
   lastError?: string;
 };
 
-export type QueueItem = QueuePhotoItem | QueueNoteItem | QueueFlagItem;
+// Mobile v1 Slice 7 — generic JSON mutation. Used for work-item PATCH
+// (`/api/m/work-items/{id}`) and ticket-complete (`/api/m/tickets/{id}/complete`).
+// The optimistic UI runs in the mutation's `onMutate`; this entry just makes
+// sure the request actually reaches the server even after a flap or a force-quit.
+export type QueueJsonItem = {
+  kind: "json";
+  id: string;            // local UUID — also the server's clientId
+  ticketId: string;      // ticket the mutation belongs to (for invalidation routing)
+  // `op` is the high-level action so the failed-uploads sheet can render a
+  // friendly label without parsing the URL.
+  op: "workItemPatch" | "ticketComplete";
+  method: "POST" | "PATCH" | "PUT" | "DELETE";
+  path: string;          // e.g. "/api/m/work-items/<id>"
+  body: unknown;         // serialized as JSON on every attempt
+  attempts: number;
+  nextAttemptAt: number;
+  lastError?: string;
+};
+
+export type QueueItem = QueuePhotoItem | QueueNoteItem | QueueFlagItem | QueueJsonItem;
 
 const QUEUE_KEY = "hp.upload-queue.v1";
 const QUEUE_DIR = `${FileSystem.documentDirectory ?? ""}queue/`;
@@ -239,6 +258,32 @@ export async function enqueueFlag(args: {
   return id;
 }
 
+export async function enqueueJsonMutation(args: {
+  ticketId: string;
+  op: QueueJsonItem["op"];
+  method: QueueJsonItem["method"];
+  path: string;
+  body: unknown;
+}): Promise<string> {
+  await ensureLoaded();
+  const id = genId();
+  const item: QueueJsonItem = {
+    kind: "json",
+    id,
+    ticketId: args.ticketId,
+    op: args.op,
+    method: args.method,
+    path: args.path,
+    body: args.body,
+    attempts: 0,
+    nextAttemptAt: 0,
+  };
+  queue.push(item);
+  await persist();
+  void flush();
+  return id;
+}
+
 export async function removeItem(id: string): Promise<void> {
   await ensureLoaded();
   const idx = queue.findIndex((i) => i.id === id);
@@ -289,6 +334,17 @@ const successListeners = new Set<SuccessListener>();
 export function onItemUploaded(fn: SuccessListener): () => void {
   successListeners.add(fn);
   return () => { successListeners.delete(fn); };
+}
+
+/** Per-item permanent-failure listeners — fired when the worker drops an
+ * item because the server returned a non-retryable 4xx. UI consumers
+ * (e.g. ticket detail) use this to roll back any optimistic state that
+ * was applied when the mutation was originally enqueued. */
+type FailureListener = (item: QueueItem, error: ApiError) => void;
+const failureListeners = new Set<FailureListener>();
+export function onItemFailed(fn: FailureListener): () => void {
+  failureListeners.add(fn);
+  return () => { failureListeners.delete(fn); };
 }
 
 /** Snapshot of all currently-failing queue items across all tickets. */
@@ -400,6 +456,14 @@ async function uploadNote(item: QueueNoteItem): Promise<void> {
   });
 }
 
+async function uploadJson(item: QueueJsonItem): Promise<void> {
+  await apiRequest(item.path, {
+    method: item.method,
+    headers: { "Content-Type": "application/json", "X-Client-Id": item.id },
+    body: JSON.stringify(item.body ?? {}),
+  });
+}
+
 async function uploadFlag(item: QueueFlagItem): Promise<void> {
   // Rebuild the multipart payload on every attempt so a retry after the
   // process was killed still works (the file URIs survive across launches
@@ -462,6 +526,7 @@ async function flush(): Promise<void> {
       try {
         if (item.kind === "photo") await uploadPhoto(item);
         else if (item.kind === "note") await uploadNote(item);
+        else if (item.kind === "json") await uploadJson(item);
         else await uploadFlag(item);
         // Success — drop from queue (and clean up the file(s) on disk).
         const idx = queue.findIndex((i) => i.id === item.id);
@@ -503,6 +568,10 @@ async function flush(): Promise<void> {
                   try { await FileSystem.deleteAsync(uri, { idempotent: true }); } catch {}
                 }
               }
+            }
+            // Notify subscribers (UI rolls back optimistic ticket state).
+            for (const fn of failureListeners) {
+              try { fn(removed, err); } catch {}
             }
           }
         }
