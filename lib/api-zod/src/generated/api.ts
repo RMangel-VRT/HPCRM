@@ -140,6 +140,345 @@ export const MobileStartTicketResponse = zod.object({
 });
 
 /**
+ * @summary Ticket detail with curated site notes and work items
+ */
+export const MobileTicketDetailParams = zod.object({
+  id: zod.coerce.string(),
+});
+
+export const mobileTicketDetailResponsePhotosCountMin = 0;
+
+export const mobileTicketDetailResponseNotesCountMin = 0;
+
+export const MobileTicketDetailResponse = zod.object({
+  id: zod.string(),
+  title: zod.string(),
+  description: zod.string().nullish(),
+  priority: zod.enum(["low", "normal", "high", "urgent"]),
+  mobileStatus: zod.enum([
+    "not_started",
+    "in_progress",
+    "complete",
+    "skipped",
+    "flagged",
+  ]),
+  serviceType: zod.string().nullish(),
+  dueDate: zod.coerce.date().nullish(),
+  startedAt: zod.coerce.date().nullish(),
+  completedAt: zod.coerce.date().nullish(),
+  completionNotes: zod.string().nullish(),
+  completionOverrideNote: zod.string().nullish(),
+  locationLabel: zod.string().nullish(),
+  locationLat: zod.number().nullish(),
+  locationLng: zod.number().nullish(),
+  customer: zod
+    .union([
+      zod.object({
+        id: zod.string(),
+        name: zod.string(),
+        address: zod.string().nullish(),
+        locationLat: zod.number().nullish(),
+        locationLng: zod.number().nullish(),
+      }),
+      zod.null(),
+    ])
+    .optional(),
+  siteNotes: zod.array(
+    zod.object({
+      id: zod.string(),
+      label: zod.string(),
+      value: zod.string(),
+      serviceType: zod.string().nullish(),
+      sortOrder: zod.number(),
+    }),
+  ),
+  workItems: zod.array(
+    zod.object({
+      id: zod.string(),
+      ticketId: zod.string(),
+      label: zod.string(),
+      instruction: zod.string().nullish(),
+      photoRequired: zod.boolean(),
+      sortOrder: zod.number(),
+      isRequired: zod.boolean(),
+      isComplete: zod.boolean(),
+      completedAt: zod.coerce.date().nullish(),
+      completedById: zod.string().nullish(),
+      skipReason: zod.string().nullish(),
+      skipNote: zod.string().nullish(),
+    }),
+  ),
+  photosCount: zod.number().min(mobileTicketDetailResponsePhotosCountMin),
+  notesCount: zod.number().min(mobileTicketDetailResponseNotesCountMin),
+});
+
+/**
+ * @summary Mark a ticket complete; soft-confirms when required items are missing
+ */
+export const MobileCompleteTicketParams = zod.object({
+  id: zod.coerce.string(),
+});
+
+export const mobileCompleteTicketBodyCompletionNotesMax = 5000;
+
+export const mobileCompleteTicketBodyOverrideNoteMax = 2000;
+
+export const MobileCompleteTicketBody = zod.object({
+  completionNotes: zod
+    .string()
+    .max(mobileCompleteTicketBodyCompletionNotesMax)
+    .optional(),
+  overrideMissing: zod.boolean().optional(),
+  overrideNote: zod
+    .string()
+    .max(mobileCompleteTicketBodyOverrideNoteMax)
+    .optional(),
+});
+
+export const MobileCompleteTicketResponse = zod.object({
+  id: zod.string(),
+  mobileStatus: zod.enum([
+    "not_started",
+    "in_progress",
+    "complete",
+    "skipped",
+    "flagged",
+  ]),
+  completedAt: zod.coerce.date().nullish(),
+  completionNotes: zod.string().nullish(),
+  completionOverrideNote: zod.string().nullish(),
+});
+
+/**
+ * @summary Toggle a work item complete or set a skip reason
+ */
+export const MobilePatchWorkItemParams = zod.object({
+  id: zod.coerce.string(),
+});
+
+export const mobilePatchWorkItemBodySkipNoteMax = 2000;
+
+export const MobilePatchWorkItemBody = zod.object({
+  isComplete: zod.boolean().optional(),
+  skipReason: zod
+    .union([
+      zod.enum([
+        "out_of_supplies",
+        "inaccessible",
+        "weather",
+        "customer_request",
+        "other",
+      ]),
+      zod.null(),
+    ])
+    .optional(),
+  skipNote: zod.string().max(mobilePatchWorkItemBodySkipNoteMax).nullish(),
+});
+
+export const MobilePatchWorkItemResponse = zod.object({
+  id: zod.string(),
+  ticketId: zod.string(),
+  label: zod.string(),
+  instruction: zod.string().nullish(),
+  photoRequired: zod.boolean(),
+  sortOrder: zod.number(),
+  isRequired: zod.boolean(),
+  isComplete: zod.boolean(),
+  completedAt: zod.coerce.date().nullish(),
+  completedById: zod.string().nullish(),
+  skipReason: zod.string().nullish(),
+  skipNote: zod.string().nullish(),
+});
+
+/**
+ * @summary List service-type templates for the active company
+ */
+export const listServiceTypeTemplatesResponseItemsItemLabelMax = 200;
+
+export const listServiceTypeTemplatesResponseItemsItemDefaultInstructionMax = 2000;
+
+export const ListServiceTypeTemplatesResponseItem = zod.object({
+  id: zod.string(),
+  companyId: zod.string(),
+  serviceType: zod.string(),
+  name: zod.string(),
+  items: zod.array(
+    zod.object({
+      id: zod.string(),
+      templateId: zod.string(),
+      label: zod
+        .string()
+        .min(1)
+        .max(listServiceTypeTemplatesResponseItemsItemLabelMax),
+      defaultInstruction: zod
+        .string()
+        .max(listServiceTypeTemplatesResponseItemsItemDefaultInstructionMax)
+        .nullish(),
+      photoRequired: zod.boolean(),
+      isRequired: zod.boolean(),
+      displayOrder: zod.number(),
+      isActive: zod.boolean(),
+    }),
+  ),
+  createdAt: zod.coerce.date(),
+  updatedAt: zod.coerce.date(),
+});
+export const ListServiceTypeTemplatesResponse = zod.array(
+  ListServiceTypeTemplatesResponseItem,
+);
+
+export const createServiceTypeTemplateBodyNameMax = 200;
+
+export const CreateServiceTypeTemplateBody = zod.object({
+  serviceType: zod.string().min(1),
+  name: zod.string().min(1).max(createServiceTypeTemplateBodyNameMax),
+});
+
+export const UpdateServiceTypeTemplateParams = zod.object({
+  id: zod.coerce.string(),
+});
+
+export const updateServiceTypeTemplateBodyNameMax = 200;
+
+export const UpdateServiceTypeTemplateBody = zod.object({
+  serviceType: zod.string().min(1),
+  name: zod.string().min(1).max(updateServiceTypeTemplateBodyNameMax),
+});
+
+export const updateServiceTypeTemplateResponseItemsItemLabelMax = 200;
+
+export const updateServiceTypeTemplateResponseItemsItemDefaultInstructionMax = 2000;
+
+export const UpdateServiceTypeTemplateResponse = zod.object({
+  id: zod.string(),
+  companyId: zod.string(),
+  serviceType: zod.string(),
+  name: zod.string(),
+  items: zod.array(
+    zod.object({
+      id: zod.string(),
+      templateId: zod.string(),
+      label: zod
+        .string()
+        .min(1)
+        .max(updateServiceTypeTemplateResponseItemsItemLabelMax),
+      defaultInstruction: zod
+        .string()
+        .max(updateServiceTypeTemplateResponseItemsItemDefaultInstructionMax)
+        .nullish(),
+      photoRequired: zod.boolean(),
+      isRequired: zod.boolean(),
+      displayOrder: zod.number(),
+      isActive: zod.boolean(),
+    }),
+  ),
+  createdAt: zod.coerce.date(),
+  updatedAt: zod.coerce.date(),
+});
+
+export const DeleteServiceTypeTemplateParams = zod.object({
+  id: zod.coerce.string(),
+});
+
+export const ListTicketWorkItemsParams = zod.object({
+  id: zod.coerce.string(),
+});
+
+export const ListTicketWorkItemsResponseItem = zod.object({
+  id: zod.string(),
+  ticketId: zod.string(),
+  label: zod.string(),
+  instruction: zod.string().nullish(),
+  photoRequired: zod.boolean(),
+  sortOrder: zod.number(),
+  isRequired: zod.boolean(),
+  isComplete: zod.boolean(),
+  completedAt: zod.coerce.date().nullish(),
+  completedById: zod.string().nullish(),
+  skipReason: zod.string().nullish(),
+  skipNote: zod.string().nullish(),
+});
+export const ListTicketWorkItemsResponse = zod.array(
+  ListTicketWorkItemsResponseItem,
+);
+
+export const CreateTicketWorkItemParams = zod.object({
+  id: zod.coerce.string(),
+});
+
+export const createTicketWorkItemBodyLabelMax = 500;
+
+export const createTicketWorkItemBodyInstructionMax = 2000;
+
+export const createTicketWorkItemBodyPhotoRequiredDefault = false;
+export const createTicketWorkItemBodyIsRequiredDefault = false;
+export const createTicketWorkItemBodySortOrderMin = 0;
+
+export const CreateTicketWorkItemBody = zod.object({
+  label: zod.string().min(1).max(createTicketWorkItemBodyLabelMax),
+  instruction: zod
+    .string()
+    .max(createTicketWorkItemBodyInstructionMax)
+    .nullish(),
+  photoRequired: zod
+    .boolean()
+    .default(createTicketWorkItemBodyPhotoRequiredDefault),
+  isRequired: zod.boolean().default(createTicketWorkItemBodyIsRequiredDefault),
+  sortOrder: zod.number().min(createTicketWorkItemBodySortOrderMin).optional(),
+});
+
+export const UpdateTicketWorkItemParams = zod.object({
+  ticketId: zod.coerce.string(),
+  id: zod.coerce.string(),
+});
+
+export const updateTicketWorkItemBodyLabelMax = 500;
+
+export const updateTicketWorkItemBodyInstructionMax = 2000;
+
+export const updateTicketWorkItemBodySortOrderMin = 0;
+
+export const UpdateTicketWorkItemBody = zod.object({
+  label: zod.string().min(1).max(updateTicketWorkItemBodyLabelMax).optional(),
+  instruction: zod
+    .string()
+    .max(updateTicketWorkItemBodyInstructionMax)
+    .nullish(),
+  photoRequired: zod.boolean().optional(),
+  isRequired: zod.boolean().optional(),
+  sortOrder: zod.number().min(updateTicketWorkItemBodySortOrderMin).optional(),
+});
+
+export const UpdateTicketWorkItemResponse = zod.object({
+  id: zod.string(),
+  ticketId: zod.string(),
+  label: zod.string(),
+  instruction: zod.string().nullish(),
+  photoRequired: zod.boolean(),
+  sortOrder: zod.number(),
+  isRequired: zod.boolean(),
+  isComplete: zod.boolean(),
+  completedAt: zod.coerce.date().nullish(),
+  completedById: zod.string().nullish(),
+  skipReason: zod.string().nullish(),
+  skipNote: zod.string().nullish(),
+});
+
+export const DeleteTicketWorkItemParams = zod.object({
+  ticketId: zod.coerce.string(),
+  id: zod.coerce.string(),
+});
+
+export const LoadTicketWorkItemsFromTemplateParams = zod.object({
+  id: zod.coerce.string(),
+});
+
+export const LoadTicketWorkItemsFromTemplateBody = zod.object({
+  templateId: zod.string(),
+  replace: zod.boolean().optional(),
+});
+
+/**
  * @summary List crews for the active company
  */
 export const ListCrewsResponseItem = zod

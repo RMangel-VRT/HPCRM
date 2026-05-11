@@ -111,6 +111,13 @@ export const customers = pgTable("customers", {
   locationLat: real("location_lat"),
   locationLng: real("location_lng"),
   ranking: text("ranking").$type<"standard" | "preferred" | "key_account">().notNull().default("standard"),
+  // Mobile v1 Slice 2: curated site-note columns surfaced on the mobile ticket detail.
+  gateCode: text("gate_code"),
+  petStationCount: integer("pet_station_count"),
+  petStationLocations: text("pet_station_locations"),
+  irrigationControllerLocations: text("irrigation_controller_locations"),
+  accessNotes: text("access_notes"),
+  watchOutNotes: text("watch_out_notes"),
   createdAt: timestamp("created_at").notNull().defaultNow(),
   updatedAt: timestamp("updated_at").notNull().defaultNow(),
 }, (table) => ({
@@ -703,6 +710,11 @@ export const tickets = pgTable("tickets", {
   routeOrder: integer("route_order"),
   startedAt: timestamp("started_at"),
   mobileStatus: text("mobile_status").notNull().$type<"not_started" | "in_progress" | "complete" | "skipped" | "flagged">().default("not_started"),
+  // Mobile v1 Slice 2: free-text notes captured on "Mark complete".
+  completionNotes: text("completion_notes"),
+  // Mobile v1 Slice 2: required note when the supervisor forces completion
+  // while one or more required work items are still missing/skipped.
+  completionOverrideNote: text("completion_override_note"),
   createdById: varchar("created_by_id").notNull().references(() => users.id, { onDelete: "cascade" }),
   createdAt: timestamp("created_at").notNull().defaultNow(),
   updatedAt: timestamp("updated_at").notNull().defaultNow(),
@@ -3109,3 +3121,147 @@ export const insertMobileAuthTokenSchema = createInsertSchema(mobileAuthTokens).
 
 export type InsertMobileAuthToken = z.infer<typeof insertMobileAuthTokenSchema>;
 export type MobileAuthToken = typeof mobileAuthTokens.$inferSelect;
+
+// Mobile v1 Slice 2: Property site notes — per-property curated notes the
+// office maintains so the field crew sees only what's relevant to the service
+// they're performing. `serviceType` is nullable: NULL means the note applies
+// to every service (e.g. gate code), a value means it's specific to that
+// service (e.g. "shut off irrigation before mowing" only on `mowing`).
+export const propertySiteNotes = pgTable("property_site_notes", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  companyId: varchar("company_id").notNull().references(() => companies.id, { onDelete: "cascade" }),
+  customerId: varchar("customer_id").notNull().references(() => customers.id, { onDelete: "cascade" }),
+  serviceType: text("service_type"),
+  label: text("label").notNull(),
+  value: text("value").notNull(),
+  sortOrder: integer("sort_order").notNull().default(0),
+  isActive: boolean("is_active").notNull().default(true),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  updatedAt: timestamp("updated_at").notNull().defaultNow(),
+}, (table) => ({
+  propertySiteNotesCustomerIdx: index("property_site_notes_customer_idx").on(table.customerId, table.serviceType, table.sortOrder),
+}));
+
+export const insertPropertySiteNoteSchema = createInsertSchema(propertySiteNotes).omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+}).extend({
+  label: z.string().min(1).max(200),
+  value: z.string().min(1).max(2000),
+  serviceType: z.string().nullable().optional(),
+  sortOrder: z.number().int().min(0).default(0),
+  isActive: z.boolean().default(true),
+});
+
+export type InsertPropertySiteNote = z.infer<typeof insertPropertySiteNoteSchema>;
+export type PropertySiteNote = typeof propertySiteNotes.$inferSelect;
+
+// Mobile v1 Slice 2: Service-type templates — admin-managed reusable work-item
+// checklists keyed by service type. Used to seed `ticket_work_items` when a
+// ticket is created (or via "Load from template" in the web admin). Items live
+// in `service_type_template_items` so each item has first-class
+// instruction / photoRequired / displayOrder / isActive columns.
+export const serviceTypeTemplates = pgTable("service_type_templates", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  companyId: varchar("company_id").notNull().references(() => companies.id, { onDelete: "cascade" }),
+  serviceType: text("service_type").notNull(),
+  name: text("name").notNull(),
+  // Legacy JSON column from migration 0022; kept for back-compat but unused
+  // by current code (items now live in `service_type_template_items`).
+  items: jsonb("items").notNull().default(sql`'[]'::jsonb`),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  updatedAt: timestamp("updated_at").notNull().defaultNow(),
+}, (table) => ({
+  serviceTypeTemplatesCompanyIdx: index("service_type_templates_company_idx").on(table.companyId, table.serviceType),
+}));
+
+export const insertServiceTypeTemplateSchema = createInsertSchema(serviceTypeTemplates).omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+  items: true,
+}).extend({
+  serviceType: z.string().min(1),
+  name: z.string().min(1).max(200),
+});
+
+export type InsertServiceTypeTemplate = z.infer<typeof insertServiceTypeTemplateSchema>;
+export type ServiceTypeTemplate = typeof serviceTypeTemplates.$inferSelect;
+
+export const serviceTypeTemplateItems = pgTable("service_type_template_items", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  templateId: varchar("template_id").notNull().references(() => serviceTypeTemplates.id, { onDelete: "cascade" }),
+  label: text("label").notNull(),
+  defaultInstruction: text("default_instruction"),
+  photoRequired: boolean("photo_required").notNull().default(false),
+  isRequired: boolean("is_required").notNull().default(false),
+  displayOrder: integer("display_order").notNull().default(0),
+  isActive: boolean("is_active").notNull().default(true),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  updatedAt: timestamp("updated_at").notNull().defaultNow(),
+}, (table) => ({
+  serviceTypeTemplateItemsTemplateIdx: index("service_type_template_items_template_idx").on(table.templateId, table.displayOrder),
+}));
+
+export const insertServiceTypeTemplateItemSchema = createInsertSchema(serviceTypeTemplateItems).omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+}).extend({
+  label: z.string().min(1).max(200),
+  defaultInstruction: z.string().max(2000).nullable().optional(),
+  photoRequired: z.boolean().default(false),
+  isRequired: z.boolean().default(false),
+  displayOrder: z.number().int().min(0).default(0),
+  isActive: z.boolean().default(true),
+});
+
+export type InsertServiceTypeTemplateItem = z.infer<typeof insertServiceTypeTemplateItemSchema>;
+export type ServiceTypeTemplateItem = typeof serviceTypeTemplateItems.$inferSelect;
+
+// Mobile v1 Slice 2: Ticket work items — per-ticket checklist surfaced on the
+// mobile ticket detail. Items can be required or optional and may carry an
+// instruction the supervisor must read before checking the item, plus a
+// photo-required flag (photo capture itself ships in Slice 3 — the flag is
+// surfaced as a badge today). Required items not completed/skipped before
+// "Mark complete" trigger the soft-confirmation override flow on mobile.
+//
+// `skipReason` stores the chip code (e.g. "access_denied"), `skipNote` stores
+// the optional follow-up free text.
+export const ticketWorkItems = pgTable("ticket_work_items", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  ticketId: varchar("ticket_id").notNull().references(() => tickets.id, { onDelete: "cascade" }),
+  label: text("label").notNull(),
+  instruction: text("instruction"),
+  photoRequired: boolean("photo_required").notNull().default(false),
+  sortOrder: integer("sort_order").notNull().default(0),
+  isRequired: boolean("is_required").notNull().default(false),
+  isComplete: boolean("is_complete").notNull().default(false),
+  completedAt: timestamp("completed_at"),
+  completedById: varchar("completed_by_id").references(() => users.id, { onDelete: "set null" }),
+  skipReason: text("skip_reason"),
+  skipNote: text("skip_note"),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  updatedAt: timestamp("updated_at").notNull().defaultNow(),
+}, (table) => ({
+  ticketWorkItemsTicketIdx: index("ticket_work_items_ticket_idx").on(table.ticketId, table.sortOrder),
+}));
+
+export const insertTicketWorkItemSchema = createInsertSchema(ticketWorkItems).omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+}).extend({
+  label: z.string().min(1).max(500),
+  instruction: z.string().max(2000).nullable().optional(),
+  photoRequired: z.boolean().default(false),
+  sortOrder: z.number().int().min(0).default(0),
+  isRequired: z.boolean().default(false),
+  isComplete: z.boolean().default(false),
+  skipReason: z.string().max(200).nullable().optional(),
+  skipNote: z.string().max(2000).nullable().optional(),
+});
+
+export type InsertTicketWorkItem = z.infer<typeof insertTicketWorkItemSchema>;
+export type TicketWorkItem = typeof ticketWorkItems.$inferSelect;

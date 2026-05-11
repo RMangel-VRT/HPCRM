@@ -41,9 +41,14 @@ export function setUnauthorizedHandler(fn: UnauthorizedHandler | null): void {
 
 export class ApiError extends Error {
   status: number;
-  constructor(message: string, status: number) {
+  // Parsed JSON body when the server returned `application/json` (e.g. a 409
+  // with `{ code, message, missing }`). Callers branch on `err.body?.code`
+  // instead of trying to parse `err.message`, which is just the human string.
+  body: unknown;
+  constructor(message: string, status: number, body?: unknown) {
     super(message);
     this.status = status;
+    this.body = body;
   }
 }
 
@@ -66,12 +71,16 @@ export async function apiRequest<T = unknown>(
 
   if (!res.ok) {
     let message = `Request failed (${res.status})`;
+    let body: unknown = undefined;
     try {
       const text = await res.text();
       if (text) {
         try {
           const j = JSON.parse(text);
-          message = j.message || text;
+          body = j;
+          message = (j && typeof j === "object" && "message" in j && typeof j.message === "string")
+            ? j.message
+            : text;
         } catch {
           message = text;
         }
@@ -90,7 +99,7 @@ export async function apiRequest<T = unknown>(
       } catch {}
     }
 
-    throw new ApiError(message, res.status);
+    throw new ApiError(message, res.status, body);
   }
 
   if (res.status === 204) return undefined as T;

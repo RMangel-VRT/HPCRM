@@ -24,11 +24,22 @@ import type {
   EligibleSupervisor,
   ErrorResponse,
   HealthStatus,
+  LoadTemplateRequest,
+  MobileCompleteRequest,
   MobileLoginRequest,
+  MobileMissingRequiredResponse,
   MobileSession,
+  MobileTicketCompletion,
+  MobileTicketDetail,
   MobileTicketStatus,
   MobileToday,
   MobileUser,
+  MobileWorkItemPatch,
+  ServiceTypeTemplate,
+  ServiceTypeTemplateInput,
+  TicketWorkItem,
+  TicketWorkItemInput,
+  TicketWorkItemPatch,
 } from "./api.schemas";
 
 import { customFetch } from "../custom-fetch";
@@ -503,6 +514,995 @@ export const useMobileStartTicket = <
   TContext
 > => {
   return useMutation(getMobileStartTicketMutationOptions(options));
+};
+
+/**
+ * @summary Ticket detail with curated site notes and work items
+ */
+export const getMobileTicketDetailUrl = (id: string) => {
+  return `/api/m/tickets/${id}`;
+};
+
+export const mobileTicketDetail = async (
+  id: string,
+  options?: RequestInit,
+): Promise<MobileTicketDetail> => {
+  return customFetch<MobileTicketDetail>(getMobileTicketDetailUrl(id), {
+    ...options,
+    method: "GET",
+  });
+};
+
+export const getMobileTicketDetailQueryKey = (id: string) => {
+  return [`/api/m/tickets/${id}`] as const;
+};
+
+export const getMobileTicketDetailQueryOptions = <
+  TData = Awaited<ReturnType<typeof mobileTicketDetail>>,
+  TError = ErrorType<ErrorResponse>,
+>(
+  id: string,
+  options?: {
+    query?: UseQueryOptions<
+      Awaited<ReturnType<typeof mobileTicketDetail>>,
+      TError,
+      TData
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+) => {
+  const { query: queryOptions, request: requestOptions } = options ?? {};
+
+  const queryKey = queryOptions?.queryKey ?? getMobileTicketDetailQueryKey(id);
+
+  const queryFn: QueryFunction<
+    Awaited<ReturnType<typeof mobileTicketDetail>>
+  > = ({ signal }) => mobileTicketDetail(id, { signal, ...requestOptions });
+
+  return {
+    queryKey,
+    queryFn,
+    enabled: !!id,
+    ...queryOptions,
+  } as UseQueryOptions<
+    Awaited<ReturnType<typeof mobileTicketDetail>>,
+    TError,
+    TData
+  > & { queryKey: QueryKey };
+};
+
+export type MobileTicketDetailQueryResult = NonNullable<
+  Awaited<ReturnType<typeof mobileTicketDetail>>
+>;
+export type MobileTicketDetailQueryError = ErrorType<ErrorResponse>;
+
+/**
+ * @summary Ticket detail with curated site notes and work items
+ */
+
+export function useMobileTicketDetail<
+  TData = Awaited<ReturnType<typeof mobileTicketDetail>>,
+  TError = ErrorType<ErrorResponse>,
+>(
+  id: string,
+  options?: {
+    query?: UseQueryOptions<
+      Awaited<ReturnType<typeof mobileTicketDetail>>,
+      TError,
+      TData
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+  const queryOptions = getMobileTicketDetailQueryOptions(id, options);
+
+  const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
+    queryKey: QueryKey;
+  };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+/**
+ * @summary Mark a ticket complete; soft-confirms when required items are missing
+ */
+export const getMobileCompleteTicketUrl = (id: string) => {
+  return `/api/m/tickets/${id}/complete`;
+};
+
+export const mobileCompleteTicket = async (
+  id: string,
+  mobileCompleteRequest?: MobileCompleteRequest,
+  options?: RequestInit,
+): Promise<MobileTicketCompletion> => {
+  return customFetch<MobileTicketCompletion>(getMobileCompleteTicketUrl(id), {
+    ...options,
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...options?.headers },
+    body: JSON.stringify(mobileCompleteRequest),
+  });
+};
+
+export const getMobileCompleteTicketMutationOptions = <
+  TError = ErrorType<ErrorResponse | MobileMissingRequiredResponse>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof mobileCompleteTicket>>,
+    TError,
+    { id: string; data: BodyType<MobileCompleteRequest> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof mobileCompleteTicket>>,
+  TError,
+  { id: string; data: BodyType<MobileCompleteRequest> },
+  TContext
+> => {
+  const mutationKey = ["mobileCompleteTicket"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof mobileCompleteTicket>>,
+    { id: string; data: BodyType<MobileCompleteRequest> }
+  > = (props) => {
+    const { id, data } = props ?? {};
+
+    return mobileCompleteTicket(id, data, requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type MobileCompleteTicketMutationResult = NonNullable<
+  Awaited<ReturnType<typeof mobileCompleteTicket>>
+>;
+export type MobileCompleteTicketMutationBody = BodyType<MobileCompleteRequest>;
+export type MobileCompleteTicketMutationError = ErrorType<
+  ErrorResponse | MobileMissingRequiredResponse
+>;
+
+/**
+ * @summary Mark a ticket complete; soft-confirms when required items are missing
+ */
+export const useMobileCompleteTicket = <
+  TError = ErrorType<ErrorResponse | MobileMissingRequiredResponse>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof mobileCompleteTicket>>,
+    TError,
+    { id: string; data: BodyType<MobileCompleteRequest> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof mobileCompleteTicket>>,
+  TError,
+  { id: string; data: BodyType<MobileCompleteRequest> },
+  TContext
+> => {
+  return useMutation(getMobileCompleteTicketMutationOptions(options));
+};
+
+/**
+ * @summary Toggle a work item complete or set a skip reason
+ */
+export const getMobilePatchWorkItemUrl = (id: string) => {
+  return `/api/m/work-items/${id}`;
+};
+
+export const mobilePatchWorkItem = async (
+  id: string,
+  mobileWorkItemPatch: MobileWorkItemPatch,
+  options?: RequestInit,
+): Promise<TicketWorkItem> => {
+  return customFetch<TicketWorkItem>(getMobilePatchWorkItemUrl(id), {
+    ...options,
+    method: "PATCH",
+    headers: { "Content-Type": "application/json", ...options?.headers },
+    body: JSON.stringify(mobileWorkItemPatch),
+  });
+};
+
+export const getMobilePatchWorkItemMutationOptions = <
+  TError = ErrorType<void>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof mobilePatchWorkItem>>,
+    TError,
+    { id: string; data: BodyType<MobileWorkItemPatch> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof mobilePatchWorkItem>>,
+  TError,
+  { id: string; data: BodyType<MobileWorkItemPatch> },
+  TContext
+> => {
+  const mutationKey = ["mobilePatchWorkItem"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof mobilePatchWorkItem>>,
+    { id: string; data: BodyType<MobileWorkItemPatch> }
+  > = (props) => {
+    const { id, data } = props ?? {};
+
+    return mobilePatchWorkItem(id, data, requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type MobilePatchWorkItemMutationResult = NonNullable<
+  Awaited<ReturnType<typeof mobilePatchWorkItem>>
+>;
+export type MobilePatchWorkItemMutationBody = BodyType<MobileWorkItemPatch>;
+export type MobilePatchWorkItemMutationError = ErrorType<void>;
+
+/**
+ * @summary Toggle a work item complete or set a skip reason
+ */
+export const useMobilePatchWorkItem = <
+  TError = ErrorType<void>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof mobilePatchWorkItem>>,
+    TError,
+    { id: string; data: BodyType<MobileWorkItemPatch> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof mobilePatchWorkItem>>,
+  TError,
+  { id: string; data: BodyType<MobileWorkItemPatch> },
+  TContext
+> => {
+  return useMutation(getMobilePatchWorkItemMutationOptions(options));
+};
+
+/**
+ * @summary List service-type templates for the active company
+ */
+export const getListServiceTypeTemplatesUrl = () => {
+  return `/api/service-type-templates`;
+};
+
+export const listServiceTypeTemplates = async (
+  options?: RequestInit,
+): Promise<ServiceTypeTemplate[]> => {
+  return customFetch<ServiceTypeTemplate[]>(getListServiceTypeTemplatesUrl(), {
+    ...options,
+    method: "GET",
+  });
+};
+
+export const getListServiceTypeTemplatesQueryKey = () => {
+  return [`/api/service-type-templates`] as const;
+};
+
+export const getListServiceTypeTemplatesQueryOptions = <
+  TData = Awaited<ReturnType<typeof listServiceTypeTemplates>>,
+  TError = ErrorType<unknown>,
+>(options?: {
+  query?: UseQueryOptions<
+    Awaited<ReturnType<typeof listServiceTypeTemplates>>,
+    TError,
+    TData
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}) => {
+  const { query: queryOptions, request: requestOptions } = options ?? {};
+
+  const queryKey =
+    queryOptions?.queryKey ?? getListServiceTypeTemplatesQueryKey();
+
+  const queryFn: QueryFunction<
+    Awaited<ReturnType<typeof listServiceTypeTemplates>>
+  > = ({ signal }) => listServiceTypeTemplates({ signal, ...requestOptions });
+
+  return { queryKey, queryFn, ...queryOptions } as UseQueryOptions<
+    Awaited<ReturnType<typeof listServiceTypeTemplates>>,
+    TError,
+    TData
+  > & { queryKey: QueryKey };
+};
+
+export type ListServiceTypeTemplatesQueryResult = NonNullable<
+  Awaited<ReturnType<typeof listServiceTypeTemplates>>
+>;
+export type ListServiceTypeTemplatesQueryError = ErrorType<unknown>;
+
+/**
+ * @summary List service-type templates for the active company
+ */
+
+export function useListServiceTypeTemplates<
+  TData = Awaited<ReturnType<typeof listServiceTypeTemplates>>,
+  TError = ErrorType<unknown>,
+>(options?: {
+  query?: UseQueryOptions<
+    Awaited<ReturnType<typeof listServiceTypeTemplates>>,
+    TError,
+    TData
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+  const queryOptions = getListServiceTypeTemplatesQueryOptions(options);
+
+  const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
+    queryKey: QueryKey;
+  };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+export const getCreateServiceTypeTemplateUrl = () => {
+  return `/api/service-type-templates`;
+};
+
+export const createServiceTypeTemplate = async (
+  serviceTypeTemplateInput: ServiceTypeTemplateInput,
+  options?: RequestInit,
+): Promise<ServiceTypeTemplate> => {
+  return customFetch<ServiceTypeTemplate>(getCreateServiceTypeTemplateUrl(), {
+    ...options,
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...options?.headers },
+    body: JSON.stringify(serviceTypeTemplateInput),
+  });
+};
+
+export const getCreateServiceTypeTemplateMutationOptions = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof createServiceTypeTemplate>>,
+    TError,
+    { data: BodyType<ServiceTypeTemplateInput> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof createServiceTypeTemplate>>,
+  TError,
+  { data: BodyType<ServiceTypeTemplateInput> },
+  TContext
+> => {
+  const mutationKey = ["createServiceTypeTemplate"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof createServiceTypeTemplate>>,
+    { data: BodyType<ServiceTypeTemplateInput> }
+  > = (props) => {
+    const { data } = props ?? {};
+
+    return createServiceTypeTemplate(data, requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type CreateServiceTypeTemplateMutationResult = NonNullable<
+  Awaited<ReturnType<typeof createServiceTypeTemplate>>
+>;
+export type CreateServiceTypeTemplateMutationBody =
+  BodyType<ServiceTypeTemplateInput>;
+export type CreateServiceTypeTemplateMutationError = ErrorType<unknown>;
+
+export const useCreateServiceTypeTemplate = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof createServiceTypeTemplate>>,
+    TError,
+    { data: BodyType<ServiceTypeTemplateInput> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof createServiceTypeTemplate>>,
+  TError,
+  { data: BodyType<ServiceTypeTemplateInput> },
+  TContext
+> => {
+  return useMutation(getCreateServiceTypeTemplateMutationOptions(options));
+};
+
+export const getUpdateServiceTypeTemplateUrl = (id: string) => {
+  return `/api/service-type-templates/${id}`;
+};
+
+export const updateServiceTypeTemplate = async (
+  id: string,
+  serviceTypeTemplateInput: ServiceTypeTemplateInput,
+  options?: RequestInit,
+): Promise<ServiceTypeTemplate> => {
+  return customFetch<ServiceTypeTemplate>(getUpdateServiceTypeTemplateUrl(id), {
+    ...options,
+    method: "PATCH",
+    headers: { "Content-Type": "application/json", ...options?.headers },
+    body: JSON.stringify(serviceTypeTemplateInput),
+  });
+};
+
+export const getUpdateServiceTypeTemplateMutationOptions = <
+  TError = ErrorType<void>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof updateServiceTypeTemplate>>,
+    TError,
+    { id: string; data: BodyType<ServiceTypeTemplateInput> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof updateServiceTypeTemplate>>,
+  TError,
+  { id: string; data: BodyType<ServiceTypeTemplateInput> },
+  TContext
+> => {
+  const mutationKey = ["updateServiceTypeTemplate"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof updateServiceTypeTemplate>>,
+    { id: string; data: BodyType<ServiceTypeTemplateInput> }
+  > = (props) => {
+    const { id, data } = props ?? {};
+
+    return updateServiceTypeTemplate(id, data, requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type UpdateServiceTypeTemplateMutationResult = NonNullable<
+  Awaited<ReturnType<typeof updateServiceTypeTemplate>>
+>;
+export type UpdateServiceTypeTemplateMutationBody =
+  BodyType<ServiceTypeTemplateInput>;
+export type UpdateServiceTypeTemplateMutationError = ErrorType<void>;
+
+export const useUpdateServiceTypeTemplate = <
+  TError = ErrorType<void>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof updateServiceTypeTemplate>>,
+    TError,
+    { id: string; data: BodyType<ServiceTypeTemplateInput> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof updateServiceTypeTemplate>>,
+  TError,
+  { id: string; data: BodyType<ServiceTypeTemplateInput> },
+  TContext
+> => {
+  return useMutation(getUpdateServiceTypeTemplateMutationOptions(options));
+};
+
+export const getDeleteServiceTypeTemplateUrl = (id: string) => {
+  return `/api/service-type-templates/${id}`;
+};
+
+export const deleteServiceTypeTemplate = async (
+  id: string,
+  options?: RequestInit,
+): Promise<void> => {
+  return customFetch<void>(getDeleteServiceTypeTemplateUrl(id), {
+    ...options,
+    method: "DELETE",
+  });
+};
+
+export const getDeleteServiceTypeTemplateMutationOptions = <
+  TError = ErrorType<void>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof deleteServiceTypeTemplate>>,
+    TError,
+    { id: string },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof deleteServiceTypeTemplate>>,
+  TError,
+  { id: string },
+  TContext
+> => {
+  const mutationKey = ["deleteServiceTypeTemplate"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof deleteServiceTypeTemplate>>,
+    { id: string }
+  > = (props) => {
+    const { id } = props ?? {};
+
+    return deleteServiceTypeTemplate(id, requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type DeleteServiceTypeTemplateMutationResult = NonNullable<
+  Awaited<ReturnType<typeof deleteServiceTypeTemplate>>
+>;
+
+export type DeleteServiceTypeTemplateMutationError = ErrorType<void>;
+
+export const useDeleteServiceTypeTemplate = <
+  TError = ErrorType<void>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof deleteServiceTypeTemplate>>,
+    TError,
+    { id: string },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof deleteServiceTypeTemplate>>,
+  TError,
+  { id: string },
+  TContext
+> => {
+  return useMutation(getDeleteServiceTypeTemplateMutationOptions(options));
+};
+
+export const getListTicketWorkItemsUrl = (id: string) => {
+  return `/api/tickets/${id}/work-items`;
+};
+
+export const listTicketWorkItems = async (
+  id: string,
+  options?: RequestInit,
+): Promise<TicketWorkItem[]> => {
+  return customFetch<TicketWorkItem[]>(getListTicketWorkItemsUrl(id), {
+    ...options,
+    method: "GET",
+  });
+};
+
+export const getListTicketWorkItemsQueryKey = (id: string) => {
+  return [`/api/tickets/${id}/work-items`] as const;
+};
+
+export const getListTicketWorkItemsQueryOptions = <
+  TData = Awaited<ReturnType<typeof listTicketWorkItems>>,
+  TError = ErrorType<unknown>,
+>(
+  id: string,
+  options?: {
+    query?: UseQueryOptions<
+      Awaited<ReturnType<typeof listTicketWorkItems>>,
+      TError,
+      TData
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+) => {
+  const { query: queryOptions, request: requestOptions } = options ?? {};
+
+  const queryKey = queryOptions?.queryKey ?? getListTicketWorkItemsQueryKey(id);
+
+  const queryFn: QueryFunction<
+    Awaited<ReturnType<typeof listTicketWorkItems>>
+  > = ({ signal }) => listTicketWorkItems(id, { signal, ...requestOptions });
+
+  return {
+    queryKey,
+    queryFn,
+    enabled: !!id,
+    ...queryOptions,
+  } as UseQueryOptions<
+    Awaited<ReturnType<typeof listTicketWorkItems>>,
+    TError,
+    TData
+  > & { queryKey: QueryKey };
+};
+
+export type ListTicketWorkItemsQueryResult = NonNullable<
+  Awaited<ReturnType<typeof listTicketWorkItems>>
+>;
+export type ListTicketWorkItemsQueryError = ErrorType<unknown>;
+
+export function useListTicketWorkItems<
+  TData = Awaited<ReturnType<typeof listTicketWorkItems>>,
+  TError = ErrorType<unknown>,
+>(
+  id: string,
+  options?: {
+    query?: UseQueryOptions<
+      Awaited<ReturnType<typeof listTicketWorkItems>>,
+      TError,
+      TData
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+  const queryOptions = getListTicketWorkItemsQueryOptions(id, options);
+
+  const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
+    queryKey: QueryKey;
+  };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+export const getCreateTicketWorkItemUrl = (id: string) => {
+  return `/api/tickets/${id}/work-items`;
+};
+
+export const createTicketWorkItem = async (
+  id: string,
+  ticketWorkItemInput: TicketWorkItemInput,
+  options?: RequestInit,
+): Promise<TicketWorkItem> => {
+  return customFetch<TicketWorkItem>(getCreateTicketWorkItemUrl(id), {
+    ...options,
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...options?.headers },
+    body: JSON.stringify(ticketWorkItemInput),
+  });
+};
+
+export const getCreateTicketWorkItemMutationOptions = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof createTicketWorkItem>>,
+    TError,
+    { id: string; data: BodyType<TicketWorkItemInput> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof createTicketWorkItem>>,
+  TError,
+  { id: string; data: BodyType<TicketWorkItemInput> },
+  TContext
+> => {
+  const mutationKey = ["createTicketWorkItem"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof createTicketWorkItem>>,
+    { id: string; data: BodyType<TicketWorkItemInput> }
+  > = (props) => {
+    const { id, data } = props ?? {};
+
+    return createTicketWorkItem(id, data, requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type CreateTicketWorkItemMutationResult = NonNullable<
+  Awaited<ReturnType<typeof createTicketWorkItem>>
+>;
+export type CreateTicketWorkItemMutationBody = BodyType<TicketWorkItemInput>;
+export type CreateTicketWorkItemMutationError = ErrorType<unknown>;
+
+export const useCreateTicketWorkItem = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof createTicketWorkItem>>,
+    TError,
+    { id: string; data: BodyType<TicketWorkItemInput> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof createTicketWorkItem>>,
+  TError,
+  { id: string; data: BodyType<TicketWorkItemInput> },
+  TContext
+> => {
+  return useMutation(getCreateTicketWorkItemMutationOptions(options));
+};
+
+export const getUpdateTicketWorkItemUrl = (ticketId: string, id: string) => {
+  return `/api/tickets/${ticketId}/work-items/${id}`;
+};
+
+export const updateTicketWorkItem = async (
+  ticketId: string,
+  id: string,
+  ticketWorkItemPatch: TicketWorkItemPatch,
+  options?: RequestInit,
+): Promise<TicketWorkItem> => {
+  return customFetch<TicketWorkItem>(getUpdateTicketWorkItemUrl(ticketId, id), {
+    ...options,
+    method: "PATCH",
+    headers: { "Content-Type": "application/json", ...options?.headers },
+    body: JSON.stringify(ticketWorkItemPatch),
+  });
+};
+
+export const getUpdateTicketWorkItemMutationOptions = <
+  TError = ErrorType<void>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof updateTicketWorkItem>>,
+    TError,
+    { ticketId: string; id: string; data: BodyType<TicketWorkItemPatch> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof updateTicketWorkItem>>,
+  TError,
+  { ticketId: string; id: string; data: BodyType<TicketWorkItemPatch> },
+  TContext
+> => {
+  const mutationKey = ["updateTicketWorkItem"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof updateTicketWorkItem>>,
+    { ticketId: string; id: string; data: BodyType<TicketWorkItemPatch> }
+  > = (props) => {
+    const { ticketId, id, data } = props ?? {};
+
+    return updateTicketWorkItem(ticketId, id, data, requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type UpdateTicketWorkItemMutationResult = NonNullable<
+  Awaited<ReturnType<typeof updateTicketWorkItem>>
+>;
+export type UpdateTicketWorkItemMutationBody = BodyType<TicketWorkItemPatch>;
+export type UpdateTicketWorkItemMutationError = ErrorType<void>;
+
+export const useUpdateTicketWorkItem = <
+  TError = ErrorType<void>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof updateTicketWorkItem>>,
+    TError,
+    { ticketId: string; id: string; data: BodyType<TicketWorkItemPatch> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof updateTicketWorkItem>>,
+  TError,
+  { ticketId: string; id: string; data: BodyType<TicketWorkItemPatch> },
+  TContext
+> => {
+  return useMutation(getUpdateTicketWorkItemMutationOptions(options));
+};
+
+export const getDeleteTicketWorkItemUrl = (ticketId: string, id: string) => {
+  return `/api/tickets/${ticketId}/work-items/${id}`;
+};
+
+export const deleteTicketWorkItem = async (
+  ticketId: string,
+  id: string,
+  options?: RequestInit,
+): Promise<void> => {
+  return customFetch<void>(getDeleteTicketWorkItemUrl(ticketId, id), {
+    ...options,
+    method: "DELETE",
+  });
+};
+
+export const getDeleteTicketWorkItemMutationOptions = <
+  TError = ErrorType<void>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof deleteTicketWorkItem>>,
+    TError,
+    { ticketId: string; id: string },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof deleteTicketWorkItem>>,
+  TError,
+  { ticketId: string; id: string },
+  TContext
+> => {
+  const mutationKey = ["deleteTicketWorkItem"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof deleteTicketWorkItem>>,
+    { ticketId: string; id: string }
+  > = (props) => {
+    const { ticketId, id } = props ?? {};
+
+    return deleteTicketWorkItem(ticketId, id, requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type DeleteTicketWorkItemMutationResult = NonNullable<
+  Awaited<ReturnType<typeof deleteTicketWorkItem>>
+>;
+
+export type DeleteTicketWorkItemMutationError = ErrorType<void>;
+
+export const useDeleteTicketWorkItem = <
+  TError = ErrorType<void>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof deleteTicketWorkItem>>,
+    TError,
+    { ticketId: string; id: string },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof deleteTicketWorkItem>>,
+  TError,
+  { ticketId: string; id: string },
+  TContext
+> => {
+  return useMutation(getDeleteTicketWorkItemMutationOptions(options));
+};
+
+export const getLoadTicketWorkItemsFromTemplateUrl = (id: string) => {
+  return `/api/tickets/${id}/work-items/load-template`;
+};
+
+export const loadTicketWorkItemsFromTemplate = async (
+  id: string,
+  loadTemplateRequest: LoadTemplateRequest,
+  options?: RequestInit,
+): Promise<TicketWorkItem[]> => {
+  return customFetch<TicketWorkItem[]>(
+    getLoadTicketWorkItemsFromTemplateUrl(id),
+    {
+      ...options,
+      method: "POST",
+      headers: { "Content-Type": "application/json", ...options?.headers },
+      body: JSON.stringify(loadTemplateRequest),
+    },
+  );
+};
+
+export const getLoadTicketWorkItemsFromTemplateMutationOptions = <
+  TError = ErrorType<void>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof loadTicketWorkItemsFromTemplate>>,
+    TError,
+    { id: string; data: BodyType<LoadTemplateRequest> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof loadTicketWorkItemsFromTemplate>>,
+  TError,
+  { id: string; data: BodyType<LoadTemplateRequest> },
+  TContext
+> => {
+  const mutationKey = ["loadTicketWorkItemsFromTemplate"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof loadTicketWorkItemsFromTemplate>>,
+    { id: string; data: BodyType<LoadTemplateRequest> }
+  > = (props) => {
+    const { id, data } = props ?? {};
+
+    return loadTicketWorkItemsFromTemplate(id, data, requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type LoadTicketWorkItemsFromTemplateMutationResult = NonNullable<
+  Awaited<ReturnType<typeof loadTicketWorkItemsFromTemplate>>
+>;
+export type LoadTicketWorkItemsFromTemplateMutationBody =
+  BodyType<LoadTemplateRequest>;
+export type LoadTicketWorkItemsFromTemplateMutationError = ErrorType<void>;
+
+export const useLoadTicketWorkItemsFromTemplate = <
+  TError = ErrorType<void>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof loadTicketWorkItemsFromTemplate>>,
+    TError,
+    { id: string; data: BodyType<LoadTemplateRequest> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof loadTicketWorkItemsFromTemplate>>,
+  TError,
+  { id: string; data: BodyType<LoadTemplateRequest> },
+  TContext
+> => {
+  return useMutation(
+    getLoadTicketWorkItemsFromTemplateMutationOptions(options),
+  );
 };
 
 /**

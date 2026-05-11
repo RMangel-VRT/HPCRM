@@ -2,7 +2,22 @@ import type { Express, Request, Response } from "express";
 import { z } from "zod/v4";
 import { and, asc, eq, gte, inArray, lt, sql } from "drizzle-orm";
 import { db } from "../db";
-import { crews, users, companyUsers, customers, tickets, insertCrewSchema } from "@workspace/db";
+import {
+  crews,
+  users,
+  companyUsers,
+  customers,
+  tickets,
+  insertCrewSchema,
+  ticketWorkItems,
+  serviceTypeTemplates,
+  serviceTypeTemplateItems,
+  insertServiceTypeTemplateSchema,
+  insertServiceTypeTemplateItemSchema,
+  propertySiteNotes,
+  insertPropertySiteNoteSchema,
+} from "@workspace/db";
+import { getSiteNotesForProperty, serializeSiteNote } from "../services/site-notes";
 import {
   authenticateMobileLogin,
   issueMobileToken,
@@ -279,6 +294,9 @@ export function registerCrewsAndMobileRoutes(app: Express): void {
       .from(crews)
       .where(eq(crews.id, crewId));
 
+    // Slice 2 acceptance: completed stops disappear from Today as soon as the
+    // crew marks them done. Server-side filter is the source of truth so the
+    // client can't accidentally show stale completed rows.
     const rows = await db
       .select({
         ticket: tickets,
@@ -295,6 +313,7 @@ export function registerCrewsAndMobileRoutes(app: Express): void {
         eq(tickets.crewId, crewId),
         gte(tickets.dueDate, dayStart),
         lt(tickets.dueDate, dayEnd),
+        sql`COALESCE(${tickets.mobileStatus}, 'not_started') <> 'complete'`,
       ))
       .orderBy(
         // routeOrder asc nulls-last, then dueDate asc, then title for stable ordering
@@ -385,6 +404,766 @@ export function registerCrewsAndMobileRoutes(app: Express): void {
       mobileStatus: t.mobileStatus,
       startedAt: t.startedAt ? t.startedAt.toISOString() : null,
     });
+  });
+
+  // ---------- Mobile v1 Slice 2: ticket detail + work items + complete ----------
+
+  // Helper: load a ticket (scoped to the caller's crew + company) joined with
+  // the customer row that backs the curated site-notes block.
+  async function loadMobileTicket(ticketId: string, companyId: string, crewId: string) {
+    const [row] = await db
+      .select({ ticket: tickets, customer: customers })
+      .from(tickets)
+      .leftJoin(customers, eq(tickets.customerId, customers.id))
+      .where(and(
+        eq(tickets.id, ticketId),
+        eq(tickets.companyId, companyId),
+        eq(tickets.crewId, crewId),
+      ));
+    return row ?? null;
+  }
+
+  function buildAddress(c: { street: string | null; city: string | null; state: string | null; zip: string | null } | null): string | null {
+    if (!c || !c.street) return null;
+    return `${c.street}, ${c.city ?? ""} ${c.state ?? ""} ${c.zip ?? ""}`.replace(/\s+/g, " ").trim();
+  }
+
+  async function listWorkItems(ticketId: string) {
+    return db
+      .select()
+      .from(ticketWorkItems)
+      .where(eq(ticketWorkItems.ticketId, ticketId))
+      .orderBy(asc(ticketWorkItems.sortOrder), asc(ticketWorkItems.createdAt));
+  }
+
+  function serializeWorkItem(w: typeof ticketWorkItems.$inferSelect) {
+    return {
+      id: w.id,
+      ticketId: w.ticketId,
+      label: w.label,
+      instruction: w.instruction,
+      photoRequired: w.photoRequired,
+      sortOrder: w.sortOrder,
+      isRequired: w.isRequired,
+      isComplete: w.isComplete,
+      completedAt: w.completedAt ? w.completedAt.toISOString() : null,
+      completedById: w.completedById,
+      skipReason: w.skipReason,
+      skipNote: w.skipNote,
+    };
+  }
+
+  app.get("/api/m/tickets/:id", requireMobileAuth(), async (req, res) => {
+    const u = req.user as UserWithContext;
+    const crewId = await resolveSupervisorCrewId(u.id, u.activeCompanyId);
+    if (!crewId) {
+      res.status(403).json({ message: "You are not currently assigned to a crew." });
+      return;
+    }
+    const row = await loadMobileTicket(String(req.params.id), u.activeCompanyId, crewId);
+    if (!row) {
+      res.status(404).json({ message: "Ticket not found for your crew" });
+      return;
+    }
+    const t = row.ticket;
+    const c = row.customer;
+    const items = await listWorkItems(t.id);
+    // Curated site notes: filtered to the ticket's serviceType (plus globals).
+    const siteNotes = c
+      ? await getSiteNotesForProperty(c.id, t.serviceType ?? null)
+      : [];
+    res.json({
+      id: t.id,
+      title: t.title,
+      description: t.description,
+      priority: t.priority,
+      mobileStatus: t.mobileStatus ?? "not_started",
+      serviceType: t.serviceType,
+      dueDate: t.dueDate ? t.dueDate.toISOString() : null,
+      startedAt: t.startedAt ? t.startedAt.toISOString() : null,
+      completedAt: t.completedAt ? t.completedAt.toISOString() : null,
+      completionNotes: t.completionNotes ?? null,
+      completionOverrideNote: t.completionOverrideNote ?? null,
+      locationLabel: t.locationLabel,
+      locationLat: t.locationLat,
+      locationLng: t.locationLng,
+      customer: c
+        ? {
+            id: c.id,
+            name: c.name,
+            address: buildAddress(c),
+            locationLat: c.locationLat,
+            locationLng: c.locationLng,
+          }
+        : null,
+      siteNotes: siteNotes.map(serializeSiteNote),
+      workItems: items.map(serializeWorkItem),
+      // Photos and free-form notes land in Slices 3 / 4 — return zeros so
+      // the mobile UI can render the section stubs ("Photos (0)", "Notes (0)")
+      // without a contract change later.
+      photosCount: 0,
+      notesCount: 0,
+    });
+  });
+
+  // Allowed skip reason chip codes; the mobile UI presents these as a chip
+  // group and adds an optional `skipNote` follow-up text. "other" requires a
+  // note (enforced below).
+  // Per Slice 2 task contract — chip taxonomy is fixed at:
+  //   out_of_supplies, inaccessible, weather, customer_request, other
+  // (any UI changes here must also be reflected in the OpenAPI enum
+  // `MobileWorkItemSkipReason` and the mobile chip codes.)
+  const SKIP_REASON_CODES = [
+    "out_of_supplies",
+    "inaccessible",
+    "weather",
+    "customer_request",
+    "other",
+  ] as const;
+
+  const workItemPatchSchema = z
+    .object({
+      isComplete: z.boolean().optional(),
+      skipReason: z.enum(SKIP_REASON_CODES).nullable().optional(),
+      skipNote: z.string().max(2000).nullable().optional(),
+    })
+    .refine(
+      (v) => !(v.skipReason === "other" && (!v.skipNote || v.skipNote.trim().length === 0)),
+      { message: "skipNote is required when skipReason is 'other'", path: ["skipNote"] },
+    );
+
+  app.patch("/api/m/work-items/:id", requireMobileAuth(), async (req, res) => {
+    const u = req.user as UserWithContext;
+    const crewId = await resolveSupervisorCrewId(u.id, u.activeCompanyId);
+    if (!crewId) {
+      res.status(403).json({ message: "You are not currently assigned to a crew." });
+      return;
+    }
+    const parsed = workItemPatchSchema.safeParse(req.body);
+    if (!parsed.success) {
+      res.status(400).json({ message: "Invalid request", errors: parsed.error.flatten() });
+      return;
+    }
+
+    // Verify the work item belongs to a ticket on the caller's crew.
+    const [row] = await db
+      .select({ wi: ticketWorkItems, t: tickets })
+      .from(ticketWorkItems)
+      .innerJoin(tickets, eq(ticketWorkItems.ticketId, tickets.id))
+      .where(and(
+        eq(ticketWorkItems.id, String(req.params.id)),
+        eq(tickets.companyId, u.activeCompanyId),
+        eq(tickets.crewId, crewId),
+      ));
+    if (!row) {
+      res.status(404).json({ message: "Work item not found for your crew" });
+      return;
+    }
+
+    const now = new Date();
+    const next: Partial<typeof ticketWorkItems.$inferInsert> = { updatedAt: now };
+    if (parsed.data.isComplete !== undefined) {
+      next.isComplete = parsed.data.isComplete;
+      if (parsed.data.isComplete) {
+        next.completedAt = now;
+        next.completedById = u.id;
+        // Completing clears any prior skip reason + note.
+        next.skipReason = null;
+        next.skipNote = null;
+      } else {
+        next.completedAt = null;
+        next.completedById = null;
+      }
+    }
+    if (parsed.data.skipReason !== undefined) {
+      next.skipReason = parsed.data.skipReason;
+      // Skipping (non-null reason) implies the item is not complete.
+      if (parsed.data.skipReason && parsed.data.isComplete !== true) {
+        next.isComplete = false;
+        next.completedAt = null;
+        next.completedById = null;
+      }
+      // Clearing the reason also clears the follow-up note.
+      if (parsed.data.skipReason === null) next.skipNote = null;
+    }
+    if (parsed.data.skipNote !== undefined) {
+      next.skipNote = parsed.data.skipNote;
+    }
+
+    const [updated] = await db
+      .update(ticketWorkItems)
+      .set(next)
+      .where(eq(ticketWorkItems.id, row.wi.id))
+      .returning();
+    res.json(serializeWorkItem(updated));
+  });
+
+  const completeBodySchema = z.object({
+    completionNotes: z.string().max(5000).optional(),
+    overrideMissing: z.boolean().optional(),
+    overrideNote: z.string().max(2000).optional(),
+  });
+
+  app.post("/api/m/tickets/:id/complete", requireMobileAuth(), async (req, res) => {
+    const u = req.user as UserWithContext;
+    const crewId = await resolveSupervisorCrewId(u.id, u.activeCompanyId);
+    if (!crewId) {
+      res.status(403).json({ message: "You are not currently assigned to a crew." });
+      return;
+    }
+    const parsed = completeBodySchema.safeParse(req.body ?? {});
+    if (!parsed.success) {
+      res.status(400).json({ message: "Invalid request", errors: parsed.error.flatten() });
+      return;
+    }
+
+    const row = await loadMobileTicket(String(req.params.id), u.activeCompanyId, crewId);
+    if (!row) {
+      res.status(404).json({ message: "Ticket not found for your crew" });
+      return;
+    }
+    const t = row.ticket;
+
+    // Soft-confirmation: list any required work items that are neither complete
+    // nor skipped-with-reason. The mobile UI shows a confirmation sheet listing
+    // these and re-submits with `overrideMissing: true` plus a non-empty
+    // `overrideNote` explaining why the supervisor is forcing completion.
+    const items = await listWorkItems(t.id);
+    const missing = items.filter(
+      (w) => w.isRequired && !w.isComplete && !(w.skipReason && w.skipReason.trim().length > 0),
+    );
+    if (missing.length > 0) {
+      if (!parsed.data.overrideMissing) {
+        res.status(409).json({
+          code: "MISSING_REQUIRED",
+          message: "Some required items are not complete.",
+          missing: missing.map(serializeWorkItem),
+        });
+        return;
+      }
+      const note = (parsed.data.overrideNote ?? "").trim();
+      if (note.length === 0) {
+        res.status(400).json({
+          code: "OVERRIDE_NOTE_REQUIRED",
+          message: "An override note is required to complete with missing required items.",
+        });
+        return;
+      }
+    }
+
+    const now = new Date();
+    const overrideNote = (parsed.data.overrideNote ?? "").trim();
+    const [updated] = await db
+      .update(tickets)
+      .set({
+        mobileStatus: "complete",
+        completedAt: t.completedAt ?? now,
+        completedByUserId: u.id,
+        completionNotes: parsed.data.completionNotes ?? t.completionNotes ?? null,
+        completionOverrideNote:
+          missing.length > 0 && parsed.data.overrideMissing
+            ? overrideNote
+            : t.completionOverrideNote ?? null,
+        updatedAt: now,
+      })
+      .where(eq(tickets.id, t.id))
+      .returning();
+    res.json({
+      id: updated.id,
+      mobileStatus: updated.mobileStatus,
+      completedAt: updated.completedAt ? updated.completedAt.toISOString() : null,
+      completionNotes: updated.completionNotes ?? null,
+      completionOverrideNote: updated.completionOverrideNote ?? null,
+    });
+  });
+
+  // ---------- Web admin: Property site notes ----------
+  async function ensureAdminCustomerAccess(
+    req: Request,
+    res: Response,
+    customerId: string,
+  ): Promise<UserWithContext | null> {
+    const u = adminOrOffice(req, res);
+    if (!u) return null;
+    const [row] = await db
+      .select({ id: customers.id })
+      .from(customers)
+      .where(and(eq(customers.id, customerId), eq(customers.companyId, u.activeCompanyId)));
+    if (!row) {
+      res.status(404).json({ message: "Property not found" });
+      return null;
+    }
+    return u;
+  }
+
+  app.get("/api/customers/:id/site-notes", async (req, res) => {
+    const u = await ensureAdminCustomerAccess(req, res, req.params.id);
+    if (!u) return;
+    const list = await db
+      .select()
+      .from(propertySiteNotes)
+      .where(eq(propertySiteNotes.customerId, req.params.id))
+      .orderBy(asc(propertySiteNotes.sortOrder), asc(propertySiteNotes.label));
+    res.json(list);
+  });
+
+  const siteNoteBodySchema = insertPropertySiteNoteSchema.omit({ companyId: true, customerId: true });
+
+  app.post("/api/customers/:id/site-notes", async (req, res) => {
+    const u = await ensureAdminCustomerAccess(req, res, req.params.id);
+    if (!u) return;
+    const parsed = siteNoteBodySchema.safeParse(req.body);
+    if (!parsed.success) {
+      res.status(400).json({ message: "Invalid site note", errors: parsed.error.flatten() });
+      return;
+    }
+    const [created] = await db
+      .insert(propertySiteNotes)
+      .values({ ...parsed.data, companyId: u.activeCompanyId, customerId: req.params.id })
+      .returning();
+    res.status(201).json(created);
+  });
+
+  app.patch("/api/customers/:customerId/site-notes/:id", async (req, res) => {
+    const u = await ensureAdminCustomerAccess(req, res, req.params.customerId);
+    if (!u) return;
+    const parsed = siteNoteBodySchema.partial().safeParse(req.body);
+    if (!parsed.success) {
+      res.status(400).json({ message: "Invalid site note", errors: parsed.error.flatten() });
+      return;
+    }
+    const [updated] = await db
+      .update(propertySiteNotes)
+      .set({ ...parsed.data, updatedAt: new Date() })
+      .where(and(
+        eq(propertySiteNotes.id, req.params.id),
+        eq(propertySiteNotes.customerId, req.params.customerId),
+      ))
+      .returning();
+    if (!updated) {
+      res.status(404).json({ message: "Not found" });
+      return;
+    }
+    res.json(updated);
+  });
+
+  app.delete("/api/customers/:customerId/site-notes/:id", async (req, res) => {
+    const u = await ensureAdminCustomerAccess(req, res, req.params.customerId);
+    if (!u) return;
+    const result = await db
+      .delete(propertySiteNotes)
+      .where(and(
+        eq(propertySiteNotes.id, req.params.id),
+        eq(propertySiteNotes.customerId, req.params.customerId),
+      ))
+      .returning();
+    if (result.length === 0) {
+      res.status(404).json({ message: "Not found" });
+      return;
+    }
+    res.sendStatus(204);
+  });
+
+  // ---------- Web admin: Service-type templates + items ----------
+  app.get("/api/service-type-templates", async (req, res) => {
+    const u = adminOrOffice(req, res);
+    if (!u) return;
+    const list = await db
+      .select()
+      .from(serviceTypeTemplates)
+      .where(eq(serviceTypeTemplates.companyId, u.activeCompanyId))
+      .orderBy(asc(serviceTypeTemplates.serviceType), asc(serviceTypeTemplates.name));
+
+    // Hydrate each template with its items so the admin UI gets one round-trip.
+    const ids = list.map((t) => t.id);
+    const itemsByTemplate = new Map<string, Array<typeof serviceTypeTemplateItems.$inferSelect>>();
+    if (ids.length > 0) {
+      const allItems = await db
+        .select()
+        .from(serviceTypeTemplateItems)
+        .where(inArray(serviceTypeTemplateItems.templateId, ids))
+        .orderBy(asc(serviceTypeTemplateItems.displayOrder), asc(serviceTypeTemplateItems.label));
+      for (const it of allItems) {
+        const arr = itemsByTemplate.get(it.templateId) ?? [];
+        arr.push(it);
+        itemsByTemplate.set(it.templateId, arr);
+      }
+    }
+    res.json(
+      list.map((t) => ({
+        id: t.id,
+        companyId: t.companyId,
+        serviceType: t.serviceType,
+        name: t.name,
+        createdAt: t.createdAt,
+        updatedAt: t.updatedAt,
+        items: (itemsByTemplate.get(t.id) ?? []).map((i) => ({
+          id: i.id,
+          templateId: i.templateId,
+          label: i.label,
+          defaultInstruction: i.defaultInstruction,
+          photoRequired: i.photoRequired,
+          isRequired: i.isRequired,
+          displayOrder: i.displayOrder,
+          isActive: i.isActive,
+        })),
+      })),
+    );
+  });
+
+  const templateBodySchema = insertServiceTypeTemplateSchema.omit({ companyId: true });
+
+  app.post("/api/service-type-templates", async (req, res) => {
+    const u = adminOrOffice(req, res);
+    if (!u) return;
+    const parsed = templateBodySchema.safeParse(req.body);
+    if (!parsed.success) {
+      res.status(400).json({ message: "Invalid template", errors: parsed.error.flatten() });
+      return;
+    }
+    const [created] = await db
+      .insert(serviceTypeTemplates)
+      .values({ ...parsed.data, companyId: u.activeCompanyId })
+      .returning();
+    res.status(201).json(created);
+  });
+
+  app.patch("/api/service-type-templates/:id", async (req, res) => {
+    const u = adminOrOffice(req, res);
+    if (!u) return;
+    const parsed = templateBodySchema.partial().safeParse(req.body);
+    if (!parsed.success) {
+      res.status(400).json({ message: "Invalid template", errors: parsed.error.flatten() });
+      return;
+    }
+    const [updated] = await db
+      .update(serviceTypeTemplates)
+      .set({ ...parsed.data, updatedAt: new Date() })
+      .where(and(
+        eq(serviceTypeTemplates.id, req.params.id),
+        eq(serviceTypeTemplates.companyId, u.activeCompanyId),
+      ))
+      .returning();
+    if (!updated) {
+      res.status(404).json({ message: "Not found" });
+      return;
+    }
+    res.json(updated);
+  });
+
+  app.delete("/api/service-type-templates/:id", async (req, res) => {
+    const u = adminOrOffice(req, res);
+    if (!u) return;
+    const result = await db
+      .delete(serviceTypeTemplates)
+      .where(and(
+        eq(serviceTypeTemplates.id, req.params.id),
+        eq(serviceTypeTemplates.companyId, u.activeCompanyId),
+      ))
+      .returning();
+    if (result.length === 0) {
+      res.status(404).json({ message: "Not found" });
+      return;
+    }
+    res.sendStatus(204);
+  });
+
+  // Template items sub-resource.
+  async function ensureTemplateAccess(
+    req: Request,
+    res: Response,
+    templateId: string,
+  ): Promise<UserWithContext | null> {
+    const u = adminOrOffice(req, res);
+    if (!u) return null;
+    const [row] = await db
+      .select({ id: serviceTypeTemplates.id })
+      .from(serviceTypeTemplates)
+      .where(and(
+        eq(serviceTypeTemplates.id, templateId),
+        eq(serviceTypeTemplates.companyId, u.activeCompanyId),
+      ));
+    if (!row) {
+      res.status(404).json({ message: "Template not found" });
+      return null;
+    }
+    return u;
+  }
+
+  const templateItemBodySchema = insertServiceTypeTemplateItemSchema.omit({ templateId: true });
+
+  app.post("/api/service-type-templates/:id/items", async (req, res) => {
+    const u = await ensureTemplateAccess(req, res, req.params.id);
+    if (!u) return;
+    const parsed = templateItemBodySchema.safeParse(req.body);
+    if (!parsed.success) {
+      res.status(400).json({ message: "Invalid item", errors: parsed.error.flatten() });
+      return;
+    }
+    let displayOrder = parsed.data.displayOrder;
+    if (displayOrder === undefined || displayOrder === 0) {
+      const existing = await db
+        .select({ id: serviceTypeTemplateItems.id })
+        .from(serviceTypeTemplateItems)
+        .where(eq(serviceTypeTemplateItems.templateId, req.params.id));
+      displayOrder = existing.length;
+    }
+    const [created] = await db
+      .insert(serviceTypeTemplateItems)
+      .values({ ...parsed.data, displayOrder, templateId: req.params.id })
+      .returning();
+    res.status(201).json(created);
+  });
+
+  app.patch("/api/service-type-templates/:templateId/items/:id", async (req, res) => {
+    const u = await ensureTemplateAccess(req, res, req.params.templateId);
+    if (!u) return;
+    const parsed = templateItemBodySchema.partial().safeParse(req.body);
+    if (!parsed.success) {
+      res.status(400).json({ message: "Invalid item", errors: parsed.error.flatten() });
+      return;
+    }
+    const [updated] = await db
+      .update(serviceTypeTemplateItems)
+      .set({ ...parsed.data, updatedAt: new Date() })
+      .where(and(
+        eq(serviceTypeTemplateItems.id, req.params.id),
+        eq(serviceTypeTemplateItems.templateId, req.params.templateId),
+      ))
+      .returning();
+    if (!updated) {
+      res.status(404).json({ message: "Not found" });
+      return;
+    }
+    res.json(updated);
+  });
+
+  app.delete("/api/service-type-templates/:templateId/items/:id", async (req, res) => {
+    const u = await ensureTemplateAccess(req, res, req.params.templateId);
+    if (!u) return;
+    const result = await db
+      .delete(serviceTypeTemplateItems)
+      .where(and(
+        eq(serviceTypeTemplateItems.id, req.params.id),
+        eq(serviceTypeTemplateItems.templateId, req.params.templateId),
+      ))
+      .returning();
+    if (result.length === 0) {
+      res.status(404).json({ message: "Not found" });
+      return;
+    }
+    res.sendStatus(204);
+  });
+
+  // Bulk-reorder template items in a single request — accepts an array of
+  // `{id, displayOrder}` and updates each row inside one transaction so the
+  // drag-to-reorder UX is atomic.
+  const reorderSchema = z.object({
+    items: z.array(z.object({ id: z.string().min(1), displayOrder: z.number().int().min(0) })).min(1),
+  });
+  app.post("/api/service-type-templates/:id/items/reorder", async (req, res) => {
+    const u = await ensureTemplateAccess(req, res, req.params.id);
+    if (!u) return;
+    const parsed = reorderSchema.safeParse(req.body);
+    if (!parsed.success) {
+      res.status(400).json({ message: "Invalid reorder", errors: parsed.error.flatten() });
+      return;
+    }
+    await db.transaction(async (tx) => {
+      for (const it of parsed.data.items) {
+        await tx
+          .update(serviceTypeTemplateItems)
+          .set({ displayOrder: it.displayOrder, updatedAt: new Date() })
+          .where(and(
+            eq(serviceTypeTemplateItems.id, it.id),
+            eq(serviceTypeTemplateItems.templateId, req.params.id),
+          ));
+      }
+    });
+    res.sendStatus(204);
+  });
+
+  // ---------- Web admin: Ticket work items (CRUD + load-from-template + reorder) ----------
+  async function ensureAdminTicketAccess(req: Request, res: Response, ticketId: string): Promise<UserWithContext | null> {
+    const u = adminOrOffice(req, res);
+    if (!u) return null;
+    const [row] = await db
+      .select({ id: tickets.id })
+      .from(tickets)
+      .where(and(eq(tickets.id, ticketId), eq(tickets.companyId, u.activeCompanyId)));
+    if (!row) {
+      res.status(404).json({ message: "Ticket not found" });
+      return null;
+    }
+    return u;
+  }
+
+  app.get("/api/tickets/:id/work-items", async (req, res) => {
+    const u = await ensureAdminTicketAccess(req, res, req.params.id);
+    if (!u) return;
+    const items = await listWorkItems(req.params.id);
+    res.json(items.map(serializeWorkItem));
+  });
+
+  const adminWorkItemBodySchema = z.object({
+    label: z.string().min(1).max(500),
+    instruction: z.string().max(2000).nullable().optional(),
+    photoRequired: z.boolean().optional().default(false),
+    isRequired: z.boolean().optional().default(false),
+    sortOrder: z.number().int().min(0).optional(),
+  });
+
+  app.post("/api/tickets/:id/work-items", async (req, res) => {
+    const u = await ensureAdminTicketAccess(req, res, req.params.id);
+    if (!u) return;
+    const parsed = adminWorkItemBodySchema.safeParse(req.body);
+    if (!parsed.success) {
+      res.status(400).json({ message: "Invalid work item", errors: parsed.error.flatten() });
+      return;
+    }
+    let sortOrder = parsed.data.sortOrder;
+    if (sortOrder === undefined) {
+      const existing = await listWorkItems(req.params.id);
+      sortOrder = existing.length;
+    }
+    const [created] = await db
+      .insert(ticketWorkItems)
+      .values({
+        ticketId: req.params.id,
+        label: parsed.data.label,
+        instruction: parsed.data.instruction ?? null,
+        photoRequired: parsed.data.photoRequired ?? false,
+        isRequired: parsed.data.isRequired ?? false,
+        sortOrder,
+      })
+      .returning();
+    res.status(201).json(serializeWorkItem(created));
+  });
+
+  const adminWorkItemPatchSchema = z.object({
+    label: z.string().min(1).max(500).optional(),
+    instruction: z.string().max(2000).nullable().optional(),
+    photoRequired: z.boolean().optional(),
+    isRequired: z.boolean().optional(),
+    sortOrder: z.number().int().min(0).optional(),
+  });
+
+  app.patch("/api/tickets/:ticketId/work-items/:id", async (req, res) => {
+    const u = await ensureAdminTicketAccess(req, res, req.params.ticketId);
+    if (!u) return;
+    const parsed = adminWorkItemPatchSchema.safeParse(req.body);
+    if (!parsed.success) {
+      res.status(400).json({ message: "Invalid work item", errors: parsed.error.flatten() });
+      return;
+    }
+    const [updated] = await db
+      .update(ticketWorkItems)
+      .set({ ...parsed.data, updatedAt: new Date() })
+      .where(and(
+        eq(ticketWorkItems.id, req.params.id),
+        eq(ticketWorkItems.ticketId, req.params.ticketId),
+      ))
+      .returning();
+    if (!updated) {
+      res.status(404).json({ message: "Not found" });
+      return;
+    }
+    res.json(serializeWorkItem(updated));
+  });
+
+  app.delete("/api/tickets/:ticketId/work-items/:id", async (req, res) => {
+    const u = await ensureAdminTicketAccess(req, res, req.params.ticketId);
+    if (!u) return;
+    const result = await db
+      .delete(ticketWorkItems)
+      .where(and(
+        eq(ticketWorkItems.id, req.params.id),
+        eq(ticketWorkItems.ticketId, req.params.ticketId),
+      ))
+      .returning();
+    if (result.length === 0) {
+      res.status(404).json({ message: "Not found" });
+      return;
+    }
+    res.sendStatus(204);
+  });
+
+  app.post("/api/tickets/:id/work-items/reorder", async (req, res) => {
+    const u = await ensureAdminTicketAccess(req, res, req.params.id);
+    if (!u) return;
+    const parsed = z
+      .object({ items: z.array(z.object({ id: z.string().min(1), sortOrder: z.number().int().min(0) })).min(1) })
+      .safeParse(req.body);
+    if (!parsed.success) {
+      res.status(400).json({ message: "Invalid reorder", errors: parsed.error.flatten() });
+      return;
+    }
+    await db.transaction(async (tx) => {
+      for (const it of parsed.data.items) {
+        await tx
+          .update(ticketWorkItems)
+          .set({ sortOrder: it.sortOrder, updatedAt: new Date() })
+          .where(and(
+            eq(ticketWorkItems.id, it.id),
+            eq(ticketWorkItems.ticketId, req.params.id),
+          ));
+      }
+    });
+    res.sendStatus(204);
+  });
+
+  app.post("/api/tickets/:id/work-items/load-template", async (req, res) => {
+    const u = await ensureAdminTicketAccess(req, res, req.params.id);
+    if (!u) return;
+    const schema = z.object({ templateId: z.string().min(1), replace: z.boolean().optional() });
+    const parsed = schema.safeParse(req.body);
+    if (!parsed.success) {
+      res.status(400).json({ message: "Invalid request", errors: parsed.error.flatten() });
+      return;
+    }
+    const [tpl] = await db
+      .select()
+      .from(serviceTypeTemplates)
+      .where(and(
+        eq(serviceTypeTemplates.id, parsed.data.templateId),
+        eq(serviceTypeTemplates.companyId, u.activeCompanyId),
+      ));
+    if (!tpl) {
+      res.status(404).json({ message: "Template not found" });
+      return;
+    }
+    // Read items from the new sub-resource table.
+    const tplItems = await db
+      .select()
+      .from(serviceTypeTemplateItems)
+      .where(and(
+        eq(serviceTypeTemplateItems.templateId, tpl.id),
+        eq(serviceTypeTemplateItems.isActive, true),
+      ))
+      .orderBy(asc(serviceTypeTemplateItems.displayOrder), asc(serviceTypeTemplateItems.label));
+    if (parsed.data.replace) {
+      await db.delete(ticketWorkItems).where(eq(ticketWorkItems.ticketId, req.params.id));
+    }
+    const existing = await listWorkItems(req.params.id);
+    const startOrder = parsed.data.replace ? 0 : existing.length;
+    if (tplItems.length === 0) {
+      res.json([]);
+      return;
+    }
+    const inserted = await db
+      .insert(ticketWorkItems)
+      .values(
+        tplItems.map((it, i) => ({
+          ticketId: req.params.id,
+          label: it.label,
+          instruction: it.defaultInstruction,
+          photoRequired: it.photoRequired,
+          isRequired: it.isRequired,
+          sortOrder: startOrder + i,
+        })),
+      )
+      .returning();
+    res.status(201).json(inserted.map(serializeWorkItem));
   });
 
   app.get("/api/m/me", requireMobileAuth(), async (req, res) => {

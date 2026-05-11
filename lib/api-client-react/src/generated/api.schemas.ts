@@ -157,6 +157,241 @@ export interface MobileTicketStatus {
   startedAt?: string | null;
 }
 
+export interface MobileSiteNotes {
+  gateCode?: string | null;
+  petStationCount?: number | null;
+  petStationLocations?: string | null;
+  irrigationControllerLocations?: string | null;
+  accessNotes?: string | null;
+  watchOutNotes?: string | null;
+}
+
+export interface MobileTicketCustomer {
+  id: string;
+  name: string;
+  address?: string | null;
+  locationLat?: number | null;
+  locationLng?: number | null;
+}
+
+export interface TicketWorkItem {
+  id: string;
+  ticketId: string;
+  label: string;
+  instruction?: string | null;
+  photoRequired: boolean;
+  sortOrder: number;
+  isRequired: boolean;
+  isComplete: boolean;
+  completedAt?: string | null;
+  completedById?: string | null;
+  skipReason?: string | null;
+  skipNote?: string | null;
+}
+
+export interface TicketWorkItemInput {
+  /**
+   * @minLength 1
+   * @maxLength 500
+   */
+  label: string;
+  /** @maxLength 2000 */
+  instruction?: string | null;
+  photoRequired?: boolean;
+  isRequired?: boolean;
+  /** @minimum 0 */
+  sortOrder?: number;
+}
+
+export interface TicketWorkItemPatch {
+  /**
+   * @minLength 1
+   * @maxLength 500
+   */
+  label?: string;
+  /** @maxLength 2000 */
+  instruction?: string | null;
+  photoRequired?: boolean;
+  isRequired?: boolean;
+  /** @minimum 0 */
+  sortOrder?: number;
+}
+
+export type MobileWorkItemSkipReason =
+  (typeof MobileWorkItemSkipReason)[keyof typeof MobileWorkItemSkipReason];
+
+export const MobileWorkItemSkipReason = {
+  out_of_supplies: "out_of_supplies",
+  inaccessible: "inaccessible",
+  weather: "weather",
+  customer_request: "customer_request",
+  other: "other",
+} as const;
+
+export interface MobileWorkItemPatch {
+  isComplete?: boolean;
+  skipReason?: MobileWorkItemSkipReason | null;
+  /** @maxLength 2000 */
+  skipNote?: string | null;
+}
+
+export type MobileTicketDetailPriority =
+  (typeof MobileTicketDetailPriority)[keyof typeof MobileTicketDetailPriority];
+
+export const MobileTicketDetailPriority = {
+  low: "low",
+  normal: "normal",
+  high: "high",
+  urgent: "urgent",
+} as const;
+
+export interface MobileSiteNote {
+  id: string;
+  label: string;
+  value: string;
+  serviceType?: string | null;
+  sortOrder: number;
+}
+
+export interface MobileTicketDetail {
+  id: string;
+  title: string;
+  description?: string | null;
+  priority: MobileTicketDetailPriority;
+  mobileStatus: MobileStopStatus;
+  serviceType?: string | null;
+  dueDate?: string | null;
+  startedAt?: string | null;
+  completedAt?: string | null;
+  completionNotes?: string | null;
+  completionOverrideNote?: string | null;
+  locationLabel?: string | null;
+  locationLat?: number | null;
+  locationLng?: number | null;
+  customer?: MobileTicketCustomer | null;
+  siteNotes: MobileSiteNote[];
+  workItems: TicketWorkItem[];
+  /** @minimum 0 */
+  photosCount: number;
+  /** @minimum 0 */
+  notesCount: number;
+}
+
+export interface MobileCompleteRequest {
+  /** @maxLength 5000 */
+  completionNotes?: string;
+  overrideMissing?: boolean;
+  /** @maxLength 2000 */
+  overrideNote?: string;
+}
+
+export interface MobileTicketCompletion {
+  id: string;
+  mobileStatus: MobileStopStatus;
+  completedAt?: string | null;
+  completionNotes?: string | null;
+  completionOverrideNote?: string | null;
+}
+
+export type MobileMissingRequiredResponseCode =
+  (typeof MobileMissingRequiredResponseCode)[keyof typeof MobileMissingRequiredResponseCode];
+
+export const MobileMissingRequiredResponseCode = {
+  MISSING_REQUIRED: "MISSING_REQUIRED",
+} as const;
+
+export interface MobileMissingRequiredResponse {
+  code: MobileMissingRequiredResponseCode;
+  message: string;
+  missing: TicketWorkItem[];
+}
+
+export interface ServiceTypeTemplateItem {
+  id: string;
+  templateId: string;
+  /**
+   * @minLength 1
+   * @maxLength 200
+   */
+  label: string;
+  /** @maxLength 2000 */
+  defaultInstruction?: string | null;
+  photoRequired: boolean;
+  isRequired: boolean;
+  displayOrder: number;
+  isActive: boolean;
+}
+
+export interface ServiceTypeTemplateItemInput {
+  /**
+   * @minLength 1
+   * @maxLength 200
+   */
+  label: string;
+  /** @maxLength 2000 */
+  defaultInstruction?: string | null;
+  photoRequired?: boolean;
+  isRequired?: boolean;
+  /** @minimum 0 */
+  displayOrder?: number;
+  isActive?: boolean;
+}
+
+export interface ServiceTypeTemplate {
+  id: string;
+  companyId: string;
+  serviceType: string;
+  name: string;
+  items: ServiceTypeTemplateItem[];
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface ServiceTypeTemplateInput {
+  /** @minLength 1 */
+  serviceType: string;
+  /**
+   * @minLength 1
+   * @maxLength 200
+   */
+  name: string;
+}
+
+export interface PropertySiteNote {
+  id: string;
+  companyId: string;
+  customerId: string;
+  serviceType?: string | null;
+  label: string;
+  value: string;
+  sortOrder: number;
+  isActive: boolean;
+  createdAt?: string;
+  updatedAt?: string;
+}
+
+export interface PropertySiteNoteInput {
+  /**
+   * @minLength 1
+   * @maxLength 200
+   */
+  label: string;
+  /**
+   * @minLength 1
+   * @maxLength 2000
+   */
+  value: string;
+  serviceType?: string | null;
+  /** @minimum 0 */
+  sortOrder?: number;
+  isActive?: boolean;
+}
+
+export interface LoadTemplateRequest {
+  templateId: string;
+  replace?: boolean;
+}
+
 export interface EligibleSupervisor {
   id: string;
   name: string;

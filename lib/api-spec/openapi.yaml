@@ -16,6 +16,12 @@ tags:
     description: Field crews administration
   - name: mobile-today
     description: Mobile Today screen (Slice 1)
+  - name: mobile-ticket
+    description: Mobile ticket detail / work items / complete (Slice 2)
+  - name: service-type-templates
+    description: Admin-managed reusable work-item templates (Slice 2)
+  - name: ticket-work-items
+    description: Per-ticket work items administered from the web CRM (Slice 2)
 paths:
   /healthz:
     get:
@@ -166,6 +172,289 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/ErrorResponse"
+  /m/tickets/{id}:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+    get:
+      operationId: mobileTicketDetail
+      tags: [mobile-ticket]
+      summary: Ticket detail with curated site notes and work items
+      security:
+        - mobileBearer: []
+      responses:
+        "200":
+          description: Ticket detail
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MobileTicketDetail"
+        "401":
+          description: Missing or invalid token
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "403":
+          description: Caller is not assigned to a crew
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "404":
+          description: Ticket not found for this crew
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+  /m/tickets/{id}/complete:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+    post:
+      operationId: mobileCompleteTicket
+      tags: [mobile-ticket]
+      summary: Mark a ticket complete; soft-confirms when required items are missing
+      security:
+        - mobileBearer: []
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/MobileCompleteRequest"
+      responses:
+        "200":
+          description: Ticket marked complete
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MobileTicketCompletion"
+        "409":
+          description: "Required work items are missing; resubmit with acknowledgedMissingRequired=true"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MobileMissingRequiredResponse"
+        "401":
+          description: Missing or invalid token
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "403":
+          description: Caller is not assigned to a crew
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "404":
+          description: Ticket not found for this crew
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+  /m/work-items/{id}:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+    patch:
+      operationId: mobilePatchWorkItem
+      tags: [mobile-ticket]
+      summary: Toggle a work item complete or set a skip reason
+      security:
+        - mobileBearer: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/MobileWorkItemPatch"
+      responses:
+        "200":
+          description: Updated work item
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TicketWorkItem"
+        "401":
+          description: Missing or invalid token
+        "403":
+          description: Caller is not assigned to a crew
+        "404":
+          description: Work item not found for this crew
+  /service-type-templates:
+    get:
+      operationId: listServiceTypeTemplates
+      tags: [service-type-templates]
+      summary: List service-type templates for the active company
+      responses:
+        "200":
+          description: Templates
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/ServiceTypeTemplate"
+    post:
+      operationId: createServiceTypeTemplate
+      tags: [service-type-templates]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ServiceTypeTemplateInput"
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ServiceTypeTemplate"
+  /service-type-templates/{id}:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+    patch:
+      operationId: updateServiceTypeTemplate
+      tags: [service-type-templates]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ServiceTypeTemplateInput"
+      responses:
+        "200":
+          description: Updated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ServiceTypeTemplate"
+        "404":
+          description: Not found
+    delete:
+      operationId: deleteServiceTypeTemplate
+      tags: [service-type-templates]
+      responses:
+        "204":
+          description: Deleted
+        "404":
+          description: Not found
+  /tickets/{id}/work-items:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+    get:
+      operationId: listTicketWorkItems
+      tags: [ticket-work-items]
+      responses:
+        "200":
+          description: Work items
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/TicketWorkItem"
+    post:
+      operationId: createTicketWorkItem
+      tags: [ticket-work-items]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/TicketWorkItemInput"
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TicketWorkItem"
+  /tickets/{ticketId}/work-items/{id}:
+    parameters:
+      - name: ticketId
+        in: path
+        required: true
+        schema:
+          type: string
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+    patch:
+      operationId: updateTicketWorkItem
+      tags: [ticket-work-items]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/TicketWorkItemPatch"
+      responses:
+        "200":
+          description: Updated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TicketWorkItem"
+        "404":
+          description: Not found
+    delete:
+      operationId: deleteTicketWorkItem
+      tags: [ticket-work-items]
+      responses:
+        "204":
+          description: Deleted
+        "404":
+          description: Not found
+  /tickets/{id}/work-items/load-template:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+    post:
+      operationId: loadTicketWorkItemsFromTemplate
+      tags: [ticket-work-items]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/LoadTemplateRequest"
+      responses:
+        "201":
+          description: Inserted work items
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/TicketWorkItem"
+        "404":
+          description: Template or ticket not found
   /crews:
     get:
       operationId: listCrews
@@ -489,6 +778,275 @@ components:
           format: date-time
           nullable: true
       required: [id, mobileStatus]
+    MobileSiteNotes:
+      type: object
+      properties:
+        gateCode: { type: string, nullable: true }
+        petStationCount: { type: integer, nullable: true }
+        petStationLocations: { type: string, nullable: true }
+        irrigationControllerLocations: { type: string, nullable: true }
+        accessNotes: { type: string, nullable: true }
+        watchOutNotes: { type: string, nullable: true }
+    MobileTicketCustomer:
+      type: object
+      properties:
+        id: { type: string }
+        name: { type: string }
+        address: { type: string, nullable: true }
+        locationLat: { type: number, nullable: true }
+        locationLng: { type: number, nullable: true }
+      required: [id, name]
+    TicketWorkItem:
+      type: object
+      properties:
+        id: { type: string }
+        ticketId: { type: string }
+        label: { type: string }
+        instruction:
+          type: string
+          nullable: true
+        photoRequired: { type: boolean }
+        sortOrder: { type: integer }
+        isRequired: { type: boolean }
+        isComplete: { type: boolean }
+        completedAt:
+          type: string
+          format: date-time
+          nullable: true
+        completedById:
+          type: string
+          nullable: true
+        skipReason:
+          type: string
+          nullable: true
+        skipNote:
+          type: string
+          nullable: true
+      required: [id, ticketId, label, photoRequired, sortOrder, isRequired, isComplete]
+    TicketWorkItemInput:
+      type: object
+      properties:
+        label: { type: string, minLength: 1, maxLength: 500 }
+        instruction: { type: string, maxLength: 2000, nullable: true }
+        photoRequired: { type: boolean, default: false }
+        isRequired: { type: boolean, default: false }
+        sortOrder: { type: integer, minimum: 0 }
+      required: [label]
+    TicketWorkItemPatch:
+      type: object
+      properties:
+        label: { type: string, minLength: 1, maxLength: 500 }
+        instruction: { type: string, maxLength: 2000, nullable: true }
+        photoRequired: { type: boolean }
+        isRequired: { type: boolean }
+        sortOrder: { type: integer, minimum: 0 }
+    MobileWorkItemSkipReason:
+      type: string
+      enum: [out_of_supplies, inaccessible, weather, customer_request, other]
+    MobileWorkItemPatch:
+      type: object
+      properties:
+        isComplete: { type: boolean }
+        skipReason:
+          oneOf:
+            - $ref: "#/components/schemas/MobileWorkItemSkipReason"
+            - type: "null"
+        skipNote:
+          type: string
+          maxLength: 2000
+          nullable: true
+    MobileTicketDetail:
+      type: object
+      properties:
+        id: { type: string }
+        title: { type: string }
+        description:
+          type: string
+          nullable: true
+        priority:
+          type: string
+          enum: [low, normal, high, urgent]
+        mobileStatus:
+          $ref: "#/components/schemas/MobileStopStatus"
+        serviceType:
+          type: string
+          nullable: true
+        dueDate:
+          type: string
+          format: date-time
+          nullable: true
+        startedAt:
+          type: string
+          format: date-time
+          nullable: true
+        completedAt:
+          type: string
+          format: date-time
+          nullable: true
+        completionNotes:
+          type: string
+          nullable: true
+        completionOverrideNote:
+          type: string
+          nullable: true
+        locationLabel:
+          type: string
+          nullable: true
+        locationLat:
+          type: number
+          nullable: true
+        locationLng:
+          type: number
+          nullable: true
+        customer:
+          oneOf:
+            - $ref: "#/components/schemas/MobileTicketCustomer"
+            - type: "null"
+        siteNotes:
+          type: array
+          items:
+            $ref: "#/components/schemas/MobileSiteNote"
+        workItems:
+          type: array
+          items:
+            $ref: "#/components/schemas/TicketWorkItem"
+        photosCount:
+          type: integer
+          minimum: 0
+        notesCount:
+          type: integer
+          minimum: 0
+      required: [id, title, priority, mobileStatus, siteNotes, workItems, photosCount, notesCount]
+    MobileSiteNote:
+      type: object
+      properties:
+        id: { type: string }
+        label: { type: string }
+        value: { type: string }
+        serviceType:
+          type: string
+          nullable: true
+        sortOrder: { type: integer }
+      required: [id, label, value, sortOrder]
+    MobileCompleteRequest:
+      type: object
+      properties:
+        completionNotes:
+          type: string
+          maxLength: 5000
+        overrideMissing:
+          type: boolean
+        overrideNote:
+          type: string
+          maxLength: 2000
+    MobileTicketCompletion:
+      type: object
+      properties:
+        id: { type: string }
+        mobileStatus:
+          $ref: "#/components/schemas/MobileStopStatus"
+        completedAt:
+          type: string
+          format: date-time
+          nullable: true
+        completionNotes:
+          type: string
+          nullable: true
+        completionOverrideNote:
+          type: string
+          nullable: true
+      required: [id, mobileStatus]
+    MobileMissingRequiredResponse:
+      type: object
+      properties:
+        code:
+          type: string
+          enum: [MISSING_REQUIRED]
+        message: { type: string }
+        missing:
+          type: array
+          items:
+            $ref: "#/components/schemas/TicketWorkItem"
+      required: [code, message, missing]
+    ServiceTypeTemplateItem:
+      type: object
+      properties:
+        id: { type: string }
+        templateId: { type: string }
+        label: { type: string, minLength: 1, maxLength: 200 }
+        defaultInstruction:
+          type: string
+          maxLength: 2000
+          nullable: true
+        photoRequired: { type: boolean }
+        isRequired: { type: boolean }
+        displayOrder: { type: integer }
+        isActive: { type: boolean }
+      required: [id, templateId, label, photoRequired, isRequired, displayOrder, isActive]
+    ServiceTypeTemplateItemInput:
+      type: object
+      properties:
+        label: { type: string, minLength: 1, maxLength: 200 }
+        defaultInstruction:
+          type: string
+          maxLength: 2000
+          nullable: true
+        photoRequired: { type: boolean, default: false }
+        isRequired: { type: boolean, default: false }
+        displayOrder: { type: integer, minimum: 0 }
+        isActive: { type: boolean, default: true }
+      required: [label]
+    ServiceTypeTemplate:
+      type: object
+      properties:
+        id: { type: string }
+        companyId: { type: string }
+        serviceType: { type: string }
+        name: { type: string }
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/ServiceTypeTemplateItem"
+        createdAt: { type: string, format: date-time }
+        updatedAt: { type: string, format: date-time }
+      required: [id, companyId, serviceType, name, items, createdAt, updatedAt]
+    ServiceTypeTemplateInput:
+      type: object
+      properties:
+        serviceType: { type: string, minLength: 1 }
+        name: { type: string, minLength: 1, maxLength: 200 }
+      required: [serviceType, name]
+    PropertySiteNote:
+      type: object
+      properties:
+        id: { type: string }
+        companyId: { type: string }
+        customerId: { type: string }
+        serviceType:
+          type: string
+          nullable: true
+        label: { type: string }
+        value: { type: string }
+        sortOrder: { type: integer }
+        isActive: { type: boolean }
+        createdAt: { type: string, format: date-time }
+        updatedAt: { type: string, format: date-time }
+      required: [id, companyId, customerId, label, value, sortOrder, isActive]
+    PropertySiteNoteInput:
+      type: object
+      properties:
+        label: { type: string, minLength: 1, maxLength: 200 }
+        value: { type: string, minLength: 1, maxLength: 2000 }
+        serviceType: { type: string, nullable: true }
+        sortOrder: { type: integer, minimum: 0 }
+        isActive: { type: boolean, default: true }
+      required: [label, value]
+    LoadTemplateRequest:
+      type: object
+      properties:
+        templateId: { type: string }
+        replace: { type: boolean }
+      required: [templateId]
     EligibleSupervisor:
       type: object
       properties:

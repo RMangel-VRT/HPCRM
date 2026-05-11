@@ -70,6 +70,7 @@ import { useToast } from "@/hooks/use-toast";
 import { queryClient, apiRequest } from "@/lib/queryClient";
 import { DatePickerField } from "@/components/DatePickerField";
 import { CrewSelect, type CrewSelectOption } from "@/components/CrewSelect";
+import { TicketWorkItemsCard } from "@/components/TicketWorkItemsCard";
 import type { Ticket, TicketType, TicketTypeStatus, TicketTypeField, TicketFieldValue, TicketComment, TicketCommentWithAuthor, TicketStatusHistory, Customer, Contact, Contract, ContractService, WorkType, TicketLink, User as UserType, CompanyUser, CustomerRateSheet, EmailLogWithDetails, ProposalWithDetails } from "@shared/schema";
 import { WORK_TYPE_CATALOG } from "@shared/workTypeCatalog";
 import { format, formatDistanceToNow } from "date-fns";
@@ -1185,6 +1186,8 @@ export default function TicketDetail() {
               </CardContent>
             </Card>
           )}
+
+          <TicketWorkItemsCard ticketId={ticket.id} serviceType={ticket.serviceType ?? null} />
 
           {customer && (
             <Card data-testid="card-customer">

@@ -12,43 +12,25 @@ const es: Record<string, string> = {
   "tabs.me": "Yo",
   "today.greeting": "Hoy",
   "today.subtitle": "Tu trabajo para hoy.",
-  // TODO: human-review translation
   "today.crewLabel": "Cuadrilla",
-  // TODO: human-review translation
   "today.dayNotStarted": "Día sin iniciar",
-  // TODO: human-review translation
   "today.ofWord": "de",
-  // TODO: human-review translation
   "today.stopsComplete": "paradas completadas",
-  // TODO: human-review translation
   "today.startedAt": "Iniciado",
-  // TODO: human-review translation
   "today.unscheduled": "Sin horario",
-  // TODO: human-review translation
   "today.errorBanner": "No se pudo actualizar las paradas de hoy. Mostrando lo último visto.",
   "today.empty.title": "Nada programado aún",
   "today.empty.body": "Cuando le asignen trabajo a tu cuadrilla, aparecerá aquí.",
-  // TODO: human-review translation
   "today.noCrew.title": "Sin cuadrilla asignada",
-  // TODO: human-review translation
   "today.noCrew.body": "Aún no estás asignado a una cuadrilla. Pídele a tu administrador que te agregue.",
-  // TODO: human-review translation
   "today.summary.total": "Paradas",
-  // TODO: human-review translation
   "today.summary.inProgress": "Activas",
-  // TODO: human-review translation
   "today.summary.complete": "Listas",
-  // TODO: human-review translation
   "today.summary.flagged": "Marcadas",
-  // TODO: human-review translation
   "today.status.notStarted": "Sin iniciar",
-  // TODO: human-review translation
   "today.status.inProgress": "En progreso",
-  // TODO: human-review translation
   "today.status.complete": "Completa",
-  // TODO: human-review translation
   "today.status.skipped": "Omitida",
-  // TODO: human-review translation
   "today.status.flagged": "Marcada",
   "properties.title": "Propiedades",
   "properties.subtitle": "Explora las propiedades que atiende tu cuadrilla.",
@@ -61,6 +43,52 @@ const es: Record<string, string> = {
   "flag.comingSoonBody": "El marcado rápido llegará pronto.",
   "ticket.placeholderTitle": "Detalles del ticket próximamente",
   "ticket.placeholderBody": "Esta pantalla mostrará los detalles completos del ticket en una próxima entrega.",
+  "ticket.navigate": "Navegar",
+  "ticket.siteNotes": "Notas del sitio",
+  "ticket.siteNotes.empty": "Aún no hay notas para esta propiedad.",
+  "ticket.workItems": "Tareas",
+  "ticket.workItems.empty": "No hay tareas en este ticket.",
+  "ticket.workItems.required": "Obligatorio",
+  "ticket.workItems.skipped": "Omitida",
+  "ticket.workItems.skip": "Omitir",
+  "ticket.workItems.unskip": "Deshacer omisión",
+  "ticket.workItems.photoRequired": "Foto requerida",
+  "ticket.skip.title": "Omitir esta tarea",
+  "ticket.skip.body": "Elige un motivo para que la oficina sepa.",
+  "ticket.skip.notePlaceholder": "Detalle opcional (obligatorio si elegiste \"Otro\")",
+  "ticket.skip.save": "Guardar",
+  "ticket.skip.cancel": "Cancelar",
+  "ticket.skip.reason.out_of_supplies": "Sin suministros",
+  "ticket.skip.reason.inaccessible": "Inaccesible",
+  "ticket.skip.reason.access_denied": "Sin acceso",
+  "ticket.skip.reason.weather": "Clima",
+  "ticket.skip.reason.equipment_issue": "Equipo dañado",
+  "ticket.skip.reason.not_applicable": "No aplica",
+  "ticket.skip.reason.customer_request": "Pedido del cliente",
+  "ticket.skip.reason.other": "Otro",
+  "ticket.complete.button": "Marcar como completa",
+  "ticket.complete.completing": "Completando...",
+  "ticket.complete.notesLabel": "Notas (opcional)",
+  "ticket.complete.notesPlaceholder": "Algo que deba saber la oficina.",
+  "ticket.complete.confirmTitle": "Hay tareas obligatorias sin terminar",
+  "ticket.complete.confirmBody": "Estas tareas obligatorias no están completas ni omitidas:",
+  "ticket.complete.overrideNoteLabel": "Explica por qué quieres completar de todas formas (obligatorio):",
+  "ticket.complete.overrideNotePlaceholder": "p. ej. el cliente nos pidió volver mañana",
+  "ticket.complete.confirmButton": "Completar de todas formas",
+  "ticket.complete.cancel": "Volver",
+  "ticket.complete.success": "Marcada como completa",
+  "ticket.complete.alreadyDone": "Esta parada ya está completa.",
+  "ticket.flag.button": "Marcar",
+  "ticket.photos": "Fotos",
+  "ticket.photos.add": "Agregar foto",
+  "ticket.photos.comingSoon": "La carga de fotos llegará pronto.",
+  "ticket.notes": "Notas",
+  "ticket.notes.add": "Agregar nota",
+  "ticket.notes.comingSoon": "Las notas libres llegarán pronto.",
+  "ticket.priority.low": "BAJA",
+  "ticket.priority.normal": "NORMAL",
+  "ticket.priority.high": "ALTA",
+  "ticket.priority.urgent": "URGENTE",
   "property.placeholderTitle": "Detalles de la propiedad próximamente",
   "property.placeholderBody": "Esta pantalla mostrará el alcance, historial y notas de la cuadrilla en una próxima entrega.",
   "common.loading": "Cargando...",

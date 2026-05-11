@@ -27,6 +27,7 @@ import type { Settings, PropertyManagementCompany, PropertyManager, PropertyMana
 import ServicePlanTemplatesAdmin from "@/components/ServicePlanTemplatesAdmin";
 import ChemicalProductsAdmin from "@/components/ChemicalProductsAdmin";
 import CrewsAdmin from "@/pages/CrewsAdmin";
+import WorkItemTemplatesAdmin from "@/components/WorkItemTemplatesAdmin";
 
 interface ManagerEmailInput {
   email: string;
@@ -87,7 +88,7 @@ export default function SettingsPage() {
   const validTabs = [
     'company', 'seasons', 'benchmarks', 'property-management', 'features',
     'email-templates', 'billing', 'service-plans', 'chemical-products', 'notification-templates',
-    'crews',
+    'crews', 'work-item-templates', 'shared-mailboxes',
   ];
   const getDefaultTab = () => {
     const pathSegments = location.split('?')[0].split('/').filter(Boolean);
@@ -564,7 +565,10 @@ export default function SettingsPage() {
             <TabsTrigger value="notification-templates" data-testid="tab-notification-templates">Notification Templates</TabsTrigger>
           )}
           {isAdmin && (
-            <TabsTrigger value="crews" data-testid="tab-crews">Crews</TabsTrigger>
+            <>
+              <TabsTrigger value="crews" data-testid="tab-crews">Crews</TabsTrigger>
+              <TabsTrigger value="work-item-templates" data-testid="tab-work-item-templates">Work Item Templates</TabsTrigger>
+            </>
           )}
         </TabsList>
 
@@ -1173,6 +1177,10 @@ export default function SettingsPage() {
 
         <TabsContent value="crews" className="space-y-6" data-testid="content-crews">
           <CrewsAdmin />
+        </TabsContent>
+
+        <TabsContent value="work-item-templates" className="space-y-6" data-testid="content-work-item-templates">
+          <WorkItemTemplatesAdmin />
         </TabsContent>
 
         <TabsContent value="notification-templates" className="space-y-6" data-testid="content-notification-templates">
