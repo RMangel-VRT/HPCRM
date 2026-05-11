@@ -38,7 +38,7 @@ function AuthGate() {
     if (!user && !inAuthScreen) {
       router.replace("/login");
     } else if (user && inAuthScreen) {
-      router.replace("/(tabs)");
+      router.replace("/(tabs)/today");
     }
   }, [user, loading, segments, router]);
 
