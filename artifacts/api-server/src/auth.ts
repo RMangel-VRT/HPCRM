@@ -2,11 +2,11 @@ import passport from "passport";
 import { Strategy as LocalStrategy } from "passport-local";
 import { Express } from "express";
 import session from "express-session";
-import { scrypt, randomBytes, timingSafeEqual } from "crypto";
-import { promisify } from "util";
 import { z } from "zod/v4";
 import { storage } from "./storage";
-import { User as SelectUser } from "@workspace/db";
+import { User as SelectUser, hashPassword as sharedHashPassword, comparePasswords } from "@workspace/db";
+
+export const hashPassword = sharedHashPassword;
 
 export interface UserWithContext extends SelectUser {
   activeCompanyId: string;
@@ -21,21 +21,6 @@ declare global {
       activeCompanyId?: string;
     }
   }
-}
-
-const scryptAsync = promisify(scrypt);
-
-export async function hashPassword(password: string) {
-  const salt = randomBytes(16).toString("hex");
-  const buf = (await scryptAsync(password, salt, 64)) as Buffer;
-  return `${buf.toString("hex")}.${salt}`;
-}
-
-async function comparePasswords(supplied: string, stored: string) {
-  const [hashed, salt] = stored.split(".");
-  const hashedBuf = Buffer.from(hashed, "hex");
-  const suppliedBuf = (await scryptAsync(supplied, salt, 64)) as Buffer;
-  return timingSafeEqual(hashedBuf, suppliedBuf);
 }
 
 export function setupAuth(app: Express) {

@@ -1,12 +1,9 @@
 import type { Request, Response, NextFunction } from "express";
-import { createHash, randomBytes, scrypt, timingSafeEqual } from "crypto";
-import { promisify } from "util";
+import { createHash, randomBytes } from "crypto";
 import { eq, and, isNull } from "drizzle-orm";
 import { db } from "./db";
-import { mobileAuthTokens, users, companyUsers } from "@workspace/db";
+import { mobileAuthTokens, users, companyUsers, comparePasswords } from "@workspace/db";
 import type { UserWithContext } from "./auth";
-
-const scryptAsync = promisify(scrypt);
 
 // Roles allowed to use the mobile field-crew app.
 export const MOBILE_ALLOWED_ROLES = new Set<string>([
@@ -30,15 +27,6 @@ export function tokenExpiryFromNow(): Date {
   const d = new Date();
   d.setDate(d.getDate() + INACTIVITY_DAYS);
   return d;
-}
-
-async function comparePasswords(supplied: string, stored: string): Promise<boolean> {
-  const [hashed, salt] = stored.split(".");
-  if (!hashed || !salt) return false;
-  const hashedBuf = Buffer.from(hashed, "hex");
-  const suppliedBuf = (await scryptAsync(supplied, salt, 64)) as Buffer;
-  if (hashedBuf.length !== suppliedBuf.length) return false;
-  return timingSafeEqual(hashedBuf, suppliedBuf);
 }
 
 async function findUserByLogin(login: string) {

@@ -8,6 +8,7 @@
     "migrate": "tsx ./src/migrate.ts",
     "check-schema-drift": "tsx ./src/check-schema-drift.ts",
     "check-required-extensions": "tsx ./src/check-required-extensions.ts",
+    "seed-mobile-test-user": "tsx ./src/seed-mobile-test-user.ts",
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
   "dependencies": {
