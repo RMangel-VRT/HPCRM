@@ -116,17 +116,35 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   const signOut = useCallback(async () => {
-    // Slice 6: deregister this device's push token before tearing the
-    // session down so we don't keep pinging a signed-out user.
+    // Task #443: harden sign-out so it can never block the UI for more
+    // than ~3 seconds total. The local cleanup (saveToken(null) +
+    // setUser(null)) MUST always run, even if the network calls hang or
+    // reject — otherwise a stranded user (e.g. supervisor with no crew,
+    // offline) can't get back to the login screen.
+    const withTimeout = <T,>(p: Promise<T>, ms: number): Promise<T | void> =>
+      Promise.race<T | void>([
+        p.catch(() => undefined),
+        new Promise<void>((resolve) => setTimeout(resolve, ms)),
+      ]);
     try {
+      // Slice 6: deregister this device's push token before tearing the
+      // session down so we don't keep pinging a signed-out user.
       const tok = getLastRegisteredToken();
-      if (tok) await unregisterPushToken(tok);
-    } catch {}
-    try {
-      await apiRequest("/api/m/auth/logout", { method: "POST" });
-    } catch {}
-    await saveToken(null);
-    setUser(null);
+      const tasks: Promise<unknown>[] = [];
+      if (tok) tasks.push(unregisterPushToken(tok).catch(() => undefined));
+      tasks.push(
+        apiRequest("/api/m/auth/logout", { method: "POST" }).catch(() => undefined),
+      );
+      await withTimeout(Promise.all(tasks), 3000);
+    } catch {
+      // Defensive — both inner calls already swallow errors.
+    } finally {
+      try {
+        await saveToken(null);
+      } finally {
+        setUser(null);
+      }
+    }
   }, []);
 
   return (

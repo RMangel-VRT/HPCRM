@@ -73,7 +73,10 @@ export default function TabLayout() {
             ...(isWeb ? { height: 84 } : {}),
           },
           tabBarBackground: () => (
-            <View style={[StyleSheet.absoluteFill, { backgroundColor: colors.background }]} />
+            <View
+              pointerEvents="none"
+              style={[StyleSheet.absoluteFill, { backgroundColor: colors.background }]}
+            />
           ),
           headerRight: () => (
             <View style={styles.headerRightRow}>

@@ -4,6 +4,7 @@ import { useFocusEffect, useLocalSearchParams, useRouter } from "expo-router";
 import React, { useCallback, useMemo, useState } from "react";
 import {
   ActivityIndicator,
+  Alert,
   FlatList,
   Pressable,
   RefreshControl,
@@ -81,7 +82,7 @@ export default function TodayScreen() {
   const colors = useColors();
   const insets = useSafeAreaInsets();
   const router = useRouter();
-  const { user } = useAuth();
+  const { user, signOut } = useAuth();
   const { t } = useT();
   const queryClient = useQueryClient();
   const [startingId, setStartingId] = useState<string | null>(null);
@@ -280,6 +281,23 @@ export default function TodayScreen() {
       );
     }
     if (data && !data.crewId) {
+      const onSignOut = () => {
+        Alert.alert(
+          t("me.signOut.title"),
+          t("me.signOut.body"),
+          [
+            { text: t("me.signOut.cancel"), style: "cancel" },
+            {
+              text: t("me.signOut.confirm"),
+              style: "destructive",
+              onPress: () => {
+                void signOut();
+              },
+            },
+          ],
+          { cancelable: true },
+        );
+      };
       return (
         <View style={[styles.card, { backgroundColor: colors.card, borderColor: colors.border }]}>
           <Text style={[styles.cardTitle, { color: colors.foreground }]}>
@@ -288,6 +306,19 @@ export default function TodayScreen() {
           <Text style={[styles.cardBody, { color: colors.mutedForeground }]}>
             {t("today.noCrew.body")}
           </Text>
+          <Pressable
+            onPress={onSignOut}
+            accessibilityRole="button"
+            accessibilityLabel={t("me.signOut.confirm")}
+            style={({ pressed }) => [
+              styles.signOutBtn,
+              { borderColor: colors.border, opacity: pressed ? 0.85 : 1 },
+            ]}
+          >
+            <Text style={[styles.signOutText, { color: colors.destructive }]}>
+              {t("me.signOut.confirm")}
+            </Text>
+          </Pressable>
         </View>
       );
     }
@@ -476,6 +507,15 @@ const styles = StyleSheet.create({
     alignSelf: "flex-start",
   },
   retryText: { fontFamily: "Inter_600SemiBold", fontSize: 13 },
+  signOutBtn: {
+    marginTop: 12,
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+    borderRadius: 10,
+    borderWidth: 1,
+    alignSelf: "flex-start",
+  },
+  signOutText: { fontFamily: "Inter_600SemiBold", fontSize: 13 },
   stop: {
     flexDirection: "row",
     alignItems: "center",
