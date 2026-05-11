@@ -1,0 +1,278 @@
+# Replit Prompt — Fix Property Maps Not Rendering on Mobile Web
+
+## Context
+
+Bug: on the property-maps page (and anywhere else `LayerMapViewer` is mounted — Customer Detail, Ticket Detail, Campaign Item Detail), users on mobile browsers see the satellite/OSM basemap load fine, but the uploaded KML layers do not render. Because no layer ever produces valid bounds, the map also never auto-centers on the community — it stays parked on the default center (Kansas, zoom 4). On desktop Chrome the same customer's layers render and the map centers correctly.
+
+We've narrowed it to three independently real problems in `client/src/components/LayerMapViewer.tsx`. Any one of them is enough to break a customer's layers on mobile; depending on the KML source, more than one applies at once.
+
+1. **KML namespace handling.** The current parser does `kmlDoc.querySelectorAll("Placemark")` on a document parsed as `text/xml`. KML files exported from Google Earth and most other tools declare `xmlns="http://www.opengis.net/kml/2.2"` as the default namespace. WebKit (iOS Safari, all browsers on iOS, and macOS Safari) treats CSS selectors in XML documents as namespace-aware and returns zero matches. Blink (desktop Chrome, Edge) is lenient and returns matches. Result: the same code returns 0 Placemarks on iOS and N Placemarks on desktop Chrome — which exactly matches what users are reporting.
+2. **KMZ files are not actually supported.** The upload UI on `PropertyMapsPage.tsx` advertises `.kml,.kmz` and the upload mutation cheerfully accepts either. But `kmlToGeoJson` in `LayerMapViewer.tsx` only handles XML text — it calls `DOMParser.parseFromString(kmlText, "text/xml")` on the response body. KMZ is a ZIP archive; parsing zipped binary as XML yields an empty document and zero features. If any community has a `.kmz` layer in their library, it has never rendered for anyone — desktop or mobile — and the symptom on mobile gets blamed on the more visible namespace bug above.
+3. **Map sizing race on mobile.** `FitBounds` calls `map.invalidateSize()` and then `map.fitBounds(...)` inside a single 100ms `setTimeout`. On iOS Safari the container is often still 0-height at that moment because the page is using `100vh` heights and the URL bar collapse triggers a layout pass after first paint. `fitBounds` against a zero-size container is a silent no-op, the map keeps its default view, and even when layers eventually do render they appear off-screen. We also never re-invalidate on subsequent container resizes (rotate, URL bar collapse, layer-panel toggle).
+
+This slice fixes all three. It also stops swallowing fetch errors so the next time something like this regresses, the developer sees it in the console and in the UI.
+
+**Scope is strictly the viewer.** Don't touch upload, the API route, object storage, the schema, or any other map component (Mapbox-based `CustomerLocationEditor`, `VisualScopeDraft`, `CustomerRouteMap` — those use a different stack and aren't part of this bug).
+
+## Existing context (do not duplicate or replace)
+
+- The viewer component is `client/src/components/LayerMapViewer.tsx`. It is consumed by `PropertyMapsPage.tsx`, `CustomerDetail.tsx`, `TicketDetail.tsx`, and `CampaignItemDetail.tsx`. Don't change its props or default export — the consumers stay untouched.
+- The upload page is `client/src/pages/PropertyMapsPage.tsx`. The file picker accepts `accept=".kml,.kmz"` (around line 569) and the upload mutation already sends `application/vnd.google-earth.kml+xml` as the content type fallback. Leave the upload code alone — we're going to fix the viewer to actually handle what the upload already accepts.
+- KMLs are served from object storage via `/objects/...` URLs through the existing route in `server/routes.ts` (`app.get("/api/customers/:customerId/map-layers", ...)` and the object-storage signed-URL flow). Don't change the route; it already returns the right bytes — the viewer just doesn't parse them right.
+- The client uses `react-leaflet` 5.x + `leaflet` 1.9.x. Both are already in `package.json` under `client/`. Tailwind is available.
+- The project's allowed-libraries policy is conservative. The only new runtime dependency this slice may add is `@tmcw/togeojson` (~10kB gzipped, MIT, well-maintained, no transitive deps) and `jszip` (already in the dependency tree transitively via several upload paths — verify first; if not present, add it). Do not introduce any other new packages.
+
+## Phase 1 — Replace the hand-rolled KML parser with `@tmcw/togeojson`
+
+### 1a. Add the dependency
+
+```
+npm install --workspace client @tmcw/togeojson
+```
+
+If `jszip` is not already in `client/package.json` after this, add it too:
+
+```
+npm install --workspace client jszip
+```
+
+Commit the updated lockfile.
+
+### 1b. Replace `kmlToGeoJson` and `parseKmlCoordinates`
+
+In `client/src/components/LayerMapViewer.tsx`, delete the two functions at the bottom of the file (`kmlToGeoJson` around line 500 and `parseKmlCoordinates` around line 569). Replace them with a single async function that handles both `.kml` and `.kmz` input transparently:
+
+```ts
+import { kml as kmlToGeoJsonLib } from "@tmcw/togeojson";
+import JSZip from "jszip";
+
+// Magic bytes for ZIP archives (KMZ is a ZIP containing one .kml + assets).
+function looksLikeZip(bytes: Uint8Array): boolean {
+  return bytes.length >= 4 && bytes[0] === 0x50 && bytes[1] === 0x4b &&
+         (bytes[2] === 0x03 || bytes[2] === 0x05) &&
+         (bytes[3] === 0x04 || bytes[3] === 0x06);
+}
+
+async function fetchAndParseKmlOrKmz(url: string): Promise<GeoJSON.FeatureCollection> {
+  const res = await fetch(url, { credentials: "include" });
+  if (!res.ok) throw new Error(`Failed to fetch KML (${res.status} ${res.statusText})`);
+
+  const buf = new Uint8Array(await res.arrayBuffer());
+
+  let kmlText: string;
+  if (looksLikeZip(buf)) {
+    const zip = await JSZip.loadAsync(buf);
+    // Find the first .kml entry (typically "doc.kml")
+    const kmlEntry = Object.values(zip.files).find(
+      (f) => !f.dir && f.name.toLowerCase().endsWith(".kml")
+    );
+    if (!kmlEntry) throw new Error("KMZ archive contains no .kml file");
+    kmlText = await kmlEntry.async("text");
+  } else {
+    kmlText = new TextDecoder("utf-8").decode(buf);
+  }
+
+  const xml = new DOMParser().parseFromString(kmlText, "application/xml");
+  // Reject documents that didn't parse (browsers wrap parse errors in <parsererror>).
+  if (xml.getElementsByTagName("parsererror").length > 0) {
+    throw new Error("KML XML failed to parse");
+  }
+
+  const geo = kmlToGeoJsonLib(xml) as GeoJSON.FeatureCollection;
+  if (!geo || !Array.isArray(geo.features) || geo.features.length === 0) {
+    throw new Error("KML contained no recognizable features");
+  }
+  return geo;
+}
+```
+
+Notes:
+- `@tmcw/togeojson` is namespace-aware and handles `Placemark`, `MultiGeometry`, `Polygon`, `LineString`, `Point`, `LinearRing`, `Track`, and ExtendedData. It is what every Mapbox/Leaflet KML demo uses.
+- `application/xml` is preferred over `text/xml` for DOMParser — both work, but `application/xml` has better-defined behavior across engines.
+- We deliberately check for `<parsererror>` so a malformed KML fails loudly instead of silently rendering nothing.
+
+### 1c. Use the new function in the layer-fetch effect
+
+In the same file, find the `useEffect` that loops over `mapLayers` and fetches each KML (around lines 161–201). Replace the inner fetch/parse block:
+
+```ts
+const kmlUrl = layer.kmlPath;
+const response = await fetch(kmlUrl, { credentials: "include" });
+if (!response.ok) throw new Error(`Failed to fetch KML: ${response.status}`);
+const kmlText = await response.text();
+const geoJson = kmlToGeoJson(kmlText);
+```
+
+with a single call:
+
+```ts
+const geoJson = await fetchAndParseKmlOrKmz(layer.kmlPath);
+```
+
+Preserve the surrounding `setLayerData` updates (loading → success / error) and the `for...of` loop structure. Do not change `layerData`'s shape.
+
+### 1d. Surface parse failures in the layer chip UI
+
+When `data.error === true` for a layer, the layer chip in the panel currently looks identical to a working layer (just no "..." loading dot). Make it visibly red and show the error on hover:
+
+In each of the four `<button ...>` chip blocks (base, community, snow, custom — around lines 335–445), inside the existing className expression, append a third state for errored layers:
+
+```ts
+className={`flex items-center gap-1.5 px-2 py-1 rounded-full text-xs transition-all ${
+  data?.error
+    ? 'bg-red-100 text-red-800 ring-1 ring-red-300 dark:bg-red-950 dark:text-red-200'
+    : isEnabled
+      ? 'bg-primary text-primary-foreground shadow-sm'
+      : 'bg-muted/50 text-muted-foreground hover:bg-muted'
+}`}
+title={data?.error ? "Failed to load — check that the file is a valid .kml or .kmz" : undefined}
+```
+
+Don't disable clicking — the user can still toggle the chip; it just won't add anything to the map.
+
+## Phase 2 — Fix the map-sizing race on mobile
+
+### 2a. Make `FitBounds` resize-aware
+
+In `LayerMapViewer.tsx`, replace the existing `FitBounds` component (lines 58–69) with one that:
+
+1. Invalidates the map size whenever the container resizes (via `ResizeObserver`).
+2. Defers `fitBounds` until both the bounds are valid AND the container has nonzero size.
+3. Re-fits on `fitTrigger` change (preserve existing behavior).
+
+```ts
+function FitBounds({ bounds, fitTrigger }: { bounds: L.LatLngBounds | null; fitTrigger?: number }) {
+  const map = useMap();
+
+  // Keep the map's internal size in sync with the container at all times.
+  useEffect(() => {
+    const container = map.getContainer();
+    const ro = new ResizeObserver(() => {
+      map.invalidateSize({ animate: false });
+    });
+    ro.observe(container);
+    // Also run once on mount in case ResizeObserver doesn't fire immediately on iOS.
+    requestAnimationFrame(() => map.invalidateSize({ animate: false }));
+    return () => ro.disconnect();
+  }, [map]);
+
+  // Fit bounds whenever bounds become valid, the trigger ticks, or the container has size.
+  useEffect(() => {
+    if (!bounds || !bounds.isValid()) return;
+    let cancelled = false;
+    const tryFit = () => {
+      if (cancelled) return;
+      const size = map.getSize();
+      if (size.x === 0 || size.y === 0) {
+        // Container not laid out yet — try again next frame.
+        requestAnimationFrame(tryFit);
+        return;
+      }
+      map.invalidateSize({ animate: false });
+      map.fitBounds(bounds, { padding: [50, 50], animate: false });
+    };
+    requestAnimationFrame(tryFit);
+    return () => { cancelled = true; };
+  }, [map, bounds, fitTrigger]);
+
+  return null;
+}
+```
+
+Do not change the `<FitBounds bounds={bounds} fitTrigger={fitTrigger} />` JSX inside `<MapContainer>` — the props are the same.
+
+### 2b. Make the outer wrapper use `dvh`, not `vh`
+
+In `LayerMapViewer.tsx`, the outer wrapper (line 270 and line 240) uses `fixed inset-0 bg-background z-50` for fullscreen, which is fine. But verify the *parent* containers in the consumer pages (`PropertyMapsPage.tsx`, `CustomerDetail.tsx`, `TicketDetail.tsx`, `CampaignItemDetail.tsx`) actually provide a stable height in non-fullscreen mode.
+
+For each non-fullscreen consumer, the parent wrapping `<LayerMapViewer />` must have an explicit non-zero height. Most use a `relative` parent with no height — that's why the map sometimes shows up squished or empty on mobile until you scroll. Find each `<LayerMapViewer ... />` mount that does NOT pass `fullScreen` and ensure its parent looks like:
+
+```tsx
+<div className="relative h-[60vh] min-h-[420px] sm:h-[70vh]">
+  <LayerMapViewer customerId={...} />
+</div>
+```
+
+If the existing parent already has a height class (`h-[600px]`, `h-screen`, etc.), leave it. The point is: don't rely on flexbox alone to size the map container on mobile.
+
+### 2c. Add `viewport-fit=cover` to the page meta (if not already present)
+
+In `client/index.html`, the viewport meta tag should read:
+
+```html
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+```
+
+If it already includes `viewport-fit=cover`, do nothing. This isn't strictly required for the map to work, but it prevents notches/home-indicator areas from eating into the map on iOS.
+
+## Phase 3 — Don't swallow errors
+
+In the `useEffect` that fetches layer data (lines 161–201), the current `catch` block does `console.error` and sets `error: true`. That's correct. Add one more thing: when ANY layer fetch errors, surface a single dismissible toast to the user so they know something didn't load.
+
+Use the existing `useToast` hook (already imported in many siblings; import it here). Throttle to one toast per mount — don't fire one per failing layer.
+
+```ts
+import { useToast } from "@/hooks/use-toast";
+// ...inside the component:
+const { toast } = useToast();
+const erroredToastShownRef = useRef(false);
+```
+
+Inside the `catch` block, after the existing `setLayerData(...)` call:
+
+```ts
+if (!erroredToastShownRef.current) {
+  erroredToastShownRef.current = true;
+  toast({
+    variant: "destructive",
+    title: "Some map layers failed to load",
+    description: "Check that the uploaded files are valid .kml or .kmz.",
+  });
+}
+```
+
+Reset `erroredToastShownRef.current = false` if `customerId` changes (so switching customers re-arms the toast).
+
+## Out of scope for this slice (do not build)
+
+- Server-side KML validation on upload — we still trust whatever the user uploads, just parse it more robustly client-side
+- Any change to `PropertyMapsPage` upload flow, the file picker, or the API routes
+- Any change to the Mapbox-based map components (`CustomerLocationEditor`, `VisualScopeDraft`, `CustomerRouteMap`)
+- Replacing Leaflet with Mapbox or vice versa
+- Offline / cached layer support
+- Touch-gesture tuning, custom controls, or rotate-on-mobile
+- Internationalization of the new error strings (use English; existing i18n keys can be added in a follow-up — the strings are short and rare)
+
+## Patterns and conventions
+
+- TypeScript strictness matches the rest of the file — no `any` except where `kmlToGeoJsonLib(xml)` returns a loose type; the `as GeoJSON.FeatureCollection` cast there is acceptable.
+- Don't rename `LayerMapViewer`, its props, or its default export.
+- All new imports use the existing `@/` alias style.
+- Use `requestAnimationFrame`, not `setTimeout`, for layout-dependent work on mobile — it's the one place mobile Safari is reliable.
+- Keep the visual style of error chips consistent with the existing Tailwind palette already used elsewhere in the component.
+
+## Verification before reporting back
+
+1. `npm run check` passes with zero TypeScript errors.
+2. The app boots locally and the Property Maps page loads for an existing customer with at least one KML layer.
+3. On desktop Chrome: the layers render and the map auto-centers on the community on first open (no behavior regression).
+4. **On iOS Safari (or BrowserStack / iOS Simulator if a physical device isn't available): the same customer's layers render and the map auto-centers.** This is the actual fix being verified — if you can't reproduce the original broken behavior first, you don't know the new code fixes it.
+5. Upload a `.kmz` file (a zipped KML — any small one will do; you can re-zip an existing .kml from the test data) and confirm it renders on both desktop and mobile.
+6. Upload a deliberately malformed file (e.g., a text file renamed to `.kml`) and confirm: (a) the chip turns red, (b) a single destructive toast fires, (c) the rest of the page keeps working.
+7. Rotate the device (or resize the window narrow→wide) and confirm the map re-fits without manual reload.
+8. Toggling individual layers off/on and toggling the layer panel open/closed does not break centering.
+
+## Deliverables
+
+When you finish, report back with:
+
+1. List of all files modified (paths + 1-line description of what changed).
+2. New dependencies added with version (`@tmcw/togeojson@x.y.z`, `jszip@x.y.z` if newly added).
+3. The exact replacement for `FitBounds` (paste the function) so we can sanity-check the resize logic.
+4. The exact replacement for `kmlToGeoJson` / the new `fetchAndParseKmlOrKmz` (paste the function).
+5. For Phase 2b, every consumer site whose parent wrapper you adjusted (file + line + before/after height class), or "no changes required" if every parent already had an explicit height.
+6. Confirmation of each verification step. For step 4 (iOS) state explicitly how you tested — physical device, simulator, or BrowserStack — and which iOS version.
+7. Any decisions you made where this prompt was ambiguous, and what you chose.
+8. Anything you skipped or couldn't complete, with a clear reason.
+
+If iOS testing isn't possible in the Replit environment, do not silently mark the slice complete. Land Phases 1 and 3 (which are platform-agnostic and verifiable on desktop), explicitly flag Phase 2 as "needs mobile verification before merging," and stop.

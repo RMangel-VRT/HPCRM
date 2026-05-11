@@ -1,0 +1,175 @@
+# Replit Prompt — Animated Mower Login Background (`highplains-mobile`)
+
+## Context
+
+The `highplains-mobile` Expo app currently has a plain login screen (email + password + logo, per Slice 0 of the mobile rollout). This slice replaces the static background with a subtle, looping, top-down animation of a zero-turn mower mowing stripes into a patch of grass. The login form, logo, and inputs stay exactly where they are and exactly as legible — the animation lives **behind** them.
+
+This is a **mobile-only, visual-only** change. No backend work. No new API endpoints. No schema changes. No new dependencies unless the project genuinely lacks them.
+
+## Scope (what this slice ships)
+
+- A new component, `<MowingBackground />`, rendered as the bottom layer of the existing login screen.
+- A continuously looping animation: a top-down zero-turn mower moves across a green grass field, leaving alternating light/dark mowed stripes behind it in a realistic boustrophedon (back-and-forth) pattern. When the field is fully mowed, it fades and restarts.
+- Login form, logo, and any existing error/loading states remain on top, fully interactive, fully legible.
+- Honors `AccessibilityInfo.isReduceMotionEnabled()` — when reduce motion is on, render a static "already mowed" field instead of animating.
+- Runs at 60fps on a mid-range Android device. CPU should be idle when the screen is backgrounded.
+
+## Out of scope
+
+- Any other screen (Today, Properties, Me, ticket detail, etc.).
+- Splash screen — leave the existing splash alone.
+- Sound, haptics, parallax, particles.
+- Theming work beyond the login screen.
+- Swapping the logo or form layout. **Do not touch the form.**
+
+## Existing context (do not duplicate or replace)
+
+Inspect first, then extend:
+
+- Find the existing login screen in `highplains-mobile`. Most likely at `app/(auth)/login.tsx`, `app/login.tsx`, `screens/LoginScreen.tsx`, or similar. Match whatever path/file convention is already there.
+- Find existing brand color tokens. The CRM's primary greens are already defined somewhere (Tailwind config on web; on mobile probably a `theme.ts`, `colors.ts`, NativeWind config, or inline constants). Reuse them. Do **not** invent new green hex values.
+- Inspect `package.json` before adding anything. The likely-already-installed libraries you should reuse:
+  - `react-native-svg` — for the mower silhouette and stripes
+  - `react-native-reanimated` (v3) — for the animation driver
+  - `expo-linear-gradient` — optional, only if needed for a soft vignette
+- If `react-native-reanimated` is **not** already installed, fall back to React Native's built-in `Animated` API with `useNativeDriver: true`. Do not add Reanimated solely for this slice.
+- If `react-native-svg` is **not** already installed, fall back to pure `<View>` + `transform` (the mower can be composed from a few rounded `<View>`s — see "Mower silhouette" below). Do not add new dependencies for this slice.
+
+## Visual spec
+
+**Viewpoint:** top-down (bird's-eye).
+
+**Style:** flat / minimalist. No gradients on the mower itself, no shadows beyond a single soft drop shadow under the mower body (opacity ~0.15).
+
+**Field layout:**
+
+- Fills the entire screen, edge to edge, behind all UI.
+- Background = "unmowed grass" color: the brand's mid-green (use the existing token; if none, `#4A7C3A` as a stand-in — confirm against `attached_assets/NEW - LOGO-03_*.png` greens).
+- Mowed stripes alternate between two shades:
+  - Light stripe: ~12–15% lighter than unmowed (`#5A8E48` if no token).
+  - Dark stripe: ~12–15% darker than unmowed (`#3D6830` if no token).
+- Stripe orientation: horizontal (the mower travels left↔right, so stripes are horizontal bands across the screen).
+- Stripe height: roughly 1/8 of screen height — i.e., 8 stripes fill the field. Tune to whatever number looks good on a 6.1" device.
+
+**Mower silhouette (top-down zero-turn):**
+
+A simple, readable shape — not a detailed illustration. Composed of:
+
+- A rounded-rectangle **deck** (the cutting body): roughly 60×80px on a 390px-wide screen, slightly wider than it is long.
+- A smaller, narrower **seat/operator block** on top of the deck, centered, set toward the back.
+- Two **rear drive wheels** as small dark rounded rects flanking the back of the deck.
+- Two **front caster wheels** as smaller dark dots at the front corners of the deck.
+- Color: a neutral dark gray or brand secondary (`#2A2A2A` / `#1F1F1F`) so it reads against both stripe shades.
+
+If using `react-native-svg`, this is ~6 nodes total. If falling back to plain Views, it's ~6 `<View>`s with `borderRadius` and `transform`. Either is fine; choose the lighter path that matches the rest of the project.
+
+**Mowing pattern (boustrophedon):**
+
+The mower mows like a real operator — straight pass, U-turn at the edge, return pass on the adjacent stripe, repeat:
+
+1. Start off-screen left, on stripe 1 (top).
+2. Travel right across the screen at constant speed.
+3. At the right edge, pause briefly (~150ms), rotate 180° over ~400ms while drifting down to stripe 2 (the U-turn).
+4. Travel left across the screen on stripe 2.
+5. At the left edge, U-turn down to stripe 3.
+6. Continue until stripe 8 is finished.
+7. Hold the fully-mowed field for ~800ms.
+8. Cross-fade the stripes back to fully-unmowed grass over ~600ms.
+9. Loop from step 1.
+
+The mower's facing direction (its "front") rotates with travel direction. The U-turn sweep should look natural, not robotic — ease-in-out on rotation and a smooth Bezier arc on the position during the turn.
+
+**Pacing:**
+
+- One pass across the screen: ~3.5 seconds.
+- Full field (8 stripes + U-turns + reset): ~35–40 seconds.
+- This is intentionally slow and meditative — it's a login screen, not a game.
+
+**Stripe reveal:**
+
+Each stripe is fully drawn as a horizontal band the moment the mower reaches its right (or left) edge — i.e., the stripe "fills in" behind the mower as a single rectangle, not pixel-by-pixel. This avoids any masking/clip-path complexity and looks correct on RN. The reveal animates as a left-to-right (or right-to-left) wipe over ~3.5s, synchronized with the mower's traversal, so visually the stripe appears to be cut as the mower passes.
+
+Implementation hint: each stripe is a `<View>` (or `<Rect>` if SVG) with `width: 100%`, positioned at its band's `top`. Its `transform: [{ translateX }]` is animated from `-screenWidth` (or `+screenWidth` for return passes) to `0`, in lockstep with the mower's translateX. Use the same shared animation value or a derived one.
+
+**Subtle extras (only if cheap):**
+
+- A very faint, slow-drifting set of 8–12 small grass tufts (tiny darker-green ellipses) on the unmowed portion, drifting at ~2px/sec in the wind. Skip on Android Go / older devices.
+- A barely-visible vignette via `expo-linear-gradient` (radial-ish, achieved with two stacked linear gradients) to darken corners ~8% so the login form's center reads better. Optional.
+
+## Component shape
+
+```tsx
+// components/MowingBackground.tsx (or wherever the project keeps shared components)
+
+type Props = {
+  /** If true, skip animation and render a fully-mowed static field. */
+  reduceMotion?: boolean;
+};
+
+export function MowingBackground({ reduceMotion }: Props) { /* ... */ }
+```
+
+- Reads `AccessibilityInfo.isReduceMotionEnabled()` on mount and subscribes to changes. Internal `reduceMotion` state ORs with the prop.
+- Reads screen dimensions via `useWindowDimensions()` so it adapts to rotation and tablets (the app is portrait-only per Slice 0, but be defensive).
+- All animations driven by Reanimated `useSharedValue` + `useAnimatedStyle` (or `Animated.Value` + `useNativeDriver: true` on the fallback path). **No `setInterval`/`requestAnimationFrame` driving styles.**
+- Pauses animation when the screen loses focus. Use `useIsFocused()` from `@react-navigation/native` (or the equivalent from Expo Router — `useFocusEffect`) to cancel/restart the loop. This prevents battery drain if the user backs out to a system screen.
+- Cleans up all animation values and listeners on unmount.
+
+## Login screen integration
+
+In the existing login screen file:
+
+1. Wrap the existing root in a `<View style={{ flex: 1 }}>` if it isn't already.
+2. Insert `<MowingBackground />` as the **first** child, absolutely positioned to fill the parent (`StyleSheet.absoluteFillObject`).
+3. Leave the existing logo, form, and button as the **second** child, on top, untouched.
+4. If the existing screen has a solid background color, remove it (or make it transparent) so the animation shows through. Keep any safe-area padding the form uses.
+5. Ensure the form still has enough contrast. If the form sits directly on grass and looks muddy, add a translucent white card (`backgroundColor: 'rgba(255,255,255,0.92)'`, `borderRadius: 16`, modest padding) **around the inputs only** — not full-width. Do not add a card if the form already has its own surface.
+
+## Performance requirements
+
+- Cold render of the login screen with the animation should not increase time-to-interactive by more than ~50ms vs the current static background. Verify with the React Native perf monitor.
+- Steady-state JS thread usage ≤ 5%, UI thread ≤ 15% on a Pixel 6 / iPhone 12-class device.
+- All translation/rotation animations must run on the native UI thread (Reanimated worklets, or `useNativeDriver: true`).
+- No layout thrash — animate transforms and opacity only. Never animate `width`, `height`, `top`, or `left`.
+
+## Accessibility
+
+- `accessibilityElementsHidden={true}` and `importantForAccessibility="no-hide-descendants"` on the `<MowingBackground />` root. It's decorative — screen readers should skip it entirely.
+- Reduce-motion mode: render a single static "fully mowed" field (all 8 stripes drawn, no mower visible, or mower parked at the bottom-right corner).
+- Color contrast: the form and its labels must still meet WCAG AA against the brightest stripe color. Verify with a contrast checker; adjust the optional translucent card from the integration step if needed.
+
+## Files this slice touches
+
+- **Adds:** `components/MowingBackground.tsx` (or matching project convention)
+- **Modifies:** the existing login screen file (one import + two-line wrapping change)
+- **Modifies, only if needed:** the project's color token file, to add named tokens for `grassUnmowed`, `grassStripeLight`, `grassStripeDark`, `mowerBody` — only if these don't already exist somewhere reusable.
+
+No other files should change.
+
+## Manual test plan
+
+1. Fresh launch on iOS simulator and Android emulator. Login screen shows: form, logo, and animated mower in the background.
+2. Mower completes one full field over ~35–40s, holds briefly, fades, restarts.
+3. Form inputs still focus and accept text. "Sign in" button still submits.
+4. Background animation pauses when the app is backgrounded (lock screen / app switcher), resumes on return.
+5. Enable Reduce Motion in OS settings → relaunch → background is now a static fully-mowed field, no movement.
+6. Rotate the device (even though the app is portrait-locked, the animation must not crash if a rotation event fires during dev).
+7. On a low-end Android device (or with the perf monitor on), confirm UI thread stays smooth during animation; no dropped frames during the U-turn.
+8. Run the existing Slice 0 login E2E happy path — confirm the test still passes (it should: the form DOM/tree is unchanged, only a sibling was added).
+
+## Deliverables
+
+1. Path to the new component file.
+2. Diff of the login screen integration (should be ~5 lines).
+3. Confirmation of which existing libraries were used (Reanimated vs Animated; SVG vs Views) and why — i.e., what was already in `package.json`.
+4. Two screen recordings (or animated GIFs): one normal mode, one reduce-motion mode.
+5. Perf monitor screenshot showing steady-state JS/UI thread numbers during animation.
+6. Note any color tokens added, with their hex values and where they live.
+7. Anything from the visual spec you intentionally deviated from, and why.
+
+## Notes for the implementing agent
+
+- Do not add new dependencies unless `package.json` truly lacks both Reanimated **and** SVG. The fallback (Animated + plain Views) is fine for this animation.
+- Do not change the splash screen, app icon, or any auth logic.
+- Do not refactor unrelated parts of the login screen.
+- If anything in the visual spec conflicts with an established convention in `highplains-mobile`, **prefer the project's convention** and call out the conflict in the deliverables note.
