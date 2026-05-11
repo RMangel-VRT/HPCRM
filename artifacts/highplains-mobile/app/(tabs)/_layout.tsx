@@ -1,7 +1,6 @@
 import { Feather } from "@expo/vector-icons";
 import { Tabs } from "expo-router";
 import React from "react";
-import { Platform, StyleSheet, View } from "react-native";
 
 import { useColors } from "@/hooks/useColors";
 import { useT } from "@/i18n";
@@ -9,13 +8,20 @@ import { useT } from "@/i18n";
 export default function TabLayout() {
   const colors = useColors();
   const { t } = useT();
-  const isWeb = Platform.OS === "web";
 
   // Slice 8: hide the Tabs header — every tab now mounts its own Stack
   // header (set in each per-tab _layout.tsx) so we don't render two stacked
   // header bars on detail screens. The shared sync chip + "+ Flag" button
   // moved to components/ScreenHeader.tsx and is mounted by each Stack's
   // index-screen `headerRight`.
+  //
+  // Round 2 fix: removed the custom `tabBarBackground` overlay (it was
+  // intercepting touches on Properties/Me even with `pointerEvents="none"`
+  // on the inner View — the wrapper RN inserts around tabBarBackground
+  // still sat above the buttons on web). `tabBarStyle.backgroundColor`
+  // already paints the tab bar, so the overlay was redundant. Also
+  // dropped the web-only `height: 84` which on narrower preview widths
+  // pushed the buttons under the safe area / outside the hit region.
   return (
     <Tabs
       screenOptions={{
@@ -27,14 +33,7 @@ export default function TabLayout() {
           backgroundColor: colors.background,
           borderTopColor: colors.border,
           borderTopWidth: 1,
-          ...(isWeb ? { height: 84 } : {}),
         },
-        tabBarBackground: () => (
-          <View
-            pointerEvents="none"
-            style={[StyleSheet.absoluteFill, { backgroundColor: colors.background }]}
-          />
-        ),
       }}
     >
       <Tabs.Screen
