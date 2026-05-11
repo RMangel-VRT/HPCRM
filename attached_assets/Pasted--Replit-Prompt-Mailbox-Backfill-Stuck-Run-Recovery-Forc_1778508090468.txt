@@ -1,0 +1,211 @@
+# Replit Prompt — Mailbox Backfill: Stuck-Run Recovery + Force-Cancel
+
+## Context
+
+A backfill run finished its work but the My Mailbox UI keeps showing it as "running". Symptom: a row in `mailbox_backfill_runs` has `status = 'running'` (or `'queued'`) but no worker is actually processing it — the Node process was killed mid-run (Replit restart, deploy, OOM, crash). When the server came back up, `requeueInterruptedBackfills()` was supposed to recover it, but for some runs it doesn't, and there is no user-visible way to clear the stuck row. Worse, the existing Cancel button is a no-op in this state: `POST /:id/backfill/:runId/cancel` only sets `cancel_requested = true`, and that flag is only read inside the worker's main loop — if no worker is alive, the row never transitions.
+
+This slice fixes the underlying durability gap (no way to tell a stuck run from an active run), unblocks the existing stuck row, and makes the Cancel button actually work in the dead-worker case.
+
+This must land in a deployable, production-quality state. No stubs, no `// TODO` comments hiding incomplete code paths.
+
+## Existing context (do not duplicate or replace)
+
+Read these before writing code.
+
+- **`artifacts/api-server/src/services/mailboxBackfillService.ts`** — `runBackfill` (line 153), `requeueInterruptedBackfills` (line 445), `requestCancel` (line 431). The worker writes counter updates every 25 messages via `storage.updateMailboxBackfillRun(runId, { ...counters })` (lines 282, 362). It flips status to `success` on completion (line 367) and `error` on throw (line 378). The cancel-check inside the message loop is at line 223.
+- **`artifacts/api-server/src/storage.ts`** — `getActiveMailboxBackfillRun` at line 4990 returns the first row where `status IN ('queued', 'running')`. `updateMailboxBackfillRun` at line 4981 is a plain `.set(updates)` — does not touch any timestamp.
+- **`artifacts/api-server/src/routes/mailboxAccounts.ts`** — `POST /:id/backfill/:runId/cancel` at line 876 just calls `requestCancel(runId)`.
+- **`lib/db/src/schema/schema.ts`** — `mailboxBackfillRuns` table. Already has `startedAt`, `finishedAt`, `createdAt` (added in migration `0013_mailbox_backfill_runs_created_at.sql`), `status`, `cancelRequested`, `errorMessage`. No `updatedAt` yet.
+- **`artifacts/highplains-crm/src/components/customer/communications/BackfillPanel.tsx`** — the UI panel that polls `GET /:id/backfill/status` and renders the active run + Cancel button.
+- **Stack:** Node + Express + Drizzle ORM + Postgres on the server. React 19 + TypeScript + TanStack Query v5 on the client.
+
+The threshold for "this run is stale" is **10 minutes with no `updated_at` movement** while in `running` or `queued`. The worker flushes counters every 25 messages and at minimum every page (100 messages), so a healthy backfill should never go 10 minutes without an update.
+
+## Step 1 — Add `updated_at` column and migration
+
+### 1a. Schema change
+
+In `lib/db/src/schema/schema.ts`, find the `mailboxBackfillRuns` table definition and add:
+
+```ts
+updatedAt: timestamp("updated_at").notNull().defaultNow(),
+```
+
+Place it right after `createdAt`. Do not remove or rename any other column.
+
+### 1b. New migration
+
+Create `migrations/0020_mailbox_backfill_runs_updated_at.sql` (use the next number after the highest existing migration — confirm against `migrations/` before committing):
+
+```sql
+-- Add updated_at to mailbox_backfill_runs so we can detect stuck/dead-worker rows.
+ALTER TABLE mailbox_backfill_runs
+  ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP NOT NULL DEFAULT NOW();
+
+-- One-time recovery: any run currently sitting in queued/running gets a fresh
+-- updated_at stamp so the stale-detection job can age it out cleanly on the
+-- next sweep, rather than instantly nuking everything on boot.
+UPDATE mailbox_backfill_runs
+  SET updated_at = NOW()
+  WHERE status IN ('queued', 'running');
+```
+
+Also drop the identical file under `.migration-backup/migrations/` so the backup tree stays in sync with the live tree, matching the existing convention (see how `0013_mailbox_backfill_runs_created_at.sql` lives in both places).
+
+## Step 2 — Bump `updated_at` on every storage write
+
+In `artifacts/api-server/src/storage.ts`, change `updateMailboxBackfillRun` (line 4981) so it always touches `updated_at`:
+
+```ts
+async updateMailboxBackfillRun(id: string, updates: Partial<InsertMailboxBackfillRun>): Promise<MailboxBackfillRun | undefined> {
+  const [row] = await db
+    .update(mailboxBackfillRuns)
+    .set({ ...updates, updatedAt: new Date() } as Partial<typeof mailboxBackfillRuns.$inferInsert>)
+    .where(eq(mailboxBackfillRuns.id, id))
+    .returning();
+  return row;
+}
+```
+
+Do not add a separate "touch" method — every existing caller in `mailboxBackfillService.ts` should automatically start updating the heartbeat just by writing counters as it already does.
+
+## Step 3 — Stale-run reaper on startup
+
+In `artifacts/api-server/src/services/mailboxBackfillService.ts`, rewrite `requeueInterruptedBackfills` (currently line 445) so it splits dead runs from genuinely-interrupted ones:
+
+```ts
+const STALE_THRESHOLD_MS = 10 * 60 * 1000; // 10 minutes
+
+export async function requeueInterruptedBackfills(): Promise<void> {
+  try {
+    type RunRow = typeof mailboxBackfillRuns.$inferSelect;
+    const result = await db.execute<RunRow>(
+      sql`SELECT * FROM mailbox_backfill_runs WHERE status IN ('queued', 'running') ORDER BY started_at ASC`
+    );
+    const rows: RunRow[] = (result as unknown as { rows: RunRow[] }).rows ?? [];
+    if (rows.length === 0) return;
+
+    const now = Date.now();
+    const stale: RunRow[] = [];
+    const healthy: RunRow[] = [];
+    for (const run of rows) {
+      const lastBeat = (run.updatedAt ?? run.startedAt ?? run.createdAt)?.getTime?.() ?? 0;
+      if (now - lastBeat > STALE_THRESHOLD_MS) stale.push(run);
+      else healthy.push(run);
+    }
+
+    if (stale.length > 0) {
+      console.warn(`[backfill] Marking ${stale.length} stale run(s) as error (no heartbeat in >${STALE_THRESHOLD_MS / 60000}m)`);
+      for (const run of stale) {
+        await storage.updateMailboxBackfillRun(run.id, {
+          status: "error",
+          finishedAt: new Date(),
+          errorMessage: "Backfill worker terminated unexpectedly. Please retry.",
+        });
+      }
+    }
+
+    if (healthy.length > 0) {
+      console.log(`[backfill] Re-queuing ${healthy.length} interrupted backfill run(s)`);
+      for (const run of healthy) {
+        await storage.updateMailboxBackfillRun(run.id, { status: "queued", cancelRequested: false });
+        setImmediate(() => {
+          runBackfill(run.id).catch(err => {
+            console.error(`[backfill] Requeue error for run ${run.id}:`, err);
+          });
+        });
+      }
+    }
+  } catch (err) {
+    console.error("[backfill] Error in requeueInterruptedBackfills:", err);
+  }
+}
+```
+
+Confirm `requeueInterruptedBackfills` is called from `artifacts/api-server/src/index.ts` after the DB is ready (it already is — do not move it, just verify).
+
+## Step 4 — Make cancel work when the worker is dead
+
+In `artifacts/api-server/src/services/mailboxBackfillService.ts`, replace `requestCancel` (currently line 431) with a version that force-cancels stale rows instead of leaving them in limbo:
+
+```ts
+const CANCEL_STALE_THRESHOLD_MS = 60 * 1000; // 1 minute
+
+export async function requestCancel(runId: string): Promise<void> {
+  const [run] = await db
+    .select()
+    .from(mailboxBackfillRuns)
+    .where(eq(mailboxBackfillRuns.id, runId));
+  if (!run) return;
+
+  const lastBeat = (run.updatedAt ?? run.startedAt ?? run.createdAt)?.getTime?.() ?? 0;
+  const isStale = Date.now() - lastBeat > CANCEL_STALE_THRESHOLD_MS;
+
+  if (isStale && (run.status === "running" || run.status === "queued")) {
+    // No worker is processing this — flip status directly so the UI clears.
+    await storage.updateMailboxBackfillRun(runId, {
+      status: "cancelled",
+      finishedAt: new Date(),
+      cancelRequested: true,
+    });
+    return;
+  }
+
+  await storage.updateMailboxBackfillRun(runId, { cancelRequested: true });
+}
+```
+
+Threshold rationale: the worker writes a heartbeat every 25 messages (typically << 60s of wall-clock time). A live worker will see `cancel_requested = true` on its next loop iteration and transition to `cancelled` itself. A dead worker has no chance, so we transition directly.
+
+## Step 5 — UI affordance for force-clearing stuck runs
+
+In `artifacts/highplains-crm/src/components/customer/communications/BackfillPanel.tsx`:
+
+### 5a. Show a "Stuck?" hint when `updated_at` is more than 60 seconds old on an active run
+
+Compute it from the polled `active` object:
+
+```tsx
+const lastBeatMs = active?.updatedAt ? new Date(active.updatedAt).getTime() : 0;
+const isLikelyStale = active && active.status === "running" && lastBeatMs > 0 && (Date.now() - lastBeatMs) > 60_000;
+```
+
+When `isLikelyStale` is true and the panel is showing the running state, render a small muted-foreground line directly under the progress block:
+
+```tsx
+{isLikelyStale && (
+  <p className="text-xs text-muted-foreground">
+    No progress for over a minute. If this looks stuck, press Cancel — the server will force-clear it.
+  </p>
+)}
+```
+
+Use existing i18n keys if a parallel string exists; otherwise add a new key under the same namespace `backfill.stuckHint` in both `en.ts` and `es.ts` (Spanish: "Sin progreso durante más de un minuto. Si parece estancado, presiona Cancelar — el servidor lo limpiará."). Do not hardcode English strings if the panel uses i18n elsewhere.
+
+### 5b. Keep the existing Cancel button behavior
+
+No client-side change to Cancel — the server now handles the stale case (Step 4). Confirm `BackfillPanel` already invalidates the `["mailbox-backfill-status", mailboxAccountId]` query (or whatever key it uses) on cancel success; if not, add a `queryClient.invalidateQueries` call after the mutation succeeds so the panel re-fetches and renders the `cancelled` state.
+
+## Step 6 — Type/contract updates
+
+The API response shape from `GET /:id/backfill/status` will now include `updatedAt` on `active`. Whatever shared type the client uses (likely inferred from `mailbox_backfill_runs` Drizzle select type via `@workspace/db`), ensure the client compiles after the column is added. If `BackfillPanel` uses a hand-written type, add `updatedAt: string` to it.
+
+## Step 7 — Verify
+
+1. `pnpm typecheck` (or workspace equivalent) passes across `api-server`, `highplains-crm`, and `lib/db`.
+2. Run the new migration locally: `pnpm migrate` (or whatever the workspace script is — check `scripts/src/migrate.ts`). Confirm the column exists: `SELECT column_name FROM information_schema.columns WHERE table_name = 'mailbox_backfill_runs' AND column_name = 'updated_at';`
+3. Manually insert a fake stuck row to test the reaper:
+   ```sql
+   INSERT INTO mailbox_backfill_runs (id, mailbox_account_id, company_id, range_start, range_end, include_inbox, include_sent, status, started_at, updated_at)
+   VALUES (gen_random_uuid(), '<your-mailbox-id>', '<your-company-id>', NOW() - INTERVAL '2 days', NOW() - INTERVAL '1 day', true, true, 'running', NOW() - INTERVAL '1 hour', NOW() - INTERVAL '1 hour');
+   ```
+   Restart the API server, confirm the log line `[backfill] Marking 1 stale run(s) as error`, and confirm the row's status is `error` with the expected `errorMessage`.
+4. Start a real backfill, kill the Node process mid-run, restart, and confirm it either re-queues cleanly (if killed <10 min ago) or is marked error with the retry message (if older).
+5. In the UI: trigger a backfill, simulate staleness with `UPDATE mailbox_backfill_runs SET updated_at = NOW() - INTERVAL '5 minutes' WHERE id = '...'`, confirm the "No progress for over a minute" hint appears, click Cancel, confirm the row flips to `cancelled` immediately (not just `cancel_requested = true`).
+6. Existing healthy backfills (running with recent heartbeats) must continue to work: Cancel still sets `cancel_requested` and the worker transitions itself to `cancelled` on the next loop.
+
+## Out of scope
+
+- No changes to the backfill worker's actual fetching/routing logic.
+- No new admin-only "force cancel" endpoint — the existing cancel endpoint now does the right thing in both cases.
+- No background sweep timer; staleness is checked on startup (reaper) and on cancel (force-clear). A periodic sweep is a follow-up if stuck rows accumulate between restarts, but for current load the boot-time check is sufficient.

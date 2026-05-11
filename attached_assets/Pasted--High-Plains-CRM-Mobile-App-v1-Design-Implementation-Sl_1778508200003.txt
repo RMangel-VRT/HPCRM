@@ -1,0 +1,1089 @@
+# High Plains CRM — Mobile App v1 Design & Implementation Slices
+
+> **For the next Claude:** This file is self-contained. It captures the full context, design decisions, screen specs, and implementation slices for the v1 field-facing mobile app.
+>
+> **Two projects are in play:**
+>
+> 1. **Web app (the existing High Plains CRM)** — React 18 + TypeScript + Vite + Tailwind + shadcn/ui (Radix) + Wouter + TanStack Query v5 + React Hook Form + Zod + Drizzle ORM + Postgres + i18next (en + es). Multi-tenant with `companyId` on every table. Used by admin/office; not touched by crews. **Backend work in each slice (schema, API endpoints, admin UI extensions) lands here.**
+> 2. **Mobile app (`highplains-mobile`, existing Expo project)** — React Native via Expo. **Mobile UI work in each slice lands here.** Each slice should begin by inspecting this project's existing conventions (Expo SDK version, routing — Expo Router vs React Navigation, styling — NativeWind vs StyleSheet, state management, auth/session storage) and matching them. Do NOT introduce new conventions if the project already has one.
+>
+> Each slice clearly labels which parts are **Web** vs **Mobile** work.
+
+---
+
+## 1. Vision
+
+The High Plains CRM mobile app is the **field crew supervisor's daily command center**. It tells the supervisor what their crew is doing today, where, and what specifically needs to happen at each property — and it captures photos, notes, and flagged issues back to the office without a phone call. It is field-facing only. All admin, office, scheduling, billing, and property-data entry stays on the existing web app.
+
+The guiding sequence for v1 is: **Today → Property → Ticket → Site Notes → Checklist Items → Photos/Notes → Complete**.
+
+---
+
+## 2. Admin goals (full brief from Randy)
+
+Reproduced verbatim so design decisions can be traced back.
+
+**Main Goal.** Turn the High Plains CRM into a field-ready mobile tool that helps crews clearly understand: what they need to do, where, when it needs to be done, and what information they need to do it correctly. Reduce confusion, limit back-and-forth communication, and make the data already in the CRM actually useful in the field.
+
+**1. Make Daily Responsibilities Clear.** Crews should be able to quickly see which properties they're responsible for, what services need completing, priority, special instructions, work type (contract / extra / estimate / irrigation / admin), and what's already done vs pending. Avoid the crew having to guess, call the office, or rely on memory.
+
+**2. Create a Simple "Today's Work" Experience.** The app should open to a clear daily work screen showing today's assigned properties, service types, start/finish status, notes/warnings, attached photos/docs, and anything overdue.
+
+**3. Give Crews Access to Property-Specific Information.** Each property profile should include: name, address, manager/contact, contracted services, site notes, gate codes, pet station locations, irrigation controller locations, known problem areas, past work history, photos, maps. Crews shouldn't walk into a property blind.
+
+**4. Connect Tasks to the Right Property Data.** When a crew opens a task, show only the information that matters to that specific task. Mowing shows mowing context. Irrigation shows controller/zone context. Pet station shows station counts and locations. Landscape project shows scope and materials.
+
+**5. Make Job Instructions Easy to Understand.** Translate admin-level CRM data into field-level instructions in plain language ("Trim shrubs along north fence line," "Check Controller A, Zones 1–12," "Install 6 tons of river rock around Building H," "Empty all pet stations and restock bags," "Take completion photos before marking finished").
+
+**6. Support Photos and Field Documentation.** Crews can upload before/progress/completion photos, add notes, mark materials used, record issues, flag work that couldn't be completed, attach photos to a task, property, or service visit.
+
+**7. Create Accountability Without Making the App Hard to Use.** Track task status, start/complete time, crew assigned, photos submitted, notes added, missed/skipped items, follow-up needed — without micromanaging.
+
+**8. Reduce Office-to-Field Communication Problems.** The app should answer common crew questions: where is this property, what are we doing here, what's included in the contract, where is the controller, what did we do last time, special notes, photos required, who's responsible, is this billable extra vs contract.
+
+**9. Make Data Useful Instead of Just Stored.** Put the right information in front of the right person at the right moment.
+
+**10. Support Different Crew Types.** Maintenance, irrigation techs, snow crews, landscape project crews, supervisors, managers — each needs a different view. **v1 is maintenance-only.**
+
+**11. Make Completing Work Simple.** Open task → review instructions → complete → add notes/photos if required → mark complete → flag follow-up if needed. No digging through multiple screens.
+
+**12. Help Build Long-Term Property History.** Every completed task adds to the property record: what, when, who, issues found, photos, follow-up, repairs.
+
+**Vision statement.** The mobile app should be the field crew's daily command center. It should clearly show what needs to be done, provide the property information needed to do it correctly, and make documentation simple enough that crews will actually use it.
+
+**Development direction.** Build the mobile app around the crew's daily work first, then layer in property data, documentation, maps, and history in a way that supports that daily workflow. Don't start with every feature the CRM has.
+
+---
+
+## 3. Decisions made in design conversation
+
+These are locked for v1 unless explicitly revisited.
+
+**Atomic unit of work** — One **ticket per property visit**, containing a flat checklist of **work items**. A mowing visit might have items like "Mow common areas," "Trim along walkways," "Empty pet stations (4)," "Blow off hardscape." Status lives at both ticket level (not started / in progress / complete) and item level (open / done / skipped).
+
+**v1 role** — Maintenance crews only. Irrigation, snow, landscape project, and supervisor-roll-up views are explicitly v1.1+.
+
+**"Found something" workflow** — Photo + tag + short note → routed directly to the admin's inbox. The admin triages from there (reply, create new ticket, message customer, etc.). Tags drive sorting and eventual auto-routing.
+
+**Devices** — One device per **crew supervisor (foreman)**. Other crew members do not use the app. The supervisor is the authenticated user; tickets, completions, and flags are attributed to the supervisor's crew.
+
+**Clock-in** — Lightweight only. Day starts when the supervisor opens their first ticket; per-ticket arrival/completion timestamps are captured automatically. No per-employee or per-item time tracking in v1.
+
+**Connectivity** — Online-mostly. Today's tickets and site notes are cached on app launch so dead-zone reads work. Photos and notes are queued and synced when service returns. Full offline-first (creating brand-new flags with no network) is v1.1.
+
+**Tech approach** — Build the mobile app inside the existing **Expo `highplains-mobile` project**. Do not start a new project. Do not build a PWA. The existing CRM's web app is untouched on the mobile side — but each slice extends the web app's API surface and (where noted) extends its admin UI to support the new fields the mobile app needs. Server-side work (schema, endpoints) ships through the same Replit-prompted slice format already used for web slices in this repo. Mobile-side work ships against the Expo project's own development and release workflow (EAS Build / TestFlight / internal Android testing — confirm what's already configured).
+
+**Auth approach (assumed, confirm in Slice 0)** — The Expo app authenticates against the existing web API using a token-based flow (likely already in place). All `/api/m/*` mobile endpoints accept the same authenticated user context (`UserWithContext` with `companyId`) the web app uses. If a token flow doesn't yet exist, Slice 0 adds one.
+
+---
+
+## 4. Information architecture
+
+Three primary surfaces in a bottom tab nav, plus a persistent Flag entry from the header.
+
+**Today (home tab)** — Opens here by default. Vertical list of today's tickets in route order. Each ticket card shows: property name, address, scheduled time, service summary, status pill. Currently-active ticket is visually emphasized. Day summary line at top ("2 of 5 stops complete · Started 7:12 AM"). A "+ Flag" button lives in the top-right of the header. A "Week" toggle can switch to a 7-day view (v1.1 if cut for scope).
+
+**Properties (directory tab)** — Searchable list of all company properties. Used for non-today lookups. Tapping a property opens the **full property profile**, which is the union view of all property data. The ticket detail screen pulls a **filtered subset** of this profile relevant to the active service type.
+
+**Me (profile tab)** — Supervisor profile, my week schedule (richer than Today's single-day view), recent completions, sign out, settings (notification preferences).
+
+**Flag entry points (cross-cutting)** — Top-right "+ Flag" button on every screen. Also a "Flag issue" button at the bottom of every ticket detail. The flag composer is the same screen regardless of entry point; entry point pre-fills context (property, ticket).
+
+What does **not** get its own tab:
+- Property Maps — lives inside the property profile and inside ticket detail when relevant
+- Ticket list — already represented by Today; "all my open tickets including future" is a filter on Today or a view inside Me
+- Schedule — collapsed into Today (single day) + Me (week)
+
+---
+
+## 5. Screen-by-screen specs
+
+### 5.1 Today (home)
+
+**Purpose** — Answer "what is my crew doing right now and what's next" within 1 second of opening the app.
+
+**Layout (top to bottom):**
+
+1. Header
+   - Left: "Today" + secondary line with date ("Friday · May 8")
+   - Right: "+ Flag" button (compact, amber/warning color)
+2. Day summary strip
+   - "2 of 5 stops complete · Started 7:12 AM" (or "Day not started" before the first ticket is opened)
+3. Vertical scrolling list of stop cards in route order
+4. Bottom tab nav: Today (active) · Properties · Me
+
+**Stop card content:**
+- Tiny label "STOP {N}" (in route order, not ticket ID)
+- Property name (primary, ~16px, weight 600)
+- Address + scheduled time on one line, secondary color
+- Service summary in plain language ("Mow · Trim · Pet stations · Hedge trim")
+- Status pill: **Not started** (neutral) / **In progress · X of Y** (info color) / **Complete** (success) / **Flagged** (warning)
+- Currently-active stop gets a 1px info-color border to stand out
+
+**Card tap target** — Entire card is tappable, opens the ticket detail. Minimum touch height: 88pt (card padding + content).
+
+**Swipe actions on cards** (right-swipe → quick action menu using a Reanimated swipeable row):
+- Navigate (deep-links to Apple Maps / Google Maps with address)
+- Mark complete (with confirmation if items remain unchecked)
+- Skip stop (requires reason from a short list)
+
+**Empty state** — "No stops scheduled for today. Pull down to refresh." with a refresh icon. Day summary strip hidden.
+
+**Loading state** — 3 skeleton cards.
+
+**Error state** — Alert banner at top: "Couldn't load today's stops — using last cached data" with retry button. The cached list still renders below.
+
+### 5.2 Ticket detail
+
+**Purpose** — Give the supervisor everything needed to do this visit correctly, capture work as it happens, and complete it.
+
+**Layout (top to bottom):**
+
+1. Header
+   - Left: back arrow
+   - Center: property name (primary), address (secondary)
+   - Right: "Navigate" button (deep-links to maps)
+2. Meta line
+   - "Maintenance · 9:30 AM · In progress"
+3. **Site Notes** card — curated for this service type (see "Curated property info" below)
+4. **Work Items** section
+   - Header: "Work items · X of Y"
+   - Flat list of checkable rows
+   - Each row: checkbox, item title, optional inline instruction line ("36" decks only — no zero-turns on slopes"), optional "photo required" badge
+5. **Photos** section
+   - Header: "Photos · N added"
+   - Horizontal row of thumbnails + "+" tile to add more
+6. **Notes** section (collapsed by default to "+ Add note" button)
+7. Pinned bottom action bar (respects safe-area insets)
+   - Left: "+ Flag issue" (secondary)
+   - Right: "Mark complete" (primary)
+
+**Curated property info ("Site Notes" card)** — Pulled from the property profile but filtered to fields relevant to today's service type. For maintenance v1, show:
+- Gate code (if any)
+- Pet station count + locations (if pet station service is on the ticket)
+- "Watch out" notes (free text, admin-curated, tagged with a `relevantTo` value for service types)
+- Last visit summary (date + crew)
+- Any irrigation problem area markers if marked "affects mowing"
+
+What's **not** in the Site Notes card by default but available via "View full property" link at the bottom: contract details, full history, all photos, all property managers, full map.
+
+**Work item rules:**
+- Items have three states: open, done, skipped (with reason)
+- Tapping the checkbox toggles open ↔ done
+- Long-press (or swipe) reveals "Skip" option which opens a sheet: out of supplies / inaccessible / weather / customer request / other (free text)
+- Items marked "photo required" cannot transition to done without at least one ticket-attached photo captured after `startedAt`
+- Items are ordered by `displayOrder`, with sub-orderings by service type
+
+**Mark complete behavior:**
+- All required items done (or skipped) and required photos attached → ticket completes, `completedAt` set, supervisor returns to Today
+- Anything required missing → soft confirmation modal lists what's missing and offers "Complete anyway" (with reason note required) or "Cancel"
+- Skipped items appear in the ticket history and the admin's daily summary
+
+### 5.3 Property profile (full)
+
+**Purpose** — Browse-able directory entry for the property when crews need info outside of today's assigned work.
+
+**Layout:**
+
+1. Header: property name, address, "Navigate" button, "+ Flag" button
+2. Sticky tab bar: **Overview · Site Notes · Services · Map · History · Photos**
+3. Overview tab:
+   - Contact: property manager name + phone (one-tap call via `Linking`) + email (one-tap email)
+   - Service types currently contracted, with frequency
+   - Special access info (gate code, "knock first," etc.)
+4. Site Notes tab:
+   - All notes grouped by relevance tag (mowing / irrigation / pet stations / chemical / general)
+   - Each note has author + date
+5. Services tab:
+   - Read-only list of contracted services + included scopes
+   - "What's NOT included" section if admin has populated exclusions
+6. Map tab:
+   - Embedded property map. The existing web property-maps tool likely exports a static image (PNG/SVG/PDF); render that for v1. Tap → opens full editor in the web app via a `Linking.openURL` deep link
+7. History tab:
+   - Reverse-chronological list of completed visits
+   - Tap a visit → completion summary, photos, items completed/skipped
+8. Photos tab:
+   - Grid of all property-attached photos (not ticket-attached)
+   - Tap to view full screen via a lightbox component (use whatever is already in `highplains-mobile`; if nothing, `react-native-image-zoom-viewer` or similar — inspect first)
+
+### 5.4 Flag composer
+
+**Purpose** — Capture a field-discovered issue in under 30 seconds and route it to the admin.
+
+**Entry points** — Top-right "+ Flag" on any screen; "+ Flag issue" at bottom of ticket detail; "+ Flag" on property profile header.
+
+**Layout (full-screen modal):**
+
+1. Header: "Cancel" (left) · "New flag" (title) · "Send" (right, disabled until required fields filled)
+2. **Photo** (required) — Big tile that opens the camera via `expo-camera` or `expo-image-picker` (inspect existing usage). After capture, shows thumbnail + "Retake" + "Add another".
+3. **Tag / Category** (required) — Single-select chip group, 2-column grid:
+   - Irrigation issue
+   - Property damage
+   - Access problem
+   - Customer interaction
+   - Material / supply needed
+   - Safety concern
+   - Question for office
+   - Other
+4. **Property** (auto-filled when launched from ticket/property; manually pickable from a search field when launched from Today's header)
+5. **Linked ticket** (auto-filled when launched from a ticket; omitted otherwise)
+6. **Short note** (optional textarea, 280 char)
+7. Submit → flag is created server-side, push notification fires to admin, modal closes, supervisor returns to where they were. Toast: "Flag sent."
+
+**Offline behavior** — Flag is staged in local persistence (AsyncStorage + `expo-file-system` for the photo) if no network; sync attempt on next connection. UI shows the flag locally with a "Pending" badge until confirmed.
+
+### 5.5 Me (profile)
+
+**Purpose** — Supervisor's account info, week schedule, recent work, and settings.
+
+**Layout:**
+
+1. Header: name, role ("Crew Supervisor"), crew name
+2. Week schedule card — 7-day strip showing daily ticket counts and any flagged items
+3. Recent completions list — last 10 completed tickets with timestamps
+4. Settings:
+   - Notification preferences (push on/off, types)
+   - App version / build number (from `expo-constants`)
+   - Sign out
+
+---
+
+## 6. Cross-cutting design rules
+
+**Typography & sizing** — Minimum body font 14pt; minimum tap target 44×44pt (iOS HIG) / 48dp (Material). Headings: ticket name 16pt / weight 600; section labels 11pt uppercase tracked. Never lighter than 400 weight on white. Use the system font stack (San Francisco on iOS, Roboto on Android) unless `highplains-mobile` already loads a brand font.
+
+**Color** — Use the color tokens already defined in `highplains-mobile`. Status semantics:
+- Done = success green
+- In progress = info blue
+- Not started = neutral gray
+- Flagged / warning = amber
+- Skipped = muted gray + strikethrough on item label
+
+**Contrast** — Designed for outdoor / sunlight readability. Aim for WCAG AA 4.5:1 on body text against light surfaces; AAA where feasible. Avoid pure-gray on white; use slightly darker text colors than typical web designs.
+
+**One-handed thumb reach** — Primary actions in the lower half of the screen. Pinned bottom action bar on ticket detail puts "Mark complete" in the bottom-right thumb zone. Respect `useSafeAreaInsets` everywhere.
+
+**Network state** — Persistent thin status indicator (in the header or as a small floating chip) shows offline/sync state when not online. Tap → upload queue sheet.
+
+**i18n** — Reuse the existing i18n approach if `highplains-mobile` has one; otherwise add `i18n-js` + `expo-localization` and parity the keys with the web app's `en` / `es` translations. All user-facing strings go through i18n. Mark new `es` keys with `// TODO: human-review translation`.
+
+**Multi-tenancy** — Every API call still filters by `companyId` from the authenticated user context. The mobile client does not select or pass `companyId` explicitly — it is derived server-side from the auth token.
+
+**Native APIs (Expo)** — Reuse what's already installed in `highplains-mobile`. Likely candidates: `expo-camera`, `expo-image-picker`, `expo-file-system`, `expo-notifications`, `expo-secure-store`, `expo-constants`, `expo-linking`, `expo-localization`, `@react-native-async-storage/async-storage`, `@tanstack/react-query`. Inspect the `package.json` before adding any of these — do not duplicate.
+
+**Routing** — Use the existing routing approach in `highplains-mobile` (Expo Router file-based vs React Navigation stack/tab). Match whatever convention is there.
+
+**Styling** — Use whatever styling approach is already in `highplains-mobile` (NativeWind, StyleSheet, restyle, etc.). Do not introduce a new one.
+
+**Image handling** — Compress captured images client-side to max 2048px long edge using `expo-image-manipulator` before upload. Strip EXIF location data; preserve orientation only.
+
+---
+
+## 7. Open questions to revisit (not blocking v1)
+
+- Per-item photos vs ticket-level only — currently ticket-level. Revisit if "photo required" items are common enough to warrant per-item attachment.
+- Voice-to-text notes — likely valuable for gloved supervisors but not v1.
+- Crew chat / direct message to admin — possibly a v1.5 layer over flagging.
+- Materials usage logging — irrigation/landscape needs this; maintenance generally doesn't.
+- Time tracking depth — if accountability needs grow, layer per-item or per-employee time later.
+- Customer signature on completion — for ad-hoc / extra work tickets, may be needed eventually.
+- Native map view on the property Map tab (using `react-native-maps`) vs the simpler static-image-from-web-export approach used in v1.
+- Background location for auto-arrival detection — interesting but adds permission friction.
+
+---
+
+## 8. Implementation slices
+
+> **Slice conventions** (read before any slice):
+>
+> - Each slice lands in a deployable state across **both** the web app (backend extensions) and the Expo app (mobile UI).
+> - **Critical: do NOT replace existing systems.** The web app's ticket, property, customer, campaign, and auth systems already work. The Expo app already exists with its own conventions. **Inspect both before writing code.**
+> - **Web stack:** React 18 + TypeScript + Vite + Tailwind + shadcn/ui (Radix) + Wouter + TanStack Query v5 + React Hook Form + Zod + Drizzle ORM + Postgres + i18next.
+> - **Mobile stack:** Expo + React Native + TypeScript. Routing, styling, state management, and auth conventions are whatever `highplains-mobile` already uses — inspect and match.
+> - Multi-tenancy: every table has `companyId`, every query filters by it. No exceptions.
+> - Mobile API endpoints mount under `/api/m/*` in the web app's Express routes.
+> - All user-facing strings go through i18n on both sides; new keys land in `en` and `es` with `// TODO: human-review translation` markers on `es`.
+> - File uploads reuse the existing storage layer (the same one used for chemical-label PDFs and customer attachments). Do not introduce a new file backend.
+> - Web loading state = shadcn Skeleton. Web error state = shadcn Alert. Web icons = `lucide-react`. Mobile loading/error/icon conventions: match what's in `highplains-mobile`.
+> - At the end of each slice, report back with: files created (both projects), files modified, schema/columns added, API endpoints added, mobile screens/components added, manual test plan, decisions made where prompt was ambiguous, anything skipped with reasons.
+
+---
+
+### Slice 0 — Mobile foundation: auth flow, navigation scaffold, role gate
+
+#### Context
+
+Establish the foundation in the existing Expo `highplains-mobile` project: a working token-based authentication flow against the web API, a bottom-tab navigation with three screens (Today / Properties / Me), a header with the "+ Flag" entry point (still placeholder), and a role gate that ensures only crew supervisors can use the app. Real data and features come in later slices.
+
+This slice also adds (on the web side) the `crews` concept needed for everything downstream.
+
+#### Existing context to inspect (both projects)
+
+**Web app:**
+- `users` table in `shared/schema.ts` — check what role field/values already exist. Roles may be free-text, an enum, or a separate `userRoles` table. Add `crew_supervisor` to the existing set; do NOT introduce a parallel role system.
+- Existing auth — find how the web app issues sessions. The mobile app needs a **token-based** flow (likely JWT or opaque bearer tokens). If a mobile token flow already exists in the codebase, reuse it. If not, add one in this slice (a new login endpoint that returns a token + a middleware that validates tokens alongside the existing session middleware).
+
+**Mobile app (`highplains-mobile`):**
+- Inspect `package.json` for Expo SDK version, navigation library, styling library, state management.
+- Inspect the existing route/screen tree if any.
+- Inspect any existing auth flow (login screen, token storage). If one exists, extend it rather than replacing.
+- Confirm `expo-secure-store` is available for token storage (preferred over AsyncStorage for secrets).
+
+#### Schema changes (web app)
+
+**1. `users` role addition**
+
+Verify whether `crew_supervisor` exists as a valid role. If roles are free-text with a Zod-validated set, add `crew_supervisor` to that set. If a normalized table, add the row. If `foreman` or similar already exists and admin confirms it's the right concept, use it instead — document the decision.
+
+**2. New table: `crews`**
+
+A crew is a named group led by one supervisor. v1 has one supervisor per crew.
+
+Fields:
+- `id` — varchar, PK, UUID
+- `companyId` — varchar, FK → `companies.id`, not null
+- `name` — text, not null
+- `supervisorUserId` — varchar, FK → `users.id`, not null
+- `isActive` — boolean, not null, default true
+- `createdAt`, `updatedAt`
+
+Unique on `(companyId, name)`. Index on `(companyId, supervisorUserId)`.
+
+**3. New table: `mobile_auth_tokens` (only if a token system doesn't already exist)**
+
+- `id` — varchar, PK, UUID
+- `companyId` — varchar, FK, not null
+- `userId` — varchar, FK → users, not null
+- `tokenHash` — text, not null (store hash, never raw token)
+- `deviceLabel` — text, nullable (e.g., "Jose's iPhone 13")
+- `lastUsedAt` — timestamptz
+- `expiresAt` — timestamptz, nullable
+- `revokedAt` — timestamptz, nullable
+- `createdAt`
+
+Index on `tokenHash`. Tokens expire after 90 days of inactivity; refreshed on every use.
+
+**4. Migrations** — Idempotent `IF NOT EXISTS` startup pattern matching existing migrations in `server/index.ts`.
+
+#### API endpoints (web app)
+
+- `POST /api/m/auth/login` — body: `{ email, password, deviceLabel? }`. Returns `{ token, user: { id, name, email, role }, crew: { id, name } | null }`. Validates credentials reusing the existing password verification logic. Creates a `mobile_auth_tokens` row. If the user is not a crew supervisor, return 403 with a clear message.
+- `POST /api/m/auth/logout` — revokes the current token. Requires bearer auth.
+- `GET /api/m/me` — returns the current user, their role, and their crew. Used by the mobile shell to verify the token and load crew context.
+- `GET /api/crews` (admin/office only) — list crews for the company.
+- `POST /api/crews` (admin/office only) — create crew.
+- `PATCH /api/crews/:id` (admin/office only) — update crew.
+
+**Token middleware** — Add an Express middleware that accepts `Authorization: Bearer {token}`, hashes it, looks up the row, populates `req.user` (and `companyId` via the user), and rejects revoked/expired tokens. The middleware coexists with the existing session middleware so the same routes can serve both web sessions and mobile tokens. Mount this middleware on all `/api/m/*` routes.
+
+#### UI changes — Web app
+
+**Admin: Crews settings page**
+
+New route `/dashboard/settings/crews`. Standard CRUD table matching the chemical-products page pattern (`/dashboard/settings/chemical-products`):
+- Columns: Name, Supervisor (user), Active toggle, Edit/Delete
+- Add/edit modal: name field + searchable supervisor select (users with `crew_supervisor` role)
+- Add to the existing settings nav
+
+#### UI changes — Mobile app
+
+**1. Auth flow**
+
+- Login screen: email + password fields, "Sign in" button, app logo. Submit calls `POST /api/m/auth/login`. On success, store the token in `expo-secure-store` and navigate to the main app. On 403 (not a supervisor), show a friendly "Mobile access is for crew supervisors. Contact the office." message.
+- A `useAuth()` hook (or extend an existing one) that exposes `user`, `crew`, `signIn`, `signOut`, `isLoading`. On app boot, the hook reads the token from secure storage, calls `GET /api/m/me`, and routes to the main app or the login screen accordingly.
+- A logged-out state should show the login screen as the root; logged-in state shows the bottom tab nav.
+
+**2. Navigation scaffold**
+
+Match the project's existing convention (Expo Router or React Navigation). Implement:
+- Bottom tab navigator with three tabs: **Today** (default), **Properties**, **Me**
+- Each tab is a stack so deep navigation (e.g., Today → Ticket Detail) stays inside the tab
+- Header in each tab: left title slot, right "+ Flag" button (opens a placeholder alert for now — real flow in Slice 4)
+
+Tab icons: choose from `@expo/vector-icons` (likely already installed) — e.g., `Ionicons` `calendar-outline`, `map-outline`, `person-outline`.
+
+**3. Placeholder screens**
+
+`Today`, `Properties`, `Me`, `TicketDetail`, `PropertyDetail` screens — each renders "{Screen} — coming in Slice {N}" centered in safe area.
+
+**4. App configuration**
+
+- Update `app.json` / `app.config.ts` with the correct name ("High Plains CRM"), short name, splash screen background matching brand, app icon. Reuse `attached_assets/NEW - LOGO-03_1763582979034.png` or similar — generate properly sized icons for iOS and Android if not already present.
+- Confirm bundle identifiers (`ios.bundleIdentifier`, `android.package`) — these are set once and should not change after first submission to App Store / Play Store. If unset, propose `com.highplains.crm` and confirm with admin before publishing.
+- Configure deep linking scheme (`scheme: "highplainscrm"`) for future use (e.g., admin web app linking back to mobile).
+
+**5. API client**
+
+A small wrapper around `fetch` (or whatever the project uses) that:
+- Reads the token from secure storage
+- Attaches `Authorization: Bearer {token}` to every request
+- Points to the correct base URL (configurable via `expo-constants` `extra` field for dev vs prod)
+- Handles 401 by clearing the token and redirecting to login
+- Returns parsed JSON
+
+If the project already has an API client, extend it.
+
+#### Patterns and conventions
+
+- Mobile React Query keys prefixed with `m-` to keep namespacing clear.
+- Token never logged or stored unencrypted; always via `expo-secure-store`.
+- Login screen and main app are different navigators (a `RootNavigator` that switches based on auth state).
+
+#### Out of scope for this slice
+
+- Real ticket/property/flag data — placeholders only
+- Camera, photo capture
+- Push notifications (setup comes in Slice 6)
+- Offline cache beyond what React Query gives us by default
+- Biometric unlock (Face ID / fingerprint) — v1.1
+- Password reset from mobile — direct users to web
+
+#### Deliverables
+
+1. Files created (both projects, with paths)
+2. Files modified (both projects)
+3. Web schema additions
+4. Web API endpoints added (with method + path)
+5. Mobile screens / components added
+6. Confirmed role identifier used for supervisor access (`crew_supervisor` or existing equivalent)
+7. Token storage approach (`expo-secure-store` confirmed available)
+8. Auth flow diagram (1-paragraph description of login → token → /me → main app)
+9. Bundle identifiers chosen
+10. Decisions made where this prompt was ambiguous
+11. Manual test plan: seed one supervisor user via SQL/admin, log in on Expo Go (or a dev build) on a real device, confirm bottom tabs render, confirm tapping tabs switches screens, confirm token persists across app restarts, confirm logging out clears the token, confirm a non-supervisor login is rejected gracefully
+
+---
+
+### Slice 1 — Crew ticket assignment + Today screen with live data
+
+#### Context
+
+Today screen gets real content: supervisor sees their crew's tickets for today in route order, with status pills and the day-summary line. Admin web app gets the ability to assign tickets to a crew and set route order.
+
+#### Existing context to inspect
+
+**Web:** Find the existing tickets table (`tickets`, `serviceVisits`, `jobs`, `workOrders` — name varies). Check what assignment field already exists (e.g., `assignedToUserId`). The existing tickets management page is where the new crew + route-order fields get added.
+
+**Mobile:** Inspect how the Slice 0 placeholder Today screen was built and extend it.
+
+#### Schema changes (web)
+
+**Additions to the existing tickets table (only what's missing):**
+
+- `crewId` — varchar, FK → `crews.id`, nullable. Index on `(companyId, crewId, scheduledDate)`.
+- `routeOrder` — integer, nullable. Sort key. Null sorts last.
+- `startedAt` — timestamptz, nullable.
+- `completedAt` — timestamptz, nullable.
+- `status` — text, not null, default `"not_started"`. Values: `"not_started" | "in_progress" | "complete" | "skipped" | "flagged"`. If a status column already exists with a different name or values, map onto it instead of duplicating.
+
+Migrations idempotent.
+
+#### API endpoints (web)
+
+- `GET /api/m/today` — returns the authenticated supervisor's crew's tickets for today (server date in company timezone). Response:
+  ```ts
+  {
+    date: string,
+    summary: {
+      total: number, complete: number,
+      inProgress: number, notStarted: number,
+      startedAt: string | null
+    },
+    stops: Array<{
+      id, propertyId, propertyName, address,
+      scheduledTime: string | null,
+      serviceSummary: string,
+      status: "not_started" | "in_progress" | "complete" | "skipped" | "flagged",
+      routeOrder: number | null,
+      itemsTotal: number, itemsComplete: number
+    }>
+  }
+  ```
+  Sorted by `routeOrder` asc (nulls last), then `scheduledTime`. `itemsTotal` / `itemsComplete` may return `0` until Slice 2.
+
+- `POST /api/m/tickets/:id/start` — sets status to `in_progress` and `startedAt = now()` if not set. Idempotent. Returns updated ticket.
+
+#### UI changes — Web
+
+In the existing tickets admin page, add to the ticket edit form (or bulk-assign view if present):
+- "Crew" — searchable select of active crews
+- "Route order" — integer input, helper text: "Order in this crew's day. Lower numbers go first."
+
+Extend the existing ticket update endpoint's Zod schema to accept these fields. No new admin page.
+
+#### UI changes — Mobile
+
+**Today screen** — Replace placeholder with the real layout (spec §5.1):
+- Header: "Today" + date + "+ Flag"
+- Day summary strip
+- FlatList of stop cards in route order
+- Status pill component (reusable)
+- Pull-to-refresh
+- Tap a card → navigate to `/tickets/:id` route and fire `POST /api/m/tickets/:id/start` silently
+- Empty state, loading state (3 skeleton cards), error state with retry
+
+Use React Query (`useQuery({ queryKey: ["m-today"], ... })`). Stale time 30s. Refetch on focus.
+
+#### Patterns
+
+- Reusable `<StatusPill status={...} progress={...} />` component used in this slice and beyond.
+
+#### Out of scope
+
+- Ticket detail screen (Slice 2)
+- Photos and notes (Slice 3)
+- Real flag flow (Slice 4)
+- Offline caching of today's data (Slice 7)
+
+#### Deliverables
+
+Standard. Manual test: admin assigns 3 test tickets to a crew with route orders 1/2/3, supervisor opens the app on mobile, sees the three in order with correct status pills, tapping a card sets `in_progress` server-side, pull-to-refresh works, empty state shows when no tickets scheduled.
+
+---
+
+### Slice 2 — Work item checklist + ticket detail + complete flow
+
+#### Context
+
+The ticket detail screen renders site notes curated for the service type, a flat list of checkable work items with inline instructions, a "Mark complete" flow with soft confirmation on missing required content. Photos/notes are stubbed (real capture in Slice 3) so completion can be tested end-to-end with text-only flow.
+
+#### Existing context to inspect
+
+**Web:** Find the existing ticket detail admin page. We're not replacing the freeform scope/description — we're adding structured **work items** that can also be authored from the existing page.
+
+The `properties` table — find what fields already exist for gate code, pet stations, access notes. If they're freeform text, we'll add structured fields below.
+
+#### Schema changes (web)
+
+**1. New table: `ticket_work_items`**
+
+- `id`, `companyId`, `ticketId` (FK)
+- `title` — text, not null
+- `instruction` — text, nullable
+- `displayOrder` — integer, not null, default 0
+- `photoRequired` — boolean, not null, default false
+- `status` — text, not null, default `"open"` — values: `"open" | "done" | "skipped"`
+- `skipReason` — text, nullable: `"out_of_supplies" | "inaccessible" | "weather" | "customer_request" | "other"`
+- `skipNote` — text, nullable
+- `completedAt` — timestamptz, nullable
+- `createdAt`, `updatedAt`
+
+Index on `(companyId, ticketId, displayOrder)`.
+
+**2. New table: `service_type_templates`** — Default work items per service type
+
+- `id`, `companyId`
+- `serviceType` — text (e.g., `"maintenance_mow"`, `"maintenance_pet_stations"`, `"maintenance_hedge_trim"`)
+- `title` — text
+- `defaultInstruction` — text, nullable
+- `displayOrder` — integer
+- `photoRequired` — boolean
+- `isActive` — boolean, default true
+
+When admin creates a ticket and selects a service type, the system pre-populates `ticket_work_items` from matching templates; admin can edit before save.
+
+**3. Additions to `properties` (only if missing)**
+
+- `gateCode`, `petStationCount`, `petStationLocations`, `irrigationControllerLocations`, `accessNotes`, `watchOutNotes`
+
+**4. New table: `property_site_notes`** — Richer note system
+
+- `id`, `companyId`, `propertyId` (FK)
+- `body` — text, not null
+- `relevantToServiceTypes` — text[] — empty = always show
+- `authorUserId` — FK
+- `createdAt`, `updatedAt`
+
+#### API endpoints (web)
+
+- `GET /api/m/tickets/:id` — full mobile ticket detail. Response:
+  ```ts
+  {
+    id, propertyId, propertyName, address,
+    serviceType, scheduledTime, status,
+    startedAt, completedAt,
+    siteNotes: {
+      gateCode: string | null,
+      petStations: { count: number, locations: string } | null,
+      watchOut: string[],
+      lastVisit: { date: string, crewName: string } | null
+    },
+    workItems: Array<{
+      id, title, instruction, displayOrder,
+      photoRequired, status, skipReason, skipNote, completedAt
+    }>,
+    photosCount: number,
+    notesCount: number
+  }
+  ```
+  `siteNotes` is curated server-side by service type (`server/services/site-notes.ts` — pure function, easily testable).
+
+- `PATCH /api/m/work-items/:id` — body: `{ status, skipReason?, skipNote? }`. Sets `completedAt` on transition to done. Validates photo-required (in this slice, stub the check to return true; real wire in Slice 3).
+
+- `POST /api/m/tickets/:id/complete` — body: `{ overrideMissing?: boolean, overrideNote?: string }`. Returns 409 with details when items are missing and `overrideMissing !== true`. Stores `overrideNote` in a new `completionNotes` column (add it).
+
+- Admin CRUD on `service_type_templates` under `/api/service-type-templates`, with a settings page nav entry "Work Item Templates".
+
+#### UI changes — Web
+
+**Ticket detail admin page** — Add a "Work items" editor below existing scope:
+- Drag-to-reorder list (react-dnd or similar — match what's already in use)
+- Row: title, instruction, photo-required toggle
+- "+ Add item" button
+- "Load from template..." button → dialog of templates for ticket's service type; selecting appends
+- Save through existing ticket update endpoint
+
+**Service-type templates settings page** — `/dashboard/settings/work-item-templates`. CRUD table.
+
+#### UI changes — Mobile
+
+**Ticket detail screen** — Full layout per spec §5.2:
+- Header (back, property + address, Navigate button — `Linking.openURL("maps://?address=...")` on iOS, `geo:` on Android)
+- Meta line
+- Site Notes card (hidden if all fields empty)
+- Work Items section (checkable rows)
+  - Tap checkbox → `PATCH /api/m/work-items/:id`
+  - Long-press or kebab menu → "Skip" sheet with reason chips + optional note (use `@gorhom/bottom-sheet` if installed; else a Modal)
+- Photos section (stub: "Photos · 0", `+` tile disabled)
+- Notes section (stub: collapsed)
+- Pinned bottom action bar (respects `useSafeAreaInsets`)
+  - "+ Flag issue" (placeholder still)
+  - "Mark complete" → calls `POST /api/m/tickets/:id/complete`. On 409, open a confirmation modal listing missing items with "Go back" and "Complete anyway" (with reason textarea required)
+
+**Skip item sheet** — Reason chips (single-select): Out of supplies / Inaccessible / Weather / Customer request / Other. If "Other," show a textarea. Submit → `PATCH` with status `skipped`.
+
+#### Out of scope
+
+- Real photo capture and upload (Slice 3)
+- Real notes textarea (Slice 3)
+- Real flag composer (Slice 4)
+
+#### Deliverables
+
+Standard. Manual test: admin builds a ticket with 5 work items (2 required), assigns to crew with route order 1, supervisor opens ticket on mobile, sees curated site notes, checks 3 items, skips 1 with reason "inaccessible," tries to mark complete with 1 required item open, sees the missing-items modal, completes with override note, sees the ticket as complete on Today.
+
+---
+
+### Slice 3 — Photo capture, notes, upload queue
+
+#### Context
+
+Wire real camera/photo capture for ticket photos, add the notes textarea, build the upload queue that handles offline / poor-network gracefully, and unblock the "photo required" item check stubbed in Slice 2.
+
+#### Existing context to inspect
+
+**Web:** File storage layer (already used by chemical-treatment labels and customer attachments). Reuse. Paths must include `companyId`.
+
+**Mobile:** Inspect what's in `package.json` — `expo-camera`, `expo-image-picker`, `expo-image-manipulator`, `expo-file-system`, `@react-native-async-storage/async-storage`. Add only what's missing.
+
+#### Schema changes (web)
+
+**1. New table: `ticket_photos`**
+
+- `id`, `companyId`, `ticketId` (FK), `workItemId` (FK, nullable — reserved for v1.1)
+- `storageKey` — text
+- `mimeType` — text
+- `width`, `height` — integer, nullable
+- `sizeBytes` — integer
+- `capturedAt` — timestamptz (client-supplied; server validates within ±24h of upload)
+- `capturedByUserId` — FK
+- `createdAt`
+
+**2. New table: `ticket_notes`**
+
+- `id`, `companyId`, `ticketId` (FK)
+- `body` — text
+- `authorUserId` — FK
+- `createdAt`, `updatedAt`
+
+#### API endpoints (web)
+
+- `POST /api/m/tickets/:id/photos` — multipart upload. Accept `image/jpeg`, `image/png`, `image/heic`. Max 10 MB. Validate MIME by magic bytes server-side. Store under `ticket-photos/{companyId}/{ticketId}/{uuid}.{ext}`. Insert row. Return row + signed URL.
+- `DELETE /api/m/photos/:id` — original uploader or admin only.
+- `GET /api/m/tickets/:id/photos` — list rows with signed URLs (≥1h TTL).
+- `POST /api/m/tickets/:id/notes` — `{ body }`. Returns note.
+- `GET /api/m/tickets/:id/notes` — list notes.
+
+Wire the `photoRequired` check on `PATCH /api/m/work-items/:id`: reject transition to done if no photo exists on the ticket captured at or after `startedAt`.
+
+#### UI changes — Mobile
+
+**Photo capture**
+
+- Use `expo-image-picker` for the simpler launch-camera-and-return-image flow (`launchCameraAsync`) — no custom camera UI needed for v1
+- On capture:
+  1. Compress with `expo-image-manipulator` to max 2048px long edge, strip EXIF except orientation
+  2. Show thumbnail immediately with "Uploading…" overlay
+  3. Enqueue upload via the upload queue (below)
+  4. On success, replace local thumbnail with signed URL from response
+- Allow multiple photos per ticket
+- Tap a thumbnail → full-screen viewer with delete (only if user is the original uploader)
+
+**Upload queue** — `highplains-mobile/src/lib/upload-queue.ts` (or wherever the project's lib lives):
+
+- AsyncStorage-persisted queue of pending uploads (with file URIs from `expo-file-system`)
+- Background retry with exponential backoff (1s → 2s → 5s → 15s → 60s, cap)
+- Exposes a hook `useUploadQueue()` → `{ pending: number, failed: number, retry: () => void }`
+- On success, invalidate the relevant React Query key
+- Files moved to `FileSystem.documentDirectory + "queue/"` to survive app restarts; deleted after successful upload
+
+The header shows a small indicator when `pending > 0` (cloud arrow + count). Amber when `failed > 0`. Tap → bottom sheet listing failed with retry/dismiss.
+
+**Notes section** — Replace the stubbed button with a real expandable textarea. On blur or "Save," POST the note. Note list renders below the textarea, oldest first or newest first (match existing app conventions — likely newest first).
+
+**Photo required item check** — When tapping checkbox on an item with `photoRequired=true`:
+- If at least one photo exists on the ticket captured at/after `startedAt`, proceed
+- If not, show inline message "Add a photo first" with a "+ Photo" button that opens the camera
+
+#### Patterns and conventions
+
+- Image compression always before upload, never raw camera output
+- Strip EXIF location; preserve orientation
+- Server validates magic bytes, not just `Content-Type`
+
+#### Out of scope
+
+- Per-work-item photo attachment (v1.1)
+- Voice notes
+- Photo annotation / markup
+
+#### Deliverables
+
+Standard. Manual test: capture 2 photos on a real device, verify they appear in mobile ticket detail and in the web admin's ticket page. Force airplane mode, capture a 3rd — verify it queues. Restart the app to confirm queue persists. Exit airplane mode, verify auto-upload. Confirm a "photo required" item cannot be checked done with zero session-time photos. Add a note, verify it appears under the ticket on web admin.
+
+---
+
+### Slice 4 — Flag issue: composer, admin inbox, notification
+
+#### Context
+
+Flag flow is the highest-leverage feature for reducing office-to-field communication. Supervisor takes a photo, tags it, optionally adds a note, lands in admin inbox immediately. Builds the supervisor composer (mobile), the admin inbox (new web route), and a notification mechanism.
+
+#### Existing context to inspect
+
+**Web:** Admin nav structure — add a "Flags" entry matching existing conventions. Notification system — check if an in-app notification mechanism or email infrastructure exists. Reuse if present.
+
+**Mobile:** The composer reuses Slice 3's photo capture + upload queue.
+
+#### Schema changes (web)
+
+**1. New table: `flags`**
+
+- `id`, `companyId`
+- `createdByUserId` — FK
+- `crewId` — FK, nullable
+- `propertyId` — FK, nullable
+- `ticketId` — FK, nullable
+- `tag` — text, enum: `irrigation_issue | property_damage | access_problem | customer_interaction | material_needed | safety_concern | question | other`
+- `note` — text, nullable (≤500 char)
+- `status` — text, default `"new"`. Values: `"new" | "acknowledged" | "in_progress" | "resolved" | "dismissed"`
+- `assignedToUserId` — FK, nullable
+- `resolution` — text, nullable
+- `resolvedAt` — timestamptz, nullable
+- `createdAt`, `updatedAt`
+
+Index on `(companyId, status, createdAt DESC)`.
+
+**2. New table: `flag_photos`**
+
+Same shape as `ticket_photos`, with `flagId` instead. Min one photo required per flag (API-enforced).
+
+#### API endpoints (web)
+
+- `POST /api/m/flags` — multipart: single photo + JSON `{ tag, note?, propertyId?, ticketId? }`. Creates flag + flag_photo in one transaction. Returns flag.
+- `POST /api/m/flags/:id/photos` — additional photos.
+- `GET /api/flags` — admin inbox. Query: `status`, `crewId`, `propertyId`, `tag`, `dateFrom`, `dateTo`. Paginated, sorted `createdAt DESC`.
+- `GET /api/flags/:id` — full detail incl. photos + resolver.
+- `PATCH /api/flags/:id` — admin updates status / assignment / resolution.
+- `POST /api/flags/:id/respond` — admin one-shot response (optional in this slice — if cut, mark for v1.1).
+
+#### UI changes — Web
+
+**Admin Flags inbox** — New route `/dashboard/flags`:
+- Filters: status, crew, tag, date range
+- Table: When · Crew · Property · Tag badge · Photo thumbnail · Note (truncated) · Status · Actions
+- Row click → side panel or detail page with full photos (clickable to fullscreen), full note, deep links to linked ticket/property, supervisor name, action bar (Acknowledge / In progress / Resolve / Dismiss / Reassign)
+- "New flags" badge in left nav with count of `status="new"`
+
+**Notification**
+
+On `POST /api/m/flags` success:
+- In-app notification if existing system; otherwise leave a clear marker comment for future
+- Email to all users with role `admin` or `office`, subject `"New field flag from {crewName} at {propertyName}"`, body containing tag + note + link to flag detail + inline photo
+
+#### UI changes — Mobile
+
+**Flag composer screen** — Full-screen modal (push as a stack screen with `presentation: "modal"`):
+
+- Header: Cancel (left) · "New flag" (title) · Send (right, disabled until photo + tag)
+- Photo tile (required) — opens `expo-image-picker` camera; reuses Slice 3 capture + upload queue logic
+- Tag chips (required) — single-select 2-column grid, 8 tags from enum
+- Property field — auto-filled with context if present; else a debounced search field hitting `GET /api/m/properties/search`
+- Linked ticket — auto-filled if launched from ticket; hidden otherwise
+- Note textarea (optional, 280 char limit)
+- Send → POSTs the flag. Modal stays open with "Uploading…" state until upload completes (or queues), then closes with a toast "Flag sent."
+
+**Wire the header "+ Flag" button** — Replace the placeholder from Slice 0 to navigate to the flag composer with appropriate pre-fill from context:
+- From Today header → no context
+- From ticket detail (bottom "+ Flag issue") → ticketId + propertyId
+- From property profile header → propertyId
+
+#### Patterns
+
+- Tag color mapping shared between mobile chip and admin badge in `shared/flag-tags.ts`:
+  - `irrigation_issue` → blue
+  - `property_damage` → red
+  - `access_problem` → amber
+  - `customer_interaction` → purple
+  - `material_needed` → teal
+  - `safety_concern` → red
+  - `question` → gray
+  - `other` → gray
+
+#### Out of scope
+
+- Auto-creating an irrigation ticket from `irrigation_issue` flags (v1.1)
+- Two-way conversation thread on a flag (v1.1)
+- SMS notifications
+
+#### Deliverables
+
+Standard. Manual test: supervisor on mobile creates a flag from Today (no context), from a ticket (preserves ticket+property link), from a property profile (preserves property link). Confirm all three appear in admin inbox with correct tags. Admin acknowledges one, resolves one with note, dismisses one. Email lands in admin inbox.
+
+---
+
+### Slice 5 — Properties tab: directory and profile
+
+#### Context
+
+Searchable directory + full property profile (overview, site notes, services, map, history, photos).
+
+#### Existing context to inspect
+
+**Web:** Properties exist with extensive data. We're not creating properties on mobile — we're rendering them. The web app's property-maps tool likely exports a static image — find that export and reuse it.
+
+#### Schema changes (web)
+
+Most fields landed in Slice 2. Add:
+
+**`recent_property_views`** — for the Properties tab's "Recent" section
+- `id`, `companyId`, `userId`, `propertyId`, `viewedAt`
+- Index on `(companyId, userId, viewedAt DESC)`
+
+#### API endpoints (web)
+
+- `GET /api/m/properties?q=...&limit=...` — paginated search. Default sort alphabetical. `recent=1` mode returns user's recent views.
+- `GET /api/m/properties/:id` — full mobile property detail:
+  ```ts
+  {
+    id, name, address,
+    primaryContact: { name, phone, email } | null,
+    services: Array<{ name, frequency, notes }>,
+    siteNotes: { gateCode, petStations, irrigationControllers, accessNotes, watchOut },
+    fullSiteNotes: Array<{ body, relevantToServiceTypes, author, createdAt }>,
+    map: { staticImageUrl: string | null, editorUrl: string | null },
+    history: Array<{ ticketId, date, serviceType, crewName, summary }>,
+    photos: Array<{ id, url, capturedAt }>
+  }
+  ```
+- `POST /api/m/properties/:id/view` — record view, fire-and-forget.
+
+#### UI changes — Mobile
+
+**Properties screen** — replace placeholder:
+- Sticky search bar at top (debounced)
+- "Recent" section (last 5) — hidden when searching
+- Alphabetical list with sticky section headers (use `SectionList`)
+- Empty search: "No properties match '{q}'"
+- Tap row → navigate to property detail
+
+**Property detail screen** — replace placeholder:
+- Header: name, address, Navigate, "+ Flag"
+- Tab bar: Overview · Site Notes · Services · Map · History · Photos (use a top-tab navigator — match project conventions; `react-native-tab-view` if not already in use)
+- Overview: contact card with one-tap call (`Linking.openURL("tel:...")`) and email
+- Site Notes: grouped notes
+- Services: contracted services + exclusions
+- Map: `Image` of `staticImageUrl`; "Open full editor" button → `Linking.openURL(editorUrl)`
+- History: list, tap → ticket detail (read-only when completed)
+- Photos: grid (3-column `FlatList`), tap → fullscreen viewer
+- On mount, fire `POST /api/m/properties/:id/view`
+
+#### Out of scope
+
+- Editing property data from mobile (web-only)
+- Interactive map editing on mobile (web-only)
+- Direct photo upload to property profile (v1: photos attach via tickets or flags)
+- Native `react-native-maps` integration (v1.1)
+
+#### Deliverables
+
+Standard. Manual test: search a property by partial name, open it, scroll through all six tabs, confirm Navigate launches the system maps app, confirm "+ Flag" pre-fills the property, return to Properties, see it in Recent.
+
+---
+
+### Slice 6 — Me tab: profile, week schedule, settings, push notifications
+
+#### Context
+
+Week view, account info, settings, and push notification setup. Lowest-frequency tab but where push prefs and sign out live.
+
+#### Existing context to inspect
+
+**Web:** Week schedule data is the same source as Today, just a 7-day window. Push notifications — check whether `expo-notifications` server-side infrastructure exists. If not, add it.
+
+**Mobile:** Inspect `package.json` for `expo-notifications`. Add if missing.
+
+#### Schema changes (web)
+
+**Additions to `users`:**
+
+- `pushSubscriptionsJson` — jsonb, nullable. Array of `{ expoPushToken: string, deviceLabel: string, addedAt: string }`.
+- `notificationPrefsJson` — jsonb, nullable. Shape:
+  ```ts
+  {
+    newTicketAssignment: boolean,
+    ticketReassignment: boolean,
+    flagResponse: boolean
+  }
+  ```
+  Defaults all true.
+
+#### API endpoints (web)
+
+- `GET /api/m/me` (already exists from Slice 0) — extend to include `notificationPrefs` and `crew`
+- `GET /api/m/me/week` — `{ days: [{ date, ticketsTotal, ticketsComplete, flagsCount }] }` for next 7 days, company timezone
+- `GET /api/m/me/recent-completions?limit=10` — last completed tickets by supervisor's crew
+- `PATCH /api/m/me/notification-prefs` — `{ newTicketAssignment?, ticketReassignment?, flagResponse? }`
+- `POST /api/m/me/push-subscriptions` — `{ expoPushToken, deviceLabel }`. Appends, dedupes by token.
+- `DELETE /api/m/me/push-subscriptions` — body: `{ expoPushToken }`. Removes.
+
+**Push delivery (server-side)** — Use the Expo Push API (`https://exp.host/--/api/v2/push/send`) to deliver notifications to Expo push tokens. Add a thin wrapper at `server/services/push.ts` that takes `(userId, payload)` and:
+1. Loads the user's `pushSubscriptionsJson`
+2. Sends to each token via Expo Push API
+3. Logs delivery results; if a token returns "DeviceNotRegistered," remove it from the user's subscriptions
+
+Trigger pushes on:
+- Ticket assignment to a crew (notify supervisor) — if their `newTicketAssignment` pref is on
+- Ticket reassigned away from a crew (notify former supervisor) — if `ticketReassignment` pref on
+- Admin responds to a flag — if `flagResponse` pref on (only relevant if flag response was built in Slice 4)
+
+#### UI changes — Mobile
+
+**Me screen** — replace placeholder:
+- Header card: initials avatar, name, role, crew name
+- Week strip — 7 horizontal day cells. Each cell: day-of-week label, date, ticket count, amber dot for flagged days. Tap a day → Today scoped to that date (read-only when past)
+- Recent completions list — tap → ticket detail (read-only)
+- Settings group:
+  - "Notifications" → screen with 3 toggles backed by `notificationPrefsJson`. On toggle, `PATCH /api/m/me/notification-prefs`
+  - "Sign out" — confirm modal, then call `POST /api/m/auth/logout` and clear secure storage
+
+**Push notifications setup**
+
+- On first launch after sign-in (or via a banner the user can dismiss): request notification permission via `Notifications.requestPermissionsAsync()`
+- On grant: get the Expo push token via `Notifications.getExpoPushTokenAsync({ projectId: <from app.config> })` and POST to `/api/m/me/push-subscriptions`
+- Handle the case where the user denies: don't block app usage; allow re-prompting from the Notifications settings screen
+- Set notification handler with `Notifications.setNotificationHandler({ ... })` to show notifications in-foreground
+- Configure Android notification channel for production behavior
+
+**Note for iOS:** Expo push notifications work in dev clients and production builds. They do NOT work in Expo Go for iOS as of recent SDKs. Test in a development build or production build, not Expo Go. Document this in deliverables.
+
+#### Out of scope
+
+- Push delivery analytics
+- Multi-week view
+- In-app inbox of past notifications (v1.1)
+
+#### Deliverables
+
+Standard. Manual test: open Me, confirm week shows correct ticket counts, toggle a notification preference, sign out and back in, allow push on first prompt, admin assigns a new ticket on the web app → push lands on the supervisor's device within a few seconds. Confirm `DeviceNotRegistered` cleanup works by uninstalling and reinstalling the app.
+
+---
+
+### Slice 7 — Offline cache + sync queue + polish
+
+#### Context
+
+Harden the field experience: today's tickets and site notes are cached on launch so they read in dead zones, mutating endpoints (work item state changes, notes, completion) queue and retry offline, sync indicator shows pending/failed state, polish gaps left in earlier slices.
+
+#### Existing context to inspect
+
+**Mobile:** The Slice 3 upload queue handles multipart photo uploads. Extend it to handle JSON mutations too, or keep them separate — designer's choice; whichever matches `highplains-mobile` patterns better.
+
+#### Schema changes
+
+None.
+
+#### API endpoints (web)
+
+- `GET /api/m/sync` — single endpoint that returns the bundle to operate offline for today:
+  ```ts
+  {
+    today: { /* same as /api/m/today */ },
+    tickets: [ /* full /api/m/tickets/:id payload for each today's ticket */ ],
+    properties: [ /* curated subset for each of today's properties */ ]
+  }
+  ```
+  Called on app foreground and on pull-to-refresh from Today.
+
+#### UI changes — Mobile
+
+**React Query persistence** — Use `@tanstack/react-query-persist-client` with AsyncStorage. Persist all `m-*` query keys. Cache TTL 24h. On app launch, restore from persistence immediately, then revalidate in background.
+
+**Mutation queue** — Extend Slice 3's upload queue to handle:
+- Check/uncheck/skip work item (`PATCH /api/m/work-items/:id`)
+- Complete ticket (`POST /api/m/tickets/:id/complete`)
+- Add note (`POST /api/m/tickets/:id/notes`)
+- Submit flag (`POST /api/m/flags`)
+
+Mutations apply optimistic UI updates immediately via React Query's `onMutate`. On offline detection, queue and retry on reconnection. On server rejection (e.g., 409 on completion with missing items), surface the error to the user and revert optimistic UI.
+
+**Sync indicator** — Small chip or icon in header:
+- Green dot → online, nothing pending
+- Cloud arrow + count → uploads pending
+- Amber warning → failures (tap → sheet with retry/dismiss list)
+- Gray cloud → offline (cached data in use)
+
+**Offline detection** — Use `@react-native-community/netinfo` if not already installed.
+
+**Polish pass** — Walk every screen:
+- Skeleton loading states (no full-page spinners)
+- Error states with retry
+- Empty states with helpful copy
+- Confirm safe-area insets honored on iPhone 14+ Dynamic Island devices
+- Confirm tap targets ≥ 44pt everywhere
+
+#### Out of scope
+
+- Full offline-first creation of new tickets (admin web-only in v1)
+- Two-device edit conflict resolution beyond last-write-wins (foreman-only assumption makes conflicts unlikely)
+
+#### Deliverables
+
+Standard. Manual test: enable airplane mode, foreground the app, today loads from cache. Open a ticket, check items, observe UI updates immediately. Capture a photo. Exit airplane mode; observe everything syncs in order. Force a server failure mid-sync; observe the failed-uploads sheet with retry.
+
+---
+
+## 9. Glossary
+
+- **Ticket** — A single visit by a crew to a property to perform one or more services. Atomic unit of field work.
+- **Work item** — A checkable line inside a ticket. Has status, optional instruction, optional photo requirement.
+- **Stop** — User-facing word for a ticket on the Today screen. Internally still a ticket.
+- **Crew** — A team led by one supervisor. v1: one supervisor per crew.
+- **Crew supervisor (foreman)** — The authenticated mobile user. The only role with mobile access in v1.
+- **Site notes** — Curated property information shown at the top of a ticket. Filtered for relevance to the ticket's service type.
+- **Flag** — A field-discovered issue captured as photo + tag + optional note, sent to the admin inbox.
+- **Service type** — A category of work used to drive work-item templates and site-note filtering.
+
+---
+
+## 10. References (files in this project)
+
+- `customer-page-redesign-slices.md` — example of multi-slice planning pattern
+- `chemical-treatment-campaign-slice-replit-prompt.md` — full reference for slice prompt format/depth used here
+- `email-tracking-slice-1-replit-prompt.md`, `email-tracking-slice-1-cleanup-replit-prompt.md` — pattern for follow-up cleanup slices
+- `work-completion-slice-replit-prompt.md` — pattern for notification slices
+- `performance-optimization-slice-replit-prompt.md` — pattern for cross-cutting polish slices
+
+---
+
+*Document end. If you're a Claude picking this up on another machine: start by reading sections 1–7 to understand the design, then Slice 0 to scope the foundation. Each slice has both **web backend** work (in the existing High Plains CRM Replit project) and **mobile UI** work (in the existing `highplains-mobile` Expo project). Inspect both projects' existing conventions before writing code. Confirm with Randy before deviating from any decision in section 3.*

@@ -1,0 +1,375 @@
+High Plains CRM — Mobile App v1 Design & Replit Slices
+
+For the next Claude: This file is self-contained. It captures the full context, design decisions, screen specs, and Replit-ready implementation slices for the v1 field-facing mobile app. The existing High Plains CRM is a web application built on React 18 + TypeScript + Vite + Tailwind + shadcn/ui + Wouter + TanStack Query v5 + React Hook Form + Zod + Drizzle ORM + Postgres + i18next (en + es), multi-tenant with companyId on every table. This mobile app is intended to ship as a mobile-optimized PWA route within the existing Replit project, not as a separate React Native app (see "Tech approach" below — if the admin (Randy) wants RN/Expo instead, slices will need adjustment).
+
+
+1. Vision
+The High Plains CRM mobile app is the field crew supervisor's daily command center. It tells the supervisor what their crew is doing today, where, and what specifically needs to happen at each property — and it captures photos, notes, and flagged issues back to the office without a phone call. It is field-facing only. All admin, office, scheduling, billing, and property-data entry stays on the existing web app.
+The guiding sequence for v1 is: Today → Property → Ticket → Site Notes → Checklist Items → Photos/Notes → Complete.
+
+2. Admin goals (full brief from Randy)
+These are the goals the app must serve. They are reproduced verbatim from the admin so design decisions can be traced back to them.
+Main Goal. Turn the High Plains CRM into a field-ready mobile tool that helps crews clearly understand: what they need to do, where, when it needs to be done, and what information they need to do it correctly. Reduce confusion, limit back-and-forth communication, and make the data already in the CRM actually useful in the field.
+1. Make Daily Responsibilities Clear. Crews should be able to quickly see which properties they're responsible for, what services need completing, priority, special instructions, work type (contract / extra / estimate / irrigation / admin), and what's already done vs pending. Avoid the crew having to guess, call the office, or rely on memory.
+2. Create a Simple "Today's Work" Experience. The app should open to a clear daily work screen showing today's assigned properties, service types, start/finish status, notes/warnings, attached photos/docs, and anything overdue.
+3. Give Crews Access to Property-Specific Information. Each property profile should include: name, address, manager/contact, contracted services, site notes, gate codes, pet station locations, irrigation controller locations, known problem areas, past work history, photos, maps. Crews shouldn't walk into a property blind.
+4. Connect Tasks to the Right Property Data. When a crew opens a task, show only the information that matters to that specific task. Mowing shows mowing context. Irrigation shows controller/zone context. Pet station shows station counts and locations. Landscape project shows scope and materials.
+5. Make Job Instructions Easy to Understand. Translate admin-level CRM data into field-level instructions in plain language ("Trim shrubs along north fence line," "Check Controller A, Zones 1–12," "Install 6 tons of river rock around Building H," "Empty all pet stations and restock bags," "Take completion photos before marking finished").
+6. Support Photos and Field Documentation. Crews can upload before/progress/completion photos, add notes, mark materials used, record issues, flag work that couldn't be completed, attach photos to a task, property, or service visit.
+7. Create Accountability Without Making the App Hard to Use. Track task status, start/complete time, crew assigned, photos submitted, notes added, missed/skipped items, follow-up needed — without micromanaging.
+8. Reduce Office-to-Field Communication Problems. The app should answer common crew questions: where is this property, what are we doing here, what's included in the contract, where is the controller, what did we do last time, special notes, photos required, who's responsible, is this billable extra vs contract.
+9. Make Data Useful Instead of Just Stored. Put the right information in front of the right person at the right moment.
+10. Support Different Crew Types. Maintenance, irrigation techs, snow crews, landscape project crews, supervisors, managers — each needs a different view. v1 is maintenance-only.
+11. Make Completing Work Simple. Open task → review instructions → complete → add notes/photos if required → mark complete → flag follow-up if needed. No digging through multiple screens.
+12. Help Build Long-Term Property History. Every completed task adds to the property record: what, when, who, issues found, photos, follow-up, repairs.
+Vision statement. The mobile app should be the field crew's daily command center. It should clearly show what needs to be done, provide the property information needed to do it correctly, and make documentation simple enough that crews will actually use it.
+Development direction. Build the mobile app around the crew's daily work first, then layer in property data, documentation, maps, and history in a way that supports that daily workflow. Don't start with every feature the CRM has.
+
+3. Decisions made in design conversation
+These are locked for v1 unless explicitly revisited.
+Atomic unit of work — One ticket per property visit, containing a flat checklist of work items. A mowing visit might have items like "Mow common areas," "Trim along walkways," "Empty pet stations (4)," "Blow off hardscape." Status lives at both ticket level (not started / in progress / complete) and item level (checked / unchecked / skipped).
+v1 role — Maintenance crews only. Irrigation, snow, landscape project, and supervisor-roll-up views are explicitly v1.1+.
+"Found something" workflow — Photo + tag + short note → routed directly to the admin's inbox. The admin triages from there (reply, create new ticket, message customer, etc.). Tags drive sorting and eventual auto-routing.
+Devices — One device per crew supervisor (foreman). Other crew members do not use the app. The supervisor is the authenticated user; tickets, completions, and flags are attributed to the supervisor's crew.
+Clock-in — Lightweight only. Day starts when the supervisor opens their first ticket; per-ticket arrival/completion timestamps are captured automatically. No per-employee or per-item time tracking in v1.
+Connectivity — Online-mostly. Today's tickets and site notes are cached on app launch so dead-zone reads work. Photos and notes are queued and synced when service returns. Full offline-first (creating brand-new flags with no network) is v1.1.
+Tech approach — Mobile-optimized PWA route within the existing React/Vite/Express Replit project. New routes mounted at /m/* (mobile). Service worker for install-to-home-screen and basic caching. No separate deploy. If Randy later decides to ship native, the API surface is reusable.
+
+4. Information architecture
+Three primary surfaces in a bottom nav, plus a persistent Flag entry from the top bar.
+Today (home tab) — Opens here by default. Vertical list of today's tickets in route order. Each ticket card shows: property name, address, scheduled time, service summary, status pill. Currently-active ticket is visually emphasized. Day summary line at top ("2 of 5 stops complete · Started 7:12 AM"). A "+ Flag" button lives in the top-right corner. A "Week" toggle at the top can switch to a 7-day view (v1.1 if cut for scope).
+Properties (directory tab) — Searchable list of all company properties. Used for non-today lookups (e.g., "I'm walking a property next week, let me check what's there"). Tapping a property opens the full property profile, which is the union view of all property data. The ticket detail screen pulls a filtered subset of this profile relevant to the active service type.
+Me (profile tab) — Supervisor profile, my week schedule (richer than Today's single-day view), recent completions, sign out, settings (notification preferences).
+Flag entry points (cross-cutting) — Top-right "+ Flag" button on every screen. Also a "Flag issue" button at the bottom of every ticket detail. The flag composer is the same modal regardless of entry point; entry point pre-fills context (property, ticket).
+What does not get its own tab:
+
+Property Maps — lives inside the property profile and inside ticket detail when relevant
+Ticket list — already represented by Today; "all my open tickets including future" is a filter on Today or a view inside Me
+Schedule — collapsed into Today (single day) + Me (week)
+
+
+5. Screen-by-screen specs
+5.1 Today (home)
+Purpose — Answer "what is my crew doing right now and what's next" within 1 second of opening the app.
+Layout (top to bottom):
+
+App bar
+
+Left: "Today" + secondary line with date ("Friday · May 8")
+Right: "+ Flag" button (compact, amber/warning color)
+
+
+Day summary strip
+
+"2 of 5 stops complete · Started 7:12 AM" (or "Day not started" before the first ticket is opened)
+
+
+Vertical scrolling list of stop cards in route order
+Bottom nav: Today (active) · Properties · Me
+
+Stop card content:
+
+Tiny label "STOP {N}" (in route order, not ticket ID)
+Property name (primary, ~14–16px, weight 500)
+Address + scheduled time on one line, secondary color
+Service summary in plain language ("Mow · Trim · Pet stations · Hedge trim")
+Status pill: Not started (neutral) / In progress · X of Y (info color) / Complete (success) / Flagged (warning)
+Currently-active stop gets a 1px info-color border to stand out
+
+Card tap target — Entire card is tappable, opens the ticket detail. No separate "open" button. Minimum touch height: 88px (card padding + content).
+Swipe actions on cards (right-swipe → quick action menu):
+
+Navigate (opens default maps app with address)
+Mark complete (with confirmation modal if items remain unchecked)
+Skip stop (requires reason from a short list)
+
+Empty state — "No stops scheduled for today. Pull down to refresh." with a refresh icon. Day summary strip hidden.
+Loading state — 3 skeleton cards.
+Error state — shadcn Alert at top: "Couldn't load today's stops — using last cached data" with retry button. The cached list still renders below.
+5.2 Ticket detail
+Purpose — Give the supervisor everything needed to do this visit correctly, capture work as it happens, and complete it.
+Layout (top to bottom):
+
+App bar
+
+Left: back arrow
+Center: property name (primary), address (secondary)
+Right: "Navigate" button (opens maps app)
+
+
+Meta line
+
+"Maintenance · 9:30 AM · In progress"
+
+
+Site Notes card — curated for this service type (see "Curated property info" below)
+Work Items section
+
+Header: "Work items · X of Y"
+Flat list of checkable rows
+Each row: checkbox, item title, optional inline instruction line ("36" decks only — no zero-turns on slopes"), optional "photo required" indicator
+
+
+Photos section
+
+Header: "Photos · N added"
+Horizontal row of thumbnails + "+" tile to add more
+
+
+Notes section (collapsed by default to "+ Add note" button)
+
+When tapped, expands to a textarea
+
+
+Pinned bottom action bar
+
+Left: "+ Flag issue" (secondary)
+Right: "Mark complete" (primary)
+
+
+
+Curated property info ("Site Notes" card) — Pulled from the property profile but filtered to fields relevant to today's service type. For maintenance v1, show:
+
+Gate code (if any)
+Pet station count + locations (if pet station service is on the ticket)
+"Watch out" notes (free text, admin-curated, marked with a relevantTo tag for service types)
+Last visit summary (date + crew)
+Any irrigation problem area markers if marked "affects mowing"
+
+What's not in the Site Notes card by default but available via "View full property" link at the bottom of the card: contract details, full history, all photos, all property managers, full map.
+Work item rules:
+
+Items have three states: unchecked, checked (done), skipped (with reason)
+Tapping the checkbox toggles done state
+Long-press (or swipe) reveals "Skip" option which opens a reason modal: out of supplies / inaccessible / weather / customer request / other (free text)
+Items marked "photo required" cannot be checked done without at least one ticket-attached photo on or after the time the item was checked
+Items are ordered by displayOrder set in admin, with sub-orderings by service type
+
+Mark complete behavior:
+
+If all required items are done (or skipped) and any required photos are attached → tickets becomes complete, server records completedAt, supervisor returns to Today
+If anything required is missing → soft confirmation modal lists what's missing and offers "Complete anyway" (with reason note required) or "Cancel"
+If items are skipped, a summary appears on the ticket history and the admin's daily summary
+
+5.3 Property profile (full)
+Purpose — Browse-able directory entry for the property when crews need info outside of today's assigned work (e.g., supervisor researching next week's job, or pulling info on the fly).
+Layout:
+
+Header: property name, address, "Navigate" button, "+ Flag" button
+Tabs (sticky): Overview · Site Notes · Services · Map · History · Photos
+Overview tab:
+
+Contact: property manager name + phone (one-tap call) + email (one-tap email)
+Service types currently contracted, with frequency
+Special access info (gate code, "knock first," etc.)
+
+
+Site Notes tab:
+
+All notes grouped by relevance tag (mowing / irrigation / pet stations / chemical / general)
+Each note has author + date
+
+
+Services tab:
+
+Read-only list of contracted services + included scopes
+"What's NOT included" section if admin has populated exclusions
+
+
+Map tab:
+
+Embedded property map (the existing property-maps tool from the web app, rendered mobile-friendly)
+Layers: mow zones, pet stations, irrigation controllers, problem areas
+
+
+History tab:
+
+Reverse-chronological list of completed visits
+Tap a visit → completion summary, photos, items completed/skipped
+
+
+Photos tab:
+
+Grid of all property-attached photos (not ticket-attached)
+Tap to view full screen
+
+
+
+5.4 Flag composer
+Purpose — Capture a field-discovered issue in under 30 seconds and route it to the admin.
+Entry points — Top-right "+ Flag" on any screen; "+ Flag issue" at bottom of any ticket detail; "+ Flag" on any property profile header.
+Layout (modal, full-screen on mobile):
+
+Top bar: "Cancel" (left) · "New flag" (title) · "Send" (right, disabled until required fields filled)
+Photo (required) — Big tile that opens the camera. After capture, shows thumbnail + "Retake" + "Add another".
+Tag / Category (required) — Single-select chip group:
+
+Irrigation issue
+Property damage
+Access problem
+Customer interaction
+Material / supply needed
+Safety concern
+Question for office
+Other
+
+
+Property (auto-filled when launched from ticket/property; manually pickable from a search list when launched from Today's app bar)
+Linked ticket (auto-filled when launched from a ticket; omitted otherwise)
+Short note (optional textarea, 280 char) — placeholder: "Anything the office should know"
+Submit → flag is created server-side, push notification fires to admin, modal closes, supervisor returns to where they were. Toast: "Flag sent."
+
+Offline behavior — Flag is staged in local queue if no network; sync attempt on next connection. UI shows the flag locally with a "Pending" badge until confirmed.
+5.5 Me (profile)
+Purpose — Supervisor's account info, week schedule, recent work, and settings.
+Layout:
+
+Header: name, role ("Crew Supervisor"), crew name
+Week schedule card — 7-day strip showing daily ticket counts and any flagged items
+Recent completions list — last 10 completed tickets with timestamps
+Settings:
+
+Notification preferences (push on/off, types)
+App version / build
+Sign out
+
+
+
+
+6. Cross-cutting design rules
+Typography & sizing — Minimum body font 14px; minimum tap target 44×44 pt (Apple HIG) / 48dp (Material). Headings: ticket name 16px / weight 500; section labels 11px uppercase tracked. Never lighter than 400 weight on white.
+Color — Use the existing app palette where possible. Status semantics:
+
+Done = success green
+In progress = info blue
+Not started = neutral gray
+Flagged / warning = amber
+Skipped = muted gray + strikethrough on item label
+
+Contrast — Designed for outdoor / sunlight readability. Aim for WCAG AA 4.5:1 on body text against light surfaces; AAA where feasible.
+One-handed thumb reach — Primary actions in the lower half of the screen. Pinned bottom action bar on ticket detail puts "Mark complete" in the bottom-right thumb zone.
+Network state — Persistent thin status bar shows offline/sync state when not online. Photo upload queue surface accessible from the bottom of Today.
+i18n — All strings through i18next. English + Spanish required at parity.
+Multi-tenancy — Every API call filters by companyId from authenticated UserWithContext. No exceptions.
+No new dependencies — Reuse existing shadcn components and lucide-react icons. Camera capture uses the standard <input type="file" accept="image/*" capture="environment"> for v1 PWA simplicity. Service worker via Workbox (already common in Vite).
+
+7. Open questions to revisit (not blocking v1)
+
+Per-item photos vs ticket-level only — currently ticket-level. Revisit if "photo required" items are common enough to warrant per-item attachment.
+Voice-to-text notes — likely valuable for gloved supervisors but not v1.
+Crew chat / direct message to admin — possibly a v1.5 layer over flagging.
+Materials usage logging — irrigation/landscape needs this; maintenance generally doesn't.
+Time tracking depth — if accountability needs grow, layer per-item or per-employee time later.
+Customer signature on completion — for ad-hoc / extra work tickets, may be needed eventually.
+
+
+8. Replit implementation slices
+
+Slice conventions (read before any slice):
+
+All slices land in deployable state. Each slice can be reviewed and shipped before the next begins.
+Critical: do NOT replace existing systems. The web app's ticket, property, customer, campaign, and auth systems already work. Extend them. Inspect shared/schema.ts and existing route files before creating anything new.
+Stack: React 18 + TypeScript + Vite + Tailwind + shadcn/ui (Radix) + Wouter + TanStack Query v5 + React Hook Form + Zod + Drizzle ORM + Postgres + i18next (en + es). No new dependencies unless explicitly called out.
+Multi-tenancy: every table has companyId, every query filters by the active company from UserWithContext. No exceptions.
+Mobile routes mount under /m/*. Desktop routes under existing tree are untouched.
+All user-facing strings go through i18next. New keys land in both en and es translation files; mark new es keys with // TODO: human-review translation.
+File uploads reuse the existing storage layer (the same one used for chemical-label PDFs and customer attachments). Do not introduce a new file backend.
+Loading state = shadcn Skeleton. Error state = shadcn Alert. Icons = lucide-react.
+At the end of each slice, report back with: files created, files modified, schema/columns added, API endpoints added, mobile routes added, manual test plan, decisions made where prompt was ambiguous, anything skipped with reasons.
+
+
+
+Slice 0 — Mobile shell, auth gate, navigation scaffold
+Context
+This slice establishes the mobile app's home at /m/*, a service worker for PWA install, a mobile-only layout shell (top bar + bottom nav), authentication gating that ensures only users with the crew_supervisor role (or admin masquerading) can access mobile routes, and three placeholder screens (Today, Properties, Me) that render but contain no real data yet. The remaining slices populate them.
+Existing context (do not duplicate or replace)
+
+Authentication already exists. Find how useAuth / UserWithContext is exposed; reuse it. Do NOT add a parallel auth system.
+A users table exists in shared/schema.ts. Roles are likely stored there (look for a role text column or a userRoles join table). Inspect first.
+The existing app has a Wouter router. Mobile routes should mount inside the same router tree under a /m prefix and use a separate layout component so the mobile shell does NOT inherit desktop chrome (sidebar, top nav, etc).
+
+Schema changes
+1. users role addition (if missing)
+Verify whether crew_supervisor exists as a valid role value. If roles are stored as a free text column with a Zod-validated set of values, add crew_supervisor to that set. If roles are stored in a normalized table, add the role row. If a userRoles enum already includes a supervisor-equivalent (e.g., foreman), use that and document the choice in deliverables.
+2. New table: crews
+A crew is a named group led by one supervisor. v1 has one supervisor per crew.
+Fields:
+
+id — varchar, PK, UUID
+companyId — varchar, FK → companies.id, not null
+name — text, not null (e.g., "Crew 1", "Maintenance North")
+supervisorUserId — varchar, FK → users.id, not null
+isActive — boolean, not null, default true
+createdAt, updatedAt
+
+Unique constraint on (companyId, name). Index on (companyId, supervisorUserId).
+3. Migrations — Use the same idempotent IF NOT EXISTS startup migration pattern already in server/index.ts.
+API endpoints
+
+GET /api/me/crew — returns the crew the authenticated user supervises (or 404 if none). Response shape:
+
+ts  { id: string, name: string, companyId: string, supervisorUserId: string }
+
+GET /api/crews (admin/office only) — list all crews for the company, for use in the existing admin web app
+POST /api/crews (admin/office only) — create a crew
+PATCH /api/crews/:id (admin/office only) — update a crew
+
+All endpoints filter by companyId. The mobile shell calls GET /api/me/crew once on mount; if it 404s, render an empty state explaining the supervisor isn't assigned to a crew and to contact the office.
+UI changes
+1. Mobile layout shell — client/src/m/MobileLayout.tsx
+A wrapper component used by all mobile routes. Renders:
+
+Top app bar (sticky, ~56px) — left slot for title/back, right slot for "+ Flag" button (button is real but opens a placeholder toast for now; real flow comes in Slice 4)
+Children area (scrolling)
+Bottom navigation (sticky, ~64px) — three tabs: Today (/m), Properties (/m/properties), Me (/m/me). Active tab visually distinct. Icons from lucide-react: Calendar / MapPin / User.
+
+The shell must not include the desktop sidebar/header. Use a separate layout component, not a conditional inside the existing one.
+2. Mobile routes
+Add to the existing Wouter router:
+
+/m → <Today />
+/m/properties → <Properties />
+/m/me → <Me />
+/m/properties/:id → <PropertyDetail /> (placeholder for now)
+/m/tickets/:id → <TicketDetail /> (placeholder for now)
+
+Each placeholder screen renders inside MobileLayout and shows: "{Screen name} — coming in Slice {N}".
+3. Auth gate
+A wrapper <RequireMobileAccess> checks the authenticated user has crew_supervisor role OR has admin/office role (so admins can preview the mobile app). If not, render a friendly "Mobile access is for crew supervisors. Contact the office if you should have access." page with a link back to the web app home.
+All /m/* routes are wrapped in <RequireMobileAccess>.
+4. PWA manifest + service worker
+
+Add client/public/manifest.webmanifest with app name "High Plains CRM", short name "HP CRM", start_url: "/m", display: "standalone", theme color matching existing brand, and a 192px + 512px icon (reuse the existing hp-logo-white-nobg.png or a brand-appropriate square version — generate squared icons if not present).
+Add a minimal Workbox-generated service worker via vite-plugin-pwa if it's already wired up; if not, hand-roll a tiny SW at client/public/sw.js that registers and caches the app shell (HTML, CSS, JS bundles). Network-first for /api/*, cache-first for static assets. Do NOT cache API responses in this slice — that comes in Slice 7.
+Register the service worker only from /m/* routes (so it doesn't interfere with desktop).
+Add <link rel="manifest"> and the theme-color <meta> in index.html.
+
+5. Mobile-friendly base styles
+Add Tailwind utility classes already available — no new CSS framework. Set a viewport meta tag in index.html if missing:
+html<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, viewport-fit=cover">
+Ensure tap targets in the mobile shell are minimum 44×44pt. Ensure the bottom nav respects iOS safe-area insets (env(safe-area-inset-bottom)).
+Patterns and conventions
+
+Mobile components live under client/src/m/. Shared types/utilities reused from the existing tree are fine.
+TanStack Query keys for mobile data should be prefixed: ["m", "today", ...], ["m", "crew", ...] to avoid collisions with desktop caches.
+All strings via i18next. Add keys under a mobile namespace.
+
+Out of scope for this slice (do not build)
+
+Real ticket/property/flag data — placeholders only
+Offline caching beyond the app shell
+Push notifications
+Camera/photo capture
+Admin UI for creating crews (use a SQL seed or temporary scripted insert if needed for testing — call this out)
+
+Deliverables
+
+Files created (paths)
+Files modified (paths + 1-line description)
+Schema additions
+API endpoints added
+Mobile routes added
+Service worker registration approach (Workbox vs hand-rolled) + what's being cached
+Confirmed role identifier used for supervisor access (crew_supervisor or existing equivalent)
+Decisions where this prompt was ambiguous
+Manual test plan covering: signing in as a crew supervisor (seed one if needed), visiting /m, confirming the desktop shell does NOT appear, switching tabs, confirming the auth gate blocks a non-supervisor user from /m/*, and confirming the PWA "Add to Home Screen" prompt works on an iOS Safari and an Android Chrome device
