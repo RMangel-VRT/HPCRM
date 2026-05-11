@@ -39,12 +39,27 @@ export const users = pgTable("users", {
   language: text("language").notNull().default("en").$type<"en" | "es">(),
   applicatorLicenseNumber: text("applicator_license_number"),
   applicatorLicenseState: text("applicator_license_state"),
+  // Mobile v1 Slice 6: Expo push tokens registered by the user's mobile devices.
+  // Each entry is a unique device subscription; the same physical device updates
+  // its `addedAt` rather than creating duplicates (matched by `expoPushToken`).
+  pushSubscriptionsJson: jsonb("push_subscriptions_json")
+    .$type<Array<{ expoPushToken: string; deviceLabel: string | null; addedAt: string }>>()
+    .notNull()
+    .default(sql`'[]'::jsonb`),
+  // Mobile v1 Slice 6: per-event push opt-in toggles surfaced on the mobile
+  // Me → Notifications screen. Defaults to all enabled.
+  notificationPrefsJson: jsonb("notification_prefs_json")
+    .$type<{ newTicketAssignment: boolean; ticketReassignment: boolean; flagResponse: boolean }>()
+    .notNull()
+    .default(sql`'{"newTicketAssignment":true,"ticketReassignment":true,"flagResponse":true}'::jsonb`),
   createdAt: timestamp("created_at").notNull().defaultNow(),
 });
 
 export const insertUserSchema = createInsertSchema(users).omit({
   id: true,
   createdAt: true,
+  pushSubscriptionsJson: true,
+  notificationPrefsJson: true,
 }).extend({
   isSuperAdmin: z.enum(["true", "false"]).default("false"),
   defaultCompanyId: z.string().optional(),

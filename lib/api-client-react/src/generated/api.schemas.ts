@@ -46,6 +46,12 @@ export const MobileUserLanguage = {
   es: "es",
 } as const;
 
+export interface MobileNotificationPrefs {
+  newTicketAssignment: boolean;
+  ticketReassignment: boolean;
+  flagResponse: boolean;
+}
+
 export interface MobileUser {
   id: string;
   name: string;
@@ -55,6 +61,58 @@ export interface MobileUser {
   activeCompanyId: string;
   activeRole: Role;
   isSuperAdminBool?: boolean;
+  /** Active crew ID when the user supervises one (Slice 6+). */
+  crewId?: string | null;
+  crewName?: string | null;
+  notificationPrefs?: MobileNotificationPrefs;
+  /**
+   * Number of Expo push tokens currently registered for this user.
+   * @minimum 0
+   */
+  pushDeviceCount?: number;
+}
+
+export interface MobileWeekDay {
+  /** YYYY-MM-DD (server-local) */
+  date: string;
+  /** @minimum 0 */
+  total: number;
+  /** @minimum 0 */
+  complete: number;
+  /** @minimum 0 */
+  flagged: number;
+}
+
+export interface MobileWeekResponse {
+  startDate: string;
+  endDate: string;
+  crewId?: string | null;
+  days: MobileWeekDay[];
+}
+
+export interface MobileRecentCompletion {
+  id: string;
+  title: string;
+  completedAt?: string | null;
+  customerName?: string | null;
+}
+
+export interface MobileRecentCompletionsResponse {
+  items: MobileRecentCompletion[];
+}
+
+export interface MobilePushSubscriptionRequest {
+  /**
+   * @minLength 1
+   * @maxLength 200
+   */
+  expoPushToken: string;
+  /** @maxLength 120 */
+  deviceLabel?: string | null;
+}
+
+export interface MobilePushUnsubscribeRequest {
+  expoPushToken: string;
 }
 
 export interface MobileSession {
@@ -293,6 +351,55 @@ export interface MobileTicketCompletion {
   completionOverrideNote?: string | null;
 }
 
+export interface MobileTicketPhoto {
+  id: string;
+  ticketId: string;
+  storageKey: string;
+  contentType: string;
+  byteSize?: number | null;
+  width?: number | null;
+  height?: number | null;
+  capturedAt: string;
+  createdAt: string;
+  uploadedByUserId?: string | null;
+  /** Short-lived (≥1h TTL) GET URL, or null if storage isn't configured. */
+  signedUrl?: string | null;
+  signedUrlExpiresAt?: string | null;
+}
+
+export interface MobileTicketNote {
+  id: string;
+  ticketId: string;
+  body: string;
+  authorUserId?: string | null;
+  createdAt: string;
+}
+
+export interface MobileTicketNoteInput {
+  /**
+   * @minLength 1
+   * @maxLength 5000
+   */
+  body: string;
+  /**
+   * Idempotency key from the upload queue (uuid).
+   * @maxLength 200
+   */
+  clientId?: string;
+}
+
+export type MobilePhotoRequiredResponseCode =
+  (typeof MobilePhotoRequiredResponseCode)[keyof typeof MobilePhotoRequiredResponseCode];
+
+export const MobilePhotoRequiredResponseCode = {
+  PHOTO_REQUIRED: "PHOTO_REQUIRED",
+} as const;
+
+export interface MobilePhotoRequiredResponse {
+  code: MobilePhotoRequiredResponseCode;
+  message: string;
+}
+
 export type MobileMissingRequiredResponseCode =
   (typeof MobileMissingRequiredResponseCode)[keyof typeof MobileMissingRequiredResponseCode];
 
@@ -399,3 +506,36 @@ export interface EligibleSupervisor {
   phone?: string | null;
   role: Role;
 }
+
+export type MobileMeWeekParams = {
+  /**
+   * YYYY-MM-DD; defaults to today
+   */
+  startDate?: string;
+};
+
+export type MobileMeRecentCompletionsParams = {
+  /**
+   * @minimum 1
+   * @maximum 50
+   */
+  limit?: number;
+};
+
+export type MobileMeUpdateNotificationPrefs200 = {
+  ok: boolean;
+  notificationPrefs: MobileNotificationPrefs;
+};
+
+export type MobileMeAddPushSubscription200 = {
+  ok: boolean;
+};
+
+export type MobileMeRemovePushSubscription200 = {
+  ok: boolean;
+};
+
+export type MobileUploadTicketPhotoBodyOne = {
+  /** The image file (JPEG, PNG, WebP, or HEIC). */
+  file: Blob;
+};

@@ -5,6 +5,7 @@
  * API specification
  * OpenAPI spec version: 0.1.0
  */
+import type { MobileNotificationPrefs } from "./mobileNotificationPrefs";
 import type { MobileUserLanguage } from "./mobileUserLanguage";
 import type { Role } from "./role";
 
@@ -17,4 +18,13 @@ export interface MobileUser {
   activeCompanyId: string;
   activeRole: Role;
   isSuperAdminBool?: boolean;
+  /** Active crew ID when the user supervises one (Slice 6+). */
+  crewId?: string | null;
+  crewName?: string | null;
+  notificationPrefs?: MobileNotificationPrefs;
+  /**
+   * Number of Expo push tokens currently registered for this user.
+   * @minimum 0
+   */
+  pushDeviceCount?: number;
 }

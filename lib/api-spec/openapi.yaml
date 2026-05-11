@@ -114,6 +114,159 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/ErrorResponse"
+  /m/me/week:
+    get:
+      operationId: mobileMeWeek
+      tags: [mobile-auth]
+      summary: 7-day stop rollup for the supervisor's crew
+      security:
+        - mobileBearer: []
+      parameters:
+        - in: query
+          name: startDate
+          required: false
+          schema: { type: string, description: "YYYY-MM-DD; defaults to today" }
+      responses:
+        "200":
+          description: Day-by-day totals
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/MobileWeekResponse" }
+        "401":
+          description: Missing or invalid token
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorResponse" }
+        "403":
+          description: Mobile access disallowed for this role
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorResponse" }
+  /m/me/recent-completions:
+    get:
+      operationId: mobileMeRecentCompletions
+      tags: [mobile-auth]
+      summary: Recently completed stops for the supervisor's crew
+      security:
+        - mobileBearer: []
+      parameters:
+        - in: query
+          name: limit
+          required: false
+          schema: { type: integer, minimum: 1, maximum: 50, default: 10 }
+      responses:
+        "200":
+          description: Recent completions, newest first
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/MobileRecentCompletionsResponse" }
+        "401":
+          description: Missing or invalid token
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorResponse" }
+        "403":
+          description: Mobile access disallowed for this role
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorResponse" }
+  /m/me/notification-prefs:
+    patch:
+      operationId: mobileMeUpdateNotificationPrefs
+      tags: [mobile-auth]
+      summary: Update per-event push opt-ins
+      security:
+        - mobileBearer: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/MobileNotificationPrefs" }
+      responses:
+        "200":
+          description: Saved
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ok: { type: boolean }
+                  notificationPrefs:
+                    $ref: "#/components/schemas/MobileNotificationPrefs"
+                required: [ok, notificationPrefs]
+        "400":
+          description: Invalid prefs body
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorResponse" }
+        "401":
+          description: Missing or invalid token
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorResponse" }
+  /m/me/push-subscriptions:
+    post:
+      operationId: mobileMeAddPushSubscription
+      tags: [mobile-auth]
+      summary: Register an Expo push token for this device
+      security:
+        - mobileBearer: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/MobilePushSubscriptionRequest" }
+      responses:
+        "200":
+          description: Token registered (idempotent)
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ok: { type: boolean }
+                required: [ok]
+        "400":
+          description: Invalid Expo push token
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorResponse" }
+        "401":
+          description: Missing or invalid token
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorResponse" }
+    delete:
+      operationId: mobileMeRemovePushSubscription
+      tags: [mobile-auth]
+      summary: Remove an Expo push token from this user
+      security:
+        - mobileBearer: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/MobilePushUnsubscribeRequest" }
+      responses:
+        "200":
+          description: Token removed (no-op if missing)
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ok: { type: boolean }
+                required: [ok]
+        "400":
+          description: Missing token
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorResponse" }
+        "401":
+          description: Missing or invalid token
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorResponse" }
   /m/today:
     get:
       operationId: mobileToday
@@ -804,7 +957,85 @@ components:
           $ref: "#/components/schemas/Role"
         isSuperAdminBool:
           type: boolean
+        crewId:
+          type: string
+          nullable: true
+          description: Active crew ID when the user supervises one (Slice 6+).
+        crewName:
+          type: string
+          nullable: true
+        notificationPrefs:
+          $ref: "#/components/schemas/MobileNotificationPrefs"
+        pushDeviceCount:
+          type: integer
+          minimum: 0
+          description: Number of Expo push tokens currently registered for this user.
       required: [id, name, activeCompanyId, activeRole]
+    MobileNotificationPrefs:
+      type: object
+      properties:
+        newTicketAssignment: { type: boolean }
+        ticketReassignment: { type: boolean }
+        flagResponse: { type: boolean }
+      required: [newTicketAssignment, ticketReassignment, flagResponse]
+    MobileWeekDay:
+      type: object
+      properties:
+        date: { type: string, description: "YYYY-MM-DD (server-local)" }
+        total: { type: integer, minimum: 0 }
+        complete: { type: integer, minimum: 0 }
+        flagged: { type: integer, minimum: 0 }
+      required: [date, total, complete, flagged]
+    MobileWeekResponse:
+      type: object
+      properties:
+        startDate: { type: string }
+        endDate: { type: string }
+        crewId:
+          type: string
+          nullable: true
+        days:
+          type: array
+          items: { $ref: "#/components/schemas/MobileWeekDay" }
+      required: [startDate, endDate, days]
+    MobileRecentCompletion:
+      type: object
+      properties:
+        id: { type: string }
+        title: { type: string }
+        completedAt:
+          type: string
+          format: date-time
+          nullable: true
+        customerName:
+          type: string
+          nullable: true
+      required: [id, title]
+    MobileRecentCompletionsResponse:
+      type: object
+      properties:
+        items:
+          type: array
+          items: { $ref: "#/components/schemas/MobileRecentCompletion" }
+      required: [items]
+    MobilePushSubscriptionRequest:
+      type: object
+      properties:
+        expoPushToken:
+          type: string
+          minLength: 1
+          maxLength: 200
+        deviceLabel:
+          type: string
+          maxLength: 120
+          nullable: true
+      required: [expoPushToken]
+    MobilePushUnsubscribeRequest:
+      type: object
+      properties:
+        expoPushToken:
+          type: string
+      required: [expoPushToken]
     MobileSession:
       type: object
       properties:

@@ -25,6 +25,7 @@ import type { UserWithContext } from "../auth";
 import { objectStorageClient, signObjectURL } from "../objectStorage";
 import { logger } from "../lib/logger";
 import { sendEmail } from "../services/emailService";
+import { sendPushToUser } from "../services/pushNotifications";
 
 const SIGNED_URL_TTL_SEC = 60 * 60;
 const MAX_UPLOAD_BYTES = 10 * 1024 * 1024;
@@ -901,6 +902,15 @@ export function registerFlagsRoutes(app: Express): void {
       update.resolution = parsed.data.resolution;
     }
 
+    const [previous] = await db
+      .select()
+      .from(flags)
+      .where(and(eq(flags.id, req.params.id), eq(flags.companyId, u.activeCompanyId)));
+    if (!previous) {
+      res.status(404).json({ message: "Flag not found" });
+      return;
+    }
+
     const [updated] = await db
       .update(flags)
       .set(update)
@@ -910,6 +920,39 @@ export function registerFlagsRoutes(app: Express): void {
       res.status(404).json({ message: "Flag not found" });
       return;
     }
+
+    // Mobile v1 Slice 6: push the flag's reporter when the office responds.
+    // Triggers when status moves off "new", or when a resolution string is
+    // added/changed. Don't push the actor back to themselves.
+    void (async () => {
+      try {
+        if (!previous.createdByUserId || previous.createdByUserId === u.id) return;
+        const statusChangedAway = updated.status !== previous.status && previous.status === "new";
+        const resolutionAdded =
+          (updated.resolution ?? "").trim().length > 0 &&
+          (updated.resolution ?? "") !== (previous.resolution ?? "");
+        if (!statusChangedAway && !resolutionAdded) return;
+
+        const titleByStatus: Record<string, string> = {
+          new: "Flag updated",
+          in_progress: "Flag in progress",
+          resolved: "Flag resolved",
+          dismissed: "Flag dismissed",
+        };
+        const title = titleByStatus[updated.status] ?? "Flag updated";
+        const body = (updated.resolution ?? "").trim().length > 0
+          ? (updated.resolution as string).slice(0, 140)
+          : `Tag: ${updated.tag}`;
+        await sendPushToUser(previous.createdByUserId, "flagResponse", {
+          title,
+          body,
+          data: { flagId: updated.id },
+        });
+      } catch (err) {
+        logger.warn({ err, flagId: updated.id }, "Failed to send flag-response push");
+      }
+    })();
+
     res.json({ ok: true, flag: updated });
   });
 }

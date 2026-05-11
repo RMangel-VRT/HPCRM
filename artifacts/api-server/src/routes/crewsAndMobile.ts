@@ -35,6 +35,20 @@ import {
   MOBILE_ALLOWED_ROLES,
 } from "../mobileAuth";
 import type { UserWithContext } from "../auth";
+import { addPushSubscription, removePushSubscription } from "../services/pushNotifications";
+
+// Mobile v1 Slice 6: shape stored in users.notification_prefs_json.
+const notificationPrefsSchema = z.object({
+  newTicketAssignment: z.boolean(),
+  ticketReassignment: z.boolean(),
+  flagResponse: z.boolean(),
+});
+type NotificationPrefs = z.infer<typeof notificationPrefsSchema>;
+const DEFAULT_NOTIFICATION_PREFS: NotificationPrefs = {
+  newTicketAssignment: true,
+  ticketReassignment: true,
+  flagResponse: true,
+};
 
 const crewBodySchema = insertCrewSchema.omit({ companyId: true });
 const crewPatchSchema = crewBodySchema.partial();
@@ -283,9 +297,25 @@ export function registerCrewsAndMobileRoutes(app: Express): void {
 
     // "Today" in the server's local timezone — good enough for v1; the field
     // crew lives in one geography (Colorado) so server-local matches their day.
+    // Slice 6: accept ?date=YYYY-MM-DD so the Me-tab week strip can scope
+    // the Today view to a different day. When omitted, defaults to today.
     const dayStart = new Date();
     dayStart.setHours(0, 0, 0, 0);
+    if (typeof req.query.date === "string" && /^\d{4}-\d{2}-\d{2}$/.test(req.query.date)) {
+      const [y, m, d] = req.query.date.split("-").map((p) => Number.parseInt(p, 10));
+      const parsed = new Date(y, m - 1, d);
+      if (!Number.isNaN(parsed.getTime())) {
+        parsed.setHours(0, 0, 0, 0);
+        dayStart.setTime(parsed.getTime());
+      }
+    }
     const dayEnd = new Date(dayStart.getTime() + 24 * 60 * 60 * 1000);
+
+    // Past-day responses show *all* stops including completed ones, since
+    // they're read-only history rather than the live work queue.
+    const todayMidnight = new Date();
+    todayMidnight.setHours(0, 0, 0, 0);
+    const isPastDay = dayStart.getTime() < todayMidnight.getTime();
 
     if (!crewId) {
       res.json({
@@ -322,7 +352,8 @@ export function registerCrewsAndMobileRoutes(app: Express): void {
         eq(tickets.crewId, crewId),
         gte(tickets.dueDate, dayStart),
         lt(tickets.dueDate, dayEnd),
-        sql`COALESCE(${tickets.mobileStatus}, 'not_started') <> 'complete'`,
+        // Live "today" hides completed stops; past-day history shows everything.
+        ...(isPastDay ? [] : [sql`COALESCE(${tickets.mobileStatus}, 'not_started') <> 'complete'`]),
       ))
       .orderBy(
         // routeOrder asc nulls-last, then dueDate asc, then title for stable ordering
@@ -387,6 +418,12 @@ export function registerCrewsAndMobileRoutes(app: Express): void {
       res.status(404).json({ message: "Ticket not found for your crew" });
       return;
     }
+    // Slice 6: refuse to start a ticket whose due date is in the past — past
+    // days are read-only history.
+    if (isTicketPastDay(t.dueDate)) {
+      res.status(409).json({ code: "PAST_DAY_READ_ONLY", message: "Past days are read-only." });
+      return;
+    }
 
     // Idempotent: if already started, return current state. Otherwise flip
     // not_started → in_progress and stamp startedAt.
@@ -419,6 +456,19 @@ export function registerCrewsAndMobileRoutes(app: Express): void {
 
   // Helper: load a ticket (scoped to the caller's crew + company) joined with
   // the customer row that backs the curated site-notes block.
+  // Slice 6 read-only enforcement: a ticket is "past-day" when its dueDate
+  // falls strictly before today's local midnight. Used by both the GET detail
+  // (to set `readOnly: true` so the mobile UI hides mutation affordances) and
+  // by the start/complete/work-item PATCH mutation routes (to refuse writes
+  // server-side, so a stale client or hand-crafted request can't bypass the
+  // UI guard). Tickets with no dueDate are treated as live (not past-day).
+  function isTicketPastDay(dueDate: Date | null): boolean {
+    if (!dueDate) return false;
+    const todayMidnight = new Date();
+    todayMidnight.setHours(0, 0, 0, 0);
+    return dueDate.getTime() < todayMidnight.getTime();
+  }
+
   async function loadMobileTicket(ticketId: string, companyId: string, crewId: string) {
     const [row] = await db
       .select({ ticket: tickets, customer: customers })
@@ -475,6 +525,12 @@ export function registerCrewsAndMobileRoutes(app: Express): void {
     //      affordances; mutation endpoints still 403/404 by crew.
     let row = crewId ? await loadMobileTicket(String(req.params.id), u.activeCompanyId, crewId) : null;
     let readOnly = false;
+    // Slice 6: if the ticket is on the supervisor's crew but its dueDate is
+    // in the past, downgrade it to read-only so historical days viewed via
+    // the Me-tab week strip can't be mutated.
+    if (row && isTicketPastDay(row.ticket.dueDate)) {
+      readOnly = true;
+    }
     if (!row) {
       const [completedRow] = await db
         .select({ ticket: tickets, customer: customers })
@@ -602,6 +658,11 @@ export function registerCrewsAndMobileRoutes(app: Express): void {
       res.status(404).json({ message: "Work item not found for your crew" });
       return;
     }
+    // Slice 6: past-day tickets are read-only — block work-item edits server-side.
+    if (isTicketPastDay(row.t.dueDate)) {
+      res.status(409).json({ code: "PAST_DAY_READ_ONLY", message: "Past days are read-only." });
+      return;
+    }
 
     // Slice 3 photo-required enforcement: when the supervisor toggles a
     // photo-required item to complete, refuse unless at least one ticket photo
@@ -681,6 +742,11 @@ export function registerCrewsAndMobileRoutes(app: Express): void {
       return;
     }
     const t = row.ticket;
+    // Slice 6: past-day tickets are read-only — block completion server-side.
+    if (isTicketPastDay(t.dueDate)) {
+      res.status(409).json({ code: "PAST_DAY_READ_ONLY", message: "Past days are read-only." });
+      return;
+    }
 
     // Soft-confirmation: list any required work items that are neither complete
     // nor skipped-with-reason. The mobile UI shows a confirmation sheet listing
@@ -1602,6 +1668,24 @@ export function registerCrewsAndMobileRoutes(app: Express): void {
 
   app.get("/api/m/me", requireMobileAuth(), async (req, res) => {
     const u = req.user as UserWithContext;
+
+    // Slice 6: include the supervisor's active crew (if any) plus the
+    // notification prefs the Me screen renders. We hit users separately so
+    // the response is always fresh — passport's serialized user is cached
+    // for the lifetime of the bearer token.
+    const [row] = await db
+      .select({
+        prefs: users.notificationPrefsJson,
+        deviceCount: sql<number>`COALESCE(jsonb_array_length(${users.pushSubscriptionsJson}), 0)`,
+      })
+      .from(users)
+      .where(eq(users.id, u.id));
+
+    const crewId = await resolveSupervisorCrewIdLocal(u.id, u.activeCompanyId);
+    const [crewRow] = crewId
+      ? await db.select({ id: crews.id, name: crews.name }).from(crews).where(eq(crews.id, crewId))
+      : [];
+
     res.json({
       id: u.id,
       name: u.name,
@@ -1611,6 +1695,183 @@ export function registerCrewsAndMobileRoutes(app: Express): void {
       activeCompanyId: u.activeCompanyId,
       activeRole: u.activeRole,
       isSuperAdminBool: u.isSuperAdminBool,
+      crewId: crewRow?.id ?? null,
+      crewName: crewRow?.name ?? null,
+      notificationPrefs: (row?.prefs as NotificationPrefs | null) ?? DEFAULT_NOTIFICATION_PREFS,
+      pushDeviceCount: Number(row?.deviceCount ?? 0),
     });
   });
+
+  // ── Mobile v1 Slice 6: Me screen — week schedule, recent completions,
+  // notification prefs, push subscription registry ───────────────────────────
+
+  // 7-day rollup for the supervisor's crew. Defaults to a window starting
+  // today (server-local) and including today + 6 future days. The mobile
+  // week strip pages back/forward by passing `startDate=YYYY-MM-DD`.
+  app.get("/api/m/me/week", requireMobileAuth(), async (req, res) => {
+    const u = req.user as UserWithContext;
+    if (!MOBILE_ALLOWED_ROLES.has(u.activeRole)) {
+      res.status(403).json({ message: "Mobile access is for crew supervisors" });
+      return;
+    }
+
+    let weekStart = new Date();
+    weekStart.setHours(0, 0, 0, 0);
+    if (typeof req.query.startDate === "string" && /^\d{4}-\d{2}-\d{2}$/.test(req.query.startDate)) {
+      const [y, m, d] = req.query.startDate.split("-").map((p) => Number.parseInt(p, 10));
+      const parsed = new Date(y, m - 1, d);
+      if (!Number.isNaN(parsed.getTime())) {
+        parsed.setHours(0, 0, 0, 0);
+        weekStart = parsed;
+      }
+    }
+    const weekEnd = new Date(weekStart.getTime() + 7 * 24 * 60 * 60 * 1000);
+
+    const crewId = await resolveSupervisorCrewIdLocal(u.id, u.activeCompanyId);
+    const days: { date: string; total: number; complete: number; flagged: number }[] = [];
+    for (let i = 0; i < 7; i++) {
+      const d = new Date(weekStart.getTime() + i * 24 * 60 * 60 * 1000);
+      days.push({
+        date: `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`,
+        total: 0,
+        complete: 0,
+        flagged: 0,
+      });
+    }
+
+    if (!crewId) {
+      res.json({ startDate: days[0].date, endDate: days[6].date, crewId: null, days });
+      return;
+    }
+
+    const rows = await db
+      .select({
+        dueDate: tickets.dueDate,
+        mobileStatus: tickets.mobileStatus,
+      })
+      .from(tickets)
+      .where(and(
+        eq(tickets.companyId, u.activeCompanyId),
+        eq(tickets.crewId, crewId),
+        gte(tickets.dueDate, weekStart),
+        lt(tickets.dueDate, weekEnd),
+      ));
+
+    for (const r of rows) {
+      if (!r.dueDate) continue;
+      const d = new Date(r.dueDate);
+      const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+      const bucket = days.find((x) => x.date === key);
+      if (!bucket) continue;
+      bucket.total++;
+      const status = r.mobileStatus ?? "not_started";
+      if (status === "complete") bucket.complete++;
+      else if (status === "flagged") bucket.flagged++;
+    }
+
+    res.json({ startDate: days[0].date, endDate: days[6].date, crewId, days });
+  });
+
+  // Last N completed stops by the supervisor's crew, newest first.
+  app.get("/api/m/me/recent-completions", requireMobileAuth(), async (req, res) => {
+    const u = req.user as UserWithContext;
+    if (!MOBILE_ALLOWED_ROLES.has(u.activeRole)) {
+      res.status(403).json({ message: "Mobile access is for crew supervisors" });
+      return;
+    }
+    const limit = Math.min(50, Math.max(1, Number.parseInt(String(req.query.limit ?? "10"), 10) || 10));
+    const crewId = await resolveSupervisorCrewIdLocal(u.id, u.activeCompanyId);
+    if (!crewId) {
+      res.json({ items: [] });
+      return;
+    }
+    const rows = await db
+      .select({
+        id: tickets.id,
+        title: tickets.title,
+        completedAt: tickets.completedAt,
+        customerName: customers.name,
+      })
+      .from(tickets)
+      .leftJoin(customers, eq(tickets.customerId, customers.id))
+      .where(and(
+        eq(tickets.companyId, u.activeCompanyId),
+        eq(tickets.crewId, crewId),
+        eq(tickets.mobileStatus, "complete"),
+      ))
+      .orderBy(desc(tickets.completedAt))
+      .limit(limit);
+
+    res.json({
+      items: rows.map((r) => ({
+        id: r.id,
+        title: r.title,
+        completedAt: r.completedAt ? r.completedAt.toISOString() : null,
+        customerName: r.customerName ?? null,
+      })),
+    });
+  });
+
+  // Update the user's per-event push opt-ins. Body is the full prefs object —
+  // simpler than a partial PATCH and matches how the mobile screen renders.
+  app.patch("/api/m/me/notification-prefs", requireMobileAuth(), async (req, res) => {
+    const u = req.user as UserWithContext;
+    const parsed = notificationPrefsSchema.safeParse(req.body);
+    if (!parsed.success) {
+      res.status(400).json({ message: "Invalid prefs", errors: parsed.error.flatten() });
+      return;
+    }
+    await db
+      .update(users)
+      .set({ notificationPrefsJson: parsed.data })
+      .where(eq(users.id, u.id));
+    res.json({ ok: true, notificationPrefs: parsed.data });
+  });
+
+  // Register an Expo push token for this user / device. Idempotent — calling
+  // twice with the same token only refreshes its `addedAt`.
+  const pushSubBodySchema = z.object({
+    expoPushToken: z.string().min(1).max(200),
+    deviceLabel: z.string().max(120).nullable().optional(),
+  });
+  app.post("/api/m/me/push-subscriptions", requireMobileAuth(), async (req, res) => {
+    const u = req.user as UserWithContext;
+    const parsed = pushSubBodySchema.safeParse(req.body);
+    if (!parsed.success) {
+      res.status(400).json({ message: "Invalid token", errors: parsed.error.flatten() });
+      return;
+    }
+    try {
+      await addPushSubscription(u.id, parsed.data.expoPushToken, parsed.data.deviceLabel ?? null);
+      res.json({ ok: true });
+    } catch {
+      res.status(400).json({ message: "Invalid Expo push token" });
+    }
+  });
+
+  app.delete("/api/m/me/push-subscriptions", requireMobileAuth(), async (req, res) => {
+    const u = req.user as UserWithContext;
+    const token = typeof req.body?.expoPushToken === "string" ? req.body.expoPushToken : "";
+    if (!token) {
+      res.status(400).json({ message: "expoPushToken required" });
+      return;
+    }
+    await removePushSubscription(u.id, token);
+    res.json({ ok: true });
+  });
+}
+
+// Local helper: returns the active crew the user supervises, if any. Mirrors
+// the same query used by /api/m/today / /api/m/flags to keep behavior aligned.
+async function resolveSupervisorCrewIdLocal(userId: string, companyId: string): Promise<string | null> {
+  const [row] = await db
+    .select({ id: crews.id })
+    .from(crews)
+    .where(and(
+      eq(crews.companyId, companyId),
+      eq(crews.supervisorUserId, userId),
+      eq(crews.isActive, true),
+    ))
+    .limit(1);
+  return row?.id ?? null;
 }

@@ -17,6 +17,7 @@ import { insertCustomerSchema, insertContactSchema, insertCompanySchema, insertC
 import type { Customer, CaptureParams, CampaignItem, InsertCampaignItem, Season, InsertCommunication, InsertCommunicationTemplate, InsertCommunicationAuditLog, ServicePlanCategory, ChemicalProduct, InsertVisualScopeSheet } from "@workspace/db";
 import { insertCommunicationTemplateSchema, insertServicePlanTemplateSchema, insertServicePlanTemplateItemSchema, insertCustomerServicePlanSchema } from "@workspace/db";
 import { runAutomationRule, runAllAutomationRules } from "../services/automationService";
+import { sendPushToUser } from "../services/pushNotifications";
 import { ObjectStorageService, ObjectNotFoundError, objectStorageClient, signObjectURL } from "../objectStorage";
 import { ObjectPermission, ObjectAccessGroupType, setObjectAclPolicy } from "../objectAcl";
 import { processEmailEvent, resendEmail, sendEmail, getDefaultWorkCompletedTemplate, buildChemicalNotificationVariables, formatTimeWindow, buildChemicalCompletionEmailVars, renderTemplate, renderChemicalNotificationTemplate, resolveChemicalNotificationTemplate, MissingChemicalNotificationTemplateError, classifyChemTemplateVariables, filterUserChemTemplateVars, CHEM_SYSTEM_TEMPLATE_VARS } from '../services/emailService';
@@ -6295,6 +6296,38 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
     }
 
+    // Mobile v1 Slice 6: push notify the directly-assigned user *and* every
+    // crew supervisor whose crew was attached to the new ticket. Fire-and-
+    // forget — push delivery must not block ticket creation.
+    void (async () => {
+      try {
+        const customer = ticket.customerId
+          ? await storage.getCustomerById(ticket.customerId, user.activeCompanyId)
+          : null;
+        const customerText = customer ? ` · ${customer.name}` : "";
+        const targets = new Set<string>();
+        if (ticket.assignedToId && ticket.assignedToId !== user.id) targets.add(ticket.assignedToId);
+        if (ticket.crewId) {
+          const [crewRow] = await db
+            .select({ supervisorUserId: sql<string>`supervisor_user_id` })
+            .from(sql`crews`)
+            .where(and(sql`id = ${ticket.crewId}`, sql`company_id = ${user.activeCompanyId}`));
+          if (crewRow?.supervisorUserId && crewRow.supervisorUserId !== user.id) {
+            targets.add(crewRow.supervisorUserId);
+          }
+        }
+        for (const recipientId of targets) {
+          await sendPushToUser(recipientId, "newTicketAssignment", {
+            title: "New ticket assigned",
+            body: `${ticket.title}${customerText}`,
+            data: { ticketId: ticket.id },
+          });
+        }
+      } catch (err) {
+        console.error("Failed to send push for new ticket:", err);
+      }
+    })();
+
     res.json(ticket);
   });
 
@@ -6816,6 +6849,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
     const newAssigneeId = req.body.assignedToId;
     const isBeingAssigned = assignmentChanged && newAssigneeId;
 
+    // Mobile v1 Slice 6: track crew change to push the new supervisor.
+    const crewChanged = req.body.crewId !== undefined && req.body.crewId !== existingTicket.crewId;
+    const previousCrewId = existingTicket.crewId;
+    const newCrewId: string | null = crewChanged ? (req.body.crewId ?? null) : null;
+
     const ticket = await storage.updateTicket(req.params.id, user.activeCompanyId, result.data);
 
     // Dismiss stale due-date notifications when the due date is extended to a strictly
@@ -6879,6 +6917,60 @@ export async function registerRoutes(app: Express): Promise<Server> {
         // Don't fail the update - notification is secondary
       }
     }
+
+    // Mobile v1 Slice 6: push on reassignment. We notify three distinct
+    // audiences (all gated by the recipient's `ticketReassignment` pref):
+    //   1. The new direct assignee (if `assignedToId` changed)
+    //   2. The new crew's supervisor (if `crewId` changed and is now set)
+    //   3. The previous crew's supervisor (so they know a stop left their
+    //      board and they can drop it from their plan for the day)
+    void (async () => {
+      try {
+        const customer = existingTicket.customerId
+          ? await storage.getCustomerById(existingTicket.customerId, user.activeCompanyId)
+          : null;
+        const customerText = customer ? ` · ${customer.name}` : "";
+
+        const lookupSupervisor = async (cid: string): Promise<string | null> => {
+          const [row] = await db
+            .select({ supervisorUserId: sql<string>`supervisor_user_id` })
+            .from(sql`crews`)
+            .where(and(sql`id = ${cid}`, sql`company_id = ${user.activeCompanyId}`));
+          return row?.supervisorUserId ?? null;
+        };
+
+        // (1) + (2): "assigned to you"
+        const incomingTargets = new Set<string>();
+        if (isBeingAssigned && newAssigneeId !== user.id) incomingTargets.add(newAssigneeId);
+        if (crewChanged && newCrewId) {
+          const sup = await lookupSupervisor(newCrewId);
+          if (sup && sup !== user.id) incomingTargets.add(sup);
+        }
+        for (const recipientId of incomingTargets) {
+          await sendPushToUser(recipientId, "ticketReassignment", {
+            title: "Ticket reassigned to you",
+            body: `${ticket.title}${customerText}`,
+            data: { ticketId: ticket.id },
+          });
+        }
+
+        // (3): "moved off your crew" — only if there *was* a previous crew
+        // and the supervisor isn't the actor or already in the incoming set
+        // (e.g. a no-op crew swap).
+        if (crewChanged && previousCrewId) {
+          const prevSup = await lookupSupervisor(previousCrewId);
+          if (prevSup && prevSup !== user.id && !incomingTargets.has(prevSup)) {
+            await sendPushToUser(prevSup, "ticketReassignment", {
+              title: "Ticket moved off your crew",
+              body: `${ticket.title}${customerText}`,
+              data: { ticketId: ticket.id },
+            });
+          }
+        }
+      } catch (err) {
+        console.error("Failed to send push for reassignment:", err);
+      }
+    })();
 
     res.json(ticket);
   });

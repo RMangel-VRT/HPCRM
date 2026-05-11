@@ -1,6 +1,6 @@
 import { Feather } from "@expo/vector-icons";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { useFocusEffect, useRouter } from "expo-router";
+import { useFocusEffect, useLocalSearchParams, useRouter } from "expo-router";
 import React, { useCallback, useMemo, useState } from "react";
 import {
   ActivityIndicator,
@@ -50,6 +50,11 @@ type TodayResponse = {
 };
 
 const TODAY_KEY = ["m-today"] as const;
+
+function todayYmd(): string {
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+}
 const INFO_COLOR = "#2563eb";
 
 function formatTime(iso: string | null): string | null {
@@ -80,28 +85,45 @@ export default function TodayScreen() {
   const queryClient = useQueryClient();
   const [startingId, setStartingId] = useState<string | null>(null);
 
+  // Slice 6: the Me-tab week strip can deep-link in here scoped to a past
+  // date (e.g. ?date=2026-05-09). Past dates render read-only — we still
+  // show the stops, but tapping doesn't auto-start them.
+  const params = useLocalSearchParams<{ date?: string | string[] }>();
+  const dateParam = Array.isArray(params.date) ? params.date[0] : params.date;
+  const validDate = dateParam && /^\d{4}-\d{2}-\d{2}$/.test(dateParam) ? dateParam : null;
+  const todayKey = todayYmd();
+  const isPastDay = !!validDate && validDate < todayKey;
+  const isOtherDay = !!validDate && validDate !== todayKey;
+  const queryKey = validDate ? ([...TODAY_KEY, validDate] as const) : TODAY_KEY;
+  const requestPath = validDate ? `/api/m/today?date=${validDate}` : "/api/m/today";
+
   const query = useQuery<TodayResponse>({
-    queryKey: TODAY_KEY,
-    queryFn: () => apiRequest<TodayResponse>("/api/m/today"),
+    queryKey,
+    queryFn: () => apiRequest<TodayResponse>(requestPath),
     staleTime: 30_000,
   });
 
   // Refetch when the tab regains focus so a returning supervisor sees fresh data.
   useFocusEffect(
     useCallback(() => {
-      queryClient.invalidateQueries({ queryKey: TODAY_KEY });
-    }, [queryClient]),
+      queryClient.invalidateQueries({ queryKey });
+    }, [queryClient, queryKey]),
   );
 
   const onStopPress = useCallback(
     async (stop: TodayStop) => {
+      // Past-day view is read-only: never auto-start, just open detail.
+      if (isPastDay) {
+        router.push(`/(tabs)/today/tickets/${stop.id}` as never);
+        return;
+      }
       // Fire-and-forget start: silently flip not_started → in_progress on the
       // server. We optimistically mark it locally so the pill updates immediately,
       // then navigate. Errors revert by invalidating the query.
       if (stop.mobileStatus === "not_started") {
         setStartingId(stop.id);
         const nowIso = new Date().toISOString();
-        queryClient.setQueryData<TodayResponse | undefined>(TODAY_KEY, (prev) => {
+        queryClient.setQueryData<TodayResponse | undefined>(queryKey, (prev) => {
           if (!prev) return prev;
           return {
             ...prev,
@@ -121,7 +143,7 @@ export default function TodayScreen() {
           await apiRequest(`/api/m/tickets/${stop.id}/start`, { method: "POST" });
         } catch (e) {
           if (!(e instanceof ApiError) || e.status !== 401) {
-            queryClient.invalidateQueries({ queryKey: TODAY_KEY });
+            queryClient.invalidateQueries({ queryKey });
           }
         } finally {
           setStartingId(null);
@@ -129,7 +151,7 @@ export default function TodayScreen() {
       }
       router.push(`/(tabs)/today/tickets/${stop.id}` as never);
     },
-    [queryClient, router],
+    [queryClient, queryKey, router, isPastDay],
   );
 
   const data = query.data;
@@ -172,6 +194,32 @@ export default function TodayScreen() {
         <Text style={[styles.sub, { color: colors.mutedForeground }]}>
           {`${t("today.crewLabel")}: ${data.crewName}`}
         </Text>
+      ) : null}
+
+      {isOtherDay ? (
+        <View
+          style={[
+            styles.errorBanner,
+            { backgroundColor: colors.primary + "12", borderColor: colors.primary + "55" },
+          ]}
+        >
+          <Feather name={isPastDay ? "lock" : "calendar"} size={16} color={colors.primary} />
+          <Text style={[styles.errorText, { color: colors.foreground }]} numberOfLines={2}>
+            {isPastDay ? t("today.readOnlyBanner") : t("today.futureBanner")}
+          </Text>
+          <Pressable
+            onPress={() => router.replace("/(tabs)/today" as never)}
+            accessibilityRole="button"
+            style={({ pressed }) => [
+              styles.errorRetry,
+              { backgroundColor: colors.primary, opacity: pressed ? 0.85 : 1 },
+            ]}
+          >
+            <Text style={[styles.errorRetryText, { color: colors.primaryForeground }]}>
+              {t("today.backToToday")}
+            </Text>
+          </Pressable>
+        </View>
       ) : null}
 
       {data && data.summary.total > 0 && daySummaryLine ? (

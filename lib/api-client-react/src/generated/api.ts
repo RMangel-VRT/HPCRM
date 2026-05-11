@@ -27,13 +27,28 @@ import type {
   LoadTemplateRequest,
   MobileCompleteRequest,
   MobileLoginRequest,
+  MobileMeAddPushSubscription200,
+  MobileMeRecentCompletionsParams,
+  MobileMeRemovePushSubscription200,
+  MobileMeUpdateNotificationPrefs200,
+  MobileMeWeekParams,
   MobileMissingRequiredResponse,
+  MobileNotificationPrefs,
+  MobilePhotoRequiredResponse,
+  MobilePushSubscriptionRequest,
+  MobilePushUnsubscribeRequest,
+  MobileRecentCompletionsResponse,
   MobileSession,
   MobileTicketCompletion,
   MobileTicketDetail,
+  MobileTicketNote,
+  MobileTicketNoteInput,
+  MobileTicketPhoto,
   MobileTicketStatus,
   MobileToday,
+  MobileUploadTicketPhotoBodyOne,
   MobileUser,
+  MobileWeekResponse,
   MobileWorkItemPatch,
   ServiceTypeTemplate,
   ServiceTypeTemplateInput,
@@ -356,6 +371,480 @@ export function useMobileMe<
 
   return { ...query, queryKey: queryOptions.queryKey };
 }
+
+/**
+ * @summary 7-day stop rollup for the supervisor's crew
+ */
+export const getMobileMeWeekUrl = (params?: MobileMeWeekParams) => {
+  const normalizedParams = new URLSearchParams();
+
+  Object.entries(params || {}).forEach(([key, value]) => {
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? "null" : value.toString());
+    }
+  });
+
+  const stringifiedParams = normalizedParams.toString();
+
+  return stringifiedParams.length > 0
+    ? `/api/m/me/week?${stringifiedParams}`
+    : `/api/m/me/week`;
+};
+
+export const mobileMeWeek = async (
+  params?: MobileMeWeekParams,
+  options?: RequestInit,
+): Promise<MobileWeekResponse> => {
+  return customFetch<MobileWeekResponse>(getMobileMeWeekUrl(params), {
+    ...options,
+    method: "GET",
+  });
+};
+
+export const getMobileMeWeekQueryKey = (params?: MobileMeWeekParams) => {
+  return [`/api/m/me/week`, ...(params ? [params] : [])] as const;
+};
+
+export const getMobileMeWeekQueryOptions = <
+  TData = Awaited<ReturnType<typeof mobileMeWeek>>,
+  TError = ErrorType<ErrorResponse>,
+>(
+  params?: MobileMeWeekParams,
+  options?: {
+    query?: UseQueryOptions<
+      Awaited<ReturnType<typeof mobileMeWeek>>,
+      TError,
+      TData
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+) => {
+  const { query: queryOptions, request: requestOptions } = options ?? {};
+
+  const queryKey = queryOptions?.queryKey ?? getMobileMeWeekQueryKey(params);
+
+  const queryFn: QueryFunction<Awaited<ReturnType<typeof mobileMeWeek>>> = ({
+    signal,
+  }) => mobileMeWeek(params, { signal, ...requestOptions });
+
+  return { queryKey, queryFn, ...queryOptions } as UseQueryOptions<
+    Awaited<ReturnType<typeof mobileMeWeek>>,
+    TError,
+    TData
+  > & { queryKey: QueryKey };
+};
+
+export type MobileMeWeekQueryResult = NonNullable<
+  Awaited<ReturnType<typeof mobileMeWeek>>
+>;
+export type MobileMeWeekQueryError = ErrorType<ErrorResponse>;
+
+/**
+ * @summary 7-day stop rollup for the supervisor's crew
+ */
+
+export function useMobileMeWeek<
+  TData = Awaited<ReturnType<typeof mobileMeWeek>>,
+  TError = ErrorType<ErrorResponse>,
+>(
+  params?: MobileMeWeekParams,
+  options?: {
+    query?: UseQueryOptions<
+      Awaited<ReturnType<typeof mobileMeWeek>>,
+      TError,
+      TData
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+  const queryOptions = getMobileMeWeekQueryOptions(params, options);
+
+  const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
+    queryKey: QueryKey;
+  };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+/**
+ * @summary Recently completed stops for the supervisor's crew
+ */
+export const getMobileMeRecentCompletionsUrl = (
+  params?: MobileMeRecentCompletionsParams,
+) => {
+  const normalizedParams = new URLSearchParams();
+
+  Object.entries(params || {}).forEach(([key, value]) => {
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? "null" : value.toString());
+    }
+  });
+
+  const stringifiedParams = normalizedParams.toString();
+
+  return stringifiedParams.length > 0
+    ? `/api/m/me/recent-completions?${stringifiedParams}`
+    : `/api/m/me/recent-completions`;
+};
+
+export const mobileMeRecentCompletions = async (
+  params?: MobileMeRecentCompletionsParams,
+  options?: RequestInit,
+): Promise<MobileRecentCompletionsResponse> => {
+  return customFetch<MobileRecentCompletionsResponse>(
+    getMobileMeRecentCompletionsUrl(params),
+    {
+      ...options,
+      method: "GET",
+    },
+  );
+};
+
+export const getMobileMeRecentCompletionsQueryKey = (
+  params?: MobileMeRecentCompletionsParams,
+) => {
+  return [`/api/m/me/recent-completions`, ...(params ? [params] : [])] as const;
+};
+
+export const getMobileMeRecentCompletionsQueryOptions = <
+  TData = Awaited<ReturnType<typeof mobileMeRecentCompletions>>,
+  TError = ErrorType<ErrorResponse>,
+>(
+  params?: MobileMeRecentCompletionsParams,
+  options?: {
+    query?: UseQueryOptions<
+      Awaited<ReturnType<typeof mobileMeRecentCompletions>>,
+      TError,
+      TData
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+) => {
+  const { query: queryOptions, request: requestOptions } = options ?? {};
+
+  const queryKey =
+    queryOptions?.queryKey ?? getMobileMeRecentCompletionsQueryKey(params);
+
+  const queryFn: QueryFunction<
+    Awaited<ReturnType<typeof mobileMeRecentCompletions>>
+  > = ({ signal }) =>
+    mobileMeRecentCompletions(params, { signal, ...requestOptions });
+
+  return { queryKey, queryFn, ...queryOptions } as UseQueryOptions<
+    Awaited<ReturnType<typeof mobileMeRecentCompletions>>,
+    TError,
+    TData
+  > & { queryKey: QueryKey };
+};
+
+export type MobileMeRecentCompletionsQueryResult = NonNullable<
+  Awaited<ReturnType<typeof mobileMeRecentCompletions>>
+>;
+export type MobileMeRecentCompletionsQueryError = ErrorType<ErrorResponse>;
+
+/**
+ * @summary Recently completed stops for the supervisor's crew
+ */
+
+export function useMobileMeRecentCompletions<
+  TData = Awaited<ReturnType<typeof mobileMeRecentCompletions>>,
+  TError = ErrorType<ErrorResponse>,
+>(
+  params?: MobileMeRecentCompletionsParams,
+  options?: {
+    query?: UseQueryOptions<
+      Awaited<ReturnType<typeof mobileMeRecentCompletions>>,
+      TError,
+      TData
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+  const queryOptions = getMobileMeRecentCompletionsQueryOptions(
+    params,
+    options,
+  );
+
+  const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
+    queryKey: QueryKey;
+  };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+/**
+ * @summary Update per-event push opt-ins
+ */
+export const getMobileMeUpdateNotificationPrefsUrl = () => {
+  return `/api/m/me/notification-prefs`;
+};
+
+export const mobileMeUpdateNotificationPrefs = async (
+  mobileNotificationPrefs: MobileNotificationPrefs,
+  options?: RequestInit,
+): Promise<MobileMeUpdateNotificationPrefs200> => {
+  return customFetch<MobileMeUpdateNotificationPrefs200>(
+    getMobileMeUpdateNotificationPrefsUrl(),
+    {
+      ...options,
+      method: "PATCH",
+      headers: { "Content-Type": "application/json", ...options?.headers },
+      body: JSON.stringify(mobileNotificationPrefs),
+    },
+  );
+};
+
+export const getMobileMeUpdateNotificationPrefsMutationOptions = <
+  TError = ErrorType<ErrorResponse>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof mobileMeUpdateNotificationPrefs>>,
+    TError,
+    { data: BodyType<MobileNotificationPrefs> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof mobileMeUpdateNotificationPrefs>>,
+  TError,
+  { data: BodyType<MobileNotificationPrefs> },
+  TContext
+> => {
+  const mutationKey = ["mobileMeUpdateNotificationPrefs"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof mobileMeUpdateNotificationPrefs>>,
+    { data: BodyType<MobileNotificationPrefs> }
+  > = (props) => {
+    const { data } = props ?? {};
+
+    return mobileMeUpdateNotificationPrefs(data, requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type MobileMeUpdateNotificationPrefsMutationResult = NonNullable<
+  Awaited<ReturnType<typeof mobileMeUpdateNotificationPrefs>>
+>;
+export type MobileMeUpdateNotificationPrefsMutationBody =
+  BodyType<MobileNotificationPrefs>;
+export type MobileMeUpdateNotificationPrefsMutationError =
+  ErrorType<ErrorResponse>;
+
+/**
+ * @summary Update per-event push opt-ins
+ */
+export const useMobileMeUpdateNotificationPrefs = <
+  TError = ErrorType<ErrorResponse>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof mobileMeUpdateNotificationPrefs>>,
+    TError,
+    { data: BodyType<MobileNotificationPrefs> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof mobileMeUpdateNotificationPrefs>>,
+  TError,
+  { data: BodyType<MobileNotificationPrefs> },
+  TContext
+> => {
+  return useMutation(
+    getMobileMeUpdateNotificationPrefsMutationOptions(options),
+  );
+};
+
+/**
+ * @summary Register an Expo push token for this device
+ */
+export const getMobileMeAddPushSubscriptionUrl = () => {
+  return `/api/m/me/push-subscriptions`;
+};
+
+export const mobileMeAddPushSubscription = async (
+  mobilePushSubscriptionRequest: MobilePushSubscriptionRequest,
+  options?: RequestInit,
+): Promise<MobileMeAddPushSubscription200> => {
+  return customFetch<MobileMeAddPushSubscription200>(
+    getMobileMeAddPushSubscriptionUrl(),
+    {
+      ...options,
+      method: "POST",
+      headers: { "Content-Type": "application/json", ...options?.headers },
+      body: JSON.stringify(mobilePushSubscriptionRequest),
+    },
+  );
+};
+
+export const getMobileMeAddPushSubscriptionMutationOptions = <
+  TError = ErrorType<ErrorResponse>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof mobileMeAddPushSubscription>>,
+    TError,
+    { data: BodyType<MobilePushSubscriptionRequest> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof mobileMeAddPushSubscription>>,
+  TError,
+  { data: BodyType<MobilePushSubscriptionRequest> },
+  TContext
+> => {
+  const mutationKey = ["mobileMeAddPushSubscription"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof mobileMeAddPushSubscription>>,
+    { data: BodyType<MobilePushSubscriptionRequest> }
+  > = (props) => {
+    const { data } = props ?? {};
+
+    return mobileMeAddPushSubscription(data, requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type MobileMeAddPushSubscriptionMutationResult = NonNullable<
+  Awaited<ReturnType<typeof mobileMeAddPushSubscription>>
+>;
+export type MobileMeAddPushSubscriptionMutationBody =
+  BodyType<MobilePushSubscriptionRequest>;
+export type MobileMeAddPushSubscriptionMutationError = ErrorType<ErrorResponse>;
+
+/**
+ * @summary Register an Expo push token for this device
+ */
+export const useMobileMeAddPushSubscription = <
+  TError = ErrorType<ErrorResponse>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof mobileMeAddPushSubscription>>,
+    TError,
+    { data: BodyType<MobilePushSubscriptionRequest> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof mobileMeAddPushSubscription>>,
+  TError,
+  { data: BodyType<MobilePushSubscriptionRequest> },
+  TContext
+> => {
+  return useMutation(getMobileMeAddPushSubscriptionMutationOptions(options));
+};
+
+/**
+ * @summary Remove an Expo push token from this user
+ */
+export const getMobileMeRemovePushSubscriptionUrl = () => {
+  return `/api/m/me/push-subscriptions`;
+};
+
+export const mobileMeRemovePushSubscription = async (
+  mobilePushUnsubscribeRequest: MobilePushUnsubscribeRequest,
+  options?: RequestInit,
+): Promise<MobileMeRemovePushSubscription200> => {
+  return customFetch<MobileMeRemovePushSubscription200>(
+    getMobileMeRemovePushSubscriptionUrl(),
+    {
+      ...options,
+      method: "DELETE",
+      headers: { "Content-Type": "application/json", ...options?.headers },
+      body: JSON.stringify(mobilePushUnsubscribeRequest),
+    },
+  );
+};
+
+export const getMobileMeRemovePushSubscriptionMutationOptions = <
+  TError = ErrorType<ErrorResponse>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof mobileMeRemovePushSubscription>>,
+    TError,
+    { data: BodyType<MobilePushUnsubscribeRequest> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof mobileMeRemovePushSubscription>>,
+  TError,
+  { data: BodyType<MobilePushUnsubscribeRequest> },
+  TContext
+> => {
+  const mutationKey = ["mobileMeRemovePushSubscription"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof mobileMeRemovePushSubscription>>,
+    { data: BodyType<MobilePushUnsubscribeRequest> }
+  > = (props) => {
+    const { data } = props ?? {};
+
+    return mobileMeRemovePushSubscription(data, requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type MobileMeRemovePushSubscriptionMutationResult = NonNullable<
+  Awaited<ReturnType<typeof mobileMeRemovePushSubscription>>
+>;
+export type MobileMeRemovePushSubscriptionMutationBody =
+  BodyType<MobilePushUnsubscribeRequest>;
+export type MobileMeRemovePushSubscriptionMutationError =
+  ErrorType<ErrorResponse>;
+
+/**
+ * @summary Remove an Expo push token from this user
+ */
+export const useMobileMeRemovePushSubscription = <
+  TError = ErrorType<ErrorResponse>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof mobileMeRemovePushSubscription>>,
+    TError,
+    { data: BodyType<MobilePushUnsubscribeRequest> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof mobileMeRemovePushSubscription>>,
+  TError,
+  { data: BodyType<MobilePushUnsubscribeRequest> },
+  TContext
+> => {
+  return useMutation(getMobileMeRemovePushSubscriptionMutationOptions(options));
+};
 
 /**
  * @summary Today's stops for the authenticated supervisor's crew
@@ -713,7 +1202,7 @@ export const mobilePatchWorkItem = async (
 };
 
 export const getMobilePatchWorkItemMutationOptions = <
-  TError = ErrorType<void>,
+  TError = ErrorType<void | MobilePhotoRequiredResponse>,
   TContext = unknown,
 >(options?: {
   mutation?: UseMutationOptions<
@@ -754,13 +1243,14 @@ export type MobilePatchWorkItemMutationResult = NonNullable<
   Awaited<ReturnType<typeof mobilePatchWorkItem>>
 >;
 export type MobilePatchWorkItemMutationBody = BodyType<MobileWorkItemPatch>;
-export type MobilePatchWorkItemMutationError = ErrorType<void>;
+export type MobilePatchWorkItemMutationError =
+  ErrorType<void | MobilePhotoRequiredResponse>;
 
 /**
  * @summary Toggle a work item complete or set a skip reason
  */
 export const useMobilePatchWorkItem = <
-  TError = ErrorType<void>,
+  TError = ErrorType<void | MobilePhotoRequiredResponse>,
   TContext = unknown,
 >(options?: {
   mutation?: UseMutationOptions<
@@ -777,6 +1267,533 @@ export const useMobilePatchWorkItem = <
   TContext
 > => {
   return useMutation(getMobilePatchWorkItemMutationOptions(options));
+};
+
+/**
+ * @summary List photos uploaded by the crew for this ticket
+ */
+export const getMobileListTicketPhotosUrl = (id: string) => {
+  return `/api/m/tickets/${id}/photos`;
+};
+
+export const mobileListTicketPhotos = async (
+  id: string,
+  options?: RequestInit,
+): Promise<MobileTicketPhoto[]> => {
+  return customFetch<MobileTicketPhoto[]>(getMobileListTicketPhotosUrl(id), {
+    ...options,
+    method: "GET",
+  });
+};
+
+export const getMobileListTicketPhotosQueryKey = (id: string) => {
+  return [`/api/m/tickets/${id}/photos`] as const;
+};
+
+export const getMobileListTicketPhotosQueryOptions = <
+  TData = Awaited<ReturnType<typeof mobileListTicketPhotos>>,
+  TError = ErrorType<unknown>,
+>(
+  id: string,
+  options?: {
+    query?: UseQueryOptions<
+      Awaited<ReturnType<typeof mobileListTicketPhotos>>,
+      TError,
+      TData
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+) => {
+  const { query: queryOptions, request: requestOptions } = options ?? {};
+
+  const queryKey =
+    queryOptions?.queryKey ?? getMobileListTicketPhotosQueryKey(id);
+
+  const queryFn: QueryFunction<
+    Awaited<ReturnType<typeof mobileListTicketPhotos>>
+  > = ({ signal }) => mobileListTicketPhotos(id, { signal, ...requestOptions });
+
+  return {
+    queryKey,
+    queryFn,
+    enabled: !!id,
+    ...queryOptions,
+  } as UseQueryOptions<
+    Awaited<ReturnType<typeof mobileListTicketPhotos>>,
+    TError,
+    TData
+  > & { queryKey: QueryKey };
+};
+
+export type MobileListTicketPhotosQueryResult = NonNullable<
+  Awaited<ReturnType<typeof mobileListTicketPhotos>>
+>;
+export type MobileListTicketPhotosQueryError = ErrorType<unknown>;
+
+/**
+ * @summary List photos uploaded by the crew for this ticket
+ */
+
+export function useMobileListTicketPhotos<
+  TData = Awaited<ReturnType<typeof mobileListTicketPhotos>>,
+  TError = ErrorType<unknown>,
+>(
+  id: string,
+  options?: {
+    query?: UseQueryOptions<
+      Awaited<ReturnType<typeof mobileListTicketPhotos>>,
+      TError,
+      TData
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+  const queryOptions = getMobileListTicketPhotosQueryOptions(id, options);
+
+  const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
+    queryKey: QueryKey;
+  };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+/**
+ * Preferred form: `multipart/form-data` with a single binary `file` field
+(per OpenAPI conventions). The server also accepts a raw image body
+(one of the `image/*` content types or `application/octet-stream`) as
+a low-overhead fallback for the mobile upload queue, which avoids the
+cost of building a multipart body on-device. Both forms are subject
+to the same 10 MB cap and validated by magic-byte sniffing.
+
+ * @summary Upload a single processed JPEG / PNG / WebP / HEIC photo
+ */
+export const getMobileUploadTicketPhotoUrl = (id: string) => {
+  return `/api/m/tickets/${id}/photos`;
+};
+
+export const mobileUploadTicketPhoto = async (
+  id: string,
+  mobileUploadTicketPhotoBody: MobileUploadTicketPhotoBodyOne | Blob,
+  options?: RequestInit,
+): Promise<MobileTicketPhoto> => {
+  return customFetch<MobileTicketPhoto>(getMobileUploadTicketPhotoUrl(id), {
+    ...options,
+    method: "POST",
+    body: JSON.stringify(mobileUploadTicketPhotoBody),
+  });
+};
+
+export const getMobileUploadTicketPhotoMutationOptions = <
+  TError = ErrorType<void>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof mobileUploadTicketPhoto>>,
+    TError,
+    { id: string; data: BodyType<MobileUploadTicketPhotoBodyOne | Blob> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof mobileUploadTicketPhoto>>,
+  TError,
+  { id: string; data: BodyType<MobileUploadTicketPhotoBodyOne | Blob> },
+  TContext
+> => {
+  const mutationKey = ["mobileUploadTicketPhoto"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof mobileUploadTicketPhoto>>,
+    { id: string; data: BodyType<MobileUploadTicketPhotoBodyOne | Blob> }
+  > = (props) => {
+    const { id, data } = props ?? {};
+
+    return mobileUploadTicketPhoto(id, data, requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type MobileUploadTicketPhotoMutationResult = NonNullable<
+  Awaited<ReturnType<typeof mobileUploadTicketPhoto>>
+>;
+export type MobileUploadTicketPhotoMutationBody = BodyType<
+  MobileUploadTicketPhotoBodyOne | Blob
+>;
+export type MobileUploadTicketPhotoMutationError = ErrorType<void>;
+
+/**
+ * @summary Upload a single processed JPEG / PNG / WebP / HEIC photo
+ */
+export const useMobileUploadTicketPhoto = <
+  TError = ErrorType<void>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof mobileUploadTicketPhoto>>,
+    TError,
+    { id: string; data: BodyType<MobileUploadTicketPhotoBodyOne | Blob> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof mobileUploadTicketPhoto>>,
+  TError,
+  { id: string; data: BodyType<MobileUploadTicketPhotoBodyOne | Blob> },
+  TContext
+> => {
+  return useMutation(getMobileUploadTicketPhotoMutationOptions(options));
+};
+
+/**
+ * @summary Delete a photo (uploader only)
+ */
+export const getMobileDeleteTicketPhotoUrl = (photoId: string) => {
+  return `/api/m/photos/${photoId}`;
+};
+
+export const mobileDeleteTicketPhoto = async (
+  photoId: string,
+  options?: RequestInit,
+): Promise<void> => {
+  return customFetch<void>(getMobileDeleteTicketPhotoUrl(photoId), {
+    ...options,
+    method: "DELETE",
+  });
+};
+
+export const getMobileDeleteTicketPhotoMutationOptions = <
+  TError = ErrorType<void>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof mobileDeleteTicketPhoto>>,
+    TError,
+    { photoId: string },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof mobileDeleteTicketPhoto>>,
+  TError,
+  { photoId: string },
+  TContext
+> => {
+  const mutationKey = ["mobileDeleteTicketPhoto"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof mobileDeleteTicketPhoto>>,
+    { photoId: string }
+  > = (props) => {
+    const { photoId } = props ?? {};
+
+    return mobileDeleteTicketPhoto(photoId, requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type MobileDeleteTicketPhotoMutationResult = NonNullable<
+  Awaited<ReturnType<typeof mobileDeleteTicketPhoto>>
+>;
+
+export type MobileDeleteTicketPhotoMutationError = ErrorType<void>;
+
+/**
+ * @summary Delete a photo (uploader only)
+ */
+export const useMobileDeleteTicketPhoto = <
+  TError = ErrorType<void>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof mobileDeleteTicketPhoto>>,
+    TError,
+    { photoId: string },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof mobileDeleteTicketPhoto>>,
+  TError,
+  { photoId: string },
+  TContext
+> => {
+  return useMutation(getMobileDeleteTicketPhotoMutationOptions(options));
+};
+
+/**
+ * @summary List free-text notes the crew added to this ticket
+ */
+export const getMobileListTicketNotesUrl = (id: string) => {
+  return `/api/m/tickets/${id}/notes`;
+};
+
+export const mobileListTicketNotes = async (
+  id: string,
+  options?: RequestInit,
+): Promise<MobileTicketNote[]> => {
+  return customFetch<MobileTicketNote[]>(getMobileListTicketNotesUrl(id), {
+    ...options,
+    method: "GET",
+  });
+};
+
+export const getMobileListTicketNotesQueryKey = (id: string) => {
+  return [`/api/m/tickets/${id}/notes`] as const;
+};
+
+export const getMobileListTicketNotesQueryOptions = <
+  TData = Awaited<ReturnType<typeof mobileListTicketNotes>>,
+  TError = ErrorType<unknown>,
+>(
+  id: string,
+  options?: {
+    query?: UseQueryOptions<
+      Awaited<ReturnType<typeof mobileListTicketNotes>>,
+      TError,
+      TData
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+) => {
+  const { query: queryOptions, request: requestOptions } = options ?? {};
+
+  const queryKey =
+    queryOptions?.queryKey ?? getMobileListTicketNotesQueryKey(id);
+
+  const queryFn: QueryFunction<
+    Awaited<ReturnType<typeof mobileListTicketNotes>>
+  > = ({ signal }) => mobileListTicketNotes(id, { signal, ...requestOptions });
+
+  return {
+    queryKey,
+    queryFn,
+    enabled: !!id,
+    ...queryOptions,
+  } as UseQueryOptions<
+    Awaited<ReturnType<typeof mobileListTicketNotes>>,
+    TError,
+    TData
+  > & { queryKey: QueryKey };
+};
+
+export type MobileListTicketNotesQueryResult = NonNullable<
+  Awaited<ReturnType<typeof mobileListTicketNotes>>
+>;
+export type MobileListTicketNotesQueryError = ErrorType<unknown>;
+
+/**
+ * @summary List free-text notes the crew added to this ticket
+ */
+
+export function useMobileListTicketNotes<
+  TData = Awaited<ReturnType<typeof mobileListTicketNotes>>,
+  TError = ErrorType<unknown>,
+>(
+  id: string,
+  options?: {
+    query?: UseQueryOptions<
+      Awaited<ReturnType<typeof mobileListTicketNotes>>,
+      TError,
+      TData
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+  const queryOptions = getMobileListTicketNotesQueryOptions(id, options);
+
+  const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
+    queryKey: QueryKey;
+  };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+/**
+ * @summary Add a free-text note
+ */
+export const getMobileCreateTicketNoteUrl = (id: string) => {
+  return `/api/m/tickets/${id}/notes`;
+};
+
+export const mobileCreateTicketNote = async (
+  id: string,
+  mobileTicketNoteInput: MobileTicketNoteInput,
+  options?: RequestInit,
+): Promise<MobileTicketNote> => {
+  return customFetch<MobileTicketNote>(getMobileCreateTicketNoteUrl(id), {
+    ...options,
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...options?.headers },
+    body: JSON.stringify(mobileTicketNoteInput),
+  });
+};
+
+export const getMobileCreateTicketNoteMutationOptions = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof mobileCreateTicketNote>>,
+    TError,
+    { id: string; data: BodyType<MobileTicketNoteInput> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof mobileCreateTicketNote>>,
+  TError,
+  { id: string; data: BodyType<MobileTicketNoteInput> },
+  TContext
+> => {
+  const mutationKey = ["mobileCreateTicketNote"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof mobileCreateTicketNote>>,
+    { id: string; data: BodyType<MobileTicketNoteInput> }
+  > = (props) => {
+    const { id, data } = props ?? {};
+
+    return mobileCreateTicketNote(id, data, requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type MobileCreateTicketNoteMutationResult = NonNullable<
+  Awaited<ReturnType<typeof mobileCreateTicketNote>>
+>;
+export type MobileCreateTicketNoteMutationBody =
+  BodyType<MobileTicketNoteInput>;
+export type MobileCreateTicketNoteMutationError = ErrorType<unknown>;
+
+/**
+ * @summary Add a free-text note
+ */
+export const useMobileCreateTicketNote = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof mobileCreateTicketNote>>,
+    TError,
+    { id: string; data: BodyType<MobileTicketNoteInput> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof mobileCreateTicketNote>>,
+  TError,
+  { id: string; data: BodyType<MobileTicketNoteInput> },
+  TContext
+> => {
+  return useMutation(getMobileCreateTicketNoteMutationOptions(options));
+};
+
+/**
+ * @summary Delete a note (author only)
+ */
+export const getMobileDeleteTicketNoteUrl = (noteId: string) => {
+  return `/api/m/notes/${noteId}`;
+};
+
+export const mobileDeleteTicketNote = async (
+  noteId: string,
+  options?: RequestInit,
+): Promise<void> => {
+  return customFetch<void>(getMobileDeleteTicketNoteUrl(noteId), {
+    ...options,
+    method: "DELETE",
+  });
+};
+
+export const getMobileDeleteTicketNoteMutationOptions = <
+  TError = ErrorType<void>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof mobileDeleteTicketNote>>,
+    TError,
+    { noteId: string },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof mobileDeleteTicketNote>>,
+  TError,
+  { noteId: string },
+  TContext
+> => {
+  const mutationKey = ["mobileDeleteTicketNote"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof mobileDeleteTicketNote>>,
+    { noteId: string }
+  > = (props) => {
+    const { noteId } = props ?? {};
+
+    return mobileDeleteTicketNote(noteId, requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type MobileDeleteTicketNoteMutationResult = NonNullable<
+  Awaited<ReturnType<typeof mobileDeleteTicketNote>>
+>;
+
+export type MobileDeleteTicketNoteMutationError = ErrorType<void>;
+
+/**
+ * @summary Delete a note (author only)
+ */
+export const useMobileDeleteTicketNote = <
+  TError = ErrorType<void>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof mobileDeleteTicketNote>>,
+    TError,
+    { noteId: string },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof mobileDeleteTicketNote>>,
+  TError,
+  { noteId: string },
+  TContext
+> => {
+  return useMutation(getMobileDeleteTicketNoteMutationOptions(options));
 };
 
 /**

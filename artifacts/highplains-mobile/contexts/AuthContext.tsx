@@ -2,6 +2,7 @@ import React, { createContext, useCallback, useContext, useEffect, useState } fr
 import { Platform } from "react-native";
 
 import { ApiError, apiRequest, loadToken, saveToken, setUnauthorizedHandler } from "@/lib/api";
+import { getLastRegisteredToken, tryRegisterAndRemember, unregisterPushToken } from "@/lib/push";
 
 export type Role =
   | "admin"
@@ -78,6 +79,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     (async () => {
       await refresh();
       setLoading(false);
+      // Slice 6: warm-launch path — if the app boots already-signed-in,
+      // re-register the push token (idempotent server-side) so token rotations
+      // and reinstalls self-heal without forcing the user back to sign-in.
+      const tok = await loadToken();
+      if (tok) void tryRegisterAndRemember();
     })();
   }, [refresh]);
 
@@ -92,6 +98,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       });
       await saveToken(resp.token);
       setUser(resp.user);
+      // Slice 6: register the device's Expo push token immediately after a
+      // successful sign-in. Fire-and-forget — we don't block sign-in on the
+      // OS permission prompt or token RPC. The Notifications screen owns
+      // the explicit re-prompt UX if the user denied here.
+      void tryRegisterAndRemember();
     } catch (e) {
       // Surface the server's message verbatim — especially the role-gate 403
       // ("Mobile access is for crew supervisors. Contact your admin.").
@@ -105,6 +116,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   const signOut = useCallback(async () => {
+    // Slice 6: deregister this device's push token before tearing the
+    // session down so we don't keep pinging a signed-out user.
+    try {
+      const tok = getLastRegisteredToken();
+      if (tok) await unregisterPushToken(tok);
+    } catch {}
     try {
       await apiRequest("/api/m/auth/logout", { method: "POST" });
     } catch {}

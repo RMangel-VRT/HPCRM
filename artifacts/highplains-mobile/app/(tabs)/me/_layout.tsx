@@ -13,6 +13,7 @@ export default function MeStackLayout() {
       }}
     >
       <Stack.Screen name="index" />
+      <Stack.Screen name="notifications" />
     </Stack>
   );
 }

@@ -27,6 +27,8 @@ export const MobileLoginBody = zod.object({
   deviceLabel: zod.string().max(mobileLoginBodyDeviceLabelMax).optional(),
 });
 
+export const mobileLoginResponseUserPushDeviceCountMin = 0;
+
 export const MobileLoginResponse = zod.object({
   token: zod
     .string()
@@ -54,12 +56,33 @@ export const MobileLoginResponse = zod.object({
       "crew_supervisor",
     ]),
     isSuperAdminBool: zod.boolean().optional(),
+    crewId: zod
+      .string()
+      .nullish()
+      .describe("Active crew ID when the user supervises one (Slice 6+)."),
+    crewName: zod.string().nullish(),
+    notificationPrefs: zod
+      .object({
+        newTicketAssignment: zod.boolean(),
+        ticketReassignment: zod.boolean(),
+        flagResponse: zod.boolean(),
+      })
+      .optional(),
+    pushDeviceCount: zod
+      .number()
+      .min(mobileLoginResponseUserPushDeviceCountMin)
+      .optional()
+      .describe(
+        "Number of Expo push tokens currently registered for this user.",
+      ),
   }),
 });
 
 /**
  * @summary Return the authenticated mobile user
  */
+export const mobileMeResponsePushDeviceCountMin = 0;
+
 export const MobileMeResponse = zod.object({
   id: zod.string(),
   name: zod.string(),
@@ -80,6 +103,126 @@ export const MobileMeResponse = zod.object({
     "crew_supervisor",
   ]),
   isSuperAdminBool: zod.boolean().optional(),
+  crewId: zod
+    .string()
+    .nullish()
+    .describe("Active crew ID when the user supervises one (Slice 6+)."),
+  crewName: zod.string().nullish(),
+  notificationPrefs: zod
+    .object({
+      newTicketAssignment: zod.boolean(),
+      ticketReassignment: zod.boolean(),
+      flagResponse: zod.boolean(),
+    })
+    .optional(),
+  pushDeviceCount: zod
+    .number()
+    .min(mobileMeResponsePushDeviceCountMin)
+    .optional()
+    .describe("Number of Expo push tokens currently registered for this user."),
+});
+
+/**
+ * @summary 7-day stop rollup for the supervisor's crew
+ */
+export const MobileMeWeekQueryParams = zod.object({
+  startDate: zod.coerce.string().optional(),
+});
+
+export const mobileMeWeekResponseDaysItemTotalMin = 0;
+
+export const mobileMeWeekResponseDaysItemCompleteMin = 0;
+
+export const mobileMeWeekResponseDaysItemFlaggedMin = 0;
+
+export const MobileMeWeekResponse = zod.object({
+  startDate: zod.string(),
+  endDate: zod.string(),
+  crewId: zod.string().nullish(),
+  days: zod.array(
+    zod.object({
+      date: zod.string().describe("YYYY-MM-DD (server-local)"),
+      total: zod.number().min(mobileMeWeekResponseDaysItemTotalMin),
+      complete: zod.number().min(mobileMeWeekResponseDaysItemCompleteMin),
+      flagged: zod.number().min(mobileMeWeekResponseDaysItemFlaggedMin),
+    }),
+  ),
+});
+
+/**
+ * @summary Recently completed stops for the supervisor's crew
+ */
+export const mobileMeRecentCompletionsQueryLimitDefault = 10;
+export const mobileMeRecentCompletionsQueryLimitMax = 50;
+
+export const MobileMeRecentCompletionsQueryParams = zod.object({
+  limit: zod.coerce
+    .number()
+    .min(1)
+    .max(mobileMeRecentCompletionsQueryLimitMax)
+    .default(mobileMeRecentCompletionsQueryLimitDefault),
+});
+
+export const MobileMeRecentCompletionsResponse = zod.object({
+  items: zod.array(
+    zod.object({
+      id: zod.string(),
+      title: zod.string(),
+      completedAt: zod.coerce.date().nullish(),
+      customerName: zod.string().nullish(),
+    }),
+  ),
+});
+
+/**
+ * @summary Update per-event push opt-ins
+ */
+export const MobileMeUpdateNotificationPrefsBody = zod.object({
+  newTicketAssignment: zod.boolean(),
+  ticketReassignment: zod.boolean(),
+  flagResponse: zod.boolean(),
+});
+
+export const MobileMeUpdateNotificationPrefsResponse = zod.object({
+  ok: zod.boolean(),
+  notificationPrefs: zod.object({
+    newTicketAssignment: zod.boolean(),
+    ticketReassignment: zod.boolean(),
+    flagResponse: zod.boolean(),
+  }),
+});
+
+/**
+ * @summary Register an Expo push token for this device
+ */
+export const mobileMeAddPushSubscriptionBodyExpoPushTokenMax = 200;
+
+export const mobileMeAddPushSubscriptionBodyDeviceLabelMax = 120;
+
+export const MobileMeAddPushSubscriptionBody = zod.object({
+  expoPushToken: zod
+    .string()
+    .min(1)
+    .max(mobileMeAddPushSubscriptionBodyExpoPushTokenMax),
+  deviceLabel: zod
+    .string()
+    .max(mobileMeAddPushSubscriptionBodyDeviceLabelMax)
+    .nullish(),
+});
+
+export const MobileMeAddPushSubscriptionResponse = zod.object({
+  ok: zod.boolean(),
+});
+
+/**
+ * @summary Remove an Expo push token from this user
+ */
+export const MobileMeRemovePushSubscriptionBody = zod.object({
+  expoPushToken: zod.string(),
+});
+
+export const MobileMeRemovePushSubscriptionResponse = zod.object({
+  ok: zod.boolean(),
 });
 
 /**
@@ -288,6 +431,147 @@ export const MobilePatchWorkItemResponse = zod.object({
   completedById: zod.string().nullish(),
   skipReason: zod.string().nullish(),
   skipNote: zod.string().nullish(),
+});
+
+/**
+ * @summary List photos uploaded by the crew for this ticket
+ */
+export const MobileListTicketPhotosParams = zod.object({
+  id: zod.coerce.string(),
+});
+
+export const MobileListTicketPhotosResponseItem = zod.object({
+  id: zod.string(),
+  ticketId: zod.string(),
+  storageKey: zod.string(),
+  contentType: zod.string(),
+  byteSize: zod.number().nullish(),
+  width: zod.number().nullish(),
+  height: zod.number().nullish(),
+  capturedAt: zod.coerce.date(),
+  createdAt: zod.coerce.date(),
+  uploadedByUserId: zod.string().nullish(),
+  signedUrl: zod
+    .string()
+    .nullish()
+    .describe(
+      "Short-lived (≥1h TTL) GET URL, or null if storage isn't configured.",
+    ),
+  signedUrlExpiresAt: zod.coerce.date().nullish(),
+});
+export const MobileListTicketPhotosResponse = zod.array(
+  MobileListTicketPhotosResponseItem,
+);
+
+/**
+ * Preferred form: `multipart/form-data` with a single binary `file` field
+(per OpenAPI conventions). The server also accepts a raw image body
+(one of the `image/*` content types or `application/octet-stream`) as
+a low-overhead fallback for the mobile upload queue, which avoids the
+cost of building a multipart body on-device. Both forms are subject
+to the same 10 MB cap and validated by magic-byte sniffing.
+
+ * @summary Upload a single processed JPEG / PNG / WebP / HEIC photo
+ */
+export const MobileUploadTicketPhotoParams = zod.object({
+  id: zod.coerce.string(),
+});
+
+export const mobileUploadTicketPhotoHeaderXClientIdMax = 200;
+
+export const MobileUploadTicketPhotoHeader = zod.object({
+  "X-Client-Id": zod
+    .string()
+    .max(mobileUploadTicketPhotoHeaderXClientIdMax)
+    .optional()
+    .describe("Idempotency key from the upload queue (uuid)."),
+  "X-Captured-At": zod.date().optional(),
+});
+
+export const MobileUploadTicketPhotoBody = zod.object({
+  file: zod
+    .instanceof(File)
+    .describe("The image file (JPEG, PNG, WebP, or HEIC)."),
+});
+
+export const MobileUploadTicketPhotoResponse = zod.object({
+  id: zod.string(),
+  ticketId: zod.string(),
+  storageKey: zod.string(),
+  contentType: zod.string(),
+  byteSize: zod.number().nullish(),
+  width: zod.number().nullish(),
+  height: zod.number().nullish(),
+  capturedAt: zod.coerce.date(),
+  createdAt: zod.coerce.date(),
+  uploadedByUserId: zod.string().nullish(),
+  signedUrl: zod
+    .string()
+    .nullish()
+    .describe(
+      "Short-lived (≥1h TTL) GET URL, or null if storage isn't configured.",
+    ),
+  signedUrlExpiresAt: zod.coerce.date().nullish(),
+});
+
+/**
+ * @summary Delete a photo (uploader only)
+ */
+export const MobileDeleteTicketPhotoParams = zod.object({
+  photoId: zod.coerce.string(),
+});
+
+/**
+ * @summary List free-text notes the crew added to this ticket
+ */
+export const MobileListTicketNotesParams = zod.object({
+  id: zod.coerce.string(),
+});
+
+export const MobileListTicketNotesResponseItem = zod.object({
+  id: zod.string(),
+  ticketId: zod.string(),
+  body: zod.string(),
+  authorUserId: zod.string().nullish(),
+  createdAt: zod.coerce.date(),
+});
+export const MobileListTicketNotesResponse = zod.array(
+  MobileListTicketNotesResponseItem,
+);
+
+/**
+ * @summary Add a free-text note
+ */
+export const MobileCreateTicketNoteParams = zod.object({
+  id: zod.coerce.string(),
+});
+
+export const mobileCreateTicketNoteBodyBodyMax = 5000;
+
+export const mobileCreateTicketNoteBodyClientIdMax = 200;
+
+export const MobileCreateTicketNoteBody = zod.object({
+  body: zod.string().min(1).max(mobileCreateTicketNoteBodyBodyMax),
+  clientId: zod
+    .string()
+    .max(mobileCreateTicketNoteBodyClientIdMax)
+    .optional()
+    .describe("Idempotency key from the upload queue (uuid)."),
+});
+
+export const MobileCreateTicketNoteResponse = zod.object({
+  id: zod.string(),
+  ticketId: zod.string(),
+  body: zod.string(),
+  authorUserId: zod.string().nullish(),
+  createdAt: zod.coerce.date(),
+});
+
+/**
+ * @summary Delete a note (author only)
+ */
+export const MobileDeleteTicketNoteParams = zod.object({
+  noteId: zod.coerce.string(),
 });
 
 /**
