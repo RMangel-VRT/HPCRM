@@ -311,7 +311,7 @@ function CustomerMapManager({ customerId, customerName, onClose }: { customerId:
           </TabsList>
         </div>
 
-        <TabsContent value="view" className="flex-1 m-0 relative">
+        <TabsContent value="view" className="flex-1 m-0 relative h-[60vh] min-h-[420px] sm:h-[70vh]">
           <LayerMapViewer
             customerId={customerId}
             fullScreen={false}

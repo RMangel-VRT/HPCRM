@@ -4,6 +4,8 @@ import type { CustomerMapLayer } from "@shared/schema";
 import { MapContainer, TileLayer, GeoJSON, useMap, ZoomControl } from "react-leaflet";
 import L from "leaflet";
 import "leaflet/dist/leaflet.css";
+import { kml as kmlToGeoJsonLib } from "@tmcw/togeojson";
+import JSZip from "jszip";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -11,6 +13,7 @@ import { Label } from "@/components/ui/label";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Layers, X, ChevronLeft, ChevronRight, Map as MapIcon, Satellite, LocateFixed } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
+import { useToast } from "@/hooks/use-toast";
 
 delete (L.Icon.Default.prototype as any)._getIconUrl;
 L.Icon.Default.mergeOptions({
@@ -57,14 +60,46 @@ interface LayerMapViewerProps {
 
 function FitBounds({ bounds, fitTrigger }: { bounds: L.LatLngBounds | null; fitTrigger?: number }) {
   const map = useMap();
+
+  useEffect(() => {
+    const container = map.getContainer();
+    let raf = requestAnimationFrame(() => map.invalidateSize({ animate: false }));
+    const ro = new ResizeObserver(() => {
+      map.invalidateSize({ animate: false });
+    });
+    ro.observe(container);
+    return () => {
+      cancelAnimationFrame(raf);
+      ro.disconnect();
+    };
+  }, [map]);
+
   useEffect(() => {
     if (!bounds || !bounds.isValid()) return;
-    const timer = setTimeout(() => {
-      map.invalidateSize();
-      map.fitBounds(bounds, { padding: [50, 50] });
-    }, 100);
-    return () => clearTimeout(timer);
+    let cancelled = false;
+    let rafId = 0;
+    let attempts = 0;
+
+    const tryFit = () => {
+      if (cancelled) return;
+      map.invalidateSize({ animate: false });
+      const size = map.getSize();
+      if (size.x > 0 && size.y > 0) {
+        map.fitBounds(bounds, { padding: [50, 50] });
+        return;
+      }
+      if (attempts++ < 60) {
+        rafId = requestAnimationFrame(tryFit);
+      }
+    };
+
+    rafId = requestAnimationFrame(tryFit);
+    return () => {
+      cancelled = true;
+      cancelAnimationFrame(rafId);
+    };
   }, [map, bounds, fitTrigger]);
+
   return null;
 }
 
@@ -142,6 +177,8 @@ export default function LayerMapViewer({
   const [useSatellite, setUseSatellite] = useState(true);
   const [fitTrigger, setFitTrigger] = useState(0);
   const [showMyLocation, setShowMyLocation] = useState(false);
+  const { toast } = useToast();
+  const errorToastFiredRef = useRef(false);
 
   useEffect(() => {
     if (isVisible) setFitTrigger(t => t + 1);
@@ -170,14 +207,7 @@ export default function LayerMapViewer({
         });
 
         try {
-          // The kmlPath should already be in /objects/... format
-          const kmlUrl = layer.kmlPath;
-
-          const response = await fetch(kmlUrl, { credentials: "include" });
-          if (!response.ok) throw new Error(`Failed to fetch KML: ${response.status}`);
-
-          const kmlText = await response.text();
-          const geoJson = kmlToGeoJson(kmlText);
+          const geoJson = await fetchAndParseKmlOrKmz(layer.kmlPath);
 
           setLayerData((prev) => {
             const newMap = new Map(prev);
@@ -191,6 +221,14 @@ export default function LayerMapViewer({
             newMap.set(layer.id, { layer, geoJson: null, loading: false, error: true });
             return newMap;
           });
+          if (!errorToastFiredRef.current) {
+            errorToastFiredRef.current = true;
+            toast({
+              title: "Some map layers failed to load",
+              description: "One or more property layers could not be displayed. Hover the red layer chip for details.",
+              variant: "destructive",
+            });
+          }
         }
       }
     };
@@ -336,10 +374,13 @@ export default function LayerMapViewer({
                         key={layer.id}
                         onClick={() => toggleLayer(layer.id)}
                         className={`flex items-center gap-1.5 px-2 py-1 rounded-full text-xs transition-all ${
-                          isEnabled 
-                            ? 'bg-primary text-primary-foreground shadow-sm' 
+                          data?.error
+                            ? 'bg-red-100 text-red-800 ring-1 ring-red-300 dark:bg-red-900/40 dark:text-red-200 dark:ring-red-800'
+                            : isEnabled
+                            ? 'bg-primary text-primary-foreground shadow-sm'
                             : 'bg-muted/50 text-muted-foreground hover:bg-muted'
                         }`}
+                        title={data?.error ? "Failed to load this map layer (KML/KMZ could not be fetched or parsed)" : undefined}
                         data-testid={`chip-layer-${layer.id}`}
                       >
                         <div
@@ -367,10 +408,13 @@ export default function LayerMapViewer({
                         key={layer.id}
                         onClick={() => toggleLayer(layer.id)}
                         className={`flex items-center gap-1.5 px-2 py-1 rounded-full text-xs transition-all ${
-                          isEnabled 
-                            ? 'bg-primary text-primary-foreground shadow-sm' 
+                          data?.error
+                            ? 'bg-red-100 text-red-800 ring-1 ring-red-300 dark:bg-red-900/40 dark:text-red-200 dark:ring-red-800'
+                            : isEnabled
+                            ? 'bg-primary text-primary-foreground shadow-sm'
                             : 'bg-muted/50 text-muted-foreground hover:bg-muted'
                         }`}
+                        title={data?.error ? "Failed to load this map layer (KML/KMZ could not be fetched or parsed)" : undefined}
                         data-testid={`chip-layer-${layer.id}`}
                       >
                         <div
@@ -398,10 +442,13 @@ export default function LayerMapViewer({
                         key={layer.id}
                         onClick={() => toggleLayer(layer.id)}
                         className={`flex items-center gap-1.5 px-2 py-1 rounded-full text-xs transition-all ${
-                          isEnabled 
-                            ? 'bg-primary text-primary-foreground shadow-sm' 
+                          data?.error
+                            ? 'bg-red-100 text-red-800 ring-1 ring-red-300 dark:bg-red-900/40 dark:text-red-200 dark:ring-red-800'
+                            : isEnabled
+                            ? 'bg-primary text-primary-foreground shadow-sm'
                             : 'bg-muted/50 text-muted-foreground hover:bg-muted'
                         }`}
+                        title={data?.error ? "Failed to load this map layer (KML/KMZ could not be fetched or parsed)" : undefined}
                         data-testid={`chip-layer-${layer.id}`}
                       >
                         <div
@@ -429,10 +476,13 @@ export default function LayerMapViewer({
                         key={layer.id}
                         onClick={() => toggleLayer(layer.id)}
                         className={`flex items-center gap-1.5 px-2 py-1 rounded-full text-xs transition-all ${
-                          isEnabled 
-                            ? 'bg-primary text-primary-foreground shadow-sm' 
+                          data?.error
+                            ? 'bg-red-100 text-red-800 ring-1 ring-red-300 dark:bg-red-900/40 dark:text-red-200 dark:ring-red-800'
+                            : isEnabled
+                            ? 'bg-primary text-primary-foreground shadow-sm'
                             : 'bg-muted/50 text-muted-foreground hover:bg-muted'
                         }`}
+                        title={data?.error ? "Failed to load this map layer (KML/KMZ could not be fetched or parsed)" : undefined}
                         data-testid={`chip-layer-${layer.id}`}
                       >
                         <div
@@ -497,84 +547,47 @@ export default function LayerMapViewer({
   );
 }
 
-function kmlToGeoJson(kmlText: string): GeoJSON.FeatureCollection {
-  const parser = new DOMParser();
-  const kmlDoc = parser.parseFromString(kmlText, "text/xml");
-
-  const features: GeoJSON.Feature[] = [];
-
-  const placemarks = kmlDoc.querySelectorAll("Placemark");
-  placemarks.forEach((placemark) => {
-    const name = placemark.querySelector("name")?.textContent || "";
-    const description = placemark.querySelector("description")?.textContent || "";
-
-    const polygon = placemark.querySelector("Polygon");
-    if (polygon) {
-      const coordinates = parseKmlCoordinates(
-        polygon.querySelector("outerBoundaryIs LinearRing coordinates")?.textContent || ""
-      );
-      if (coordinates.length > 0) {
-        features.push({
-          type: "Feature",
-          properties: { name, description },
-          geometry: {
-            type: "Polygon",
-            coordinates: [coordinates],
-          },
-        });
-      }
-    }
-
-    const lineString = placemark.querySelector("LineString");
-    if (lineString) {
-      const coordinates = parseKmlCoordinates(
-        lineString.querySelector("coordinates")?.textContent || ""
-      );
-      if (coordinates.length > 0) {
-        features.push({
-          type: "Feature",
-          properties: { name, description },
-          geometry: {
-            type: "LineString",
-            coordinates,
-          },
-        });
-      }
-    }
-
-    const point = placemark.querySelector("Point");
-    if (point) {
-      const coordinates = parseKmlCoordinates(
-        point.querySelector("coordinates")?.textContent || ""
-      );
-      if (coordinates.length > 0) {
-        features.push({
-          type: "Feature",
-          properties: { name, description },
-          geometry: {
-            type: "Point",
-            coordinates: coordinates[0],
-          },
-        });
-      }
-    }
-  });
-
-  return {
-    type: "FeatureCollection",
-    features,
-  };
+function isZip(buf: ArrayBuffer): boolean {
+  const view = new Uint8Array(buf);
+  if (view.length < 4) return false;
+  return (
+    view[0] === 0x50 &&
+    view[1] === 0x4b &&
+    (view[2] === 0x03 || view[2] === 0x05) &&
+    (view[3] === 0x04 || view[3] === 0x06)
+  );
 }
 
-function parseKmlCoordinates(coordString: string): number[][] {
-  if (!coordString.trim()) return [];
+function parseKmlString(kmlText: string): GeoJSON.FeatureCollection {
+  const parser = new DOMParser();
+  const doc = parser.parseFromString(kmlText, "application/xml");
+  if (doc.getElementsByTagName("parsererror").length > 0) {
+    throw new Error("Invalid KML: XML parser error");
+  }
+  return kmlToGeoJsonLib(doc) as GeoJSON.FeatureCollection;
+}
 
-  return coordString
-    .trim()
-    .split(/\s+/)
-    .map((coord) => {
-      const [lng, lat, alt] = coord.split(",").map(Number);
-      return [lng, lat];
-    })
-    .filter((coord) => !isNaN(coord[0]) && !isNaN(coord[1]));
+async function fetchAndParseKmlOrKmz(url: string): Promise<GeoJSON.FeatureCollection> {
+  const response = await fetch(url, { credentials: "include" });
+  if (!response.ok) {
+    throw new Error(`Failed to fetch layer: ${response.status} ${response.statusText}`);
+  }
+  const buf = await response.arrayBuffer();
+
+  if (isZip(buf)) {
+    const zip = await JSZip.loadAsync(buf);
+    let kmlEntry: JSZip.JSZipObject | null = null;
+    zip.forEach((_path, entry) => {
+      if (kmlEntry || entry.dir) return;
+      if (/\.kml$/i.test(entry.name)) kmlEntry = entry;
+    });
+    if (!kmlEntry) {
+      throw new Error("KMZ archive contains no .kml file");
+    }
+    const kmlText = await (kmlEntry as JSZip.JSZipObject).async("string");
+    return parseKmlString(kmlText);
+  }
+
+  const kmlText = new TextDecoder("utf-8").decode(buf);
+  return parseKmlString(kmlText);
 }
