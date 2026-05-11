@@ -26,6 +26,8 @@ const en: Record<string, string> = {
   "today.empty.body": "When work is assigned to your crew, it will show up here.",
   "today.noCrew.title": "No crew assigned",
   "today.noCrew.body": "You aren't currently assigned to a crew. Ask your admin to add you to one.",
+  "today.noCrew.refreshHint": "Already been added? Pull down to refresh, or tap below.",
+  "today.noCrew.refresh": "Check again",
   "today.summary.total": "Stops",
   "today.summary.inProgress": "Active",
   "today.summary.complete": "Done",

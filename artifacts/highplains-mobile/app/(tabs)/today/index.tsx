@@ -281,6 +281,10 @@ export default function TodayScreen() {
       );
     }
     if (data && !data.crewId) {
+      const onRefresh = () => {
+        void warmSyncFromAggregator();
+        void query.refetch();
+      };
       const onSignOut = () => {
         Alert.alert(
           t("me.signOut.title"),
@@ -306,6 +310,26 @@ export default function TodayScreen() {
           <Text style={[styles.cardBody, { color: colors.mutedForeground }]}>
             {t("today.noCrew.body")}
           </Text>
+          <Text style={[styles.cardBody, { color: colors.mutedForeground, fontStyle: "italic" }]}>
+            {t("today.noCrew.refreshHint")}
+          </Text>
+          <Pressable
+            onPress={onRefresh}
+            accessibilityRole="button"
+            accessibilityLabel={t("today.noCrew.refresh")}
+            style={({ pressed }) => [
+              styles.retryBtn,
+              { backgroundColor: colors.primary, opacity: pressed ? 0.85 : 1 },
+            ]}
+          >
+            {query.isFetching ? (
+              <ActivityIndicator size="small" color={colors.primaryForeground} />
+            ) : (
+              <Text style={[styles.retryText, { color: colors.primaryForeground }]}>
+                {t("today.noCrew.refresh")}
+              </Text>
+            )}
+          </Pressable>
           <Pressable
             onPress={onSignOut}
             accessibilityRole="button"

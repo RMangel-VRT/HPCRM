@@ -26,6 +26,8 @@ const es: Record<string, string> = {
   "today.empty.body": "Cuando le asignen trabajo a tu cuadrilla, aparecerá aquí.",
   "today.noCrew.title": "Sin cuadrilla asignada",
   "today.noCrew.body": "Aún no estás asignado a una cuadrilla. Pídele a tu administrador que te agregue.",
+  "today.noCrew.refreshHint": "¿Ya te agregaron? Desliza hacia abajo para actualizar, o toca abajo.",
+  "today.noCrew.refresh": "Comprobar de nuevo",
   "today.summary.total": "Paradas",
   "today.summary.inProgress": "Activas",
   "today.summary.complete": "Listas",
