@@ -3,7 +3,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { build as esbuild } from "esbuild";
 import esbuildPluginPino from "esbuild-plugin-pino";
-import { rm } from "node:fs/promises";
+import { rm, cp, stat } from "node:fs/promises";
 
 // Plugins (e.g. 'esbuild-plugin-pino') may use `require` to resolve dependencies
 globalThis.require = createRequire(import.meta.url);
@@ -118,6 +118,22 @@ globalThis.__dirname = __bannerPath.dirname(globalThis.__filename);
     `,
     },
   });
+
+  // Copy PDFKit's standard 14 PostScript font .afm files (and sRGB ICC profile)
+  // into dist/data/ so PDFKit can resolve them at runtime via __dirname/data/<font>.afm.
+  // esbuild bundles pdfkit into dist/index.mjs, so without this copy the very first
+  // doc.font(...) call throws ENOENT for Helvetica.afm.
+  const require = createRequire(import.meta.url);
+  const pdfkitAfmPath = require.resolve("pdfkit/js/data/Helvetica.afm");
+  const pdfkitDataDir = path.dirname(pdfkitAfmPath);
+  const srcStat = await stat(pdfkitDataDir).catch(() => null);
+  if (!srcStat || !srcStat.isDirectory()) {
+    throw new Error(
+      `PDFKit data directory not found at ${pdfkitDataDir}. ` +
+        `Cannot build without PDFKit's standard font .afm files.`,
+    );
+  }
+  await cp(pdfkitDataDir, path.join(distDir, "data"), { recursive: true });
 }
 
 buildAll().catch((err) => {
