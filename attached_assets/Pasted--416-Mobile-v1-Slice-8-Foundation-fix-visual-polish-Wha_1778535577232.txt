@@ -1,0 +1,70 @@
+#416 — Mobile v1 Slice 8: Foundation fix + visual polish
+What & Why
+A foundation pass before more feature work. The current build has three load-bearing problems that visibly break trust: every detail screen renders two stacked headers with two flag buttons (because parent Tabs and child Stack both have headerShown: true); the flag composer's Cancel button reads the literal string "common.cancel" because that i18n key isn't defined; and a floating keyboard-controller chevron is glued to the right edge of every screen. The Today stop cards also bury the property name under the service title, render a NORMAL priority pill on ~80% of rows, and use a blue active-border that fights the brand-green palette. Finally, the mobile seed data writes 2/3/4 AM scheduled times, a "Seeded by seed-mobile-test-user.ts" debug description, and zero work items per ticket — making every screenshot look broken. Land all of this in one focused slice so the app stops looking unfinished.
+Done looks like
+
+Every mobile screen renders exactly one header bar.
+On tickets/[id] and properties/[id], the back-button text reads the parent tab's name ("Today" / "Properties") instead of the literal route filename ("index").
+The flag composer's Cancel button reads "Cancel" (and any other unresolved i18n keys discovered during an audit are fixed in both en.ts and es.ts).
+The floating "<" handle on the right edge of every screen is gone.
+Today stop cards lead with property name (16pt / 600) as the primary line; service title is the secondary line (14pt / 500); priority pill only renders when priority is high or urgent; active stop uses colors.primary (brand green) at 2px instead of #2563eb.
+The Today header block collapses to two lines: "Monday · May 11 · Test Crew" (small, muted) and "0 of 6 stops complete · Started 1:50 AM" (medium). The "Today, {firstName}" greeting is removed (the tab title already says "Today").
+The mobile seed script writes realistic morning scheduled times (e.g. 7:30, 8:30, 9:30, 10:30, 1:00 PM), realistic ticket descriptions, and 3–5 work items per seeded ticket (with 1–2 marked isRequired: true) so the ticket detail screen has something to demonstrate the completion flow on.
+Tab navigation actually works — tapping Properties or Me from any tab navigates to that tab; tapping back returns to the previous tab.
+
+Out of scope
+
+Any new feature work (no new screens, endpoints, or data fields)
+Bottom-tab redesign beyond the visual symptom fix above
+Full visual design pass on Properties / Me screens (handle those when their UX gets attention)
+Push notification or upload-queue changes
+Removing or rewriting the Slice 0–7 architecture; this slice is a thin polish layer on top
+
+Steps
+
+Header strategy unification. In artifacts/highplains-mobile/app/(tabs)/_layout.tsx, change headerShown: true to headerShown: false in the top-level <Tabs screenOptions> block. Lift the existing headerRight (sync chip + "+ Flag" button) and supporting state (useQueueStatus, useFailingQueueItems, useOnline, sheetOpen, the failed-uploads modal) into a new reusable component at artifacts/highplains-mobile/components/ScreenHeader.tsx that accepts { title: string } as a prop and renders the same chip + flag affordances. The component owns its own sheet modal state.
+Per-tab header wiring. In each per-tab _layout.tsx ((tabs)/today/_layout.tsx, (tabs)/properties/_layout.tsx, (tabs)/me/_layout.tsx), keep headerShown: false on screenOptions BUT override the index screen with headerShown: true, title: t("tabs.today" | "tabs.properties" | "tabs.me"), and a headerTitle slot that renders the title text via the screen header component (or just sets title and lets the stack render it naturally). Set headerRight: () => <ScreenHeader.RightActions /> if the chip + flag belong there; alternatively render <ScreenHeader /> inside each index screen's content if you want full control over title typography. Pick one approach and apply consistently.
+Back-button label fix. The back button on tickets/[id] currently reads "index" because the parent screen's title is unset. Setting title: t("tabs.today") on the today Stack's index in step 2 fixes this automatically. Verify on properties/[id] too — its back button should read "Properties" after step 2.
+Remove duplicate flag affordance. In artifacts/highplains-mobile/app/(tabs)/today/tickets/[id].tsx, remove the useLayoutEffect block (currently ~lines 161–189) that calls navigation.setOptions({ headerRight: ... }) to inject a flag button into the Stack header. The screen already has a "Flag" button in its pinned bottom action bar — one affordance per screen is enough. Keep the useLayoutEffect that sets the screen title from query.data?.title if you want the title to reflect the loaded ticket; otherwise let the Stack render the default title.
+i18n key audit. Open artifacts/highplains-mobile/app/flag/new.tsx and grep every t(...) call. Compare each key against i18n/en.ts and i18n/es.ts. Add any missing keys with sensible English and Spanish strings (mark new es keys with // TODO: human-review translation). At minimum, common.cancel is missing. Then run the same audit across app/(tabs)/today/tickets/[id].tsx, app/(tabs)/properties/[id].tsx, and app/(tabs)/me/index.tsx so this slice catches every unresolved key in the v1 surface area, not just the one we noticed.
+Kill the floating keyboard chevron. The chevron is most likely from react-native-keyboard-controller's <KeyboardProvider> in app/_layout.tsx. Try disabling it first with <KeyboardProvider enabled={false}> (it remains mounted so any existing imports don't break, but the toolbar is suppressed). If something still renders, inspect artifacts/highplains-mobile/components/KeyboardAwareScrollViewCompat.tsx for a stray toolbar/handle component and remove or hide it. Confirm no screen actually needs the previous/next field toolbar — none of the v1 forms have enough adjacent fields to benefit.
+Today stop card rework. In artifacts/highplains-mobile/app/(tabs)/today/index.tsx, restructure the StopCard body. Render order becomes: (a) scheduled time + status pill on a top row, (b) property name (stop.customerName) as the primary line — fontSize 16, Inter_600SemiBold, (c) service title (stop.title) as a secondary line — fontSize 14, Inter_500Medium, muted color, (d) address as a tertiary line — fontSize 12, muted. Move the priority pill to the top row alongside status, and render it only when stop.priority === "high" || stop.priority === "urgent". Change the active border from the hard-coded INFO_COLOR = "#2563eb" to colors.primary (brand green); delete the INFO_COLOR constant.
+Today header block tightening. In the same file, replace the current header block (dateLabel + greeting + sub + daySummary) with two lines:
+
+Line 1 (small, muted, ~12pt uppercase): "{date} · {crewName}" — e.g. "Monday, May 11 · Test Crew"
+Line 2 (medium, foreground, ~14pt semibold): daySummaryLine (already computed) — e.g. "0 of 6 stops complete · Started 1:50 AM"
+Remove the today.greeting string usage entirely and delete the today.greeting key from en.ts and es.ts. Remove today.crewLabel from the JSX (the crew is now part of line 1).
+
+
+Seed data realism. Find the seed script via find /sessions/vibrant-confident-knuth/mnt/High\ Plains\ CRM/HPCRM -name "seed-mobile*" (the description in the current ticket says it's seed-mobile-test-user.ts). Update it to:
+
+Set dueDate on each seeded ticket to a realistic morning/afternoon slot in the company timezone (e.g. today at 07:30, 08:30, 09:30, 10:30, 13:00, 14:00 local). Avoid times before 6 AM.
+Replace the placeholder description ("Seeded by seed-mobile-test-user.ts for the mobile field-crew demo") with realistic per-ticket descriptions matching the service title.
+Insert 3–5 ticket_work_items per seeded ticket using sensible content for the service type (e.g. for a mowing ticket: "Mow common areas", "Trim along walkways and Bldg D", "Edge sidewalks", "Empty pet stations (4)", "Blow off all hardscape"). Mark 1–2 items as isRequired: true. Include at least one photoRequired: true item on one ticket so the photo-required UX can be demonstrated.
+Re-run pnpm seed via the project's existing mobile-seed script.
+
+
+i18n parity check. After step 5's audit, run a quick grep -r "t(\"" artifacts/highplains-mobile/app artifacts/highplains-mobile/components | grep -v node_modules and cross-reference every key against both translation files. Confirm zero raw keys leak into the UI.
+Validation pass on a real device. Install the dev build, sign in as the test supervisor, and verify each acceptance criterion in the "Done looks like" section. Critically, tap each of the three bottom tabs from each starting tab — confirm tab navigation animates and lands on the correct screen. If Properties or Me still fail to navigate after the header fix lands, file an immediate follow-up ticket with a screen recording — it's not the header bug and we'll need to dig elsewhere.
+
+Relevant files
+
+artifacts/highplains-mobile/app/(tabs)/_layout.tsx
+artifacts/highplains-mobile/app/(tabs)/today/_layout.tsx
+artifacts/highplains-mobile/app/(tabs)/today/index.tsx
+artifacts/highplains-mobile/app/(tabs)/today/tickets/[id].tsx
+artifacts/highplains-mobile/app/(tabs)/properties/_layout.tsx
+artifacts/highplains-mobile/app/(tabs)/me/_layout.tsx
+artifacts/highplains-mobile/app/flag/new.tsx
+artifacts/highplains-mobile/app/_layout.tsx
+artifacts/highplains-mobile/components/ScreenHeader.tsx (new)
+artifacts/highplains-mobile/components/KeyboardAwareScrollViewCompat.tsx
+artifacts/highplains-mobile/i18n/en.ts
+artifacts/highplains-mobile/i18n/es.ts
+artifacts/highplains-mobile/components/StatusPill.tsx
+artifacts/highplains-mobile/components/Pill.tsx
+The mobile seed script (locate via find ... -name "seed-mobile*")
+
+Dependencies
+
+Mobile v1 Slice 7 — Offline cache, mutation queue, polish
