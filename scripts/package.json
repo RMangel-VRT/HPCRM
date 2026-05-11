@@ -9,6 +9,7 @@
     "check-schema-drift": "tsx ./src/check-schema-drift.ts",
     "check-required-extensions": "tsx ./src/check-required-extensions.ts",
     "seed-mobile-test-user": "tsx ./src/seed-mobile-test-user.ts",
+    "seed-randy": "tsx ./src/seed-randy.ts",
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
   "dependencies": {
