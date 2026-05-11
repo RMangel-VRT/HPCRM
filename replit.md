@@ -93,6 +93,7 @@ If you reverse this order, the schema-drift / required-extensions validation wil
 - Password hashing uses Node.js `crypto.scrypt` in `hash.salt` format (hex)
 - Express 5 path-to-regexp changed wildcard syntax — use `/*param` not `/:param(*)`
 - Frontend schema at `src/shared/schema.ts` uses a drizzle stub — `$inferSelect` types resolve to `any` in the frontend (TypeScript-only impact, runtime is fine)
+- The mobile `dev` script (in `artifacts/highplains-mobile/package.json`) prefixes `expo start` with `fuser -k -n tcp $PORT` and sets `EXPO_NO_PROMPT=1`. **Do not remove either.** Without them, when the workflow restarts and the previous Expo process is still holding port 19245, `expo start` drops into an interactive `"Use port 19246 instead? (Y/n)"` prompt and silently hangs — the workflow shows RUNNING but Metro never serves a new bundle, so devices keep talking to the old/stale Metro and crash on any newly-added native module (this is exactly how the Slice 7 `@react-native-community/netinfo` "module not found" crash happened even though the package was installed). `fuser -k` frees the port; `EXPO_NO_PROMPT=1` makes any future interactive question fail loudly instead of hanging. Do NOT use `CI=1` for the same purpose — it disables Metro watch mode / hot-reload
 
 ## Pointers
 
