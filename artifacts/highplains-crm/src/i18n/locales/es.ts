@@ -998,6 +998,8 @@ const es = {
     photoLayout: "Diseno de Fotos",
     photoLayoutLarge: "Fotos grandes (una por pagina)",
     photoLayoutGrid: "Cuadricula (varias por pagina)",
+    photoPageLabel: "Pagina {{page}}",
+    photoPageBreakHint: "Fin de la pagina {{page}} — la siguiente foto inicia una nueva pagina impresa",
     captionOptional: "Titulo (opcional)",
     captionPlaceholder: "Agregar un titulo...",
     saveCaption: "Guardar Titulo",

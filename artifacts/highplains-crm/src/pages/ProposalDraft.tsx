@@ -1046,33 +1046,75 @@ export default function ProposalDraft() {
                 items={images.map(i => i.id)}
                 strategy={verticalListSortingStrategy}
               >
-                <div className="space-y-4 mb-4">
-                  {images.map((img) => (
-                    <SortablePhotoRow
-                      key={img.id}
-                      img={img}
-                      captionDraft={captionDrafts[img.id]}
-                      onCaptionChange={(val) => setCaptionDrafts(prev => ({ ...prev, [img.id]: val }))}
-                      onCaptionBlur={(val) => {
-                        if (val !== (img.caption ?? "")) {
-                          saveCaptionMutation.mutate({ fileId: img.id, caption: val });
-                        }
-                      }}
-                      onDelete={() => setFileToDelete(img)}
-                      captionPlaceholder={t("proposals.captionPlaceholder")}
-                      dragLabel={t("proposals.dragToReorder", { defaultValue: "Drag to reorder" })}
-                      selected={selectedImageIds.has(img.id)}
-                      onSelectChange={(checked) => {
-                        setSelectedImageIds((prev) => {
-                          const next = new Set(prev);
-                          if (checked) next.add(img.id); else next.delete(img.id);
-                          return next;
-                        });
-                      }}
-                      selectLabel={t("proposals.selectPhoto", { defaultValue: "Select photo" })}
-                    />
-                  ))}
-                </div>
+                {(() => {
+                  const perPage = (proposal.photoLayout === "grid") ? 6 : 1;
+                  const totalPages = Math.max(1, Math.ceil(images.length / perPage));
+                  const rows: React.ReactNode[] = [];
+                  images.forEach((img, idx) => {
+                    const pageIdx = Math.floor(idx / perPage);
+                    const pageNum = pageIdx + 1;
+                    const isFirstOnPage = idx % perPage === 0;
+                    const isLastOnPage = (idx + 1) % perPage === 0 || idx === images.length - 1;
+                    if (isFirstOnPage) {
+                      rows.push(
+                        <div
+                          key={`page-header-${pageNum}`}
+                          className="flex items-center gap-2 pt-1"
+                          data-testid={`div-photo-page-header-${pageNum}`}
+                        >
+                          <span className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
+                            {t("proposals.photoPageLabel", { page: pageNum, defaultValue: `Page ${pageNum}` })}
+                            {totalPages > 1 ? ` / ${totalPages}` : ""}
+                          </span>
+                          <span className="flex-1 h-px bg-border" />
+                        </div>
+                      );
+                    }
+                    rows.push(
+                      <SortablePhotoRow
+                        key={img.id}
+                        img={img}
+                        captionDraft={captionDrafts[img.id]}
+                        onCaptionChange={(val) => setCaptionDrafts(prev => ({ ...prev, [img.id]: val }))}
+                        onCaptionBlur={(val) => {
+                          if (val !== (img.caption ?? "")) {
+                            saveCaptionMutation.mutate({ fileId: img.id, caption: val });
+                          }
+                        }}
+                        onDelete={() => setFileToDelete(img)}
+                        captionPlaceholder={t("proposals.captionPlaceholder")}
+                        dragLabel={t("proposals.dragToReorder", { defaultValue: "Drag to reorder" })}
+                        selected={selectedImageIds.has(img.id)}
+                        onSelectChange={(checked) => {
+                          setSelectedImageIds((prev) => {
+                            const next = new Set(prev);
+                            if (checked) next.add(img.id); else next.delete(img.id);
+                            return next;
+                          });
+                        }}
+                        selectLabel={t("proposals.selectPhoto", { defaultValue: "Select photo" })}
+                      />
+                    );
+                    if (isLastOnPage && idx < images.length - 1) {
+                      rows.push(
+                        <div
+                          key={`page-break-${pageNum}`}
+                          className="flex items-center gap-2 py-1"
+                          aria-hidden="true"
+                          data-testid={`div-photo-page-break-${pageNum}`}
+                          title={t("proposals.photoPageBreakHint", { page: pageNum, defaultValue: `End of page ${pageNum}` })}
+                        >
+                          <span className="flex-1 border-t border-dashed border-border" />
+                          <span className="text-[10px] uppercase tracking-wide text-muted-foreground">
+                            {t("proposals.photoPageBreakHint", { page: pageNum, defaultValue: `End of page ${pageNum}` })}
+                          </span>
+                          <span className="flex-1 border-t border-dashed border-border" />
+                        </div>
+                      );
+                    }
+                  });
+                  return <div className="space-y-3 mb-4">{rows}</div>;
+                })()}
               </SortableContext>
             </DndContext>
           )}

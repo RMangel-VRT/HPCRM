@@ -1091,6 +1091,8 @@ const en = {
     photoLayout: "Photo Layout",
     photoLayoutLarge: "Large photos (one per page)",
     photoLayoutGrid: "Grid (multiple per page)",
+    photoPageLabel: "Page {{page}}",
+    photoPageBreakHint: "End of page {{page}} — next photo starts a new printed page",
     captionOptional: "Caption (optional)",
     captionPlaceholder: "Add a caption...",
     saveCaption: "Save Caption",
