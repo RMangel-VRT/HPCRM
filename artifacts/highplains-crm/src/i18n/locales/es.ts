@@ -2224,6 +2224,9 @@ const es = {
     applicatorLicenseState: "Estado de Licencia",
     applicatorLicenseSaved: "Licencia de aplicador guardada",
   },
+  backfill: {
+    stuckHint: "Sin progreso durante más de un minuto. Si parece estancado, presiona Cancelar — el servidor lo limpiará.",
+  },
 };
 
 export default es;

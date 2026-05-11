@@ -3023,6 +3023,7 @@ export const mailboxBackfillRuns = pgTable("mailbox_backfill_runs", {
   sentDeduped: integer("sent_deduped").notNull().default(0),
   errorMessage: text("error_message"),
   createdAt: timestamp("created_at").notNull().defaultNow(),
+  updatedAt: timestamp("updated_at").notNull().defaultNow(),
 }, (table) => ({
   mailboxBackfillRunsMailboxStartedIdx: index("mailbox_backfill_runs_mailbox_started_idx").on(table.mailboxAccountId, table.startedAt),
 }));

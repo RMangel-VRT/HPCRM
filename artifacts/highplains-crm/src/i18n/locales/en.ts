@@ -2101,6 +2101,9 @@ const en = {
     applicatorLicenseState: "License State",
     applicatorLicenseSaved: "Applicator license saved",
   },
+  backfill: {
+    stuckHint: "No progress for over a minute. If this looks stuck, press Cancel — the server will force-clear it.",
+  },
 };
 
 export default en;

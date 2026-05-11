@@ -3,6 +3,7 @@ import { checkSchemaDrift, formatDriftReport } from "@workspace/db/check-drift";
 import app from "./app";
 import { logger } from "./lib/logger";
 import { registerRoutes } from "./routes/routes";
+import { requeueInterruptedBackfills } from "./services/mailboxBackfillService";
 
 async function warnIfSchemaDrift(): Promise<void> {
   try {
@@ -42,6 +43,7 @@ registerRoutes(app)
     server.listen(port, () => {
       logger.info({ port }, "Server listening");
       void warnIfSchemaDrift();
+      void requeueInterruptedBackfills();
     });
   })
   .catch((err) => {

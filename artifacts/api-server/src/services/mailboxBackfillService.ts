@@ -1,6 +1,6 @@
 import { db } from "../db";
 import { mailboxAccounts, mailboxBackfillRuns, communications, unsortedEmails } from "@workspace/db";
-import { eq, and, sql } from "drizzle-orm";
+import { eq, and, inArray, sql } from "drizzle-orm";
 import { google } from "googleapis";
 import { getValidAccessToken } from "./googleOAuth";
 import { routeMessage, type ParsedMessage } from "./emailRouter";
@@ -428,7 +428,31 @@ export async function startBackfill(req: BackfillRequest): Promise<{ run: typeof
   return { run, alreadyRunning: false };
 }
 
+// If a run's heartbeat is older than this, the cancel endpoint force-clears
+// the row instead of waiting for a (possibly dead) worker to observe the flag.
+const CANCEL_STALE_THRESHOLD_MS = 60 * 1000;
+
 export async function requestCancel(runId: string): Promise<void> {
+  const [run] = await db
+    .select()
+    .from(mailboxBackfillRuns)
+    .where(eq(mailboxBackfillRuns.id, runId));
+
+  if (!run) return;
+
+  const isActive = run.status === "queued" || run.status === "running";
+  const heartbeat = (run.updatedAt ?? run.startedAt ?? run.createdAt) as Date | null;
+  const heartbeatAgeMs = heartbeat ? Date.now() - new Date(heartbeat).getTime() : Number.POSITIVE_INFINITY;
+
+  if (isActive && heartbeatAgeMs > CANCEL_STALE_THRESHOLD_MS) {
+    await storage.updateMailboxBackfillRun(runId, {
+      status: "cancelled",
+      cancelRequested: true,
+      finishedAt: new Date(),
+    });
+    return;
+  }
+
   await storage.updateMailboxBackfillRun(runId, { cancelRequested: true });
 }
 
@@ -442,27 +466,57 @@ export async function getBackfillHistory(mailboxAccountId: string, limit = 10) {
 
 // ── On startup: re-queue any interrupted runs ──────────────────────────────────
 
+// Runs whose heartbeat is older than this on startup are considered orphaned
+// (worker died, OOM, deploy, etc.) and are reaped to `error` instead of being
+// re-queued.
+const STARTUP_STALE_THRESHOLD_MS = 10 * 60 * 1000;
+
 export async function requeueInterruptedBackfills(): Promise<void> {
   try {
-    // Use raw SQL since Drizzle doesn't easily support IN on union-typed columns
     type RunRow = typeof mailboxBackfillRuns.$inferSelect;
-    const result = await db.execute<RunRow>(
-      sql`SELECT * FROM mailbox_backfill_runs WHERE status IN ('queued', 'running') ORDER BY started_at ASC`
-    );
-
-    const rows: RunRow[] = (result as unknown as { rows: RunRow[] }).rows ?? [];
+    const rows: RunRow[] = await db
+      .select()
+      .from(mailboxBackfillRuns)
+      .where(inArray(mailboxBackfillRuns.status, ["queued", "running"]))
+      .orderBy(mailboxBackfillRuns.startedAt);
 
     if (rows.length === 0) return;
 
-    console.log(`[backfill] Re-queuing ${rows.length} interrupted backfill run(s)`);
+    const now = Date.now();
+    const stale: RunRow[] = [];
+    const fresh: RunRow[] = [];
 
     for (const run of rows) {
-      await storage.updateMailboxBackfillRun(run.id, { status: "queued", cancelRequested: false });
-      setImmediate(() => {
-        runBackfill(run.id).catch(err => {
-          console.error(`[backfill] Requeue error for run ${run.id}:`, err);
+      const heartbeat = (run.updatedAt ?? run.startedAt ?? run.createdAt) as Date | null;
+      const ageMs = heartbeat ? now - new Date(heartbeat).getTime() : Number.POSITIVE_INFINITY;
+      if (ageMs > STARTUP_STALE_THRESHOLD_MS) {
+        stale.push(run);
+      } else {
+        fresh.push(run);
+      }
+    }
+
+    if (stale.length > 0) {
+      console.log(`[backfill] Reaping ${stale.length} stale backfill run(s) older than ${STARTUP_STALE_THRESHOLD_MS / 1000}s`);
+      for (const run of stale) {
+        await storage.updateMailboxBackfillRun(run.id, {
+          status: "error",
+          finishedAt: new Date(),
+          errorMessage: "Backfill worker terminated unexpectedly. Please retry.",
         });
-      });
+      }
+    }
+
+    if (fresh.length > 0) {
+      console.log(`[backfill] Re-queuing ${fresh.length} interrupted backfill run(s)`);
+      for (const run of fresh) {
+        await storage.updateMailboxBackfillRun(run.id, { status: "queued", cancelRequested: false });
+        setImmediate(() => {
+          runBackfill(run.id).catch(err => {
+            console.error(`[backfill] Requeue error for run ${run.id}:`, err);
+          });
+        });
+      }
     }
   } catch (err) {
     console.error("[backfill] Error in requeueInterruptedBackfills:", err);

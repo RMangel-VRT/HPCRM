@@ -167,6 +167,14 @@ export default function BackfillPanel({ mailboxAccountId, autoOpen = false }: Ba
     onError: () => toast({ title: "Failed to cancel backfill", variant: "destructive" }),
   });
 
+  const isLikelyStale = (() => {
+    if (!active || active.status !== "running") return false;
+    const heartbeat = active.updatedAt ?? active.startedAt;
+    if (!heartbeat) return false;
+    const ageMs = Date.now() - new Date(heartbeat).getTime();
+    return ageMs > 60_000;
+  })();
+
   function handleStart() {
     let start: Date;
     let end: Date;
@@ -263,6 +271,15 @@ export default function BackfillPanel({ mailboxAccountId, autoOpen = false }: Ba
               </div>
             )}
           </div>
+
+          {isLikelyStale && (
+            <p
+              className="text-xs text-muted-foreground"
+              data-testid={`text-backfill-stuck-hint-${mailboxAccountId}`}
+            >
+              {t("backfill.stuckHint")}
+            </p>
+          )}
 
           <Button
             size="sm"

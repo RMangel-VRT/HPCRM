@@ -4981,7 +4981,7 @@ export class PgStorage implements IStorage {
   async updateMailboxBackfillRun(id: string, updates: Partial<InsertMailboxBackfillRun>): Promise<MailboxBackfillRun | undefined> {
     const [row] = await db
       .update(mailboxBackfillRuns)
-      .set(updates as Partial<typeof mailboxBackfillRuns.$inferInsert>)
+      .set({ ...updates, updatedAt: new Date() } as Partial<typeof mailboxBackfillRuns.$inferInsert>)
       .where(eq(mailboxBackfillRuns.id, id))
       .returning();
     return row;
