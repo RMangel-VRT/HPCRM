@@ -1,7 +1,7 @@
 import { Feather } from "@expo/vector-icons";
-import { Tabs } from "expo-router";
+import { Tabs, useRouter } from "expo-router";
 import React from "react";
-import { Alert, Platform, Pressable, StyleSheet, View } from "react-native";
+import { Platform, Pressable, StyleSheet, View } from "react-native";
 
 import { useColors } from "@/hooks/useColors";
 import { useT } from "@/i18n";
@@ -9,10 +9,11 @@ import { useT } from "@/i18n";
 export default function TabLayout() {
   const colors = useColors();
   const { t } = useT();
+  const router = useRouter();
   const isWeb = Platform.OS === "web";
 
   const onAddFlag = () => {
-    Alert.alert(t("flag.comingSoonTitle"), t("flag.comingSoonBody"));
+    router.push("/flag/new");
   };
 
   return (

@@ -1,6 +1,6 @@
 import type { Express, Request, Response } from "express";
 import { z } from "zod/v4";
-import { and, asc, eq, gte, inArray, lt, sql } from "drizzle-orm";
+import { and, asc, desc, eq, gte, ilike, inArray, lt, or, sql } from "drizzle-orm";
 import { db } from "../db";
 import {
   crews,
@@ -16,6 +16,12 @@ import {
   insertServiceTypeTemplateItemSchema,
   propertySiteNotes,
   insertPropertySiteNoteSchema,
+  contacts,
+  contracts,
+  visualScopeSheets,
+  recentPropertyViews,
+  ticketTypes,
+  ticketTypeStatuses,
 } from "@workspace/db";
 import { getSiteNotesForProperty, serializeSiteNote } from "../services/site-notes";
 import {
@@ -456,13 +462,33 @@ export function registerCrewsAndMobileRoutes(app: Express): void {
   app.get("/api/m/tickets/:id", requireMobileAuth(), async (req, res) => {
     const u = req.user as UserWithContext;
     const crewId = await resolveSupervisorCrewId(u.id, u.activeCompanyId);
-    if (!crewId) {
-      res.status(403).json({ message: "You are not currently assigned to a crew." });
-      return;
-    }
-    const row = await loadMobileTicket(String(req.params.id), u.activeCompanyId, crewId);
+    // Two-tier read access:
+    //   1. Tickets on the supervisor's current crew → fully editable (mutation
+    //      routes below also enforce the crew check).
+    //   2. Otherwise, allow READ access to any company-scoped ticket that is
+    //      already completed (so the property History tab in Slice 5 can open
+    //      cross-crew / older visits without 404). The response carries
+    //      `readOnly: true` so the mobile UI hides start/complete/edit
+    //      affordances; mutation endpoints still 403/404 by crew.
+    let row = crewId ? await loadMobileTicket(String(req.params.id), u.activeCompanyId, crewId) : null;
+    let readOnly = false;
     if (!row) {
-      res.status(404).json({ message: "Ticket not found for your crew" });
+      const [completedRow] = await db
+        .select({ ticket: tickets, customer: customers })
+        .from(tickets)
+        .leftJoin(customers, eq(tickets.customerId, customers.id))
+        .where(and(
+          eq(tickets.id, String(req.params.id)),
+          eq(tickets.companyId, u.activeCompanyId),
+          sql`${tickets.completedAt} is not null`,
+        ));
+      if (completedRow) {
+        row = completedRow;
+        readOnly = true;
+      }
+    }
+    if (!row) {
+      res.status(404).json({ message: "Ticket not found" });
       return;
     }
     const t = row.ticket;
@@ -503,6 +529,10 @@ export function registerCrewsAndMobileRoutes(app: Express): void {
       // without a contract change later.
       photosCount: 0,
       notesCount: 0,
+      // True when the supervisor is viewing a cross-crew completed ticket
+      // (Slice 5 property history). Mobile UI uses this to hide mutation
+      // controls; mutation routes still enforce crew scoping server-side.
+      readOnly,
     });
   });
 
@@ -1164,6 +1194,382 @@ export function registerCrewsAndMobileRoutes(app: Express): void {
       )
       .returning();
     res.status(201).json(inserted.map(serializeWorkItem));
+  });
+
+  // ---------- Mobile v1 Slice 5: Properties directory + profile ----------
+
+  function buildCustomerAddress(c: {
+    street: string | null;
+    city: string | null;
+    state: string | null;
+    zip: string | null;
+  } | null): string | null {
+    if (!c || !c.street) return null;
+    return `${c.street}, ${c.city ?? ""} ${c.state ?? ""} ${c.zip ?? ""}`
+      .replace(/\s+/g, " ")
+      .trim();
+  }
+
+  function serializePropertySummary(c: {
+    id: string;
+    name: string;
+    street: string | null;
+    city: string | null;
+    state: string | null;
+    zip: string | null;
+    customerType: "commercial" | "hoa" | null;
+    ranking: "standard" | "preferred" | "key_account" | null;
+  }) {
+    return {
+      id: c.id,
+      name: c.name,
+      address: buildCustomerAddress(c),
+      city: c.city,
+      state: c.state,
+      customerType: c.customerType,
+      ranking: c.ranking,
+    };
+  }
+
+  // GET /api/m/properties?q=&limit=&recent=1
+  // Default mode returns `{ recent, results }`. When `recent=1` is passed we
+  // return ONLY the recent list (smaller payload for the "Recent" widget on
+  // the Today screen). When `q` is empty we return the top N alphabetically
+  // so the tab is useful even before the supervisor types anything.
+  app.get("/api/m/properties", requireMobileAuth(), async (req, res) => {
+    const u = req.user as UserWithContext;
+    const q = (req.query.q as string | undefined)?.trim() ?? "";
+    const rawLimit = Number.parseInt((req.query.limit as string) ?? "50", 10);
+    const limit = Number.isFinite(rawLimit) ? Math.max(1, Math.min(100, rawLimit)) : 50;
+    const recentOnly = req.query.recent === "1" || req.query.recent === "true";
+
+    const recentRows = await db
+      .select({
+        id: customers.id,
+        name: customers.name,
+        street: customers.street,
+        city: customers.city,
+        state: customers.state,
+        zip: customers.zip,
+        customerType: customers.customerType,
+        ranking: customers.ranking,
+        viewedAt: recentPropertyViews.viewedAt,
+      })
+      .from(recentPropertyViews)
+      .innerJoin(customers, eq(recentPropertyViews.customerId, customers.id))
+      .where(and(
+        eq(recentPropertyViews.userId, u.id),
+        eq(recentPropertyViews.companyId, u.activeCompanyId),
+        eq(customers.companyId, u.activeCompanyId),
+      ))
+      .orderBy(desc(recentPropertyViews.viewedAt))
+      .limit(recentOnly ? 10 : 5);
+
+    if (recentOnly) {
+      res.json({
+        recent: recentRows.map((r) => ({
+          ...serializePropertySummary(r),
+          viewedAt: r.viewedAt ? r.viewedAt.toISOString() : null,
+        })),
+      });
+      return;
+    }
+
+    const filters = [eq(customers.companyId, u.activeCompanyId)];
+    if (q.length > 0) {
+      const pattern = `%${q}%`;
+      const orExpr = or(
+        ilike(customers.name, pattern),
+        ilike(customers.street, pattern),
+        ilike(customers.city, pattern),
+      );
+      if (orExpr) filters.push(orExpr);
+    }
+
+    const resultRows = await db
+      .select({
+        id: customers.id,
+        name: customers.name,
+        street: customers.street,
+        city: customers.city,
+        state: customers.state,
+        zip: customers.zip,
+        customerType: customers.customerType,
+        ranking: customers.ranking,
+      })
+      .from(customers)
+      .where(and(...filters))
+      .orderBy(asc(customers.name))
+      .limit(limit);
+
+    res.json({
+      recent: recentRows.map((r) => ({
+        ...serializePropertySummary(r),
+        viewedAt: r.viewedAt ? r.viewedAt.toISOString() : null,
+      })),
+      results: resultRows.map(serializePropertySummary),
+    });
+  });
+
+  // POST /api/m/properties/:id/view — upsert "recent" entry. Idempotent: each
+  // (user, customer) pair only ever has one row whose `viewedAt` we bump.
+  app.post("/api/m/properties/:id/view", requireMobileAuth(), async (req, res) => {
+    const u = req.user as UserWithContext;
+    const customerId = String(req.params.id);
+    const [c] = await db
+      .select({ id: customers.id })
+      .from(customers)
+      .where(and(eq(customers.id, customerId), eq(customers.companyId, u.activeCompanyId)));
+    if (!c) {
+      res.status(404).json({ message: "Property not found" });
+      return;
+    }
+    const now = new Date();
+    await db
+      .insert(recentPropertyViews)
+      .values({
+        companyId: u.activeCompanyId,
+        userId: u.id,
+        customerId,
+        viewedAt: now,
+      })
+      .onConflictDoUpdate({
+        target: [recentPropertyViews.userId, recentPropertyViews.customerId],
+        set: { viewedAt: now, companyId: u.activeCompanyId },
+      });
+    res.sendStatus(204);
+  });
+
+  // GET /api/m/properties/:id — full profile bundle for the 6-tab detail screen.
+  app.get("/api/m/properties/:id", requireMobileAuth(), async (req, res) => {
+    const u = req.user as UserWithContext;
+    const customerId = String(req.params.id);
+    const [c] = await db
+      .select()
+      .from(customers)
+      .where(and(eq(customers.id, customerId), eq(customers.companyId, u.activeCompanyId)));
+    if (!c) {
+      res.status(404).json({ message: "Property not found" });
+      return;
+    }
+
+    const [contactRows, contractRows, siteNoteRows, mapSheets, recentTicketRows] = await Promise.all([
+      db
+        .select()
+        .from(contacts)
+        .where(eq(contacts.customerId, customerId))
+        .orderBy(desc(contacts.isPrimary), asc(contacts.name)),
+      db
+        .select()
+        .from(contracts)
+        .where(and(
+          eq(contracts.customerId, customerId),
+          eq(contracts.companyId, u.activeCompanyId),
+        ))
+        .orderBy(asc(contracts.serviceType), desc(contracts.startDate)),
+      // Site Notes tab: show all curated notes (global + every service type).
+      db
+        .select()
+        .from(propertySiteNotes)
+        .where(and(
+          eq(propertySiteNotes.customerId, customerId),
+          eq(propertySiteNotes.isActive, true),
+        ))
+        .orderBy(asc(propertySiteNotes.sortOrder), asc(propertySiteNotes.label)),
+      db
+        .select()
+        .from(visualScopeSheets)
+        .where(and(
+          eq(visualScopeSheets.customerId, customerId),
+          eq(visualScopeSheets.companyId, u.activeCompanyId),
+        ))
+        .orderBy(desc(visualScopeSheets.scopeDate)),
+      // History tab requirement: completed visits, reverse chronological by
+      // completedAt. We filter on `completedAt IS NOT NULL` so in-progress /
+      // backlog tickets don't pollute the visit history.
+      db
+        .select({ ticket: tickets, statusName: ticketTypeStatuses.name })
+        .from(tickets)
+        .leftJoin(ticketTypeStatuses, eq(tickets.currentStatusId, ticketTypeStatuses.id))
+        .where(and(
+          eq(tickets.customerId, customerId),
+          eq(tickets.companyId, u.activeCompanyId),
+          sql`${tickets.completedAt} is not null`,
+        ))
+        .orderBy(desc(tickets.completedAt))
+        .limit(50),
+    ]);
+
+    // Photos tab: aggregate completion + ad-hoc photos across the customer's
+    // completed tickets. Each entry preserves the ticket back-reference so the
+    // mobile UI can show "from <ticket title>".
+    const photos: Array<{ ticketId: string; ticketTitle: string; path: string; takenAt: string | null }> = [];
+    for (const r of recentTicketRows) {
+      const t = r.ticket;
+      const list: string[] = [
+        ...(t.completionPhotoStorageKeys ?? []),
+        ...(t.photos ?? []),
+      ];
+      for (const p of list) {
+        if (typeof p === "string" && p.length > 0) {
+          photos.push({
+            ticketId: t.id,
+            ticketTitle: t.title,
+            path: p,
+            takenAt: t.completedAt ? t.completedAt.toISOString() : t.updatedAt ? t.updatedAt.toISOString() : null,
+          });
+        }
+      }
+    }
+
+    res.json({
+      id: c.id,
+      name: c.name,
+      customerNumber: c.customerNumber,
+      address: buildCustomerAddress(c),
+      street: c.street,
+      city: c.city,
+      state: c.state,
+      zip: c.zip,
+      status: c.status,
+      customerType: c.customerType,
+      ranking: c.ranking,
+      complexityScore: c.complexityScore,
+      acres: c.acres,
+      managementCompany: c.managementCompany,
+      snowEnabled: c.snowEnabled,
+      tags: c.tags ?? [],
+      locationLat: c.locationLat,
+      locationLng: c.locationLng,
+      siteNotesQuick: {
+        gateCode: c.gateCode,
+        petStationCount: c.petStationCount,
+        petStationLocations: c.petStationLocations,
+        irrigationControllerLocations: c.irrigationControllerLocations,
+        accessNotes: c.accessNotes,
+        watchOutNotes: c.watchOutNotes,
+      },
+      contacts: (() => {
+        const list = contactRows.map((ct) => ({
+          id: ct.id,
+          name: ct.name,
+          role: ct.role,
+          isPrimary: ct.isPrimary === "true",
+          phones: ct.phones ?? [],
+          emails: ct.emails ?? [],
+        }));
+        return list;
+      })(),
+      // Spec convenience: callers that just want the headline contact don't
+      // have to scan the array.
+      primaryContact: (() => {
+        const c = contactRows.find((x) => x.isPrimary === "true") ?? contactRows[0];
+        if (!c) return null;
+        return {
+          id: c.id,
+          name: c.name,
+          role: c.role,
+          isPrimary: c.isPrimary === "true",
+          phones: c.phones ?? [],
+          emails: c.emails ?? [],
+        };
+      })(),
+      // `services` is the spec name for active contracts on a property.
+      // Both keys are emitted for back-compat with the existing mobile UI.
+      services: contractRows.map((ctr) => ({
+        id: ctr.id,
+        serviceType: ctr.serviceType,
+        billingPattern: ctr.billingPattern,
+        status: ctr.status,
+        startDate: ctr.startDate ? ctr.startDate.toISOString().slice(0, 10) : null,
+        endDate: ctr.endDate ? ctr.endDate.toISOString().slice(0, 10) : null,
+        po: ctr.po,
+        notes: ctr.notes,
+      })),
+      contracts: contractRows.map((ctr) => ({
+        id: ctr.id,
+        serviceType: ctr.serviceType,
+        billingPattern: ctr.billingPattern,
+        status: ctr.status,
+        startDate: ctr.startDate ? ctr.startDate.toISOString().slice(0, 10) : null,
+        endDate: ctr.endDate ? ctr.endDate.toISOString().slice(0, 10) : null,
+        po: ctr.po,
+        // The contracts table stores office-curated exclusions / extra context
+        // in the free-form `notes` column. Surface it so the Services tab can
+        // render a "What's NOT included" panel when populated.
+        notes: ctr.notes,
+      })),
+      siteNotes: siteNoteRows.map(serializeSiteNote),
+      // Spec alias used by mobile clients that consume the full curated set.
+      fullSiteNotes: siteNoteRows.map(serializeSiteNote),
+      maps: mapSheets.map((m) => {
+        // Mobile clients fetch the rendered combined PNG from the export
+        // endpoint; the path is server-rendered (canvas) and may fail at call
+        // time per the canvas-native gotcha — the mobile UI handles that
+        // gracefully. Web full-editor deep link is opened via Linking and is
+        // routed through the shared proxy so it works on the published domain.
+        const combinedPngPath = m.baseImagePath
+          ? `/api/visual-scope-sheets/${m.id}/export/combined?inline=1`
+          : null;
+        const editorPath = `/dashboard/customers/${customerId}/visual-scope/${m.id}`;
+        return {
+          id: m.id,
+          title: m.title,
+          scopeDate: m.scopeDate,
+          status: m.status,
+          hasBaseImage: Boolean(m.baseImagePath),
+          combinedPngPath,
+          editorPath,
+          // Spec-aligned aliases consumed by future clients; existing keys
+          // above retained for back-compat with the just-shipped mobile UI.
+          staticImageUrl: combinedPngPath,
+          editorUrl: editorPath,
+        };
+      }),
+      // Spec convenience: most clients only need the latest map sheet.
+      // The `maps` array remains available for power-user flows.
+      map: (() => {
+        const m = mapSheets[0];
+        if (!m) return null;
+        const combinedPngPath = m.baseImagePath
+          ? `/api/visual-scope-sheets/${m.id}/export/combined?inline=1`
+          : null;
+        const editorPath = `/dashboard/customers/${customerId}/visual-scope/${m.id}`;
+        return {
+          id: m.id,
+          title: m.title,
+          scopeDate: m.scopeDate,
+          status: m.status,
+          hasBaseImage: Boolean(m.baseImagePath),
+          combinedPngPath,
+          editorPath,
+          staticImageUrl: combinedPngPath,
+          editorUrl: editorPath,
+        };
+      })(),
+      // Spec alias `history` mirrors `completedVisits` for back-compat.
+      history: recentTicketRows.map((r) => ({
+        id: r.ticket.id,
+        title: r.ticket.title,
+        priority: r.ticket.priority,
+        mobileStatus: r.ticket.mobileStatus ?? "not_started",
+        status: r.statusName ?? null,
+        dueDate: r.ticket.dueDate ? r.ticket.dueDate.toISOString() : null,
+        completedAt: r.ticket.completedAt ? r.ticket.completedAt.toISOString() : null,
+        serviceType: r.ticket.serviceType,
+      })),
+      completedVisits: recentTicketRows.map((r) => ({
+        id: r.ticket.id,
+        title: r.ticket.title,
+        priority: r.ticket.priority,
+        mobileStatus: r.ticket.mobileStatus ?? "not_started",
+        status: r.statusName ?? null,
+        dueDate: r.ticket.dueDate ? r.ticket.dueDate.toISOString() : null,
+        completedAt: r.ticket.completedAt ? r.ticket.completedAt.toISOString() : null,
+        serviceType: r.ticket.serviceType,
+      })),
+      photos,
+    });
   });
 
   app.get("/api/m/me", requireMobileAuth(), async (req, res) => {

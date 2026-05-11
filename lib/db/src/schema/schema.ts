@@ -3265,3 +3265,25 @@ export const insertTicketWorkItemSchema = createInsertSchema(ticketWorkItems).om
 
 export type InsertTicketWorkItem = z.infer<typeof insertTicketWorkItemSchema>;
 export type TicketWorkItem = typeof ticketWorkItems.$inferSelect;
+
+// Mobile v1 Slice 5: tracks the last time a mobile user opened a property
+// profile so the Properties tab can show a "Recent" section ahead of search.
+export const recentPropertyViews = pgTable("recent_property_views", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  companyId: varchar("company_id").notNull().references(() => companies.id, { onDelete: "cascade" }),
+  userId: varchar("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+  customerId: varchar("customer_id").notNull().references(() => customers.id, { onDelete: "cascade" }),
+  viewedAt: timestamp("viewed_at").notNull().defaultNow(),
+}, (table) => ({
+  recentPropertyViewsUserCustomerUnique: uniqueIndex("recent_property_views_user_customer_unique").on(table.userId, table.customerId),
+  recentPropertyViewsUserViewedAtIdx: index("recent_property_views_user_viewed_at_idx").on(table.userId, table.viewedAt),
+  // Composite covering index for the company-scoped Recent query in
+  // GET /api/m/properties (filters by company + user, orders by viewedAt desc).
+  recentPropertyViewsCompanyUserViewedAtIdx: index("recent_property_views_company_user_viewed_at_idx").on(
+    table.companyId,
+    table.userId,
+    table.viewedAt,
+  ),
+}));
+
+export type RecentPropertyView = typeof recentPropertyViews.$inferSelect;

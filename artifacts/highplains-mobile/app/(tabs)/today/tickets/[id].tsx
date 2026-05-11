@@ -86,6 +86,10 @@ type TicketDetail = {
   workItems: WorkItem[];
   photosCount: number;
   notesCount: number;
+  // True when the supervisor is viewing a completed ticket from outside their
+  // current crew (e.g. via the property History tab). Mutation controls are
+  // hidden client-side; the API also rejects mutations server-side.
+  readOnly?: boolean;
 };
 
 type MissingRequiredError = {
@@ -298,7 +302,10 @@ export default function TicketDetailScreen() {
     ).length;
   }, [data]);
 
-  const completed = data?.mobileStatus === "complete";
+  // `readOnly` from the API takes precedence: a supervisor who navigates to a
+  // completed cross-crew ticket from the property History tab gets the same
+  // mutation-disabled treatment as their own completed tickets.
+  const completed = data?.mobileStatus === "complete" || data?.readOnly === true;
   const completing = completeMutation.isPending;
 
   return (
