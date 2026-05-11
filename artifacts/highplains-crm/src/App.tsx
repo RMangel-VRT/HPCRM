@@ -332,6 +332,7 @@ function Router() {
         </Route>
         <ProtectedRoute path="/dashboard/settings/my-mailbox" component={MyMailboxPage} />
         <ProtectedRoute path="/dashboard/settings/notification-templates" component={ChemicalNotificationTemplates} allowedRoles={["admin"]} />
+        <ProtectedRoute path="/dashboard/settings/crews" component={SettingsPage} allowedRoles={["admin", "office"]} />
         <ProtectedRoute path="/dashboard/reports" component={ReportsPage} allowedRoles={["admin", "office"]} />
         <ProtectedRoute path="/dashboard/users" component={UsersPage} allowedRoles={["admin"]} />
         <ProtectedRoute path="/dashboard/settings" component={SettingsPage} allowedRoles={["admin", "office"]} />

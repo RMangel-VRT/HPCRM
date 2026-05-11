@@ -10,6 +10,10 @@ servers:
 tags:
   - name: health
     description: Health operations
+  - name: mobile-auth
+    description: Mobile bearer-token auth (Slice 0)
+  - name: crews
+    description: Field crews administration
 paths:
   /healthz:
     get:
@@ -24,13 +28,341 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/HealthStatus"
+  /m/auth/login:
+    post:
+      operationId: mobileLogin
+      tags: [mobile-auth]
+      summary: Exchange username/password for a mobile bearer token
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/MobileLoginRequest"
+      responses:
+        "200":
+          description: Token issued
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MobileSession"
+        "400":
+          description: Invalid request body
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "401":
+          description: Invalid credentials
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "403":
+          description: User does not hold a mobile-eligible role
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+  /m/auth/logout:
+    post:
+      operationId: mobileLogout
+      tags: [mobile-auth]
+      summary: Revoke the bearer token used for the current request
+      security:
+        - mobileBearer: []
+      responses:
+        "204":
+          description: Token revoked
+        "401":
+          description: Missing or invalid token
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+  /m/me:
+    get:
+      operationId: mobileMe
+      tags: [mobile-auth]
+      summary: Return the authenticated mobile user
+      security:
+        - mobileBearer: []
+      responses:
+        "200":
+          description: The current user, scoped to their active company
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MobileUser"
+        "401":
+          description: Missing or invalid token
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "403":
+          description: Membership is no longer active or role no longer permitted
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+  /crews:
+    get:
+      operationId: listCrews
+      tags: [crews]
+      summary: List crews for the active company
+      responses:
+        "200":
+          description: Crews
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/CrewWithSupervisor"
+        "401":
+          description: Not authenticated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "403":
+          description: Not authorized (admin/office only)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+    post:
+      operationId: createCrew
+      tags: [crews]
+      summary: Create a crew
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CrewInput"
+      responses:
+        "201":
+          description: Crew created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Crew"
+        "400":
+          description: Invalid input or supervisor not eligible
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "409":
+          description: Duplicate crew name in this company
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+  /crews/eligible-supervisors:
+    get:
+      operationId: listEligibleCrewSupervisors
+      tags: [crews]
+      summary: List users in this company eligible to be a crew supervisor
+      responses:
+        "200":
+          description: Eligible supervisors
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/EligibleSupervisor"
+  /crews/{id}:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+    patch:
+      operationId: updateCrew
+      tags: [crews]
+      summary: Update a crew
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CrewPatch"
+      responses:
+        "200":
+          description: Updated crew
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Crew"
+        "404":
+          description: Not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "409":
+          description: Duplicate crew name in this company
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+    delete:
+      operationId: deleteCrew
+      tags: [crews]
+      summary: Delete a crew
+      responses:
+        "204":
+          description: Deleted
+        "404":
+          description: Not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
 components:
+  securitySchemes:
+    mobileBearer:
+      type: http
+      scheme: bearer
+      bearerFormat: opaque
   schemas:
     HealthStatus:
       type: object
       properties:
         status:
           type: string
-      required:
-        - status
-
+      required: [status]
+    ErrorResponse:
+      type: object
+      properties:
+        message:
+          type: string
+      required: [message]
+    Role:
+      type: string
+      enum:
+        - admin
+        - office
+        - field_manager
+        - chemical_manager
+        - field
+        - irrigation_manager
+        - shop_manager
+        - mapping
+        - landscape_supervisor
+        - crew_supervisor
+    MobileLoginRequest:
+      type: object
+      properties:
+        username:
+          type: string
+          minLength: 1
+        password:
+          type: string
+          minLength: 1
+        deviceLabel:
+          type: string
+          maxLength: 120
+      required: [username, password]
+    MobileUser:
+      type: object
+      properties:
+        id: { type: string }
+        name: { type: string }
+        email:
+          type: string
+          nullable: true
+        phone:
+          type: string
+          nullable: true
+        language:
+          type: string
+          enum: [en, es]
+          nullable: true
+        activeCompanyId: { type: string }
+        activeRole:
+          $ref: "#/components/schemas/Role"
+        isSuperAdminBool:
+          type: boolean
+      required: [id, name, activeCompanyId, activeRole]
+    MobileSession:
+      type: object
+      properties:
+        token:
+          type: string
+          description: "Opaque bearer token to be sent as `Authorization: Bearer <token>` on subsequent /api/m/* requests."
+        expiresAt:
+          type: string
+          format: date-time
+        user:
+          $ref: "#/components/schemas/MobileUser"
+      required: [token, expiresAt, user]
+    Crew:
+      type: object
+      properties:
+        id: { type: string }
+        companyId: { type: string }
+        name: { type: string }
+        supervisorUserId: { type: string }
+        isActive: { type: boolean }
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+      required: [id, companyId, name, supervisorUserId, isActive, createdAt, updatedAt]
+    CrewWithSupervisor:
+      allOf:
+        - $ref: "#/components/schemas/Crew"
+        - type: object
+          properties:
+            supervisorName:
+              type: string
+              nullable: true
+            supervisorEmail:
+              type: string
+              nullable: true
+    CrewInput:
+      type: object
+      properties:
+        name:
+          type: string
+          minLength: 1
+          maxLength: 120
+        supervisorUserId:
+          type: string
+        isActive:
+          type: boolean
+          default: true
+      required: [name, supervisorUserId]
+    CrewPatch:
+      type: object
+      properties:
+        name:
+          type: string
+          minLength: 1
+          maxLength: 120
+        supervisorUserId:
+          type: string
+        isActive:
+          type: boolean
+    EligibleSupervisor:
+      type: object
+      properties:
+        id: { type: string }
+        name: { type: string }
+        email:
+          type: string
+          nullable: true
+        phone:
+          type: string
+          nullable: true
+        role:
+          $ref: "#/components/schemas/Role"
+      required: [id, name, role]

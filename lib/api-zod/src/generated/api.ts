@@ -14,3 +14,161 @@ import * as zod from "zod";
 export const HealthCheckResponse = zod.object({
   status: zod.string(),
 });
+
+/**
+ * @summary Exchange username/password for a mobile bearer token
+ */
+
+export const mobileLoginBodyDeviceLabelMax = 120;
+
+export const MobileLoginBody = zod.object({
+  username: zod.string().min(1),
+  password: zod.string().min(1),
+  deviceLabel: zod.string().max(mobileLoginBodyDeviceLabelMax).optional(),
+});
+
+export const MobileLoginResponse = zod.object({
+  token: zod
+    .string()
+    .describe(
+      "Opaque bearer token to be sent as `Authorization: Bearer <token>` on subsequent \/api\/m\/\* requests.",
+    ),
+  expiresAt: zod.coerce.date(),
+  user: zod.object({
+    id: zod.string(),
+    name: zod.string(),
+    email: zod.string().nullish(),
+    phone: zod.string().nullish(),
+    language: zod.enum(["en", "es"]).nullish(),
+    activeCompanyId: zod.string(),
+    activeRole: zod.enum([
+      "admin",
+      "office",
+      "field_manager",
+      "chemical_manager",
+      "field",
+      "irrigation_manager",
+      "shop_manager",
+      "mapping",
+      "landscape_supervisor",
+      "crew_supervisor",
+    ]),
+    isSuperAdminBool: zod.boolean().optional(),
+  }),
+});
+
+/**
+ * @summary Return the authenticated mobile user
+ */
+export const MobileMeResponse = zod.object({
+  id: zod.string(),
+  name: zod.string(),
+  email: zod.string().nullish(),
+  phone: zod.string().nullish(),
+  language: zod.enum(["en", "es"]).nullish(),
+  activeCompanyId: zod.string(),
+  activeRole: zod.enum([
+    "admin",
+    "office",
+    "field_manager",
+    "chemical_manager",
+    "field",
+    "irrigation_manager",
+    "shop_manager",
+    "mapping",
+    "landscape_supervisor",
+    "crew_supervisor",
+  ]),
+  isSuperAdminBool: zod.boolean().optional(),
+});
+
+/**
+ * @summary List crews for the active company
+ */
+export const ListCrewsResponseItem = zod
+  .object({
+    id: zod.string(),
+    companyId: zod.string(),
+    name: zod.string(),
+    supervisorUserId: zod.string(),
+    isActive: zod.boolean(),
+    createdAt: zod.coerce.date(),
+    updatedAt: zod.coerce.date(),
+  })
+  .and(
+    zod.object({
+      supervisorName: zod.string().nullish(),
+      supervisorEmail: zod.string().nullish(),
+    }),
+  );
+export const ListCrewsResponse = zod.array(ListCrewsResponseItem);
+
+/**
+ * @summary Create a crew
+ */
+export const createCrewBodyNameMax = 120;
+
+export const createCrewBodyIsActiveDefault = true;
+
+export const CreateCrewBody = zod.object({
+  name: zod.string().min(1).max(createCrewBodyNameMax),
+  supervisorUserId: zod.string(),
+  isActive: zod.boolean().default(createCrewBodyIsActiveDefault),
+});
+
+/**
+ * @summary List users in this company eligible to be a crew supervisor
+ */
+export const ListEligibleCrewSupervisorsResponseItem = zod.object({
+  id: zod.string(),
+  name: zod.string(),
+  email: zod.string().nullish(),
+  phone: zod.string().nullish(),
+  role: zod.enum([
+    "admin",
+    "office",
+    "field_manager",
+    "chemical_manager",
+    "field",
+    "irrigation_manager",
+    "shop_manager",
+    "mapping",
+    "landscape_supervisor",
+    "crew_supervisor",
+  ]),
+});
+export const ListEligibleCrewSupervisorsResponse = zod.array(
+  ListEligibleCrewSupervisorsResponseItem,
+);
+
+/**
+ * @summary Update a crew
+ */
+export const UpdateCrewParams = zod.object({
+  id: zod.coerce.string(),
+});
+
+export const updateCrewBodyNameMax = 120;
+
+export const UpdateCrewBody = zod.object({
+  name: zod.string().min(1).max(updateCrewBodyNameMax).optional(),
+  supervisorUserId: zod.string().optional(),
+  isActive: zod.boolean().optional(),
+});
+
+export const UpdateCrewResponse = zod.object({
+  id: zod.string(),
+  companyId: zod.string(),
+  name: zod.string(),
+  supervisorUserId: zod.string(),
+  isActive: zod.boolean(),
+  createdAt: zod.coerce.date(),
+  updatedAt: zod.coerce.date(),
+});
+
+/**
+ * @summary Delete a crew
+ */
+export const DeleteCrewParams = zod.object({
+  id: zod.coerce.string(),
+});

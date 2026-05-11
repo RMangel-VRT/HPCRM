@@ -68,6 +68,13 @@ If you reverse this order, the schema-drift / required-extensions validation wil
 - Scheduling, maintenance crews, snow event tracking
 - Equipment tracking, service plans, chemical notifications
 
+## Mobile app & crews
+
+- Mobile app (`artifacts/highplains-mobile/`) authenticates via bearer tokens against `/api/m/auth/login` (separate from the web's express-session cookie auth). Tokens are stored on-device with `expo-secure-store` (AsyncStorage fallback on web), are SHA-256 hashed at rest in `mobile_auth_tokens`, and use a 90-day sliding-window expiry refreshed on every authenticated request.
+- Mobile access is gated to a small set of roles in `MOBILE_ALLOWED_ROLES` (see `artifacts/api-server/src/mobileAuth.ts`): `crew_supervisor`, `field_manager`, `landscape_supervisor`. A user without one of these roles gets a 403 with a friendly "Mobile access is for crew supervisors" message.
+- **Decision: added a new `crew_supervisor` role enum value** (rather than reusing `field_manager` or `landscape_supervisor`) so the supervisor-of-a-crew concept is explicit and unambiguous in the UI / RBAC. When adding the role to a new spot, search for `crew_supervisor` (or the long role tuple) and add it everywhere `landscape_supervisor` already appears.
+- `crews` table = a supervisor-owned field crew; distinct from the older `maintenance_crews` table which represents schedule-board crews. Admins manage crews under `/dashboard/settings/crews`.
+
 ## User preferences
 
 - Keep the existing `apiRequest` fetch layer — do not introduce OpenAPI/Orval codegen for the CRM frontend

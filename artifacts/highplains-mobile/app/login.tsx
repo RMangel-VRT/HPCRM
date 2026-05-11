@@ -29,8 +29,11 @@ export default function LoginScreen() {
     setLocalError(null);
     try {
       await signIn(username.trim(), password);
-    } catch {
-      setLocalError(t("login.error"));
+    } catch (e) {
+      // Prefer the server's message (e.g. role-gate 403 telling the user that
+      // mobile access is for crew supervisors); fall back to a generic copy.
+      const msg = e instanceof Error && e.message ? e.message : t("login.error");
+      setLocalError(msg);
     }
   };
 

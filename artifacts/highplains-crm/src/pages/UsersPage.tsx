@@ -42,14 +42,14 @@ const createUserSchema = z.object({
   email: z.string().email().optional().or(z.literal("")),
   name: z.string().min(1),
   password: z.string().min(8),
-  role: z.enum(["admin", "office", "field_manager", "chemical_manager", "field", "irrigation_manager", "shop_manager", "mapping", "landscape_supervisor"]),
+  role: z.enum(["admin", "office", "field_manager", "chemical_manager", "field", "irrigation_manager", "shop_manager", "mapping", "landscape_supervisor", "crew_supervisor"]),
   language: z.enum(["en", "es"]).default("en"),
 });
 
 type CreateUserForm = z.infer<typeof createUserSchema>;
 
 const editUserSchema = z.object({
-  role: z.enum(["admin", "office", "field_manager", "chemical_manager", "field", "irrigation_manager", "shop_manager", "mapping", "landscape_supervisor"]),
+  role: z.enum(["admin", "office", "field_manager", "chemical_manager", "field", "irrigation_manager", "shop_manager", "mapping", "landscape_supervisor", "crew_supervisor"]),
   status: z.enum(["active", "invited", "suspended"]),
   password: z.string().min(8, "Password must be at least 8 characters").optional().or(z.literal("")),
 });
@@ -178,7 +178,7 @@ export default function UsersPage() {
   const handleEdit = (user: CompanyUserWithDetails) => {
     setSelectedUser(user);
     editUserForm.reset({
-      role: user.companyUser.role as "admin" | "office" | "field_manager" | "chemical_manager" | "field" | "irrigation_manager" | "shop_manager" | "mapping" | "landscape_supervisor",
+      role: user.companyUser.role as "admin" | "office" | "field_manager" | "chemical_manager" | "field" | "irrigation_manager" | "shop_manager" | "mapping" | "landscape_supervisor" | "crew_supervisor",
       status: user.companyUser.status as "active" | "invited" | "suspended",
     });
     setApplicatorLicenseNumber(user.user?.applicatorLicenseNumber || "");
@@ -355,7 +355,7 @@ export default function UsersPage() {
                 <div className="flex justify-between items-center">
                   <span className="text-sm text-muted-foreground">{t("users.role")}:</span>
                   <RoleBadge 
-                    role={userItem.companyUser.role as "admin" | "office" | "field_manager" | "chemical_manager" | "field" | "irrigation_manager" | "shop_manager" | "mapping" | "landscape_supervisor"} 
+                    role={userItem.companyUser.role as "admin" | "office" | "field_manager" | "chemical_manager" | "field" | "irrigation_manager" | "shop_manager" | "mapping" | "landscape_supervisor" | "crew_supervisor"} 
                     isSuperAdmin={userItem.isSuperAdmin}
                   />
                 </div>

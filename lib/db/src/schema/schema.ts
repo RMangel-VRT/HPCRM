@@ -62,7 +62,7 @@ export const companyUsers = pgTable("company_users", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
   userId: varchar("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
   companyId: varchar("company_id").notNull().references(() => companies.id, { onDelete: "cascade" }),
-  role: text("role").notNull().$type<"admin" | "office" | "field_manager" | "chemical_manager" | "field" | "irrigation_manager" | "shop_manager" | "mapping" | "landscape_supervisor">(),
+  role: text("role").notNull().$type<"admin" | "office" | "field_manager" | "chemical_manager" | "field" | "irrigation_manager" | "shop_manager" | "mapping" | "landscape_supervisor" | "crew_supervisor">(),
   status: text("status").notNull().$type<"active" | "invited" | "suspended">().default("active"),
   tags: text("tags").array().default(sql`ARRAY[]::text[]`),
   invitedAt: timestamp("invited_at"),
@@ -78,7 +78,7 @@ export const insertCompanyUserSchema = createInsertSchema(companyUsers).omit({
   id: true,
   createdAt: true,
 }).extend({
-  role: z.enum(["admin", "office", "field_manager", "chemical_manager", "field", "irrigation_manager", "shop_manager", "mapping", "landscape_supervisor"]),
+  role: z.enum(["admin", "office", "field_manager", "chemical_manager", "field", "irrigation_manager", "shop_manager", "mapping", "landscape_supervisor", "crew_supervisor"]),
   status: z.enum(["active", "invited", "suspended"]).default("active"),
   tags: z.array(z.string()).default([]),
 });
@@ -249,7 +249,7 @@ export const insertContractStatusHistorySchema = createInsertSchema(contractStat
 export type InsertContractStatusHistory = z.infer<typeof insertContractStatusHistorySchema>;
 export type ContractStatusHistory = typeof contractStatusHistory.$inferSelect;
 
-export type RoleName = "admin" | "office" | "field_manager" | "chemical_manager" | "field" | "irrigation_manager" | "shop_manager" | "mapping" | "landscape_supervisor";
+export type RoleName = "admin" | "office" | "field_manager" | "chemical_manager" | "field" | "irrigation_manager" | "shop_manager" | "mapping" | "landscape_supervisor" | "crew_supervisor";
 
 export type MailboxVisibilityConfig = {
   shared: RoleName[];
@@ -3043,3 +3043,56 @@ export const insertMailboxBackfillRunSchema = createInsertSchema(mailboxBackfill
 
 export type InsertMailboxBackfillRun = z.infer<typeof insertMailboxBackfillRunSchema>;
 export type MailboxBackfillRun = typeof mailboxBackfillRuns.$inferSelect;
+
+// Mobile v1 Slice 0: Crews — represents a field crew owned by a supervisor user.
+// Distinct from `maintenance_crews` which is the schedule-board crew concept.
+export const crews = pgTable("crews", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  companyId: varchar("company_id").notNull().references(() => companies.id, { onDelete: "cascade" }),
+  name: text("name").notNull(),
+  supervisorUserId: varchar("supervisor_user_id").notNull().references(() => users.id, { onDelete: "restrict" }),
+  isActive: boolean("is_active").notNull().default(true),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  updatedAt: timestamp("updated_at").notNull().defaultNow(),
+}, (table) => ({
+  crewsCompanyNameUnique: unique("crews_company_name_unique").on(table.companyId, table.name),
+  crewsCompanySupervisorIdx: index("crews_company_supervisor_idx").on(table.companyId, table.supervisorUserId),
+}));
+
+export const insertCrewSchema = createInsertSchema(crews).omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+}).extend({
+  name: z.string().min(1).max(120),
+  isActive: z.boolean().default(true),
+});
+
+export type InsertCrew = z.infer<typeof insertCrewSchema>;
+export type Crew = typeof crews.$inferSelect;
+
+// Mobile v1 Slice 0: Mobile auth tokens — bearer-token sessions for the field-crew app.
+// Coexists with the existing express-session cookie auth used by the web CRM.
+export const mobileAuthTokens = pgTable("mobile_auth_tokens", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  companyId: varchar("company_id").notNull().references(() => companies.id, { onDelete: "cascade" }),
+  userId: varchar("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+  tokenHash: text("token_hash").notNull(),
+  deviceLabel: text("device_label"),
+  lastUsedAt: timestamp("last_used_at").notNull().defaultNow(),
+  expiresAt: timestamp("expires_at").notNull(),
+  revokedAt: timestamp("revoked_at"),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+}, (table) => ({
+  mobileAuthTokensTokenHashIdx: index("mobile_auth_tokens_token_hash_idx").on(table.tokenHash),
+  mobileAuthTokensUserIdx: index("mobile_auth_tokens_user_idx").on(table.userId),
+}));
+
+export const insertMobileAuthTokenSchema = createInsertSchema(mobileAuthTokens).omit({
+  id: true,
+  createdAt: true,
+  lastUsedAt: true,
+});
+
+export type InsertMobileAuthToken = z.infer<typeof insertMobileAuthTokenSchema>;
+export type MobileAuthToken = typeof mobileAuthTokens.$inferSelect;

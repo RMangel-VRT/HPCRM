@@ -1,6 +1,7 @@
 import React, { createContext, useCallback, useContext, useEffect, useState } from "react";
+import { Platform } from "react-native";
 
-import { apiRequest, saveCookie } from "@/lib/api";
+import { ApiError, apiRequest, loadToken, saveToken, setUnauthorizedHandler } from "@/lib/api";
 
 export type Role =
   | "admin"
@@ -11,7 +12,8 @@ export type Role =
   | "irrigation_manager"
   | "shop_manager"
   | "mapping"
-  | "landscape_supervisor";
+  | "landscape_supervisor"
+  | "crew_supervisor";
 
 export type AuthUser = {
   id: string;
@@ -22,7 +24,12 @@ export type AuthUser = {
   activeCompanyId: string;
   activeRole: Role;
   isSuperAdminBool?: boolean;
-  activeCompany?: { id: string; name: string } | null;
+};
+
+type LoginResponse = {
+  token: string;
+  expiresAt: string;
+  user: AuthUser;
 };
 
 type AuthContextValue = {
@@ -44,12 +51,27 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [error, setError] = useState<string | null>(null);
 
   const refresh = useCallback(async () => {
+    const token = await loadToken();
+    if (!token) {
+      setUser(null);
+      return;
+    }
     try {
-      const me = await apiRequest<AuthUser>("/api/auth/me");
+      const me = await apiRequest<AuthUser>("/api/m/me");
       setUser(me);
     } catch {
+      // Token invalid/expired — api layer already cleared it.
       setUser(null);
     }
+  }, []);
+
+  useEffect(() => {
+    setUnauthorizedHandler(() => {
+      // The api layer has already cleared the token; just clear in-memory user
+      // so the AuthGate effect routes us back to /login.
+      setUser(null);
+    });
+    return () => setUnauthorizedHandler(null);
   }, []);
 
   useEffect(() => {
@@ -63,13 +85,19 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     setSigningIn(true);
     setError(null);
     try {
-      const me = await apiRequest<AuthUser>("/api/auth/login", {
+      const deviceLabel = `${Platform.OS}-${Platform.Version ?? ""}`.slice(0, 120);
+      const resp = await apiRequest<LoginResponse>("/api/m/auth/login", {
         method: "POST",
-        body: JSON.stringify({ username, password }),
+        body: JSON.stringify({ username, password, deviceLabel }),
       });
-      setUser(me);
-    } catch (e: any) {
-      setError(e?.message || "Login failed");
+      await saveToken(resp.token);
+      setUser(resp.user);
+    } catch (e) {
+      // Surface the server's message verbatim — especially the role-gate 403
+      // ("Mobile access is for crew supervisors. Contact your admin.").
+      const msg =
+        e instanceof ApiError ? e.message : e instanceof Error ? e.message : "Login failed";
+      setError(msg);
       throw e;
     } finally {
       setSigningIn(false);
@@ -78,9 +106,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const signOut = useCallback(async () => {
     try {
-      await apiRequest("/api/auth/logout", { method: "POST" });
+      await apiRequest("/api/m/auth/logout", { method: "POST" });
     } catch {}
-    await saveCookie(null);
+    await saveToken(null);
     setUser(null);
   }, []);
 

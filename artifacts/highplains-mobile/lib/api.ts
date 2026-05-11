@@ -1,33 +1,50 @@
+import * as SecureStore from "expo-secure-store";
+import { Platform } from "react-native";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 
-const COOKIE_KEY = "hp.session.cookie";
+const TOKEN_KEY = "hp.mobile.token";
 
 const BASE_URL = process.env.EXPO_PUBLIC_DOMAIN
   ? `https://${process.env.EXPO_PUBLIC_DOMAIN}`
   : "";
 
-let cachedCookie: string | null = null;
+let cachedToken: string | null = null;
 
-export async function loadCookie(): Promise<string | null> {
-  if (cachedCookie !== null) return cachedCookie;
-  cachedCookie = (await AsyncStorage.getItem(COOKIE_KEY)) ?? null;
-  return cachedCookie;
+const useSecureStore = Platform.OS !== "web";
+
+export async function loadToken(): Promise<string | null> {
+  if (cachedToken !== null) return cachedToken;
+  cachedToken = useSecureStore
+    ? ((await SecureStore.getItemAsync(TOKEN_KEY)) ?? null)
+    : ((await AsyncStorage.getItem(TOKEN_KEY)) ?? null);
+  return cachedToken;
 }
 
-export async function saveCookie(cookie: string | null): Promise<void> {
-  cachedCookie = cookie;
-  if (cookie) {
-    await AsyncStorage.setItem(COOKIE_KEY, cookie);
+export async function saveToken(token: string | null): Promise<void> {
+  cachedToken = token;
+  if (token) {
+    if (useSecureStore) await SecureStore.setItemAsync(TOKEN_KEY, token);
+    else await AsyncStorage.setItem(TOKEN_KEY, token);
   } else {
-    await AsyncStorage.removeItem(COOKIE_KEY);
+    if (useSecureStore) await SecureStore.deleteItemAsync(TOKEN_KEY);
+    else await AsyncStorage.removeItem(TOKEN_KEY);
   }
 }
 
-function parseSetCookie(setCookie: string | null): string | null {
-  if (!setCookie) return null;
-  const first = setCookie.split(",").find((c) => c.includes("connect.sid")) ?? setCookie;
-  const pair = first.split(";")[0]?.trim();
-  return pair || null;
+// Centralized handler invoked when an authenticated request returns 401.
+// AuthContext registers a callback that clears local user state and routes to /login.
+type UnauthorizedHandler = () => void | Promise<void>;
+let onUnauthorized: UnauthorizedHandler | null = null;
+export function setUnauthorizedHandler(fn: UnauthorizedHandler | null): void {
+  onUnauthorized = fn;
+}
+
+export class ApiError extends Error {
+  status: number;
+  constructor(message: string, status: number) {
+    super(message);
+    this.status = status;
+  }
 }
 
 export async function apiRequest<T = unknown>(
@@ -35,7 +52,7 @@ export async function apiRequest<T = unknown>(
   options: RequestInit = {},
 ): Promise<T> {
   const url = path.startsWith("http") ? path : `${BASE_URL}${path}`;
-  const cookie = await loadCookie();
+  const token = await loadToken();
   const headers: Record<string, string> = {
     Accept: "application/json",
     ...(options.headers as Record<string, string> | undefined),
@@ -43,26 +60,37 @@ export async function apiRequest<T = unknown>(
   if (options.body && !(options.body instanceof FormData) && !headers["Content-Type"]) {
     headers["Content-Type"] = "application/json";
   }
-  if (cookie) headers["Cookie"] = cookie;
+  if (token) headers["Authorization"] = `Bearer ${token}`;
 
-  const res = await fetch(url, { ...options, headers, credentials: "include" });
-
-  const setCookieHeader =
-    typeof (res.headers as any).get === "function"
-      ? res.headers.get("set-cookie")
-      : null;
-  const newCookie = parseSetCookie(setCookieHeader);
-  if (newCookie) await saveCookie(newCookie);
+  const res = await fetch(url, { ...options, headers });
 
   if (!res.ok) {
     let message = `Request failed (${res.status})`;
     try {
       const text = await res.text();
-      if (text) message = text;
+      if (text) {
+        try {
+          const j = JSON.parse(text);
+          message = j.message || text;
+        } catch {
+          message = text;
+        }
+      }
     } catch {}
-    const err = new Error(message) as Error & { status?: number };
-    err.status = res.status;
-    throw err;
+
+    // 401 from any *authenticated* request means our stored token is no longer valid.
+    // Clear it and notify the auth layer so it can redirect to /login.
+    // We deliberately skip this for the login endpoint itself — bad credentials are
+    // a 401 too, but they shouldn't kick a not-yet-authenticated user to "/login".
+    const isLoginCall = path.includes("/api/m/auth/login");
+    if (res.status === 401 && token && !isLoginCall) {
+      await saveToken(null);
+      try {
+        await onUnauthorized?.();
+      } catch {}
+    }
+
+    throw new ApiError(message, res.status);
   }
 
   if (res.status === 204) return undefined as T;

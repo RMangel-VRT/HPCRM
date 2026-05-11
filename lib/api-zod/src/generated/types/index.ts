@@ -6,4 +6,15 @@
  * OpenAPI spec version: 0.1.0
  */
 
+export * from "./crew";
+export * from "./crewInput";
+export * from "./crewPatch";
+export * from "./crewWithSupervisor";
+export * from "./eligibleSupervisor";
+export * from "./errorResponse";
 export * from "./healthStatus";
+export * from "./mobileLoginRequest";
+export * from "./mobileSession";
+export * from "./mobileUser";
+export * from "./mobileUserLanguage";
+export * from "./role";

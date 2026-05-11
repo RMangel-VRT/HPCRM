@@ -255,6 +255,7 @@ export default function AppSidebar({
     if (userRole === "admin") {
       items.push({ title: t("nav.sharedMailboxes"), url: "/dashboard/settings/shared-mailboxes", icon: Mail });
       items.push({ title: "Notification Templates", url: "/dashboard/settings/notification-templates", icon: FileText });
+      items.push({ title: "Crews", url: "/dashboard/settings/crews", icon: Users });
     }
     if (userRole === "admin") {
       items.push({ title: t("nav.team"), url: "/dashboard/users", icon: Users });

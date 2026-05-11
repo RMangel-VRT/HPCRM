@@ -1,7 +1,7 @@
 import { Feather } from "@expo/vector-icons";
 import { Tabs } from "expo-router";
 import React from "react";
-import { Platform, StyleSheet, View } from "react-native";
+import { Alert, Platform, Pressable, StyleSheet, View } from "react-native";
 
 import { useColors } from "@/hooks/useColors";
 import { useT } from "@/i18n";
@@ -10,6 +10,10 @@ export default function TabLayout() {
   const colors = useColors();
   const { t } = useT();
   const isWeb = Platform.OS === "web";
+
+  const onAddFlag = () => {
+    Alert.alert(t("flag.comingSoonTitle"), t("flag.comingSoonBody"));
+  };
 
   return (
     <Tabs
@@ -29,36 +33,55 @@ export default function TabLayout() {
         tabBarBackground: () => (
           <View style={[StyleSheet.absoluteFill, { backgroundColor: colors.background }]} />
         ),
+        headerRight: () => (
+          <Pressable
+            onPress={onAddFlag}
+            accessibilityRole="button"
+            accessibilityLabel={t("flag.add")}
+            style={({ pressed }) => [
+              styles.headerBtn,
+              { backgroundColor: colors.primary, opacity: pressed ? 0.85 : 1 },
+            ]}
+          >
+            <Feather name="flag" size={14} color={colors.primaryForeground} />
+            <View style={{ width: 4 }} />
+            <Feather name="plus" size={14} color={colors.primaryForeground} />
+          </Pressable>
+        ),
       }}
     >
       <Tabs.Screen
-        name="index"
+        name="today"
         options={{
-          title: t("tabs.home"),
-          tabBarIcon: ({ color }) => <Feather name="home" size={22} color={color} />,
+          title: t("tabs.today"),
+          tabBarIcon: ({ color }) => <Feather name="calendar" size={22} color={color} />,
         }}
       />
       <Tabs.Screen
-        name="tickets"
+        name="properties"
         options={{
-          title: t("tabs.tickets"),
-          tabBarIcon: ({ color }) => <Feather name="clipboard" size={22} color={color} />,
+          title: t("tabs.properties"),
+          tabBarIcon: ({ color }) => <Feather name="map-pin" size={22} color={color} />,
         }}
       />
       <Tabs.Screen
-        name="campaigns"
+        name="me"
         options={{
-          title: t("tabs.campaigns"),
-          tabBarIcon: ({ color }) => <Feather name="flag" size={22} color={color} />,
-        }}
-      />
-      <Tabs.Screen
-        name="customers"
-        options={{
-          title: t("tabs.customers"),
-          tabBarIcon: ({ color }) => <Feather name="users" size={22} color={color} />,
+          title: t("tabs.me"),
+          tabBarIcon: ({ color }) => <Feather name="user" size={22} color={color} />,
         }}
       />
     </Tabs>
   );
 }
+
+const styles = StyleSheet.create({
+  headerBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 999,
+    marginRight: 12,
+  },
+});

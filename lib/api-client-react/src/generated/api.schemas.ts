@@ -8,3 +8,101 @@
 export interface HealthStatus {
   status: string;
 }
+
+export interface ErrorResponse {
+  message: string;
+}
+
+export type Role = (typeof Role)[keyof typeof Role];
+
+export const Role = {
+  admin: "admin",
+  office: "office",
+  field_manager: "field_manager",
+  chemical_manager: "chemical_manager",
+  field: "field",
+  irrigation_manager: "irrigation_manager",
+  shop_manager: "shop_manager",
+  mapping: "mapping",
+  landscape_supervisor: "landscape_supervisor",
+  crew_supervisor: "crew_supervisor",
+} as const;
+
+export interface MobileLoginRequest {
+  /** @minLength 1 */
+  username: string;
+  /** @minLength 1 */
+  password: string;
+  /** @maxLength 120 */
+  deviceLabel?: string;
+}
+
+export type MobileUserLanguage =
+  | (typeof MobileUserLanguage)[keyof typeof MobileUserLanguage]
+  | null;
+
+export const MobileUserLanguage = {
+  en: "en",
+  es: "es",
+} as const;
+
+export interface MobileUser {
+  id: string;
+  name: string;
+  email?: string | null;
+  phone?: string | null;
+  language?: MobileUserLanguage;
+  activeCompanyId: string;
+  activeRole: Role;
+  isSuperAdminBool?: boolean;
+}
+
+export interface MobileSession {
+  /** Opaque bearer token to be sent as `Authorization: Bearer <token>` on subsequent /api/m/* requests. */
+  token: string;
+  expiresAt: string;
+  user: MobileUser;
+}
+
+export interface Crew {
+  id: string;
+  companyId: string;
+  name: string;
+  supervisorUserId: string;
+  isActive: boolean;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export type CrewWithSupervisor = Crew & {
+  supervisorName?: string | null;
+  supervisorEmail?: string | null;
+};
+
+export interface CrewInput {
+  /**
+   * @minLength 1
+   * @maxLength 120
+   */
+  name: string;
+  supervisorUserId: string;
+  isActive?: boolean;
+}
+
+export interface CrewPatch {
+  /**
+   * @minLength 1
+   * @maxLength 120
+   */
+  name?: string;
+  supervisorUserId?: string;
+  isActive?: boolean;
+}
+
+export interface EligibleSupervisor {
+  id: string;
+  name: string;
+  email?: string | null;
+  phone?: string | null;
+  role: Role;
+}

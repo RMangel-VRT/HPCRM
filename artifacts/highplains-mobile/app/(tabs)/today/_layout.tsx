@@ -1,0 +1,19 @@
+import { Stack } from "expo-router";
+import React from "react";
+
+import { useColors } from "@/hooks/useColors";
+
+export default function TodayStackLayout() {
+  const colors = useColors();
+  return (
+    <Stack
+      screenOptions={{
+        headerShown: false,
+        contentStyle: { backgroundColor: colors.background },
+      }}
+    >
+      <Stack.Screen name="index" />
+      <Stack.Screen name="tickets/[id]" options={{ headerShown: true, title: "Ticket" }} />
+    </Stack>
+  );
+}

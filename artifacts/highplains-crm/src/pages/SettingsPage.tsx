@@ -26,6 +26,7 @@ import { apiRequest, queryClient } from "@/lib/queryClient";
 import type { Settings, PropertyManagementCompany, PropertyManager, PropertyManagerEmail, PropertyManagerPhone, PropertyManagerWithContacts } from "@shared/schema";
 import ServicePlanTemplatesAdmin from "@/components/ServicePlanTemplatesAdmin";
 import ChemicalProductsAdmin from "@/components/ChemicalProductsAdmin";
+import CrewsAdmin from "@/pages/CrewsAdmin";
 
 interface ManagerEmailInput {
   email: string;
@@ -86,6 +87,7 @@ export default function SettingsPage() {
   const validTabs = [
     'company', 'seasons', 'benchmarks', 'property-management', 'features',
     'email-templates', 'billing', 'service-plans', 'chemical-products', 'notification-templates',
+    'crews',
   ];
   const getDefaultTab = () => {
     const pathSegments = location.split('?')[0].split('/').filter(Boolean);
@@ -560,6 +562,9 @@ export default function SettingsPage() {
           )}
           {isAdmin && (
             <TabsTrigger value="notification-templates" data-testid="tab-notification-templates">Notification Templates</TabsTrigger>
+          )}
+          {isAdmin && (
+            <TabsTrigger value="crews" data-testid="tab-crews">Crews</TabsTrigger>
           )}
         </TabsList>
 
@@ -1164,6 +1169,10 @@ export default function SettingsPage() {
 
         <TabsContent value="chemical-products" className="space-y-6">
           <ChemicalProductsAdmin />
+        </TabsContent>
+
+        <TabsContent value="crews" className="space-y-6" data-testid="content-crews">
+          <CrewsAdmin />
         </TabsContent>
 
         <TabsContent value="notification-templates" className="space-y-6" data-testid="content-notification-templates">

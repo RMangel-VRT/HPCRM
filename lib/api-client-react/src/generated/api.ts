@@ -5,18 +5,32 @@
  * API specification
  * OpenAPI spec version: 0.1.0
  */
-import { useQuery } from "@tanstack/react-query";
+import { useMutation, useQuery } from "@tanstack/react-query";
 import type {
+  MutationFunction,
   QueryFunction,
   QueryKey,
+  UseMutationOptions,
+  UseMutationResult,
   UseQueryOptions,
   UseQueryResult,
 } from "@tanstack/react-query";
 
-import type { HealthStatus } from "./api.schemas";
+import type {
+  Crew,
+  CrewInput,
+  CrewPatch,
+  CrewWithSupervisor,
+  EligibleSupervisor,
+  ErrorResponse,
+  HealthStatus,
+  MobileLoginRequest,
+  MobileSession,
+  MobileUser,
+} from "./api.schemas";
 
 import { customFetch } from "../custom-fetch";
-import type { ErrorType } from "../custom-fetch";
+import type { ErrorType, BodyType } from "../custom-fetch";
 
 type AwaitedInput<T> = PromiseLike<T> | T;
 
@@ -99,3 +113,637 @@ export function useHealthCheck<
 
   return { ...query, queryKey: queryOptions.queryKey };
 }
+
+/**
+ * @summary Exchange username/password for a mobile bearer token
+ */
+export const getMobileLoginUrl = () => {
+  return `/api/m/auth/login`;
+};
+
+export const mobileLogin = async (
+  mobileLoginRequest: MobileLoginRequest,
+  options?: RequestInit,
+): Promise<MobileSession> => {
+  return customFetch<MobileSession>(getMobileLoginUrl(), {
+    ...options,
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...options?.headers },
+    body: JSON.stringify(mobileLoginRequest),
+  });
+};
+
+export const getMobileLoginMutationOptions = <
+  TError = ErrorType<ErrorResponse>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof mobileLogin>>,
+    TError,
+    { data: BodyType<MobileLoginRequest> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof mobileLogin>>,
+  TError,
+  { data: BodyType<MobileLoginRequest> },
+  TContext
+> => {
+  const mutationKey = ["mobileLogin"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof mobileLogin>>,
+    { data: BodyType<MobileLoginRequest> }
+  > = (props) => {
+    const { data } = props ?? {};
+
+    return mobileLogin(data, requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type MobileLoginMutationResult = NonNullable<
+  Awaited<ReturnType<typeof mobileLogin>>
+>;
+export type MobileLoginMutationBody = BodyType<MobileLoginRequest>;
+export type MobileLoginMutationError = ErrorType<ErrorResponse>;
+
+/**
+ * @summary Exchange username/password for a mobile bearer token
+ */
+export const useMobileLogin = <
+  TError = ErrorType<ErrorResponse>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof mobileLogin>>,
+    TError,
+    { data: BodyType<MobileLoginRequest> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof mobileLogin>>,
+  TError,
+  { data: BodyType<MobileLoginRequest> },
+  TContext
+> => {
+  return useMutation(getMobileLoginMutationOptions(options));
+};
+
+/**
+ * @summary Revoke the bearer token used for the current request
+ */
+export const getMobileLogoutUrl = () => {
+  return `/api/m/auth/logout`;
+};
+
+export const mobileLogout = async (options?: RequestInit): Promise<void> => {
+  return customFetch<void>(getMobileLogoutUrl(), {
+    ...options,
+    method: "POST",
+  });
+};
+
+export const getMobileLogoutMutationOptions = <
+  TError = ErrorType<ErrorResponse>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof mobileLogout>>,
+    TError,
+    void,
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof mobileLogout>>,
+  TError,
+  void,
+  TContext
+> => {
+  const mutationKey = ["mobileLogout"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof mobileLogout>>,
+    void
+  > = () => {
+    return mobileLogout(requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type MobileLogoutMutationResult = NonNullable<
+  Awaited<ReturnType<typeof mobileLogout>>
+>;
+
+export type MobileLogoutMutationError = ErrorType<ErrorResponse>;
+
+/**
+ * @summary Revoke the bearer token used for the current request
+ */
+export const useMobileLogout = <
+  TError = ErrorType<ErrorResponse>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof mobileLogout>>,
+    TError,
+    void,
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof mobileLogout>>,
+  TError,
+  void,
+  TContext
+> => {
+  return useMutation(getMobileLogoutMutationOptions(options));
+};
+
+/**
+ * @summary Return the authenticated mobile user
+ */
+export const getMobileMeUrl = () => {
+  return `/api/m/me`;
+};
+
+export const mobileMe = async (options?: RequestInit): Promise<MobileUser> => {
+  return customFetch<MobileUser>(getMobileMeUrl(), {
+    ...options,
+    method: "GET",
+  });
+};
+
+export const getMobileMeQueryKey = () => {
+  return [`/api/m/me`] as const;
+};
+
+export const getMobileMeQueryOptions = <
+  TData = Awaited<ReturnType<typeof mobileMe>>,
+  TError = ErrorType<ErrorResponse>,
+>(options?: {
+  query?: UseQueryOptions<Awaited<ReturnType<typeof mobileMe>>, TError, TData>;
+  request?: SecondParameter<typeof customFetch>;
+}) => {
+  const { query: queryOptions, request: requestOptions } = options ?? {};
+
+  const queryKey = queryOptions?.queryKey ?? getMobileMeQueryKey();
+
+  const queryFn: QueryFunction<Awaited<ReturnType<typeof mobileMe>>> = ({
+    signal,
+  }) => mobileMe({ signal, ...requestOptions });
+
+  return { queryKey, queryFn, ...queryOptions } as UseQueryOptions<
+    Awaited<ReturnType<typeof mobileMe>>,
+    TError,
+    TData
+  > & { queryKey: QueryKey };
+};
+
+export type MobileMeQueryResult = NonNullable<
+  Awaited<ReturnType<typeof mobileMe>>
+>;
+export type MobileMeQueryError = ErrorType<ErrorResponse>;
+
+/**
+ * @summary Return the authenticated mobile user
+ */
+
+export function useMobileMe<
+  TData = Awaited<ReturnType<typeof mobileMe>>,
+  TError = ErrorType<ErrorResponse>,
+>(options?: {
+  query?: UseQueryOptions<Awaited<ReturnType<typeof mobileMe>>, TError, TData>;
+  request?: SecondParameter<typeof customFetch>;
+}): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+  const queryOptions = getMobileMeQueryOptions(options);
+
+  const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
+    queryKey: QueryKey;
+  };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+/**
+ * @summary List crews for the active company
+ */
+export const getListCrewsUrl = () => {
+  return `/api/crews`;
+};
+
+export const listCrews = async (
+  options?: RequestInit,
+): Promise<CrewWithSupervisor[]> => {
+  return customFetch<CrewWithSupervisor[]>(getListCrewsUrl(), {
+    ...options,
+    method: "GET",
+  });
+};
+
+export const getListCrewsQueryKey = () => {
+  return [`/api/crews`] as const;
+};
+
+export const getListCrewsQueryOptions = <
+  TData = Awaited<ReturnType<typeof listCrews>>,
+  TError = ErrorType<ErrorResponse>,
+>(options?: {
+  query?: UseQueryOptions<Awaited<ReturnType<typeof listCrews>>, TError, TData>;
+  request?: SecondParameter<typeof customFetch>;
+}) => {
+  const { query: queryOptions, request: requestOptions } = options ?? {};
+
+  const queryKey = queryOptions?.queryKey ?? getListCrewsQueryKey();
+
+  const queryFn: QueryFunction<Awaited<ReturnType<typeof listCrews>>> = ({
+    signal,
+  }) => listCrews({ signal, ...requestOptions });
+
+  return { queryKey, queryFn, ...queryOptions } as UseQueryOptions<
+    Awaited<ReturnType<typeof listCrews>>,
+    TError,
+    TData
+  > & { queryKey: QueryKey };
+};
+
+export type ListCrewsQueryResult = NonNullable<
+  Awaited<ReturnType<typeof listCrews>>
+>;
+export type ListCrewsQueryError = ErrorType<ErrorResponse>;
+
+/**
+ * @summary List crews for the active company
+ */
+
+export function useListCrews<
+  TData = Awaited<ReturnType<typeof listCrews>>,
+  TError = ErrorType<ErrorResponse>,
+>(options?: {
+  query?: UseQueryOptions<Awaited<ReturnType<typeof listCrews>>, TError, TData>;
+  request?: SecondParameter<typeof customFetch>;
+}): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+  const queryOptions = getListCrewsQueryOptions(options);
+
+  const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
+    queryKey: QueryKey;
+  };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+/**
+ * @summary Create a crew
+ */
+export const getCreateCrewUrl = () => {
+  return `/api/crews`;
+};
+
+export const createCrew = async (
+  crewInput: CrewInput,
+  options?: RequestInit,
+): Promise<Crew> => {
+  return customFetch<Crew>(getCreateCrewUrl(), {
+    ...options,
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...options?.headers },
+    body: JSON.stringify(crewInput),
+  });
+};
+
+export const getCreateCrewMutationOptions = <
+  TError = ErrorType<ErrorResponse>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof createCrew>>,
+    TError,
+    { data: BodyType<CrewInput> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof createCrew>>,
+  TError,
+  { data: BodyType<CrewInput> },
+  TContext
+> => {
+  const mutationKey = ["createCrew"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof createCrew>>,
+    { data: BodyType<CrewInput> }
+  > = (props) => {
+    const { data } = props ?? {};
+
+    return createCrew(data, requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type CreateCrewMutationResult = NonNullable<
+  Awaited<ReturnType<typeof createCrew>>
+>;
+export type CreateCrewMutationBody = BodyType<CrewInput>;
+export type CreateCrewMutationError = ErrorType<ErrorResponse>;
+
+/**
+ * @summary Create a crew
+ */
+export const useCreateCrew = <
+  TError = ErrorType<ErrorResponse>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof createCrew>>,
+    TError,
+    { data: BodyType<CrewInput> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof createCrew>>,
+  TError,
+  { data: BodyType<CrewInput> },
+  TContext
+> => {
+  return useMutation(getCreateCrewMutationOptions(options));
+};
+
+/**
+ * @summary List users in this company eligible to be a crew supervisor
+ */
+export const getListEligibleCrewSupervisorsUrl = () => {
+  return `/api/crews/eligible-supervisors`;
+};
+
+export const listEligibleCrewSupervisors = async (
+  options?: RequestInit,
+): Promise<EligibleSupervisor[]> => {
+  return customFetch<EligibleSupervisor[]>(
+    getListEligibleCrewSupervisorsUrl(),
+    {
+      ...options,
+      method: "GET",
+    },
+  );
+};
+
+export const getListEligibleCrewSupervisorsQueryKey = () => {
+  return [`/api/crews/eligible-supervisors`] as const;
+};
+
+export const getListEligibleCrewSupervisorsQueryOptions = <
+  TData = Awaited<ReturnType<typeof listEligibleCrewSupervisors>>,
+  TError = ErrorType<unknown>,
+>(options?: {
+  query?: UseQueryOptions<
+    Awaited<ReturnType<typeof listEligibleCrewSupervisors>>,
+    TError,
+    TData
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}) => {
+  const { query: queryOptions, request: requestOptions } = options ?? {};
+
+  const queryKey =
+    queryOptions?.queryKey ?? getListEligibleCrewSupervisorsQueryKey();
+
+  const queryFn: QueryFunction<
+    Awaited<ReturnType<typeof listEligibleCrewSupervisors>>
+  > = ({ signal }) =>
+    listEligibleCrewSupervisors({ signal, ...requestOptions });
+
+  return { queryKey, queryFn, ...queryOptions } as UseQueryOptions<
+    Awaited<ReturnType<typeof listEligibleCrewSupervisors>>,
+    TError,
+    TData
+  > & { queryKey: QueryKey };
+};
+
+export type ListEligibleCrewSupervisorsQueryResult = NonNullable<
+  Awaited<ReturnType<typeof listEligibleCrewSupervisors>>
+>;
+export type ListEligibleCrewSupervisorsQueryError = ErrorType<unknown>;
+
+/**
+ * @summary List users in this company eligible to be a crew supervisor
+ */
+
+export function useListEligibleCrewSupervisors<
+  TData = Awaited<ReturnType<typeof listEligibleCrewSupervisors>>,
+  TError = ErrorType<unknown>,
+>(options?: {
+  query?: UseQueryOptions<
+    Awaited<ReturnType<typeof listEligibleCrewSupervisors>>,
+    TError,
+    TData
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+  const queryOptions = getListEligibleCrewSupervisorsQueryOptions(options);
+
+  const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
+    queryKey: QueryKey;
+  };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+/**
+ * @summary Update a crew
+ */
+export const getUpdateCrewUrl = (id: string) => {
+  return `/api/crews/${id}`;
+};
+
+export const updateCrew = async (
+  id: string,
+  crewPatch: CrewPatch,
+  options?: RequestInit,
+): Promise<Crew> => {
+  return customFetch<Crew>(getUpdateCrewUrl(id), {
+    ...options,
+    method: "PATCH",
+    headers: { "Content-Type": "application/json", ...options?.headers },
+    body: JSON.stringify(crewPatch),
+  });
+};
+
+export const getUpdateCrewMutationOptions = <
+  TError = ErrorType<ErrorResponse>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof updateCrew>>,
+    TError,
+    { id: string; data: BodyType<CrewPatch> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof updateCrew>>,
+  TError,
+  { id: string; data: BodyType<CrewPatch> },
+  TContext
+> => {
+  const mutationKey = ["updateCrew"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof updateCrew>>,
+    { id: string; data: BodyType<CrewPatch> }
+  > = (props) => {
+    const { id, data } = props ?? {};
+
+    return updateCrew(id, data, requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type UpdateCrewMutationResult = NonNullable<
+  Awaited<ReturnType<typeof updateCrew>>
+>;
+export type UpdateCrewMutationBody = BodyType<CrewPatch>;
+export type UpdateCrewMutationError = ErrorType<ErrorResponse>;
+
+/**
+ * @summary Update a crew
+ */
+export const useUpdateCrew = <
+  TError = ErrorType<ErrorResponse>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof updateCrew>>,
+    TError,
+    { id: string; data: BodyType<CrewPatch> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof updateCrew>>,
+  TError,
+  { id: string; data: BodyType<CrewPatch> },
+  TContext
+> => {
+  return useMutation(getUpdateCrewMutationOptions(options));
+};
+
+/**
+ * @summary Delete a crew
+ */
+export const getDeleteCrewUrl = (id: string) => {
+  return `/api/crews/${id}`;
+};
+
+export const deleteCrew = async (
+  id: string,
+  options?: RequestInit,
+): Promise<void> => {
+  return customFetch<void>(getDeleteCrewUrl(id), {
+    ...options,
+    method: "DELETE",
+  });
+};
+
+export const getDeleteCrewMutationOptions = <
+  TError = ErrorType<ErrorResponse>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof deleteCrew>>,
+    TError,
+    { id: string },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof deleteCrew>>,
+  TError,
+  { id: string },
+  TContext
+> => {
+  const mutationKey = ["deleteCrew"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof deleteCrew>>,
+    { id: string }
+  > = (props) => {
+    const { id } = props ?? {};
+
+    return deleteCrew(id, requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type DeleteCrewMutationResult = NonNullable<
+  Awaited<ReturnType<typeof deleteCrew>>
+>;
+
+export type DeleteCrewMutationError = ErrorType<ErrorResponse>;
+
+/**
+ * @summary Delete a crew
+ */
+export const useDeleteCrew = <
+  TError = ErrorType<ErrorResponse>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof deleteCrew>>,
+    TError,
+    { id: string },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof deleteCrew>>,
+  TError,
+  { id: string },
+  TContext
+> => {
+  return useMutation(getDeleteCrewMutationOptions(options));
+};
