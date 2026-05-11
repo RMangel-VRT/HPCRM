@@ -4,14 +4,14 @@ import { View } from "react-native";
 
 import { useColors } from "@/hooks/useColors";
 
-export function Logo({ size = 64, withBackground = true }: { size?: number; withBackground?: boolean }) {
+export function Logo({ size = 64, withBackground = false }: { size?: number; withBackground?: boolean }) {
   const colors = useColors();
   return (
     <View
       style={{
         width: size,
         height: size,
-        borderRadius: size / 2,
+        borderRadius: withBackground ? size / 2 : 0,
         backgroundColor: withBackground ? colors.primary : "transparent",
         alignItems: "center",
         justifyContent: "center",
@@ -20,7 +20,7 @@ export function Logo({ size = 64, withBackground = true }: { size?: number; with
     >
       <Image
         source={require("../assets/images/logo.png")}
-        style={{ width: size * 0.78, height: size * 0.78 }}
+        style={{ width: size, height: size }}
         contentFit="contain"
       />
     </View>
