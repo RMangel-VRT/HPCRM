@@ -32,6 +32,12 @@ const colors = {
 
     sidebar: "#373F39",
     sidebarForeground: "#e6e9e3",
+
+    grassUnmowed: "#7a9670",
+    grassStripeLight: "#8aa57f",
+    grassStripeDark: "#6a8861",
+    grassBlade: "#5d7a55",
+    mowerBody: "#3d5a37",
   },
   radius: 8,
 };
