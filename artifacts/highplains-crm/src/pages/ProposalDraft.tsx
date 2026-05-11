@@ -80,6 +80,9 @@ interface SortablePhotoRowProps {
   onDelete: () => void;
   captionPlaceholder: string;
   dragLabel: string;
+  selected: boolean;
+  onSelectChange: (checked: boolean) => void;
+  selectLabel: string;
 }
 
 function SortablePhotoRow({
@@ -90,8 +93,14 @@ function SortablePhotoRow({
   onDelete,
   captionPlaceholder,
   dragLabel,
+  selected,
+  onSelectChange,
+  selectLabel,
 }: SortablePhotoRowProps) {
-  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: img.id });
+  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
+    id: img.id,
+    disabled: selected,
+  });
   const style: React.CSSProperties = {
     transform: CSS.Transform.toString(transform),
     transition,
@@ -104,12 +113,20 @@ function SortablePhotoRow({
       className="flex gap-3 items-start p-3 rounded-md border bg-background"
       data-testid={`div-image-${img.id}`}
     >
+      <Checkbox
+        checked={selected}
+        onCheckedChange={(v) => onSelectChange(v === true)}
+        aria-label={selectLabel}
+        className="mt-1.5 shrink-0"
+        data-testid={`checkbox-image-${img.id}`}
+      />
       <button
         type="button"
-        className="shrink-0 mt-1 cursor-grab active:cursor-grabbing text-muted-foreground hover:text-foreground touch-none"
+        className="shrink-0 mt-1 cursor-grab active:cursor-grabbing text-muted-foreground hover:text-foreground touch-none disabled:cursor-not-allowed disabled:opacity-40"
         aria-label={dragLabel}
         title={dragLabel}
         data-testid={`button-drag-image-${img.id}`}
+        disabled={selected}
         {...attributes}
         {...listeners}
       >
@@ -172,6 +189,8 @@ export default function ProposalDraft() {
   const [fileToDelete, setFileToDelete] = useState<ProposalFile | null>(null);
   const [deleteProposalOpen, setDeleteProposalOpen] = useState(false);
   const [finalizeDialogOpen, setFinalizeDialogOpen] = useState(false);
+  const [selectedImageIds, setSelectedImageIds] = useState<Set<string>>(new Set());
+  const [bulkDeleteOpen, setBulkDeleteOpen] = useState(false);
 
   const [captionDrafts, setCaptionDrafts] = useState<Record<string, string>>({});
 
@@ -266,10 +285,36 @@ export default function ProposalDraft() {
     mutationFn: async (fileId: string) => {
       return apiRequest("DELETE", `/api/proposals/${id}/files/${fileId}`);
     },
-    onSuccess: () => {
+    onSuccess: (_data, fileId) => {
       queryClient.invalidateQueries({ queryKey: ["/api/proposals", id] });
       setFileToDelete(null);
+      setSelectedImageIds((prev) => {
+        if (!prev.has(fileId)) return prev;
+        const next = new Set(prev);
+        next.delete(fileId);
+        return next;
+      });
       toast({ title: t("common.delete") });
+    },
+    onError: () => {
+      toast({ title: t("common.error"), variant: "destructive" });
+    },
+  });
+
+  const bulkDeleteFilesMutation = useMutation({
+    mutationFn: async (fileIds: string[]) => {
+      const res = await apiRequest("POST", `/api/proposals/${id}/files/bulk-delete`, { fileIds });
+      if (!res.ok) {
+        const msg = await res.text();
+        throw new Error(msg || "Bulk delete failed");
+      }
+      return res.json() as Promise<{ deletedCount: number }>;
+    },
+    onSuccess: (data) => {
+      queryClient.invalidateQueries({ queryKey: ["/api/proposals", id] });
+      setSelectedImageIds(new Set());
+      setBulkDeleteOpen(false);
+      toast({ title: t("proposals.photosDeleted", { count: data.deletedCount, defaultValue: "{{count}} photos deleted" }) });
     },
     onError: () => {
       toast({ title: t("common.error"), variant: "destructive" });
@@ -296,6 +341,7 @@ export default function ProposalDraft() {
   const handlePhotoDragEnd = (event: DragEndEvent) => {
     const { active, over } = event;
     if (!over || active.id === over.id) return;
+    if (selectedImageIds.has(String(active.id))) return;
     const oldIndex = images.findIndex(i => i.id === active.id);
     const newIndex = images.findIndex(i => i.id === over.id);
     if (oldIndex < 0 || newIndex < 0) return;
@@ -946,6 +992,50 @@ export default function ProposalDraft() {
             <p className="text-sm text-muted-foreground mb-3">{t("proposals.addPhotos")}</p>
           )}
 
+          {images.length > 0 && selectedImageIds.size > 0 && (
+            <div
+              className="flex items-center justify-between gap-2 mb-3 p-2.5 rounded-md border bg-muted/40"
+              data-testid="bar-bulk-photo-actions"
+            >
+              <div className="flex items-center gap-3 text-sm">
+                <span data-testid="text-selected-count">
+                  {t("proposals.photosSelected", { count: selectedImageIds.size, defaultValue: "{{count}} selected" })}
+                </span>
+                <button
+                  type="button"
+                  className="text-xs text-muted-foreground hover:text-foreground underline"
+                  onClick={() => setSelectedImageIds(new Set())}
+                  data-testid="button-clear-selection"
+                >
+                  {t("common.clear", { defaultValue: "Clear" })}
+                </button>
+                {selectedImageIds.size < images.length && (
+                  <button
+                    type="button"
+                    className="text-xs text-muted-foreground hover:text-foreground underline"
+                    onClick={() => setSelectedImageIds(new Set(images.map(i => i.id)))}
+                    data-testid="button-select-all"
+                  >
+                    {t("common.selectAll", { defaultValue: "Select all" })}
+                  </button>
+                )}
+              </div>
+              <Button
+                size="sm"
+                variant="destructive"
+                onClick={() => setBulkDeleteOpen(true)}
+                disabled={bulkDeleteFilesMutation.isPending}
+                data-testid="button-delete-selected-photos"
+              >
+                {bulkDeleteFilesMutation.isPending ? (
+                  <><Loader2 className="w-4 h-4 mr-2 animate-spin" /> {t("common.delete")}</>
+                ) : (
+                  <><Trash2 className="w-4 h-4 mr-2" /> {t("proposals.deleteSelected", { defaultValue: "Delete selected" })}</>
+                )}
+              </Button>
+            </div>
+          )}
+
           {images.length > 0 && (
             <DndContext
               sensors={sortableSensors}
@@ -971,6 +1061,15 @@ export default function ProposalDraft() {
                       onDelete={() => setFileToDelete(img)}
                       captionPlaceholder={t("proposals.captionPlaceholder")}
                       dragLabel={t("proposals.dragToReorder", { defaultValue: "Drag to reorder" })}
+                      selected={selectedImageIds.has(img.id)}
+                      onSelectChange={(checked) => {
+                        setSelectedImageIds((prev) => {
+                          const next = new Set(prev);
+                          if (checked) next.add(img.id); else next.delete(img.id);
+                          return next;
+                        });
+                      }}
+                      selectLabel={t("proposals.selectPhoto", { defaultValue: "Select photo" })}
                     />
                   ))}
                 </div>
@@ -1102,6 +1201,29 @@ export default function ProposalDraft() {
             <AlertDialogAction
               onClick={() => fileToDelete && deleteFileMutation.mutate(fileToDelete.id)}
               data-testid="button-confirm-delete-file"
+            >
+              {t("common.delete")}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      <AlertDialog open={bulkDeleteOpen} onOpenChange={setBulkDeleteOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>
+              {t("proposals.deleteSelectedPhotos", { count: selectedImageIds.size, defaultValue: "Delete {{count}} photos?" })}
+            </AlertDialogTitle>
+            <AlertDialogDescription>
+              {t("ticketDetail.cannotUndo")}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel data-testid="button-cancel-bulk-delete">{t("common.cancel")}</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={() => bulkDeleteFilesMutation.mutate(Array.from(selectedImageIds))}
+              disabled={bulkDeleteFilesMutation.isPending}
+              data-testid="button-confirm-bulk-delete"
             >
               {t("common.delete")}
             </AlertDialogAction>

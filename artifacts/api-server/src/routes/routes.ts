@@ -10922,6 +10922,38 @@ export async function registerRoutes(app: Express): Promise<Server> {
     res.json(updated);
   });
 
+  app.post("/api/proposals/:id/files/bulk-delete", async (req, res) => {
+    if (!req.isAuthenticated()) return res.status(401).send("Not authenticated");
+    const user = req.user as UserWithContext;
+    if (!canAccessProposals(user.activeRole)) return res.status(403).send("Insufficient permissions");
+
+    const proposal = await storage.getProposal(req.params.id, user.activeCompanyId);
+    if (!proposal) return res.status(404).send("Proposal not found");
+
+    const { fileIds } = req.body as { fileIds?: unknown };
+    if (!Array.isArray(fileIds) || !fileIds.every(id => typeof id === "string") || fileIds.length === 0) {
+      return res.status(400).send("fileIds must be a non-empty array of strings");
+    }
+
+    const files = await Promise.all(
+      (fileIds as string[]).map(fid => storage.getProposalFileById(fid, user.activeCompanyId))
+    );
+    const validFiles = files.filter((f): f is NonNullable<typeof f> => !!f && f.proposalId === req.params.id && f.fileType === "image");
+    if (validFiles.length === 0) return res.status(404).send("No matching image files found");
+
+    const bucketId = process.env.DEFAULT_OBJECT_STORAGE_BUCKET_ID;
+    if (bucketId) {
+      const bucket = objectStorageClient.bucket(bucketId);
+      await Promise.all(validFiles.map(async (file) => {
+        const objectName = file.storageObjectPath.startsWith("/") ? file.storageObjectPath.slice(1) : file.storageObjectPath;
+        try { await bucket.file(objectName).delete({ ignoreNotFound: true }); } catch (_e) { /* ignore */ }
+      }));
+    }
+
+    const deleted = await storage.deleteProposalFiles(validFiles.map(f => f.id), user.activeCompanyId);
+    res.json({ success: true, deletedCount: deleted.length });
+  });
+
   app.delete("/api/proposals/:id/files/:fileId", async (req, res) => {
     if (!req.isAuthenticated()) return res.status(401).send("Not authenticated");
     const user = req.user as UserWithContext;

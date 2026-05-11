@@ -346,6 +346,7 @@ export interface IStorage {
   updateProposalFile(id: string, companyId: string, updates: { caption?: string | null }): Promise<ProposalFile | undefined>;
   reorderProposalImageFiles(proposalId: string, companyId: string, orderedIds: string[]): Promise<ProposalFile[]>;
   deleteProposalFile(id: string, companyId: string): Promise<void>;
+  deleteProposalFiles(ids: string[], companyId: string): Promise<ProposalFile[]>;
   createProposalVersion(v: InsertProposalVersion): Promise<ProposalVersion>;
   getProposalVersions(proposalId: string, companyId: string): Promise<ProposalVersionWithUser[]>;
   getProposalVersionById(id: string, companyId: string): Promise<ProposalVersionWithUser | undefined>;
@@ -3204,6 +3205,15 @@ export class PgStorage implements IStorage {
 
   async deleteProposalFile(id: string, companyId: string): Promise<void> {
     await db.delete(proposalFiles).where(and(eq(proposalFiles.id, id), eq(proposalFiles.companyId, companyId)));
+  }
+
+  async deleteProposalFiles(ids: string[], companyId: string): Promise<ProposalFile[]> {
+    if (ids.length === 0) return [];
+    const deleted = await db
+      .delete(proposalFiles)
+      .where(and(inArray(proposalFiles.id, ids), eq(proposalFiles.companyId, companyId)))
+      .returning();
+    return deleted;
   }
 
   async createProposalVersion(v: InsertProposalVersion): Promise<ProposalVersion> {
