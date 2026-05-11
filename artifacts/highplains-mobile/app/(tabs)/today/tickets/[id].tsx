@@ -154,39 +154,15 @@ export default function TicketDetailScreen() {
     });
   }, [router, ticketId, data?.customer?.id, data?.customer?.name]);
 
-  // Slice 4: every mobile screen exposes a "+ Flag" affordance. The
-  // tabs layout already adds one to the tab header, but ticket detail
-  // pushes its own stack header (today/_layout.tsx) so we wire a
-  // headerRight here too. Pre-fills ticket + property context.
+  // Slice 8: only set the screen title from the loaded ticket. The duplicate
+  // headerRight "+ Flag" affordance was removed — the pinned bottom action
+  // bar already exposes "Flag" (see ticket.flag.button), one affordance per
+  // screen is enough.
   useLayoutEffect(() => {
     navigation.setOptions({
       title: query.data?.title ?? "Ticket",
-      headerRight: () => (
-        <Pressable
-          onPress={onPressFlag}
-          accessibilityRole="button"
-          accessibilityLabel={t("flag.add")}
-          hitSlop={10}
-          style={({ pressed }) => [
-            {
-              flexDirection: "row",
-              alignItems: "center",
-              gap: 4,
-              paddingHorizontal: 10,
-              paddingVertical: 6,
-              borderRadius: 14,
-              backgroundColor: colors.primary,
-              opacity: pressed ? 0.85 : 1,
-              marginRight: 8,
-            },
-          ]}
-        >
-          <Feather name="flag" size={13} color={colors.primaryForeground} />
-          <Feather name="plus" size={13} color={colors.primaryForeground} />
-        </Pressable>
-      ),
     });
-  }, [navigation, query.data?.title, onPressFlag, t, colors.primary, colors.primaryForeground]);
+  }, [navigation, query.data?.title]);
 
   const patchItemMutation = useMutation({
     mutationFn: async (vars: {

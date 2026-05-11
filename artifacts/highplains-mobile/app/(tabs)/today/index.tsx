@@ -18,6 +18,8 @@ import { PriorityPill } from "@/components/Pill";
 import { StatusPill, type MobileStopStatus } from "@/components/StatusPill";
 import { useAuth } from "@/contexts/AuthContext";
 import { useColors } from "@/hooks/useColors";
+
+
 import { useT } from "@/i18n";
 import { ApiError, apiRequest } from "@/lib/api";
 import { warmSyncFromAggregator } from "@/lib/persisted-query-client";
@@ -57,8 +59,6 @@ function todayYmd(): string {
   const d = new Date();
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
 }
-const INFO_COLOR = "#2563eb";
-
 function formatTime(iso: string | null): string | null {
   if (!iso) return null;
   const d = new Date(iso);
@@ -82,7 +82,7 @@ export default function TodayScreen() {
   const colors = useColors();
   const insets = useSafeAreaInsets();
   const router = useRouter();
-  const { user, signOut } = useAuth();
+  const { signOut } = useAuth();
   const { t } = useT();
   const queryClient = useQueryClient();
   const [startingId, setStartingId] = useState<string | null>(null);
@@ -184,18 +184,26 @@ export default function TodayScreen() {
     [data],
   );
 
+  // Slice 8: collapsed two-line header.
+  //  Line 1 (small/uppercase, muted): "{date} · {crewName}"  e.g. "Monday, May 11 · Test Crew"
+  //  Line 2 (medium, foreground):     daySummaryLine
+  // The "Today, {firstName}" greeting was removed — the tab title already
+  // says "Today", so it was redundant.
+  const headerLineOne = useMemo(() => {
+    if (!data) return "";
+    const datePart = formatDateLabel(data.date);
+    return data.crewName ? `${datePart} · ${data.crewName}` : datePart;
+  }, [data]);
+
   const renderHeader = () => (
     <View style={styles.headerWrap}>
-      <Text style={[styles.dateLabel, { color: colors.mutedForeground }]}>
-        {data ? formatDateLabel(data.date) : ""}
-      </Text>
-      <Text style={[styles.greeting, { color: colors.foreground }]}>
-        {`${t("today.greeting")}${user?.name ? `, ${user.name.split(" ")[0]}` : ""}`}
-      </Text>
-      {data?.crewName ? (
-        <Text style={[styles.sub, { color: colors.mutedForeground }]}>
-          {`${t("today.crewLabel")}: ${data.crewName}`}
+      {headerLineOne ? (
+        <Text style={[styles.dateLabel, { color: colors.mutedForeground }]}>
+          {headerLineOne}
         </Text>
+      ) : null}
+      {data && data.summary.total > 0 && daySummaryLine ? (
+        <Text style={[styles.daySummary, { color: colors.foreground }]}>{daySummaryLine}</Text>
       ) : null}
 
       {isOtherDay ? (
@@ -222,10 +230,6 @@ export default function TodayScreen() {
             </Text>
           </Pressable>
         </View>
-      ) : null}
-
-      {data && data.summary.total > 0 && daySummaryLine ? (
-        <Text style={[styles.daySummary, { color: colors.foreground }]}>{daySummaryLine}</Text>
       ) : null}
 
       {showInlineErrorBanner ? (
@@ -427,9 +431,14 @@ function StopCard({
   const colors = useColors();
   const { t } = useT();
   const order = stop.routeOrder ?? index + 1;
-  const subtitle = stop.customerName ?? stop.locationLabel ?? "";
+  // Slice 8: lead with property name as the primary line. Service title
+  // becomes the secondary line. Address stays tertiary. Priority pill only
+  // shows when high or urgent; status pill is always shown but on the top
+  // row alongside the scheduled time.
+  const propertyName = stop.customerName ?? stop.locationLabel ?? "";
   const address = stop.customerAddress ?? "";
   const scheduledTime = formatTime(stop.dueDate);
+  const showPriority = stop.priority === "high" || stop.priority === "urgent";
 
   return (
     <Pressable
@@ -438,13 +447,13 @@ function StopCard({
         styles.stop,
         {
           backgroundColor: colors.card,
-          borderColor: isActive ? INFO_COLOR : colors.border,
+          borderColor: isActive ? colors.primary : colors.border,
           borderWidth: isActive ? 2 : 1,
           opacity: pressed ? 0.85 : 1,
         },
       ]}
       accessibilityRole="button"
-      accessibilityLabel={stop.title}
+      accessibilityLabel={`${propertyName || stop.title} ${stop.title}`}
     >
       <View style={[styles.orderBadge, { backgroundColor: colors.primary + "1A" }]}>
         <Text style={[styles.orderText, { color: colors.primary }]}>{order}</Text>
@@ -461,33 +470,28 @@ function StopCard({
               {t("today.unscheduled")}
             </Text>
           )}
-          {!!subtitle && (
-            <Text
-              style={[styles.stopCustomer, { color: colors.mutedForeground }]}
-              numberOfLines={1}
-            >
-              · {subtitle}
-            </Text>
-          )}
+          <StatusPill status={stop.mobileStatus} />
+          {showPriority ? <PriorityPill priority={stop.priority} /> : null}
+          {starting ? (
+            <ActivityIndicator size="small" color={colors.mutedForeground} style={{ marginLeft: 4 }} />
+          ) : null}
         </View>
 
-        <Text style={[styles.stopTitle, { color: colors.foreground }]} numberOfLines={2}>
+        {propertyName ? (
+          <Text style={[styles.stopProperty, { color: colors.foreground }]} numberOfLines={1}>
+            {propertyName}
+          </Text>
+        ) : null}
+
+        <Text style={[styles.stopTitle, { color: colors.mutedForeground }]} numberOfLines={2}>
           {stop.title}
         </Text>
 
-        {!!address && (
+        {address ? (
           <Text style={[styles.stopAddress, { color: colors.mutedForeground }]} numberOfLines={1}>
             {address}
           </Text>
-        )}
-
-        <View style={styles.pillsRow}>
-          <StatusPill status={stop.mobileStatus} />
-          <PriorityPill priority={stop.priority} />
-          {starting && (
-            <ActivityIndicator size="small" color={colors.mutedForeground} style={{ marginLeft: 4 }} />
-          )}
-        </View>
+        ) : null}
       </View>
 
       <Feather name="chevron-right" size={20} color={colors.mutedForeground} />
@@ -505,9 +509,7 @@ const styles = StyleSheet.create({
     textTransform: "uppercase",
     letterSpacing: 0.6,
   },
-  greeting: { fontFamily: "Inter_700Bold", fontSize: 26 },
-  sub: { fontFamily: "Inter_400Regular", fontSize: 14 },
-  daySummary: { fontFamily: "Inter_600SemiBold", fontSize: 14, marginTop: 6 },
+  daySummary: { fontFamily: "Inter_600SemiBold", fontSize: 14, marginTop: 4 },
   errorBanner: {
     flexDirection: "row",
     alignItems: "center",
@@ -556,12 +558,11 @@ const styles = StyleSheet.create({
   },
   orderText: { fontFamily: "Inter_700Bold", fontSize: 14 },
   stopBody: { flex: 1, gap: 4 },
-  stopHeaderRow: { flexDirection: "row", alignItems: "center", flexWrap: "wrap", gap: 4 },
+  stopHeaderRow: { flexDirection: "row", alignItems: "center", flexWrap: "wrap", gap: 6 },
   scheduledTime: { fontFamily: "Inter_700Bold", fontSize: 13 },
-  stopTitle: { fontFamily: "Inter_600SemiBold", fontSize: 15 },
-  stopCustomer: { fontFamily: "Inter_500Medium", fontSize: 13 },
+  stopProperty: { fontFamily: "Inter_600SemiBold", fontSize: 16 },
+  stopTitle: { fontFamily: "Inter_500Medium", fontSize: 14 },
   stopAddress: { fontFamily: "Inter_400Regular", fontSize: 12 },
-  pillsRow: { flexDirection: "row", alignItems: "center", flexWrap: "wrap", gap: 6, marginTop: 6 },
   skeletonList: { gap: 12, marginTop: 8 },
   skeletonBadge: { width: 36, height: 36, borderRadius: 18 },
   skeletonLine: { height: 12, borderRadius: 6 },

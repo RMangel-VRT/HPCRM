@@ -9,6 +9,7 @@ import {
   pool,
   ticketTypeStatuses,
   ticketTypes,
+  ticketWorkItems,
   tickets,
   users,
 } from "@workspace/db";
@@ -46,26 +47,180 @@ const SEED_CUSTOMERS: SeedCustomer[] = [
   { customerNumber: "MTEST-006", name: "River Oaks Estates",     street: "402 Riverbend Ln",    city: "Windsor",    state: "CO", zip: "80550" },
 ];
 
+interface SeedWorkItem {
+  label: string;
+  isRequired?: boolean;
+  photoRequired?: boolean;
+}
+
 interface SeedTicket {
   customerIdx: number;
   title: string;
+  description: string;
   priority: "low" | "normal" | "high" | "urgent";
   routeOrder: number | null;
   mobileStatus: "not_started" | "in_progress" | "complete" | "skipped" | "flagged";
   hourOffset: number;
+  minuteOffset: number;
   dayOffset: number;
+  workItems: SeedWorkItem[];
 }
 
+// Slice 8: realistic per-ticket descriptions and 3–5 work items per ticket
+// (1–2 marked required) so the ticket-detail completion flow has something
+// real to demonstrate. One ticket carries a `photoRequired` item so the
+// photo-required UX can be exercised end-to-end.
 const SEED_TICKETS: SeedTicket[] = [
-  { customerIdx: 0, title: "Mow & trim front lawn",      priority: "normal", routeOrder: 1,    mobileStatus: "in_progress", hourOffset: 8,  dayOffset: 0 },
-  { customerIdx: 1, title: "Weekly maintenance visit",   priority: "high",   routeOrder: 2,    mobileStatus: "not_started", hourOffset: 9,  dayOffset: 0 },
-  { customerIdx: 2, title: "Trim hedges along walkway",  priority: "low",    routeOrder: 3,    mobileStatus: "not_started", hourOffset: 10, dayOffset: 0 },
-  { customerIdx: 3, title: "Spray weeds in parking lot", priority: "normal", routeOrder: 4,    mobileStatus: "flagged",     hourOffset: 11, dayOffset: 0 },
-  { customerIdx: 4, title: "Refill pet stations",        priority: "low",    routeOrder: 5,    mobileStatus: "not_started", hourOffset: 13, dayOffset: 0 },
-  { customerIdx: 5, title: "Walk property w/ manager",   priority: "urgent", routeOrder: null, mobileStatus: "not_started", hourOffset: 14, dayOffset: 0 },
-  { customerIdx: 0, title: "Earlier completed visit",    priority: "normal", routeOrder: 0,    mobileStatus: "complete",    hourOffset: 7,  dayOffset: 0 },
-  { customerIdx: 1, title: "Yesterday's mowing pass",    priority: "normal", routeOrder: 1,    mobileStatus: "not_started", hourOffset: 9,  dayOffset: -1 },
-  { customerIdx: 2, title: "Tomorrow follow-up",         priority: "normal", routeOrder: 1,    mobileStatus: "not_started", hourOffset: 9,  dayOffset: 1 },
+  {
+    customerIdx: 0,
+    title: "Mow & trim front lawn",
+    description: "Standard weekly mow on the front common area. Watch for the sprinkler heads near the entrance sign — one was nicked last week.",
+    priority: "normal",
+    routeOrder: 1,
+    mobileStatus: "in_progress",
+    hourOffset: 7,
+    minuteOffset: 30,
+    dayOffset: 0,
+    workItems: [
+      { label: "Mow front common area" },
+      { label: "Trim around entrance sign and light poles", isRequired: true },
+      { label: "Edge along curb and sidewalks" },
+      { label: "Blow off all hardscape", isRequired: true },
+    ],
+  },
+  {
+    customerIdx: 1,
+    title: "Weekly maintenance visit",
+    description: "Full weekly service: mow, trim, edge, and blow off. Property manager has flagged the back planter — check irrigation while you're back there.",
+    priority: "high",
+    routeOrder: 2,
+    mobileStatus: "not_started",
+    hourOffset: 8,
+    minuteOffset: 30,
+    dayOffset: 0,
+    workItems: [
+      { label: "Mow all common areas (front + back)" },
+      { label: "Trim along buildings A through D", isRequired: true },
+      { label: "Edge sidewalks and tree rings" },
+      { label: "Check back planter irrigation — photo of any damage", photoRequired: true, isRequired: true },
+      { label: "Blow off all hardscape" },
+    ],
+  },
+  {
+    customerIdx: 2,
+    title: "Trim hedges along walkway",
+    description: "Hedges along the south walkway have been overgrowing into the path. Trim back roughly 6\" and clean up clippings.",
+    priority: "low",
+    routeOrder: 3,
+    mobileStatus: "not_started",
+    hourOffset: 9,
+    minuteOffset: 30,
+    dayOffset: 0,
+    workItems: [
+      { label: "Trim hedges 6\" off walkway", isRequired: true },
+      { label: "Bag and haul clippings" },
+      { label: "Sweep walkway clean" },
+    ],
+  },
+  {
+    customerIdx: 3,
+    title: "Spray weeds in parking lot",
+    description: "Spot-spray weeds coming up through cracks in the parking lot and along the loading dock. Use the post-emergent in the truck.",
+    priority: "normal",
+    routeOrder: 4,
+    mobileStatus: "flagged",
+    hourOffset: 10,
+    minuteOffset: 30,
+    dayOffset: 0,
+    workItems: [
+      { label: "Spot-spray cracks in main parking lot", isRequired: true },
+      { label: "Spray weeds along loading dock curb" },
+      { label: "Note any larger weed beds for follow-up" },
+    ],
+  },
+  {
+    customerIdx: 4,
+    title: "Refill pet stations",
+    description: "Restock all 4 pet waste stations on the property. Replace any torn or missing dispenser bags.",
+    priority: "low",
+    routeOrder: 5,
+    mobileStatus: "not_started",
+    hourOffset: 13,
+    minuteOffset: 0,
+    dayOffset: 0,
+    workItems: [
+      { label: "Refill bags at all 4 pet stations", isRequired: true },
+      { label: "Empty pet station trash receptacles" },
+      { label: "Photo-document any damaged station", photoRequired: true },
+    ],
+  },
+  {
+    customerIdx: 5,
+    title: "Walk property w/ manager",
+    description: "Quarterly walk-through with the on-site manager. Bring the clipboard — they'll want to discuss next month's chemical treatment schedule and the playground mulch refresh.",
+    priority: "urgent",
+    routeOrder: null,
+    mobileStatus: "not_started",
+    hourOffset: 14,
+    minuteOffset: 0,
+    dayOffset: 0,
+    workItems: [
+      { label: "Meet manager at the leasing office", isRequired: true },
+      { label: "Walk all common areas" },
+      { label: "Confirm chemical treatment schedule" },
+      { label: "Note mulch refresh quantities for the playground" },
+    ],
+  },
+  {
+    customerIdx: 0,
+    title: "Earlier completed visit",
+    description: "Pre-dawn cleanup pass — leaves and debris from yesterday's wind. Logged before the regular morning route.",
+    priority: "normal",
+    routeOrder: 0,
+    mobileStatus: "complete",
+    hourOffset: 6,
+    minuteOffset: 30,
+    dayOffset: 0,
+    workItems: [
+      { label: "Walk perimeter and pick up debris", isRequired: true },
+      { label: "Empty trash receptacles" },
+      { label: "Blow off entrance sidewalk", isRequired: true },
+      { label: "Photo entrance after cleanup", photoRequired: true },
+    ],
+  },
+  {
+    customerIdx: 1,
+    title: "Yesterday's mowing pass",
+    description: "Standard mowing pass that ran yesterday. Carried over for the week's records.",
+    priority: "normal",
+    routeOrder: 1,
+    mobileStatus: "not_started",
+    hourOffset: 8,
+    minuteOffset: 30,
+    dayOffset: -1,
+    workItems: [
+      { label: "Mow common areas", isRequired: true },
+      { label: "Edge sidewalks" },
+      { label: "Trim around buildings", isRequired: true },
+      { label: "Blow off hardscape" },
+    ],
+  },
+  {
+    customerIdx: 2,
+    title: "Tomorrow follow-up",
+    description: "Follow-up on the hedge trim — check that no new growth has fallen into the walkway and pick up any straggler clippings.",
+    priority: "normal",
+    routeOrder: 1,
+    mobileStatus: "not_started",
+    hourOffset: 8,
+    minuteOffset: 30,
+    dayOffset: 1,
+    workItems: [
+      { label: "Re-walk south walkway", isRequired: true },
+      { label: "Re-trim any new growth into the walkway" },
+      { label: "Pick up any remaining clippings", isRequired: true },
+    ],
+  },
 ];
 
 async function main(): Promise<void> {
@@ -278,7 +433,6 @@ async function main(): Promise<void> {
 
     const dayStart = new Date();
     dayStart.setHours(0, 0, 0, 0);
-    const dayEnd = new Date(dayStart.getTime() + 24 * 60 * 60 * 1000);
 
     // Refresh seeded tickets only (matched by deterministic title list) so
     // re-running keeps counts stable without disturbing any ad-hoc demo
@@ -297,15 +451,15 @@ async function main(): Promise<void> {
     for (const seed of SEED_TICKETS) {
       const dueDate = new Date(dayStart);
       dueDate.setDate(dueDate.getDate() + seed.dayOffset);
-      dueDate.setHours(seed.hourOffset, 0, 0, 0);
+      dueDate.setHours(seed.hourOffset, seed.minuteOffset, 0, 0);
 
-      await tx.insert(tickets).values({
+      const [insertedTicket] = await tx.insert(tickets).values({
         companyId,
         customerId: customerIds[seed.customerIdx],
         ticketTypeId: todoType.id,
         currentStatusId: openStatus.id,
         title: seed.title,
-        description: "Seeded by seed-mobile-test-user.ts for the mobile field-crew demo.",
+        description: seed.description,
         priority: seed.priority,
         workType: "contract",
         billingBehavior: "no_invoice",
@@ -323,7 +477,24 @@ async function main(): Promise<void> {
               completedAt: new Date(dueDate.getTime() + 5 * 60 * 1000),
             }
           : {}),
-      });
+      }).returning({ id: tickets.id });
+
+      // Slice 8: seed work items so the ticket-detail completion UX has
+      // something realistic to drive. The earlier ticket delete cascades
+      // through `ticket_work_items.ticket_id` (onDelete: cascade), so re-runs
+      // refresh these alongside the parent ticket.
+      if (insertedTicket && seed.workItems.length > 0) {
+        await tx.insert(ticketWorkItems).values(
+          seed.workItems.map((wi, idx) => ({
+            ticketId: insertedTicket.id,
+            label: wi.label,
+            sortOrder: idx,
+            isRequired: wi.isRequired ?? false,
+            photoRequired: wi.photoRequired ?? false,
+            isComplete: false,
+          })),
+        );
+      }
       insertedCount += 1;
     }
 

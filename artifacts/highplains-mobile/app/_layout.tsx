@@ -131,7 +131,11 @@ export default function RootLayout() {
       <ErrorBoundary>
         <PersistQueryClientProvider client={queryClient} persistOptions={persistOptions}>
           <GestureHandlerRootView style={{ flex: 1 }}>
-            <KeyboardProvider>
+            {/* Slice 8: keep the provider mounted (existing imports rely on it)
+                but disable the floating keyboard toolbar — the chevron handle
+                it overlays on every screen broke the visual polish, and no
+                screen needs its Done/next/prev affordances. */}
+            <KeyboardProvider enabled={false}>
               <AuthProvider>
                 <AuthGate />
               </AuthProvider>
