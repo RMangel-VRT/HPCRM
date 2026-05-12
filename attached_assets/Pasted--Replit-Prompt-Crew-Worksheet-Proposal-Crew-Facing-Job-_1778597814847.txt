@@ -1,0 +1,756 @@
+# Replit Prompt — Crew Worksheet (Proposal → Crew-Facing Job Sheet)
+
+## Context
+
+The Proposal Maker produces a polished, customer-facing PDF (cover, scope of work, photos, Visual Scope map, attached QB Estimate). That same content — minus the dollar figures — is exactly what the field crew needs on the day of the job, plus a handful of crew-only fields: which crew is going, when, how long it should take, what equipment/materials to load, and any special instructions.
+
+This slice adds a **Crew Worksheet** as a first-class document type alongside Proposals and Visual Scope Sheets. A worksheet starts life as a frozen snapshot of a proposal (title, scope of work, photos, map) and then becomes independently editable by anyone who can dispatch work. The crew prints it (or downloads the PDF) on the way to the job. The worksheet never contains pricing, the estimate PDF, or the Estimate Number.
+
+Key product decisions (already approved by the user):
+
+- **One-way snapshot, separate record.** Creating a worksheet from a proposal copies the proposal's scope/photos/visual-scope reference into a new `crew_worksheets` row. Editing the worksheet does not touch the proposal. A single proposal may spawn multiple worksheets (e.g., re-scoped after a change order).
+- **Four crew-specific field groups**: crew assignment + lead, scheduled date + estimated hours, equipment/materials checklist, crew notes / special instructions.
+- **Browser print view + server-side PDF download** (mirrors the Proposal pipeline; same PDFKit + `renderVisualScope` infrastructure).
+- **Three entry points**: a "Generate crew worksheet" button on `ProposalDraft.tsx`, a new top-level "Crew Worksheets" tile under `/dashboard/tools`, and a card on `TicketDetail.tsx` (when the proposal is linked to a ticket).
+- **No estimate fields anywhere on the worksheet** — no `estimateNumber`, no estimate PDF attachment slot, no totals.
+
+This must land in a deployable, production-quality state. No stubs, no `// TODO` comments hiding incomplete code paths. The new tables, routes, pages, PDF generator, and ticket-side widget must all ship together.
+
+## Existing context (do not duplicate or replace)
+
+Read these before writing code. Numbers are anchor points, not literal line guarantees — search by symbol if the file has drifted.
+
+### Schemas (must change BOTH in lockstep)
+
+- **`lib/db/src/schema/schema.ts`** — the canonical Drizzle schema used by the API. Proposals at line 1623 (`export const proposals = pgTable("proposals", { ... })`). `proposal_files` immediately below it, then `proposal_versions`. `visualScopeSheets` is also in this file. Add the new `crew_worksheets`, `crew_worksheet_photos`, and `crew_worksheet_versions` tables here, in the same neighborhood, with the same column/index conventions.
+- **`artifacts/highplains-crm/src/shared/schema.ts`** — the **client-side mirror** of the same schema (uses `./drizzle-stub` for types only). Line 1586 has the proposals table mirror. Every table/type/zod-schema added to `lib/db/src/schema/schema.ts` must be mirrored here verbatim so the client compiles. Do not import the server schema from the client; this file is intentionally duplicated.
+
+### Proposal pipeline (reference patterns — do not modify)
+
+- **`artifacts/api-server/src/routes/routes.ts`**:
+  - `canAccessProposals` helper (line 10755): `role === "admin" || role === "office"` — copy this pattern for `canAccessCrewWorksheets`, but **widen it** (see Step 2).
+  - Proposals CRUD: `GET /api/proposals` (10757), `POST /api/proposals` (10765), `GET /api/proposals/:id` (10798), `PATCH /api/proposals/:id` (10807), `DELETE /api/proposals/:id` (10834).
+  - File upload pipeline: `POST /api/proposals/:id/files/upload-url` (10888), `POST /api/proposals/:id/files` (10918), reorder (10983), bulk-delete (11022), delete (11054).
+  - `generateProposalPdf(proposal, companyId): Promise<Buffer>` defined at line 11093 — the PDFKit-based renderer. Reuse its helpers (`drawWatermark`, `drawFooter`, the LM/RM/BRAND constants, the watermark-then-merge-estimate flow) as the model for `generateCrewWorksheetPdf`. **The crew renderer does not merge an estimate PDF and does not include a Visual Scope finalized version** — it draws a fresh Visual Scope export from the linked `visualScopeSheets` row.
+  - `POST /api/proposals/:id/finalize` (11717) — the versioning flow. Use as a template for an optional crew-worksheet finalize (Step 6).
+  - `GET /api/proposals/:id/pdf` (11682) — endpoint pattern for the on-demand PDF download.
+- **`artifacts/api-server/src/visualScopeRenderer.ts`** — exports `renderVisualScope(sheet, mode, widthPx)`. Reuse as-is for the map page of the worksheet PDF.
+- **`artifacts/api-server/src/storage.ts`**:
+  - `getProposals` (3005), `getProposalsByCustomer` (3034), `getProposalsForTicket` (3062), `getProposalById` (3090), `createProposal` (3119), `updateProposal` (3124), `deleteProposal` (3132) — the patterns to copy for `crew_worksheets`.
+  - `IStorage` interface around line 335 — add the new method signatures here.
+  - The `_getVsSheetMap` helper used to enrich proposals with their linked Visual Scope sheet — reuse the same pattern.
+
+### Client pages (reference patterns)
+
+- **`artifacts/highplains-crm/src/pages/ProposalMaker.tsx`** — list/create page. Copy structure for `CrewWorksheetList.tsx`.
+- **`artifacts/highplains-crm/src/pages/ProposalDraft.tsx`** — edit page. Copy structure for `CrewWorksheetDraft.tsx`, **dropping** the Estimate Number field, the Estimate PDF upload slot, the `vsIncludeBase` / `vsIncludeOverlay` checkboxes (the worksheet always uses combined view), and the entire "Finalize" version flow (or keep a simpler version of it — see Step 6).
+- **`artifacts/highplains-crm/src/pages/ToolsPage.tsx`** — the tools landing grid (line 10 onward). Add a new tile.
+- **`artifacts/highplains-crm/src/App.tsx`** — proposal routes at lines 270–272. Add the worksheet routes immediately below them with the same `ProtectedRoute` pattern but with widened `allowedRoles`.
+- **`artifacts/highplains-crm/src/pages/TicketDetail.tsx`** lines 1308–1404 — the `showProposals` block that lists linked proposals on a ticket. Add a sibling `showCrewWorksheets` block immediately below it.
+
+### Stack
+
+React 19 + TypeScript + Vite + Tailwind + shadcn/ui (Radix) + Wouter + TanStack Query v5 + Drizzle ORM + Postgres + i18next + PDFKit. No new dependencies. Drizzle migrations are managed via `pnpm --filter @workspace/db push`.
+
+## Step 1 — Add `crew_worksheets`, `crew_worksheet_photos`, `crew_worksheet_versions` tables
+
+### 1a. Define the tables in `lib/db/src/schema/schema.ts`
+
+Insert immediately after the `proposal_versions` block (around line 1710). All FKs use `varchar` and reference existing `id` columns. `companyId` is required for tenant isolation, matching the proposal pattern.
+
+```ts
+export const crewWorksheets = pgTable("crew_worksheets", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  companyId: varchar("company_id").notNull().references(() => companies.id, { onDelete: "cascade" }),
+  customerId: varchar("customer_id").notNull().references(() => customers.id, { onDelete: "cascade" }),
+  createdById: varchar("created_by_id").references(() => users.id, { onDelete: "set null" }),
+
+  // Provenance — every worksheet is born from a proposal, but the link can be broken later.
+  sourceProposalId: varchar("source_proposal_id").references(() => proposals.id, { onDelete: "set null" }),
+  ticketId: varchar("ticket_id").references(() => tickets.id, { onDelete: "set null" }),
+
+  // Header
+  title: varchar("title").notNull().default("Crew Worksheet"),
+  worksheetNumber: varchar("worksheet_number").notNull().unique(),
+  worksheetDate: varchar("worksheet_date").notNull(),
+  status: varchar("status").notNull().default("draft"), // draft | ready | completed | archived
+
+  // Snapshotted from proposal at create-time, then independently editable.
+  scopeOfWork: text("scope_of_work").notNull().default(""),
+  visualScopeSheetId: varchar("visual_scope_sheet_id").references(() => visualScopeSheets.id, { onDelete: "set null" }),
+
+  // Crew-specific fields
+  assignedCrewLeadId: varchar("assigned_crew_lead_id").references(() => users.id, { onDelete: "set null" }),
+  crewLabel: varchar("crew_label"),                       // free-text "Crew A", "Mowing Team 2", etc.
+  scheduledDate: varchar("scheduled_date"),               // YYYY-MM-DD; nullable until scheduled
+  scheduledStartTime: varchar("scheduled_start_time"),    // HH:MM, nullable
+  estimatedHours: numeric("estimated_hours", { precision: 5, scale: 2 }),
+  equipmentChecklist: jsonb("equipment_checklist").$type<EquipmentItem[]>().default(sql`'[]'::jsonb`),
+  materialsChecklist: jsonb("materials_checklist").$type<MaterialItem[]>().default(sql`'[]'::jsonb`),
+  crewNotes: text("crew_notes").notNull().default(""),
+
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  updatedAt: timestamp("updated_at").notNull().defaultNow(),
+}, (table) => ({
+  crewWorksheetsCompanyIdIdx: index("crew_worksheets_company_id_idx").on(table.companyId),
+  crewWorksheetsCustomerIdIdx: index("crew_worksheets_customer_id_idx").on(table.customerId),
+  crewWorksheetsTicketIdIdx: index("crew_worksheets_ticket_id_idx").on(table.ticketId),
+  crewWorksheetsSourceProposalIdIdx: index("crew_worksheets_source_proposal_id_idx").on(table.sourceProposalId),
+}));
+
+export interface EquipmentItem {
+  id: string;          // client-generated nanoid
+  label: string;       // "F-250 #3", "21\" mower", "Backpack blower"
+  checked: boolean;
+  notes?: string;
+}
+
+export interface MaterialItem {
+  id: string;
+  label: string;       // "Cedar mulch", "Roundup Pro", "1\" river rock"
+  quantity?: string;   // free-text — "3 yd", "2 gal", "5 bags"
+  checked: boolean;
+  notes?: string;
+}
+
+export const insertCrewWorksheetSchema = createInsertSchema(crewWorksheets).omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+}).extend({
+  worksheetNumber: z.string().optional(), // server generates if missing
+});
+
+export type InsertCrewWorksheet = z.infer<typeof insertCrewWorksheetSchema>;
+export type CrewWorksheet = typeof crewWorksheets.$inferSelect;
+
+export const crewWorksheetPhotos = pgTable("crew_worksheet_photos", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  crewWorksheetId: varchar("crew_worksheet_id").notNull().references(() => crewWorksheets.id, { onDelete: "cascade" }),
+  companyId: varchar("company_id").notNull().references(() => companies.id, { onDelete: "cascade" }),
+  storageObjectPath: varchar("storage_object_path").notNull(),
+  filename: varchar("filename").notNull(),
+  mimeType: varchar("mime_type").notNull(),
+  fileSize: integer("file_size").notNull(),
+  caption: text("caption"),
+  displayOrder: integer("display_order").notNull().default(0),
+  // Tracks whether this photo was copied from the source proposal at create-time.
+  copiedFromProposalFileId: varchar("copied_from_proposal_file_id"),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+});
+
+export const insertCrewWorksheetPhotoSchema = createInsertSchema(crewWorksheetPhotos).omit({
+  id: true,
+  createdAt: true,
+});
+
+export type InsertCrewWorksheetPhoto = z.infer<typeof insertCrewWorksheetPhotoSchema>;
+export type CrewWorksheetPhoto = typeof crewWorksheetPhotos.$inferSelect;
+
+export const crewWorksheetVersions = pgTable("crew_worksheet_versions", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  crewWorksheetId: varchar("crew_worksheet_id").notNull().references(() => crewWorksheets.id, { onDelete: "cascade" }),
+  companyId: varchar("company_id").notNull().references(() => companies.id, { onDelete: "cascade" }),
+  versionNumber: integer("version_number").notNull(),
+  title: varchar("title").notNull(),
+  worksheetDate: varchar("worksheet_date").notNull(),
+  finalizedById: varchar("finalized_by_id").references(() => users.id, { onDelete: "set null" }),
+  finalizedAt: timestamp("finalized_at").notNull().defaultNow(),
+  pdfStoragePath: varchar("pdf_storage_path").notNull(),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+}, (table) => ({
+  uniqueCrewWorksheetVersion: unique().on(table.crewWorksheetId, table.versionNumber),
+}));
+
+export const insertCrewWorksheetVersionSchema = createInsertSchema(crewWorksheetVersions).omit({
+  id: true,
+  createdAt: true,
+  finalizedAt: true,
+});
+
+export type InsertCrewWorksheetVersion = z.infer<typeof insertCrewWorksheetVersionSchema>;
+export type CrewWorksheetVersion = typeof crewWorksheetVersions.$inferSelect;
+
+export type CrewWorksheetVersionWithUser = CrewWorksheetVersion & {
+  finalizedByName: string | null;
+};
+
+export type CrewWorksheetWithDetails = CrewWorksheet & {
+  customerName: string;
+  customerStreet?: string | null;
+  customerCity?: string | null;
+  customerState?: string | null;
+  photos: CrewWorksheetPhoto[];
+  versions: CrewWorksheetVersionWithUser[];
+  visualScopeSheet?: VisualScopeSheetWithCustomer | null;
+  assignedCrewLeadName?: string | null;
+  sourceProposalNumber?: string | null;
+  sourceProposalTitle?: string | null;
+};
+```
+
+### 1b. Mirror everything in `artifacts/highplains-crm/src/shared/schema.ts`
+
+Paste the same blocks (tables, interfaces, zod schemas, types) into the client-mirror file, immediately after its `proposal_versions` block. Use the file's existing import style (`from "./drizzle-stub"`). The two files must stay byte-equivalent for the new types; if they ever drift, the client build will fail to typecheck.
+
+### 1c. Push the schema
+
+```
+pnpm --filter @workspace/db push
+```
+
+If the migrator prompts about destructive changes, **stop** — these are additive only, there should be no destructive prompts. Investigate before forcing.
+
+### 1d. Worksheet-number generator
+
+In `artifacts/api-server/src/storage.ts`, mirror the existing `generateProposalNumber` helper. Format: `CW-YYYY-NNNN` (e.g., `CW-2026-0001`), zero-padded to 4, scoped per company per calendar year. If `generateProposalNumber` doesn't exist as a discrete function (it may be inlined in the create handler), introduce a private helper `_nextCrewWorksheetNumber(companyId): Promise<string>` that selects `MAX(worksheet_number)` for the current `YYYY` prefix and increments. Wrap the insert + number assignment in a transaction; on `23505` retry up to 3 times.
+
+## Step 2 — Permissions: who can do what
+
+Crew worksheets are crew-facing, so we widen access vs. proposals:
+
+| Action                                   | Roles allowed                                                                                                              |
+|------------------------------------------|----------------------------------------------------------------------------------------------------------------------------|
+| List / read / download PDF / print view  | `admin`, `office`, `field_manager`, `crew_supervisor`, `landscape_supervisor`, `chemical_manager`, `irrigation_manager`, `shop_manager`, `mapping`, `field` |
+| Create / edit / delete / upload photos   | `admin`, `office`, `field_manager`, `crew_supervisor`, `landscape_supervisor`                                              |
+| Generate from a proposal                 | `admin`, `office`, `field_manager`, `crew_supervisor`, `landscape_supervisor` (same as edit)                                |
+| Finalize (Step 6)                        | `admin`, `office`                                                                                                          |
+
+In `artifacts/api-server/src/routes/routes.ts`, add immediately above the new crew-worksheet routes:
+
+```ts
+const CREW_WORKSHEET_READ_ROLES = new Set([
+  "admin", "office",
+  "field_manager", "crew_supervisor", "landscape_supervisor",
+  "chemical_manager", "irrigation_manager", "shop_manager", "mapping",
+  "field",
+]);
+const CREW_WORKSHEET_WRITE_ROLES = new Set([
+  "admin", "office", "field_manager", "crew_supervisor", "landscape_supervisor",
+]);
+const CREW_WORKSHEET_FINALIZE_ROLES = new Set(["admin", "office"]);
+
+const canReadCrewWorksheets = (role: string) => CREW_WORKSHEET_READ_ROLES.has(role);
+const canWriteCrewWorksheets = (role: string) => CREW_WORKSHEET_WRITE_ROLES.has(role);
+const canFinalizeCrewWorksheets = (role: string) => CREW_WORKSHEET_FINALIZE_ROLES.has(role);
+```
+
+If any role string above does not exist in `RoleName` (`lib/db/src/schema/schema.ts:274`), drop it from the set rather than inventing a role. Verify against the live enum before shipping.
+
+## Step 3 — Server: CRUD, photo upload, generate-from-proposal
+
+Add these in `artifacts/api-server/src/routes/routes.ts` immediately after the `app.get("/api/proposals/:id/versions/:versionId/visual-scope/:type", ...)` route (around line 11895). Keep the route block tightly grouped — it should mirror the structure of the proposals block above it.
+
+### 3a. List + create
+
+```ts
+app.get("/api/crew-worksheets", async (req, res) => {
+  if (!req.isAuthenticated()) return res.status(401).send("Not authenticated");
+  const user = req.user as UserWithContext;
+  if (!canReadCrewWorksheets(user.activeRole)) return res.status(403).send("Insufficient permissions");
+  const rows = await storage.getCrewWorksheets(user.activeCompanyId);
+  res.json(rows);
+});
+
+app.post("/api/crew-worksheets", async (req, res) => {
+  if (!req.isAuthenticated()) return res.status(401).send("Not authenticated");
+  const user = req.user as UserWithContext;
+  if (!canWriteCrewWorksheets(user.activeRole)) return res.status(403).send("Insufficient permissions");
+
+  const parsed = insertCrewWorksheetSchema.safeParse({
+    ...req.body,
+    companyId: user.activeCompanyId,
+    createdById: user.id,
+  });
+  if (!parsed.success) return res.status(400).json({ error: parsed.error.flatten() });
+
+  const worksheetNumber = parsed.data.worksheetNumber || await storage._nextCrewWorksheetNumber(user.activeCompanyId);
+  const created = await storage.createCrewWorksheet({ ...parsed.data, worksheetNumber });
+  res.status(201).json(created);
+});
+```
+
+### 3b. Read / patch / delete
+
+Mirror the proposal handlers exactly (10798 / 10807 / 10834). Read uses `canReadCrewWorksheets`; patch and delete use `canWriteCrewWorksheets`. The patch handler must `pick`/whitelist incoming fields — never blindly spread `req.body` into storage. Allowed patch fields:
+
+```
+title, worksheetDate, scopeOfWork, status,
+visualScopeSheetId, ticketId,
+assignedCrewLeadId, crewLabel,
+scheduledDate, scheduledStartTime, estimatedHours,
+equipmentChecklist, materialsChecklist, crewNotes
+```
+
+Note `sourceProposalId` is **not** in the patch whitelist — it's set at create time only and is informational thereafter.
+
+### 3c. Photo upload pipeline (mirrors proposal files)
+
+Add `/api/crew-worksheets/:id/photos/upload-url`, `POST /api/crew-worksheets/:id/photos`, `POST /api/crew-worksheets/:id/photos/reorder`, `PATCH /api/crew-worksheets/:id/photos/:photoId` (caption only), `DELETE /api/crew-worksheets/:id/photos/:photoId`, `POST /api/crew-worksheets/:id/photos/bulk-delete`. Match the proposal-files handlers behavior-for-behavior — including the HEIC conversion endpoint reuse (`/api/convert-heic` already exists and is generic). Storage prefix: `crew-worksheets/{worksheetId}/photos/{filename}`.
+
+### 3d. The critical "generate from proposal" endpoint
+
+```ts
+app.post("/api/proposals/:id/crew-worksheets", async (req, res) => {
+  if (!req.isAuthenticated()) return res.status(401).send("Not authenticated");
+  const user = req.user as UserWithContext;
+  if (!canWriteCrewWorksheets(user.activeRole)) return res.status(403).send("Insufficient permissions");
+
+  const proposal = await storage.getProposalById(req.params.id, user.activeCompanyId);
+  if (!proposal) return res.status(404).send("Proposal not found");
+
+  const worksheet = await storage.createCrewWorksheetFromProposal({
+    proposal,
+    companyId: user.activeCompanyId,
+    createdById: user.id,
+    // Optional client overrides:
+    title: typeof req.body?.title === "string" ? req.body.title : undefined,
+    worksheetDate: typeof req.body?.worksheetDate === "string" ? req.body.worksheetDate : undefined,
+  });
+  res.status(201).json(worksheet);
+});
+```
+
+`storage.createCrewWorksheetFromProposal` (Step 4d) is responsible for the snapshot: copy `proposal.title` (suffixed `" — Crew Worksheet"`), today as `worksheetDate`, `proposal.scopeOfWork`, `proposal.visualScopeSheetId`, `proposal.ticketId`, `proposal.customerId`, and **copy every `proposal_files` row of type `"image"`** into `crew_worksheet_photos` (same `storageObjectPath` — we reference the same GCS object; do NOT re-upload). The estimate PDF file is **not** copied.
+
+### 3e. PDF download
+
+```ts
+app.get("/api/crew-worksheets/:id/pdf", async (req, res) => { ... });
+```
+
+Same shape as `GET /api/proposals/:id/pdf` (line 11682). Calls `generateCrewWorksheetPdf(worksheet, companyId)` (Step 5).
+
+### 3f. Ticket-scoped list (mirrors `getProposalsForTicket`)
+
+```ts
+app.get("/api/tickets/:id/crew-worksheets", async (req, res) => {
+  if (!req.isAuthenticated()) return res.status(401).send("Not authenticated");
+  const user = req.user as UserWithContext;
+  if (!canReadCrewWorksheets(user.activeRole)) return res.status(403).send("Insufficient permissions");
+  const rows = await storage.getCrewWorksheetsForTicket(req.params.id, user.activeCompanyId);
+  res.json(rows);
+});
+```
+
+### 3g. Customer-scoped list (for the customer-detail page; consumed in Step 7)
+
+```ts
+app.get("/api/customers/:id/crew-worksheets", async (req, res) => { ... });
+```
+
+## Step 4 — Storage layer additions
+
+In `artifacts/api-server/src/storage.ts`, add the following to `IStorage` (around line 350 — directly after the proposals declarations) and implement them in the class. Match the proposal patterns line-for-line.
+
+```ts
+// IStorage additions
+getCrewWorksheets(companyId: string): Promise<CrewWorksheetWithDetails[]>;
+getCrewWorksheetsByCustomer(customerId: string, companyId: string): Promise<CrewWorksheetWithDetails[]>;
+getCrewWorksheetsForTicket(ticketId: string, companyId: string): Promise<CrewWorksheetWithDetails[]>;
+getCrewWorksheetById(id: string, companyId: string): Promise<CrewWorksheetWithDetails | undefined>;
+createCrewWorksheet(input: InsertCrewWorksheet & { worksheetNumber: string }): Promise<CrewWorksheet>;
+createCrewWorksheetFromProposal(args: {
+  proposal: ProposalWithDetails;
+  companyId: string;
+  createdById: string;
+  title?: string;
+  worksheetDate?: string;
+}): Promise<CrewWorksheetWithDetails>;
+updateCrewWorksheet(id: string, companyId: string, updates: Partial<InsertCrewWorksheet>): Promise<CrewWorksheet | undefined>;
+deleteCrewWorksheet(id: string, companyId: string): Promise<void>;
+
+// Photos
+addCrewWorksheetPhoto(input: InsertCrewWorksheetPhoto): Promise<CrewWorksheetPhoto>;
+reorderCrewWorksheetPhotos(worksheetId: string, companyId: string, orderedIds: string[]): Promise<void>;
+updateCrewWorksheetPhoto(photoId: string, worksheetId: string, companyId: string, updates: { caption: string | null }): Promise<CrewWorksheetPhoto | undefined>;
+deleteCrewWorksheetPhoto(photoId: string, worksheetId: string, companyId: string): Promise<void>;
+bulkDeleteCrewWorksheetPhotos(worksheetId: string, companyId: string, photoIds: string[]): Promise<{ deletedCount: number }>;
+
+// Versions (Step 6)
+getNextCrewWorksheetVersionNumber(worksheetId: string, companyId: string): Promise<number>;
+createCrewWorksheetVersion(input: InsertCrewWorksheetVersion): Promise<CrewWorksheetVersion>;
+getCrewWorksheetVersions(worksheetId: string, companyId: string): Promise<CrewWorksheetVersionWithUser[]>;
+getCrewWorksheetVersionById(versionId: string, companyId: string): Promise<CrewWorksheetVersionWithUser | undefined>;
+
+// Internal
+_nextCrewWorksheetNumber(companyId: string): Promise<string>;
+```
+
+### 4a. Enrichment
+
+All "with details" reads must populate, in a single bulk-fetch per page (no N+1):
+
+- `customerName`, `customerStreet`, `customerCity`, `customerState` from `customers`
+- `photos` from `crew_worksheet_photos` (joined+grouped by worksheet id, ordered by `displayOrder`)
+- `versions` via the version table (mirror `_getVersionsForProposals`)
+- `visualScopeSheet` if `visualScopeSheetId` is set (reuse `_getVsSheetMap` — it's already generic enough; the return type already matches `VisualScopeSheetWithCustomer`)
+- `assignedCrewLeadName` via a left-join to `users.name`
+- `sourceProposalNumber`, `sourceProposalTitle` via a left-join to `proposals`
+
+### 4b. Customer enrichment query
+
+Mirror what `getProposalById` already does for joining `customers`. The four address columns let the PDF and the print view show the job-site address without an extra round-trip.
+
+### 4c. `_nextCrewWorksheetNumber` implementation
+
+```ts
+async _nextCrewWorksheetNumber(companyId: string): Promise<string> {
+  const year = new Date().getFullYear();
+  const prefix = `CW-${year}-`;
+  const rows = await db
+    .select({ wn: crewWorksheets.worksheetNumber })
+    .from(crewWorksheets)
+    .where(and(eq(crewWorksheets.companyId, companyId), like(crewWorksheets.worksheetNumber, `${prefix}%`)));
+  const maxSeq = rows.reduce((m, r) => {
+    const tail = (r.wn ?? "").slice(prefix.length);
+    const n = Number.parseInt(tail, 10);
+    return Number.isFinite(n) && n > m ? n : m;
+  }, 0);
+  return `${prefix}${String(maxSeq + 1).padStart(4, "0")}`;
+}
+```
+
+Import `like` from `drizzle-orm` if not already present.
+
+### 4d. `createCrewWorksheetFromProposal` — the snapshot logic
+
+```ts
+async createCrewWorksheetFromProposal({
+  proposal,
+  companyId,
+  createdById,
+  title,
+  worksheetDate,
+}: {
+  proposal: ProposalWithDetails;
+  companyId: string;
+  createdById: string;
+  title?: string;
+  worksheetDate?: string;
+}): Promise<CrewWorksheetWithDetails> {
+  const today = new Date().toISOString().slice(0, 10);
+  const worksheetNumber = await this._nextCrewWorksheetNumber(companyId);
+  const inserted = await db.transaction(async (tx) => {
+    const [wk] = await tx.insert(crewWorksheets).values({
+      companyId,
+      customerId: proposal.customerId,
+      createdById,
+      sourceProposalId: proposal.id,
+      ticketId: proposal.ticketId ?? null,
+      title: title ?? `${proposal.title} — Crew Worksheet`,
+      worksheetNumber,
+      worksheetDate: worksheetDate ?? today,
+      scopeOfWork: proposal.scopeOfWork ?? "",
+      visualScopeSheetId: proposal.visualScopeSheetId ?? null,
+    }).returning();
+
+    const imageFiles = (proposal.files ?? []).filter(f => f.fileType === "image");
+    if (imageFiles.length > 0) {
+      await tx.insert(crewWorksheetPhotos).values(
+        imageFiles.map((f, idx) => ({
+          crewWorksheetId: wk.id,
+          companyId,
+          storageObjectPath: f.storageObjectPath,
+          filename: f.filename,
+          mimeType: f.mimeType,
+          fileSize: f.fileSize,
+          caption: f.caption ?? null,
+          displayOrder: idx,
+          copiedFromProposalFileId: f.id,
+        }))
+      );
+    }
+    return wk;
+  });
+
+  const full = await this.getCrewWorksheetById(inserted.id, companyId);
+  if (!full) throw new Error("Worksheet vanished immediately after creation");
+  return full;
+}
+```
+
+GCS objects are not duplicated — both records reference the same `storageObjectPath`. If the proposal photo is later deleted, the worksheet still holds the row with a (now-broken) path; this is acceptable for v1 — the UI already renders a fallback for missing thumbnails (`onError` handler at `ProposalDraft.tsx:140`). Document this in code comments.
+
+## Step 5 — `generateCrewWorksheetPdf`
+
+In `artifacts/api-server/src/routes/routes.ts`, define `generateCrewWorksheetPdf(worksheet: CrewWorksheetWithDetails, companyId: string): Promise<Buffer>` immediately after `generateProposalPdf` (around line 11680). Reuse the inner helpers (`drawWatermark`, `drawFooter`, the LM/RM/BRAND constants) by either lifting them to module scope first **or** duplicating them in the crew renderer.
+
+**Recommended: lift the helpers.** Move `drawWatermark`, `drawFooter`, and the LM/RM/BRAND constants out of `generateProposalPdf` to module scope at the top of `routes.ts` (right after the imports). Both renderers call them. Don't change their visual behavior.
+
+### 5a. Layout (Letter, portrait)
+
+The worksheet PDF has a fixed set of sections, each on its own page break unless small enough to fit on the previous page. **Pricing must not appear anywhere.**
+
+1. **Cover / header band** — Logo, company name, big title `"CREW WORKSHEET"`, `worksheetNumber`, `worksheetDate`, customer name + service address (from the customer join), source proposal number (small, parenthetical, footer-of-header).
+2. **Job briefing block** — Two-column layout:
+   - Left: Crew label, crew lead name, scheduled date, scheduled start time, estimated hours.
+   - Right: Customer phone + alt phone (if present on the customer row — look these up via the customer join), and a "Site address" block with the snapshotted address.
+3. **Scope of work** — Renders the `scopeOfWork` text. Honor the same `\n[PAGE BREAK]\n` marker the proposal renderer honors (search for `[PAGE BREAK]` in `generateProposalPdf` and reuse the same regex split).
+4. **Equipment & materials** — Two checklists side-by-side, each row prefixed with `☐` (an outlined box glyph). Render `quantity` and `notes` columns where present. If both lists are empty, omit the section entirely.
+5. **Crew notes** — `crewNotes` text block under a "Special instructions" header. Omit if empty.
+6. **Site map page** — If `worksheet.visualScopeSheet` is set, call `renderVisualScope(sheet, "combined", 2000)` and place the PNG full-bleed-within-margins on its own page with a small `"Site Map — {customerName}"` header. If no Visual Scope, skip this page silently.
+7. **Photos** — One photo per page at `large` size, or four per page at `grid` — **always use the `large` layout for crew worksheets** (single big photo per page so a crew can read it from the truck cab). Caption below each photo. Photos come from `crew_worksheet_photos`, ordered by `displayOrder`. Hot-load image buffers from GCS exactly the way `generateProposalPdf` does for proposal photos (look for `objectStorageService.getObjectEntityFile` calls).
+8. **Sign-off footer** — Last page only: two signature lines side-by-side, labeled `Crew lead signature / Date` and `Customer signature (optional) / Date`. Just blank lines + labels; no e-signature capture.
+
+`drawFooter` (lifted helper) draws the company name + page number on every page. **No watermark on the crew worksheet** — pass a `withWatermark: false` flag to your decorator, or skip the `drawWatermark` call. The watermark is brand-customer-facing; the crew sheet is internal and should print cleanly on a B&W printer.
+
+### 5b. Filename for the download
+
+```
+{worksheet.worksheetNumber} - {customerName} - {worksheetDate}.pdf
+```
+
+Sanitize the same way the proposal route does (strip `/\\:*?"<>|`, trim, cap length).
+
+### 5c. Inline view
+
+Honor `?inline=1` the same way the proposal route does.
+
+## Step 6 — Optional finalize (versioning)
+
+Add `POST /api/crew-worksheets/:id/finalize` and `GET /api/crew-worksheets/:id/versions[/:versionId/download]`. Behavior is intentionally simpler than the proposal flow:
+
+- **No estimate prerequisite** — a worksheet can be finalized as long as it has either a scope of work, a visual scope sheet, or at least one photo (i.e., something to print).
+- **No Visual Scope frozen-PNG triad** — the worksheet renders the combined view fresh on each download; no separate base/overlay snapshots.
+- Stored PDF path: `crew-worksheet-versions/{worksheetId}/v{n}.pdf`.
+- `canFinalizeCrewWorksheets` gates it (`admin` + `office` only — keep this tight; field roles should not be cutting "official" versions).
+
+If implementing the full version chain inflates the slice too much for one Replit run, **defer Step 6 to a follow-up slice** by stubbing the endpoints with `501 Not Implemented` and a clear comment — but ship the schema columns (`crew_worksheet_versions` table) now so we don't have to migrate later. The list/draft UIs (Step 7) should hide the "Finalize" button entirely if the endpoint returns 501.
+
+## Step 7 — Client: list page, draft page, ticket card, customer tab, tools tile
+
+### 7a. New routes in `App.tsx`
+
+After line 272 (the existing proposal routes), add:
+
+```tsx
+<ProtectedRoute
+  path="/dashboard/tools/crew-worksheets/:id/print"
+  component={CrewWorksheetPrint}
+  allowedRoles={["admin", "office", "field_manager", "crew_supervisor", "landscape_supervisor", "chemical_manager", "irrigation_manager", "shop_manager", "mapping", "field"]}
+/>
+<ProtectedRoute
+  path="/dashboard/tools/crew-worksheets/:id"
+  component={CrewWorksheetDraft}
+  allowedRoles={["admin", "office", "field_manager", "crew_supervisor", "landscape_supervisor"]}
+/>
+<ProtectedRoute
+  path="/dashboard/tools/crew-worksheets"
+  component={CrewWorksheetList}
+  allowedRoles={["admin", "office", "field_manager", "crew_supervisor", "landscape_supervisor"]}
+/>
+```
+
+Lazy-import each one near the existing lazy imports at the top of the file (mirror lines 53–58).
+
+### 7b. `CrewWorksheetList.tsx`
+
+Copy `ProposalMaker.tsx` and adapt: replace title/icon, query key `["/api/crew-worksheets"]`, route `/dashboard/tools/crew-worksheets/:id`. The "New" dialog needs only customer picker + title + worksheetDate (no estimateNumber). Use `ClipboardList` from lucide-react with a different color treatment (e.g., the orange/amber palette to visually distinguish it from the green Proposals).
+
+### 7c. `CrewWorksheetDraft.tsx`
+
+Start from `ProposalDraft.tsx` and **remove**:
+
+- Estimate Number field
+- Estimate PDF upload card and the entire `estimate_pdf` fileType plumbing
+- The Visual Scope include-base / include-overlay checkboxes (always combined)
+- The size-warning banner about PDF size (no estimate merge means no risk)
+- The PDF/Preview/Finalize button row's estimate-required tooltip (always show buttons, gated only on having something to render)
+
+Add new sections (use shadcn `Card` blocks to match the existing style):
+
+- **Job briefing card** — Crew label (text input), Crew lead (user picker — query `/api/users`, filter to `role in (field_manager, crew_supervisor, landscape_supervisor, field)`; render as a Combobox the same way the customer picker is rendered in `ProposalMaker.tsx`), Scheduled date (`DatePickerField`), Scheduled start time (text input `HH:MM` — keep it simple), Estimated hours (numeric input, step 0.25).
+- **Equipment checklist card** — Add-row UI, each row has a checkbox, label input, optional notes input, drag handle for reorder, delete. Persist to `equipmentChecklist` JSONB via a debounced PATCH (mirror the existing scope-of-work blur-save pattern). Generate item ids with `crypto.randomUUID()`.
+- **Materials checklist card** — Same shape as equipment, but with a `quantity` text field between `label` and `notes`.
+- **Crew notes card** — Large textarea, blur-save like `scopeOfWork`.
+- **Linked proposal banner** — If `sourceProposalId` is set, show a small `<Link>` "Generated from proposal {proposalNumber} – {proposalTitle}". No unlink button (preserve provenance).
+
+Keep:
+
+- Title, Worksheet Date, Status badge
+- Scope of work (with `[PAGE BREAK]` button)
+- Visual Scope attach/detach (combined-only — no checkboxes)
+- Photos card (upload, drag-reorder, bulk delete, captions) — identical to ProposalDraft minus the file-type filter (all photos are images by definition)
+- Linked ticket banner (same as proposals)
+- "Open print view" button (opens `/dashboard/tools/crew-worksheets/:id/print` in a new tab)
+- "Download PDF" button (links to `/api/crew-worksheets/:id/pdf`)
+
+### 7d. `CrewWorksheetPrint.tsx` — the browser print view
+
+A plain page (not inside the dashboard chrome — render outside `AppSidebar`). Server-side data flow: `useQuery(["/api/crew-worksheets", id])` → render letter-page-sized HTML. CSS:
+
+```css
+@media print {
+  @page { size: letter; margin: 0.5in; }
+  .no-print { display: none !important; }
+}
+```
+
+Visual sections must match the PDF layout (Step 5a) closely enough that the crew gets the same content whether they hit Ctrl+P from this page or use the Download PDF endpoint. The print view is the user-friendly path; the PDF is the canonical record. It's fine if they differ in fonts/spacing — but section content must match.
+
+Include a sticky "no-print" header with: a "Print" button (`window.print()`), a "Download PDF" link, and a back-to-edit link. Everything else: pure print-styled HTML.
+
+Visual Scope on the print view: render a `<img>` pointing at `/api/visual-scope-sheets/:id/export?mode=combined&width=2000` (this endpoint exists for the editor preview; verify against the route table and fall back to whatever the Visual Scope draft page uses to render its own preview). If the existing endpoint requires auth-via-cookie, that works because the user is in-session.
+
+### 7e. `ToolsPage.tsx`
+
+Insert a new tile object into the `tools` array (line 10), immediately after the `proposalMaker` entry:
+
+```tsx
+{
+  title: t("tools.crewWorksheets"),
+  description: t("tools.crewWorksheetsDesc"),
+  icon: ClipboardList, // or another icon — pick one not already used: Truck, HardHat, Workflow
+  href: "/dashboard/tools/crew-worksheets",
+  available: true,
+  testId: "card-crew-worksheets",
+},
+```
+
+Add `crewWorksheets` and `crewWorksheetsDesc` keys to `i18n/locales/en.ts` (line 714 block) and `es.ts` (matching block). Suggested copy:
+
+- en: `"Crew Worksheets"` / `"Generate printable job sheets for the field crew — maps, scope, photos, no pricing"`
+- es: `"Hojas de Trabajo del Equipo"` / `"Genera hojas de trabajo imprimibles para el equipo de campo — mapas, alcance, fotos, sin precios"`
+
+### 7f. Generate-worksheet button on `ProposalDraft.tsx`
+
+In the toolbar row near the `Preview PDF` / `Download PDF` / `Finalize` button cluster (`ProposalDraft.tsx:612`), add a new button **before** the Preview button:
+
+```tsx
+<Button
+  size="sm"
+  variant="outline"
+  onClick={() => generateWorksheetMutation.mutate()}
+  disabled={generateWorksheetMutation.isPending}
+  data-testid="button-generate-crew-worksheet"
+>
+  <ClipboardList className="w-4 h-4 mr-2" />
+  {generateWorksheetMutation.isPending
+    ? t("proposals.generatingCrewWorksheet")
+    : t("proposals.generateCrewWorksheet")}
+</Button>
+```
+
+The mutation:
+
+```tsx
+const generateWorksheetMutation = useMutation({
+  mutationFn: async () => {
+    const res = await apiRequest("POST", `/api/proposals/${id}/crew-worksheets`, {});
+    if (!res.ok) throw new Error(await res.text());
+    return res.json() as Promise<CrewWorksheetWithDetails>;
+  },
+  onSuccess: (worksheet) => {
+    queryClient.invalidateQueries({ queryKey: ["/api/crew-worksheets"] });
+    queryClient.invalidateQueries({ queryKey: ["/api/customers", proposal!.customerId, "crew-worksheets"] });
+    if (linkedTicketId) queryClient.invalidateQueries({ queryKey: ["/api/tickets", linkedTicketId, "crew-worksheets"] });
+    toast({ title: t("proposals.crewWorksheetCreated"), description: worksheet.worksheetNumber });
+    navigate(`/dashboard/tools/crew-worksheets/${worksheet.id}`);
+  },
+  onError: (err: Error) => toast({ title: t("proposals.crewWorksheetFailed"), description: err.message, variant: "destructive" }),
+});
+```
+
+Gate the button on `canWriteCrewWorksheets` client-side (use the existing `useAuth` hook's `user.activeRole`). The server already enforces.
+
+### 7g. Ticket-side card
+
+In `TicketDetail.tsx`, immediately after the `showProposals` block (~ line 1404), add a `showCrewWorksheets` block. Same shape: query `/api/tickets/:id/crew-worksheets`, render a card per linked worksheet with worksheetNumber + title + status badge + View button. If zero worksheets and the proposal exists, render a CTA: "Generate from latest proposal" that hits `POST /api/proposals/:latestProposalId/crew-worksheets`. If zero proposals and zero worksheets, render nothing — no orphan worksheet creation from the ticket.
+
+`showCrewWorksheets` is a new local boolean — gate on the same role logic the existing `showProposals` uses.
+
+### 7h. Customer detail page
+
+`CustomerDetail.tsx` — add a "Crew Worksheets" section/tab next to the existing Proposals section, listing `/api/customers/:customerId/crew-worksheets`. Mirror the layout of the customer-page Proposals section (look for the existing Proposals usage in `CustomerDetail.tsx` and parallel its structure). If the customer-page redesign is mid-flight (see `customer-page-redesign-slices.md`), confine the change to the section that currently houses Proposals — don't introduce a new top-level tab unless that's already the pattern.
+
+## Step 8 — Wire i18n strings
+
+Add the following keys to `en.ts` and `es.ts`. Place under existing namespaces where they fit (`tools.*`, `proposals.*`, and a new `crewWorksheets.*` block parallel to `proposals.*`):
+
+```
+tools.crewWorksheets / .crewWorksheetsDesc
+proposals.generateCrewWorksheet / .generatingCrewWorksheet / .crewWorksheetCreated / .crewWorksheetFailed
+crewWorksheets.title, .new, .empty, .listEmptyHint
+crewWorksheets.titleField, .worksheetDate, .scheduledDate, .scheduledStartTime, .estimatedHours
+crewWorksheets.crewLabel, .crewLead, .selectCrewLead
+crewWorksheets.equipment, .equipmentEmpty, .addEquipment
+crewWorksheets.materials, .materialsEmpty, .addMaterial, .quantity
+crewWorksheets.notes, .notesPlaceholder
+crewWorksheets.printView, .downloadPdf, .openPrintView
+crewWorksheets.linkedToProposal, .generatedFromProposal
+crewWorksheets.signCrewLead, .signCustomer, .siteMap, .siteAddress
+```
+
+Don't invent novel UI labels mid-component — every user-visible string goes through `t(...)`.
+
+## Acceptance checklist
+
+- [ ] `pnpm --filter @workspace/db push` runs cleanly with the new schema (no destructive prompts).
+- [ ] `lib/db/src/schema/schema.ts` and `artifacts/highplains-crm/src/shared/schema.ts` carry identical definitions for `crew_worksheets`, `crew_worksheet_photos`, `crew_worksheet_versions`, and the `EquipmentItem` / `MaterialItem` interfaces.
+- [ ] `pnpm typecheck` is clean across both packages.
+- [ ] `pnpm --filter @workspace/highplains-crm run build` succeeds.
+- [ ] `pnpm --filter @workspace/api-server run build` succeeds.
+- [ ] Tools page shows a new "Crew Worksheets" tile for any user in the write roles. Clicking opens `/dashboard/tools/crew-worksheets`.
+- [ ] On `ProposalDraft.tsx`, a "Generate Crew Worksheet" button appears for write-eligible roles. Clicking it creates a worksheet, navigates to its draft page, and the new worksheet shows the proposal's scope text and all its photos copied in.
+- [ ] On the new worksheet draft page: no estimate field, no estimate PDF upload, no price-bearing UI of any kind.
+- [ ] Crew briefing card: can assign a crew lead from a user picker scoped to field-eligible roles, set crew label, scheduled date, start time, and estimated hours. All persist with debounced/blur saves.
+- [ ] Equipment and Materials checklists: add rows, check/uncheck, edit labels/quantity/notes, drag-reorder, delete. JSONB persists on blur; refresh shows the same state.
+- [ ] Crew notes textarea persists like the proposal scope.
+- [ ] Photos: upload (including HEIC conversion), drag-reorder, bulk delete, captions. New uploads use storage prefix `crew-worksheets/{id}/photos/...`.
+- [ ] Visual Scope picker shows the customer's available sheets and attaches one. The print view and PDF render the combined view; no base/overlay toggles.
+- [ ] "Open print view" opens `/dashboard/tools/crew-worksheets/:id/print` in a new tab, renders cleanly at Letter via the browser print dialog, and hides the toolbar in print.
+- [ ] "Download PDF" downloads a PDF with: cover header, job briefing, scope (honoring `[PAGE BREAK]`), equipment/materials, crew notes, full-page site map, one photo per page, sign-off footer. **No price anywhere. No watermark.**
+- [ ] Ticket detail page shows linked crew worksheets in a card immediately below the proposals card. "Generate from latest proposal" CTA works when there are zero worksheets but at least one proposal.
+- [ ] Customer detail page lists the customer's worksheets alongside their proposals.
+- [ ] A `field` user can open the print view of a worksheet they have role-access to, but cannot edit it. A `field_manager` user can edit. An `admin` user can finalize (if Step 6 ships) or sees a 501-graceful "Coming soon" state.
+- [ ] Deleting a proposal does **not** delete its derived worksheet (FK is `onDelete: set null` on `sourceProposalId`). The worksheet's "Generated from proposal …" banner gracefully degrades to "Generated from a proposal that has been deleted."
+- [ ] Deleting a customer cascades and removes both proposals and worksheets (existing FK behavior on `customerId`).
+- [ ] `pnpm --filter @workspace/api-server run test` (if a test suite exists for storage/routes) passes; otherwise run the smoke tests already used for proposals against the new endpoints and document any gaps.
+
+## Files touched
+
+### `lib/db/`
+
+- `src/schema/schema.ts` — add `crew_worksheets`, `crew_worksheet_photos`, `crew_worksheet_versions`, `EquipmentItem`, `MaterialItem`, zod insert schemas, all derived types.
+
+### `artifacts/highplains-crm/`
+
+- `src/shared/schema.ts` — identical schema mirror.
+- `src/App.tsx` — three new `ProtectedRoute` entries and three new lazy imports.
+- `src/pages/ToolsPage.tsx` — new tile.
+- `src/pages/CrewWorksheetList.tsx` — new file (modeled on `ProposalMaker.tsx`).
+- `src/pages/CrewWorksheetDraft.tsx` — new file (modeled on `ProposalDraft.tsx` with the deletions/additions in Step 7c).
+- `src/pages/CrewWorksheetPrint.tsx` — new file.
+- `src/pages/ProposalDraft.tsx` — add "Generate Crew Worksheet" button + mutation.
+- `src/pages/TicketDetail.tsx` — add `showCrewWorksheets` block parallel to `showProposals`.
+- `src/pages/CustomerDetail.tsx` — add Crew Worksheets section next to existing Proposals section.
+- `src/i18n/locales/en.ts` and `src/i18n/locales/es.ts` — new strings (Step 8).
+
+### `artifacts/api-server/`
+
+- `src/routes/routes.ts`:
+  - Lift `drawWatermark`, `drawFooter`, `LM`, `RM`, `BRAND` from inside `generateProposalPdf` to module scope.
+  - Add `canReadCrewWorksheets`, `canWriteCrewWorksheets`, `canFinalizeCrewWorksheets` helpers and the role sets.
+  - Add all new routes from Steps 3a–3g (CRUD, photos, generate-from-proposal, pdf, ticket-scoped, customer-scoped) and Step 6 (versions).
+  - Add `generateCrewWorksheetPdf` function.
+- `src/storage.ts` — extend `IStorage` and the class with all methods listed in Step 4.
+
+### Deleted
+
+- Nothing.
+
+## Things to NOT change in this slice
+
+- **Proposal flow.** No changes to `generateProposalPdf` output, the finalize behavior, the estimate-PDF requirement, or any existing proposals route. The only edit to `ProposalDraft.tsx` is the new button.
+- **Visual Scope editor.** No new render modes, no schema changes — the worksheet PDF uses the existing `renderVisualScope(sheet, "combined", 2000)` exactly as the proposal does.
+- **GCS object storage layout.** No new buckets, no migrations of existing objects. Copied photos reference the same `storageObjectPath` as the source proposal photo (Step 4d).
+- **Role definitions.** Do not introduce new roles in `RoleName`. If a referenced role string in the access sets doesn't exist, drop it from the set.
+- **Authentication / session.** No changes to `passport`/session logic; reuse `req.isAuthenticated()` and `req.user as UserWithContext`.
+- **The `proposal_files` table.** Photos for a worksheet live in `crew_worksheet_photos`, never in `proposal_files`. Even though we copy paths across, we never insert into the proposal's table from the crew flow.
+- **HEIC conversion endpoint** (`/api/convert-heic`). Reuse as-is; no changes.
+- **The customer-page redesign** (separate in-flight slice). Keep the new Crew Worksheets section confined to the same surface area as the current Proposals section so the two redesigns don't collide.
+
+## Why this exists
+
+The proposal that wins a job and the work-order the crew takes to the site are two different documents with mostly the same content but mutually exclusive audiences. Today, the crew either re-derives a job sheet by hand from the customer-facing proposal PDF (slow, error-prone, exposes pricing) or works from memory + the linked ticket. A Crew Worksheet is the missing artifact: it inherits everything the proposal already captured (scope, photos, map) without the dollar figures, and adds the four operational details that only matter on the day of the job (who, when, with what, watch out for X). Making it a separate record means the crew can mark up the worksheet — equipment loaded, notes added, scope revised after a site walk — without contaminating the customer-accepted proposal. The proposal stays the contract; the worksheet becomes the playbook.
