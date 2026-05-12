@@ -140,6 +140,26 @@ export class ObjectStorageService {
     });
   }
 
+  async getScopedUploadURL(scopedSubpath: string): Promise<{ uploadUrl: string; storagePath: string }> {
+    const privateObjectDir = this.getPrivateObjectDir();
+    if (!privateObjectDir) {
+      throw new Error(
+        "PRIVATE_OBJECT_DIR not set. Create a bucket in 'Object Storage' " +
+          "tool and set PRIVATE_OBJECT_DIR env var."
+      );
+    }
+    const cleaned = scopedSubpath.replace(/^\/+/, "");
+    if (cleaned.includes("..")) {
+      throw new Error("Invalid scoped upload path");
+    }
+    const dir = privateObjectDir.endsWith("/") ? privateObjectDir.slice(0, -1) : privateObjectDir;
+    const fullPath = `${dir}/${cleaned}`;
+    const { bucketName, objectName } = parseObjectPath(fullPath);
+    const uploadUrl = await signObjectURL({ bucketName, objectName, method: "PUT", ttlSec: 900 });
+    const storagePath = `/objects/${cleaned}`;
+    return { uploadUrl, storagePath };
+  }
+
   async getObjectEntityFile(objectPath: string): Promise<File> {
     if (!objectPath.startsWith("/objects/")) {
       throw new ObjectNotFoundError();

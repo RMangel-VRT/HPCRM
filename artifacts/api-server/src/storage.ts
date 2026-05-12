@@ -20,7 +20,7 @@ export interface MyExtraBillableBatch {
 }
 import { type User, type InsertUser, type Customer, type InsertCustomer, type Contact, type InsertContact, type Company, type InsertCompany, type CompanyUser, type InsertCompanyUser, type Settings, type InsertSettings, type Note, type InsertNote, type Contract, type InsertContract, type ContractStatusHistory, type InsertContractStatusHistory, type ContractDocument, type InsertContractDocument, type ContractMonthlyAmount, type InsertContractMonthlyAmount, type CustomerRateSheet, type InsertCustomerRateSheet, type ContractService, type InsertContractService, type ContractTemplate, type InsertContractTemplate, type ContractBuilderDocument, type InsertContractBuilderDocument, type ContractBuilderSection, type InsertContractBuilderSection, type ContractBuilderVariable, type InsertContractBuilderVariable, type TicketType, type InsertTicketType, type TicketTypeStatus, type InsertTicketTypeStatus, type TicketTypeField, type InsertTicketTypeField, type Ticket, type InsertTicket, type TicketFieldValue, type InsertTicketFieldValue, type TicketStatusHistory, type InsertTicketStatusHistory, type TicketComment, type TicketCommentWithAuthor, type InsertTicketComment, type TicketCommentMention, type InsertTicketCommentMention, type TicketSource, type InsertTicketSource, type TicketLink, type InsertTicketLink, type TicketTypeCategory, type CustomerMapLayer, type InsertCustomerMapLayer, type CustomerMapDocument, type InsertCustomerMapDocument, type MaintenanceCrew, type InsertMaintenanceCrew, type MaintenanceVisitConfig, type InsertMaintenanceVisitConfig, type WeeklyScheduleTemplate, type InsertWeeklyScheduleTemplate, type ScheduleBlock, type InsertScheduleBlock, type TicketNotification, type InsertTicketNotification, type NotificationType, type PropertyManagementCompany, type InsertPropertyManagementCompany, type PropertyManager, type InsertPropertyManager, type PropertyManagerEmail, type InsertPropertyManagerEmail, type PropertyManagerPhone, type InsertPropertyManagerPhone, type PropertyManagerWithContacts, type Equipment, type InsertEquipment, type EquipmentFile, type InsertEquipmentFile, type EquipmentTicket, type InsertEquipmentTicket, type EquipmentTicketStatusHistory, type InsertEquipmentTicketStatusHistory, type EquipmentWithTicketCount, type SnowEvent, type InsertSnowEvent, type SnowEventAttachment, type InsertSnowEventAttachment, type SnowEventPropertyImpact, type InsertSnowEventPropertyImpact, type SnowEventWithDetails, type SnowEventPropertyImpactWithCustomer, type EmailTemplate, type InsertEmailTemplate, type EmailRule, type InsertEmailRule, type EmailLog, type InsertEmailLog, type EmailLogWithDetails, type Proposal, type InsertProposal, type ProposalFile, type InsertProposalFile, type ProposalWithDetails, type ProposalVersion, type InsertProposalVersion, type ProposalVersionWithUser, type VisualScopeSheet, type InsertVisualScopeSheet, type VisualScopeSheetWithCustomer, type Campaign, type InsertCampaign, type CampaignItem, type InsertCampaignItem, type CampaignWithProgress, type Season, type InsertSeason, type CampaignChecklistTask, type InsertCampaignChecklistTask, type CampaignItemTaskCompletion, type InsertCampaignItemTaskCompletion, type CampaignChecklistAuditLog, type InsertCampaignChecklistAuditLog, type CampaignChecklistAuditLogWithUser, type Communication, type InsertCommunication, type CommunicationTemplate, type InsertCommunicationTemplate, type CommunicationThread, type InsertCommunicationThread, type CommunicationLink, type InsertCommunicationLink, type CommunicationWithDetails, type CommunicationAnalytics, type InsertCommunicationAuditLog, type CommunicationAuditLog, type CommunicationAuditLogWithUser, type ChemicalProduct, type InsertChemicalProduct, type ChemicalNotificationTemplate, type InsertChemicalNotificationTemplate, type MailboxBackfillRun, type InsertMailboxBackfillRun } from "@workspace/db";
 import { db } from "./db";
-import { users, customers, contacts, companies, companyUsers, settings, notes, contracts, contractStatusHistory, contractDocuments, contractMonthlyAmounts, customerRateSheets, contractServices, contractTemplates, contractBuilderDocuments, contractBuilderSections, contractBuilderVariables, ticketTypes, ticketTypeStatuses, ticketTypeFields, tickets, ticketFieldValues, ticketStatusHistory, ticketComments, ticketCommentMentions, ticketSources, ticketLinks, customerMapLayers, customerMapDocuments, maintenanceCrews, maintenanceVisitConfigs, weeklyScheduleTemplates, scheduleBlocks, ticketNotifications, propertyManagementCompanies, propertyManagers, propertyManagerEmails, propertyManagerPhones, equipment, equipmentFiles, equipmentTickets, equipmentTicketStatusHistory, snowEvents, snowEventAttachments, snowEventPropertyImpacts, emailTemplates, emailRules, emailLogs, proposals, proposalFiles, proposalVersions, visualScopeSheets, campaigns, campaignItems, campaignChecklistTasks, campaignItemTaskCompletions, campaignChecklistAuditLog as campaignChecklistAuditLogTable, campaignCrews, campaignCrewMembers, seasons, communications, communicationTemplates, communicationThreads, communicationLinks, communicationAuditLog, communicationAutomationRules, mailboxAccounts, unsortedEmails, servicePlanTemplates, servicePlanTemplateItems, customerServicePlans, stylePresets, sheetTemplates, chemicalProducts, chemicalNotificationTemplates, mailboxBackfillRuns } from "@workspace/db";
+import { users, customers, contacts, companies, companyUsers, settings, notes, contracts, contractStatusHistory, contractDocuments, contractMonthlyAmounts, customerRateSheets, contractServices, contractTemplates, contractBuilderDocuments, contractBuilderSections, contractBuilderVariables, ticketTypes, ticketTypeStatuses, ticketTypeFields, tickets, ticketFieldValues, ticketStatusHistory, ticketComments, ticketCommentMentions, ticketSources, ticketLinks, customerMapLayers, customerMapDocuments, maintenanceCrews, maintenanceVisitConfigs, weeklyScheduleTemplates, scheduleBlocks, ticketNotifications, propertyManagementCompanies, propertyManagers, propertyManagerEmails, propertyManagerPhones, equipment, equipmentFiles, equipmentTickets, equipmentTicketStatusHistory, snowEvents, snowEventAttachments, snowEventPropertyImpacts, emailTemplates, emailRules, emailLogs, proposals, proposalFiles, proposalVersions, visualScopeSheets, campaigns, campaignItems, campaignChecklistTasks, campaignItemTaskCompletions, campaignChecklistAuditLog as campaignChecklistAuditLogTable, campaignCrews, campaignCrewMembers, seasons, communications, communicationTemplates, communicationThreads, communicationLinks, communicationAuditLog, communicationAutomationRules, mailboxAccounts, unsortedEmails, servicePlanTemplates, servicePlanTemplateItems, customerServicePlans, stylePresets, sheetTemplates, chemicalProducts, chemicalNotificationTemplates, mailboxBackfillRuns, crewWorksheets, crewWorksheetPhotos, crewWorksheetVersions, crewWorksheetNumberCounters } from "@workspace/db";
 import type { StylePreset, InsertStylePreset, SheetTemplate, InsertSheetTemplate, StylePresetType, StylePresetConfig } from "@workspace/db";
 import type { VisibleMailboxes } from "./services/mailboxScope";
 import type { CommunicationAutomationRule, InsertCommunicationAutomationRule, ServicePlanTemplateWithItems, ServicePlanTemplate, InsertServicePlanTemplate, ServicePlanTemplateItem, ServicePlanCategory, CustomerServicePlan, InsertCustomerServicePlan, ServiceFulfillmentRow } from "@workspace/db";
@@ -351,6 +351,34 @@ export interface IStorage {
   getProposalVersions(proposalId: string, companyId: string): Promise<ProposalVersionWithUser[]>;
   getProposalVersionById(id: string, companyId: string): Promise<ProposalVersionWithUser | undefined>;
   getNextVersionNumber(proposalId: string, companyId: string): Promise<number>;
+
+  // Crew Worksheets
+  getCrewWorksheets(companyId: string): Promise<import("@workspace/db").CrewWorksheetWithDetails[]>;
+  getCrewWorksheetsByCustomer(customerId: string, companyId: string): Promise<import("@workspace/db").CrewWorksheetWithDetails[]>;
+  getCrewWorksheetsForTicket(ticketId: string, companyId: string): Promise<import("@workspace/db").CrewWorksheetWithDetails[]>;
+  getCrewWorksheetById(id: string, companyId: string): Promise<import("@workspace/db").CrewWorksheetWithDetails | undefined>;
+  createCrewWorksheet(data: import("@workspace/db").InsertCrewWorksheet): Promise<import("@workspace/db").CrewWorksheet>;
+  createCrewWorksheetFromProposal(args: {
+    companyId: string;
+    proposalId: string;
+    createdById: string;
+    worksheetNumber: string;
+    worksheetDate: string;
+    title: string;
+  }): Promise<import("@workspace/db").CrewWorksheetWithDetails | undefined>;
+  updateCrewWorksheet(id: string, companyId: string, updates: Partial<import("@workspace/db").InsertCrewWorksheet>): Promise<import("@workspace/db").CrewWorksheet | undefined>;
+  deleteCrewWorksheet(id: string, companyId: string): Promise<void>;
+  generateCrewWorksheetNumber(companyId: string, year: number): Promise<string>;
+  getCrewWorksheetPhotos(crewWorksheetId: string, companyId: string): Promise<import("@workspace/db").CrewWorksheetPhoto[]>;
+  getCrewWorksheetPhotoById(id: string, companyId: string): Promise<import("@workspace/db").CrewWorksheetPhoto | undefined>;
+  createCrewWorksheetPhoto(p: import("@workspace/db").InsertCrewWorksheetPhoto): Promise<import("@workspace/db").CrewWorksheetPhoto>;
+  updateCrewWorksheetPhoto(id: string, companyId: string, updates: { caption?: string | null }): Promise<import("@workspace/db").CrewWorksheetPhoto | undefined>;
+  reorderCrewWorksheetPhotos(crewWorksheetId: string, companyId: string, orderedIds: string[]): Promise<import("@workspace/db").CrewWorksheetPhoto[]>;
+  deleteCrewWorksheetPhoto(id: string, companyId: string): Promise<void>;
+  createCrewWorksheetVersion(v: import("@workspace/db").InsertCrewWorksheetVersion): Promise<import("@workspace/db").CrewWorksheetVersion>;
+  getCrewWorksheetVersions(crewWorksheetId: string, companyId: string): Promise<import("@workspace/db").CrewWorksheetVersionWithUser[]>;
+  getCrewWorksheetVersionById(id: string, companyId: string): Promise<import("@workspace/db").CrewWorksheetVersionWithUser | undefined>;
+  getNextCrewWorksheetVersionNumber(crewWorksheetId: string, companyId: string): Promise<number>;
 
   // Visual Scope Sheets
   getVisualScopeSheets(companyId: string): Promise<VisualScopeSheetWithCustomer[]>;
@@ -3246,6 +3274,302 @@ export class PgStorage implements IStorage {
       .select({ maxVersion: max(proposalVersions.versionNumber) })
       .from(proposalVersions)
       .where(and(eq(proposalVersions.proposalId, proposalId), eq(proposalVersions.companyId, companyId)));
+    return (result[0]?.maxVersion ?? 0) + 1;
+  }
+
+  // ===== Crew Worksheets =====
+
+  private async _getCrewWorksheetVersionsMap(ids: string[]): Promise<Record<string, import("@workspace/db").CrewWorksheetVersionWithUser[]>> {
+    if (ids.length === 0) return {};
+    const rows = await db
+      .select({ version: crewWorksheetVersions, finalizedByName: users.name })
+      .from(crewWorksheetVersions)
+      .leftJoin(users, eq(crewWorksheetVersions.finalizedById, users.id))
+      .where(inArray(crewWorksheetVersions.crewWorksheetId, ids))
+      .orderBy(crewWorksheetVersions.versionNumber);
+    const map: Record<string, import("@workspace/db").CrewWorksheetVersionWithUser[]> = {};
+    for (const r of rows) {
+      const v = { ...r.version, finalizedByName: r.finalizedByName ?? null };
+      if (!map[r.version.crewWorksheetId]) map[r.version.crewWorksheetId] = [];
+      map[r.version.crewWorksheetId].push(v);
+    }
+    return map;
+  }
+
+  private async _enrichCrewWorksheets(rows: { worksheet: typeof crewWorksheets.$inferSelect; customerName: string | null; customerStreet: string | null; customerCity: string | null; customerState: string | null }[]): Promise<import("@workspace/db").CrewWorksheetWithDetails[]> {
+    const ids = rows.map(r => r.worksheet.id);
+    const photos = ids.length > 0
+      ? await db.select().from(crewWorksheetPhotos).where(inArray(crewWorksheetPhotos.crewWorksheetId, ids)).orderBy(crewWorksheetPhotos.displayOrder)
+      : [];
+    const versionsMap = await this._getCrewWorksheetVersionsMap(ids);
+    const vsIds = rows.map(r => r.worksheet.visualScopeSheetId).filter(Boolean) as string[];
+    const vsMap = await this._getVsSheetMap(vsIds);
+    const leadIds = Array.from(new Set(rows.map(r => r.worksheet.assignedCrewLeadId).filter(Boolean) as string[]));
+    const leadRows = leadIds.length > 0 ? await db.select({ id: users.id, name: users.name }).from(users).where(inArray(users.id, leadIds)) : [];
+    const leadMap = Object.fromEntries(leadRows.map(r => [r.id, r.name]));
+    const sourceIds = Array.from(new Set(rows.map(r => r.worksheet.sourceProposalId).filter(Boolean) as string[]));
+    const sourceRows = sourceIds.length > 0
+      ? await db.select({ id: proposals.id, title: proposals.title, proposalNumber: proposals.proposalNumber })
+          .from(proposals).where(inArray(proposals.id, sourceIds))
+      : [];
+    const sourceTitleMap = Object.fromEntries(sourceRows.map(r => [r.id, r.title]));
+    const sourceNumberMap = Object.fromEntries(sourceRows.map(r => [r.id, r.proposalNumber]));
+
+    return rows.map(r => {
+      const liveNumber = r.worksheet.sourceProposalId ? (sourceNumberMap[r.worksheet.sourceProposalId] ?? null) : null;
+      const liveTitle = r.worksheet.sourceProposalId ? (sourceTitleMap[r.worksheet.sourceProposalId] ?? null) : null;
+      const snapshotNumber = r.worksheet.sourceProposalNumberSnapshot ?? null;
+      const snapshotTitle = r.worksheet.sourceProposalTitleSnapshot ?? null;
+      const sourceProposalDeleted = !r.worksheet.sourceProposalId && !!(snapshotNumber || snapshotTitle);
+      return {
+        ...r.worksheet,
+        customerName: r.customerName ?? "",
+        customerStreet: r.customerStreet ?? null,
+        customerCity: r.customerCity ?? null,
+        customerState: r.customerState ?? null,
+        photos: photos.filter(p => p.crewWorksheetId === r.worksheet.id),
+        versions: versionsMap[r.worksheet.id] ?? [],
+        visualScopeSheet: r.worksheet.visualScopeSheetId ? (vsMap[r.worksheet.visualScopeSheetId] ?? null) : null,
+        assignedCrewLeadName: r.worksheet.assignedCrewLeadId ? (leadMap[r.worksheet.assignedCrewLeadId] ?? null) : null,
+        sourceProposalNumber: liveNumber ?? snapshotNumber,
+        sourceProposalTitle: liveTitle ?? snapshotTitle,
+        sourceProposalDeleted,
+      };
+    });
+  }
+
+  async getCrewWorksheets(companyId: string): Promise<import("@workspace/db").CrewWorksheetWithDetails[]> {
+    const rows = await db
+      .select({
+        worksheet: crewWorksheets,
+        customerName: customers.name,
+        customerStreet: customers.street,
+        customerCity: customers.city,
+        customerState: customers.state,
+      })
+      .from(crewWorksheets)
+      .leftJoin(customers, eq(crewWorksheets.customerId, customers.id))
+      .where(eq(crewWorksheets.companyId, companyId))
+      .orderBy(desc(crewWorksheets.createdAt))
+      .limit(500);
+    return this._enrichCrewWorksheets(rows);
+  }
+
+  async getCrewWorksheetsByCustomer(customerId: string, companyId: string): Promise<import("@workspace/db").CrewWorksheetWithDetails[]> {
+    const rows = await db
+      .select({
+        worksheet: crewWorksheets,
+        customerName: customers.name,
+        customerStreet: customers.street,
+        customerCity: customers.city,
+        customerState: customers.state,
+      })
+      .from(crewWorksheets)
+      .leftJoin(customers, eq(crewWorksheets.customerId, customers.id))
+      .where(and(eq(crewWorksheets.customerId, customerId), eq(crewWorksheets.companyId, companyId)))
+      .orderBy(desc(crewWorksheets.createdAt));
+    return this._enrichCrewWorksheets(rows);
+  }
+
+  async getCrewWorksheetsForTicket(ticketId: string, companyId: string): Promise<import("@workspace/db").CrewWorksheetWithDetails[]> {
+    const rows = await db
+      .select({
+        worksheet: crewWorksheets,
+        customerName: customers.name,
+        customerStreet: customers.street,
+        customerCity: customers.city,
+        customerState: customers.state,
+      })
+      .from(crewWorksheets)
+      .leftJoin(customers, eq(crewWorksheets.customerId, customers.id))
+      .where(and(eq(crewWorksheets.ticketId, ticketId), eq(crewWorksheets.companyId, companyId)))
+      .orderBy(desc(crewWorksheets.createdAt));
+    return this._enrichCrewWorksheets(rows);
+  }
+
+  async getCrewWorksheetById(id: string, companyId: string): Promise<import("@workspace/db").CrewWorksheetWithDetails | undefined> {
+    const rows = await db
+      .select({
+        worksheet: crewWorksheets,
+        customerName: customers.name,
+        customerStreet: customers.street,
+        customerCity: customers.city,
+        customerState: customers.state,
+      })
+      .from(crewWorksheets)
+      .leftJoin(customers, eq(crewWorksheets.customerId, customers.id))
+      .where(and(eq(crewWorksheets.id, id), eq(crewWorksheets.companyId, companyId)));
+    if (!rows[0]) return undefined;
+    const enriched = await this._enrichCrewWorksheets(rows);
+    return enriched[0];
+  }
+
+  async createCrewWorksheet(data: import("@workspace/db").InsertCrewWorksheet): Promise<import("@workspace/db").CrewWorksheet> {
+    const result = await db.insert(crewWorksheets).values([data] as (typeof crewWorksheets.$inferInsert)[]).returning();
+    return result[0];
+  }
+
+  async createCrewWorksheetFromProposal(args: {
+    companyId: string;
+    proposalId: string;
+    createdById: string;
+    worksheetNumber: string;
+    worksheetDate: string;
+    title: string;
+  }): Promise<import("@workspace/db").CrewWorksheetWithDetails | undefined> {
+    const proposal = await this.getProposalById(args.proposalId, args.companyId);
+    if (!proposal) return undefined;
+    const images = proposal.files
+      .filter(f => f.fileType === "image")
+      .sort((a, b) => a.displayOrder - b.displayOrder);
+
+    const insertedId = await db.transaction(async (tx) => {
+      const [ws] = await tx.insert(crewWorksheets).values([{
+        companyId: args.companyId,
+        customerId: proposal.customerId,
+        createdById: args.createdById,
+        ticketId: proposal.ticketId ?? null,
+        sourceProposalId: proposal.id,
+        sourceProposalNumberSnapshot: proposal.proposalNumber ?? null,
+        sourceProposalTitleSnapshot: proposal.title ?? null,
+        worksheetNumber: args.worksheetNumber,
+        title: args.title,
+        worksheetDate: args.worksheetDate,
+        scopeOfWork: proposal.scopeOfWork ?? "",
+        status: "draft",
+        visualScopeSheetId: proposal.visualScopeSheetId ?? null,
+        assignedCrewLeadId: null,
+        crewLabel: null,
+        scheduledDate: null,
+        scheduledStartTime: null,
+        estimatedHours: null,
+        equipmentChecklist: [],
+        materialsChecklist: [],
+        crewNotes: "",
+      }] as (typeof crewWorksheets.$inferInsert)[]).returning();
+
+      if (images.length > 0) {
+        await tx.insert(crewWorksheetPhotos).values(images.map((img, i) => ({
+          crewWorksheetId: ws.id,
+          companyId: args.companyId,
+          storageObjectPath: img.storageObjectPath,
+          filename: img.filename,
+          mimeType: img.mimeType,
+          fileSize: img.fileSize,
+          caption: img.caption ?? null,
+          displayOrder: i,
+        })));
+      }
+      return ws.id;
+    });
+
+    return this.getCrewWorksheetById(insertedId, args.companyId);
+  }
+
+  async updateCrewWorksheet(id: string, companyId: string, updates: Partial<import("@workspace/db").InsertCrewWorksheet>): Promise<import("@workspace/db").CrewWorksheet | undefined> {
+    const result = await db.update(crewWorksheets)
+      .set({ ...updates, updatedAt: new Date() })
+      .where(and(eq(crewWorksheets.id, id), eq(crewWorksheets.companyId, companyId)))
+      .returning();
+    return result[0];
+  }
+
+  async deleteCrewWorksheet(id: string, companyId: string): Promise<void> {
+    await db.delete(crewWorksheets).where(and(eq(crewWorksheets.id, id), eq(crewWorksheets.companyId, companyId)));
+  }
+
+  async generateCrewWorksheetNumber(companyId: string, year: number): Promise<string> {
+    const rows = await db.execute(sql`
+      INSERT INTO crew_worksheet_number_counters (company_id, year, last_number)
+      VALUES (${companyId}, ${year}, 1)
+      ON CONFLICT (company_id, year)
+      DO UPDATE SET last_number = crew_worksheet_number_counters.last_number + 1
+      RETURNING last_number
+    `);
+    const last = (rows.rows?.[0] as { last_number?: number } | undefined)?.last_number ?? 1;
+    return `CW-${year}-${String(last).padStart(4, "0")}`;
+  }
+
+  async getCrewWorksheetPhotos(crewWorksheetId: string, companyId: string): Promise<import("@workspace/db").CrewWorksheetPhoto[]> {
+    return db.select().from(crewWorksheetPhotos)
+      .where(and(eq(crewWorksheetPhotos.crewWorksheetId, crewWorksheetId), eq(crewWorksheetPhotos.companyId, companyId)))
+      .orderBy(crewWorksheetPhotos.displayOrder);
+  }
+
+  async getCrewWorksheetPhotoById(id: string, companyId: string): Promise<import("@workspace/db").CrewWorksheetPhoto | undefined> {
+    const result = await db.select().from(crewWorksheetPhotos)
+      .where(and(eq(crewWorksheetPhotos.id, id), eq(crewWorksheetPhotos.companyId, companyId)));
+    return result[0];
+  }
+
+  async createCrewWorksheetPhoto(p: import("@workspace/db").InsertCrewWorksheetPhoto): Promise<import("@workspace/db").CrewWorksheetPhoto> {
+    const result = await db.insert(crewWorksheetPhotos).values([p]).returning();
+    return result[0];
+  }
+
+  async updateCrewWorksheetPhoto(id: string, companyId: string, updates: { caption?: string | null }): Promise<import("@workspace/db").CrewWorksheetPhoto | undefined> {
+    const result = await db.update(crewWorksheetPhotos)
+      .set(updates)
+      .where(and(eq(crewWorksheetPhotos.id, id), eq(crewWorksheetPhotos.companyId, companyId)))
+      .returning();
+    return result[0];
+  }
+
+  async reorderCrewWorksheetPhotos(crewWorksheetId: string, companyId: string, orderedIds: string[]): Promise<import("@workspace/db").CrewWorksheetPhoto[]> {
+    return db.transaction(async (tx) => {
+      const existing = await tx.select().from(crewWorksheetPhotos)
+        .where(and(eq(crewWorksheetPhotos.crewWorksheetId, crewWorksheetId), eq(crewWorksheetPhotos.companyId, companyId)));
+      const orderedSet = new Set(orderedIds);
+      if (orderedSet.size !== orderedIds.length) throw new Error("Reorder list must not contain duplicates");
+      const existingIds = new Set(existing.map(p => p.id));
+      if (orderedIds.length !== existing.length || !orderedIds.every(id => existingIds.has(id))) {
+        throw new Error("Reorder list must include exactly the worksheet's photo ids");
+      }
+      for (let i = 0; i < orderedIds.length; i++) {
+        await tx.update(crewWorksheetPhotos)
+          .set({ displayOrder: i })
+          .where(and(eq(crewWorksheetPhotos.id, orderedIds[i]), eq(crewWorksheetPhotos.companyId, companyId)));
+      }
+      return tx.select().from(crewWorksheetPhotos)
+        .where(and(eq(crewWorksheetPhotos.crewWorksheetId, crewWorksheetId), eq(crewWorksheetPhotos.companyId, companyId)))
+        .orderBy(crewWorksheetPhotos.displayOrder);
+    });
+  }
+
+  async deleteCrewWorksheetPhoto(id: string, companyId: string): Promise<void> {
+    await db.delete(crewWorksheetPhotos).where(and(eq(crewWorksheetPhotos.id, id), eq(crewWorksheetPhotos.companyId, companyId)));
+  }
+
+  async createCrewWorksheetVersion(v: import("@workspace/db").InsertCrewWorksheetVersion): Promise<import("@workspace/db").CrewWorksheetVersion> {
+    const result = await db.insert(crewWorksheetVersions).values([v]).returning();
+    return result[0];
+  }
+
+  async getCrewWorksheetVersions(crewWorksheetId: string, companyId: string): Promise<import("@workspace/db").CrewWorksheetVersionWithUser[]> {
+    const rows = await db
+      .select({ version: crewWorksheetVersions, finalizedByName: users.name })
+      .from(crewWorksheetVersions)
+      .leftJoin(users, eq(crewWorksheetVersions.finalizedById, users.id))
+      .where(and(eq(crewWorksheetVersions.crewWorksheetId, crewWorksheetId), eq(crewWorksheetVersions.companyId, companyId)))
+      .orderBy(crewWorksheetVersions.versionNumber);
+    return rows.map(r => ({ ...r.version, finalizedByName: r.finalizedByName ?? null }));
+  }
+
+  async getCrewWorksheetVersionById(id: string, companyId: string): Promise<import("@workspace/db").CrewWorksheetVersionWithUser | undefined> {
+    const rows = await db
+      .select({ version: crewWorksheetVersions, finalizedByName: users.name })
+      .from(crewWorksheetVersions)
+      .leftJoin(users, eq(crewWorksheetVersions.finalizedById, users.id))
+      .where(and(eq(crewWorksheetVersions.id, id), eq(crewWorksheetVersions.companyId, companyId)));
+    if (!rows[0]) return undefined;
+    return { ...rows[0].version, finalizedByName: rows[0].finalizedByName ?? null };
+  }
+
+  async getNextCrewWorksheetVersionNumber(crewWorksheetId: string, companyId: string): Promise<number> {
+    const result = await db
+      .select({ maxVersion: max(crewWorksheetVersions.versionNumber) })
+      .from(crewWorksheetVersions)
+      .where(and(eq(crewWorksheetVersions.crewWorksheetId, crewWorksheetId), eq(crewWorksheetVersions.companyId, companyId)));
     return (result[0]?.maxVersion ?? 0) + 1;
   }
 

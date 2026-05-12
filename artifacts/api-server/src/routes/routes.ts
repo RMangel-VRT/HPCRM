@@ -11928,6 +11928,731 @@ export async function registerRoutes(app: Express): Promise<Server> {
     res.send(imgBytes);
   });
 
+  // ═══════════════════════════════════════════════════════════════════════════
+  // Crew Worksheets — frozen, crew-facing snapshots of a Proposal that can be
+  // independently edited (no pricing, no estimate PDF). Numbered CW-YYYY-NNNN
+  // per company per calendar year.
+  // ═══════════════════════════════════════════════════════════════════════════
+
+  const CW_READ_ROLES = new Set([
+    "admin", "office", "field_manager", "crew_supervisor", "landscape_supervisor",
+    "field", "chemical_manager", "irrigation_manager", "shop_manager", "mapping",
+  ]);
+  const CW_WRITE_ROLES = new Set([
+    "admin", "office", "field_manager", "crew_supervisor", "landscape_supervisor",
+  ]);
+  const CW_FINALIZE_ROLES = new Set(["admin", "office"]);
+  const canReadCrewWorksheets = (role: string) => CW_READ_ROLES.has(role);
+  const canWriteCrewWorksheets = (role: string) => CW_WRITE_ROLES.has(role);
+  const canFinalizeCrewWorksheets = (role: string) => CW_FINALIZE_ROLES.has(role);
+
+  function sanitizeFilenamePart(s: string, maxLen: number): string {
+    return (s || "").replace(/[/\\:*?"<>|]/g, "-").trim().substring(0, maxLen);
+  }
+
+  // ---- List crew worksheets (filterable by customer or ticket) ----
+  app.get("/api/crew-worksheets", async (req, res) => {
+    if (!req.isAuthenticated()) return res.status(401).send("Not authenticated");
+    const user = req.user as UserWithContext;
+    if (!canReadCrewWorksheets(user.activeRole)) return res.status(403).send("Insufficient permissions");
+
+    const customerId = typeof req.query.customerId === "string" ? req.query.customerId : null;
+    const ticketId = typeof req.query.ticketId === "string" ? req.query.ticketId : null;
+    let result;
+    if (customerId) {
+      result = await storage.getCrewWorksheetsByCustomer(customerId, user.activeCompanyId);
+    } else if (ticketId) {
+      result = await storage.getCrewWorksheetsForTicket(ticketId, user.activeCompanyId);
+    } else {
+      result = await storage.getCrewWorksheets(user.activeCompanyId);
+    }
+    res.json(result);
+  });
+
+  // ---- Get single crew worksheet ----
+  app.get("/api/crew-worksheets/:id", async (req, res) => {
+    if (!req.isAuthenticated()) return res.status(401).send("Not authenticated");
+    const user = req.user as UserWithContext;
+    if (!canReadCrewWorksheets(user.activeRole)) return res.status(403).send("Insufficient permissions");
+    const ws = await storage.getCrewWorksheetById(req.params.id, user.activeCompanyId);
+    if (!ws) return res.status(404).send("Crew worksheet not found");
+    res.json(ws);
+  });
+
+  // ---- List by customer (mirror of proposals/customers/:id route shape) ----
+  app.get("/api/customers/:customerId/crew-worksheets", async (req, res) => {
+    if (!req.isAuthenticated()) return res.status(401).send("Not authenticated");
+    const user = req.user as UserWithContext;
+    if (!canReadCrewWorksheets(user.activeRole)) return res.status(403).send("Insufficient permissions");
+    const result = await storage.getCrewWorksheetsByCustomer(req.params.customerId, user.activeCompanyId);
+    res.json(result);
+  });
+
+  // ---- List by ticket ----
+  app.get("/api/tickets/:ticketId/crew-worksheets", async (req, res) => {
+    if (!req.isAuthenticated()) return res.status(401).send("Not authenticated");
+    const user = req.user as UserWithContext;
+    if (!canReadCrewWorksheets(user.activeRole)) return res.status(403).send("Insufficient permissions");
+    const result = await storage.getCrewWorksheetsForTicket(req.params.ticketId, user.activeCompanyId);
+    res.json(result);
+  });
+
+  // ---- Generate worksheet number for a year ----
+  async function generateCrewWorksheetNumberWithRetry(companyId: string, year: number, attempts = 3): Promise<string> {
+    let lastErr: any = null;
+    for (let i = 0; i < attempts; i++) {
+      try {
+        return await storage.generateCrewWorksheetNumber(companyId, year);
+      } catch (err: any) {
+        lastErr = err;
+        if (err?.code !== "23505") throw err;
+      }
+    }
+    throw lastErr ?? new Error("Failed to generate worksheet number");
+  }
+
+  // ---- Create blank crew worksheet (from a customer) ----
+  app.post("/api/crew-worksheets", async (req, res) => {
+    if (!req.isAuthenticated()) return res.status(401).send("Not authenticated");
+    const user = req.user as UserWithContext;
+    if (!canWriteCrewWorksheets(user.activeRole)) return res.status(403).send("Insufficient permissions");
+
+    const { customerId, ticketId, title, worksheetDate } = req.body as {
+      customerId?: string; ticketId?: string | null; title?: string; worksheetDate?: string;
+    };
+    if (!customerId) return res.status(400).send("customerId is required");
+
+    const today = new Date();
+    const dateStr = worksheetDate ?? today.toISOString().slice(0, 10);
+    const year = parseInt(dateStr.slice(0, 4), 10) || today.getFullYear();
+    const worksheetNumber = await generateCrewWorksheetNumberWithRetry(user.activeCompanyId, year);
+
+    const created = await storage.createCrewWorksheet({
+      companyId: user.activeCompanyId,
+      customerId,
+      createdById: user.id,
+      ticketId: ticketId ?? null,
+      sourceProposalId: null,
+      worksheetNumber,
+      title: title ?? "Crew Worksheet",
+      worksheetDate: dateStr,
+      scopeOfWork: "",
+      status: "draft",
+      visualScopeSheetId: null,
+      assignedCrewLeadId: null,
+      crewLabel: null,
+      scheduledDate: null,
+      scheduledStartTime: null,
+      estimatedHours: null,
+      equipmentChecklist: [],
+      materialsChecklist: [],
+      crewNotes: "",
+    });
+    res.status(201).json(created);
+  });
+
+  // ---- Generate crew worksheet from a proposal (frozen snapshot of scope/photos) ----
+  async function generateCrewWorksheetFromProposalHandler(req: import("express").Request, res: import("express").Response) {
+    if (!req.isAuthenticated()) return res.status(401).send("Not authenticated");
+    const user = req.user as UserWithContext;
+    if (!canWriteCrewWorksheets(user.activeRole)) return res.status(403).send("Insufficient permissions");
+
+    const proposalId = (req.params.id ?? req.params.proposalId) as string;
+    // Existence pre-check so we can return 404 (vs the storage method returning undefined).
+    const proposalProbe = await storage.getProposalById(proposalId, user.activeCompanyId);
+    if (!proposalProbe) return res.status(404).send("Proposal not found");
+
+    const today = new Date();
+    const dateStr = today.toISOString().slice(0, 10);
+    const year = today.getFullYear();
+    const worksheetNumber = await generateCrewWorksheetNumberWithRetry(user.activeCompanyId, year);
+
+    const baseTitle = (proposalProbe.title || "Crew Worksheet").trim();
+    const title = /\bcrew worksheet\b/i.test(baseTitle) ? baseTitle : `${baseTitle} — Crew Worksheet`;
+
+    const enriched = await storage.createCrewWorksheetFromProposal({
+      companyId: user.activeCompanyId,
+      proposalId,
+      createdById: user.id,
+      worksheetNumber,
+      worksheetDate: dateStr,
+      title,
+    });
+    if (!enriched) return res.status(404).send("Proposal not found");
+    res.status(201).json(enriched);
+  }
+
+  // Canonical: POST /api/proposals/:id/crew-worksheets
+  app.post("/api/proposals/:id/crew-worksheets", generateCrewWorksheetFromProposalHandler);
+  // Back-compat alias
+  app.post("/api/crew-worksheets/from-proposal/:proposalId", generateCrewWorksheetFromProposalHandler);
+
+  // ---- Update crew worksheet ----
+  app.patch("/api/crew-worksheets/:id", async (req, res) => {
+    if (!req.isAuthenticated()) return res.status(401).send("Not authenticated");
+    const user = req.user as UserWithContext;
+    if (!canWriteCrewWorksheets(user.activeRole)) return res.status(403).send("Insufficient permissions");
+
+    const existing = await storage.getCrewWorksheetById(req.params.id, user.activeCompanyId);
+    if (!existing) return res.status(404).send("Crew worksheet not found");
+
+    const allowedKeys = [
+      "title", "worksheetDate", "scopeOfWork", "status",
+      "ticketId",
+      "visualScopeSheetId", "assignedCrewLeadId", "crewLabel",
+      "scheduledDate", "scheduledStartTime", "estimatedHours",
+      "equipmentChecklist", "materialsChecklist", "crewNotes",
+    ] as const;
+    const body = (req.body ?? {}) as Record<string, unknown>;
+    const updates: Partial<import("@workspace/db").InsertCrewWorksheet> = {};
+    for (const k of allowedKeys) {
+      if (k in body) {
+        (updates as Record<string, unknown>)[k] = body[k];
+      }
+    }
+    const updated = await storage.updateCrewWorksheet(req.params.id, user.activeCompanyId, updates);
+    res.json(updated);
+  });
+
+  // ---- Delete crew worksheet ----
+  app.delete("/api/crew-worksheets/:id", async (req, res) => {
+    if (!req.isAuthenticated()) return res.status(401).send("Not authenticated");
+    const user = req.user as UserWithContext;
+    if (!canWriteCrewWorksheets(user.activeRole)) return res.status(403).send("Insufficient permissions");
+
+    const existing = await storage.getCrewWorksheetById(req.params.id, user.activeCompanyId);
+    if (!existing) return res.status(404).send("Crew worksheet not found");
+    await storage.deleteCrewWorksheet(req.params.id, user.activeCompanyId);
+    res.json({ success: true });
+  });
+
+  // ---- Photo upload-url ----
+  app.post("/api/crew-worksheets/:id/photos/upload-url", async (req, res) => {
+    if (!req.isAuthenticated()) return res.status(401).send("Not authenticated");
+    const user = req.user as UserWithContext;
+    if (!canWriteCrewWorksheets(user.activeRole)) return res.status(403).send("Insufficient permissions");
+
+    const { mimeType, fileSize, filename } = req.body as { mimeType?: string; fileSize?: number; filename?: string };
+    if (!mimeType?.startsWith("image/")) return res.status(400).json({ error: "Photos must have an image/* MIME type" });
+    if ((fileSize ?? 0) > 10 * 1024 * 1024) return res.status(400).json({ error: "Photos must be ≤ 10MB" });
+    if (!filename || typeof filename !== "string") return res.status(400).json({ error: "filename is required" });
+
+    const ws = await storage.getCrewWorksheetById(req.params.id, user.activeCompanyId);
+    if (!ws) return res.status(404).send("Crew worksheet not found");
+
+    // Sanitize filename to a safe leaf and prefix with the worksheet-scoped path.
+    const safeBase = filename.replace(/[^A-Za-z0-9._-]+/g, "_").replace(/^_+|_+$/g, "").slice(0, 120) || "photo";
+    const uniqueLeaf = `${Date.now()}-${randomUUID().slice(0, 8)}-${safeBase}`;
+    const scopedSubpath = `crew-worksheets/${req.params.id}/photos/${uniqueLeaf}`;
+
+    try {
+      const objectStorageService = new ObjectStorageService();
+      const { uploadUrl, storagePath } = await objectStorageService.getScopedUploadURL(scopedSubpath);
+      res.json({ uploadUrl, storagePath });
+    } catch (err) {
+      console.error("Crew worksheet upload-url error:", err);
+      res.status(500).send("Failed to get upload URL");
+    }
+  });
+
+  // ---- Save uploaded photo metadata ----
+  app.post("/api/crew-worksheets/:id/photos", async (req, res) => {
+    if (!req.isAuthenticated()) return res.status(401).send("Not authenticated");
+    const user = req.user as UserWithContext;
+    if (!canWriteCrewWorksheets(user.activeRole)) return res.status(403).send("Insufficient permissions");
+
+    const ws = await storage.getCrewWorksheetById(req.params.id, user.activeCompanyId);
+    if (!ws) return res.status(404).send("Crew worksheet not found");
+
+    const { storagePath, filename, mimeType, fileSize, caption } = req.body as {
+      storagePath?: string; filename?: string; mimeType?: string; fileSize?: number; caption?: string | null;
+    };
+    if (!storagePath || !filename || !mimeType || fileSize == null) {
+      return res.status(400).send("storagePath, filename, mimeType, fileSize are required");
+    }
+
+    try {
+      const objectStorageService = new ObjectStorageService();
+      const objectFile = await objectStorageService.getObjectEntityFile(storagePath);
+      await setObjectAclPolicy(objectFile, {
+        owner: user.id,
+        visibility: "private",
+        aclRules: [{
+          group: { type: ObjectAccessGroupType.COMPANY_MEMBER, id: user.activeCompanyId },
+          permission: ObjectPermission.READ,
+        }],
+      });
+
+      const existingPhotos = await storage.getCrewWorksheetPhotos(req.params.id, user.activeCompanyId);
+      const displayOrder = existingPhotos.length > 0
+        ? Math.max(...existingPhotos.map(p => p.displayOrder)) + 1
+        : 0;
+
+      const photo = await storage.createCrewWorksheetPhoto({
+        crewWorksheetId: req.params.id,
+        companyId: user.activeCompanyId,
+        storageObjectPath: storagePath,
+        filename,
+        mimeType,
+        fileSize,
+        caption: caption ?? null,
+        displayOrder,
+      });
+      res.status(201).json(photo);
+    } catch (err) {
+      console.error("Crew worksheet photo create error:", err);
+      res.status(500).send("Failed to save photo");
+    }
+  });
+
+  // ---- Update photo (caption) ----
+  app.patch("/api/crew-worksheets/:id/photos/:photoId", async (req, res) => {
+    if (!req.isAuthenticated()) return res.status(401).send("Not authenticated");
+    const user = req.user as UserWithContext;
+    if (!canWriteCrewWorksheets(user.activeRole)) return res.status(403).send("Insufficient permissions");
+
+    const photo = await storage.getCrewWorksheetPhotoById(req.params.photoId, user.activeCompanyId);
+    if (!photo || photo.crewWorksheetId !== req.params.id) return res.status(404).send("Photo not found");
+
+    const { caption } = req.body as { caption?: string | null };
+    const updated = await storage.updateCrewWorksheetPhoto(req.params.photoId, user.activeCompanyId, { caption: caption ?? null });
+    res.json(updated);
+  });
+
+  // ---- Reorder photos ----
+  app.post("/api/crew-worksheets/:id/photos/reorder", async (req, res) => {
+    if (!req.isAuthenticated()) return res.status(401).send("Not authenticated");
+    const user = req.user as UserWithContext;
+    if (!canWriteCrewWorksheets(user.activeRole)) return res.status(403).send("Insufficient permissions");
+
+    const ws = await storage.getCrewWorksheetById(req.params.id, user.activeCompanyId);
+    if (!ws) return res.status(404).send("Crew worksheet not found");
+
+    const { orderedPhotoIds } = req.body as { orderedPhotoIds?: unknown };
+    if (!Array.isArray(orderedPhotoIds) || !orderedPhotoIds.every(id => typeof id === "string")) {
+      return res.status(400).send("orderedPhotoIds must be an array of strings");
+    }
+
+    try {
+      const updated = await storage.reorderCrewWorksheetPhotos(req.params.id, user.activeCompanyId, orderedPhotoIds as string[]);
+      res.json(updated);
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : "Failed to reorder photos";
+      res.status(400).send(msg);
+    }
+  });
+
+  // ---- Bulk delete photos ----
+  app.post("/api/crew-worksheets/:id/photos/bulk-delete", async (req, res) => {
+    if (!req.isAuthenticated()) return res.status(401).send("Not authenticated");
+    const user = req.user as UserWithContext;
+    if (!canWriteCrewWorksheets(user.activeRole)) return res.status(403).send("Insufficient permissions");
+
+    const ws = await storage.getCrewWorksheetById(req.params.id, user.activeCompanyId);
+    if (!ws) return res.status(404).send("Crew worksheet not found");
+
+    const { photoIds } = req.body as { photoIds?: unknown };
+    if (!Array.isArray(photoIds) || !photoIds.every(id => typeof id === "string") || photoIds.length === 0) {
+      return res.status(400).send("photoIds must be a non-empty array of strings");
+    }
+
+    let deletedCount = 0;
+    for (const pid of photoIds as string[]) {
+      const photo = await storage.getCrewWorksheetPhotoById(pid, user.activeCompanyId);
+      if (!photo || photo.crewWorksheetId !== req.params.id) continue;
+      await storage.deleteCrewWorksheetPhoto(pid, user.activeCompanyId);
+      deletedCount++;
+    }
+    res.json({ success: true, deletedCount });
+  });
+
+  // ---- Delete one photo ----
+  app.delete("/api/crew-worksheets/:id/photos/:photoId", async (req, res) => {
+    if (!req.isAuthenticated()) return res.status(401).send("Not authenticated");
+    const user = req.user as UserWithContext;
+    if (!canWriteCrewWorksheets(user.activeRole)) return res.status(403).send("Insufficient permissions");
+
+    const photo = await storage.getCrewWorksheetPhotoById(req.params.photoId, user.activeCompanyId);
+    if (!photo || photo.crewWorksheetId !== req.params.id) return res.status(404).send("Photo not found");
+
+    await storage.deleteCrewWorksheetPhoto(req.params.photoId, user.activeCompanyId);
+    res.json({ success: true });
+  });
+
+  // ---- Crew worksheet PDF generator (no watermark, no estimate, no pricing) ----
+  async function generateCrewWorksheetPdf(ws: import("@workspace/db").CrewWorksheetWithDetails, companyId: string): Promise<Buffer> {
+    const companySettings = await storage.getSettings(companyId);
+    const company = await storage.getCompanyById(companyId);
+    const companyName = company?.name ?? companySettings?.companyName ?? "High Plains Property Maintenance";
+
+    let logoBuffer: Buffer | null = null;
+    const logoPath = path.resolve(process.cwd(), "public", "logo.png");
+    try { logoBuffer = await fs.readFile(logoPath); } catch (_e) {}
+
+    const PDFDocumentKit = (await import("pdfkit")).default;
+    const LM = 54;
+    const RM = 54;
+    const BRAND = "#1a4d1a";
+
+    const doc = new PDFDocumentKit({ size: "LETTER", margins: { top: LM, bottom: LM, left: LM, right: RM } });
+    const chunks: Buffer[] = [];
+    doc.on("data", (c: Buffer) => chunks.push(c));
+    const pdfPromise = new Promise<Buffer>((resolve, reject) => {
+      doc.on("end", () => resolve(Buffer.concat(chunks)));
+      doc.on("error", reject);
+    });
+
+    function drawFooter(d: InstanceType<typeof PDFDocumentKit>, n: number) {
+      const W = d.page.width; const H = d.page.height;
+      const fy = H - 36;
+      d.save();
+      d.moveTo(LM, fy - 10).lineTo(W - RM, fy - 10).strokeColor("#cccccc").lineWidth(0.4).stroke();
+      const margins = d.page.margins;
+      const om = margins.bottom;
+      margins.bottom = 0;
+      d.fillColor("#999999").fontSize(8).font("Helvetica").text(`${companyName}  ·  ${ws.worksheetNumber}`, LM, fy, { width: W - LM - RM, align: "center" });
+      d.fillColor("#bbbbbb").fontSize(7).font("Helvetica").text(`Page ${n}`, LM, fy + 11, { width: W - LM - RM, align: "center" });
+      margins.bottom = om;
+      d.restore();
+    }
+
+    let pageNum = 1;
+    const guard = { active: false };
+    function decorate(d: InstanceType<typeof PDFDocumentKit>, n: number) {
+      if (guard.active) return;
+      guard.active = true;
+      const sy = d.y;
+      try { drawFooter(d, n); } finally { d.y = sy; guard.active = false; }
+    }
+    decorate(doc, pageNum);
+    let bodyState = { font: "Helvetica", size: 10.5, color: "#222222" };
+    doc.on("pageAdded", () => {
+      pageNum++;
+      decorate(doc, pageNum);
+      doc.fillColor(bodyState.color).fontSize(bodyState.size).font(bodyState.font);
+    });
+
+    const W = doc.page.width;
+    const cw = W - LM - RM;
+
+    if (logoBuffer) {
+      const lw = 140;
+      doc.image(logoBuffer, (W - lw) / 2, LM, { width: lw });
+      doc.y = LM + (lw / 160) * 80 + 12;
+    } else {
+      doc.y = LM + 8;
+    }
+
+    doc.fillColor(BRAND).fontSize(11).font("Helvetica-Bold")
+      .text(companyName, LM, doc.y, { width: cw, align: "center" });
+    doc.moveDown(0.6);
+    doc.moveTo(LM, doc.y).lineTo(W - RM, doc.y).strokeColor(BRAND).lineWidth(0.75).stroke();
+    doc.moveDown(0.8);
+
+    doc.fillColor(BRAND).fontSize(20).font("Helvetica-Bold")
+      .text(`Crew Worksheet — ${ws.worksheetNumber}`, LM, doc.y, { width: cw });
+    doc.moveDown(0.2);
+    doc.fillColor("#444").fontSize(13).font("Helvetica").text(ws.title || "Crew Worksheet", LM, doc.y, { width: cw });
+    doc.moveDown(0.6);
+    doc.moveTo(LM, doc.y).lineTo(W - RM, doc.y).strokeColor("#cccccc").lineWidth(0.5).stroke();
+    doc.moveDown(0.8);
+
+    const fmtDate = (d?: string | null) => {
+      if (!d) return "";
+      try { return new Date(d + "T00:00:00").toLocaleDateString("en-US", { year: "numeric", month: "long", day: "numeric" }); }
+      catch { return d; }
+    };
+
+    const labelW = 120;
+    const valX = LM + labelW;
+    const valW = cw - labelW;
+    function row(label: string, value: string) {
+      if (!value) return;
+      const ry = doc.y;
+      doc.fillColor("#333").fontSize(10).font("Helvetica-Bold").text(label, LM, ry, { width: labelW, lineBreak: false });
+      doc.fillColor("#333").fontSize(10).font("Helvetica").text(value, valX, ry, { width: valW });
+      doc.moveDown(0.25);
+    }
+    const addrParts = [ws.customerStreet, [ws.customerCity, ws.customerState].filter(Boolean).join(", ")].filter(Boolean).join("  ·  ");
+    row("Customer:", ws.customerName || "");
+    if (addrParts) row("Address:", addrParts);
+    row("Worksheet Date:", fmtDate(ws.worksheetDate));
+    if (ws.scheduledDate) row("Scheduled:", `${fmtDate(ws.scheduledDate)}${ws.scheduledStartTime ? "  ·  " + ws.scheduledStartTime : ""}`);
+    if (ws.crewLabel) row("Crew:", ws.crewLabel);
+    if (ws.assignedCrewLeadName) row("Crew Lead:", ws.assignedCrewLeadName);
+    if (ws.estimatedHours) row("Est. Hours:", String(ws.estimatedHours));
+    if (ws.sourceProposalTitle) row("Source Proposal:", ws.sourceProposalTitle);
+
+    doc.moveDown(0.8);
+    doc.moveTo(LM, doc.y).lineTo(W - RM, doc.y).strokeColor("#cccccc").lineWidth(0.5).stroke();
+    doc.moveDown(0.8);
+
+    doc.fillColor(BRAND).fontSize(12).font("Helvetica-Bold").text("SCOPE OF WORK", LM, doc.y, { width: cw });
+    doc.moveDown(0.3);
+    doc.moveTo(LM, doc.y).lineTo(W - RM, doc.y).strokeColor(BRAND).lineWidth(0.4).stroke();
+    doc.moveDown(0.6);
+
+    bodyState = { font: "Helvetica", size: 10.5, color: "#222222" };
+    doc.fillColor(bodyState.color).fontSize(bodyState.size).font(bodyState.font);
+    const lines = (ws.scopeOfWork || "").split("\n");
+    for (const line of lines) {
+      const trimmed = line.trim();
+      if (trimmed === "[PAGE BREAK]") { doc.addPage(); }
+      else if (trimmed === "") { doc.moveDown(0.5); }
+      else if (line.trimStart().startsWith("-") || line.trimStart().startsWith("•")) {
+        const txt = line.trimStart().replace(/^[-•]\s*/, "");
+        doc.text(`  \u2022  ${txt}`, LM, doc.y, { width: cw, lineGap: 4 });
+      } else {
+        doc.text(line, LM, doc.y, { width: cw, lineGap: 4 });
+      }
+    }
+
+    // Equipment + Materials checklists
+    const eq = (ws.equipmentChecklist ?? []) as { id: string; label: string; checked: boolean }[];
+    const mats = (ws.materialsChecklist ?? []) as { id: string; label: string; quantity: string; checked: boolean }[];
+
+    if (eq.length > 0 || mats.length > 0) {
+      doc.moveDown(0.8);
+      doc.moveTo(LM, doc.y).lineTo(W - RM, doc.y).strokeColor("#cccccc").lineWidth(0.5).stroke();
+      doc.moveDown(0.6);
+
+      // Render Equipment + Materials side-by-side in two columns.
+      const colGap = 24;
+      const colW = (cw - colGap) / 2;
+      const leftX = LM;
+      const rightX = LM + colW + colGap;
+      const startY = doc.y;
+
+      let leftY = startY;
+      if (eq.length > 0) {
+        doc.fillColor(BRAND).fontSize(12).font("Helvetica-Bold").text("EQUIPMENT", leftX, leftY, { width: colW });
+        leftY = doc.y + 6;
+        doc.fillColor(bodyState.color).fontSize(bodyState.size).font(bodyState.font);
+        for (const e of eq) {
+          doc.text(`  ${e.checked ? "\u2611" : "\u2610"}  ${e.label}`, leftX, leftY, { width: colW, lineGap: 3 });
+          leftY = doc.y;
+        }
+      }
+
+      let rightY = startY;
+      if (mats.length > 0) {
+        doc.fillColor(BRAND).fontSize(12).font("Helvetica-Bold").text("MATERIALS", rightX, rightY, { width: colW });
+        rightY = doc.y + 6;
+        doc.fillColor(bodyState.color).fontSize(bodyState.size).font(bodyState.font);
+        for (const m of mats) {
+          const qty = m.quantity ? `  —  ${m.quantity}` : "";
+          doc.text(`  ${m.checked ? "\u2611" : "\u2610"}  ${m.label}${qty}`, rightX, rightY, { width: colW, lineGap: 3 });
+          rightY = doc.y;
+        }
+      }
+
+      doc.x = LM;
+      doc.y = Math.max(leftY, rightY);
+      doc.moveDown(0.6);
+    }
+
+    if ((ws.crewNotes ?? "").trim()) {
+      doc.moveDown(0.4);
+      doc.fillColor(BRAND).fontSize(12).font("Helvetica-Bold").text("CREW NOTES", LM, doc.y, { width: cw });
+      doc.moveDown(0.3);
+      doc.fillColor(bodyState.color).fontSize(bodyState.size).font(bodyState.font);
+      doc.text(ws.crewNotes, LM, doc.y, { width: cw, lineGap: 4 });
+    }
+
+    // ---- Visual Scope page (site map) ----
+    if (ws.visualScopeSheetId) {
+      try {
+        const vsSheet = await storage.getVisualScopeSheet(ws.visualScopeSheetId, companyId);
+        if (vsSheet) {
+          const combinedPng = await renderVisualScope(vsSheet, "combined", 2000);
+          doc.addPage();
+          doc.fillColor(BRAND).fontSize(13).font("Helvetica-Bold").text("SITE MAP", LM, LM, { width: cw, align: "center" });
+          const topY = LM + 30;
+          const bottomY = doc.page.height - LM - 24;
+          const maxH = bottomY - topY;
+          try {
+            doc.image(combinedPng, LM, topY, { fit: [cw, maxH], align: "center" });
+          } catch (err) {
+            doc.fillColor("#999").fontSize(10).font("Helvetica").text("(Site map could not be rendered)", LM, topY + 20, { width: cw, align: "center" });
+          }
+        }
+      } catch (err) {
+        console.error("Crew worksheet PDF: visual scope render failed:", err);
+      }
+    }
+
+    // ---- Photo appendix (one large per page) ----
+    const photos = ws.photos.slice().sort((a, b) => a.displayOrder - b.displayOrder);
+    const objectStorageService = new ObjectStorageService();
+    const photoBuffers: { buffer: Buffer; caption: string | null; filename: string }[] = [];
+    for (const p of photos) {
+      try {
+        const gcsFile = await objectStorageService.getObjectEntityFile(p.storageObjectPath);
+        const [data] = await gcsFile.download();
+        photoBuffers.push({ buffer: data as Buffer, caption: p.caption ?? null, filename: p.filename });
+      } catch (err) {
+        console.error(`Crew worksheet PDF: failed to download photo "${p.filename}":`, err);
+      }
+    }
+
+    if (photoBuffers.length > 0) {
+      const PH = doc.page.height;
+      for (let i = 0; i < photoBuffers.length; i++) {
+        doc.addPage();
+        const ph = photoBuffers[i];
+        if (i === 0) {
+          doc.fillColor(BRAND).fontSize(13).font("Helvetica-Bold").text("PHOTOS", LM, LM, { width: cw, align: "center" });
+        }
+        const topY = i === 0 ? LM + 30 : LM;
+        const captionY = PH - LM - 30;
+        const maxH = captionY - topY - 10;
+        try {
+          doc.image(ph.buffer, LM, topY, { fit: [cw, maxH], align: "center" });
+        } catch (err) {
+          doc.fillColor("#999").fontSize(10).font("Helvetica").text(`(Photo "${ph.filename}" could not be rendered)`, LM, topY + 20, { width: cw, align: "center" });
+        }
+        if (ph.caption?.trim()) {
+          doc.fillColor("#666").fontSize(9.5).font("Helvetica").text(ph.caption.trim(), LM, captionY, { width: cw, align: "center" });
+        }
+      }
+    }
+
+    // ---- Sign-off footer: always the final content on the last page ----
+    const signColW = (cw - 24) / 2;
+    function signatureBlock(label: string, x: number, y: number) {
+      doc.strokeColor("#444").lineWidth(0.6).moveTo(x, y).lineTo(x + signColW, y).stroke();
+      doc.fillColor("#666").fontSize(9).font("Helvetica").text(label, x, y + 4, { width: signColW });
+    }
+    const signoffBlockHeight = 150;
+    if (doc.y > doc.page.height - LM - signoffBlockHeight) {
+      doc.addPage();
+    } else {
+      doc.moveDown(1.2);
+    }
+    doc.moveTo(LM, doc.y).lineTo(W - RM, doc.y).strokeColor(BRAND).lineWidth(0.5).stroke();
+    doc.moveDown(0.6);
+    doc.fillColor(BRAND).fontSize(12).font("Helvetica-Bold").text("SIGN-OFF", LM, doc.y, { width: cw });
+    doc.moveDown(0.8);
+    let signY = doc.y + 28;
+    signatureBlock("Crew Lead Signature", LM, signY);
+    signatureBlock("Date", LM + signColW + 24, signY);
+    signY += 56;
+    signatureBlock("Customer / Site Contact Signature", LM, signY);
+    signatureBlock("Date", LM + signColW + 24, signY);
+    doc.y = signY + 24;
+
+    doc.end();
+    return await pdfPromise;
+  }
+
+  // ---- Preview / download crew worksheet PDF ----
+  app.get("/api/crew-worksheets/:id/pdf", async (req, res) => {
+    if (!req.isAuthenticated()) return res.status(401).send("Not authenticated");
+    const user = req.user as UserWithContext;
+    if (!canReadCrewWorksheets(user.activeRole)) return res.status(403).send("Insufficient permissions");
+
+    const ws = await storage.getCrewWorksheetById(req.params.id, user.activeCompanyId);
+    if (!ws) return res.status(404).send("Crew worksheet not found");
+
+    let pdfBuffer: Buffer;
+    try { pdfBuffer = await generateCrewWorksheetPdf(ws, user.activeCompanyId); }
+    catch (err: any) { return res.status(err?.statusCode ?? 500).send(`PDF generation failed: ${err?.message ?? "Unknown error"}`); }
+
+    const safeCustomer = sanitizeFilenamePart(ws.customerName, 60) || "Client";
+    const dateStr = ws.worksheetDate?.slice(0, 10) ?? new Date().toISOString().slice(0, 10);
+    const filename = `${ws.worksheetNumber} - ${safeCustomer} - ${dateStr}.pdf`;
+
+    const isInline = req.query.inline === "1";
+    res.setHeader("Content-Type", "application/pdf");
+    res.setHeader("Content-Disposition", isInline ? `inline; filename="crew-worksheet.pdf"` : `attachment; filename="${filename}"`);
+    res.end(pdfBuffer);
+  });
+
+  // ---- List visual scope sheets attachable to this crew worksheet (CW write perms) ----
+  app.get("/api/crew-worksheets/:id/visual-scope-sheets", async (req, res) => {
+    if (!req.isAuthenticated()) return res.status(401).send("Not authenticated");
+    const user = req.user as UserWithContext;
+    if (!canWriteCrewWorksheets(user.activeRole)) return res.status(403).send("Insufficient permissions");
+    const ws = await storage.getCrewWorksheetById(req.params.id, user.activeCompanyId);
+    if (!ws) return res.status(404).send("Crew worksheet not found");
+    const sheets = await storage.getVisualScopeSheetsForCustomer(ws.customerId, user.activeCompanyId);
+    res.json(sheets);
+  });
+
+  // ---- Inline visual scope PNG for the print page (uses CW read perms) ----
+  app.get("/api/crew-worksheets/:id/visual-scope.png", async (req, res) => {
+    if (!req.isAuthenticated()) return res.status(401).send("Not authenticated");
+    const user = req.user as UserWithContext;
+    if (!canReadCrewWorksheets(user.activeRole)) return res.status(403).send("Insufficient permissions");
+
+    const ws = await storage.getCrewWorksheetById(req.params.id, user.activeCompanyId);
+    if (!ws) return res.status(404).send("Crew worksheet not found");
+    if (!ws.visualScopeSheetId) return res.status(404).send("No visual scope attached");
+
+    const sheet = await storage.getVisualScopeSheet(ws.visualScopeSheetId, user.activeCompanyId);
+    if (!sheet || !sheet.baseImagePath) return res.status(404).send("Visual scope sheet not available");
+
+    try {
+      const png = await renderVisualScope(sheet, "combined", 2000);
+      res.setHeader("Content-Type", "image/png");
+      res.setHeader("Cache-Control", "no-store");
+      res.send(png);
+    } catch (err: any) {
+      console.error("CW visual-scope.png render failed:", err);
+      res.status(500).send(`Render failed: ${err?.message ?? "unknown"}`);
+    }
+  });
+
+  // ---- Finalize crew worksheet (stub: 501 Not Implemented) ----
+  app.post("/api/crew-worksheets/:id/finalize", async (req, res) => {
+    if (!req.isAuthenticated()) return res.status(401).send("Not authenticated");
+    const user = req.user as UserWithContext;
+    if (!canFinalizeCrewWorksheets(user.activeRole)) return res.status(403).send("Insufficient permissions");
+    const ws = await storage.getCrewWorksheetById(req.params.id, user.activeCompanyId);
+    if (!ws) return res.status(404).send("Crew worksheet not found");
+    res.status(501).send("Crew worksheet finalize is not yet implemented");
+  });
+
+  // ---- List crew worksheet versions ----
+  app.get("/api/crew-worksheets/:id/versions", async (req, res) => {
+    if (!req.isAuthenticated()) return res.status(401).send("Not authenticated");
+    const user = req.user as UserWithContext;
+    if (!canReadCrewWorksheets(user.activeRole)) return res.status(403).send("Insufficient permissions");
+    const versions = await storage.getCrewWorksheetVersions(req.params.id, user.activeCompanyId);
+    res.json(versions);
+  });
+
+  // ---- Download a finalized crew worksheet version PDF ----
+  app.get("/api/crew-worksheets/:id/versions/:versionId/download", async (req, res) => {
+    if (!req.isAuthenticated()) return res.status(401).send("Not authenticated");
+    const user = req.user as UserWithContext;
+    if (!canReadCrewWorksheets(user.activeRole)) return res.status(403).send("Insufficient permissions");
+
+    const version = await storage.getCrewWorksheetVersionById(req.params.versionId, user.activeCompanyId);
+    if (!version) return res.status(404).send("Version not found");
+    if (version.crewWorksheetId !== req.params.id) return res.status(404).send("Version not found");
+
+    const ws = await storage.getCrewWorksheetById(req.params.id, user.activeCompanyId);
+    if (!ws) return res.status(404).send("Crew worksheet not found");
+
+    let pdfBytes: Buffer;
+    try {
+      const objectStorageService = new ObjectStorageService();
+      pdfBytes = await objectStorageService.downloadByPath(version.pdfStoragePath);
+    } catch (err) {
+      console.error("Crew worksheet version download failed:", err);
+      return res.status(500).send("Failed to retrieve the finalized PDF.");
+    }
+
+    const safeCustomer = sanitizeFilenamePart(ws?.customerName ?? "", 60) || "Client";
+    const dateStr = version.worksheetDate?.slice(0, 10) ?? new Date().toISOString().slice(0, 10);
+    const filename = `${ws?.worksheetNumber ?? "Crew-Worksheet"} - ${safeCustomer} - v${version.versionNumber} - ${dateStr}.pdf`;
+    const isInline = req.query.inline === "1";
+    res.setHeader("Content-Type", "application/pdf");
+    res.setHeader("Content-Disposition", isInline ? `inline; filename="${filename}"` : `attachment; filename="${filename}"`);
+    res.end(pdfBytes);
+  });
+
   // ─── Visual Scope Sheets ────────────────────────────────────────────────────
   const canAccessVisualScope = (role: string) => role === "admin" || role === "office";
 

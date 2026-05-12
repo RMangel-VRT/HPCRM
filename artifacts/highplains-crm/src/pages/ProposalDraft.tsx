@@ -58,6 +58,7 @@ import {
   Unlink,
   AlertTriangle,
   GripVertical,
+  HardHat,
 } from "lucide-react";
 import { Checkbox } from "@/components/ui/checkbox";
 import { apiRequest, queryClient } from "@/lib/queryClient";
@@ -563,6 +564,35 @@ export default function ProposalDraft() {
     </Button>
   );
 
+  const generateCrewWorksheetButton = (
+    <Button
+      size="sm"
+      variant="outline"
+      onClick={async () => {
+        try {
+          const res = await apiRequest("POST", `/api/proposals/${id}/crew-worksheets`, {});
+          if (!res.ok) throw new Error(await res.text());
+          const ws = await res.json();
+          queryClient.invalidateQueries({ queryKey: ["/api/crew-worksheets"] });
+          if (ws?.customerId) {
+            queryClient.invalidateQueries({ queryKey: ["/api/customers", ws.customerId, "crew-worksheets"] });
+          }
+          if (ws?.ticketId) {
+            queryClient.invalidateQueries({ queryKey: ["/api/tickets", ws.ticketId, "crew-worksheets"] });
+          }
+          toast({ title: t("crewWorksheets.generatedFromProposal") });
+          navigate(`/dashboard/tools/crew-worksheets/${ws.id}`);
+        } catch (err: any) {
+          toast({ title: t("crewWorksheets.generateFailed"), description: err.message, variant: "destructive" });
+        }
+      }}
+      data-testid="button-generate-crew-worksheet"
+    >
+      <HardHat className="w-4 h-4 mr-2" />
+      {t("crewWorksheets.generateFromProposal")}
+    </Button>
+  );
+
   return (
     <div className="p-6 max-w-3xl mx-auto space-y-6">
       <div>
@@ -626,6 +656,7 @@ export default function ProposalDraft() {
                   {t("proposals.downloadPdf")}
                 </Button>
               </a>
+              {generateCrewWorksheetButton}
               {finalizeButton}
             </>
           ) : (

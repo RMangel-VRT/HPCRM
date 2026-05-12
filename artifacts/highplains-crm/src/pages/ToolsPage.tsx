@@ -1,7 +1,7 @@
 import { useTranslation } from "react-i18next";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { FileText, Camera, Calculator, ClipboardList, Map } from "lucide-react";
+import { FileText, Camera, Calculator, ClipboardList, Map, HardHat } from "lucide-react";
 import { Link } from "wouter";
 
 export default function ToolsPage() {
@@ -23,6 +23,16 @@ export default function ToolsPage() {
       href: "/dashboard/tools/proposals",
       available: true,
       testId: "card-proposal-maker",
+    },
+    {
+      title: t("tools.crewWorksheets"),
+      description: t("tools.crewWorksheetsDesc"),
+      icon: ClipboardList,
+      iconBg: "bg-amber-100 dark:bg-amber-950/40",
+      iconFg: "text-amber-700 dark:text-amber-300",
+      href: "/dashboard/tools/crew-worksheets",
+      available: true,
+      testId: "card-crew-worksheets",
     },
     {
       title: t("tools.visualScope"),
@@ -67,8 +77,8 @@ export default function ToolsPage() {
             <Card key={tool.title} className="hover-elevate" data-testid={tool.testId}>
               <CardHeader>
                 <div className="flex items-center gap-3 mb-2">
-                  <div className="p-2 rounded-md bg-primary/10">
-                    <tool.icon className="w-6 h-6 text-primary" />
+                  <div className={`p-2 rounded-md ${tool.iconBg ?? "bg-primary/10"}`}>
+                    <tool.icon className={`w-6 h-6 ${tool.iconFg ?? "text-primary"}`} />
                   </div>
                   {!tool.available && (
                     <span className="text-xs font-medium text-muted-foreground">

@@ -65,6 +65,7 @@ import {
   AlertCircle,
   Eye,
   Camera,
+  HardHat,
 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { queryClient, apiRequest } from "@/lib/queryClient";
@@ -495,6 +496,17 @@ export default function TicketDetail() {
       return res.json();
     },
     enabled: showProposals && !!ticketId,
+    staleTime: 0,
+  });
+
+  const { data: linkedCrewWorksheets = [] } = useQuery<import("@shared/schema").CrewWorksheetWithDetails[]>({
+    queryKey: ["/api/tickets", ticketId, "crew-worksheets"],
+    queryFn: async () => {
+      const res = await fetch(`/api/tickets/${ticketId}/crew-worksheets`, { credentials: "include" });
+      if (!res.ok) return [];
+      return res.json();
+    },
+    enabled: !!ticketId,
     staleTime: 0,
   });
 
@@ -1399,6 +1411,109 @@ export default function TicketDetail() {
                   <Plus className="w-4 h-4" />
                   {t('ticketDetail.openProposalMaker')}
                 </Button>
+              </div>
+            );
+          })()}
+
+          {(() => {
+            const ticket = details?.ticket;
+            const role = currentUser?.activeRole ?? "";
+            const canWriteCw = role === "admin" || role === "office" || role === "field_manager"
+              || role === "crew_supervisor" || role === "landscape_supervisor";
+            const params = new URLSearchParams({
+              ticketId: ticketId ?? "",
+              ticketTitle: ticket?.title ?? "",
+              ...(ticket?.customerId ? { customerId: ticket.customerId } : {}),
+            });
+            const cwMakerUrl = `/dashboard/tools/crew-worksheets?${params.toString()}`;
+            if (linkedCrewWorksheets.length === 0) {
+              // Per spec: when neither proposals nor worksheets exist, render nothing.
+              if (linkedProposals.length === 0) return null;
+
+              const finalizedProposals = linkedProposals
+                .filter(p => p.status === "finalized")
+                .sort((a, b) => new Date(b.createdAt as unknown as string).getTime() - new Date(a.createdAt as unknown as string).getTime());
+              const sourceProposal = finalizedProposals[0]
+                ?? [...linkedProposals].sort((a, b) => new Date(b.createdAt as unknown as string).getTime() - new Date(a.createdAt as unknown as string).getTime())[0];
+
+              // Read-only roles (e.g. field, mapping, chemical_manager) get nothing.
+              if (!canWriteCw) return null;
+
+              return (
+                <div className="flex flex-col gap-2">
+                  <Button
+                    variant="default"
+                    size="sm"
+                    className="gap-2 w-full justify-start"
+                    onClick={async () => {
+                      try {
+                        const res = await apiRequest("POST", `/api/proposals/${sourceProposal.id}/crew-worksheets`, {});
+                        if (!res.ok) throw new Error(await res.text());
+                        const ws = await res.json();
+                        await queryClient.invalidateQueries({ queryKey: ["/api/tickets", ticketId, "crew-worksheets"] });
+                        setLocation(`/dashboard/tools/crew-worksheets/${ws.id}`);
+                      } catch (err: unknown) {
+                        const msg = err instanceof Error ? err.message : String(err);
+                        toast({ title: t('crewWorksheets.generateFailed'), description: msg, variant: "destructive" });
+                      }
+                    }}
+                    data-testid="button-generate-crew-worksheet-from-proposal"
+                  >
+                    <HardHat className="w-4 h-4" />
+                    {t('crewWorksheets.generateFromLatestProposal', { defaultValue: "Generate Crew Worksheet from latest proposal" })}
+                  </Button>
+                </div>
+              );
+            }
+            return (
+              <div className="flex flex-col gap-2">
+                <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">
+                  {t('crewWorksheets.title')}
+                </p>
+                {linkedCrewWorksheets.map((cw) => (
+                  <Card key={cw.id} data-testid={`card-linked-crew-worksheet-${cw.id}`}>
+                    <CardContent className="p-3">
+                      <div className="flex items-start justify-between gap-2 flex-wrap">
+                        <div className="flex items-center gap-2 min-w-0">
+                          <FileText className="w-4 h-4 shrink-0 text-muted-foreground" />
+                          <div className="min-w-0">
+                            <p className="text-xs font-mono text-muted-foreground">{cw.worksheetNumber}</p>
+                            <span className="text-sm font-medium truncate">{cw.title}</span>
+                          </div>
+                        </div>
+                        {cw.status === "finalized" ? (
+                          <Badge variant="outline" className="text-green-600 dark:text-green-400 border-green-500/50">{t("statuses.finalized")}</Badge>
+                        ) : (
+                          <Badge variant="secondary">{t("statuses.draft")}</Badge>
+                        )}
+                      </div>
+                      <div className="mt-2">
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          className="gap-2 w-full justify-start"
+                          onClick={() => setLocation(`/dashboard/tools/crew-worksheets/${cw.id}`)}
+                          data-testid={`button-view-crew-worksheet-${cw.id}`}
+                        >
+                          {t('common.view')}
+                          <ExternalLink className="w-3 h-3 ml-auto opacity-50" />
+                        </Button>
+                      </div>
+                    </CardContent>
+                  </Card>
+                ))}
+                {canWriteCw && (
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="gap-2 w-full justify-start text-muted-foreground"
+                    onClick={() => setLocation(cwMakerUrl)}
+                    data-testid="button-open-crew-worksheet-maker"
+                  >
+                    <Plus className="w-4 h-4" />
+                    {t('crewWorksheets.openMaker')}
+                  </Button>
+                )}
               </div>
             );
           })()}

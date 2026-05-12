@@ -2160,6 +2160,7 @@ export default function CustomerDetail() {
           <>
             <TabsContent value="proposals" className="space-y-4">
               <CustomerProposalsSection customerId={params?.id!} />
+              <CustomerCrewWorksheetsSection customerId={params?.id!} />
             </TabsContent>
             <TabsContent value="visual-scopes" className="space-y-4">
               <CustomerVisualScopesSection customerId={params?.id!} />
@@ -5112,6 +5113,94 @@ function CustomerVisualScopesSection({ customerId }: { customerId: string }) {
               >
                 {t("common.view")}
               </Button>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function CustomerCrewWorksheetsSection({ customerId }: { customerId: string }) {
+  const { t } = useTranslation();
+  const [, navigate] = useLocation();
+  const { toast } = useToast();
+  const { user } = useAuth();
+  const role = user?.activeRole ?? "";
+  const canWriteCrewWorksheets =
+    role === "admin" || role === "office" || role === "field_manager" ||
+    role === "crew_supervisor" || role === "landscape_supervisor";
+  const [creating, setCreating] = useState(false);
+
+  const { data: worksheets = [], isLoading } = useQuery<import("@shared/schema").CrewWorksheetWithDetails[]>({
+    queryKey: ["/api/customers", customerId, "crew-worksheets"],
+    queryFn: async () => {
+      const res = await fetch(`/api/customers/${customerId}/crew-worksheets`, { credentials: "include" });
+      if (!res.ok) throw new Error("Failed to fetch crew worksheets");
+      return res.json();
+    },
+  });
+
+  const handleNew = async () => {
+    setCreating(true);
+    try {
+      const res = await apiRequest("POST", "/api/crew-worksheets", {
+        customerId,
+        title: t("crewWorksheets.title"),
+        worksheetDate: new Date().toISOString().split("T")[0],
+      });
+      if (!res.ok) throw new Error("Failed");
+      const w = await res.json();
+      queryClient.invalidateQueries({ queryKey: ["/api/customers", customerId, "crew-worksheets"] });
+      navigate(`/dashboard/tools/crew-worksheets/${w.id}`);
+    } catch {
+      toast({ title: t("common.error"), description: t("crewWorksheets.createFailed"), variant: "destructive" });
+    } finally {
+      setCreating(false);
+    }
+  };
+
+  const formatDate = (d: string) => {
+    if (!d) return "";
+    try { const [y, m, day] = d.split("-"); return `${m}/${day}/${y}`; } catch { return d; }
+  };
+
+  return (
+    <div className="mt-8 pt-6 border-t">
+      <div className="flex items-center justify-between mb-4 flex-wrap gap-2">
+        <h3 className="text-base font-medium">{t("crewWorksheets.customerSectionTitle")}</h3>
+        {canWriteCrewWorksheets && (
+          <Button size="sm" onClick={handleNew} disabled={creating} data-testid="button-new-crew-worksheet-customer">
+            {creating ? <><Loader2 className="w-4 h-4 mr-2 animate-spin" />{t("common.creating")}</> : <><Plus className="w-4 h-4 mr-2" />{t("crewWorksheets.newWorksheet")}</>}
+          </Button>
+        )}
+      </div>
+      {isLoading ? (
+        <div className="space-y-2">{[1,2].map(i => <div key={i} className="h-16 bg-muted rounded animate-pulse" />)}</div>
+      ) : worksheets.length === 0 ? (
+        <div className="text-center py-10 text-muted-foreground text-sm">
+          <FileText className="w-8 h-8 mx-auto mb-2 opacity-40" />
+          {t("crewWorksheets.noWorksheetsForCustomer")}
+        </div>
+      ) : (
+        <div className="space-y-2">
+          {worksheets.map(w => (
+            <div key={w.id}
+              className="flex items-center justify-between p-3 rounded-md border hover-elevate cursor-pointer"
+              onClick={() => navigate(`/dashboard/tools/crew-worksheets/${w.id}`)}
+              data-testid={`row-crew-worksheet-${w.id}`}>
+              <div className="flex-1 min-w-0">
+                <div className="flex items-center gap-2 flex-wrap">
+                  <span className="text-xs font-mono text-muted-foreground">{w.worksheetNumber}</span>
+                  <span className="font-medium text-sm" data-testid={`text-cw-title-${w.id}`}>{w.title}</span>
+                  {w.status === "finalized" ? (
+                    <Badge variant="outline" className="text-xs text-green-600 dark:text-green-400 border-green-500/50">{t("statuses.finalized")}</Badge>
+                  ) : (
+                    <Badge variant="secondary" className="text-xs">{t("statuses.draft")}</Badge>
+                  )}
+                </div>
+                <p className="text-xs text-muted-foreground mt-0.5">{formatDate(w.worksheetDate)}</p>
+              </div>
             </div>
           ))}
         </div>

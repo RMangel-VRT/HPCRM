@@ -53,6 +53,9 @@ const ReportsPage = lazy(() => import("@/pages/ReportsPage"));
 const ProposalMaker = lazy(() => import("@/pages/ProposalMaker"));
 const ProposalDraft = lazy(() => import("@/pages/ProposalDraft"));
 const ProposalVersion = lazy(() => import("@/pages/ProposalVersion"));
+const CrewWorksheetMaker = lazy(() => import("@/pages/CrewWorksheetMaker"));
+const CrewWorksheetDraft = lazy(() => import("@/pages/CrewWorksheetDraft"));
+const CrewWorksheetPrint = lazy(() => import("@/pages/CrewWorksheetPrint"));
 const NotificationsPage = lazy(() => import("@/pages/NotificationsPage"));
 const VisualScopeList = lazy(() => import("@/pages/VisualScopeList"));
 const VisualScopeDraft = lazy(() => import("@/pages/VisualScopeDraft"));
@@ -270,9 +273,12 @@ function Router() {
         <ProtectedRoute path="/dashboard/tools/proposals/:id/versions/:versionId" component={ProposalVersion} allowedRoles={["admin", "office"]} />
         <ProtectedRoute path="/dashboard/tools/proposals/:id" component={ProposalDraft} allowedRoles={["admin", "office"]} />
         <ProtectedRoute path="/dashboard/tools/proposals" component={ProposalMaker} allowedRoles={["admin", "office"]} />
+        <ProtectedRoute path="/dashboard/tools/crew-worksheets/:id/print" component={CrewWorksheetPrint} allowedRoles={["admin", "office", ...allFieldRoles, "crew_supervisor", "mapping"]} />
+        <ProtectedRoute path="/dashboard/tools/crew-worksheets/:id" component={CrewWorksheetDraft} allowedRoles={["admin", "office", ...allFieldRoles, "crew_supervisor", "mapping"]} />
+        <ProtectedRoute path="/dashboard/tools/crew-worksheets" component={CrewWorksheetMaker} allowedRoles={["admin", "office", ...allFieldRoles, "crew_supervisor", "mapping"]} />
         <ProtectedRoute path="/dashboard/tools/visual-scope/:id" component={VisualScopeDraft} allowedRoles={["admin", "office"]} />
         <ProtectedRoute path="/dashboard/tools/visual-scope" component={VisualScopeList} allowedRoles={["admin", "office"]} />
-        <ProtectedRoute path="/dashboard/tools" component={ToolsPage} allowedRoles={["admin", "office"]} />
+        <ProtectedRoute path="/dashboard/tools" component={ToolsPage} allowedRoles={["admin", "office", ...allFieldRoles, "crew_supervisor", "mapping"]} />
         <ProtectedRoute path="/dashboard/snow/new" component={NewSnowEvent} allowedRoles={["admin", "office"]} />
         <ProtectedRoute
           path="/dashboard/snow/:id"

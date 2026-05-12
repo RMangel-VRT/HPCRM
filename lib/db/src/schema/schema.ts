@@ -1720,6 +1720,139 @@ export type ProposalWithDetails = Proposal & {
   visualScopeSheet?: VisualScopeSheetWithCustomer | null;
 };
 
+// ==================== CREW WORKSHEETS ====================
+
+export interface EquipmentItem {
+  id: string;
+  label: string;
+  checked: boolean;
+}
+
+export interface MaterialItem {
+  id: string;
+  label: string;
+  quantity: string;
+  checked: boolean;
+}
+
+export const crewWorksheets = pgTable("crew_worksheets", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  companyId: varchar("company_id").notNull().references(() => companies.id, { onDelete: "cascade" }),
+  customerId: varchar("customer_id").notNull().references(() => customers.id, { onDelete: "cascade" }),
+  createdById: varchar("created_by_id").references(() => users.id, { onDelete: "set null" }),
+  ticketId: varchar("ticket_id").references(() => tickets.id, { onDelete: "set null" }),
+  sourceProposalId: varchar("source_proposal_id").references(() => proposals.id, { onDelete: "set null" }),
+  sourceProposalNumberSnapshot: varchar("source_proposal_number_snapshot"),
+  sourceProposalTitleSnapshot: varchar("source_proposal_title_snapshot"),
+  worksheetNumber: varchar("worksheet_number").notNull(),
+  title: varchar("title").notNull().default("Crew Worksheet"),
+  worksheetDate: varchar("worksheet_date").notNull(),
+  scopeOfWork: text("scope_of_work").notNull().default(""),
+  status: varchar("status").notNull().default("draft"),
+  visualScopeSheetId: varchar("visual_scope_sheet_id").references(() => visualScopeSheets.id, { onDelete: "set null" }),
+  assignedCrewLeadId: varchar("assigned_crew_lead_id").references(() => users.id, { onDelete: "set null" }),
+  crewLabel: varchar("crew_label"),
+  scheduledDate: varchar("scheduled_date"),
+  scheduledStartTime: varchar("scheduled_start_time"),
+  estimatedHours: numeric("estimated_hours", { precision: 6, scale: 2 }),
+  equipmentChecklist: jsonb("equipment_checklist").$type<EquipmentItem[]>().notNull().default(sql`'[]'::jsonb`),
+  materialsChecklist: jsonb("materials_checklist").$type<MaterialItem[]>().notNull().default(sql`'[]'::jsonb`),
+  crewNotes: text("crew_notes").notNull().default(""),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  updatedAt: timestamp("updated_at").notNull().defaultNow(),
+}, (table) => ({
+  crewWorksheetsCompanyIdIdx: index("crew_worksheets_company_id_idx").on(table.companyId),
+  crewWorksheetsCustomerIdIdx: index("crew_worksheets_customer_id_idx").on(table.customerId),
+  crewWorksheetsTicketIdIdx: index("crew_worksheets_ticket_id_idx").on(table.ticketId),
+  crewWorksheetsSourceProposalIdIdx: index("crew_worksheets_source_proposal_id_idx").on(table.sourceProposalId),
+  crewWorksheetsCompanyNumberKey: uniqueIndex("crew_worksheets_company_id_worksheet_number_key").on(table.companyId, table.worksheetNumber),
+}));
+
+export const insertCrewWorksheetSchema = createInsertSchema(crewWorksheets).omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+}).extend({
+  worksheetNumber: z.string().optional(),
+});
+
+export type InsertCrewWorksheet = z.infer<typeof insertCrewWorksheetSchema>;
+export type CrewWorksheet = typeof crewWorksheets.$inferSelect;
+
+export const crewWorksheetPhotos = pgTable("crew_worksheet_photos", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  crewWorksheetId: varchar("crew_worksheet_id").notNull().references(() => crewWorksheets.id, { onDelete: "cascade" }),
+  companyId: varchar("company_id").notNull().references(() => companies.id, { onDelete: "cascade" }),
+  storageObjectPath: varchar("storage_object_path").notNull(),
+  filename: varchar("filename").notNull(),
+  mimeType: varchar("mime_type").notNull(),
+  fileSize: integer("file_size").notNull(),
+  caption: text("caption"),
+  displayOrder: integer("display_order").notNull().default(0),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+}, (table) => ({
+  crewWorksheetPhotosWorksheetIdx: index("crew_worksheet_photos_worksheet_id_idx").on(table.crewWorksheetId),
+}));
+
+export const insertCrewWorksheetPhotoSchema = createInsertSchema(crewWorksheetPhotos).omit({
+  id: true,
+  createdAt: true,
+});
+
+export type InsertCrewWorksheetPhoto = z.infer<typeof insertCrewWorksheetPhotoSchema>;
+export type CrewWorksheetPhoto = typeof crewWorksheetPhotos.$inferSelect;
+
+export const crewWorksheetVersions = pgTable("crew_worksheet_versions", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  crewWorksheetId: varchar("crew_worksheet_id").notNull().references(() => crewWorksheets.id, { onDelete: "cascade" }),
+  companyId: varchar("company_id").notNull().references(() => companies.id, { onDelete: "cascade" }),
+  versionNumber: integer("version_number").notNull(),
+  title: varchar("title").notNull(),
+  worksheetDate: varchar("worksheet_date").notNull(),
+  finalizedById: varchar("finalized_by_id").references(() => users.id, { onDelete: "set null" }),
+  finalizedAt: timestamp("finalized_at").notNull().defaultNow(),
+  pdfStoragePath: varchar("pdf_storage_path").notNull(),
+  visualScopeSheetId: varchar("visual_scope_sheet_id"),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+}, (table) => ({
+  uniqueCrewWorksheetVersion: unique().on(table.crewWorksheetId, table.versionNumber),
+}));
+
+export const insertCrewWorksheetVersionSchema = createInsertSchema(crewWorksheetVersions).omit({
+  id: true,
+  createdAt: true,
+  finalizedAt: true,
+});
+
+export type InsertCrewWorksheetVersion = z.infer<typeof insertCrewWorksheetVersionSchema>;
+export type CrewWorksheetVersion = typeof crewWorksheetVersions.$inferSelect;
+
+export type CrewWorksheetVersionWithUser = CrewWorksheetVersion & {
+  finalizedByName: string | null;
+};
+
+export type CrewWorksheetWithDetails = CrewWorksheet & {
+  sourceProposalDeleted?: boolean;
+  customerName: string;
+  customerStreet?: string | null;
+  customerCity?: string | null;
+  customerState?: string | null;
+  photos: CrewWorksheetPhoto[];
+  versions: CrewWorksheetVersionWithUser[];
+  visualScopeSheet?: VisualScopeSheetWithCustomer | null;
+  assignedCrewLeadName?: string | null;
+  sourceProposalNumber?: string | null;
+  sourceProposalTitle?: string | null;
+};
+
+export const crewWorksheetNumberCounters = pgTable("crew_worksheet_number_counters", {
+  companyId: varchar("company_id").notNull().references(() => companies.id, { onDelete: "cascade" }),
+  year: integer("year").notNull(),
+  lastNumber: integer("last_number").notNull().default(0),
+}, (table) => ({
+  crewWorksheetCountersPk: unique("crew_worksheet_counters_pk").on(table.companyId, table.year),
+}));
+
 // Visual Scope Sheets
 export const visualScopeSheets = pgTable("visual_scope_sheets", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),

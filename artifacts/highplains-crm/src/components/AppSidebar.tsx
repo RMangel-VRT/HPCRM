@@ -74,7 +74,7 @@ import {
 const CUSTOMERS_LIST_PATH = "/dashboard/customers";
 
 interface AppSidebarProps {
-  userRole?: "admin" | "office" | "field_manager" | "chemical_manager" | "field" | "irrigation_manager" | "shop_manager" | "mapping" | "landscape_supervisor";
+  userRole?: "admin" | "office" | "field_manager" | "chemical_manager" | "field" | "irrigation_manager" | "shop_manager" | "mapping" | "landscape_supervisor" | "crew_supervisor";
   isSuperAdmin?: boolean;
   userName?: string;
   onLogout?: () => void;
