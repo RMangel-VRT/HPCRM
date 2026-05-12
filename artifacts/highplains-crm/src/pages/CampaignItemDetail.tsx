@@ -2617,7 +2617,7 @@ export default function CampaignItemDetail() {
               </Button>
               <Button
                 className="w-full sm:w-auto"
-                onClick={() => {
+                onClick={async () => {
                   const action = showEmailConfirm === "pre" ? "send_pre_communication" : "send_post_communication";
                   const effectiveEmail = emailPreview?.recipientEmail || manualEmail.trim();
                   const isDynamic = !!templateVarSpec?.hasTemplate;
@@ -2631,9 +2631,18 @@ export default function CampaignItemDetail() {
                   const applicationConditions = !isDynamic && showEmailConfirm === "post" ? postCommApplicationConditions : undefined;
                   const nextVisitDate = !isDynamic && showEmailConfirm === "post" ? postCommNextVisitDate : undefined;
                   const templateVars = isDynamic ? formVars : undefined;
+                  // Keep the dialog open until we know the send succeeded —
+                  // on failure (e.g. SendGrid 502) the user keeps their
+                  // recipient/form inputs and can retry without re-opening.
+                  try {
+                    await updateItemMutation.mutateAsync({ chemAction: action, notes, overrideEmail: !emailPreview?.recipientEmail ? effectiveEmail : undefined, customWindowStart, customWindowEnd, completedAt, areasTreated, applicationConditions, nextVisitDate, templateVars });
+                  } catch {
+                    // updateItemMutation.onError already toasts the
+                    // server-provided message via extractApiErrorMessage.
+                    return;
+                  }
                   setShowEmailConfirm(null);
                   setEmailPreview(null);
-                  updateItemMutation.mutate({ chemAction: action, notes, overrideEmail: !emailPreview?.recipientEmail ? effectiveEmail : undefined, customWindowStart, customWindowEnd, completedAt, areasTreated, applicationConditions, nextVisitDate, templateVars });
                   setManualEmail("");
                   setPreNoticeWindowStart("");
                   setPreNoticeWindowEnd("");
