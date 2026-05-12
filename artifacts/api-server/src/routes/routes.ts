@@ -12879,13 +12879,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const items = await storage.getCampaignItems(req.params.id, user.activeCompanyId);
       const targetItem = items.find((i: { id: string }) => i.id === req.params.itemId) as CampaignItem | undefined;
       if (!targetItem) return res.status(404).json({ error: "Item not found" });
-      // The dynamic form is only driven by an *explicitly selected* campaign
-      // template. When no template is selected on the campaign we report
-      // `hasTemplate: false` so the frontend renders the legacy fixed form,
-      // even if a company default template would otherwise resolve.
-      if (!campaign.notificationTemplateId) {
-        return res.json({ hasTemplate: false, templateId: null, templateName: null, kind, userVariables: [], systemVariables: [], values: {} });
-      }
+      // Resolve the template the same way the actual send paths do — i.e.
+      // honor the campaign's explicitly selected template, but fall back to
+      // the company's default chemical notification template when none is
+      // linked. This keeps the dynamic form / preview / send all in lockstep
+      // so a saved company-default template drives the form even on
+      // campaigns that pre-date the template-picker UI.
       let template;
       try {
         template = await resolveChemicalNotificationTemplate(campaign, user.activeCompanyId);
@@ -14135,7 +14134,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
           variables: {},
         });
         if (sentLog.status !== "sent") {
-          return res.status(502).json({ error: "Email delivery failed. Please try again." });
+          const errInfo = sentLog.errorJson as { message?: string } | null;
+          const detail = errInfo?.message ? `: ${errInfo.message}` : "";
+          req.log?.error({ event: 'chem_notification_send_failed', kind: 'pre', campaignId: campaign.id, itemId: targetItem.id, errorJson: sentLog.errorJson }, 'chemical pre-notice email delivery failed');
+          return res.status(502).json({ error: `Email delivery failed${detail}. Check the SendGrid integration and try again.` });
         }
         chemUpdates.preCommEmailLogId = sentLog.id;
       } catch (emailErr) {
@@ -14303,7 +14305,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
           variables: {},
         });
         if (sentLog.status !== "sent") {
-          return res.status(502).json({ error: "Email delivery failed. Please try again." });
+          const errInfo = sentLog.errorJson as { message?: string } | null;
+          const detail = errInfo?.message ? `: ${errInfo.message}` : "";
+          req.log?.error({ event: 'chem_notification_send_failed', kind: 'post', campaignId: campaign.id, itemId: targetItem.id, errorJson: sentLog.errorJson }, 'chemical post-notice email delivery failed');
+          return res.status(502).json({ error: `Email delivery failed${detail}. Check the SendGrid integration and try again.` });
         }
         chemUpdates.postCommEmailLogId = sentLog.id;
       } catch (emailErr) {

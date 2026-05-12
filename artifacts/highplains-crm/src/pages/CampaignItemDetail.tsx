@@ -4,6 +4,7 @@ import { Link, useLocation, useParams } from "wouter";
 import { useTranslation } from "react-i18next";
 import { useAuth } from "@/hooks/use-auth";
 import { apiRequest, queryClient } from "@/lib/queryClient";
+import { extractApiErrorMessage } from "@/lib/apiError";
 import { useToast } from "@/hooks/use-toast";
 import { format } from "date-fns";
 import { DatePickerField } from "@/components/DatePickerField";
@@ -415,8 +416,12 @@ export default function CampaignItemDetail() {
         toast({ title: t("campaigns.itemUpdated") });
       }
     },
-    onError: () => {
-      toast({ title: t("campaigns.updateFailed"), variant: "destructive" });
+    onError: (err: Error) => {
+      toast({
+        title: t("campaigns.updateFailed"),
+        description: extractApiErrorMessage(err),
+        variant: "destructive",
+      });
     },
   });
 
@@ -2389,7 +2394,7 @@ export default function CampaignItemDetail() {
       </Dialog>
 
       <Dialog open={!!showEmailConfirm} onOpenChange={() => { setShowEmailConfirm(null); setEmailPreview(null); setManualEmail(""); setPreNoticeWindowStart(""); setPreNoticeWindowEnd(""); setPostCommDate(""); setPostCommAreasTreated(""); setPostCommApplicationConditions(""); setPostCommNextVisitDate(""); setTemplateVarSpec(null); setFormVars({}); }}>
-        <DialogContent className="max-w-lg" data-testid="dialog-chem-email-compose">
+        <DialogContent className="max-w-lg max-h-[90vh] overflow-y-auto" data-testid="dialog-chem-email-compose">
           <div className="space-y-4">
             <div className="flex items-center gap-2">
               {showEmailConfirm === "pre" ? <Mail className="w-5 h-5 text-primary" /> : <Send className="w-5 h-5 text-primary" />}
