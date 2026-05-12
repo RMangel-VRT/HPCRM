@@ -1153,6 +1153,10 @@ function EditCampaignDialog({
   const [propertySearch, setPropertySearch] = useState("");
   const [selectedNewCustomerIds, setSelectedNewCustomerIds] = useState<Set<string>>(new Set());
   const [itemsToRemove, setItemsToRemove] = useState<Set<string>>(new Set());
+  const [notificationTemplateId, setNotificationTemplateId] = useState<string>(
+    (campaign as { notificationTemplateId?: string | null }).notificationTemplateId || "default"
+  );
+  const isChemicalCampaign = campaign.category === "chemical";
 
   useEffect(() => {
     if (open) {
@@ -1165,8 +1169,16 @@ function EditCampaignDialog({
       setPropertySearch("");
       setSelectedNewCustomerIds(new Set());
       setItemsToRemove(new Set());
+      setNotificationTemplateId(
+        (campaign as { notificationTemplateId?: string | null }).notificationTemplateId || "default"
+      );
     }
   }, [open, campaign]);
+
+  const { data: notificationTemplates = [] } = useQuery<{ id: string; name: string; serviceType: string | null }[]>({
+    queryKey: ["/api/chemical-notification-templates"],
+    enabled: open && isChemicalCampaign,
+  });
 
   const { data: customersResp } = useQuery<{ customers: Customer[]; total: number }>({
     queryKey: ["/api/customers"],
@@ -1214,7 +1226,7 @@ function EditCampaignDialog({
   }, [availableCustomers, propertySearch]);
 
   const updateMutation = useMutation({
-    mutationFn: async (data: { title: string; description: string | null; assignedToId: string | null; assignedToId2: string | null; windowStart: string; windowEnd: string }) => {
+    mutationFn: async (data: { title: string; description: string | null; assignedToId: string | null; assignedToId2: string | null; windowStart: string; windowEnd: string; notificationTemplateId?: string | null }) => {
       const res = await apiRequest("PATCH", `/api/campaigns/${campaignId}`, data);
       return res.json();
     },
@@ -1258,6 +1270,9 @@ function EditCampaignDialog({
         assignedToId2: assignedToId2 === "none" ? null : assignedToId2 || null,
         windowStart: startStr,
         windowEnd: endStr,
+        ...(isChemicalCampaign
+          ? { notificationTemplateId: notificationTemplateId === "default" ? null : notificationTemplateId }
+          : {}),
       });
 
       if (itemsToRemove.size > 0) {
@@ -1379,6 +1394,26 @@ function EditCampaignDialog({
               </SelectContent>
             </Select>
           </div>
+
+          {isChemicalCampaign && (
+            <div className="space-y-2">
+              <Label>Notification template</Label>
+              <Select value={notificationTemplateId} onValueChange={setNotificationTemplateId}>
+                <SelectTrigger data-testid="select-edit-notification-template">
+                  <SelectValue placeholder="Use company default" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="default">Use company default</SelectItem>
+                  {notificationTemplates.map(t => (
+                    <SelectItem key={t.id} value={t.id}>{t.name}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <p className="text-xs text-muted-foreground">
+                Controls which saved chemical notification template is used when sending pre/post-application emails for this campaign.
+              </p>
+            </div>
+          )}
 
           <div className="space-y-3">
             <Label>Current Properties</Label>

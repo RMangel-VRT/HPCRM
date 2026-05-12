@@ -211,6 +211,12 @@ export default function CampaignItemDetail() {
     values: Record<string, string>;
   };
   const [templateVarSpec, setTemplateVarSpec] = useState<ChemTemplateVarSpecResponse | null>(null);
+  // SendGrid connectivity probe — surfaced as an in-dialog warning on the
+  // chem compose dialog so admins know up-front when a send will fail.
+  const { data: sendGridStatus } = useQuery<{ connected: boolean; fromEmail?: string; error?: string }>({
+    queryKey: ["/api/integrations/sendgrid/status"],
+    staleTime: 60_000,
+  });
   const [formVars, setFormVars] = useState<Record<string, string>>({});
   const [showIrrigationCompleteDialog, setShowIrrigationCompleteDialog] = useState(false);
   const [irrigationCompleteDate, setIrrigationCompleteDate] = useState("");
@@ -2402,6 +2408,21 @@ export default function CampaignItemDetail() {
                 {showEmailConfirm === "pre" ? t("campaigns.chemSendPreNotice") : t("campaigns.chemSendPostNotice")}
               </h3>
             </div>
+            {sendGridStatus && !sendGridStatus.connected && (
+              <div
+                className="flex items-start gap-2 p-3 rounded-md bg-destructive/10 text-destructive text-sm border border-destructive/30"
+                data-testid="banner-sendgrid-disconnected"
+              >
+                <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
+                <div className="space-y-0.5">
+                  <div className="font-medium">SendGrid is not connected</div>
+                  <div className="text-xs opacity-90">
+                    Sends will fail until an admin connects the SendGrid integration in your Replit workspace settings (Integrations → SendGrid).
+                    {sendGridStatus.error ? ` (${sendGridStatus.error})` : ""}
+                  </div>
+                </div>
+              </div>
+            )}
             <Separator />
             <div className="space-y-3">
               <div>

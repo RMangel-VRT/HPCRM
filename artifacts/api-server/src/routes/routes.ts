@@ -20,7 +20,7 @@ import { runAutomationRule, runAllAutomationRules } from "../services/automation
 import { sendPushToUser } from "../services/pushNotifications";
 import { ObjectStorageService, ObjectNotFoundError, objectStorageClient, signObjectURL } from "../objectStorage";
 import { ObjectPermission, ObjectAccessGroupType, setObjectAclPolicy } from "../objectAcl";
-import { processEmailEvent, resendEmail, sendEmail, getDefaultWorkCompletedTemplate, buildChemicalNotificationVariables, formatTimeWindow, buildChemicalCompletionEmailVars, renderTemplate, renderChemicalNotificationTemplate, resolveChemicalNotificationTemplate, MissingChemicalNotificationTemplateError, classifyChemTemplateVariables, filterUserChemTemplateVars, CHEM_SYSTEM_TEMPLATE_VARS } from '../services/emailService';
+import { processEmailEvent, resendEmail, sendEmail, getDefaultWorkCompletedTemplate, buildChemicalNotificationVariables, formatTimeWindow, buildChemicalCompletionEmailVars, renderTemplate, renderChemicalNotificationTemplate, resolveChemicalNotificationTemplate, MissingChemicalNotificationTemplateError, classifyChemTemplateVariables, filterUserChemTemplateVars, CHEM_SYSTEM_TEMPLATE_VARS, getSendGridConnectionStatus } from '../services/emailService';
 import type { ChemTemplateVarSpec } from '../services/emailService';
 import { migrateRemoveChemicalEmailTemplates } from '../services/legacyChemEmailCleanup';
 import heicConvert from 'heic-convert';
@@ -12951,6 +12951,16 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // SendGrid integration health probe — used by the chem-campaign compose
+  // dialog to warn admins BEFORE they try to send if the Replit SendGrid
+  // connector isn't connected. Returns 200 with { connected, fromEmail?, error? }
+  // so the UI can render a banner without needing to handle non-2xx noise.
+  app.get("/api/integrations/sendgrid/status", async (req, res) => {
+    if (!req.isAuthenticated()) return res.status(401).send("Not authenticated");
+    const status = await getSendGridConnectionStatus();
+    res.json(status);
+  });
+
   app.patch("/api/campaigns/:id", async (req, res) => {
     if (!req.isAuthenticated()) return res.status(401).send("Not authenticated");
     const user = req.user as UserWithContext;
@@ -12965,6 +12975,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       assignedToId2?: string | null;
       windowStart?: string;
       windowEnd?: string;
+      notificationTemplateId?: string | null;
     };
     const { status, title, description, windowStart, windowEnd } = rawPatch;
     const normalizeAssigneePatch = (v: string | null | undefined): string | null | undefined => {
@@ -13004,7 +13015,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         }
       }
     }
-    const updates: Partial<{ status: "active" | "completed" | "archived"; title: string; description: string | null; assignedToId: string | null; assignedToId2: string | null; windowStart: string; windowEnd: string }> = {};
+    const updates: Partial<{ status: "active" | "completed" | "archived"; title: string; description: string | null; assignedToId: string | null; assignedToId2: string | null; windowStart: string; windowEnd: string; notificationTemplateId: string | null }> = {};
     if (status !== undefined) updates.status = status as "active" | "completed" | "archived";
     if (title !== undefined) updates.title = title;
     if (description !== undefined) updates.description = description;
@@ -13012,6 +13023,23 @@ export async function registerRoutes(app: Express): Promise<Server> {
     if (assignedToId2 !== undefined) updates.assignedToId2 = assignedToId2;
     if (windowStart !== undefined) updates.windowStart = windowStart;
     if (windowEnd !== undefined) updates.windowEnd = windowEnd;
+    // Allow chemical campaigns to switch their linked notification template
+    // (or clear it back to "use company default"). Only applied when the
+    // existing campaign is chemical, and the template, if set, must belong
+    // to this company — same validation as the create path above.
+    if (rawPatch.notificationTemplateId !== undefined) {
+      const existingForTemplate = await storage.getCampaignById(req.params.id, user.activeCompanyId);
+      if (existingForTemplate && existingForTemplate.category === "chemical") {
+        const tplId = rawPatch.notificationTemplateId;
+        if (tplId === null || tplId === "") {
+          updates.notificationTemplateId = null;
+        } else {
+          const tpl = await storage.getChemicalNotificationTemplate(tplId, user.activeCompanyId);
+          if (!tpl) return res.status(400).json({ error: "Notification template not found or does not belong to this company" });
+          updates.notificationTemplateId = tpl.id;
+        }
+      }
+    }
     const updated = await storage.updateCampaign(req.params.id, user.activeCompanyId, updates);
     if (!updated) return res.status(404).json({ error: "Not found" });
     res.json(updated);

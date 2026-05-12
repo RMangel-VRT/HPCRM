@@ -161,6 +161,20 @@ async function getCredentials() {
   return { apiKey: connectionSettings.settings.api_key, email: connectionSettings.settings.from_email };
 }
 
+/**
+ * Lightweight connectivity probe used by /api/integrations/sendgrid/status
+ * so the UI can warn admins when sends would fail before they hit "Send".
+ * Never throws — returns `{ connected: false, error }` on any failure.
+ */
+export async function getSendGridConnectionStatus(): Promise<{ connected: boolean; fromEmail?: string; error?: string }> {
+  try {
+    const { email } = await getCredentials();
+    return { connected: true, fromEmail: email };
+  } catch (err) {
+    return { connected: false, error: (err as Error)?.message || 'SendGrid not connected' };
+  }
+}
+
 async function getUncachableSendGridClient() {
   const { apiKey, email } = await getCredentials();
   sgMail.setApiKey(apiKey);
