@@ -175,6 +175,8 @@ export default function TicketDetail() {
   });
   const [uploadingFileNames, setUploadingFileNames] = useState<string[]>([]);
   const newlyUploadedKeysRef = useRef<string[]>([]);
+  const pendingProposalMakerNavRef = useRef<boolean>(false);
+  const navigateToProposalMakerRef = useRef<(() => void) | null>(null);
 
   // Preview email dialog state
   const [showPreviewDialog, setShowPreviewDialog] = useState(false);
@@ -426,8 +428,13 @@ export default function TicketDetail() {
       setStatusNotes("");
       setStepBackInvoiceWarning(null);
       toast({ title: t('ticketDetail.statusUpdated') });
+      if (pendingProposalMakerNavRef.current) {
+        pendingProposalMakerNavRef.current = false;
+        navigateToProposalMakerRef.current?.();
+      }
     },
     onError: (error: any) => {
+      pendingProposalMakerNavRef.current = false;
       if (error?.isInvoiceConflict) {
         setStepBackInvoiceWarning({
           invoiceTicketId: error.invoiceTicketId,
@@ -844,14 +851,33 @@ export default function TicketDetail() {
     });
   };
 
-  const handleUseProposalMaker = () => {
+  const navigateToProposalMaker = () => {
+    const ticket = details?.ticket;
+    const params = new URLSearchParams({
+      ticketId: ticketId ?? "",
+      ticketTitle: ticket?.title ?? "",
+      ...(ticket?.customerId ? { customerId: ticket.customerId } : {}),
+    });
+    setLocation(`/dashboard/tools/proposals?${params.toString()}`);
+  };
+  navigateToProposalMakerRef.current = navigateToProposalMaker;
+
+  const handleUseProposalMaker = async () => {
     setShowProposalChoiceDialog(false);
     // Move to "Create Proposal" status directly (fields already saved if we came via field dialog)
     const createProposalStatus = statuses.find(s => s.name === "Create Proposal");
     if (createProposalStatus) {
-      updateStatusMutation.mutate({ statusId: createProposalStatus.id });
+      try {
+        await updateStatusMutation.mutateAsync({ statusId: createProposalStatus.id });
+        navigateToProposalMaker();
+      } catch {
+        // Error toast is handled by the mutation's onError; stay on the page.
+      }
     } else {
-      // Fallback: use normal advance flow with bypass
+      // Fallback: use normal advance flow with bypass; navigation happens
+      // in updateStatusMutation.onSuccess once the status flip lands (handles
+      // both the direct mutate and the field-dialog save-and-advance path).
+      pendingProposalMakerNavRef.current = true;
       handleAdvanceStatus(true);
     }
   };
