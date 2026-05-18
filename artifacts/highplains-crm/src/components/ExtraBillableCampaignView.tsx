@@ -135,7 +135,7 @@ export default function ExtraBillableCampaignView({ campaign, campaignId }: Prop
 
   const counters = useMemo(() => {
     const completed = items.filter(i => i.status === "completed").length;
-    const photos = items.reduce((acc, i) => acc + ((i.completionPhotoStorageKeys?.length) || 0), 0);
+    const photos = items.reduce((acc, i) => acc + ((i.photos?.length) || 0), 0);
     const gridPhotos = items.reduce((acc, i) => acc + ((i.photos?.length) || 0), 0);
     const estimated = items.reduce((acc, i) => acc + Number(i.estimatedAmount || 0), 0);
     return { total: items.length, completed, photos, gridPhotos, estimated };
@@ -299,7 +299,7 @@ export default function ExtraBillableCampaignView({ campaign, campaignId }: Prop
                   <tbody>
                     {filteredItems.map(item => {
                       const crew = item.assignedCampaignCrewId ? crewById.get(item.assignedCampaignCrewId) : null;
-                      const photoCount = item.completionPhotoStorageKeys?.length || 0;
+                      const photoCount = item.photos?.length || 0;
                       return (
                         <tr
                           key={item.id}

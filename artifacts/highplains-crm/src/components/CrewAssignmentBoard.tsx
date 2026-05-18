@@ -617,7 +617,7 @@ function DraggablePropertyCard({
 }) {
   const { t } = useTranslation();
   const { attributes, listeners, setNodeRef, isDragging } = useDraggable({ id: item.id, disabled: !draggable });
-  const photoCount = item.completionPhotoStorageKeys?.length || 0;
+  const photoCount = item.photos?.length || 0;
   return (
     <div
       ref={setNodeRef}

@@ -287,7 +287,7 @@ export default function BillingQueueTab({
               <tbody>
                 {readyItems.map(item => {
                   const crew = item.assignedCampaignCrewId ? crewById.get(item.assignedCampaignCrewId) : null;
-                  const photoCount = item.completionPhotoStorageKeys?.length || 0;
+                  const photoCount = item.photos?.length || 0;
                   return (
                     <tr key={item.id} className="border-b" data-testid={`row-billing-${item.id}`}>
                       <td className="p-2">

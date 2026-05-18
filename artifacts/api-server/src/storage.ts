@@ -3891,7 +3891,7 @@ export class PgStorage implements IStorage {
         crewId: campaignItems.assignedCampaignCrewId,
         total: sql<number>`count(*)::int`,
         completed: sql<number>`count(*) FILTER (WHERE ${campaignItems.status} = 'completed')::int`,
-        photos: sql<number>`COALESCE(SUM(COALESCE(array_length(${campaignItems.completionPhotoStorageKeys}, 1), 0)), 0)::int`,
+        photos: sql<number>`COALESCE(SUM(COALESCE(array_length(${campaignItems.photos}, 1), 0)), 0)::int`,
       })
         .from(campaignItems)
         .where(and(eq(campaignItems.companyId, companyId), inArray(campaignItems.assignedCampaignCrewId, crewIds)))
@@ -4057,7 +4057,7 @@ export class PgStorage implements IStorage {
         total: sql<number>`count(*)::int`,
         completed: sql<number>`count(*) FILTER (WHERE ${campaignItems.status} = 'completed')::int`,
         pending: sql<number>`count(*) FILTER (WHERE ${campaignItems.status} <> 'completed' AND ${campaignItems.status} <> 'skipped')::int`,
-        photos: sql<number>`COALESCE(SUM(COALESCE(array_length(${campaignItems.completionPhotoStorageKeys}, 1), 0)), 0)::int`,
+        photos: sql<number>`COALESCE(SUM(COALESCE(array_length(${campaignItems.photos}, 1), 0)), 0)::int`,
         nextDueDate: sql<string | null>`MIN(${campaignItems.targetDate}) FILTER (WHERE ${campaignItems.status} <> 'completed' AND ${campaignItems.status} <> 'skipped')`,
       })
       .from(campaignItems)
