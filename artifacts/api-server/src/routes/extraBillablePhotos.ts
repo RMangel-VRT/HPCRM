@@ -42,6 +42,8 @@ export interface PhotoRouteDeps {
    */
   uploadToStorage?: (storageKey: string, buf: Buffer) => Promise<void>;
   deleteFromStorage?: (storageKey: string) => Promise<void>;
+  /** Copy an object within storage from srcKey to destKey. Returns the destKey. */
+  copyInStorage?: (srcKey: string, destKey: string) => Promise<void>;
   signGetUrl?: (storageKey: string) => Promise<string>;
   processImage?: (buf: Buffer) => Promise<Buffer>;
   /** Resolves the storage key path. Tests inject a stable value. */
@@ -116,6 +118,16 @@ export function registerExtraBillablePhotoRoutes(app: Express, deps: PhotoRouteD
       // are acceptable; ghost references are not).
       logger.warn({ err, fullKey }, "EB photo storage delete failed (non-fatal)");
     }
+  });
+
+  const copyInStorage = deps.copyInStorage ?? (async (srcKey: string, destKey: string) => {
+    const src = splitStorageKey(srcKey);
+    const dest = splitStorageKey(destKey);
+    if (!src.bucketName || !dest.bucketName) throw new Error("PRIVATE_OBJECT_DIR not set; cannot resolve bucket");
+    await objectStorageClient
+      .bucket(src.bucketName)
+      .file(src.objectName)
+      .copy(objectStorageClient.bucket(dest.bucketName).file(dest.objectName));
   });
 
   const signGetUrl = deps.signGetUrl ?? (async (fullKey: string) => {
@@ -252,6 +264,110 @@ export function registerExtraBillablePhotoRoutes(app: Express, deps: PhotoRouteD
         return res.json({ photos: updated });
       } catch (err) {
         logger.error({ err }, "EB photo delete failed");
+        return res.status(500).json({ error: "Internal server error" });
+      }
+    },
+  );
+
+  // ── POST /api/campaigns/:campaignId/items/:targetItemId/photos/move ─────────
+  // Body: { sourceItemId, storageKey }
+  // Copies the storage object to the target item's path, updates both items'
+  // photos[] arrays, and removes the original storage object. The DB update
+  // is done last (new object exists before old one is removed) to stay atomic.
+  app.post(
+    "/api/campaigns/:campaignId/items/:targetItemId/photos/move",
+    express.json(),
+    async (req, res) => {
+      const isAuthed = typeof req.isAuthenticated === "function" ? req.isAuthenticated() : Boolean(req.user);
+      if (!isAuthed) return res.status(401).json({ error: "Not authenticated" });
+      const user = req.user as UserWithContext;
+      if (!user || !ALLOWED_ROLES.includes(user.activeRole)) {
+        return res.status(403).json({ error: "Insufficient permissions" });
+      }
+
+      const { campaignId, targetItemId } = req.params as { campaignId: string; targetItemId: string };
+      const { sourceItemId, storageKey } = req.body as { sourceItemId?: unknown; storageKey?: unknown };
+
+      if (typeof sourceItemId !== "string" || !sourceItemId) {
+        return res.status(400).json({ error: "sourceItemId is required" });
+      }
+      if (typeof storageKey !== "string" || !storageKey) {
+        return res.status(400).json({ error: "storageKey is required" });
+      }
+      if (sourceItemId === targetItemId) {
+        return res.status(400).json({ error: "Source and target items must be different" });
+      }
+
+      try {
+        const campaign = await storage.getCampaignById(campaignId, user.activeCompanyId);
+        if (!campaign || campaign.category !== "extra_billable") {
+          return res.status(404).json({ error: "Extra-billable campaign not found" });
+        }
+
+        const [sourceItem, targetItem] = await Promise.all([
+          storage.getCampaignItemById(sourceItemId, user.activeCompanyId),
+          storage.getCampaignItemById(targetItemId, user.activeCompanyId),
+        ]);
+        if (!sourceItem || sourceItem.campaignId !== campaignId) {
+          return res.status(404).json({ error: "Source item not found" });
+        }
+        if (!targetItem || targetItem.campaignId !== campaignId) {
+          return res.status(404).json({ error: "Target item not found" });
+        }
+
+        // Authorize write access to both items.
+        const [srcAllowed, tgtAllowed] = await Promise.all([
+          extraBillableAccess.canAccessExtraBillableCampaignItem(
+            storage as never,
+            { id: (user as unknown as { id: string }).id, activeRole: user.activeRole, activeCompanyId: user.activeCompanyId },
+            { assignedCampaignCrewId: sourceItem.assignedCampaignCrewId },
+            "write",
+          ),
+          extraBillableAccess.canAccessExtraBillableCampaignItem(
+            storage as never,
+            { id: (user as unknown as { id: string }).id, activeRole: user.activeRole, activeCompanyId: user.activeCompanyId },
+            { assignedCampaignCrewId: targetItem.assignedCampaignCrewId },
+            "write",
+          ),
+        ]);
+        if (!srcAllowed || !tgtAllowed) {
+          return res.status(403).json({ error: "extraBillablePhotoForbidden" });
+        }
+
+        // Validate the storage key belongs to the source item.
+        const expectedSrcContains = itemKeyContains(user.activeCompanyId, sourceItemId);
+        if (!storageKey.includes(expectedSrcContains)) {
+          return res.status(403).json({ error: "Storage key does not match source item scope" });
+        }
+
+        const sourcePhotos: string[] = (sourceItem.photos as string[] | null) || [];
+        if (!sourcePhotos.includes(storageKey)) {
+          return res.status(404).json({ error: "Photo not found on source item" });
+        }
+
+        // Build new key under the target item's path, preserving the filename.
+        const filename = storageKey.split("/").pop() ?? `${randomUUID()}.jpg`;
+        const newStorageKey = buildStorageKey(user.activeCompanyId, targetItemId, filename);
+
+        // 1. Copy object to target path (new object exists before old is removed).
+        await copyInStorage(storageKey, newStorageKey);
+
+        // 2. Update both DB rows.
+        const newSourcePhotos = sourcePhotos.filter((k) => k !== storageKey);
+        const existingTargetPhotos: string[] = (targetItem.photos as string[] | null) || [];
+        const newTargetPhotos = [...existingTargetPhotos, newStorageKey];
+
+        await Promise.all([
+          storage.updateCampaignItem(sourceItemId, user.activeCompanyId, { photos: newSourcePhotos }),
+          storage.updateCampaignItem(targetItemId, user.activeCompanyId, { photos: newTargetPhotos }),
+        ]);
+
+        // 3. Delete old storage object (best-effort — ghost reference already removed above).
+        await deleteFromStorage(storageKey);
+
+        return res.json({ sourcePhotos: newSourcePhotos, targetPhotos: newTargetPhotos });
+      } catch (err) {
+        logger.error({ err }, "EB photo move failed");
         return res.status(500).json({ error: "Internal server error" });
       }
     },

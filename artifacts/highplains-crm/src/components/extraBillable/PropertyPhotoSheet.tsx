@@ -9,11 +9,18 @@ import {
   SheetDescription,
 } from "@/components/ui/sheet";
 import { Button } from "@/components/ui/button";
-import { Trash2, Image as ImageIcon } from "lucide-react";
+import { Trash2, Image as ImageIcon, GripVertical } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest } from "@/lib/queryClient";
 import { useItemPhotoUrls } from "@/hooks/useItemPhotoUrls";
 import PhotoLightbox from "./PhotoLightbox";
+
+export interface EbPhotoMovePayload {
+  type: "eb-photo-move";
+  campaignId: string;
+  sourceItemId: string;
+  storageKey: string;
+}
 
 interface Props {
   open: boolean;
@@ -71,6 +78,7 @@ export default function PropertyPhotoSheet({
       <SheetContent
         side="right"
         className="w-full sm:max-w-xl overflow-y-auto"
+        overlayClassName="pointer-events-none"
         data-testid="property-photo-sheet"
       >
         <SheetHeader>
@@ -96,6 +104,18 @@ export default function PropertyPhotoSheet({
                 key={photo.storageKey}
                 className="relative group aspect-square rounded overflow-hidden bg-muted"
                 data-testid={`sheet-photo-${itemId}-${idx}`}
+                draggable={canDelete}
+                onDragStart={canDelete ? (e) => {
+                  const payload: EbPhotoMovePayload = {
+                    type: "eb-photo-move",
+                    campaignId,
+                    sourceItemId: itemId,
+                    storageKey: photo.storageKey,
+                  };
+                  e.dataTransfer.setData("application/json", JSON.stringify(payload));
+                  e.dataTransfer.effectAllowed = "move";
+                } : undefined}
+                style={canDelete ? { cursor: "grab" } : undefined}
               >
                 <button
                   type="button"
@@ -109,6 +129,7 @@ export default function PropertyPhotoSheet({
                       alt=""
                       className="w-full h-full object-cover"
                       loading="lazy"
+                      draggable={false}
                     />
                   ) : (
                     <div className="w-full h-full flex items-center justify-center text-muted-foreground">
@@ -117,17 +138,22 @@ export default function PropertyPhotoSheet({
                   )}
                 </button>
                 {canDelete && (
-                  <Button
-                    variant="destructive"
-                    size="icon"
-                    className="absolute top-1 right-1 opacity-0 group-hover:opacity-100 transition-opacity h-7 w-7"
-                    onClick={() => handleDelete(photo.storageKey)}
-                    disabled={deleteMutation.isPending}
-                    data-testid={`sheet-photo-delete-${itemId}-${photo.storageKey.split("/").pop()}`}
-                    aria-label={t("campaigns.extraBillablePhotoDelete")}
-                  >
-                    <Trash2 className="w-3 h-3" />
-                  </Button>
+                  <>
+                    <Button
+                      variant="destructive"
+                      size="icon"
+                      className="absolute top-1 right-1 h-7 w-7"
+                      onClick={() => handleDelete(photo.storageKey)}
+                      disabled={deleteMutation.isPending}
+                      data-testid={`sheet-photo-delete-${itemId}-${photo.storageKey.split("/").pop()}`}
+                      aria-label={t("campaigns.extraBillablePhotoDelete")}
+                    >
+                      <Trash2 className="w-3 h-3" />
+                    </Button>
+                    <div className="absolute bottom-1 left-1 text-white/60 pointer-events-none">
+                      <GripVertical className="w-3.5 h-3.5" />
+                    </div>
+                  </>
                 )}
               </div>
             ))}

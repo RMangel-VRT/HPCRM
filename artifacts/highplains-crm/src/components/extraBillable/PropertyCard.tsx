@@ -1,13 +1,16 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { Link } from "wouter";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { ExternalLink, Image as ImageIcon, Upload, X } from "lucide-react";
+import { ExternalLink, Image as ImageIcon, MoveRight, Trash2, Upload, X } from "lucide-react";
 import { useFileDropZone } from "@/hooks/useFileDropZone";
 import { useItemPhotoUrls } from "@/hooks/useItemPhotoUrls";
+import { useToast } from "@/hooks/use-toast";
+import { apiRequest } from "@/lib/queryClient";
+import type { EbPhotoMovePayload } from "./PropertyPhotoSheet";
 import type { CampaignItem, CampaignCrewWithMembers } from "@shared/schema";
 
 export interface PropertyCardItem extends CampaignItem {
@@ -46,11 +49,124 @@ export default function PropertyCard({
   onOpenPhotos,
 }: Props) {
   const { t } = useTranslation();
+  const { toast } = useToast();
   const queryClient = useQueryClient();
   const [uploadState, setUploadState] = useState<UploadState>(INITIAL_STATE);
   const stateRef = useRef<UploadState>(INITIAL_STATE);
   const successTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const errorTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // ── Card-level photo delete ──────────────────────────────────────────────────
+  const cardDeleteMutation = useMutation({
+    mutationFn: async (storageKey: string) => {
+      const res = await apiRequest(
+        "DELETE",
+        `/api/campaigns/${campaignId}/items/${item.id}/photos/${storageKey}`,
+      );
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({
+        queryKey: ["/api/campaigns", campaignId, "items", item.id, "photo-urls"],
+      });
+      queryClient.invalidateQueries({ queryKey: ["/api/campaigns", campaignId] });
+      toast({ title: t("campaigns.extraBillablePhotoDeleted") });
+    },
+    onError: (err: Error) => {
+      toast({
+        title: err.message || t("campaigns.extraBillablePhotoDeleteFailed"),
+        variant: "destructive",
+      });
+    },
+  });
+
+  const handleCardDelete = useCallback((storageKey: string) => {
+    if (!window.confirm(t("campaigns.extraBillablePhotoDeleteConfirm"))) return;
+    cardDeleteMutation.mutate(storageKey);
+  }, [cardDeleteMutation, t]);
+
+  // ── Photo-move drag state ────────────────────────────────────────────────────
+  const [isPhotoMoveOver, setIsPhotoMoveOver] = useState(false);
+  const moveCounter = useRef(0);
+
+  const moveMutation = useMutation({
+    mutationFn: async (payload: EbPhotoMovePayload) => {
+      const res = await apiRequest(
+        "POST",
+        `/api/campaigns/${payload.campaignId}/items/${item.id}/photos/move`,
+        { sourceItemId: payload.sourceItemId, storageKey: payload.storageKey },
+      );
+      return res.json();
+    },
+    onSuccess: (_data, payload) => {
+      queryClient.invalidateQueries({ queryKey: ["/api/campaigns", campaignId] });
+      queryClient.invalidateQueries({
+        queryKey: ["/api/campaigns", campaignId, "items", payload.sourceItemId, "photo-urls"],
+      });
+      queryClient.invalidateQueries({
+        queryKey: ["/api/campaigns", campaignId, "items", item.id, "photo-urls"],
+      });
+      toast({ title: t("campaigns.extraBillablePhotoMoved") });
+    },
+    onError: (err: Error) => {
+      const knownKey = err.message?.includes("extraBillablePhotoForbidden")
+        ? "extraBillablePhotoForbidden"
+        : null;
+      toast({
+        title: knownKey ? t(`campaigns.${knownKey}`) : (err.message || t("campaigns.extraBillablePhotoMoveFailed")),
+        variant: "destructive",
+      });
+    },
+  });
+
+  const onPhotoMoveDragEnter = useCallback((e: React.DragEvent<HTMLElement>) => {
+    if (!canDrop) return;
+    const types = Array.from(e.dataTransfer?.types || []);
+    if (!types.includes("application/json")) return;
+    e.preventDefault();
+    e.stopPropagation();
+    moveCounter.current += 1;
+    setIsPhotoMoveOver(true);
+  }, [canDrop]);
+
+  const onPhotoMoveDragLeave = useCallback((e: React.DragEvent<HTMLElement>) => {
+    if (!canDrop) return;
+    e.preventDefault();
+    e.stopPropagation();
+    moveCounter.current -= 1;
+    if (moveCounter.current <= 0) {
+      moveCounter.current = 0;
+      setIsPhotoMoveOver(false);
+    }
+  }, [canDrop]);
+
+  const onPhotoMoveDragOver = useCallback((e: React.DragEvent<HTMLElement>) => {
+    if (!canDrop) return;
+    const types = Array.from(e.dataTransfer?.types || []);
+    if (!types.includes("application/json")) return;
+    e.preventDefault();
+    e.stopPropagation();
+    e.dataTransfer.dropEffect = "move";
+  }, [canDrop]);
+
+  const onPhotoMoveDrop = useCallback((e: React.DragEvent<HTMLElement>) => {
+    if (!canDrop) return;
+    e.preventDefault();
+    e.stopPropagation();
+    moveCounter.current = 0;
+    setIsPhotoMoveOver(false);
+    const raw = e.dataTransfer?.getData("application/json");
+    if (!raw) return;
+    let payload: EbPhotoMovePayload;
+    try {
+      payload = JSON.parse(raw) as EbPhotoMovePayload;
+    } catch {
+      return;
+    }
+    if (payload.type !== "eb-photo-move") return;
+    if (payload.sourceItemId === item.id) return;
+    moveMutation.mutate(payload);
+  }, [canDrop, item.id, moveMutation]);
 
   // Always invalidate the item's photo URL cache when its photos[] changes,
   // so the lightbox/thumbnails refetch with fresh signed URLs.
@@ -59,10 +175,9 @@ export default function PropertyCard({
 
   // Fetch signed URLs for thumbnail rendering when there are photos.
   const { data: photoUrls = [] } = useItemPhotoUrls(campaignId, item.id, photoCount > 0);
-  const thumbUrls = useMemo(
-    () => photoUrls.slice(0, 3).map((p) => p.signedUrl).filter((u): u is string => Boolean(u)),
-    [photoUrls],
-  );
+  // Keep full photo objects (with storageKey) for the first 3 thumbnails so
+  // card-level delete and drag-to-move can reference them directly.
+  const thumbPhotos = useMemo(() => photoUrls.slice(0, 3), [photoUrls]);
 
   useEffect(() => () => {
     if (successTimer.current) clearTimeout(successTimer.current);
@@ -179,16 +294,45 @@ export default function PropertyCard({
     ? 0
     : Math.min(100, Math.round((uploadState.done / uploadState.total) * 100));
 
+  // Merge file-drop and photo-move drag handlers so both can coexist on the card.
+  const mergedDragEnter = useCallback((e: React.DragEvent<HTMLElement>) => {
+    bind.onDragEnter(e);
+    onPhotoMoveDragEnter(e);
+  }, [bind, onPhotoMoveDragEnter]);
+
+  const mergedDragLeave = useCallback((e: React.DragEvent<HTMLElement>) => {
+    bind.onDragLeave(e);
+    onPhotoMoveDragLeave(e);
+  }, [bind, onPhotoMoveDragLeave]);
+
+  const mergedDragOver = useCallback((e: React.DragEvent<HTMLElement>) => {
+    bind.onDragOver(e);
+    onPhotoMoveDragOver(e);
+  }, [bind, onPhotoMoveDragOver]);
+
+  const mergedDrop = useCallback((e: React.DragEvent<HTMLElement>) => {
+    // Check which type of drop this is before delegating.
+    const types = Array.from(e.dataTransfer?.types || []);
+    if (types.includes("application/json")) {
+      onPhotoMoveDrop(e);
+    } else {
+      bind.onDrop(e);
+    }
+  }, [bind, onPhotoMoveDrop]);
+
   return (
     <Card
       data-testid={`grid-card-${item.id}`}
-      data-dragging={isDraggingOver ? "true" : "false"}
+      data-dragging={isDraggingOver || isPhotoMoveOver ? "true" : "false"}
       data-upload-status={uploadState.status}
       className={`relative border-l-4 transition-colors overflow-hidden ${
         isDraggingOver ? "ring-2 ring-primary bg-primary/5" : ""
-      } ${isSuccess ? "ring-2 ring-green-500 bg-green-50/40" : ""}`}
+      } ${isPhotoMoveOver ? "ring-2 ring-amber-500 bg-amber-50/30" : ""} ${isSuccess ? "ring-2 ring-green-500 bg-green-50/40" : ""}`}
       style={borderStyle}
-      {...bind}
+      onDragEnter={mergedDragEnter}
+      onDragLeave={mergedDragLeave}
+      onDragOver={mergedDragOver}
+      onDrop={mergedDrop}
     >
       <div className="p-3 space-y-2">
         <div className="flex items-start justify-between gap-2">
@@ -242,27 +386,62 @@ export default function PropertyCard({
         {photoCount > 0 ? (
           <div className="grid grid-cols-3 gap-1">
             {Array.from({ length: 3 }).map((_, idx) => {
-              const url = thumbUrls[idx];
+              const photo = thumbPhotos[idx];
+              const url = photo?.signedUrl ?? null;
               return (
-                <button
-                  type="button"
+                <div
                   key={idx}
-                  onClick={onOpenPhotos}
-                  className="aspect-square rounded bg-muted overflow-hidden hover-elevate"
+                  className="relative aspect-square rounded bg-muted overflow-hidden"
                   data-testid={`grid-photo-thumb-${item.id}-${idx}`}
-                  title={t("campaigns.extraBillableGridViewPhotos")}
+                  draggable={canDrop && Boolean(photo)}
+                  onDragStart={canDrop && photo ? (e) => {
+                    const payload: EbPhotoMovePayload = {
+                      type: "eb-photo-move",
+                      campaignId,
+                      sourceItemId: item.id,
+                      storageKey: photo.storageKey,
+                    };
+                    e.dataTransfer.setData("application/json", JSON.stringify(payload));
+                    e.dataTransfer.effectAllowed = "move";
+                    e.stopPropagation();
+                  } : undefined}
+                  style={canDrop && photo ? { cursor: "grab" } : undefined}
                 >
-                  {url ? (
-                    <img
-                      src={url}
-                      alt=""
-                      className="w-full h-full object-cover"
-                      loading="lazy"
-                    />
-                  ) : (
-                    <span className="sr-only">{t("campaigns.extraBillableGridViewPhotos")}</span>
+                  <button
+                    type="button"
+                    onClick={onOpenPhotos}
+                    className="block w-full h-full hover-elevate"
+                    title={t("campaigns.extraBillableGridViewPhotos")}
+                  >
+                    {url ? (
+                      <img
+                        src={url}
+                        alt=""
+                        className="w-full h-full object-cover"
+                        loading="lazy"
+                        draggable={false}
+                      />
+                    ) : (
+                      <span className="sr-only">{t("campaigns.extraBillableGridViewPhotos")}</span>
+                    )}
+                  </button>
+                  {canDrop && photo && (
+                    <Button
+                      variant="destructive"
+                      size="icon"
+                      className="absolute top-0.5 right-0.5 h-6 w-6"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        handleCardDelete(photo.storageKey);
+                      }}
+                      disabled={cardDeleteMutation.isPending}
+                      data-testid={`card-photo-delete-${item.id}-${photo.storageKey.split("/").pop()}`}
+                      aria-label={t("campaigns.extraBillablePhotoDelete")}
+                    >
+                      <Trash2 className="w-3 h-3" />
+                    </Button>
                   )}
-                </button>
+                </div>
               );
             })}
           </div>
@@ -320,6 +499,18 @@ export default function PropertyCard({
           <div className="text-sm font-medium text-primary inline-flex items-center gap-2">
             <Upload className="w-4 h-4" />
             {t("campaigns.extraBillableGridDropping")}
+          </div>
+        </div>
+      )}
+
+      {isPhotoMoveOver && (
+        <div
+          className="absolute inset-0 rounded-md border-2 border-dashed border-amber-500 bg-amber-50/40 flex items-center justify-center pointer-events-none"
+          data-testid={`grid-card-move-overlay-${item.id}`}
+        >
+          <div className="text-sm font-medium text-amber-700 inline-flex items-center gap-2">
+            <MoveRight className="w-4 h-4" />
+            {t("campaigns.extraBillablePhotoMoveHere")}
           </div>
         </div>
       )}

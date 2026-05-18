@@ -1764,6 +1764,9 @@ const es = {
     extraBillablePhotoDeleteConfirm: "¿Eliminar esta foto? No se puede deshacer.", // TODO: human-review translation
     extraBillablePhotoDeleted: "Foto eliminada", // TODO: human-review translation
     extraBillablePhotoDeleteFailed: "Error al eliminar la foto", // TODO: human-review translation
+    extraBillablePhotoMoveHere: "Mover aquí", // TODO: human-review translation
+    extraBillablePhotoMoved: "Foto movida", // TODO: human-review translation
+    extraBillablePhotoMoveFailed: "Error al mover la foto", // TODO: human-review translation
     extraBillableLightboxClose: "Cerrar", // TODO: human-review translation
     extraBillableLightboxNext: "Foto siguiente", // TODO: human-review translation
     extraBillableLightboxPrev: "Foto anterior", // TODO: human-review translation
