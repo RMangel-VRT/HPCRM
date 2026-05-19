@@ -6635,6 +6635,18 @@ export async function registerRoutes(app: Express): Promise<Server> {
           }
         }
         
+        // Ensure billingBehavior is corrected for directly-created Project tickets stepping forward
+        if (newStatus && existingTicket.workType !== "estimate_request") {
+          const ticketTypeForBilling = await storage.getTicketTypeById(existingTicket.ticketTypeId, user.activeCompanyId);
+          if (ticketTypeForBilling?.name === "Project" && existingTicket.billingBehavior !== "invoice_required") {
+            const approvedPathStatuses = ["Ready to Schedule", "Work Completed", "Ready for Billing", "Invoicing"];
+            if (approvedPathStatuses.includes(newStatus.name)) {
+              req.body.billingBehavior = "invoice_required";
+              console.log(`Correcting billingBehavior to invoice_required for direct Project ticket ${existingTicket.id} stepping to ${newStatus.name}`);
+            }
+          }
+        }
+        
         // Auto-return delegation: when ticket moves to "Work Completed" and has a delegator
         if (newStatus?.name === "Work Completed" && existingTicket.delegatedById) {
           req.body.assignedToId = existingTicket.delegatedById;
@@ -6764,7 +6776,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
         
         console.log(`Invoice auto-creation check for ticket ${existingTicket.id}: newStatus="${newStatus?.name}", billingBehavior="${existingTicket.billingBehavior}", ticketType="${currentTicketTypeForInvoice?.name}", isInvoiceType=${isInvoiceTicketType}`);
         
-        if (newStatus?.name === "Ready for Billing" && existingTicket.billingBehavior === "invoice_required" && !isInvoiceTicketType) {
+        const isProjectTypeForInvoice = currentTicketTypeForInvoice?.name === "Project";
+        if (newStatus?.name === "Ready for Billing" && (existingTicket.billingBehavior === "invoice_required" || isProjectTypeForInvoice) && !isInvoiceTicketType) {
           const existingLinks = await storage.getTicketLinks(existingTicket.id);
           const hasExistingInvoice = existingLinks.some(l => l.linkType === "invoice_for" && l.sourceTicketId === existingTicket.id);
           console.log(`Invoice auto-creation: hasExistingInvoice=${hasExistingInvoice}, links=${JSON.stringify(existingLinks.map(l => ({ id: l.id, type: l.linkType, src: l.sourceTicketId, tgt: l.targetTicketId })))}`);
@@ -6811,6 +6824,58 @@ export async function registerRoutes(app: Express): Promise<Server> {
               }
             } catch (err) {
               console.error("Failed to auto-create invoice ticket:", err);
+            }
+          }
+        }
+        
+        // Fallback: auto-create Invoice ticket when stepping to "Invoicing" and no invoice exists yet
+        if (newStatus?.name === "Invoicing" && isProjectTypeForInvoice && !isInvoiceTicketType) {
+          const existingLinksForFallback = await storage.getTicketLinks(existingTicket.id);
+          const hasExistingInvoiceFallback = existingLinksForFallback.some(l => l.linkType === "invoice_for" && l.sourceTicketId === existingTicket.id);
+          
+          if (!hasExistingInvoiceFallback) {
+            console.log(`Invoice auto-creation FALLBACK triggered for Project ticket ${existingTicket.id} at Invoicing step (missed Ready for Billing gate)`);
+            try {
+              const invoiceTypeInfoFallback = await ensureInvoiceTicketType(user.activeCompanyId);
+              
+              if (invoiceTypeInfoFallback) {
+                const companyUsersForFallback = await storage.getCompanyUsersByCompanyId(user.activeCompanyId);
+                const billingUserFallback = companyUsersForFallback.find(cu => cu.tags?.includes("billing") && cu.status === "active");
+                
+                const invoiceTicketFallback = await storage.createTicket({
+                  companyId: user.activeCompanyId,
+                  customerId: existingTicket.customerId,
+                  contractId: existingTicket.contractId,
+                  ticketTypeId: invoiceTypeInfoFallback.typeId,
+                  currentStatusId: invoiceTypeInfoFallback.pendingStatusId,
+                  workType: "admin",
+                  billingBehavior: "internal",
+                  title: `Invoice: ${existingTicket.title}`,
+                  description: `Invoice required for completed work: ${existingTicket.title}\n\nOriginal description: ${existingTicket.description || "N/A"}`,
+                  priority: "normal",
+                  assignedToId: billingUserFallback?.userId || null,
+                  createdById: user.id,
+                });
+                
+                await storage.createTicketLink({
+                  sourceTicketId: existingTicket.id,
+                  targetTicketId: invoiceTicketFallback.id,
+                  linkType: "invoice_for",
+                });
+                
+                const sourceCommentsFallback = await storage.getTicketComments(existingTicket.id);
+                for (const comment of sourceCommentsFallback) {
+                  await storage.createTicketComment({
+                    ticketId: invoiceTicketFallback.id,
+                    authorId: comment.authorId,
+                    body: comment.body,
+                  });
+                }
+                
+                console.log(`Auto-created Invoice ticket ${invoiceTicketFallback.id} for ticket ${existingTicket.id} via Invoicing FALLBACK (assigned to: ${billingUserFallback?.userId || 'unassigned'}) with ${sourceCommentsFallback.length} notes copied`);
+              }
+            } catch (err) {
+              console.error("Failed to auto-create invoice ticket (Invoicing fallback):", err);
             }
           }
         }
