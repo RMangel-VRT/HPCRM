@@ -31,7 +31,6 @@ import {
   Loader2,
   FileCheck,
   Receipt,
-  FolderKanban,
   Briefcase,
   Calculator,
   Navigation,
@@ -69,7 +68,6 @@ L.Icon.Default.mergeOptions({
 const WORK_TYPE_ICONS: Record<WorkType, typeof FileCheck> = {
   contract: FileCheck,
   extra_work: Receipt,
-  project: FolderKanban,
   admin: Briefcase,
   estimate_request: Calculator,
   shop_todo: Wrench,
@@ -233,15 +231,15 @@ export default function NewTicket() {
       return invoiceType?.id || null;
     }
     
-    if (workType === "project" || workType === "estimate_request") {
-      // Project (No Estimate) uses its own dedicated ticket type
+    if (workType === "estimate_request") {
+      // Project (now renamed "Project") uses its own dedicated ticket type
       if (isProjectNoEstimate) {
-        const pneType = activeTypes.find(t => t.name === "Project (No Estimate)");
-        return pneType?.id || null;
+        const projectType = activeTypes.find(t => t.name === "Project");
+        return projectType?.id || null;
       }
-      const projectType = activeTypes.find(t => t.name === "Project") 
-        || activeTypes.find(t => t.category === "project" && t.name !== "Project (No Estimate)");
-      return projectType?.id || activeTypes[0]?.id || null;
+      const estimateRequestType = activeTypes.find(t => t.name === "Estimate Request") 
+        || activeTypes.find(t => t.category === "project" && t.name !== "Project");
+      return estimateRequestType?.id || activeTypes[0]?.id || null;
     }
     
     // Extra Billable gets its own dedicated ticket type
@@ -264,7 +262,7 @@ export default function NewTicket() {
       t.name.toLowerCase().includes("maintenance")
     );
     
-    return quickTaskType?.id || eligibleTypes.find(t => t.name === "Project")?.id || eligibleTypes[0]?.id || null;
+    return quickTaskType?.id || eligibleTypes.find(t => t.name === "Estimate Request")?.id || eligibleTypes[0]?.id || null;
   };
   
   // Initialize RFP Request ticket type if needed
@@ -397,7 +395,7 @@ export default function NewTicket() {
   });
 
   const handleSelectProjectNoEstimate = async () => {
-    setSelectedWorkType("project");
+    setSelectedWorkType("estimate_request");
     setIsProjectNoEstimate(true);
     setIsRFPRequest(false);
     setIsInvoice(false);
@@ -405,10 +403,10 @@ export default function NewTicket() {
   };
 
   const handleSelectWorkType = async (workType: WorkType) => {
-    // Initialize Project ticket type if needed for project or estimate_request
-    if (workType === "project" || workType === "estimate_request") {
-      const projectType = ticketTypes.find(t => t.name === "Project");
-      if (!projectType) {
+    // Initialize Estimate Request ticket type if needed
+    if (workType === "estimate_request") {
+      const estimateRequestType = ticketTypes.find(t => t.name === "Estimate Request");
+      if (!estimateRequestType) {
         await initProjectMutation.mutateAsync();
       }
     }
@@ -746,7 +744,7 @@ export default function NewTicket() {
     : selectedWorkType && selectedCustomerId && title.trim() && assignedToId;
   const hasLocation = locationLat !== null && locationLng !== null;
 
-  const workTypeOptions: WorkType[] = ["contract", "extra_work", "project", "admin", "estimate_request", "shop_todo"];
+  const workTypeOptions: WorkType[] = ["contract", "extra_work", "admin", "estimate_request", "shop_todo"];
 
   return (
     <div className="space-y-4 max-w-2xl mx-auto">
@@ -854,7 +852,7 @@ export default function NewTicket() {
               </CardContent>
             </Card>
 
-            {/* Project (No Estimate) - For pre-approved work with no estimating phase */}
+            {/* Project - For pre-approved work with no estimating phase */}
             <Card 
               className="hover-elevate active-elevate-2 cursor-pointer border-dashed"
               onClick={handleSelectProjectNoEstimate}
@@ -869,7 +867,7 @@ export default function NewTicket() {
                 </div>
                 <div className="flex-1">
                   <div className="flex items-center gap-2">
-                    <h3 className="font-medium">Project (No Estimate)</h3>
+                    <h3 className="font-medium">Project</h3>
                     <Badge variant="default" className="text-xs">
                       Invoice Required
                     </Badge>
@@ -891,7 +889,7 @@ export default function NewTicket() {
               className="hover:text-foreground cursor-pointer"
               onClick={() => setStep("workType")}
             >
-              {isRFPRequest ? "RFP Request" : isInvoice ? "Invoice" : isProjectNoEstimate ? "Project (No Estimate)" : selectedWorkTypeConfig?.name}
+              {isRFPRequest ? "RFP Request" : isInvoice ? "Invoice" : isProjectNoEstimate ? "Project" : selectedWorkTypeConfig?.name}
             </span>
             <span>/</span>
             <span>{t('newTicket.selectCustomer')}</span>
@@ -1068,7 +1066,7 @@ export default function NewTicket() {
               className="hover:text-foreground cursor-pointer"
               onClick={() => setStep("workType")}
             >
-              {isRFPRequest ? "RFP Request" : isInvoice ? "Invoice" : isProjectNoEstimate ? "Project (No Estimate)" : selectedWorkTypeConfig?.name}
+              {isRFPRequest ? "RFP Request" : isInvoice ? "Invoice" : isProjectNoEstimate ? "Project" : selectedWorkTypeConfig?.name}
             </span>
             {/* Show customer in breadcrumb only for non-shop_todo tickets */}
             {selectedWorkType !== "shop_todo" && (

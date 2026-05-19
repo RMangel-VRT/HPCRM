@@ -107,11 +107,9 @@ const es = {
   workTypes: {
     contract: "Trabajo de Contrato",
     extra_work: "Trabajo Extra Facturable",
-    project: "Proyecto",
     admin: "Administrativo",
     estimate_request: "Solicitud de Estimado",
     shop_todo: "Tarea de Taller",
-    project_no_estimate: "Proyecto (Sin Estimado)",
   },
   serviceTypes: {
     maintenance: "Mantenimiento",

@@ -107,11 +107,9 @@ const en = {
   workTypes: {
     contract: "Contract Work",
     extra_work: "Extra Billable",
-    project: "Project",
     admin: "Admin",
     estimate_request: "Estimate Request",
     shop_todo: "Shop To-Do",
-    project_no_estimate: "Project (No Estimate)",
   },
   serviceTypes: {
     maintenance: "Maintenance",

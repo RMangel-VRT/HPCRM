@@ -522,30 +522,30 @@ async function ensureRFPRequestTicketType(companyId: string): Promise<{
   return { typeId: rfpType.id, statuses: statusMap };
 }
 
-// Helper to ensure Project ticket type exists with the new 7-step workflow
+// Helper to ensure Estimate Request ticket type exists with the 10-step workflow
 // This is Office-owned for sales/estimating/billing. Use needs_scheduling for field work.
-async function ensureProjectTicketType(companyId: string): Promise<{ 
+async function ensureEstimateRequestTicketType(companyId: string): Promise<{ 
   typeId: string; 
   statuses: Map<string, string>;
 } | null> {
   const ticketTypes = await storage.getTicketTypes(companyId);
-  let projectType = ticketTypes.find(tt => tt.name === "Project");
+  let projectType = ticketTypes.find(tt => tt.name === "Estimate Request");
   
   if (!projectType) {
     projectType = await storage.createTicketType({
       companyId,
-      name: "Project",
-      description: "Large projects requiring estimates and approval - Office-owned workflow",
+      name: "Estimate Request",
+      description: "Customer estimate request — 10-step workflow through approval, scheduling, and invoicing",
       category: "project",
       icon: "folder-kanban",
       color: "#8b5cf6",
       isActive: "true",
     });
-    console.log(`Created Project ticket type for company ${companyId}`);
+    console.log(`Created Estimate Request ticket type for company ${companyId}`);
   }
   
-  // Define the 10-step Project workflow (Create Proposal + Proposal Sent replace Estimate Sent)
-  const projectStatuses: StatusDefinition[] = [
+  // Define the 10-step Estimate Request workflow (Create Proposal + Proposal Sent replace Estimate Sent)
+  const estimateRequestStatuses: StatusDefinition[] = [
     { name: "New", description: "Request captured - pending estimate", color: "#6366f1", order: 0, isFinal: "false" as const, actionType: "needs_action" as const },
     { name: "Estimating", description: "Estimate being prepared in QuickBooks", color: "#8b5cf6", order: 1, isFinal: "false" as const, actionType: "needs_action" as const },
     { name: "Create Proposal", description: "Build the proposal document in this system", color: "#8b5cf6", order: 2, isFinal: "false" as const, actionType: "needs_action" as const },
@@ -563,7 +563,7 @@ async function ensureProjectTicketType(companyId: string): Promise<{
   const statusMap = new Map<string, string>();
   
   // Create missing statuses (preserves existing ones to not break current tickets)
-  for (const statusDef of projectStatuses) {
+  for (const statusDef of estimateRequestStatuses) {
     let status = existingStatuses.find(s => s.name === statusDef.name);
     if (!status) {
       status = await storage.createTicketTypeStatus({
@@ -576,7 +576,7 @@ async function ensureProjectTicketType(companyId: string): Promise<{
         actionType: statusDef.actionType,
         waitingCategory: statusDef.waitingCategory,
       });
-      console.log(`Created status "${statusDef.name}" for Project type`);
+      console.log(`Created status "${statusDef.name}" for Estimate Request type`);
     }
     statusMap.set(status.name, status.id);
   }
@@ -659,17 +659,17 @@ async function ensureProjectTicketType(companyId: string): Promise<{
     }
   }
   
-  console.log(`Project ticket type setup complete for company ${companyId}`);
+  console.log(`Estimate Request ticket type setup complete for company ${companyId}`);
   return { typeId: projectType.id, statuses: statusMap };
 }
 
-// One-time migration: Transition approved Project tickets from "Decision Received" to "Ready to Schedule"
-async function migrateApprovedProjectTickets(companyId: string, triggeringUserId?: string): Promise<number> {
+// One-time migration: Transition approved Estimate Request tickets from "Decision Received" to "Ready to Schedule"
+async function migrateApprovedEstimateRequestTickets(companyId: string, triggeringUserId?: string): Promise<number> {
   let migratedCount = 0;
   
-  // Get Project ticket type
+  // Get Estimate Request ticket type
   const ticketTypes = await storage.getTicketTypes(companyId);
-  const projectType = ticketTypes.find(tt => tt.name === "Project");
+  const projectType = ticketTypes.find(tt => tt.name === "Estimate Request");
   if (!projectType) return 0;
   
   // Get all statuses for this ticket type
@@ -817,29 +817,29 @@ async function ensureExtraBillableTicketType(companyId: string): Promise<{
   return { typeId: ebType.id, statuses: statusMap };
 }
 
-// Helper to ensure "Project (No Estimate)" ticket type exists
+// Helper to ensure "Project" ticket type exists
 // For approved work that skips the estimating/proposal phase entirely
-async function ensureProjectNoEstimateTicketType(companyId: string): Promise<{
+async function ensureProjectTicketType(companyId: string): Promise<{
   typeId: string;
   statuses: Map<string, string>;
 } | null> {
   const ticketTypes = await storage.getTicketTypes(companyId);
-  let pneType = ticketTypes.find(tt => tt.name === "Project (No Estimate)");
+  let pneType = ticketTypes.find(tt => tt.name === "Project");
 
   if (!pneType) {
     pneType = await storage.createTicketType({
       companyId,
-      name: "Project (No Estimate)",
+      name: "Project",
       description: "Approved project work with no estimating or proposal phase required",
       category: "project",
       icon: "folder-check",
       color: "#0ea5e9",
       isActive: "true",
     });
-    console.log(`Created Project (No Estimate) ticket type for company ${companyId}`);
+    console.log(`Created Project ticket type for company ${companyId}`);
   }
 
-  const pneStatuses: StatusDefinition[] = [
+  const projectStatuses: StatusDefinition[] = [
     { name: "New", description: "Project request received and approved", color: "#6366f1", order: 0, isFinal: "false" as const, actionType: "needs_action" as const },
     { name: "Ready to Schedule", description: "Approved - needs to be scheduled with crew", color: "#f472b6", order: 1, isFinal: "false" as const, actionType: "needs_action" as const },
     { name: "Scheduled", description: "Scheduled with crew", color: "#3b82f6", order: 2, isFinal: "false" as const, actionType: "needs_action" as const },
@@ -852,7 +852,7 @@ async function ensureProjectNoEstimateTicketType(companyId: string): Promise<{
   let existingStatuses = await storage.getTicketTypeStatuses(pneType.id);
   const statusMap = new Map<string, string>();
 
-  for (const statusDef of pneStatuses) {
+  for (const statusDef of projectStatuses) {
     let status = existingStatuses.find(s => s.name === statusDef.name);
     if (!status) {
       status = await storage.createTicketTypeStatus({
@@ -865,7 +865,7 @@ async function ensureProjectNoEstimateTicketType(companyId: string): Promise<{
         actionType: statusDef.actionType,
         waitingCategory: statusDef.waitingCategory,
       });
-      console.log(`Created status "${statusDef.name}" for Project (No Estimate) type`);
+      console.log(`Created status "${statusDef.name}" for Project type`);
     }
     statusMap.set(status.name, status.id);
   }
@@ -912,11 +912,11 @@ async function ensureProjectNoEstimateTicketType(companyId: string): Promise<{
         options: fieldDef.options || [],
         displayOrder: fieldDef.displayOrder,
       });
-      console.log(`Created field "${fieldDef.fieldKey}" for Project (No Estimate) type`);
+      console.log(`Created field "${fieldDef.fieldKey}" for Project type`);
     }
   }
 
-  console.log(`Project (No Estimate) ticket type setup complete for company ${companyId}`);
+  console.log(`Project ticket type setup complete for company ${companyId}`);
   return { typeId: pneType.id, statuses: statusMap };
 }
 
@@ -997,18 +997,18 @@ async function ensureToDoTicketType(companyId: string): Promise<{
   return { typeId: todoType.id, statuses: statusMap, internalCustomerId: internalCustomer.id };
 }
 
-// Seeds all standard ticket types for a company (Project, Invoice, To-Do, RFP Request)
+// Seeds all standard ticket types for a company (Estimate Request, Invoice, To-Do, RFP Request, Extra Billable, Project)
 // Called during company setup to ensure ticket types exist before users create tickets
 export async function seedAllTicketTypes(companyId: string): Promise<void> {
   console.log(`Seeding all ticket types for company ${companyId}...`);
   
-  // Seed in order: To-Do, Invoice, Project, RFP Request, Extra Billable, Project (No Estimate)
+  // Seed in order: To-Do, Invoice, Estimate Request, RFP Request, Extra Billable, Project
   await ensureToDoTicketType(companyId);
   await ensureInvoiceTicketType(companyId);
-  await ensureProjectTicketType(companyId);
+  await ensureEstimateRequestTicketType(companyId);
   await ensureRFPRequestTicketType(companyId);
   await ensureExtraBillableTicketType(companyId);
-  await ensureProjectNoEstimateTicketType(companyId);
+  await ensureProjectTicketType(companyId);
   
   console.log(`All ticket types seeded for company ${companyId}`);
 }
@@ -1080,7 +1080,7 @@ export async function migrateFirstBankHierarchy(): Promise<void> {
   }
 }
 
-// Startup migration: Ensure all companies have the "Ready to Schedule" status in their Project workflow
+// Startup migration: Ensure all companies have the "Ready to Schedule" status in their Estimate Request workflow
 // This is called at server startup to migrate existing companies that were created before this status was added
 export async function migrateProjectSchedulingStatus(): Promise<void> {
   console.log("Running startup migration: Ensuring Ready to Schedule status exists for all companies...");
@@ -1091,8 +1091,8 @@ export async function migrateProjectSchedulingStatus(): Promise<void> {
     let migratedCount = 0;
     
     for (const company of companies) {
-      // Ensure Project ticket type has Ready to Schedule status
-      const result = await ensureProjectTicketType(company.id);
+      // Ensure Estimate Request ticket type has Ready to Schedule status
+      const result = await ensureEstimateRequestTicketType(company.id);
       if (result) {
         // Check if Ready to Schedule was just created by looking at the status map
         if (result.statuses.has("Ready to Schedule")) {
@@ -1153,7 +1153,7 @@ export async function fixProjectDisplayOrders(): Promise<void> {
 
     for (const company of companies) {
       const ticketTypes = await storage.getTicketTypes(company.id);
-      const projectType = ticketTypes.find(tt => tt.name === "Project");
+      const projectType = ticketTypes.find(tt => tt.name === "Estimate Request");
       if (!projectType) continue;
 
       const statuses = await storage.getTicketTypeStatuses(projectType.id);
@@ -1163,32 +1163,32 @@ export async function fixProjectDisplayOrders(): Promise<void> {
         const expected = expectedOrders[status.name];
         if (expected !== undefined && status.displayOrder !== expected) {
           await storage.updateTicketTypeStatus(status.id, { displayOrder: expected });
-          console.log(`Fixed Project status "${status.name}" display order: ${status.displayOrder} → ${expected} (company ${company.id})`);
+          console.log(`Fixed Estimate Request status "${status.name}" display order: ${status.displayOrder} → ${expected} (company ${company.id})`);
           fixedCount++;
         }
       }
 
       if (fixedCount > 0) {
-        console.log(`Fixed ${fixedCount} Project status display orders for company ${company.id}`);
+        console.log(`Fixed ${fixedCount} Estimate Request status display orders for company ${company.id}`);
       }
     }
-    console.log("Project display order fix complete");
+    console.log("Estimate Request display order fix complete");
   } catch (error) {
     console.error("Error fixing Project display orders:", error);
   }
 }
 
-// Startup migration: Remove invoice data fields from Project's "Invoicing" status
-// Invoice data should only be entered on the Invoice ticket, not duplicated on the Project
+// Startup migration: Remove invoice data fields from Estimate Request's "Invoicing" status
+// Invoice data should only be entered on the Invoice ticket, not duplicated on the Estimate Request
 export async function removeProjectInvoicingFields(): Promise<void> {
-  console.log("Running startup migration: Removing duplicate invoice fields from Project Invoicing status...");
+  console.log("Running startup migration: Removing duplicate invoice fields from Estimate Request Invoicing status...");
   
   try {
     const companies = await storage.getCompanies();
     
     for (const company of companies) {
       const ticketTypes = await storage.getTicketTypes(company.id);
-      const projectType = ticketTypes.find(tt => tt.name === "Project");
+      const projectType = ticketTypes.find(tt => tt.name === "Estimate Request");
       if (!projectType) continue;
       
       const statuses = await storage.getTicketTypeStatuses(projectType.id);
@@ -1213,11 +1213,11 @@ export async function removeProjectInvoicingFields(): Promise<void> {
   }
 }
 
-// Startup migration: Fix billing_behavior for Project tickets that originated as estimate_requests
-// When workType auto-transitions from estimate_request to project, billingBehavior should also change to invoice_required
+// Startup migration: Fix billing_behavior for Estimate Request tickets in approved statuses
+// billingBehavior should be invoice_required for tickets in approved path statuses
 // This corrects any existing tickets where the billingBehavior was not updated during the transition
 export async function fixEstimateRequestBillingBehavior(): Promise<void> {
-  console.log("Running startup migration: Fixing billing_behavior for Project tickets from estimate_requests...");
+  console.log("Running startup migration: Fixing billing_behavior for Estimate Request tickets in approved statuses...");
   
   try {
     const companies = await storage.getCompanies();
@@ -1225,13 +1225,13 @@ export async function fixEstimateRequestBillingBehavior(): Promise<void> {
     
     for (const company of companies) {
       const ticketTypes = await storage.getTicketTypes(company.id);
-      const projectType = ticketTypes.find(tt => tt.name === "Project");
+      const projectType = ticketTypes.find(tt => tt.name === "Estimate Request");
       if (!projectType) continue;
       
       const allTickets = await storage.getTickets(company.id);
       const affectedTickets = allTickets.filter(
         t => t.ticketTypeId === projectType.id && 
-             t.workType === "project" && 
+             t.workType === "estimate_request" && 
              t.billingBehavior === "internal"
       );
       
@@ -1252,14 +1252,14 @@ export async function fixEstimateRequestBillingBehavior(): Promise<void> {
   }
 }
 
-// Startup migration: Replace "Estimate Sent" with "Create Proposal" + "Proposal Sent" in Project workflow
+// Startup migration: Replace "Estimate Sent" with "Create Proposal" + "Proposal Sent" in Estimate Request workflow
 export async function migrateEstimateSentToProposalWorkflow(): Promise<void> {
   console.log("Running startup migration: Replacing Estimate Sent with Create Proposal + Proposal Sent...");
   try {
     const companies = await storage.getCompanies();
     for (const company of companies) {
       const ticketTypes = await storage.getTicketTypes(company.id);
-      const projectType = ticketTypes.find(tt => tt.name === "Project");
+      const projectType = ticketTypes.find(tt => tt.name === "Estimate Request");
       if (!projectType) continue;
 
       const statuses = await storage.getTicketTypeStatuses(projectType.id);
@@ -1406,17 +1406,17 @@ export async function migrateExtraBillableTicketType(): Promise<void> {
   }
 }
 
-// Startup migration: Ensure all companies have the "Project (No Estimate)" ticket type
+// Startup migration: Ensure all companies have the "Project" ticket type
 export async function migrateProjectNoEstimateTicketType(): Promise<void> {
-  console.log("Running startup migration: Ensuring Project (No Estimate) ticket type exists for all companies...");
+  console.log("Running startup migration: Ensuring Project ticket type exists for all companies...");
   try {
     const companies = await storage.getCompanies();
     for (const company of companies) {
-      await ensureProjectNoEstimateTicketType(company.id);
+      await ensureProjectTicketType(company.id);
     }
-    console.log("Project (No Estimate) ticket type migration complete");
+    console.log("Project ticket type migration complete");
   } catch (error) {
-    console.error("Error during Project (No Estimate) migration:", error);
+    console.error("Error during Project ticket type migration:", error);
   }
 }
 
@@ -2467,6 +2467,10 @@ async function autoPopulateServicePlansFromContract(contract: {
 }
 
 export async function registerRoutes(app: Express): Promise<Server> {
+  // Must run first — renames "Project" → "Estimate Request" and
+  // "Project (No Estimate)" → "Project" before any ensure*/seed* calls look them up by name.
+  await migrateTicketTypeRename();
+
   setupAuth(app);
   registerCrewsAndMobileRoutes(app);
   registerFlagsRoutes(app);
@@ -5570,7 +5574,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  // Initialize Project ticket type with new 7-step workflow
+  // Initialize Estimate Request ticket type with 10-step workflow
   app.post("/api/ticket-types/init-project", async (req, res) => {
     if (!req.isAuthenticated()) {
       return res.status(401).send("Not authenticated");
@@ -5583,21 +5587,21 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
 
     try {
-      const result = await ensureProjectTicketType(user.activeCompanyId);
+      const result = await ensureEstimateRequestTicketType(user.activeCompanyId);
       if (result) {
         // Run migration to transition existing approved tickets
-        const migratedCount = await migrateApprovedProjectTickets(user.activeCompanyId, user.id);
+        const migratedCount = await migrateApprovedEstimateRequestTickets(user.activeCompanyId, user.id);
         res.json({ success: true, typeId: result.typeId, migratedTickets: migratedCount });
       } else {
-        res.status(500).send("Failed to initialize Project ticket type");
+        res.status(500).send("Failed to initialize Estimate Request ticket type");
       }
     } catch (err) {
-      console.error("Failed to initialize Project ticket type:", err);
-      res.status(500).send("Failed to initialize Project ticket type");
+      console.error("Failed to initialize Estimate Request ticket type:", err);
+      res.status(500).send("Failed to initialize Estimate Request ticket type");
     }
   });
   
-  // Run migration for approved Project tickets to Ready to Schedule status
+  // Run migration for approved Estimate Request tickets to Ready to Schedule status
   app.post("/api/migrate-approved-projects", async (req, res) => {
     if (!req.isAuthenticated()) {
       return res.status(401).send("Not authenticated");
@@ -5610,14 +5614,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
 
     try {
-      // Ensure Project ticket type exists with Ready to Schedule status
-      await ensureProjectTicketType(user.activeCompanyId);
+      // Ensure Estimate Request ticket type exists with Ready to Schedule status
+      await ensureEstimateRequestTicketType(user.activeCompanyId);
       // Run the migration
-      const migratedCount = await migrateApprovedProjectTickets(user.activeCompanyId, user.id);
+      const migratedCount = await migrateApprovedEstimateRequestTickets(user.activeCompanyId, user.id);
       res.json({ success: true, migratedCount, message: `Migrated ${migratedCount} approved tickets to Ready to Schedule` });
     } catch (err) {
-      console.error("Failed to migrate approved project tickets:", err);
-      res.status(500).send("Failed to migrate approved project tickets");
+      console.error("Failed to migrate approved Estimate Request tickets:", err);
+      res.status(500).send("Failed to migrate approved Estimate Request tickets");
     }
   });
 
@@ -6621,16 +6625,15 @@ export async function registerRoutes(app: Express): Promise<Server> {
       
       // === FORWARD-ONLY LOGIC (skip all of this on step-back) ===
       if (!isSteppingBack) {
-        // Auto-transition work type from estimate_request to project when estimate is approved
+        // Auto-set billing_behavior to invoice_required when estimate request moves to approved path
         if (existingTicket.workType === "estimate_request" && newStatus) {
           const ticketType = await storage.getTicketTypeById(existingTicket.ticketTypeId, user.activeCompanyId);
-          if (ticketType?.name === "Project") {
+          if (ticketType?.name === "Estimate Request") {
             const approvedPathStatuses = ["Ready to Schedule", "Work Completed", "Ready for Billing", "Invoicing"];
             const isInApprovedPath = approvedPathStatuses.includes(newStatus.name);
             if (isInApprovedPath) {
-              req.body.workType = "project";
               req.body.billingBehavior = "invoice_required";
-              console.log(`Auto-transitioning ticket ${existingTicket.id} work type from estimate_request to project with invoice_required billing (status: ${newStatus.name})`);
+              console.log(`Auto-setting billing_behavior to invoice_required for ticket ${existingTicket.id} (status: ${newStatus.name})`);
             }
           }
         }
@@ -7259,7 +7262,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         const statuses = await storage.getTicketTypeStatuses(ticket.ticketTypeId);
         const currentStatus = statuses.find(s => s.id === ticket.currentStatusId);
 
-        if (ticketType?.name === "Project" && currentStatus?.name === "Decision Received") {
+        if (ticketType?.name === "Estimate Request" && currentStatus?.name === "Decision Received") {
           if (req.body.value === "Approved") {
             const readyToScheduleStatus = statuses.find(s => s.name === "Ready to Schedule");
             if (readyToScheduleStatus) {
@@ -7273,7 +7276,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
               await storage.updateTicket(ticket.id, user.activeCompanyId, {
                 currentStatusId: readyToScheduleStatus.id,
               });
-              console.log(`Auto-transitioned Project ${ticket.id} to "Ready to Schedule" after approval`);
+              console.log(`Auto-transitioned Estimate Request ${ticket.id} to "Ready to Schedule" after approval`);
             }
           } else if (req.body.value === "Denied") {
             const closedLostStatus = statuses.find(s => s.name === "Closed - Lost");
@@ -8558,8 +8561,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  // Admin migration: Fix estimate_request tickets that should be project work type
-  // This updates tickets with work_type='estimate_request' that are in approved statuses
+  // Admin migration: Fix estimate_request tickets that should be project work type (now no-op, kept for API compatibility)
+  // This endpoint is retained for backwards compatibility — after the ticket type rename, workType stays as estimate_request
   app.post("/api/admin/migrate-estimate-to-project", async (req, res) => {
     if (!req.isAuthenticated()) {
       return res.status(401).send("Not authenticated");
@@ -8571,15 +8574,15 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
     
     try {
-      // Get the Project ticket type
+      // Get the Estimate Request ticket type (formerly named "Project")
       const projectTicketType = await db
         .select()
         .from(ticketTypes)
-        .where(eq(ticketTypes.name, "Project"))
+        .where(eq(ticketTypes.name, "Estimate Request"))
         .limit(1);
 
       if (!projectTicketType.length) {
-        return res.status(404).send("Project ticket type not found");
+        return res.status(404).send("Estimate Request ticket type not found");
       }
 
       const projectTypeId = projectTicketType[0].id;
@@ -8627,18 +8630,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
         });
       }
 
-      // Update the tickets
-      const ticketIds = ticketsToUpdate.map(t => t.id);
-      
-      await db
-        .update(tickets)
-        .set({ workType: "project" })
-        .where(inArray(tickets.id, ticketIds));
-
+      // This endpoint is now a no-op — workType 'project' has been retired;
+      // all affected tickets already have workType='estimate_request' after the rename migration.
       res.json({ 
         success: true, 
-        message: `Updated ${ticketsToUpdate.length} tickets from 'estimate_request' to 'project' work type`,
-        updatedCount: ticketsToUpdate.length,
+        message: `Found ${ticketsToUpdate.length} ticket(s) already on estimate_request workType — no update needed`,
+        updatedCount: 0,
         tickets: ticketsToUpdate.map(t => ({ id: t.id, title: t.title }))
       });
     } catch (error) {
@@ -18028,11 +18025,124 @@ async function reconcileIsParentFlags(): Promise<void> {
 }
 
 /**
+ * Startup migration: Rename ticket types within each company.
+ *   "Project"              → "Estimate Request"
+ *   "Project (No Estimate)"→ "Project"
+ * Also migrates work_type = 'project' → 'estimate_request' on all tickets.
+ *
+ * Idempotent — per-company conditional checks prevent double-renaming:
+ *   - Step 1 only renames "Project" when "Estimate Request" does NOT already exist in
+ *     that company (so a second run sees "Estimate Request" present and skips).
+ *   - Step 2 only renames "Project (No Estimate)" when "Project (No Estimate)" still
+ *     exists in that company (so a second run finds nothing to rename and skips).
+ *   - work_type update is a safe no-op when no 'project' rows remain.
+ *
+ * MUST be called before any ensure/seed helper that looks up ticket types by name.
+ */
+export async function migrateTicketTypeRename(): Promise<void> {
+  console.log("Running startup migration: Renaming ticket types (Project → Estimate Request, Project (No Estimate) → Project)...");
+  try {
+    const companies = await storage.getCompanies();
+    let totalRenamed1 = 0;
+    let totalRenamed2 = 0;
+
+    for (const company of companies) {
+      const types = await storage.getTicketTypes(company.id);
+      const hasEstimateRequest = types.some(t => t.name === "Estimate Request");
+      const hasOldProject      = types.some(t => t.name === "Project");
+      const hasOldPNE          = types.some(t => t.name === "Project (No Estimate)");
+
+      // Step 1: "Project" → "Estimate Request"
+      // Only rename when "Project" exists AND "Estimate Request" does not yet exist.
+      if (hasOldProject && !hasEstimateRequest) {
+        const oldType = types.find(t => t.name === "Project")!;
+        await db.execute(sql`
+          UPDATE ticket_types
+          SET name        = 'Estimate Request',
+              description = 'Customer estimate request — 10-step workflow through approval, scheduling, and invoicing'
+          WHERE id = ${oldType.id}
+        `);
+        totalRenamed1++;
+        console.log(`[ticket-type-rename] company=${company.id}: renamed 'Project' → 'Estimate Request' (id=${oldType.id})`);
+      } else if (hasOldProject && hasEstimateRequest) {
+        console.warn(`[ticket-type-rename] company=${company.id}: both 'Project' and 'Estimate Request' exist — skipping step 1 to avoid conflict`);
+      }
+
+      // Step 2: "Project (No Estimate)" → "Project"
+      // Only rename when "Project (No Estimate)" still exists.
+      if (hasOldPNE) {
+        const pneType = types.find(t => t.name === "Project (No Estimate)")!;
+        // After step 1 the old "Project" is gone (renamed to "Estimate Request") unless
+        // there was a conflict and step 1 was skipped. Double-check at the DB level.
+        const existingProject = await db
+          .select({ id: ticketTypes.id })
+          .from(ticketTypes)
+          .where(and(eq(ticketTypes.companyId, company.id), eq(ticketTypes.name, "Project")))
+          .limit(1);
+        if (existingProject.length > 0) {
+          // Both "Project" and "Project (No Estimate)" coexist along with "Estimate Request" —
+          // this is an unusual state. Reassign all tickets from the PNE type to the existing
+          // "Project" type so the PNE row becomes safe to delete, then delete it.
+          const existingProjectId = existingProject[0].id;
+          const reassignResult = await db.execute(sql`
+            UPDATE tickets
+            SET ticket_type_id = ${existingProjectId}
+            WHERE ticket_type_id = ${pneType.id}
+          `);
+          const reassignCount = (reassignResult as { rowCount?: number }).rowCount ?? 0;
+          await db.execute(sql`DELETE FROM ticket_types WHERE id = ${pneType.id}`);
+          console.warn(
+            `[ticket-type-rename] company=${company.id}: conflict resolved — ` +
+            `reassigned ${reassignCount} ticket(s) from old 'Project (No Estimate)' (id=${pneType.id}) ` +
+            `to existing 'Project' (id=${existingProjectId}) and deleted the stale row`
+          );
+          totalRenamed2++;
+        } else {
+          await db.execute(sql`
+            UPDATE ticket_types
+            SET name        = 'Project',
+                description = 'Approved project work with no estimating or proposal phase required'
+            WHERE id = ${pneType.id}
+          `);
+          totalRenamed2++;
+          console.log(`[ticket-type-rename] company=${company.id}: renamed 'Project (No Estimate)' → 'Project' (id=${pneType.id})`);
+        }
+      }
+
+      // Migrate work_type per-company (safe no-op when no 'project' rows remain)
+      const wt = await db.execute(sql`
+        UPDATE tickets
+        SET work_type = 'estimate_request'
+        WHERE company_id = ${company.id}
+          AND work_type = 'project'
+      `);
+      const wtCount = (wt as { rowCount?: number }).rowCount ?? 0;
+      if (wtCount > 0) {
+        console.log(`[ticket-type-rename] company=${company.id}: migrated ${wtCount} ticket(s) work_type 'project' → 'estimate_request'`);
+      }
+    }
+
+    if (totalRenamed1 > 0) {
+      console.log(`[ticket-type-rename] Renamed 'Project' → 'Estimate Request' in ${totalRenamed1} company/companies`);
+    }
+    if (totalRenamed2 > 0) {
+      console.log(`[ticket-type-rename] Renamed/resolved 'Project (No Estimate)' → 'Project' in ${totalRenamed2} company/companies`);
+    }
+
+    console.log("Ticket type rename migration complete");
+  } catch (error) {
+    console.error("Error during ticket type rename migration:", error);
+  }
+}
+
+/**
  * Runs all in-process startup migrations in the correct order.
  * Gate with the RUN_STARTUP_MIGRATIONS env var in server/index.ts, or call
  * directly from scripts/run-migrations.ts for one-off deployment runs.
  */
 export async function runStartupMigrations(): Promise<void> {
+  // Note: migrateTicketTypeRename() is called directly at the top of registerRoutes()
+  // before route registration. Do NOT add it here to avoid running it twice per boot.
   // Run column-adding migrations first so later migrations that query those columns don't fail
   await migrateTicketCompletionFields();
   await migrateProjectSchedulingStatus();

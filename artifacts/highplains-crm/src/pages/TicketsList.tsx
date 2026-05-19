@@ -684,7 +684,6 @@ export default function TicketsList() {
               <SelectItem value="all">All Work Types</SelectItem>
               <SelectItem value="contract">Contract Work</SelectItem>
               <SelectItem value="extra_work">Extra Billable</SelectItem>
-              <SelectItem value="project">Project</SelectItem>
               <SelectItem value="admin">Admin</SelectItem>
               <SelectItem value="estimate_request">Estimate Request</SelectItem>
               <SelectItem value="shop_todo">Shop To-Do</SelectItem>

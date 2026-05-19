@@ -492,8 +492,8 @@ export default function TicketDetail() {
 
   const ticketWorkType = details?.ticket?.workType;
   const showProposals = isAdminOrOffice
-    && (ticketWorkType === "estimate_request" || ticketWorkType === "project")
-    && details?.ticketType?.name !== "Project (No Estimate)";
+    && ticketWorkType === "estimate_request"
+    && details?.ticketType?.name !== "Project";
 
   const { data: linkedProposals = [], isLoading: proposalsLoading } = useQuery<ProposalWithDetails[]>({
     queryKey: ["/api/tickets", ticketId, "proposals"],
@@ -669,7 +669,7 @@ export default function TicketDetail() {
       return statuses.find(s => s.name === "Awarded") || defaultNext;
     }
 
-    if (currentStatus?.name === "Decision Received" && ticketType.name === "Project") {
+    if (currentStatus?.name === "Decision Received" && ticketType.name === "Estimate Request") {
       const decisionField = currentStatus.fields?.find(f => f.fieldKey === "decision_outcome");
       const decisionValue = decisionField ? fieldValues.find(fv => fv.fieldId === decisionField.id)?.value : null;
 
@@ -687,7 +687,7 @@ export default function TicketDetail() {
   
   // Check if ticket is at "Ready to Schedule" on a Project workflow - show delegate option
   const isAtReadyToSchedule = currentStatus?.name === "Ready to Schedule"
-    && (ticketType.name === "Project" || ticketType.name === "Project (No Estimate)");
+    && (ticketType.name === "Estimate Request" || ticketType.name === "Project");
   const isDelegated = !!ticket.delegatedById;
   
   // Check if ticket is waiting for a linked invoice to complete (hide advance button)
@@ -706,11 +706,11 @@ export default function TicketDetail() {
   const handleAdvanceStatus = (bypassProposalCheck = false) => {
     if (!nextStatus) return;
 
-    // Intercept: Project ticket advancing from Estimating → Create Proposal
+    // Intercept: Estimate Request ticket advancing from Estimating → Create Proposal
     if (
       !bypassProposalCheck &&
       currentStatus?.name === "Estimating" &&
-      ticketType?.name === "Project" &&
+      ticketType?.name === "Estimate Request" &&
       nextStatus?.name === "Create Proposal"
     ) {
       setShowProposalChoiceDialog(true);
@@ -776,7 +776,7 @@ export default function TicketDetail() {
     const pendingTargetStatus = statuses.find(s => s.id === pendingStatusId);
     if (
       pendingTargetStatus?.name === "Create Proposal" &&
-      ticketType?.name === "Project"
+      ticketType?.name === "Estimate Request"
     ) {
       // Save any current-status field values entered by the user before showing choice
       for (const [fieldId, value] of Object.entries(fieldInputs)) {
@@ -813,8 +813,8 @@ export default function TicketDetail() {
       }
     }
     
-    // Handle Project decision branching
-    if (currentStatus?.name === "Decision Received" && ticketType.name === "Project") {
+    // Handle Estimate Request decision branching
+    if (currentStatus?.name === "Decision Received" && ticketType.name === "Estimate Request") {
       const decisionField = currentStatusFields.find(f => f.fieldKey === "decision_outcome");
       const decisionValue = decisionField ? fieldInputs[decisionField.id] : null;
       
@@ -2607,7 +2607,7 @@ export default function TicketDetail() {
                   <Loader2 className="w-5 h-5 animate-spin" />
                 ) : (
                   <>
-                    {nextStatus?.name === "Decision Received" && (ticketType.name === "RFP Request" || ticketType.name === "Project")
+                    {nextStatus?.name === "Decision Received" && (ticketType.name === "RFP Request" || ticketType.name === "Estimate Request")
                       ? "Record Decision"
                       : `Move to: ${nextStatus.name}`}
                     <ChevronRight className="w-5 h-5" />
@@ -2646,14 +2646,14 @@ export default function TicketDetail() {
         <DialogContent className="sm:max-w-md max-h-[85vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle>
-              {statuses.find(s => s.id === pendingStatusId)?.name === "Decision Received" && (ticketType.name === "RFP Request" || ticketType.name === "Project")
+              {statuses.find(s => s.id === pendingStatusId)?.name === "Decision Received" && (ticketType.name === "RFP Request" || ticketType.name === "Estimate Request")
                 ? "Record Decision Outcome" 
                 : `Move to: ${statuses.find(s => s.id === pendingStatusId)?.name}`}
             </DialogTitle>
             <DialogDescription>
               {statuses.find(s => s.id === pendingStatusId)?.name === "Decision Received" && ticketType.name === "RFP Request"
                 ? "Select Awarded or Lost to proceed to the appropriate workflow."
-                : statuses.find(s => s.id === pendingStatusId)?.name === "Decision Received" && ticketType.name === "Project"
+                : statuses.find(s => s.id === pendingStatusId)?.name === "Decision Received" && ticketType.name === "Estimate Request"
                 ? "Select Approved to continue to Work Completed, or Denied to close the project."
                 : "Fill in the required information to proceed."}
             </DialogDescription>

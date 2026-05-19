@@ -32,16 +32,6 @@ export const WORK_TYPE_CATALOG: Record<WorkType, WorkTypeDefinition> = {
     color: "#f59e0b",
     badgeVariant: "default",
   },
-  project: {
-    type: "project",
-    name: "Project",
-    description: "Larger scoped work with estimate, approval, and invoicing",
-    billingBehavior: "invoice_required",
-    billingLabel: "Project - Invoice Required",
-    icon: "folder-kanban",
-    color: "#3b82f6",
-    badgeVariant: "default",
-  },
   admin: {
     type: "admin",
     name: "Admin",
@@ -55,7 +45,7 @@ export const WORK_TYPE_CATALOG: Record<WorkType, WorkTypeDefinition> = {
   estimate_request: {
     type: "estimate_request",
     name: "Estimate Request",
-    description: "Request to price work that may become a Project or Extra Billable job",
+    description: "Customer estimate request — 10-step workflow through approval, scheduling, and invoicing",
     billingBehavior: "internal",
     billingLabel: "Pending Estimate",
     icon: "calculator",
@@ -105,16 +95,15 @@ export function getBillingBehaviorForWorkType(workType: WorkType): BillingBehavi
 }
 
 // Ticket Type Names used in the system
-export type TicketTypeName = "Project" | "Invoice" | "To-Do" | "RFP Request" | "Extra Billable";
+export type TicketTypeName = "Estimate Request" | "Project" | "Invoice" | "To-Do" | "RFP Request" | "Extra Billable";
 
 // Explicit mapping from WorkType to TicketTypeName
 // This is the single source of truth for which ticket type a work type uses
 export const WORK_TYPE_TO_TICKET_TYPE: Record<WorkType, TicketTypeName> = {
   contract: "To-Do",
   extra_work: "Extra Billable",
-  project: "Project",
   admin: "To-Do",
-  estimate_request: "Project",
+  estimate_request: "Estimate Request",
   shop_todo: "To-Do",
   rfp_request: "RFP Request",
   invoice: "Invoice",
