@@ -1,0 +1,233 @@
+# Replit Prompt — Ticket Type Consolidation (Estimate Request / Project / Project No Estimate)
+
+## Context
+
+The CRM currently exposes three project-shaped options on the New Ticket page that confuse operators and create redundancy in the data model:
+
+- **Project** work type — maps to the "Project" ticket type, runs the 10-step workflow (New → Estimating → Create Proposal → Proposal Sent → Decision Received → Ready to Schedule → Work Completed → Ready for Billing → Invoicing → Closed - Lost).
+- **Estimate Request** work type — maps to the *same* "Project" ticket type, runs the *same* 10-step workflow. The only behavior difference anywhere in the codebase is that Estimate Request tickets are allowed to attach documents (`routes.ts` ~line 6157) and Project tickets are not.
+- **Project (No Estimate)** ticket type — separate ticket type with a 7-step workflow that skips the estimating/proposal stages (New → Ready to Schedule → Scheduled → Work Completed → Ready for Billing → Invoicing → Closed - Lost).
+
+The "Project" and "Estimate Request" work types are operationally indistinguishable. They produce the same ticket type, the same status flow, the same fields, and the same UI experience. The descriptive copy on the New Ticket screen tries to draw a line between them but nothing in the code enforces it.
+
+**The fix** is to collapse the redundancy and rename so the user-visible labels match what the workflow actually does:
+
+- The current "Project" ticket type → renamed to **"Estimate Request"** (its 10-step flow IS the estimate-and-propose flow).
+- The current "Project (No Estimate)" ticket type → renamed to **"Project"** (it's the preapproved-project flow; the parenthetical goes away).
+- The "Project" work type → eliminated. Any existing ticket with `workType = "project"` is migrated to `workType = "estimate_request"` (no workflow change for those tickets — they're already on the 10-step flow).
+
+After this slice, the New Ticket selector shows two project-shaped options instead of three, and the work-type → ticket-type mapping becomes an honest 1:1 for the project family.
+
+**This slice is a rename + data migration. No new workflows are added, no stages are added or removed, no behavior changes for in-flight tickets.** Anything that would alter user-visible workflow behavior is out of scope.
+
+Work through the phases in order. After each phase, run `npm run check` and verify the New Ticket page renders before moving on.
+
+## Existing context (do not duplicate or replace)
+
+- Code lives under `artifacts/highplains-crm/` (client + shared) and `artifacts/api-server/` (server). There is also a `lib/db/` package with its own copy of `schema.ts`. Treat the `.migration-backup/` directory as frozen — do not modify it.
+- `WorkType` enum is defined in three places that must stay in sync: `artifacts/highplains-crm/src/shared/schema.ts` (~line 644), `lib/db/src/schema/schema.ts` (~line 668), and the Zod enum in each of those files (~lines 723 / 755). The Zod enums are currently missing `rfp_request` and `invoice` even though the TS union has them — do not fix that drift in this slice, but do not propagate it either.
+- `WORK_TYPE_CATALOG` and `WORK_TYPE_TO_TICKET_TYPE` live in *two* parallel files: `artifacts/highplains-crm/src/shared/workTypeCatalog.ts` and `artifacts/api-server/src/shared/workTypeCatalog.ts`. Every catalog change must be applied to both.
+- Ticket types are seeded at runtime via `ensure*TicketType` functions in `artifacts/api-server/src/routes/routes.ts`. The relevant ones are `ensureProjectTicketType` (~line 527) and `ensureProjectNoEstimateTicketType` (~line 822). They are called from `seedAllTicketTypes` (~line 1003) and from a few other call sites (search for `ensureProjectTicketType` and `ensureProjectNoEstimateTicketType` to find them all).
+- Multi-tenancy: every ticket type record is scoped to `companyId`. The migration in Phase 3 must update one row per company, not a single global row.
+- TicketDetail.tsx has branching logic keyed off `ticketType.name === "Project"` (search for it — there are ~9 occurrences). All of those have to be updated to the new name. Same for the `"Project (No Estimate)"` branches (~3 occurrences).
+- The Zod insert schema's `workType` enum (`["contract", "extra_work", "project", "admin", "estimate_request", "shop_todo"]`) does NOT need to keep `"project"` after this slice — it will be removed in Phase 1. Any API client calling with `workType: "project"` after deploy will get a validation error. That is acceptable; the UI will no longer send it.
+
+## Phase 1 — Work type catalog: remove the "project" work type
+
+### 1a. Remove `project` from the `WorkType` union and Zod enums
+
+Edit `artifacts/highplains-crm/src/shared/schema.ts`:
+
+- Line ~644: `export type WorkType = "contract" | "extra_work" | "project" | "admin" | "estimate_request" | "shop_todo" | "rfp_request" | "invoice";` → remove `"project"`.
+- Line ~723: `workType: z.enum(["contract", "extra_work", "project", "admin", "estimate_request", "shop_todo"]).default("contract"),` → remove `"project"` from the enum.
+
+Apply the identical edits to `lib/db/src/schema/schema.ts` (lines ~668 and ~755).
+
+Do not change the column type on `tickets.work_type` (still `text`). The narrowing happens at the type and Zod layers only; the DB column accepts whatever string we write.
+
+### 1b. Remove the `project` entry from both work-type catalogs
+
+In `artifacts/highplains-crm/src/shared/workTypeCatalog.ts`:
+
+- Delete the entire `project: { ... }` entry from `WORK_TYPE_CATALOG` (~lines 35–44).
+- Delete the `project: "Project",` line from `WORK_TYPE_TO_TICKET_TYPE` (~line 115).
+- Update the comment on the `estimate_request` entry so its description still makes sense without referencing "Project or Extra Billable" — change the `description` to: `"Request to price work that may become billable. Runs through estimate, proposal, and approval."`.
+
+Apply identical edits to `artifacts/api-server/src/shared/workTypeCatalog.ts`.
+
+### 1c. Update the `estimate_request` mapping target
+
+In both `workTypeCatalog.ts` files, change `estimate_request: "Project"` in `WORK_TYPE_TO_TICKET_TYPE` to `estimate_request: "Estimate Request"`.
+
+Add a new mapping for the renamed preapproved-project flow. The `WorkType` union does not currently have a value that targets the preapproved flow specifically — that's fine, this mapping is from work types we know about, and the preapproved flow is created directly via the ticket type selector, not via a work type. Do NOT introduce a new work-type value for it. The mapping table is for work-type-initiated ticket creation only.
+
+The `TicketTypeName` union (~line 108 of `workTypeCatalog.ts`) must be updated:
+
+```ts
+export type TicketTypeName = "Project" | "Invoice" | "To-Do" | "RFP Request" | "Extra Billable" | "Estimate Request";
+```
+
+Note: `"Project"` stays in the union — it now refers to the renamed preapproved-project ticket type.
+
+### 1d. UI dropdowns that reference `"project"`
+
+Remove the `"project"` option from every work-type filter/select. Search `artifacts/highplains-crm/src/` for the string `value="project"` (currently appears in `pages/MyTickets.tsx`, `pages/TicketsList.tsx`, `components/TicketListView.tsx`). Delete those `<SelectItem>` lines. Leave all other work-type options intact.
+
+Also search `artifacts/highplains-crm/src/pages/NewTicket.tsx` for the work-type card that renders the `project` entry — once Phase 1b lands, the catalog-driven UI should automatically drop that card, but verify by reading the file and confirming the cards are rendered from `WORK_TYPE_CATALOG`. If `NewTicket.tsx` hardcodes the list anywhere, remove the `project` entry there too.
+
+### 1e. i18n strings
+
+In `artifacts/highplains-crm/src/i18n/locales/en.ts` and `es.ts`, find any key under `workType` (or similar) that maps `project` to a display label and remove that key. Do not remove `estimate_request`. Do not touch ticket type display labels yet — those are renamed in Phase 2/3.
+
+## Phase 2 — Ticket type seeders: rename in code
+
+The goal of this phase is to rename the *seed* definitions so that any fresh company gets the new names. The data migration for existing companies is Phase 3.
+
+### 2a. Rename `ensureProjectTicketType` → `ensureEstimateRequestTicketType`
+
+In `artifacts/api-server/src/routes/routes.ts`:
+
+1. Rename the function `ensureProjectTicketType` (~line 527) to `ensureEstimateRequestTicketType`.
+2. Inside the function body, change `ticketTypes.find(tt => tt.name === "Project")` to `ticketTypes.find(tt => tt.name === "Estimate Request")` (~line 532). Change the `name: "Project"` literal in the create call to `name: "Estimate Request"` (~line 537). Update the `description` field to: `"Estimate request and proposal workflow — for work that needs pricing, customer approval, and invoicing"`.
+3. Update all `console.log` strings inside the function from "Project" to "Estimate Request".
+4. Leave the status definitions in `projectStatuses` (~line 548) byte-for-byte unchanged. Rename the local variable to `estimateRequestStatuses` for consistency, but the stages themselves do not change.
+5. Update all call sites of `ensureProjectTicketType` — there are at least 3 (search for the identifier). Each one is fine to switch to the new name in place; the order of seeding does not matter for these.
+6. The companion migration function `migrateApprovedProjectTickets` (~line 666) — leave its logic alone, but update the internal lookup from `ticketTypes.find(tt => tt.name === "Project")` to `ticketTypes.find(tt => tt.name === "Estimate Request")`, and rename the function to `migrateApprovedEstimateRequestTickets` for clarity. Update its call sites.
+
+### 2b. Rename `ensureProjectNoEstimateTicketType` → `ensureProjectTicketType`
+
+This is the rename where the old "Project (No Estimate)" becomes the new "Project". Because we just freed up the `ensureProjectTicketType` identifier in 2a, we can take it.
+
+1. Rename `ensureProjectNoEstimateTicketType` (~line 822) to `ensureProjectTicketType`.
+2. Inside the function body, change `ticketTypes.find(tt => tt.name === "Project (No Estimate)")` to `ticketTypes.find(tt => tt.name === "Project")` (~line 827). Change `name: "Project (No Estimate)"` to `name: "Project"` (~line 832). Update the `description` to: `"Preapproved project work — scheduling, completion, and invoicing"`. Keep the icon (`folder-check`) and color (`#0ea5e9`) as they are.
+3. Update all `console.log` strings inside the function from "Project (No Estimate)" to "Project".
+4. Leave the status definitions in `pneStatuses` byte-for-byte unchanged. Rename the local variable to `projectStatuses` for consistency.
+5. Leave the `pne_*` field keys (`pne_completion_date`, `pne_actual_hours`, `pne_completion_notes`) UNCHANGED. Renaming them would require a data migration to update existing field-value rows, which is out of scope and adds risk. They are internal identifiers, not user-visible.
+6. Update all call sites of `ensureProjectNoEstimateTicketType`.
+
+### 2c. Update `seedAllTicketTypes`
+
+In `seedAllTicketTypes` (~line 1003), keep the calls but update them to the new names. The current order is fine; the comment on line 1005 should be updated to read: `// Seed in order: To-Do, Invoice, Estimate Request, RFP Request, Extra Billable, Project`.
+
+## Phase 3 — Data migration for existing companies
+
+Create a new migration function in `artifacts/api-server/src/routes/routes.ts`, alongside the existing `migrate*` helpers. Name it `migrateTicketTypeRename`.
+
+The function must be idempotent — running it twice does nothing harmful — because it will be invoked from `runStartupMigrations` (or the equivalent boot path used by your deploys) and could re-run on multiple cold starts.
+
+For each company in `companies`:
+
+1. **Rename "Project" → "Estimate Request"** if a ticket type named `"Project"` exists for that company AND no ticket type named `"Estimate Request"` exists for that company.
+   - Update the single `ticket_types` row: set `name = "Estimate Request"`, `description = "Estimate request and proposal workflow — for work that needs pricing, customer approval, and invoicing"`.
+   - Do NOT touch `ticketTypeStatuses` rows — they reference the ticket type by ID, not by name. The IDs stay the same.
+   - Log: `Renamed ticket type "Project" → "Estimate Request" for company ${companyId}`.
+
+2. **Rename "Project (No Estimate)" → "Project"** if a ticket type named `"Project (No Estimate)"` exists for that company AND (after step 1) no ticket type named `"Project"` exists for that company.
+   - Update the row: set `name = "Project"`, `description = "Preapproved project work — scheduling, completion, and invoicing"`.
+   - Log: `Renamed ticket type "Project (No Estimate)" → "Project" for company ${companyId}`.
+
+3. **Migrate `workType = "project"` tickets** to `workType = "estimate_request"`:
+   - `UPDATE tickets SET work_type = 'estimate_request' WHERE work_type = 'project' AND company_id = $1`.
+   - Log the row count per company.
+
+**Ordering matters.** Step 1 must complete before step 2 for a given company; otherwise step 2 will see two ticket types named "Project" briefly. Do them sequentially per company, not in parallel.
+
+**Edge cases to handle:**
+
+- A company that has only "Project" but not "Project (No Estimate)" → step 1 happens, step 2 is a no-op. The company ends up with only "Estimate Request" until they next hit a code path that calls `ensureProjectTicketType` (the renamed one), which will create "Project" fresh. This is fine.
+- A company that already has both new names (re-run case) → all three steps are no-ops.
+- A company that has "Estimate Request" but not "Project" → step 1 skips because the target name already exists. Log a warning rather than failing.
+
+Register `migrateTicketTypeRename` in whatever boot or migration sequence your project uses (`runStartupMigrations` in `routes.ts`, or the equivalent). Run it BEFORE `seedAllTicketTypes` so we never accidentally seed a fresh "Project" alongside an existing "Project (No Estimate)" mid-rename.
+
+## Phase 4 — TicketDetail and all UI references
+
+### 4a. `artifacts/highplains-crm/src/pages/TicketDetail.tsx`
+
+Search the file for the string `"Project"` used as a ticket type comparison. The currently-known occurrences (line numbers from the audit, may have shifted):
+
+- Line 495: `details?.ticketType?.name !== "Project (No Estimate)"` → change to `details?.ticketType?.name !== "Project"` (because the *new* "Project" type is what the old "Project (No Estimate)" became).
+- Line 672: `ticketType.name === "Project"` (the Decision Received branching for Project) → change to `ticketType.name === "Estimate Request"`.
+- Line 690: `(ticketType.name === "Project" || ticketType.name === "Project (No Estimate)")` (the delegate-at-Ready-to-Schedule check) → change to `(ticketType.name === "Estimate Request" || ticketType.name === "Project")`.
+- Line 713: `ticketType?.name === "Project"` (status advance guard around Estimating) → change to `ticketType?.name === "Estimate Request"`.
+- Line 779: `ticketType?.name === "Project"` → change to `ticketType?.name === "Estimate Request"` (this is the proposal-check branch; only the workflow with estimating stages cares about it).
+- Line 817: `ticketType.name === "Project"` (Decision Received confirm dialog) → change to `ticketType.name === "Estimate Request"`.
+- Line 2122: `ticketType.name === "RFP Request"` — leave alone.
+- Line 2610, 2649, 2654, 2656: `ticketType.name === "Project"` in decision-outcome dialog branches → all change to `ticketType.name === "Estimate Request"`.
+- Line 2714: `ticketType.name === "RFP Request"` — leave alone.
+
+**Verify each occurrence in context before changing it.** The rule is: every place that was checking for "the workflow with Estimating/Proposal stages" must now check for `"Estimate Request"`. Every place that was checking for the preapproved/no-estimate workflow must now check for `"Project"`. The only line where the old name "Project (No Estimate)" appears (line 495) is the latter case.
+
+Also: line 1844 references `ticket.workType === "estimate_request"` for document attachments — leave that alone. The work type rename doesn't touch `estimate_request`.
+
+### 4b. Other UI files
+
+Search `artifacts/highplains-crm/src/` for the string literal `"Project (No Estimate)"`. Every occurrence becomes `"Project"`. Confirm with the file before changing to make sure context is consistent.
+
+Search `artifacts/highplains-crm/src/` for the string literal `"Project"` used in ticket-type comparisons (i.e., `ticketType.name === "Project"`, `type.name === "Project"`, etc.). Every such occurrence becomes `"Estimate Request"`.
+
+Be careful with `pages/NewTicket.tsx` — the cards on that page are driven by the work-type catalog and the change in Phase 1 should propagate. Read the file to verify.
+
+### 4c. Server-side string checks
+
+Search `artifacts/api-server/src/routes/routes.ts` for any string literals `"Project"` or `"Project (No Estimate)"` used to look up or compare ticket types outside of the seeder functions (those are handled in Phase 2). Apply the same rename rules as 4b. Common patterns:
+
+- `ticketTypes.find(tt => tt.name === "Project")` → `ticketTypes.find(tt => tt.name === "Estimate Request")`
+- `ticketTypes.find(tt => tt.name === "Project (No Estimate)")` → `ticketTypes.find(tt => tt.name === "Project")`
+
+List every server-side line changed in deliverables.
+
+### 4d. i18n strings
+
+In `artifacts/highplains-crm/src/i18n/locales/en.ts` and `es.ts`, search for any user-visible label `"Project (No Estimate)"` / `"Proyecto (Sin Estimación)"` (or your existing Spanish translation) and change to `"Project"` / `"Proyecto"`. Search for any place where `"Project"` was used as the display name for the now-renamed Estimate Request type and update to `"Estimate Request"` / `"Solicitud de Presupuesto"` (use the existing Spanish translation conventions in the file for consistency).
+
+If the i18n keys are themselves named with the old ticket-type names (e.g., `ticketTypes.project`), leave the keys alone and only change the values. Key renames would multiply the blast radius unnecessarily.
+
+## Out of scope for this slice (do not build)
+
+- Changing the workflow stages, fields, or status definitions for any ticket type. The 10-step "Estimate Request" flow and 7-step "Project" flow stay exactly as they are today.
+- Introducing a `requires_estimate` flag or conditional stage skipping on a single ticket type. The Option B consolidation we discussed is a separate, larger slice.
+- Renaming the `pne_*` field keys in `ticket_type_fields`. They are internal.
+- Renaming the `estimate_request` work-type identifier. Only the display copy in the catalog is touched.
+- Touching the `RFP Request`, `Invoice`, `Extra Billable`, `To-Do`, `Admin`, `Contract Work`, or `Shop To-Do` flows.
+- Changing the document-upload carve-out (`workType === "estimate_request"` check in `routes.ts` ~line 6157). The carve-out keeps working because the work type identifier is unchanged.
+- Reconciling the drift between the TS `WorkType` union and the Zod `workType` enum (the Zod enum is missing `rfp_request` and `invoice` — known, pre-existing).
+- Any UI redesign on the New Ticket page beyond removing the "Project" work-type card.
+- Migrating ticket data older than the current schema (we don't expect any).
+- Refactoring the two parallel `workTypeCatalog.ts` copies into a single shared module — that's a separate cleanup slice.
+
+## Patterns and conventions
+
+- All catalog edits must be applied to BOTH `artifacts/highplains-crm/src/shared/workTypeCatalog.ts` AND `artifacts/api-server/src/shared/workTypeCatalog.ts`. Same for `schema.ts` (`artifacts/highplains-crm/src/shared/schema.ts` + `lib/db/src/schema/schema.ts`).
+- Every code comment that flags a deferred follow-up uses the prefix `// RENAME-FOLLOWUP:` so we can grep them later.
+- Do NOT modify anything under `.migration-backup/`.
+- Migration code follows the existing `migrate*` function pattern in `routes.ts` — same error handling, same logging style.
+- TypeScript strictness matches the file you're editing — no new `any` unless surrounding code uses it.
+
+## Verification before reporting back
+
+1. `npm run check` passes with zero TypeScript errors. The removal of `"project"` from the `WorkType` union may surface call sites that referenced it — fix each one (either change to `"estimate_request"` if it was creating a project-flow ticket, or remove if it was filtering UI).
+2. The app boots locally (`npm run dev` or equivalent) and the New Ticket page renders. There are now 8 work-type cards instead of 9 — the standalone "Project" card is gone. "Estimate Request" and "Project (No Estimate)" → renamed to "Project" still appear as distinct ticket type options where ticket types are chosen directly.
+3. Create one new ticket of each remaining project-shaped flow and walk through:
+   - **Estimate Request** (via the Estimate Request work-type card): lands on the renamed "Estimate Request" ticket type with the 10-stage flow starting at "New". Document upload works.
+   - **Project** (whatever creates a preapproved project today — likely via a ticket-type picker, since no work type maps to it): lands on the renamed "Project" ticket type with the 7-stage flow.
+4. Open an existing in-flight Project ticket (one created before this migration). Confirm the workflow display still shows the same stages it did before, and that "Advance Status" still works at the current stage. Same check for an existing "Project (No Estimate)" ticket.
+5. Run the data migration `migrateTicketTypeRename` against the dev database. Then re-run it. Confirm the second run logs no changes (idempotency).
+6. Spot-check the database after migration: every company has at most one `ticket_types` row named `"Estimate Request"` and at most one named `"Project"`. No rows named `"Project (No Estimate)"` remain. No rows in `tickets` have `work_type = 'project'`.
+
+## Deliverables
+
+When you finish, report back with:
+
+1. List of all files modified (paths + 1-line description of what changed in each).
+2. The full body of the new `migrateTicketTypeRename` function (or a paste of the relevant excerpt of `routes.ts`).
+3. Confirmation that the catalog edits were applied to BOTH `workTypeCatalog.ts` copies and BOTH `schema.ts` copies.
+4. Every `ticketType.name === "Project"` (or `=== "Project (No Estimate)"`) line you changed in `TicketDetail.tsx`, with file/line and the before/after literal.
+5. Every server-side `ticketTypes.find(...)` line you changed in `routes.ts`, same format.
+6. Output (count) from the data migration when run against the dev DB: how many companies had each rename applied, how many `workType = "project"` tickets were rewritten.
+7. Confirmation that re-running the migration is a no-op.
+8. Any `// RENAME-FOLLOWUP:` comments you left and why.
+9. Any decisions you made where this prompt was ambiguous, and what you chose.
+10. Anything you skipped or could not complete, with a clear reason.
+
+Do not skip any item silently. If Phase 3 (data migration) cannot be completed safely, stop and report rather than letting Phase 4 land — a code-only rename without the data migration will break existing tickets for current companies on first deploy.
