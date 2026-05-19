@@ -53,6 +53,15 @@ export default function TicketCard({
 }: TicketCardProps) {
   const dueInfo = formatDueDate(ticket.dueDate);
 
+  const createdDate = ticket.createdAt ? new Date(ticket.createdAt) : null;
+  const createdLabel = createdDate
+    ? createdDate.toLocaleDateString(undefined, {
+        month: "short",
+        day: "numeric",
+        ...(createdDate.getFullYear() !== new Date().getFullYear() ? { year: "numeric" } : {}),
+      })
+    : null;
+
   const barColor = ticket.completedAt
     ? "#22c55e"
     : (ticket.ticketType?.color || "#6b7280");
@@ -266,6 +275,11 @@ export default function TicketCard({
                   <span className={`text-xs flex items-center gap-1 ${dueInfo.className}`}>
                     <CalendarDays className="w-3 h-3" />
                     {dueInfo.text}
+                  </span>
+                )}
+                {createdLabel && (
+                  <span className="text-xs text-muted-foreground" data-testid={`text-created-at-${ticket.id}`}>
+                    Created {createdLabel}
                   </span>
                 )}
               </div>
