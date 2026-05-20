@@ -105,7 +105,7 @@ const POST_VISIT_VARIABLES = [
 ];
 
 const SAMPLE_PRE_VARS: Record<string, string> = {
-  companyName: "Greenfield Lawn Care",
+  companyName: "High Plains Property Maintenance",
   customerName: "Smith Residence",
   campaignTitle: "Spring Weed Control 2025",
   targetDate: "May 15, 2025",
@@ -114,7 +114,7 @@ const SAMPLE_PRE_VARS: Record<string, string> = {
 };
 
 const SAMPLE_POST_VARS: Record<string, string> = {
-  companyName: "Greenfield Lawn Care",
+  companyName: "High Plains Property Maintenance",
   customerName: "Smith Residence",
   campaignTitle: "Spring Weed Control 2025",
   completionDate: "May 15, 2025",

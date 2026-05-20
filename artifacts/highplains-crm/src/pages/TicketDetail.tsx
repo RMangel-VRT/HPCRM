@@ -257,12 +257,12 @@ export default function TicketDetail() {
     if (!ticketTitle) return;
     const customerName = details?.customer?.name;
     if (customerName) {
-      document.title = `${ticketTitle} \u2014 ${customerName} | Greenfield`;
+      document.title = `${ticketTitle} \u2014 ${customerName} | High Plains Property Maintenance`;
     } else {
-      document.title = `${ticketTitle} | Greenfield`;
+      document.title = `${ticketTitle} | High Plains Property Maintenance`;
     }
     return () => {
-      document.title = "Greenfield";
+      document.title = "High Plains Property Maintenance";
     };
   }, [details?.ticket?.title, details?.ticket?.id, details?.customer?.name]);
 

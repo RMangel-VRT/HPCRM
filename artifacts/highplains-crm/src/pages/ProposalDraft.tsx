@@ -234,9 +234,9 @@ export default function ProposalDraft() {
   useEffect(() => {
     const proposalTitle = proposal?.title;
     if (!proposalTitle) return;
-    document.title = `${proposalTitle} | Greenfield`;
+    document.title = `${proposalTitle} | High Plains Property Maintenance`;
     return () => {
-      document.title = "Greenfield";
+      document.title = "High Plains Property Maintenance";
     };
   }, [proposal?.title]);
 

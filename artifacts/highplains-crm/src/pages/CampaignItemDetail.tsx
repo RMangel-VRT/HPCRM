@@ -344,12 +344,12 @@ export default function CampaignItemDetail() {
     if (!customerName) return;
     const campaignTitle = campaign?.title;
     if (campaignTitle) {
-      document.title = `${customerName} \u2014 ${campaignTitle} | Greenfield`;
+      document.title = `${customerName} \u2014 ${campaignTitle} | High Plains Property Maintenance`;
     } else {
-      document.title = `${customerName} | Greenfield`;
+      document.title = `${customerName} | High Plains Property Maintenance`;
     }
     return () => {
-      document.title = "Greenfield";
+      document.title = "High Plains Property Maintenance";
     };
   }, [item?.customerName, campaign?.title]);
 

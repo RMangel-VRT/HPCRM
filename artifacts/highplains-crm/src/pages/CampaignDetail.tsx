@@ -142,9 +142,9 @@ export default function CampaignDetail() {
   useEffect(() => {
     const campaignTitle = campaign?.title;
     if (!campaignTitle) return;
-    document.title = `${campaignTitle} | Greenfield`;
+    document.title = `${campaignTitle} | High Plains Property Maintenance`;
     return () => {
-      document.title = "Greenfield";
+      document.title = "High Plains Property Maintenance";
     };
   }, [campaign?.title]);
 

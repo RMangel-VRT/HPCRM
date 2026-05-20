@@ -235,8 +235,8 @@ export default function CrewWorksheetDraft() {
 
   useEffect(() => {
     if (ws?.title) {
-      document.title = `${ws.title} | Greenfield`;
-      return () => { document.title = "Greenfield"; };
+      document.title = `${ws.title} | High Plains Property Maintenance`;
+      return () => { document.title = "High Plains Property Maintenance"; };
     }
     return undefined;
   }, [ws?.title]);

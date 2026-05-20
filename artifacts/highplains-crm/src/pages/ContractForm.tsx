@@ -31,9 +31,9 @@ export default function ContractForm() {
   const { t } = useTranslation();
 
   useEffect(() => {
-    document.title = `New Contract | Greenfield`;
+    document.title = `New Contract | High Plains Property Maintenance`;
     return () => {
-      document.title = "Greenfield";
+      document.title = "High Plains Property Maintenance";
     };
   }, []);
 

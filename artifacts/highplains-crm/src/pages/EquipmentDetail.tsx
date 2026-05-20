@@ -233,9 +233,9 @@ export default function EquipmentDetail() {
   useEffect(() => {
     const equipmentName = equipment?.name;
     if (!equipmentName) return;
-    document.title = `${equipmentName} | Greenfield`;
+    document.title = `${equipmentName} | High Plains Property Maintenance`;
     return () => {
-      document.title = "Greenfield";
+      document.title = "High Plains Property Maintenance";
     };
   }, [equipment?.name]);
 

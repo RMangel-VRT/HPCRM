@@ -130,12 +130,12 @@ export default function EquipmentTicketDetail() {
     if (!ticketTitle) return;
     const equipmentName = equipment?.name;
     if (equipmentName) {
-      document.title = `${ticketTitle} \u2014 ${equipmentName} | Greenfield`;
+      document.title = `${ticketTitle} \u2014 ${equipmentName} | High Plains Property Maintenance`;
     } else {
-      document.title = `${ticketTitle} | Greenfield`;
+      document.title = `${ticketTitle} | High Plains Property Maintenance`;
     }
     return () => {
-      document.title = "Greenfield";
+      document.title = "High Plains Property Maintenance";
     };
   }, [ticket?.title, equipment?.name]);
 

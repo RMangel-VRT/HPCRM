@@ -66,9 +66,9 @@ export default function SeasonDetail() {
   useEffect(() => {
     const seasonName = report?.season?.name;
     if (!seasonName) return;
-    document.title = `${seasonName} | Greenfield`;
+    document.title = `${seasonName} | High Plains Property Maintenance`;
     return () => {
-      document.title = "Greenfield";
+      document.title = "High Plains Property Maintenance";
     };
   }, [report?.season?.name]);
 

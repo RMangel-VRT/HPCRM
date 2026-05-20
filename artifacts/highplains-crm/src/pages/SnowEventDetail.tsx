@@ -105,9 +105,9 @@ export default function SnowEventDetail() {
   useEffect(() => {
     if (!loadedEventId) return;
     const displayName = loadedEventName || t("snow.untitledStorm");
-    document.title = `${displayName} | Greenfield`;
+    document.title = `${displayName} | High Plains Property Maintenance`;
     return () => {
-      document.title = "Greenfield";
+      document.title = "High Plains Property Maintenance";
     };
   }, [loadedEventId, loadedEventName, t]);
 

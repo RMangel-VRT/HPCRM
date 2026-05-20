@@ -1169,12 +1169,12 @@ export default function CustomerDetail() {
     const customerName = customer?.name;
     if (!customerName) return;
     if (isOverview) {
-      document.title = `${customerName} | Greenfield`;
+      document.title = `${customerName} | High Plains Property Maintenance`;
     } else {
-      document.title = `${customerName} \u2014 ${activeTabLabel} | Greenfield`;
+      document.title = `${customerName} \u2014 ${activeTabLabel} | High Plains Property Maintenance`;
     }
     return () => {
-      document.title = "Greenfield";
+      document.title = "High Plains Property Maintenance";
     };
   }, [customer?.name, activeTab, activeTabLabel, isOverview]);
 

@@ -509,9 +509,9 @@ export default function VisualScopeDraft() {
   useEffect(() => {
     const sheetTitle = sheet?.title || sheet?.customerName;
     if (!sheetTitle) return;
-    document.title = `${sheetTitle} | Greenfield`;
+    document.title = `${sheetTitle} | High Plains Property Maintenance`;
     return () => {
-      document.title = "Greenfield";
+      document.title = "High Plains Property Maintenance";
     };
   }, [sheet?.title, sheet?.customerName]);
 
