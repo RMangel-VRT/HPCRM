@@ -11,7 +11,6 @@ import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Separator } from "@/components/ui/separator";
-import { ScrollArea } from "@/components/ui/scroll-area";
 import {
   Dialog,
   DialogContent,
@@ -44,7 +43,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { Plus, Pencil, Trash2, Eye, Mail, Loader2, ChevronDown, ChevronUp, AlertTriangle, Users, FileText, Upload, X, Check, ExternalLink } from "lucide-react";
+import { Plus, Pencil, Trash2, Eye, Mail, Loader2, ChevronDown, ChevronUp, AlertTriangle, Users, FileText, Upload, X, Check, ExternalLink, ArrowLeft } from "lucide-react";
 
 type ChemicalNotificationTemplate = {
   id: string;
@@ -168,13 +167,13 @@ export default function ChemicalNotificationTemplates() {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [form, setForm] = useState(BLANK_FORM);
   const [deleteId, setDeleteId] = useState<string | null>(null);
+  const [showProductDetails, setShowProductDetails] = useState(false);
+  const [showVarsPanel, setShowVarsPanel] = useState(false);
 
   const { data: templateCampaigns = [], isLoading: campaignsLoading, isError: campaignsError } = useQuery<{ id: string; title: string; status: string }[]>({
     queryKey: ["/api/chemical-notification-templates", deleteId, "campaigns"],
     enabled: !!deleteId,
   });
-  const [previewMode, setPreviewMode] = useState<"pre" | "post" | null>(null);
-  const [showVarsPanel, setShowVarsPanel] = useState(false);
 
   const [previewWithData, setPreviewWithData] = useState<PreviewWithDataState>({
     open: false,
@@ -226,22 +225,41 @@ export default function ChemicalNotificationTemplates() {
     }
   }, [previewWithData.open]);
 
+  const closeEditor = () => {
+    setShowForm(false);
+    setEditingId(null);
+    setForm(BLANK_FORM);
+    setShowProductDetails(false);
+    setShowVarsPanel(false);
+  };
+
   const createMutation = useMutation({
     mutationFn: async (data: typeof BLANK_FORM) => {
       const res = await apiRequest("POST", "/api/chemical-notification-templates", {
         ...data,
-        serviceType: data.serviceType || null,
+        serviceType: data.serviceType,
+        productName: data.productName || null,
+        activeIngredient: data.activeIngredient || null,
+        epaRegNumber: data.epaRegNumber || null,
+        purposeText: data.purposeText || null,
+        reentryInterval: data.reentryInterval || null,
+        wateringInstructions: data.wateringInstructions || null,
+        mowingInstructions: data.mowingInstructions || null,
+        postApplicationExpectation: data.postApplicationExpectation || null,
       });
       return res.json();
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/chemical-notification-templates"] });
       toast({ title: "Template created" });
-      setShowForm(false);
-      setForm(BLANK_FORM);
+      closeEditor();
     },
-    onError: () => {
-      toast({ title: "Failed to create template", variant: "destructive" });
+    onError: (error: Error) => {
+      toast({
+        title: "Failed to create template",
+        description: error.message || "An unexpected error occurred.",
+        variant: "destructive",
+      });
     },
   });
 
@@ -249,19 +267,29 @@ export default function ChemicalNotificationTemplates() {
     mutationFn: async ({ id, data }: { id: string; data: typeof BLANK_FORM }) => {
       const res = await apiRequest("PATCH", `/api/chemical-notification-templates/${id}`, {
         ...data,
-        serviceType: data.serviceType || null,
+        serviceType: data.serviceType,
+        productName: data.productName || null,
+        activeIngredient: data.activeIngredient || null,
+        epaRegNumber: data.epaRegNumber || null,
+        purposeText: data.purposeText || null,
+        reentryInterval: data.reentryInterval || null,
+        wateringInstructions: data.wateringInstructions || null,
+        mowingInstructions: data.mowingInstructions || null,
+        postApplicationExpectation: data.postApplicationExpectation || null,
       });
       return res.json();
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/chemical-notification-templates"] });
       toast({ title: "Template updated" });
-      setShowForm(false);
-      setEditingId(null);
-      setForm(BLANK_FORM);
+      closeEditor();
     },
-    onError: () => {
-      toast({ title: "Failed to update template", variant: "destructive" });
+    onError: (error: Error) => {
+      toast({
+        title: "Failed to update template",
+        description: error.message || "An unexpected error occurred.",
+        variant: "destructive",
+      });
     },
   });
 
@@ -291,7 +319,7 @@ export default function ChemicalNotificationTemplates() {
     setEditingId(tpl.id);
     setForm({
       name: tpl.name,
-      serviceType: tpl.serviceType || "",
+      serviceType: tpl.serviceType || SERVICE_TYPE_OPTIONS[0].value,
       preVisitSubject: tpl.preVisitSubject,
       preVisitHtml: tpl.preVisitHtml,
       postVisitSubject: tpl.postVisitSubject,
@@ -305,8 +333,9 @@ export default function ChemicalNotificationTemplates() {
       mowingInstructions: tpl.mowingInstructions || "",
       postApplicationExpectation: tpl.postApplicationExpectation || "",
     });
+    setShowProductDetails(false);
+    setShowVarsPanel(false);
     setShowForm(true);
-    setPreviewMode(null);
   };
 
   const handleSubmit = () => {
@@ -327,11 +356,8 @@ export default function ChemicalNotificationTemplates() {
 
   const isPending = createMutation.isPending || updateMutation.isPending;
 
-  const previewHtml = previewMode === "pre"
-    ? substituteVars(form.preVisitHtml, SAMPLE_PRE_VARS)
-    : previewMode === "post"
-      ? substituteVars(form.postVisitHtml, SAMPLE_POST_VARS)
-      : "";
+  const preVisitPreviewHtml = substituteVars(form.preVisitHtml, SAMPLE_PRE_VARS);
+  const postVisitPreviewHtml = substituteVars(form.postVisitHtml, SAMPLE_POST_VARS);
 
   const openPreviewWithData = (emailType: "pre" | "post") => {
     setPreviewWithData({
@@ -366,6 +392,603 @@ export default function ChemicalNotificationTemplates() {
     }
   };
 
+  const currentTemplate = editingId ? templates.find(t => t.id === editingId) : null;
+
+  const LabelUploadSection = () => (
+    <div className="space-y-2">
+      <Label className="text-sm font-medium">{t("campaigns.chemTemplateLabelSection")}</Label>
+      <p className="text-xs text-muted-foreground">{t("campaigns.chemTemplateLabelSectionHint")}</p>
+      {!editingId ? (
+        <p className="text-xs text-muted-foreground italic" data-testid="text-label-create-hint">
+          {t("campaigns.chemTemplateLabelCreateHint")}
+        </p>
+      ) : currentTemplate?.defaultLabelPdfFilename ? (
+        <div className="flex flex-col gap-2">
+          <div className="flex items-center gap-2 p-2 border rounded-md bg-muted/30">
+            <FileText className="w-4 h-4 text-muted-foreground flex-shrink-0" />
+            <span className="text-xs flex-1 truncate" data-testid="text-template-label-filename">{currentTemplate.defaultLabelPdfFilename}</span>
+            <Button
+              variant="ghost"
+              size="icon"
+              disabled={uploadingTemplateLabel}
+              onClick={async () => {
+                setUploadingTemplateLabel(true);
+                try {
+                  await apiRequest("DELETE", `/api/chemical-notification-templates/${editingId}/label`);
+                  queryClient.invalidateQueries({ queryKey: ["/api/chemical-notification-templates"] });
+                  toast({ title: t("campaigns.chemTemplateLabelRemoved") });
+                } catch {
+                  toast({ title: t("campaigns.chemTemplateLabelRemoveFailed"), variant: "destructive" });
+                } finally {
+                  setUploadingTemplateLabel(false);
+                }
+              }}
+              data-testid="button-remove-template-label"
+            >
+              {uploadingTemplateLabel ? <Loader2 className="w-4 h-4 animate-spin" /> : <X className="w-4 h-4" />}
+            </Button>
+          </div>
+          <div>
+            <input
+              ref={labelInputRef}
+              type="file"
+              accept="application/pdf"
+              className="hidden"
+              onChange={async (e) => {
+                const file = e.target.files?.[0];
+                if (!file) return;
+                if (file.type !== "application/pdf") {
+                  toast({ title: t("campaigns.chemTemplateLabelPdfOnly"), variant: "destructive" });
+                  return;
+                }
+                setUploadingTemplateLabel(true);
+                try {
+                  const arrayBuffer = await file.arrayBuffer();
+                  const res = await fetch(`/api/chemical-notification-templates/${editingId}/label?filename=${encodeURIComponent(file.name)}`, {
+                    method: "POST",
+                    headers: { "Content-Type": "application/pdf" },
+                    body: arrayBuffer,
+                    credentials: "include",
+                  });
+                  if (!res.ok) {
+                    const err = await res.json().catch(() => ({}));
+                    throw new Error(err.error || "Upload failed");
+                  }
+                  queryClient.invalidateQueries({ queryKey: ["/api/chemical-notification-templates"] });
+                  toast({ title: t("campaigns.chemTemplateLabelUploaded") });
+                } catch (err: unknown) {
+                  toast({ title: err instanceof Error ? err.message : "Upload failed", variant: "destructive" });
+                } finally {
+                  setUploadingTemplateLabel(false);
+                  if (labelInputRef.current) labelInputRef.current.value = "";
+                }
+              }}
+            />
+            <Button
+              variant="outline"
+              size="sm"
+              disabled={uploadingTemplateLabel}
+              onClick={() => labelInputRef.current?.click()}
+              data-testid="button-replace-template-label"
+            >
+              {uploadingTemplateLabel ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <Upload className="w-4 h-4 mr-2" />}
+              {t("campaigns.chemTemplateLabelReplace")}
+            </Button>
+          </div>
+        </div>
+      ) : (
+        <div>
+          <input
+            ref={labelInputRef}
+            type="file"
+            accept="application/pdf"
+            className="hidden"
+            onChange={async (e) => {
+              const file = e.target.files?.[0];
+              if (!file) return;
+              if (file.type !== "application/pdf") {
+                toast({ title: t("campaigns.chemTemplateLabelPdfOnly"), variant: "destructive" });
+                return;
+              }
+              setUploadingTemplateLabel(true);
+              try {
+                const arrayBuffer = await file.arrayBuffer();
+                const res = await fetch(`/api/chemical-notification-templates/${editingId}/label?filename=${encodeURIComponent(file.name)}`, {
+                  method: "POST",
+                  headers: { "Content-Type": "application/pdf" },
+                  body: arrayBuffer,
+                  credentials: "include",
+                });
+                if (!res.ok) {
+                  const err = await res.json().catch(() => ({}));
+                  throw new Error(err.error || "Upload failed");
+                }
+                queryClient.invalidateQueries({ queryKey: ["/api/chemical-notification-templates"] });
+                toast({ title: t("campaigns.chemTemplateLabelUploaded") });
+              } catch (err: unknown) {
+                toast({ title: err instanceof Error ? err.message : "Upload failed", variant: "destructive" });
+              } finally {
+                setUploadingTemplateLabel(false);
+                if (labelInputRef.current) labelInputRef.current.value = "";
+              }
+            }}
+          />
+          <Button
+            variant="outline"
+            size="sm"
+            disabled={uploadingTemplateLabel}
+            onClick={() => labelInputRef.current?.click()}
+            data-testid="button-upload-template-label"
+          >
+            {uploadingTemplateLabel ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <Upload className="w-4 h-4 mr-2" />}
+            {t("campaigns.chemTemplateLabelUpload")}
+          </Button>
+        </div>
+      )}
+    </div>
+  );
+
+  if (showForm) {
+    return (
+      <div className="fixed inset-0 z-40 bg-background flex flex-col" data-testid="dialog-template-form">
+        {/* Top bar */}
+        <div className="flex items-center justify-between gap-4 px-6 py-3 border-b bg-background shrink-0">
+          <div className="flex items-center gap-3 min-w-0">
+            <Button variant="ghost" size="icon" onClick={closeEditor} data-testid="button-cancel-template">
+              <ArrowLeft className="w-4 h-4" />
+            </Button>
+            <div className="min-w-0">
+              <h1 className="text-lg font-semibold truncate">
+                {editingId ? t("campaigns.chemTemplateEditTitle") : t("campaigns.chemTemplateNewTitle")}
+              </h1>
+              {form.name && (
+                <p className="text-xs text-muted-foreground truncate">{form.name}</p>
+              )}
+            </div>
+          </div>
+          <div className="flex items-center gap-2 shrink-0">
+            <Button variant="outline" onClick={closeEditor} data-testid="button-cancel-template-top">
+              Cancel
+            </Button>
+            <Button onClick={handleSubmit} disabled={isPending} data-testid="button-save-template">
+              {isPending && <Loader2 className="w-4 h-4 mr-2 animate-spin" />}
+              {editingId ? t("campaigns.chemTemplateSave") : t("campaigns.chemTemplateCreate")}
+            </Button>
+          </div>
+        </div>
+
+        {/* Scrollable content */}
+        <div className="flex-1 overflow-y-auto">
+          <div className="max-w-[1600px] mx-auto px-6 py-6 space-y-8">
+
+            {/* Basic fields */}
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+              <div className="sm:col-span-2 space-y-2">
+                <Label>Template Name *</Label>
+                <Input
+                  value={form.name}
+                  onChange={(e) => setForm(f => ({ ...f, name: e.target.value }))}
+                  placeholder="e.g. Broadleaf Weed Control"
+                  data-testid="input-template-name"
+                />
+              </div>
+              <div className="space-y-2">
+                <Label>Service Type</Label>
+                <Select value={form.serviceType} onValueChange={(v) => setForm(f => ({ ...f, serviceType: v }))}>
+                  <SelectTrigger data-testid="select-template-service-type">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {SERVICE_TYPE_OPTIONS.map((o) => (
+                      <SelectItem key={o.value} value={o.value}>{o.label}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+
+            <LabelUploadSection />
+
+            <Separator />
+
+            {/* Pre-visit email — side by side */}
+            <div className="space-y-3">
+              <div className="flex items-center justify-between gap-2 flex-wrap">
+                <h3 className="font-semibold">Pre-Visit Email</h3>
+                <Button variant="outline" size="sm" onClick={() => openPreviewWithData("pre")} data-testid="button-preview-pre-with-data">
+                  <Users className="w-4 h-4 mr-1" />
+                  Preview with data
+                </Button>
+              </div>
+              <div className="space-y-2">
+                <Label>Subject *</Label>
+                <Input
+                  value={form.preVisitSubject}
+                  onChange={(e) => setForm(f => ({ ...f, preVisitSubject: e.target.value }))}
+                  placeholder="e.g. Upcoming Broadleaf Weed Control — {{customerName}}"
+                  data-testid="input-pre-visit-subject"
+                />
+              </div>
+              {licenseIsBlank && templateUsesPesticideLicense(form.preVisitHtml) && (
+                <div className="flex items-start gap-2 rounded-md border border-amber-200 bg-amber-50 dark:border-amber-800 dark:bg-amber-950/30 px-3 py-2.5 text-sm text-amber-800 dark:text-amber-300" data-testid="warning-pesticide-license-pre">
+                  <AlertTriangle className="w-4 h-4 mt-0.5 flex-shrink-0" />
+                  <span>
+                    This template includes a pesticide license footer, but your <strong>Pesticide Applicator License #</strong> is not set. The license number will be hidden in sent emails.{" "}
+                    <a href="/dashboard/settings/company" className="underline font-medium inline-flex items-center gap-0.5">
+                      Add it in Company Settings <ExternalLink className="w-3 h-3" />
+                    </a>
+                  </span>
+                </div>
+              )}
+              <div className="grid grid-cols-2 gap-0 border rounded-lg overflow-hidden" style={{ height: "480px" }}>
+                <div className="flex flex-col border-r">
+                  <div className="px-3 py-2 bg-muted/40 border-b shrink-0">
+                    <span className="text-xs font-medium text-muted-foreground uppercase tracking-wide">HTML Editor</span>
+                  </div>
+                  <textarea
+                    value={form.preVisitHtml}
+                    onChange={(e) => setForm(f => ({ ...f, preVisitHtml: e.target.value }))}
+                    placeholder="Paste your email HTML here..."
+                    className="flex-1 w-full resize-none font-mono text-xs p-3 bg-background focus:outline-none"
+                    data-testid="textarea-pre-visit-html"
+                  />
+                </div>
+                <div className="flex flex-col">
+                  <div className="px-3 py-2 bg-muted/40 border-b shrink-0 flex items-center gap-2">
+                    <Eye className="w-3.5 h-3.5 text-muted-foreground" />
+                    <span className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Live Preview (sample data)</span>
+                  </div>
+                  <div className="flex-1 overflow-hidden bg-white">
+                    <iframe
+                      srcDoc={preVisitPreviewHtml || "<div style='padding:24px;color:#999;font-family:sans-serif;font-size:13px'>Start typing HTML to see a live preview.</div>"}
+                      title="Pre-visit email preview"
+                      className="w-full h-full"
+                      sandbox="allow-same-origin"
+                      data-testid="iframe-pre-visit-preview"
+                    />
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <Separator />
+
+            {/* Post-visit email — side by side */}
+            <div className="space-y-3">
+              <div className="flex items-center justify-between gap-2 flex-wrap">
+                <h3 className="font-semibold">Post-Visit Email</h3>
+                <Button variant="outline" size="sm" onClick={() => openPreviewWithData("post")} data-testid="button-preview-post-with-data">
+                  <Users className="w-4 h-4 mr-1" />
+                  Preview with data
+                </Button>
+              </div>
+              <div className="space-y-2">
+                <Label>Subject *</Label>
+                <Input
+                  value={form.postVisitSubject}
+                  onChange={(e) => setForm(f => ({ ...f, postVisitSubject: e.target.value }))}
+                  placeholder="e.g. Broadleaf Weed Control Completed — {{customerName}}"
+                  data-testid="input-post-visit-subject"
+                />
+              </div>
+              {licenseIsBlank && templateUsesPesticideLicense(form.postVisitHtml) && (
+                <div className="flex items-start gap-2 rounded-md border border-amber-200 bg-amber-50 dark:border-amber-800 dark:bg-amber-950/30 px-3 py-2.5 text-sm text-amber-800 dark:text-amber-300" data-testid="warning-pesticide-license-post">
+                  <AlertTriangle className="w-4 h-4 mt-0.5 flex-shrink-0" />
+                  <span>
+                    This template includes a pesticide license footer, but your <strong>Pesticide Applicator License #</strong> is not set. The license number will be hidden in sent emails.{" "}
+                    <a href="/dashboard/settings/company" className="underline font-medium inline-flex items-center gap-0.5">
+                      Add it in Company Settings <ExternalLink className="w-3 h-3" />
+                    </a>
+                  </span>
+                </div>
+              )}
+              <div className="grid grid-cols-2 gap-0 border rounded-lg overflow-hidden" style={{ height: "480px" }}>
+                <div className="flex flex-col border-r">
+                  <div className="px-3 py-2 bg-muted/40 border-b shrink-0">
+                    <span className="text-xs font-medium text-muted-foreground uppercase tracking-wide">HTML Editor</span>
+                  </div>
+                  <textarea
+                    value={form.postVisitHtml}
+                    onChange={(e) => setForm(f => ({ ...f, postVisitHtml: e.target.value }))}
+                    placeholder="Paste your email HTML here..."
+                    className="flex-1 w-full resize-none font-mono text-xs p-3 bg-background focus:outline-none"
+                    data-testid="textarea-post-visit-html"
+                  />
+                </div>
+                <div className="flex flex-col">
+                  <div className="px-3 py-2 bg-muted/40 border-b shrink-0 flex items-center gap-2">
+                    <Eye className="w-3.5 h-3.5 text-muted-foreground" />
+                    <span className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Live Preview (sample data)</span>
+                  </div>
+                  <div className="flex-1 overflow-hidden bg-white">
+                    <iframe
+                      srcDoc={postVisitPreviewHtml || "<div style='padding:24px;color:#999;font-family:sans-serif;font-size:13px'>Start typing HTML to see a live preview.</div>"}
+                      title="Post-visit email preview"
+                      className="w-full h-full"
+                      sandbox="allow-same-origin"
+                      data-testid="iframe-post-visit-preview"
+                    />
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <Separator />
+
+            {/* Product Details — collapsible */}
+            <div className="space-y-3">
+              <button
+                type="button"
+                className="flex items-center gap-1.5 text-sm font-semibold hover:text-foreground transition-colors"
+                onClick={() => setShowProductDetails(v => !v)}
+                data-testid="button-toggle-product-details"
+              >
+                {showProductDetails ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
+                Product Details (defaults)
+              </button>
+              {showProductDetails && (
+                <>
+                  <p className="text-xs text-muted-foreground">
+                    These values are merged into rendered emails as defaults for the matching template variables.
+                    Per-visit overrides on the campaign item still take precedence.
+                  </p>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    <div className="space-y-1.5">
+                      <Label className="text-xs">Product Name</Label>
+                      <Input
+                        value={form.productName}
+                        onChange={(e) => setForm(f => ({ ...f, productName: e.target.value }))}
+                        placeholder="e.g. Trimec Classic"
+                        data-testid="input-product-name"
+                      />
+                    </div>
+                    <div className="space-y-1.5">
+                      <Label className="text-xs">Active Ingredient</Label>
+                      <Input
+                        value={form.activeIngredient}
+                        onChange={(e) => setForm(f => ({ ...f, activeIngredient: e.target.value }))}
+                        placeholder="e.g. 2,4-D, MCPP, Dicamba"
+                        data-testid="input-active-ingredient"
+                      />
+                    </div>
+                    <div className="space-y-1.5">
+                      <Label className="text-xs">EPA Reg #</Label>
+                      <Input
+                        value={form.epaRegNumber}
+                        onChange={(e) => setForm(f => ({ ...f, epaRegNumber: e.target.value }))}
+                        placeholder="e.g. 2217-543"
+                        data-testid="input-epa-reg-number"
+                      />
+                    </div>
+                    <div className="space-y-1.5">
+                      <Label className="text-xs">Re-entry Interval</Label>
+                      <Input
+                        value={form.reentryInterval}
+                        onChange={(e) => setForm(f => ({ ...f, reentryInterval: e.target.value }))}
+                        placeholder="e.g. Until dry (typically 1–2 hours)"
+                        data-testid="input-reentry-interval"
+                      />
+                    </div>
+                    <div className="space-y-1.5 sm:col-span-2">
+                      <Label className="text-xs">Purpose</Label>
+                      <Input
+                        value={form.purposeText}
+                        onChange={(e) => setForm(f => ({ ...f, purposeText: e.target.value }))}
+                        placeholder="e.g. Selective control of broadleaf weeds"
+                        data-testid="input-purpose-text"
+                      />
+                    </div>
+                    <div className="space-y-1.5">
+                      <Label className="text-xs">Watering Instructions</Label>
+                      <Textarea
+                        value={form.wateringInstructions}
+                        onChange={(e) => setForm(f => ({ ...f, wateringInstructions: e.target.value }))}
+                        placeholder="e.g. Do not water for 24 hours after application."
+                        rows={2}
+                        data-testid="textarea-watering-instructions"
+                      />
+                    </div>
+                    <div className="space-y-1.5">
+                      <Label className="text-xs">Mowing Instructions</Label>
+                      <Textarea
+                        value={form.mowingInstructions}
+                        onChange={(e) => setForm(f => ({ ...f, mowingInstructions: e.target.value }))}
+                        placeholder="e.g. Wait at least 48 hours before mowing."
+                        rows={2}
+                        data-testid="textarea-mowing-instructions"
+                      />
+                    </div>
+                    <div className="space-y-1.5 sm:col-span-2">
+                      <Label className="text-xs">Post-Application Expectation</Label>
+                      <Textarea
+                        value={form.postApplicationExpectation}
+                        onChange={(e) => setForm(f => ({ ...f, postApplicationExpectation: e.target.value }))}
+                        placeholder="e.g. Visible weed wilt within 5–7 days; full control in 2–3 weeks."
+                        rows={2}
+                        data-testid="textarea-post-application-expectation"
+                      />
+                    </div>
+                  </div>
+                </>
+              )}
+            </div>
+
+            <Separator />
+
+            {/* Variable reference — collapsible */}
+            <div className="space-y-3">
+              <button
+                type="button"
+                className="flex items-center gap-1.5 text-sm font-semibold text-muted-foreground hover:text-foreground transition-colors"
+                onClick={() => setShowVarsPanel(v => !v)}
+                data-testid="button-toggle-vars-panel"
+              >
+                {showVarsPanel ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
+                Variable Reference
+              </button>
+              {showVarsPanel && (
+                <div className="grid grid-cols-2 gap-4">
+                  <Card>
+                    <CardHeader className="pb-2">
+                      <CardTitle className="text-xs uppercase tracking-wide text-muted-foreground">Pre-Visit Variables</CardTitle>
+                    </CardHeader>
+                    <CardContent className="pt-0 space-y-1.5">
+                      {PRE_VISIT_VARIABLES.map((v) => (
+                        <div key={v.token} className="flex items-start gap-2">
+                          <code className="text-xs font-mono bg-muted px-1.5 py-0.5 rounded shrink-0">{v.token}</code>
+                          <span className="text-xs text-muted-foreground">{v.description}</span>
+                        </div>
+                      ))}
+                    </CardContent>
+                  </Card>
+                  <Card>
+                    <CardHeader className="pb-2">
+                      <CardTitle className="text-xs uppercase tracking-wide text-muted-foreground">Post-Visit Variables</CardTitle>
+                    </CardHeader>
+                    <CardContent className="pt-0 space-y-1.5">
+                      {POST_VISIT_VARIABLES.map((v) => (
+                        <div key={v.token} className="flex items-start gap-2">
+                          <code className="text-xs font-mono bg-muted px-1.5 py-0.5 rounded shrink-0">{v.token}</code>
+                          <span className="text-xs text-muted-foreground">{v.description}</span>
+                        </div>
+                      ))}
+                    </CardContent>
+                  </Card>
+                </div>
+              )}
+            </div>
+
+            {/* Bottom save/cancel */}
+            <div className="flex justify-end gap-2 pb-4">
+              <Button variant="outline" onClick={closeEditor} data-testid="button-cancel-template-bottom">
+                Cancel
+              </Button>
+              <Button onClick={handleSubmit} disabled={isPending} data-testid="button-save-template-bottom">
+                {isPending && <Loader2 className="w-4 h-4 mr-2 animate-spin" />}
+                {editingId ? t("campaigns.chemTemplateSave") : t("campaigns.chemTemplateCreate")}
+              </Button>
+            </div>
+          </div>
+        </div>
+
+        {/* Preview with real data dialog */}
+        <Dialog open={previewWithData.open} onOpenChange={(v) => setPreviewWithData(s => ({ ...s, open: v }))}>
+          <DialogContent className="max-w-3xl max-h-[90vh] overflow-y-auto" data-testid="dialog-preview-with-data">
+            <DialogHeader>
+              <DialogTitle>
+                Preview with Real Data — {previewWithData.emailType === "pre" ? "Pre-Visit" : "Post-Visit"} Email
+              </DialogTitle>
+            </DialogHeader>
+
+            <div className="space-y-4">
+              <div className="space-y-2">
+                <Label>Customer / Property</Label>
+                <div className="relative" ref={customerInputRef as any}>
+                  <Input
+                    value={selectedCustomer ? selectedCustomer.name : customerSearch}
+                    onChange={(e) => {
+                      setSelectedCustomer(null);
+                      setCustomerSearch(e.target.value);
+                      setShowCustomerDropdown(true);
+                      setPreviewRendered(null);
+                    }}
+                    onFocus={() => { if (customerSearch || !selectedCustomer) setShowCustomerDropdown(true); }}
+                    placeholder="Search for a customer..."
+                    data-testid="input-preview-customer-search"
+                  />
+                  {showCustomerDropdown && !selectedCustomer && customerSearch.trim().length > 0 && (
+                    <div className="absolute z-50 w-full mt-1 bg-popover border rounded-md shadow-md max-h-48 overflow-y-auto">
+                      {customerResults.length === 0 ? (
+                        <div className="px-3 py-2 text-sm text-muted-foreground">No customers found</div>
+                      ) : (
+                        customerResults.map((c) => (
+                          <button
+                            key={c.id}
+                            className="w-full text-left px-3 py-2 text-sm hover-elevate"
+                            onClick={() => {
+                              setSelectedCustomer(c);
+                              setCustomerSearch("");
+                              setShowCustomerDropdown(false);
+                              setPreviewRendered(null);
+                            }}
+                            data-testid={`option-customer-${c.id}`}
+                          >
+                            {c.name}
+                          </button>
+                        ))
+                      )}
+                    </div>
+                  )}
+                </div>
+                {selectedCustomer && (
+                  <div className="flex items-center gap-2">
+                    <Badge variant="secondary" className="text-xs">{selectedCustomer.name}</Badge>
+                    <button
+                      className="text-xs text-muted-foreground hover:text-foreground"
+                      onClick={() => { setSelectedCustomer(null); setPreviewRendered(null); }}
+                      data-testid="button-clear-customer"
+                    >
+                      Clear
+                    </button>
+                  </div>
+                )}
+                <p className="text-xs text-muted-foreground">
+                  The customer name and your company name will be pulled from real records. Other fields use sensible defaults unless overridden below.
+                </p>
+              </div>
+
+              <div className="space-y-2">
+                <Label>Campaign Title <span className="text-muted-foreground font-normal">(optional override)</span></Label>
+                <Input
+                  value={previewCampaignTitle}
+                  onChange={(e) => { setPreviewCampaignTitle(e.target.value); setPreviewRendered(null); }}
+                  placeholder="e.g. Spring Weed Control 2026"
+                  data-testid="input-preview-campaign-title"
+                />
+              </div>
+
+              <div className="flex justify-end">
+                <Button onClick={handleRunPreview} disabled={previewLoading} data-testid="button-generate-preview">
+                  {previewLoading && <Loader2 className="w-4 h-4 mr-2 animate-spin" />}
+                  Generate Preview
+                </Button>
+              </div>
+
+              {previewRendered && (
+                <div className="space-y-3">
+                  <Separator />
+                  <div className="space-y-1">
+                    <Label className="text-xs text-muted-foreground">Rendered Subject</Label>
+                    <p className="text-sm font-medium border rounded-md px-3 py-2 bg-muted/40" data-testid="text-preview-rendered-subject">
+                      {previewRendered.subject || <span className="text-muted-foreground italic">No subject</span>}
+                    </p>
+                  </div>
+                  <div className="space-y-1">
+                    <Label className="text-xs text-muted-foreground">Rendered Email Body</Label>
+                    <div className="border rounded-md overflow-hidden" data-testid="container-preview-rendered-html">
+                      <iframe
+                        srcDoc={previewRendered.htmlBody}
+                        title="Email preview with real data"
+                        className="w-full min-h-[400px] bg-white"
+                        sandbox="allow-same-origin"
+                      />
+                    </div>
+                  </div>
+                </div>
+              )}
+            </div>
+
+            <DialogFooter className="mt-4">
+              <Button variant="outline" onClick={() => setPreviewWithData(s => ({ ...s, open: false }))} data-testid="button-close-preview-dialog">
+                Close
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+      </div>
+    );
+  }
+
   return (
     <div className="p-6 max-w-6xl mx-auto space-y-6">
       <div className="flex items-center justify-between flex-wrap gap-2">
@@ -373,7 +996,7 @@ export default function ChemicalNotificationTemplates() {
           <h1 className="text-2xl font-bold" data-testid="heading-notification-templates">Chemical Notification Templates</h1>
           <p className="text-sm text-muted-foreground mt-1">Manage email templates used for chemical campaign pre-visit and post-visit notifications.</p>
         </div>
-        <Button onClick={() => { setEditingId(null); setForm(BLANK_FORM); setShowForm(true); setPreviewMode(null); }} data-testid="button-create-template">
+        <Button onClick={() => { setEditingId(null); setForm(BLANK_FORM); setShowForm(true); }} data-testid="button-create-template">
           <Plus className="w-4 h-4 mr-2" />
           New Template
         </Button>
@@ -441,559 +1064,6 @@ export default function ChemicalNotificationTemplates() {
           )}
         </CardContent>
       </Card>
-
-      <Dialog open={showForm} onOpenChange={(v) => { if (!v) { setShowForm(false); setEditingId(null); setForm(BLANK_FORM); setPreviewMode(null); } }}>
-        <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto" data-testid="dialog-template-form">
-          <DialogHeader>
-            <DialogTitle>{editingId ? t("campaigns.chemTemplateEditTitle") : t("campaigns.chemTemplateNewTitle")}</DialogTitle>
-          </DialogHeader>
-
-          <div className="space-y-5">
-            <div className="grid grid-cols-2 gap-4">
-              <div className="space-y-2">
-                <Label>Template Name *</Label>
-                <Input
-                  value={form.name}
-                  onChange={(e) => setForm(f => ({ ...f, name: e.target.value }))}
-                  placeholder="e.g. Broadleaf Weed Control"
-                  data-testid="input-template-name"
-                />
-              </div>
-              <div className="space-y-2">
-                <Label>Service Type</Label>
-                <Select value={form.serviceType} onValueChange={(v) => setForm(f => ({ ...f, serviceType: v }))}>
-                  <SelectTrigger data-testid="select-template-service-type">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {SERVICE_TYPE_OPTIONS.map((o) => (
-                      <SelectItem key={o.value} value={o.value}>{o.label}</SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-            </div>
-
-            {(() => {
-              const tpl = editingId ? templates.find(tmpl => tmpl.id === editingId) : null;
-              return (
-                <div className="space-y-2">
-                  <Label className="text-sm font-medium">{t("campaigns.chemTemplateLabelSection")}</Label>
-                  <p className="text-xs text-muted-foreground">{t("campaigns.chemTemplateLabelSectionHint")}</p>
-                  {!editingId ? (
-                    <p className="text-xs text-muted-foreground italic" data-testid="text-label-create-hint">
-                      {t("campaigns.chemTemplateLabelCreateHint")}
-                    </p>
-                  ) : tpl?.defaultLabelPdfFilename ? (
-                    <div className="flex flex-col gap-2">
-                      <div className="flex items-center gap-2 p-2 border rounded-md bg-muted/30">
-                        <FileText className="w-4 h-4 text-muted-foreground flex-shrink-0" />
-                        <span className="text-xs flex-1 truncate" data-testid="text-template-label-filename">{tpl.defaultLabelPdfFilename}</span>
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          disabled={uploadingTemplateLabel}
-                          onClick={async () => {
-                            setUploadingTemplateLabel(true);
-                            try {
-                              await apiRequest("DELETE", `/api/chemical-notification-templates/${editingId}/label`);
-                              queryClient.invalidateQueries({ queryKey: ["/api/chemical-notification-templates"] });
-                              toast({ title: t("campaigns.chemTemplateLabelRemoved") });
-                            } catch {
-                              toast({ title: t("campaigns.chemTemplateLabelRemoveFailed"), variant: "destructive" });
-                            } finally {
-                              setUploadingTemplateLabel(false);
-                            }
-                          }}
-                          data-testid="button-remove-template-label"
-                        >
-                          {uploadingTemplateLabel ? <Loader2 className="w-4 h-4 animate-spin" /> : <X className="w-4 h-4" />}
-                        </Button>
-                      </div>
-                      <div>
-                        <input
-                          ref={labelInputRef}
-                          type="file"
-                          accept="application/pdf"
-                          className="hidden"
-                          onChange={async (e) => {
-                            const file = e.target.files?.[0];
-                            if (!file) return;
-                            if (file.type !== "application/pdf") {
-                              toast({ title: t("campaigns.chemTemplateLabelPdfOnly"), variant: "destructive" });
-                              return;
-                            }
-                            setUploadingTemplateLabel(true);
-                            try {
-                              const arrayBuffer = await file.arrayBuffer();
-                              const res = await fetch(`/api/chemical-notification-templates/${editingId}/label?filename=${encodeURIComponent(file.name)}`, {
-                                method: "POST",
-                                headers: { "Content-Type": "application/pdf" },
-                                body: arrayBuffer,
-                                credentials: "include",
-                              });
-                              if (!res.ok) {
-                                const err = await res.json().catch(() => ({}));
-                                throw new Error(err.error || "Upload failed");
-                              }
-                              queryClient.invalidateQueries({ queryKey: ["/api/chemical-notification-templates"] });
-                              toast({ title: t("campaigns.chemTemplateLabelUploaded") });
-                            } catch (err: unknown) {
-                              toast({ title: err instanceof Error ? err.message : "Upload failed", variant: "destructive" });
-                            } finally {
-                              setUploadingTemplateLabel(false);
-                              if (labelInputRef.current) labelInputRef.current.value = "";
-                            }
-                          }}
-                        />
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          disabled={uploadingTemplateLabel}
-                          onClick={() => labelInputRef.current?.click()}
-                          data-testid="button-replace-template-label"
-                        >
-                          {uploadingTemplateLabel ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <Upload className="w-4 h-4 mr-2" />}
-                          {t("campaigns.chemTemplateLabelReplace")}
-                        </Button>
-                      </div>
-                    </div>
-                  ) : (
-                    <div>
-                      <input
-                        ref={labelInputRef}
-                        type="file"
-                        accept="application/pdf"
-                        className="hidden"
-                        onChange={async (e) => {
-                          const file = e.target.files?.[0];
-                          if (!file) return;
-                          if (file.type !== "application/pdf") {
-                            toast({ title: t("campaigns.chemTemplateLabelPdfOnly"), variant: "destructive" });
-                            return;
-                          }
-                          setUploadingTemplateLabel(true);
-                          try {
-                            const arrayBuffer = await file.arrayBuffer();
-                            const res = await fetch(`/api/chemical-notification-templates/${editingId}/label?filename=${encodeURIComponent(file.name)}`, {
-                              method: "POST",
-                              headers: { "Content-Type": "application/pdf" },
-                              body: arrayBuffer,
-                              credentials: "include",
-                            });
-                            if (!res.ok) {
-                              const err = await res.json().catch(() => ({}));
-                              throw new Error(err.error || "Upload failed");
-                            }
-                            queryClient.invalidateQueries({ queryKey: ["/api/chemical-notification-templates"] });
-                            toast({ title: t("campaigns.chemTemplateLabelUploaded") });
-                          } catch (err: unknown) {
-                            toast({ title: err instanceof Error ? err.message : "Upload failed", variant: "destructive" });
-                          } finally {
-                            setUploadingTemplateLabel(false);
-                            if (labelInputRef.current) labelInputRef.current.value = "";
-                          }
-                        }}
-                      />
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        disabled={uploadingTemplateLabel}
-                        onClick={() => labelInputRef.current?.click()}
-                        data-testid="button-upload-template-label"
-                      >
-                        {uploadingTemplateLabel ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <Upload className="w-4 h-4 mr-2" />}
-                        {t("campaigns.chemTemplateLabelUpload")}
-                      </Button>
-                    </div>
-                  )}
-                </div>
-              );
-            })()}
-
-            <Separator />
-
-            <div className="space-y-4">
-              <div className="flex items-center justify-between gap-2 flex-wrap">
-                <h3 className="font-semibold text-sm">Pre-Visit Email</h3>
-                <div className="flex items-center gap-2">
-                  <Button variant="outline" size="sm" onClick={() => setPreviewMode(prev => prev === "pre" ? null : "pre")} data-testid="button-preview-pre">
-                    <Eye className="w-4 h-4 mr-1" />
-                    {previewMode === "pre" ? "Hide Preview" : "Preview"}
-                  </Button>
-                  <Button variant="outline" size="sm" onClick={() => openPreviewWithData("pre")} data-testid="button-preview-pre-with-data">
-                    <Users className="w-4 h-4 mr-1" />
-                    Preview with data
-                  </Button>
-                </div>
-              </div>
-              <div className="space-y-2">
-                <Label>Subject *</Label>
-                <Input
-                  value={form.preVisitSubject}
-                  onChange={(e) => setForm(f => ({ ...f, preVisitSubject: e.target.value }))}
-                  placeholder="e.g. Upcoming Broadleaf Weed Control — {{customerName}}"
-                  data-testid="input-pre-visit-subject"
-                />
-              </div>
-              <div className="space-y-2">
-                <Label>HTML Body</Label>
-                <Textarea
-                  value={form.preVisitHtml}
-                  onChange={(e) => setForm(f => ({ ...f, preVisitHtml: e.target.value }))}
-                  placeholder="Paste your email HTML here..."
-                  rows={10}
-                  className="font-mono text-xs"
-                  data-testid="textarea-pre-visit-html"
-                />
-                {licenseIsBlank && templateUsesPesticideLicense(form.preVisitHtml) && (
-                  <div className="flex items-start gap-2 rounded-md border border-amber-200 bg-amber-50 dark:border-amber-800 dark:bg-amber-950/30 px-3 py-2.5 text-sm text-amber-800 dark:text-amber-300" data-testid="warning-pesticide-license-pre">
-                    <AlertTriangle className="w-4 h-4 mt-0.5 flex-shrink-0" />
-                    <span>
-                      This template includes a pesticide license footer, but your <strong>Pesticide Applicator License #</strong> is not set. The license number will be hidden in sent emails.{" "}
-                      <a href="/dashboard/settings/company" className="underline font-medium inline-flex items-center gap-0.5">
-                        Add it in Company Settings <ExternalLink className="w-3 h-3" />
-                      </a>
-                    </span>
-                  </div>
-                )}
-              </div>
-              {previewMode === "pre" && (
-                <div className="space-y-2">
-                  <Label className="text-xs text-muted-foreground">Preview (sample data)</Label>
-                  <div className="border rounded-md overflow-hidden">
-                    <iframe
-                      srcDoc={previewHtml}
-                      title="Pre-visit email preview"
-                      className="w-full min-h-[400px] bg-white"
-                      sandbox="allow-same-origin"
-                    />
-                  </div>
-                </div>
-              )}
-            </div>
-
-            <Separator />
-
-            <div className="space-y-4">
-              <div className="flex items-center justify-between gap-2 flex-wrap">
-                <h3 className="font-semibold text-sm">Post-Visit Email</h3>
-                <div className="flex items-center gap-2">
-                  <Button variant="outline" size="sm" onClick={() => setPreviewMode(prev => prev === "post" ? null : "post")} data-testid="button-preview-post">
-                    <Eye className="w-4 h-4 mr-1" />
-                    {previewMode === "post" ? "Hide Preview" : "Preview"}
-                  </Button>
-                  <Button variant="outline" size="sm" onClick={() => openPreviewWithData("post")} data-testid="button-preview-post-with-data">
-                    <Users className="w-4 h-4 mr-1" />
-                    Preview with data
-                  </Button>
-                </div>
-              </div>
-              <div className="space-y-2">
-                <Label>Subject *</Label>
-                <Input
-                  value={form.postVisitSubject}
-                  onChange={(e) => setForm(f => ({ ...f, postVisitSubject: e.target.value }))}
-                  placeholder="e.g. Broadleaf Weed Control Completed — {{customerName}}"
-                  data-testid="input-post-visit-subject"
-                />
-              </div>
-              <div className="space-y-2">
-                <Label>HTML Body</Label>
-                <Textarea
-                  value={form.postVisitHtml}
-                  onChange={(e) => setForm(f => ({ ...f, postVisitHtml: e.target.value }))}
-                  placeholder="Paste your email HTML here..."
-                  rows={10}
-                  className="font-mono text-xs"
-                  data-testid="textarea-post-visit-html"
-                />
-                {licenseIsBlank && templateUsesPesticideLicense(form.postVisitHtml) && (
-                  <div className="flex items-start gap-2 rounded-md border border-amber-200 bg-amber-50 dark:border-amber-800 dark:bg-amber-950/30 px-3 py-2.5 text-sm text-amber-800 dark:text-amber-300" data-testid="warning-pesticide-license-post">
-                    <AlertTriangle className="w-4 h-4 mt-0.5 flex-shrink-0" />
-                    <span>
-                      This template includes a pesticide license footer, but your <strong>Pesticide Applicator License #</strong> is not set. The license number will be hidden in sent emails.{" "}
-                      <a href="/dashboard/settings/company" className="underline font-medium inline-flex items-center gap-0.5">
-                        Add it in Company Settings <ExternalLink className="w-3 h-3" />
-                      </a>
-                    </span>
-                  </div>
-                )}
-              </div>
-              {previewMode === "post" && (
-                <div className="space-y-2">
-                  <Label className="text-xs text-muted-foreground">Preview (sample data)</Label>
-                  <div className="border rounded-md overflow-hidden">
-                    <iframe
-                      srcDoc={previewHtml}
-                      title="Post-visit email preview"
-                      className="w-full min-h-[400px] bg-white"
-                      sandbox="allow-same-origin"
-                    />
-                  </div>
-                </div>
-              )}
-            </div>
-
-            <Separator />
-
-            <div className="space-y-4">
-              <div>
-                <h3 className="font-semibold text-sm">Product Details (defaults)</h3>
-                <p className="text-xs text-muted-foreground mt-1">
-                  These values are merged into rendered emails as defaults for the matching template variables.
-                  Per-visit overrides on the campaign item still take precedence.
-                </p>
-              </div>
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                <div className="space-y-1.5">
-                  <Label className="text-xs">Product Name</Label>
-                  <Input
-                    value={form.productName}
-                    onChange={(e) => setForm(f => ({ ...f, productName: e.target.value }))}
-                    placeholder="e.g. Trimec Classic"
-                    data-testid="input-product-name"
-                  />
-                </div>
-                <div className="space-y-1.5">
-                  <Label className="text-xs">Active Ingredient</Label>
-                  <Input
-                    value={form.activeIngredient}
-                    onChange={(e) => setForm(f => ({ ...f, activeIngredient: e.target.value }))}
-                    placeholder="e.g. 2,4-D, MCPP, Dicamba"
-                    data-testid="input-active-ingredient"
-                  />
-                </div>
-                <div className="space-y-1.5">
-                  <Label className="text-xs">EPA Reg #</Label>
-                  <Input
-                    value={form.epaRegNumber}
-                    onChange={(e) => setForm(f => ({ ...f, epaRegNumber: e.target.value }))}
-                    placeholder="e.g. 2217-543"
-                    data-testid="input-epa-reg-number"
-                  />
-                </div>
-                <div className="space-y-1.5">
-                  <Label className="text-xs">Re-entry Interval</Label>
-                  <Input
-                    value={form.reentryInterval}
-                    onChange={(e) => setForm(f => ({ ...f, reentryInterval: e.target.value }))}
-                    placeholder="e.g. Until dry (typically 1–2 hours)"
-                    data-testid="input-reentry-interval"
-                  />
-                </div>
-                <div className="space-y-1.5 sm:col-span-2">
-                  <Label className="text-xs">Purpose</Label>
-                  <Input
-                    value={form.purposeText}
-                    onChange={(e) => setForm(f => ({ ...f, purposeText: e.target.value }))}
-                    placeholder="e.g. Selective control of broadleaf weeds"
-                    data-testid="input-purpose-text"
-                  />
-                </div>
-                <div className="space-y-1.5">
-                  <Label className="text-xs">Watering Instructions</Label>
-                  <Textarea
-                    value={form.wateringInstructions}
-                    onChange={(e) => setForm(f => ({ ...f, wateringInstructions: e.target.value }))}
-                    placeholder="e.g. Do not water for 24 hours after application."
-                    rows={2}
-                    data-testid="textarea-watering-instructions"
-                  />
-                </div>
-                <div className="space-y-1.5">
-                  <Label className="text-xs">Mowing Instructions</Label>
-                  <Textarea
-                    value={form.mowingInstructions}
-                    onChange={(e) => setForm(f => ({ ...f, mowingInstructions: e.target.value }))}
-                    placeholder="e.g. Wait at least 48 hours before mowing."
-                    rows={2}
-                    data-testid="textarea-mowing-instructions"
-                  />
-                </div>
-                <div className="space-y-1.5 sm:col-span-2">
-                  <Label className="text-xs">Post-Application Expectation</Label>
-                  <Textarea
-                    value={form.postApplicationExpectation}
-                    onChange={(e) => setForm(f => ({ ...f, postApplicationExpectation: e.target.value }))}
-                    placeholder="e.g. Visible weed wilt within 5–7 days; full control in 2–3 weeks."
-                    rows={2}
-                    data-testid="textarea-post-application-expectation"
-                  />
-                </div>
-              </div>
-            </div>
-
-            <Separator />
-
-            <div className="space-y-3">
-              <button
-                type="button"
-                className="flex items-center gap-1.5 text-sm font-medium text-muted-foreground hover:text-foreground transition-colors"
-                onClick={() => setShowVarsPanel(v => !v)}
-                data-testid="button-toggle-vars-panel"
-              >
-                {showVarsPanel ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
-                Variable Reference
-              </button>
-              {showVarsPanel && (
-                <div className="grid grid-cols-2 gap-4">
-                  <Card>
-                    <CardHeader className="pb-2">
-                      <CardTitle className="text-xs uppercase tracking-wide text-muted-foreground">Pre-Visit Variables</CardTitle>
-                    </CardHeader>
-                    <CardContent className="pt-0 space-y-1.5">
-                      {PRE_VISIT_VARIABLES.map((v) => (
-                        <div key={v.token} className="flex items-start gap-2">
-                          <code className="text-xs font-mono bg-muted px-1.5 py-0.5 rounded shrink-0">{v.token}</code>
-                          <span className="text-xs text-muted-foreground">{v.description}</span>
-                        </div>
-                      ))}
-                    </CardContent>
-                  </Card>
-                  <Card>
-                    <CardHeader className="pb-2">
-                      <CardTitle className="text-xs uppercase tracking-wide text-muted-foreground">Post-Visit Variables</CardTitle>
-                    </CardHeader>
-                    <CardContent className="pt-0 space-y-1.5">
-                      {POST_VISIT_VARIABLES.map((v) => (
-                        <div key={v.token} className="flex items-start gap-2">
-                          <code className="text-xs font-mono bg-muted px-1.5 py-0.5 rounded shrink-0">{v.token}</code>
-                          <span className="text-xs text-muted-foreground">{v.description}</span>
-                        </div>
-                      ))}
-                    </CardContent>
-                  </Card>
-                </div>
-              )}
-            </div>
-          </div>
-
-          <DialogFooter className="flex flex-col-reverse sm:flex-row gap-2 mt-4">
-            <Button variant="outline" onClick={() => { setShowForm(false); setEditingId(null); setForm(BLANK_FORM); setPreviewMode(null); }} data-testid="button-cancel-template">
-              Cancel
-            </Button>
-            <Button onClick={handleSubmit} disabled={isPending} data-testid="button-save-template">
-              {isPending && <Loader2 className="w-4 h-4 mr-2 animate-spin" />}
-              {editingId ? t("campaigns.chemTemplateSave") : t("campaigns.chemTemplateCreate")}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-
-      <Dialog open={previewWithData.open} onOpenChange={(v) => setPreviewWithData(s => ({ ...s, open: v }))}>
-        <DialogContent className="max-w-3xl max-h-[90vh] overflow-y-auto" data-testid="dialog-preview-with-data">
-          <DialogHeader>
-            <DialogTitle>
-              Preview with Real Data — {previewWithData.emailType === "pre" ? "Pre-Visit" : "Post-Visit"} Email
-            </DialogTitle>
-          </DialogHeader>
-
-          <div className="space-y-4">
-            <div className="space-y-2">
-              <Label>Customer / Property</Label>
-              <div className="relative" ref={customerInputRef as any}>
-                <Input
-                  value={selectedCustomer ? selectedCustomer.name : customerSearch}
-                  onChange={(e) => {
-                    setSelectedCustomer(null);
-                    setCustomerSearch(e.target.value);
-                    setShowCustomerDropdown(true);
-                    setPreviewRendered(null);
-                  }}
-                  onFocus={() => { if (customerSearch || !selectedCustomer) setShowCustomerDropdown(true); }}
-                  placeholder="Search for a customer..."
-                  data-testid="input-preview-customer-search"
-                />
-                {showCustomerDropdown && !selectedCustomer && customerSearch.trim().length > 0 && (
-                  <div className="absolute z-50 w-full mt-1 bg-popover border rounded-md shadow-md max-h-48 overflow-y-auto">
-                    {customerResults.length === 0 ? (
-                      <div className="px-3 py-2 text-sm text-muted-foreground">No customers found</div>
-                    ) : (
-                      customerResults.map((c) => (
-                        <button
-                          key={c.id}
-                          className="w-full text-left px-3 py-2 text-sm hover-elevate"
-                          onClick={() => {
-                            setSelectedCustomer(c);
-                            setCustomerSearch("");
-                            setShowCustomerDropdown(false);
-                            setPreviewRendered(null);
-                          }}
-                          data-testid={`option-customer-${c.id}`}
-                        >
-                          {c.name}
-                        </button>
-                      ))
-                    )}
-                  </div>
-                )}
-              </div>
-              {selectedCustomer && (
-                <div className="flex items-center gap-2">
-                  <Badge variant="secondary" className="text-xs">{selectedCustomer.name}</Badge>
-                  <button
-                    className="text-xs text-muted-foreground hover:text-foreground"
-                    onClick={() => { setSelectedCustomer(null); setPreviewRendered(null); }}
-                    data-testid="button-clear-customer"
-                  >
-                    Clear
-                  </button>
-                </div>
-              )}
-              <p className="text-xs text-muted-foreground">
-                The customer name and your company name will be pulled from real records. Other fields use sensible defaults unless overridden below.
-              </p>
-            </div>
-
-            <div className="space-y-2">
-              <Label>Campaign Title <span className="text-muted-foreground font-normal">(optional override)</span></Label>
-              <Input
-                value={previewCampaignTitle}
-                onChange={(e) => { setPreviewCampaignTitle(e.target.value); setPreviewRendered(null); }}
-                placeholder="e.g. Spring Weed Control 2026"
-                data-testid="input-preview-campaign-title"
-              />
-            </div>
-
-            <div className="flex justify-end">
-              <Button onClick={handleRunPreview} disabled={previewLoading} data-testid="button-generate-preview">
-                {previewLoading && <Loader2 className="w-4 h-4 mr-2 animate-spin" />}
-                Generate Preview
-              </Button>
-            </div>
-
-            {previewRendered && (
-              <div className="space-y-3">
-                <Separator />
-                <div className="space-y-1">
-                  <Label className="text-xs text-muted-foreground">Rendered Subject</Label>
-                  <p className="text-sm font-medium border rounded-md px-3 py-2 bg-muted/40" data-testid="text-preview-rendered-subject">
-                    {previewRendered.subject || <span className="text-muted-foreground italic">No subject</span>}
-                  </p>
-                </div>
-                <div className="space-y-1">
-                  <Label className="text-xs text-muted-foreground">Rendered Email Body</Label>
-                  <div className="border rounded-md overflow-hidden" data-testid="container-preview-rendered-html">
-                    <iframe
-                      srcDoc={previewRendered.htmlBody}
-                      title="Email preview with real data"
-                      className="w-full min-h-[400px] bg-white"
-                      sandbox="allow-same-origin"
-                    />
-                  </div>
-                </div>
-              </div>
-            )}
-          </div>
-
-          <DialogFooter className="mt-4">
-            <Button variant="outline" onClick={() => setPreviewWithData(s => ({ ...s, open: false }))} data-testid="button-close-preview-dialog">
-              Close
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
 
       <AlertDialog open={!!deleteId} onOpenChange={(v) => { if (!v) setDeleteId(null); }}>
         <AlertDialogContent data-testid="dialog-delete-template">
