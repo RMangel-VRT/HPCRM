@@ -490,10 +490,8 @@ export default function TicketDetail() {
     },
   });
 
-  const ticketWorkType = details?.ticket?.workType;
   const showProposals = isAdminOrOffice
-    && ticketWorkType === "estimate_request"
-    && details?.ticketType?.name !== "Project";
+    && details?.ticketType?.name === "Estimate Request";
 
   const { data: linkedProposals = [], isLoading: proposalsLoading } = useQuery<ProposalWithDetails[]>({
     queryKey: ["/api/tickets", ticketId, "proposals"],
