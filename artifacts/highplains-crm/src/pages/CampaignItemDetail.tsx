@@ -495,11 +495,15 @@ export default function CampaignItemDetail() {
       if (res.ok) spec = await res.json();
     } catch {}
     setTemplateVarSpec(spec);
-    const initVars: Record<string, string> = { ...(spec?.values || {}), ...seedOverrides };
+    // Only include keys that appear in userVariables so hidden alias keys
+    // (windowStart, windowEnd) from spec.values never ride along in the
+    // submitted templateVars and silently override the manager's input.
+    const initVars: Record<string, string> = {};
     if (spec?.hasTemplate) {
-      // Make sure every declared user variable exists as a controlled input.
       for (const v of spec.userVariables) {
-        if (initVars[v.name] === undefined) initVars[v.name] = '';
+        const override = seedOverrides[v.name];
+        const seeded = spec.values?.[v.name];
+        initVars[v.name] = override !== undefined ? override : (seeded !== undefined ? seeded : '');
       }
     }
     setFormVars(initVars);
