@@ -13700,11 +13700,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
         const bs = (targetItem.backupDate ? String(targetItem.backupDate) : '') || (campaign.windowEnd ? String(campaign.windowEnd) : '');
         if (ts) {
           dedicated['targetDate'] = ts;
-          dedicated['windowStart'] = ts;
         }
         if (bs) {
           dedicated['backupDate'] = bs;
-          dedicated['windowEnd'] = bs;
         }
         if (targetItem.notes) dedicated['notes'] = targetItem.notes;
       } else {
@@ -14896,10 +14894,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
       // Dynamic-form values win over the legacy dedicated request fields so
       // the resolved email body and the persisted item state always match
       // what the user typed in the form (and what the live preview rendered).
+      // windowStart/windowEnd are system vars (stripped by filterUserChemTemplateVars),
+      // so only the targetDate/backupDate user vars and the legacy dedicated fields matter here.
       const effectiveWindowStart =
-        userTemplateVars['windowStart'] ?? userTemplateVars['targetDate'] ?? customWindowStart;
+        userTemplateVars['targetDate'] ?? customWindowStart;
       const effectiveWindowEnd =
-        userTemplateVars['windowEnd'] ?? userTemplateVars['backupDate'] ?? customWindowEnd;
+        userTemplateVars['backupDate'] ?? customWindowEnd;
       const effectiveNotes = userTemplateVars['notes'] ?? notes;
       if (effectiveWindowStart && effectiveWindowEnd && effectiveWindowStart.trim() > effectiveWindowEnd.trim()) {
         return res.status(400).json({ error: "Window start date must be before or equal to window end date" });
@@ -14920,6 +14920,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
           campaignTitle: campaign.title,
           targetDate: effectiveWindowStart?.trim() || campaign.windowStart || '',
           backupDate: effectiveWindowEnd?.trim() || campaign.windowEnd || '',
+          windowStart: effectiveWindowStart?.trim() || campaign.windowStart || '',
+          windowEnd: effectiveWindowEnd?.trim() || campaign.windowEnd || '',
           timeWindow: formatTimeWindow(targetItem.timeWindowStart, targetItem.timeWindowEnd),
           contactPhone: company?.phone || '',
           contactEmail: company?.billingEmail || '',
