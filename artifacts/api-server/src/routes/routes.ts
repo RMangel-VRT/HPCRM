@@ -13508,12 +13508,15 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
     try {
       // Body wins over query so POSTs from the dynamic form pass live values.
-      const body = (req.body || {}) as { type?: string; windowStart?: string; windowEnd?: string; templateVars?: Record<string, unknown> };
+      // Accepts both the legacy `windowStart/windowEnd` body keys and the
+      // `customWindowStart/customWindowEnd` aliases used by send-pre-comm so
+      // the preview-comm and send-pre-comm endpoints share the same body shape.
+      const body = (req.body || {}) as { type?: string; windowStart?: string; windowEnd?: string; customWindowStart?: string; customWindowEnd?: string; templateVars?: Record<string, unknown> };
       const userTemplateVars = filterUserChemTemplateVars(body.templateVars);
       const q = req.query as { type?: string; windowStart?: string; windowEnd?: string };
       const type = body.type ?? q.type;
-      const customWindowStart = body.windowStart ?? q.windowStart;
-      const customWindowEnd = body.windowEnd ?? q.windowEnd;
+      const customWindowStart = body.customWindowStart ?? body.windowStart ?? q.windowStart;
+      const customWindowEnd = body.customWindowEnd ?? body.windowEnd ?? q.windowEnd;
       if (type !== "post" && customWindowStart && customWindowEnd && customWindowStart > customWindowEnd) {
         return res.status(400).json({ error: "Window start date must be before or equal to window end date" });
       }
@@ -13648,6 +13651,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.get("/api/campaigns/:id/items/:itemId/preview-email", emailPreviewHandler);
   // POST variant accepts a `templateVars` body for live form previews.
   app.post("/api/campaigns/:id/items/:itemId/preview-email", emailPreviewHandler);
+  // Named preview-comm endpoint: accepts the same body as send-pre-comm
+  // ({ type, templateVars, customWindowStart, customWindowEnd }) but returns
+  // the rendered subject + HTML instead of sending. Used by the live preview
+  // pane in the compose dialog.
+  app.post("/api/campaigns/:id/items/:itemId/preview-comm", emailPreviewHandler);
 
   // Returns the dynamic input spec (user-supplied variables + system variables)
   // for the chemical notification template that would render this item's pre-
