@@ -42,8 +42,9 @@ export const CHEM_SYSTEM_TEMPLATE_VARS: ReadonlySet<string> = new Set([
   'labelAttachmentUrl', 'labelAttachmentName',
   // photos
   'photoHtmlThumbs', 'completionPhotosHtml',
-  // date aliases — resolved server-side from targetDate/backupDate
-  'windowStart', 'windowEnd',
+  // date aliases — resolved server-side from targetDate/backupDate (pre-comm)
+  // and from the completedAt dedicated field (post-comm)
+  'windowStart', 'windowEnd', 'completionDate',
   // computed / cosmetic
   'completionTime', 'nextVisitTitle', 'timeWindow', 'textSections',
 ]);

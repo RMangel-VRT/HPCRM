@@ -13511,7 +13511,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       // Accepts both the legacy `windowStart/windowEnd` body keys and the
       // `customWindowStart/customWindowEnd` aliases used by send-pre-comm so
       // the preview-comm and send-pre-comm endpoints share the same body shape.
-      const body = (req.body || {}) as { type?: string; windowStart?: string; windowEnd?: string; customWindowStart?: string; customWindowEnd?: string; templateVars?: Record<string, unknown> };
+      const body = (req.body || {}) as { type?: string; windowStart?: string; windowEnd?: string; customWindowStart?: string; customWindowEnd?: string; completedAt?: string; templateVars?: Record<string, unknown> };
       const userTemplateVars = filterUserChemTemplateVars(body.templateVars);
       const q = req.query as { type?: string; windowStart?: string; windowEnd?: string };
       const type = body.type ?? q.type;
@@ -13588,12 +13588,22 @@ export async function registerRoutes(app: Express): Promise<Server> {
           email: company?.billingEmail ?? null,
           pesticideLicenseNumber: company?.pesticideLicenseNumber ?? null,
         };
+        // For post previews, resolve completionDate from the caller-supplied
+        // completedAt (if provided) the same way send-post-comm does, so the
+        // preview is byte-for-byte parity with the actual sent email.
+        const previewCompletionDate = (() => {
+          if (type === "post" && body.completedAt) {
+            const d = new Date(body.completedAt + "T12:00:00");
+            if (!isNaN(d.getTime())) return d.toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' });
+          }
+          return resolveChemCompletionDate(targetItem);
+        })();
         const previewVars: Record<string, string> = type === "post"
           ? buildChemicalCompletionEmailVars({
               companyName: company?.name || '',
               customerName: targetItem.customerName,
               campaignTitle: campaign.title,
-              completionDate: resolveChemCompletionDate(targetItem),
+              completionDate: previewCompletionDate,
               applicatorName: applicatorName || '',
               applicatorLicense: applicatorLicense || '',
               productName: product?.name || '',
@@ -13714,12 +13724,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
         }
         if (targetItem.notes) dedicated['notes'] = targetItem.notes;
       } else {
-        // Prefer the persisted `completedAt` (the date the user actually
-        // entered when sending the post-comm) so the form re-opens with
-        // exactly the value last submitted; fall back to `workCompletedAt`
-        // for items that never had a post-comm sent yet.
-        const completedDate = formatDate((targetItem.completedAt ?? targetItem.workCompletedAt) as Date | null);
-        if (completedDate) dedicated['completionDate'] = completedDate;
+        // completionDate is a system-resolved var (formatted from the
+        // completedAt dedicated field) so it is not seeded here — the form
+        // never shows it as a user-editable input.
         if (targetItem.actualAreasTreated) dedicated['areasTreated'] = targetItem.actualAreasTreated;
         if (targetItem.actualConditions) dedicated['applicationConditions'] = targetItem.actualConditions;
         if (targetItem.completionNotes) dedicated['notes'] = targetItem.completionNotes;
@@ -15070,10 +15077,17 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
       const { notes, overrideEmail, completedAt: completedAtStr, areasTreated, applicationConditions, nextVisitDate, templateVars: rawTemplateVars } = req.body || {};
       const userTemplateVars = filterUserChemTemplateVars(rawTemplateVars);
-      // Dynamic-form template vars win over the legacy dedicated request
-      // fields so the resolved email body and persisted item columns always
-      // match what the user typed in the form (and what the preview showed).
-      const effectiveCompletedAtStr = userTemplateVars['completionDate'] ?? completedAtStr;
+      // completionDate is now a system-resolved var (stripped by
+      // filterUserChemTemplateVars), so the completion date comes from the
+      // dedicated completedAt request field. Fall back to rawTemplateVars
+      // for backward compatibility with dynamic-form clients that currently
+      // send it via templateVars rather than the dedicated field.
+      const rawTVCompletionDate =
+        rawTemplateVars &&
+        typeof (rawTemplateVars as Record<string, unknown>)['completionDate'] === 'string'
+          ? (rawTemplateVars as Record<string, string>)['completionDate']
+          : undefined;
+      const effectiveCompletedAtStr = completedAtStr ?? rawTVCompletionDate;
       const effectiveAreasTreated = userTemplateVars['areasTreated'] ?? areasTreated;
       const effectiveApplicationConditions = userTemplateVars['applicationConditions'] ?? applicationConditions;
       const effectiveNextVisitDate = userTemplateVars['nextVisitDate'] ?? nextVisitDate;

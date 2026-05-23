@@ -487,7 +487,7 @@ export default function CampaignItemDetail() {
   // Loads the dynamic-form spec for the chemical notification template (pre
   // or post), seeds the form values, then triggers an initial preview so the
   // dialog opens with both the template-driven inputs and a rendered email.
-  const loadChemTemplateForm = async (kind: 'pre' | 'post', seedOverrides: Record<string, string> = {}) => {
+  const loadChemTemplateForm = async (kind: 'pre' | 'post', seedOverrides: Record<string, string> = {}, overrideCompletedAt?: string) => {
     let spec: ChemTemplateVarSpecResponse | null = null;
     try {
       const res = await fetch(
@@ -498,8 +498,9 @@ export default function CampaignItemDetail() {
     } catch {}
     setTemplateVarSpec(spec);
     // Only include keys that appear in userVariables so hidden alias keys
-    // (windowStart, windowEnd) from spec.values never ride along in the
-    // submitted templateVars and silently override the manager's input.
+    // (windowStart, windowEnd, completionDate) from spec.values never ride
+    // along in the submitted templateVars and silently override the manager's
+    // input.
     const initVars: Record<string, string> = {};
     if (spec?.hasTemplate) {
       for (const v of spec.userVariables) {
@@ -509,7 +510,10 @@ export default function CampaignItemDetail() {
       }
     }
     setFormVars(initVars);
-    await refreshChemPreview(kind, { templateVars: initVars });
+    await refreshChemPreview(kind, {
+      ...(kind === 'post' && seedOverrides.completedAt ? { completedAt: seedOverrides.completedAt } : {}),
+      templateVars: initVars,
+    });
   };
 
   // Re-renders the email preview. Calls the dedicated preview-comm endpoint
@@ -1576,9 +1580,15 @@ export default function CampaignItemDetail() {
                       setLoadingPreview(true);
                       setManualEmail("");
                       const today = todayDateString();
-                      setPostCommDate(today);
-                      // Seed today's date and weather conditions into the
-                      // dynamic form via the canonical POST template var names.
+                      // Prefer the stored completion date (for re-sends); fall
+                      // back to today for first-time sends.
+                      const storedDate = (item.completedAt || item.workCompletedAt) as string | null | undefined;
+                      const initialDate = storedDate
+                        ? (() => { try { return format(new Date(storedDate), 'yyyy-MM-dd'); } catch { return today; } })()
+                        : today;
+                      setPostCommDate(initialDate);
+                      // Seed weather conditions into the dynamic form via the
+                      // canonical POST template var names.
                       let conditionsSeed = "";
                       if (item.weatherConditions || item.weatherTemp != null) {
                         const parts: string[] = [];
@@ -1589,9 +1599,9 @@ export default function CampaignItemDetail() {
                         conditionsSeed = parts.join(", ");
                         setPostCommApplicationConditions(conditionsSeed);
                       }
-                      const seed: Record<string, string> = { completionDate: today };
+                      const seed: Record<string, string> = {};
                       if (conditionsSeed) seed.applicationConditions = conditionsSeed;
-                      await loadChemTemplateForm('post', seed);
+                      await loadChemTemplateForm('post', seed, initialDate);
                       setLoadingPreview(false);
                       setShowEmailConfirm("post");
                     }}
@@ -2462,6 +2472,23 @@ export default function CampaignItemDetail() {
                     </div>
                   )}
                 </div>
+                {templateVarSpec?.hasTemplate && showEmailConfirm === 'post' && (
+                  <div>
+                    <Label className="text-xs text-muted-foreground">Completion Date *</Label>
+                    <DatePickerField
+                      value={postCommDate ? new Date(postCommDate + 'T00:00:00') : undefined}
+                      onChange={(date) => {
+                        const next = date ? format(date, 'yyyy-MM-dd') : '';
+                        setPostCommDate(next);
+                        if (previewDebounceRef.current) clearTimeout(previewDebounceRef.current);
+                        previewDebounceRef.current = setTimeout(() => {
+                          void refreshChemPreview('post', { completedAt: next, templateVars: formVars });
+                        }, 400);
+                      }}
+                      data-testid="input-post-comm-date"
+                    />
+                  </div>
+                )}
                 {templateVarSpec?.hasTemplate ? (
                   templateVarSpec.userVariables.length === 0 ? (
                     <div className="text-xs text-muted-foreground italic" data-testid="text-template-no-inputs">
@@ -2480,7 +2507,6 @@ export default function CampaignItemDetail() {
                             if (v.name === 'windowStart') setPreNoticeWindowStart(next);
                             if (v.name === 'windowEnd') setPreNoticeWindowEnd(next);
                           } else if (showEmailConfirm === 'post') {
-                            if (v.name === 'completionDate') setPostCommDate(next);
                             if (v.name === 'areasTreated') setPostCommAreasTreated(next);
                             if (v.name === 'applicationConditions') setPostCommApplicationConditions(next);
                             if (v.name === 'nextVisitDate') setPostCommNextVisitDate(next);
@@ -2489,7 +2515,7 @@ export default function CampaignItemDetail() {
                           // fire a request on every keystroke.
                           if (previewDebounceRef.current) clearTimeout(previewDebounceRef.current);
                           previewDebounceRef.current = setTimeout(() => {
-                            void refreshChemPreview(showEmailConfirm as 'pre' | 'post', { templateVars: updated });
+                            void refreshChemPreview(showEmailConfirm as 'pre' | 'post', { completedAt: postCommDate, templateVars: updated });
                           }, 400);
                         };
                         return (
@@ -2570,7 +2596,7 @@ export default function CampaignItemDetail() {
                               setPostCommDate(next);
                               if (previewDebounceRef.current) clearTimeout(previewDebounceRef.current);
                               previewDebounceRef.current = setTimeout(() => {
-                                void refreshChemPreview('post', { templateVars: { completionDate: next, areasTreated: postCommAreasTreated, applicationConditions: postCommApplicationConditions, nextVisitDate: postCommNextVisitDate } });
+                                void refreshChemPreview('post', { completedAt: next, templateVars: { areasTreated: postCommAreasTreated, applicationConditions: postCommApplicationConditions, nextVisitDate: postCommNextVisitDate } });
                               }, 400);
                             }}
                             data-testid="input-post-comm-date"
@@ -2585,7 +2611,7 @@ export default function CampaignItemDetail() {
                               setPostCommAreasTreated(next);
                               if (previewDebounceRef.current) clearTimeout(previewDebounceRef.current);
                               previewDebounceRef.current = setTimeout(() => {
-                                void refreshChemPreview('post', { templateVars: { completionDate: postCommDate, areasTreated: next, applicationConditions: postCommApplicationConditions, nextVisitDate: postCommNextVisitDate } });
+                                void refreshChemPreview('post', { completedAt: postCommDate, templateVars: { areasTreated: next, applicationConditions: postCommApplicationConditions, nextVisitDate: postCommNextVisitDate } });
                               }, 400);
                             }}
                             placeholder="e.g. Front lawn, side beds"
@@ -2601,7 +2627,7 @@ export default function CampaignItemDetail() {
                               setPostCommApplicationConditions(next);
                               if (previewDebounceRef.current) clearTimeout(previewDebounceRef.current);
                               previewDebounceRef.current = setTimeout(() => {
-                                void refreshChemPreview('post', { templateVars: { completionDate: postCommDate, areasTreated: postCommAreasTreated, applicationConditions: next, nextVisitDate: postCommNextVisitDate } });
+                                void refreshChemPreview('post', { completedAt: postCommDate, templateVars: { areasTreated: postCommAreasTreated, applicationConditions: next, nextVisitDate: postCommNextVisitDate } });
                               }, 400);
                             }}
                             placeholder="e.g. Temp 68°F, wind calm, partly cloudy"
@@ -2617,7 +2643,7 @@ export default function CampaignItemDetail() {
                               setPostCommNextVisitDate(next);
                               if (previewDebounceRef.current) clearTimeout(previewDebounceRef.current);
                               previewDebounceRef.current = setTimeout(() => {
-                                void refreshChemPreview('post', { templateVars: { completionDate: postCommDate, areasTreated: postCommAreasTreated, applicationConditions: postCommApplicationConditions, nextVisitDate: next } });
+                                void refreshChemPreview('post', { completedAt: postCommDate, templateVars: { areasTreated: postCommAreasTreated, applicationConditions: postCommApplicationConditions, nextVisitDate: next } });
                               }, 400);
                             }}
                             data-testid="input-post-comm-next-visit"
@@ -2676,10 +2702,13 @@ export default function CampaignItemDetail() {
                   const isDynamic = !!templateVarSpec?.hasTemplate;
                   // In dynamic mode the server derives mapped values from
                   // `templateVars` directly, so we omit the legacy dedicated
-                  // request fields to keep send/preview parity unambiguous.
+                  // request fields to keep send/preview parity unambiguous —
+                  // except completedAt: completionDate is now a system-resolved
+                  // var, so the completion date always travels as a dedicated
+                  // field for both dynamic and legacy paths.
                   const customWindowStart = !isDynamic && showEmailConfirm === "pre" ? preNoticeWindowStart : undefined;
                   const customWindowEnd = !isDynamic && showEmailConfirm === "pre" ? preNoticeWindowEnd : undefined;
-                  const completedAt = !isDynamic && showEmailConfirm === "post" ? postCommDate : undefined;
+                  const completedAt = showEmailConfirm === "post" ? postCommDate : undefined;
                   const areasTreated = !isDynamic && showEmailConfirm === "post" ? postCommAreasTreated : undefined;
                   const applicationConditions = !isDynamic && showEmailConfirm === "post" ? postCommApplicationConditions : undefined;
                   const nextVisitDate = !isDynamic && showEmailConfirm === "post" ? postCommNextVisitDate : undefined;
@@ -2706,7 +2735,7 @@ export default function CampaignItemDetail() {
                   setTemplateVarSpec(null);
                   setFormVars({});
                 }}
-                disabled={updateItemMutation.isPending || (!emailPreview?.recipientEmail && (!manualEmail.trim() || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(manualEmail.trim()))) || (showEmailConfirm === "post" && !(templateVarSpec?.hasTemplate ? (formVars.completionDate ?? postCommDate) : postCommDate))}
+                disabled={updateItemMutation.isPending || (!emailPreview?.recipientEmail && (!manualEmail.trim() || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(manualEmail.trim()))) || (showEmailConfirm === "post" && !postCommDate)}
                 data-testid="button-confirm-send-email"
               >
                 {updateItemMutation.isPending && <Loader2 className="w-4 h-4 mr-1 animate-spin" />}
