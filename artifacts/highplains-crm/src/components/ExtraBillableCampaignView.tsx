@@ -110,7 +110,7 @@ export default function ExtraBillableCampaignView({ campaign, campaignId }: Prop
     () =>
       companyUsersData
         .filter(cu =>
-          ["admin", "office", "field_manager", "field", "landscape_supervisor"].includes(cu.companyUser.role),
+          ["admin", "office", "field_manager", "field", "landscape_supervisor", "crew_supervisor"].includes(cu.companyUser.role),
         )
         .map(cu => ({ id: cu.companyUser.userId, name: cu.user.name, role: cu.companyUser.role })),
     [companyUsersData],

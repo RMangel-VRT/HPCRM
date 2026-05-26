@@ -3919,7 +3919,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
 
     const user = req.user as UserWithContext;
-    if (user.activeRole !== "admin" && !user.isSuperAdminBool) {
+    if (user.activeRole !== "admin" && user.activeRole !== "office" && !user.isSuperAdminBool) {
       return res.status(403).send("Forbidden");
     }
 
