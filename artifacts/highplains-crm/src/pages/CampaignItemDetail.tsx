@@ -57,6 +57,7 @@ import {
   Eye,
   FileText,
   Upload,
+  Maximize2,
 } from "lucide-react";
 import type { CampaignChecklistAuditLogWithUser } from "@shared/schema";
 import {
@@ -158,6 +159,7 @@ export default function CampaignItemDetail() {
   const [previewPhoto, setPreviewPhoto] = useState<string | null>(null);
   const [showEmailConfirm, setShowEmailConfirm] = useState<"pre" | "post" | null>(null);
   const [emailPreview, setEmailPreview] = useState<{ recipientEmail: string | null; subject: string; htmlBody: string; templateName: string; contactName: string | null } | null>(null);
+  const [showEmailFullPreview, setShowEmailFullPreview] = useState(false);
   const [loadingPreview, setLoadingPreview] = useState(false);
   const [previewLoading, setPreviewLoading] = useState(false);
   const previewDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -2658,7 +2660,19 @@ export default function CampaignItemDetail() {
               <div className="space-y-3">
                 <div className="flex items-center justify-between">
                   <Label className="text-xs text-muted-foreground font-semibold uppercase tracking-wide">Email Preview</Label>
-                  {previewLoading && <span className="text-xs text-muted-foreground animate-pulse">Updating…</span>}
+                  <div className="flex items-center gap-2">
+                    {previewLoading && <span className="text-xs text-muted-foreground animate-pulse">Updating…</span>}
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="h-6 w-6"
+                      onClick={() => setShowEmailFullPreview(true)}
+                      title="Open full preview"
+                      data-testid="button-open-full-email-preview"
+                    >
+                      <Maximize2 className="h-3.5 w-3.5" />
+                    </Button>
+                  </div>
                 </div>
                 <div>
                   <Label className="text-xs text-muted-foreground">{t("campaigns.chemEmailTemplate")}</Label>
@@ -2743,6 +2757,29 @@ export default function CampaignItemDetail() {
                 {t("campaigns.chemConfirmSend")}
               </Button>
             </div>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* Full-size email preview modal */}
+      <Dialog open={showEmailFullPreview} onOpenChange={setShowEmailFullPreview}>
+        <DialogContent className="max-w-3xl max-h-[90vh] flex flex-col" data-testid="dialog-full-email-preview">
+          <DialogHeader>
+            <DialogTitle>Email Preview</DialogTitle>
+            {emailPreview?.subject && (
+              <DialogDescription className="font-medium text-foreground">
+                {emailPreview.subject}
+              </DialogDescription>
+            )}
+          </DialogHeader>
+          <div className="flex-1 overflow-hidden rounded-md border bg-white mt-2" style={{ minHeight: 0 }}>
+            <iframe
+              srcDoc={emailPreview?.htmlBody || "<p style='color:#888;font-family:sans-serif;padding:1rem'>No preview available.</p>"}
+              className="w-full h-full"
+              style={{ height: "700px", border: "none" }}
+              sandbox="allow-same-origin"
+              data-testid="iframe-full-email-preview"
+            />
           </div>
         </DialogContent>
       </Dialog>
