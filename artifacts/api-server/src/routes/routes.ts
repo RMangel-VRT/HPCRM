@@ -14379,7 +14379,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.patch("/api/campaigns/:id/items/:itemId", async (req, res) => {
     if (!req.isAuthenticated()) return res.status(401).send("Not authenticated");
     const user = req.user as UserWithContext;
-    const allowedRoles = ["admin", "office", "field_manager", "field", "chemical_manager", "landscape_supervisor"];
+    const allowedRoles = ["admin", "office", "field_manager", "field", "chemical_manager", "landscape_supervisor", "crew_supervisor"];
     if (!allowedRoles.includes(user.activeRole)) {
       return res.status(403).send("Insufficient permissions");
     }

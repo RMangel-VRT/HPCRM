@@ -5,7 +5,7 @@ import { Link } from "wouter";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { ExternalLink, Image as ImageIcon, MoveRight, Trash2, Upload, X } from "lucide-react";
+import { CheckCircle2, ExternalLink, Image as ImageIcon, MoveRight, RotateCcw, Trash2, Upload, X } from "lucide-react";
 import { useFileDropZone } from "@/hooks/useFileDropZone";
 import { useItemPhotoUrls } from "@/hooks/useItemPhotoUrls";
 import { useToast } from "@/hooks/use-toast";
@@ -22,6 +22,7 @@ interface Props {
   item: PropertyCardItem;
   crew: CampaignCrewWithMembers | null;
   canDrop: boolean;
+  isAdminOrOffice: boolean;
   onOpenPhotos: () => void;
 }
 
@@ -46,6 +47,7 @@ export default function PropertyCard({
   item,
   crew,
   canDrop,
+  isAdminOrOffice,
   onOpenPhotos,
 }: Props) {
   const { t } = useTranslation();
@@ -55,6 +57,32 @@ export default function PropertyCard({
   const stateRef = useRef<UploadState>(INITIAL_STATE);
   const successTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const errorTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // ── Mark complete / pending ──────────────────────────────────────────────────
+  const markStatusMutation = useMutation({
+    mutationFn: async (newStatus: "completed" | "pending") => {
+      const res = await apiRequest(
+        "PATCH",
+        `/api/campaigns/${campaignId}/items/${item.id}`,
+        { status: newStatus },
+      );
+      return res.json();
+    },
+    onSuccess: (_data, newStatus) => {
+      queryClient.invalidateQueries({ queryKey: ["/api/campaigns", campaignId] });
+      toast({
+        title: newStatus === "completed"
+          ? t("campaigns.extraBillableMarkCompleteSuccess")
+          : t("campaigns.extraBillableMarkPendingSuccess"),
+      });
+    },
+    onError: (err: Error) => {
+      toast({
+        title: err.message || t("campaigns.extraBillableMarkCompleteFailed"),
+        variant: "destructive",
+      });
+    },
+  });
 
   // ── Card-level photo delete ──────────────────────────────────────────────────
   const cardDeleteMutation = useMutation({
@@ -465,6 +493,34 @@ export default function PropertyCard({
             <ImageIcon className="w-3 h-3 mr-1" />
             {t("campaigns.extraBillableGridViewPhotos")}
           </Button>
+          {canDrop && item.status !== "completed" && (
+            <Button
+              size="sm"
+              variant="default"
+              className="shrink-0"
+              onClick={() => markStatusMutation.mutate("completed")}
+              disabled={markStatusMutation.isPending}
+              data-testid={`grid-card-mark-complete-${item.id}`}
+              title={t("campaigns.extraBillableMarkComplete")}
+            >
+              <CheckCircle2 className="w-3 h-3 mr-1" />
+              {t("campaigns.extraBillableMarkComplete")}
+            </Button>
+          )}
+          {isAdminOrOffice && item.status === "completed" && (
+            <Button
+              size="sm"
+              variant="outline"
+              className="shrink-0 text-muted-foreground"
+              onClick={() => markStatusMutation.mutate("pending")}
+              disabled={markStatusMutation.isPending}
+              data-testid={`grid-card-mark-pending-${item.id}`}
+              title={t("campaigns.extraBillableMarkPending")}
+            >
+              <RotateCcw className="w-3 h-3 mr-1" />
+              {t("campaigns.extraBillableMarkPending")}
+            </Button>
+          )}
           <Button asChild variant="ghost" size="sm" data-testid={`grid-card-link-${item.id}`}>
             <Link href={`/customers/${item.customerId}`}>
               <ExternalLink className="w-3 h-3" />

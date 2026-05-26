@@ -307,6 +307,7 @@ export default function PropertyGrid({
               item={item}
               crew={item.assignedCampaignCrewId ? crewById.get(item.assignedCampaignCrewId) ?? null : null}
               canDrop={canDropOnItem(item)}
+              isAdminOrOffice={isAdminOrOffice}
               onOpenPhotos={() => setOpenItemId(item.id)}
             />
           ))}
