@@ -2533,7 +2533,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     const user = req.user as UserWithContext;
     // Always-paginated — callers must handle { customers, total }
     const page = Math.max(1, parseInt(req.query.page as string) || 1);
-    const limit = Math.min(200, Math.max(1, parseInt(req.query.limit as string) || 50));
+    const limit = Math.min(200, Math.max(1, parseInt(req.query.limit as string) || 200));
     const search = (req.query.search as string) || undefined;
     const result = await storage.getCustomersPaginated(user.activeCompanyId, { page, limit, search });
     return res.json(result);
@@ -5500,27 +5500,34 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
     const user = req.user as UserWithContext;
     
-    // Find the Project ticket type for this company
+    // Collect "Ready to Schedule" status IDs across all project-related ticket types.
+    // "Estimate Request" is the primary project workflow (renamed from "Project" in the
+    // ticket-type rename migration); "Project" is the no-estimate variant. Both feed the
+    // scheduling queue.
     const ticketTypes = await storage.getTicketTypes(user.activeCompanyId);
-    const projectType = ticketTypes.find(t => t.name === "Project");
+    const projectTypes = ticketTypes.filter(t => t.name === "Estimate Request" || t.name === "Project");
     
-    if (!projectType) {
-      return res.json({ schedulingStatusId: null, message: "Project ticket type not found" });
+    if (projectTypes.length === 0) {
+      return res.json({ schedulingStatusId: null, schedulingStatusIds: [], message: "No project ticket types found" });
     }
     
-    // Find the "Ready to Schedule" status in the Project workflow
-    const statuses = await storage.getTicketTypeStatuses(projectType.id);
-    const schedulingStatus = statuses.find(s => s.name === "Ready to Schedule");
+    const allStatuses = await Promise.all(
+      projectTypes.map(pt => storage.getTicketTypeStatuses(pt.id))
+    );
     
-    if (!schedulingStatus) {
-      return res.json({ schedulingStatusId: null, message: "Ready to Schedule status not found in Project workflow" });
+    const schedulingStatusIds: string[] = [];
+    for (const statuses of allStatuses) {
+      const s = statuses.find(st => st.name === "Ready to Schedule");
+      if (s) schedulingStatusIds.push(s.id);
+    }
+
+    if (schedulingStatusIds.length === 0) {
+      return res.json({ schedulingStatusId: null, schedulingStatusIds: [], message: "Ready to Schedule status not found in any project workflow" });
     }
     
     res.json({ 
-      schedulingStatusId: schedulingStatus.id,
-      statusName: schedulingStatus.name,
-      ticketTypeId: projectType.id,
-      ticketTypeName: projectType.name
+      schedulingStatusId: schedulingStatusIds[0],
+      schedulingStatusIds,
     });
   });
 

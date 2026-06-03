@@ -218,16 +218,15 @@ export default function TicketsList() {
     queryKey: ["/api/companies/users"],
   });
 
-  // Fetch the canonical scheduling status ID (Project's "Ready to Schedule" status)
+  // Fetch the canonical scheduling status IDs across all project ticket types
   const { data: schedulingStatusData } = useQuery<{
     schedulingStatusId: string | null;
-    statusName?: string;
-    ticketTypeId?: string;
-    ticketTypeName?: string;
+    schedulingStatusIds?: string[];
   }>({
     queryKey: ["/api/scheduling-status"],
   });
   const schedulingStatusId = schedulingStatusData?.schedulingStatusId;
+  const schedulingStatusSet = new Set<string>(schedulingStatusData?.schedulingStatusIds ?? (schedulingStatusId ? [schedulingStatusId] : []));
 
   type EquipmentTicketWithName = EquipmentTicket & { equipmentName: string; _type: "equipment" };
   const { data: equipmentTicketsList = [] } = useQuery<EquipmentTicketWithName[]>({
@@ -362,9 +361,9 @@ export default function TicketsList() {
       return true;
     })();
     
-    // Quick filter for scheduling queue (ID-based: currentStatusId === schedulingStatusId)
+    // Quick filter for scheduling queue — matches any project type's "Ready to Schedule" status
     const matchesNeedsScheduling = !showNeedsScheduling || 
-      (schedulingStatusId && ticket.currentStatusId === schedulingStatusId);
+      schedulingStatusSet.has(ticket.currentStatusId ?? "");
     
     return matchesSearch && matchesPriority && matchesType && matchesWorkType && matchesStatus && matchesAssignedTo && matchesActionType && matchesNeedsScheduling;
   });
@@ -389,9 +388,9 @@ export default function TicketsList() {
     }
   }, [typeFilters]);
   
-  // Count of tickets needing scheduling (for badge display) - ID-based matching
-  const needsSchedulingCount = schedulingStatusId 
-    ? enrichedTickets.filter(t => t.currentStatusId === schedulingStatusId && !t.completedAt).length
+  // Count of tickets needing scheduling across all project ticket types
+  const needsSchedulingCount = schedulingStatusSet.size > 0
+    ? enrichedTickets.filter(t => schedulingStatusSet.has(t.currentStatusId ?? "") && !t.completedAt).length
     : 0;
   
   // Clamp page when data changes (e.g., after refetch)
