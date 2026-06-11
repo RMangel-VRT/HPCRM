@@ -342,6 +342,7 @@ export interface IStorage {
   getProposalFiles(proposalId: string, companyId: string): Promise<ProposalFile[]>;
   getProposalFileById(id: string, companyId: string): Promise<ProposalFile | undefined>;
   getProposalEstimatePdf(proposalId: string, companyId: string): Promise<ProposalFile | undefined>;
+  getProposalEstimatePdfs(proposalId: string, companyId: string): Promise<ProposalFile[]>;
   createProposalFile(file: InsertProposalFile): Promise<ProposalFile>;
   updateProposalFile(id: string, companyId: string, updates: { caption?: string | null }): Promise<ProposalFile | undefined>;
   reorderProposalImageFiles(proposalId: string, companyId: string, orderedIds: string[]): Promise<ProposalFile[]>;
@@ -3181,6 +3182,16 @@ export class PgStorage implements IStorage {
         eq(proposalFiles.fileType, "estimate_pdf")
       ));
     return result[0];
+  }
+
+  async getProposalEstimatePdfs(proposalId: string, companyId: string): Promise<ProposalFile[]> {
+    return db.select().from(proposalFiles)
+      .where(and(
+        eq(proposalFiles.proposalId, proposalId),
+        eq(proposalFiles.companyId, companyId),
+        eq(proposalFiles.fileType, "estimate_pdf")
+      ))
+      .orderBy(proposalFiles.displayOrder);
   }
 
   async createProposalFile(file: InsertProposalFile): Promise<ProposalFile> {

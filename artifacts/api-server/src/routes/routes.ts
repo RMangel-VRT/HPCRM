@@ -11001,22 +11001,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
     try {
       const objectStorageService = new ObjectStorageService();
 
-      if (fileType === "estimate_pdf") {
-        const existing = await storage.getProposalEstimatePdf(req.params.id, user.activeCompanyId);
-        if (existing) {
-          const bucketId = process.env.DEFAULT_OBJECT_STORAGE_BUCKET_ID;
-          if (bucketId) {
-            const bucket = objectStorageClient.bucket(bucketId);
-            const objectName = existing.storageObjectPath.startsWith("/") ? existing.storageObjectPath.slice(1) : existing.storageObjectPath;
-            try { await bucket.file(objectName).delete({ ignoreNotFound: true }); } catch (e) { /* ignore */ }
-          }
-          await storage.deleteProposalFile(existing.id, user.activeCompanyId);
-        }
-      }
-
       let displayOrder = 0;
+      const existingFiles = await storage.getProposalFiles(req.params.id, user.activeCompanyId);
+      if (fileType === "estimate_pdf") {
+        const existingPdfs = existingFiles.filter(f => f.fileType === "estimate_pdf");
+        displayOrder = existingPdfs.length > 0 ? Math.max(...existingPdfs.map(f => f.displayOrder)) + 1 : 0;
+      }
       if (fileType === "image") {
-        const existingFiles = await storage.getProposalFiles(req.params.id, user.activeCompanyId);
         const images = existingFiles.filter(f => f.fileType === "image");
         displayOrder = images.length > 0 ? Math.max(...images.map(f => f.displayOrder)) + 1 : 0;
       }
@@ -11160,8 +11151,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   // ---- Proposal PDF helper (used by both the preview endpoint and the finalize endpoint) ----
   async function generateProposalPdf(proposal: import("@workspace/db").ProposalWithDetails, companyId: string): Promise<Buffer> {
-    const estimateFile = await storage.getProposalEstimatePdf(proposal.id, companyId);
-    if (!estimateFile) {
+    const estimateFiles = await storage.getProposalEstimatePdfs(proposal.id, companyId);
+    if (estimateFiles.length === 0) {
       throw Object.assign(new Error("No estimate PDF attached to this proposal. Upload a QB Estimate PDF before generating."), { statusCode: 400 });
     }
 
@@ -11175,14 +11166,16 @@ export async function registerRoutes(app: Express): Promise<Server> {
     } catch (_err) {}
 
     const objectStorageService = new ObjectStorageService();
-    let estimateBuffer: Buffer;
-    try {
-      const gcsFile = await objectStorageService.getObjectEntityFile(estimateFile.storageObjectPath);
-      const [downloaded] = await gcsFile.download();
-      estimateBuffer = downloaded as Buffer;
-    } catch (err) {
-      console.error('Proposal PDF: failed to download estimate PDF:', err);
-      throw Object.assign(new Error("Failed to download estimate PDF. The file may be missing or corrupted."), { statusCode: 500 });
+    const estimateBuffers: Buffer[] = [];
+    for (const estimateFile of estimateFiles) {
+      try {
+        const gcsFile = await objectStorageService.getObjectEntityFile(estimateFile.storageObjectPath);
+        const [downloaded] = await gcsFile.download();
+        estimateBuffers.push(downloaded as Buffer);
+      } catch (err) {
+        console.error('Proposal PDF: failed to download estimate PDF:', err);
+        throw Object.assign(new Error(`Failed to download estimate PDF "${estimateFile.filename}". The file may be missing or corrupted.`), { statusCode: 500 });
+      }
     }
 
     const PDFDocumentKit = (await import('pdfkit')).default;
@@ -11711,12 +11704,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
         vsPages.forEach(p => mergedDoc.addPage(p));
       }
 
-      const estimateDoc = await PDFDocument.load(estimateBuffer);
-      const allIndices = estimateDoc.getPageIndices();
-      const filteredIndices = allIndices.filter(i => !isEstimatePageBlank(estimateDoc, i));
-      const indicesToCopy = filteredIndices.length > 0 ? filteredIndices : allIndices;
-      const estimatePages = await mergedDoc.copyPages(estimateDoc, indicesToCopy);
-      estimatePages.forEach(p => mergedDoc.addPage(p));
+      for (const estimateBuffer of estimateBuffers) {
+        const estimateDoc = await PDFDocument.load(estimateBuffer);
+        const allIndices = estimateDoc.getPageIndices();
+        const filteredIndices = allIndices.filter(i => !isEstimatePageBlank(estimateDoc, i));
+        const indicesToCopy = filteredIndices.length > 0 ? filteredIndices : allIndices;
+        const estimatePages = await mergedDoc.copyPages(estimateDoc, indicesToCopy);
+        estimatePages.forEach(p => mergedDoc.addPage(p));
+      }
 
       if (appendixBuffer) {
         const appendixPdfDoc = await PDFDocument.load(appendixBuffer);
@@ -11733,11 +11728,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
     const MAX_PDF_BYTES = 25 * 1024 * 1024; // 25 MB
     if (mergedBuffer.byteLength > MAX_PDF_BYTES) {
       const totalMB = (mergedBuffer.byteLength / 1024 / 1024).toFixed(1);
-      const estimateMB = (estimateBuffer.byteLength / 1024 / 1024).toFixed(1);
       const imageMB = (imageBuffers.reduce((sum, b) => sum + b.buffer.byteLength, 0) / 1024 / 1024).toFixed(1);
+      const totalEstimateBytes = estimateBuffers.reduce((sum, b) => sum + b.byteLength, 0);
       let guidance = `Generated PDF is ${totalMB} MB, which exceeds the 25 MB email limit.`;
-      if (estimateBuffer.byteLength > 10 * 1024 * 1024) {
-        guidance += ` Your QB Estimate PDF is ${estimateMB} MB — try exporting a smaller/flattened version from QuickBooks.`;
+      if (totalEstimateBytes > 10 * 1024 * 1024) {
+        const estimateMB = (totalEstimateBytes / 1024 / 1024).toFixed(1);
+        guidance += ` Your QB Estimate PDF${estimateBuffers.length > 1 ? 's total' : ' is'} ${estimateMB} MB — try exporting smaller/flattened versions from QuickBooks.`;
       }
       if (imageBuffers.length > 0) {
         guidance += ` Supporting images total ${imageMB} MB after compression — consider reducing the number of images or their file sizes.`;
@@ -11791,8 +11787,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     const proposal = await storage.getProposalById(req.params.id, user.activeCompanyId);
     if (!proposal) return res.status(404).send("Proposal not found");
 
-    const estimateFile = proposal.files.find(f => f.fileType === 'estimate_pdf');
-    if (!estimateFile) {
+    if (!proposal.files.some(f => f.fileType === 'estimate_pdf')) {
       return res.status(400).send("No estimate PDF attached. Upload a QB Estimate PDF before finalizing.");
     }
 

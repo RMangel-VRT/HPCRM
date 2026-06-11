@@ -508,16 +508,16 @@ export default function ProposalDraft() {
     enabled: !!proposal?.customerId,
   });
 
-  const estimatePdf = proposal?.files.find(f => f.fileType === "estimate_pdf");
+  const estimatePdfs = proposal?.files.filter(f => f.fileType === "estimate_pdf").sort((a, b) => a.displayOrder - b.displayOrder) ?? [];
   const images = proposal?.files.filter(f => f.fileType === "image").sort((a, b) => a.displayOrder - b.displayOrder) ?? [];
   const versions = proposal?.versions ?? [];
   const hasVersions = versions.length > 0;
   const nextVersionNumber = hasVersions ? (versions[versions.length - 1].versionNumber + 1) : 1;
 
-  const estimateBytes = estimatePdf?.fileSize ?? 0;
+  const estimateBytes = estimatePdfs.reduce((s, f) => s + (f.fileSize ?? 0), 0);
   const imagesBytes = images.reduce((s, f) => s + (f.fileSize ?? 0), 0);
   const estimatedPdfMB = (estimateBytes + imagesBytes / 10) / 1024 / 1024;
-  const showSizeWarning = estimatePdf != null && estimatedPdfMB > 20;
+  const showSizeWarning = estimatePdfs.length > 0 && estimatedPdfMB > 20;
 
   const getStatusBadge = (status: string | null | undefined) => {
     if (status === "finalized") {
@@ -553,7 +553,7 @@ export default function ProposalDraft() {
       size="sm"
       variant="default"
       onClick={() => setFinalizeDialogOpen(true)}
-      disabled={!estimatePdf || finalizeMutation.isPending}
+      disabled={estimatePdfs.length === 0 || finalizeMutation.isPending}
       data-testid="button-finalize-proposal"
     >
       {finalizeMutation.isPending ? (
@@ -639,7 +639,7 @@ export default function ProposalDraft() {
           )}
           {getStatusBadge(proposal.status)}
           <div className="flex-1" />
-          {estimatePdf ? (
+          {estimatePdfs.length > 0 ? (
             <>
               <Button
                 size="sm"
@@ -680,7 +680,7 @@ export default function ProposalDraft() {
             </Tooltip>
           )}
         </div>
-        {estimatePdf && (
+        {estimatePdfs.length > 0 && (
           <p className="text-xs text-muted-foreground mt-2" data-testid="text-next-version-hint">
             {t("proposals.nextVersion")} <strong>v{nextVersionNumber}</strong>
           </p>
@@ -815,35 +815,40 @@ export default function ProposalDraft() {
           <CardTitle className="text-base">{t("proposals.qbEstimatePdf")}</CardTitle>
         </CardHeader>
         <CardContent>
-          {estimatePdf ? (
-            <div className="flex items-center gap-3 p-3 rounded-md border bg-muted/30" data-testid="div-estimate-pdf">
-              <FileText className="w-5 h-5 text-muted-foreground shrink-0" />
-              <span className="text-sm flex-1 min-w-0 truncate" data-testid="text-pdf-filename">
-                {estimatePdf.filename}
-              </span>
-              <div className="flex items-center gap-2 shrink-0">
-                <a
-                  href={`/objects/${estimatePdf.storageObjectPath.replace(/^\//, "")}`}
-                  target="_blank"
-                  rel="noreferrer"
-                  data-testid="link-download-pdf"
-                >
-                  <Button size="icon" variant="ghost">
-                    <Download className="w-4 h-4" />
-                  </Button>
-                </a>
-                <Button
-                  size="icon"
-                  variant="ghost"
-                  onClick={() => setFileToDelete(estimatePdf)}
-                  data-testid="button-delete-pdf"
-                >
-                  <Trash2 className="w-4 h-4" />
-                </Button>
-              </div>
-            </div>
-          ) : (
+          {estimatePdfs.length === 0 && (
             <p className="text-sm text-muted-foreground mb-3">{t("proposals.uploadQbPdf")}</p>
+          )}
+          {estimatePdfs.length > 0 && (
+            <div className="flex flex-col gap-2 mb-3">
+              {estimatePdfs.map((pdf) => (
+                <div key={pdf.id} className="flex items-center gap-3 p-3 rounded-md border bg-muted/30" data-testid="div-estimate-pdf">
+                  <FileText className="w-5 h-5 text-muted-foreground shrink-0" />
+                  <span className="text-sm flex-1 min-w-0 truncate" data-testid="text-pdf-filename">
+                    {pdf.filename}
+                  </span>
+                  <div className="flex items-center gap-2 shrink-0">
+                    <a
+                      href={`/objects/${pdf.storageObjectPath.replace(/^\//, "")}`}
+                      target="_blank"
+                      rel="noreferrer"
+                      data-testid="link-download-pdf"
+                    >
+                      <Button size="icon" variant="ghost">
+                        <Download className="w-4 h-4" />
+                      </Button>
+                    </a>
+                    <Button
+                      size="icon"
+                      variant="ghost"
+                      onClick={() => setFileToDelete(pdf)}
+                      data-testid="button-delete-pdf"
+                    >
+                      <Trash2 className="w-4 h-4" />
+                    </Button>
+                  </div>
+                </div>
+              ))}
+            </div>
           )}
 
           <div className="mt-3">
@@ -865,7 +870,7 @@ export default function ProposalDraft() {
               {uploadingPdf ? (
                 <><Loader2 className="w-4 h-4 mr-2 animate-spin" /> {t("proposals.uploading")}</>
               ) : (
-                <><Upload className="w-4 h-4 mr-2" /> {estimatePdf ? t("common.upload") : t("common.upload")}</>
+                <><Upload className="w-4 h-4 mr-2" /> {t("common.upload")}</>
               )}
             </Button>
           </div>
