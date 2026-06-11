@@ -76,9 +76,10 @@ interface ContractCardProps {
   uploadingFile: boolean;
   formatFileSize: (bytes: number) => string;
   setShowVersionHistory: (contractId: string | null) => void;
+  highlight?: boolean;
 }
 
-function ContractCard({ contract, customerId, canUploadDocuments, onUploadClick, uploadingFile, formatFileSize, setShowVersionHistory }: ContractCardProps) {
+function ContractCard({ contract, customerId, canUploadDocuments, onUploadClick, uploadingFile, formatFileSize, setShowVersionHistory, highlight }: ContractCardProps) {
   const { t } = useTranslation();
   const { data: currentDocument, isLoading } = useQuery<ContractDocument>({
     queryKey: ["/api/contracts", contract.id, "documents", "current"],
@@ -348,7 +349,10 @@ function ContractCard({ contract, customerId, canUploadDocuments, onUploadClick,
   });
 
   return (
-    <Card data-testid={`card-contract-${contract.id}`}>
+    <Card
+      data-testid={`card-contract-${contract.id}`}
+      className={highlight ? "ring-2 ring-primary transition-shadow" : undefined}
+    >
       <CardContent className="p-4">
         <div className="flex items-start justify-between mb-3">
           <div className="flex items-center gap-2">
@@ -1053,6 +1057,7 @@ export default function CustomerDetail() {
   const id = params?.id;
 
   const [activeTab, setActiveTab] = useTabParam("overview");
+  const [highlightContractId, setHighlightContractId] = useState<string | null>(null);
 
   const [uploadingContractId, setUploadingContractId] = useState<string | null>(null);
   const [showVersionHistory, setShowVersionHistory] = useState<string | null>(null);
@@ -1304,6 +1309,23 @@ export default function CustomerDetail() {
     }
   }, [customer, customerForm, isEditCustomerDialogOpen]);
   
+  // Scroll to and briefly highlight a contract card after navigating from the dashboard
+  useEffect(() => {
+    if (activeTab === "contracts" && highlightContractId) {
+      const timer = setTimeout(() => {
+        const el = document.querySelector(`[data-testid="card-contract-${highlightContractId}"]`);
+        if (el) {
+          el.scrollIntoView({ behavior: "smooth", block: "center" });
+        }
+        const clearTimer = setTimeout(() => {
+          setHighlightContractId(null);
+        }, 2000);
+        return () => clearTimeout(clearTimer);
+      }, 150);
+      return () => clearTimeout(timer);
+    }
+  }, [activeTab, highlightContractId]);
+
   // Clear property manager when company changes
   const watchedPmCompanyId = customerForm.watch("propertyManagementCompanyId");
   const prevPmCompanyIdRef = useRef(watchedPmCompanyId);
@@ -1886,6 +1908,10 @@ export default function CustomerDetail() {
             isParentCustomer={isParentCustomer}
             childCustomers={childCustomers}
             onTabChange={setActiveTab}
+            onContractClick={(contractId) => {
+              setActiveTab("contracts");
+              setHighlightContractId(contractId);
+            }}
           />
         </TabsContent>
 
@@ -2232,6 +2258,7 @@ export default function CustomerDetail() {
                           uploadingFile={uploadingFile}
                           formatFileSize={formatFileSize}
                           setShowVersionHistory={setShowVersionHistory}
+                          highlight={highlightContractId === contract.id}
                         />
                       ))}
                     </div>

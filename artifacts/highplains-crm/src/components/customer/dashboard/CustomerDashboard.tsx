@@ -22,6 +22,7 @@ import {
   GitBranch,
   Eye,
   ArrowRight,
+  ChevronRight,
   Phone,
   Mail,
   MessagesSquare,
@@ -59,6 +60,7 @@ interface CustomerDashboardProps {
   isParentCustomer: boolean;
   childCustomers: Customer[];
   onTabChange: (tab: string) => void;
+  onContractClick?: (contractId: string) => void;
 }
 
 function relativeDate(date: Date | string | null | undefined): string {
@@ -95,6 +97,7 @@ export default function CustomerDashboard({
   isParentCustomer,
   childCustomers,
   onTabChange,
+  onContractClick,
 }: CustomerDashboardProps) {
   const { t } = useTranslation();
   const currentYear = new Date().getFullYear();
@@ -210,6 +213,7 @@ export default function CustomerDashboard({
           <ActiveContractsCard
             activeContracts={activeContracts}
             onTabChange={onTabChange}
+            onContractClick={onContractClick}
           />
         </div>
 
@@ -463,9 +467,11 @@ function NextServiceCard({
 function ActiveContractsCard({
   activeContracts,
   onTabChange,
+  onContractClick,
 }: {
   activeContracts: Contract[];
   onTabChange: (tab: string) => void;
+  onContractClick?: (contractId: string) => void;
 }) {
   return (
     <Card data-testid="card-active-contracts">
@@ -475,11 +481,11 @@ function ActiveContractsCard({
           Active Contracts
         </CardTitle>
         <Button
-          variant="ghost"
+          variant="outline"
           size="sm"
-          onClick={() => onTabChange("billing")}
+          onClick={() => onTabChange("contracts")}
           data-testid="button-view-all-contracts"
-          className="text-xs"
+          className="text-xs h-7"
         >
           View all
           <ArrowRight className="w-3 h-3 ml-1" />
@@ -489,12 +495,21 @@ function ActiveContractsCard({
         {activeContracts.length === 0 ? (
           <p className="text-sm text-muted-foreground">No active contracts</p>
         ) : (
-          <div className="space-y-2">
+          <div className="space-y-1">
             {activeContracts.slice(0, 5).map((contract) => (
               <div
                 key={contract.id}
-                className="flex items-center justify-between gap-2 py-1.5"
+                role="button"
+                tabIndex={0}
+                className="flex items-center justify-between gap-2 py-1.5 px-2 -mx-2 rounded-md cursor-pointer hover:bg-muted/60 transition-colors"
                 data-testid={`row-contract-${contract.id}`}
+                onClick={() => onContractClick ? onContractClick(contract.id) : onTabChange("contracts")}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" || e.key === " ") {
+                    e.preventDefault();
+                    onContractClick ? onContractClick(contract.id) : onTabChange("contracts");
+                  }
+                }}
               >
                 <div className="min-w-0 flex-1">
                   <p className="text-sm font-medium truncate">{contract.serviceType}</p>
@@ -503,17 +518,20 @@ function ActiveContractsCard({
                     {contract.endDate ? ` – ${format(new Date(contract.endDate), "MMM yyyy")}` : ""}
                   </p>
                 </div>
-                <Badge
-                  variant="secondary"
-                  className="text-xs bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-400 shrink-0"
-                  data-testid={`badge-contract-status-${contract.id}`}
-                >
-                  Active
-                </Badge>
+                <div className="flex items-center gap-1.5 shrink-0">
+                  <Badge
+                    variant="secondary"
+                    className="text-xs bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-400"
+                    data-testid={`badge-contract-status-${contract.id}`}
+                  >
+                    Active
+                  </Badge>
+                  <ChevronRight className="w-3.5 h-3.5 text-muted-foreground" />
+                </div>
               </div>
             ))}
             {activeContracts.length > 5 && (
-              <p className="text-xs text-muted-foreground pt-1">
+              <p className="text-xs text-muted-foreground pt-1 px-2">
                 +{activeContracts.length - 5} more
               </p>
             )}
