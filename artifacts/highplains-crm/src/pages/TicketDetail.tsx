@@ -184,6 +184,10 @@ export default function TicketDetail() {
 
   // Delete ticket state
   const [showDeleteDialog, setShowDeleteDialog] = useState(false);
+
+  // Create Invoice Ticket dialog state
+  const [showCreateInvoiceDialog, setShowCreateInvoiceDialog] = useState(false);
+  const [createInvoiceTitle, setCreateInvoiceTitle] = useState("");
   
   // Edit ticket state
   const [showEditDialog, setShowEditDialog] = useState(false);
@@ -357,6 +361,20 @@ export default function TicketDetail() {
     },
     onError: (error: Error) => {
       toast({ title: t('tickets.deleteFailed'), description: error.message, variant: "destructive" });
+    },
+  });
+
+  const createInvoiceMutation = useMutation({
+    mutationFn: async () => {
+      return apiRequest("POST", `/api/tickets/${ticketId}/create-invoice`, { title: createInvoiceTitle.trim() });
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/tickets", ticketId, "details"] });
+      setShowCreateInvoiceDialog(false);
+      toast({ title: "Invoice ticket created", description: "The invoice ticket has been linked to this ticket." });
+    },
+    onError: (error: Error) => {
+      toast({ title: "Failed to create invoice ticket", description: error.message, variant: "destructive" });
     },
   });
 
@@ -1280,6 +1298,23 @@ export default function TicketDetail() {
                 )}
               </CardContent>
             </Card>
+          )}
+
+          {(ticketType?.name === "Estimate Request" || ticketType?.name === "Project") &&
+           !linkedTickets?.find(lt => lt.link.linkType === "invoice_for" && lt.relationship === "source") && (
+            <Button
+              variant="outline"
+              size="sm"
+              className="gap-2 w-full justify-start"
+              onClick={() => {
+                setCreateInvoiceTitle(`Invoice: ${ticket?.title || ""}`);
+                setShowCreateInvoiceDialog(true);
+              }}
+              data-testid="button-create-invoice-ticket"
+            >
+              <FileText className="w-4 h-4" />
+              Create Invoice Ticket
+            </Button>
           )}
 
           {linkedTickets && linkedTickets.length > 0 && (
@@ -2935,6 +2970,40 @@ export default function TicketDetail() {
                 <UserRoundCheck className="w-4 h-4 mr-2" />
               )}
               {t('ticketDetail.delegate')}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Create Invoice Ticket Dialog */}
+      <Dialog open={showCreateInvoiceDialog} onOpenChange={setShowCreateInvoiceDialog}>
+        <DialogContent data-testid="dialog-create-invoice">
+          <DialogHeader>
+            <DialogTitle>Create Invoice Ticket</DialogTitle>
+            <DialogDescription>
+              A new Invoice ticket will be created and linked to this ticket. Comments and notes will be copied over.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-2 py-2">
+            <Label htmlFor="create-invoice-title">Invoice Title</Label>
+            <Input
+              id="create-invoice-title"
+              value={createInvoiceTitle}
+              onChange={e => setCreateInvoiceTitle(e.target.value)}
+              data-testid="input-invoice-title"
+            />
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setShowCreateInvoiceDialog(false)}>
+              Cancel
+            </Button>
+            <Button
+              onClick={() => createInvoiceMutation.mutate()}
+              disabled={createInvoiceMutation.isPending || !createInvoiceTitle.trim()}
+              data-testid="button-confirm-create-invoice"
+            >
+              {createInvoiceMutation.isPending ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : null}
+              Create Invoice
             </Button>
           </DialogFooter>
         </DialogContent>

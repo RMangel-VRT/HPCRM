@@ -6787,7 +6787,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
         console.log(`Invoice auto-creation check for ticket ${existingTicket.id}: newStatus="${newStatus?.name}", billingBehavior="${existingTicket.billingBehavior}", ticketType="${currentTicketTypeForInvoice?.name}", isInvoiceType=${isInvoiceTicketType}`);
         
         const isProjectTypeForInvoice = currentTicketTypeForInvoice?.name === "Project";
-        if (newStatus?.name === "Ready for Billing" && (existingTicket.billingBehavior === "invoice_required" || isProjectTypeForInvoice) && !isInvoiceTicketType) {
+        const isEstimateRequestTypeForInvoice = currentTicketTypeForInvoice?.name === "Estimate Request";
+        if (newStatus?.name === "Ready for Billing" && (existingTicket.billingBehavior === "invoice_required" || req.body.billingBehavior === "invoice_required" || isProjectTypeForInvoice || isEstimateRequestTypeForInvoice) && !isInvoiceTicketType) {
           const existingLinks = await storage.getTicketLinks(existingTicket.id);
           const hasExistingInvoice = existingLinks.some(l => l.linkType === "invoice_for" && l.sourceTicketId === existingTicket.id);
           console.log(`Invoice auto-creation: hasExistingInvoice=${hasExistingInvoice}, links=${JSON.stringify(existingLinks.map(l => ({ id: l.id, type: l.linkType, src: l.sourceTicketId, tgt: l.targetTicketId })))}`);
@@ -6839,7 +6840,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         }
         
         // Fallback: auto-create Invoice ticket when stepping to "Invoicing" and no invoice exists yet
-        if (newStatus?.name === "Invoicing" && isProjectTypeForInvoice && !isInvoiceTicketType) {
+        if (newStatus?.name === "Invoicing" && (isProjectTypeForInvoice || isEstimateRequestTypeForInvoice) && !isInvoiceTicketType) {
           const existingLinksForFallback = await storage.getTicketLinks(existingTicket.id);
           const hasExistingInvoiceFallback = existingLinksForFallback.some(l => l.linkType === "invoice_for" && l.sourceTicketId === existingTicket.id);
           
@@ -7048,6 +7049,78 @@ export async function registerRoutes(app: Express): Promise<Server> {
     })();
 
     res.json(ticket);
+  });
+
+  // Manual invoice ticket creation from an Estimate Request or Project ticket
+  app.post("/api/tickets/:id/create-invoice", async (req, res) => {
+    if (!req.isAuthenticated()) {
+      return res.status(401).send("Not authenticated");
+    }
+    const user = req.user as UserWithContext;
+
+    const ticket = await storage.getTicketById(req.params.id, user.activeCompanyId);
+    if (!ticket) {
+      return res.status(404).send("Ticket not found");
+    }
+
+    const ticketType = await storage.getTicketTypeById(ticket.ticketTypeId, user.activeCompanyId);
+    if (ticketType?.name !== "Estimate Request" && ticketType?.name !== "Project") {
+      return res.status(400).send("Invoice tickets can only be created from Estimate Request or Project tickets");
+    }
+
+    const existingLinks = await storage.getTicketLinks(ticket.id);
+    const hasExistingInvoice = existingLinks.some(l => l.linkType === "invoice_for" && l.sourceTicketId === ticket.id);
+    if (hasExistingInvoice) {
+      return res.status(409).json({ error: "INVOICE_EXISTS", message: "An invoice ticket already exists for this ticket" });
+    }
+
+    try {
+      const invoiceTypeInfo = await ensureInvoiceTicketType(user.activeCompanyId);
+      if (!invoiceTypeInfo) {
+        return res.status(500).send("Failed to initialize Invoice ticket type");
+      }
+
+      const companyUsers = await storage.getCompanyUsersByCompanyId(user.activeCompanyId);
+      const billingUser = companyUsers.find(cu => cu.tags?.includes("billing") && cu.status === "active");
+
+      const title = (req.body.title as string | undefined)?.trim() || `Invoice: ${ticket.title}`;
+
+      const invoiceTicket = await storage.createTicket({
+        companyId: user.activeCompanyId,
+        customerId: ticket.customerId,
+        contractId: ticket.contractId,
+        ticketTypeId: invoiceTypeInfo.typeId,
+        currentStatusId: invoiceTypeInfo.pendingStatusId,
+        workType: "admin",
+        billingBehavior: "internal",
+        title,
+        description: `Invoice required for completed work: ${ticket.title}\n\nOriginal description: ${ticket.description || "N/A"}`,
+        priority: "normal",
+        assignedToId: billingUser?.userId || null,
+        createdById: user.id,
+      });
+
+      await storage.createTicketLink({
+        sourceTicketId: ticket.id,
+        targetTicketId: invoiceTicket.id,
+        linkType: "invoice_for",
+      });
+
+      const sourceComments = await storage.getTicketComments(ticket.id);
+      for (const comment of sourceComments) {
+        await storage.createTicketComment({
+          ticketId: invoiceTicket.id,
+          authorId: comment.authorId,
+          body: comment.body,
+        });
+      }
+
+      console.log(`Manually created Invoice ticket ${invoiceTicket.id} for ticket ${ticket.id} by user ${user.id} (assigned to: ${billingUser?.userId || "unassigned"}) with ${sourceComments.length} notes copied`);
+      res.json(invoiceTicket);
+    } catch (err) {
+      console.error("Failed to create invoice ticket:", err);
+      res.status(500).send("Failed to create invoice ticket");
+    }
   });
 
   // Batch delete tickets - admin only (MUST be before /:id route)
