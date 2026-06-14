@@ -368,7 +368,7 @@ function OpenTicketsCard({
   return (
     <Card
       className="cursor-pointer hover-elevate"
-      onClick={() => onTabChange("operations")}
+      onClick={() => onTabChange("tickets")}
       data-testid="card-open-tickets"
     >
       <CardHeader className="pb-2">
