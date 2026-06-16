@@ -283,3 +283,88 @@ describe('renderChemicalNotificationTemplate — full template seed coverage', (
     expect(post.html).not.toContain('What to Expect Next');
   });
 });
+
+// Extended base template with all four override-able fields in the HTML so
+// per-visit override tests can assert they appear or are absent.
+const overrideTpl = {
+  ...baseTpl,
+  preVisitHtml:
+    '<p>{{customerName}}</p><p>Purpose: {{purpose}}</p><p>Re-entry: {{reentryInterval}}</p><p>Watering: {{wateringInstructions}}</p><p>Mowing: {{mowingInstructions}}</p>',
+  postVisitHtml:
+    '<p>{{customerName}}</p><p>Purpose: {{purpose}}</p><p>Re-entry: {{reentryInterval}}</p><p>Watering: {{wateringInstructions}}</p><p>Mowing: {{mowingInstructions}}</p>',
+  purposeText: 'Template default purpose',
+  reentryInterval: 'Template default reentry',
+  wateringInstructions: 'Template default watering',
+  mowingInstructions: 'Template default mowing',
+};
+
+describe('renderChemicalNotificationTemplate — per-visit override vars', () => {
+  beforeEach(() => setTemplates([]));
+
+  it('pre-email: per-visit override vars win over template defaults', async () => {
+    setTemplates([{ ...overrideTpl, isDefault: true }]);
+    const result = await renderChemicalNotificationTemplate(
+      { notificationTemplateId: null },
+      'co-1',
+      'pre',
+      {
+        ...stdSendVars,
+        purpose: 'Visit-specific crabgrass control',
+        reentryInterval: '6 hours (visit override)',
+      },
+    );
+    expect(result.html).toContain('Visit-specific crabgrass control');
+    expect(result.html).not.toContain('Template default purpose');
+    expect(result.html).toContain('6 hours (visit override)');
+    expect(result.html).not.toContain('Template default reentry');
+    // Fields not overridden still come from template defaults
+    expect(result.html).toContain('Template default watering');
+    expect(result.html).toContain('Template default mowing');
+  });
+
+  it('post-email: per-visit override vars win over template defaults', async () => {
+    setTemplates([{ ...overrideTpl, isDefault: true }]);
+    const result = await renderChemicalNotificationTemplate(
+      { notificationTemplateId: null },
+      'co-1',
+      'post',
+      {
+        ...stdSendVars,
+        wateringInstructions: 'Water in immediately (visit override)',
+        mowingInstructions: 'Mow after 72h (visit override)',
+      },
+    );
+    expect(result.html).toContain('Water in immediately (visit override)');
+    expect(result.html).not.toContain('Template default watering');
+    expect(result.html).toContain('Mow after 72h (visit override)');
+    expect(result.html).not.toContain('Template default mowing');
+    // Fields not overridden still come from template defaults
+    expect(result.html).toContain('Template default purpose');
+    expect(result.html).toContain('Template default reentry');
+  });
+
+  it('no overrides: template defaults render unchanged for both pre and post', async () => {
+    setTemplates([{ ...overrideTpl, isDefault: true }]);
+    const pre = await renderChemicalNotificationTemplate(
+      { notificationTemplateId: null },
+      'co-1',
+      'pre',
+      { customerName: 'Test Customer', companyName: 'Acme', campaignTitle: 'Spring' },
+    );
+    expect(pre.html).toContain('Template default purpose');
+    expect(pre.html).toContain('Template default reentry');
+    expect(pre.html).toContain('Template default watering');
+    expect(pre.html).toContain('Template default mowing');
+
+    const post = await renderChemicalNotificationTemplate(
+      { notificationTemplateId: null },
+      'co-1',
+      'post',
+      { customerName: 'Test Customer', companyName: 'Acme', campaignTitle: 'Spring', completionDate: 'May 15' },
+    );
+    expect(post.html).toContain('Template default purpose');
+    expect(post.html).toContain('Template default reentry');
+    expect(post.html).toContain('Template default watering');
+    expect(post.html).toContain('Template default mowing');
+  });
+});
