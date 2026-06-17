@@ -149,7 +149,17 @@ export default function CustomersList() {
       return apiRequest("POST", "/api/customers", data);
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/customers"] });
+      queryClient.invalidateQueries({
+        predicate: (q) => {
+          const key = q.queryKey[0];
+          return (
+            typeof key === "string" &&
+            (key === "/api/customers" ||
+              key.startsWith("/api/customers?") ||
+              key.startsWith("/api/customers/"))
+          );
+        },
+      });
       toast({
         title: t("common.success"),
         description: t("customers.created"),
@@ -171,7 +181,17 @@ export default function CustomersList() {
       return apiRequest("PATCH", `/api/customers/${id}`, { active: active ? "true" : "false" });
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/customers"] });
+      queryClient.invalidateQueries({
+        predicate: (q) => {
+          const key = q.queryKey[0];
+          return (
+            typeof key === "string" &&
+            (key === "/api/customers" ||
+              key.startsWith("/api/customers?") ||
+              key.startsWith("/api/customers/"))
+          );
+        },
+      });
       toast({
         title: t("common.success"),
         description: t("customers.updated"),
@@ -191,7 +211,17 @@ export default function CustomersList() {
       return apiRequest("DELETE", `/api/customers/${id}`);
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/customers"] });
+      queryClient.invalidateQueries({
+        predicate: (q) => {
+          const key = q.queryKey[0];
+          return (
+            typeof key === "string" &&
+            (key === "/api/customers" ||
+              key.startsWith("/api/customers?") ||
+              key.startsWith("/api/customers/"))
+          );
+        },
+      });
       toast({
         title: t("common.success"),
         description: t("customers.deleted"),

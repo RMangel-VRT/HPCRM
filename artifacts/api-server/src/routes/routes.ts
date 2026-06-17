@@ -2757,6 +2757,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
       companyId: user.activeCompanyId,
     });
     if (!result.success) {
+      req.log.warn(
+        {
+          issues: result.error.issues,
+          bodyKeys: Object.keys(req.body ?? {}),
+        },
+        "customer create validation failed",
+      );
       return res.status(400).send(result.error.message);
     }
 
