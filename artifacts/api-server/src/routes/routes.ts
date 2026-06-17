@@ -41,6 +41,19 @@ import { registerMobileTicketPhotosNotesRoutes } from "./mobileTicketPhotosNotes
 const LABEL_URL_TTL_SEC = 3600;
 const TEMPLATE_LABEL_TTL_SEC = 604800; // 7 days for template-level label PDFs
 
+/**
+ * When true (default), a chemical notification send is blocked with HTTP 400
+ * if the resolved label comes from the product-level fallback rather than the
+ * notification template or a visit-level override. The template is the source
+ * of truth for the label PDF; a product-level PDF is treated as a
+ * misconfiguration. Set to false here (and document why) to allow the
+ * product-fallback path silently instead.
+ */
+const BLOCK_PRODUCT_LABEL_FALLBACK = true;
+
+const MISSING_LABEL_ERROR =
+  "This template has no product label PDF attached. Add a label to the template before sending.";
+
 const LABEL_ALLOWED_MIME_TYPES: Record<string, string> = {
   "application/pdf": "pdf",
 };
@@ -13636,28 +13649,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
         }
       }
 
-      // Resolve label URL with the SAME fallback chain that send paths use
-      // (`resolveChemLabelAttachment` → `resolveChemicalNotificationTemplate`),
-      // so preview parity matches what the recipient would actually receive:
-      //   visit override → notification template default → product default.
-      let labelAttachmentUrl: string | null = null;
-      try {
-        const fallbackTpl = await resolveChemicalNotificationTemplate(campaign, user.activeCompanyId).catch(() => null);
-        const labelStorageKey =
-          targetItem.labelPdfOverrideKey ||
-          fallbackTpl?.defaultLabelPdfStorageKey ||
-          product?.labelPdfStorageKey ||
-          null;
-        if (labelStorageKey) {
-          const { bucketName, objectName } = (function parseGcsPath(path: string) {
-            const parts = path.replace(/^\//, "").split("/");
-            return { bucketName: parts[0], objectName: parts.slice(1).join("/") };
-          })(labelStorageKey);
-          labelAttachmentUrl = await signObjectURL({ bucketName, objectName, method: "GET", ttlSec: LABEL_URL_TTL_SEC });
-        }
-      } catch {
-        // Non-fatal: preview still renders without label URL
+      // Resolve label using the shared helper so preview reflects exactly
+      // what send would do — same source tagging and same policy block.
+      const { url: resolvedLabelUrl, source: resolvedLabelSource } = await resolveChemLabelAttachment(targetItem, campaign, user.activeCompanyId);
+      if (resolvedLabelSource === 'none' || (resolvedLabelSource === 'product' && BLOCK_PRODUCT_LABEL_FALLBACK)) {
+        return res.status(400).json({ error: MISSING_LABEL_ERROR });
       }
+      const labelAttachmentUrl: string | null = resolvedLabelUrl || null;
 
       try {
         // Use the EXACT same variable builders as the send paths so the
@@ -14525,7 +14523,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
           return res.status(400).json({ error: "No recipient email available. Add a contact or property manager with an email address." });
         }
         try {
-          const { url: labelAttachmentUrl, name: labelAttachmentName } = await resolveChemLabelAttachment(targetItem, campaign, user.activeCompanyId);
+          const { url: labelAttachmentUrl, name: labelAttachmentName, source: labelSource } = await resolveChemLabelAttachment(targetItem, campaign, user.activeCompanyId);
+          if (labelSource === 'none' || (labelSource === 'product' && BLOCK_PRODUCT_LABEL_FALLBACK)) {
+            return res.status(400).json({ error: MISSING_LABEL_ERROR });
+          }
           const { name: applicatorName, license: applicatorLicense } = await resolveChemApplicator(targetItem, user.id, campaign);
           const preVars: Record<string, string> = {
             companyName: company?.name || '',
@@ -14621,7 +14622,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
           return res.status(400).json({ error: "No recipient email available. Add a contact or property manager with an email address." });
         }
         try {
-          const { url: labelAttachmentUrl, name: labelAttachmentName } = await resolveChemLabelAttachment(targetItem, campaign, user.activeCompanyId);
+          const { url: labelAttachmentUrl, name: labelAttachmentName, source: labelSource } = await resolveChemLabelAttachment(targetItem, campaign, user.activeCompanyId);
+          if (labelSource === 'none' || (labelSource === 'product' && BLOCK_PRODUCT_LABEL_FALLBACK)) {
+            return res.status(400).json({ error: MISSING_LABEL_ERROR });
+          }
           const completionPhotosHtml = await resolveChemCompletionPhotosHtml(targetItem);
           const { name: applicatorName, license: applicatorLicense } = await resolveChemApplicator(targetItem, user.id, campaign);
           const postVars: Record<string, string> = {
@@ -14721,26 +14725,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
             if (licNum) notifApplicatorLicense = licState ? `${licNum} (${licState})` : licNum;
           }
         }
-        // Resolve label URL using the SAME fallback chain as
-        // `resolveChemLabelAttachment` (visit override → notification
-        // template default → product default) so the send_notification
-        // path matches pre/post send paths exactly.
-        let notifLabelUrl: string | null = null;
-        const notifFallbackTpl = await resolveChemicalNotificationTemplate(campaign, user.activeCompanyId).catch(() => null);
-        try {
-          const labelStorageKey =
-            targetItem.labelPdfOverrideKey ||
-            notifFallbackTpl?.defaultLabelPdfStorageKey ||
-            notifProduct?.labelPdfStorageKey ||
-            null;
-          if (labelStorageKey) {
-            const { bucketName, objectName } = (function parseGcsPath(path: string) {
-              const parts = path.replace(/^\//, "").split("/");
-              return { bucketName: parts[0], objectName: parts.slice(1).join("/") };
-            })(labelStorageKey);
-            notifLabelUrl = await signObjectURL({ bucketName, objectName, method: "GET", ttlSec: LABEL_URL_TTL_SEC });
-          }
-        } catch { /* non-fatal */ }
+        // Resolve label using the shared helper so the send_notification
+        // path is identical to pre/post send paths (source tagging + policy).
+        const { url: notifLabelAttachmentUrl, source: notifLabelSource } = await resolveChemLabelAttachment(targetItem, campaign, user.activeCompanyId);
+        if (notifLabelSource === 'none' || (notifLabelSource === 'product' && BLOCK_PRODUCT_LABEL_FALLBACK)) {
+          return res.status(400).json({ error: MISSING_LABEL_ERROR });
+        }
+        const notifLabelUrl: string | null = notifLabelAttachmentUrl || null;
         const notifVars = buildChemicalNotificationVariables(
           targetItem,
           notifProduct,
@@ -15021,7 +15012,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(400).json({ error: "No recipient email available. Provide an email address or add a contact/property manager." });
       }
       try {
-        const { url: labelAttachmentUrl, name: labelAttachmentName } = await resolveChemLabelAttachment(targetItem, campaign, user.activeCompanyId);
+        const { url: labelAttachmentUrl, name: labelAttachmentName, source: labelSource } = await resolveChemLabelAttachment(targetItem, campaign, user.activeCompanyId);
+        if (labelSource === 'none' || (labelSource === 'product' && BLOCK_PRODUCT_LABEL_FALLBACK)) {
+          return res.status(400).json({ error: MISSING_LABEL_ERROR });
+        }
         const { name: applicatorName, license: applicatorLicense } = await resolveChemApplicator(targetItem, user.id, campaign);
         const baseVars: Record<string, string> = {
           companyName: company?.name || '',
@@ -15197,7 +15191,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
         const resolvedCompletionDate = effectiveCompletedAtStr
           ? (() => { const d = new Date(effectiveCompletedAtStr + "T12:00:00"); return isNaN(d.getTime()) ? resolveChemCompletionDate(targetItem) : d.toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' }); })()
           : resolveChemCompletionDate(targetItem);
-        const { url: labelAttachmentUrl, name: labelAttachmentName } = await resolveChemLabelAttachment(targetItem, campaign, user.activeCompanyId);
+        const { url: labelAttachmentUrl, name: labelAttachmentName, source: labelSource } = await resolveChemLabelAttachment(targetItem, campaign, user.activeCompanyId);
+        if (labelSource === 'none' || (labelSource === 'product' && BLOCK_PRODUCT_LABEL_FALLBACK)) {
+          return res.status(400).json({ error: MISSING_LABEL_ERROR });
+        }
         const completionPhotosHtml = await resolveChemCompletionPhotosHtml(targetItem);
         const { name: applicatorName, license: applicatorLicense } = await resolveChemApplicator(targetItem, user.id, campaign);
         const baseVars: Record<string, string> = {
@@ -17327,9 +17324,10 @@ ${pdfText.slice(0, 8000)}`;
     targetItem: { labelPdfOverrideKey?: string | null; chemicalProductId?: string | null },
     campaign: { notificationTemplateId?: string | null },
     companyId: string,
-  ): Promise<{ url: string; name: string }> {
+  ): Promise<{ url: string; name: string; source: 'visit_override' | 'template' | 'product' | 'none' }> {
     let url = '';
     let name = '';
+    let source: 'visit_override' | 'template' | 'product' | 'none' = 'none';
     try {
       const tpl = await resolveChemicalNotificationTemplate(campaign, companyId).catch(() => null);
       let productLabelKey: string | null = null;
@@ -17339,11 +17337,17 @@ ${pdfText.slice(0, 8000)}`;
           .where(and(eq(chemicalProductsTable.id, targetItem.chemicalProductId), eq(chemicalProductsTable.companyId, companyId)));
         productLabelKey = prod?.labelPdfStorageKey ?? null;
       }
-      const storageKey =
-        targetItem.labelPdfOverrideKey ||
-        tpl?.defaultLabelPdfStorageKey ||
-        productLabelKey ||
-        null;
+      let storageKey: string | null = null;
+      if (targetItem.labelPdfOverrideKey) {
+        storageKey = targetItem.labelPdfOverrideKey;
+        source = 'visit_override';
+      } else if (tpl?.defaultLabelPdfStorageKey) {
+        storageKey = tpl.defaultLabelPdfStorageKey;
+        source = 'template';
+      } else if (productLabelKey) {
+        storageKey = productLabelKey;
+        source = 'product';
+      }
       name = tpl?.defaultLabelPdfFilename || '';
       if (storageKey) {
         const parts = storageKey.replace(/^\//, '').split('/');
@@ -17355,7 +17359,7 @@ ${pdfText.slice(0, 8000)}`;
         });
       }
     } catch { /* non-fatal */ }
-    return { url, name };
+    return { url, name, source };
   }
 
   async function resolveChemCompletionPhotosHtml(
