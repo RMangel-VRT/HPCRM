@@ -32,6 +32,7 @@ import { seedChemicalNotificationTemplates } from "../templates/seed";
 import { assertNotParentCustomer } from "../utils/parentGuard";
 import { registerExtraBillablePhotoRoutes } from "./extraBillablePhotos";
 import { registerMobileTicketPhotosNotesRoutes } from "./mobileTicketPhotosNotes";
+import { getEmailFallbacks, formatReentryInterval } from '../i18n/emailFallbacks';
 
 /**
  * Signed URL TTL for chemical product label attachments (in seconds).
@@ -14528,12 +14529,18 @@ export async function registerRoutes(app: Express): Promise<Server> {
             return res.status(400).json({ error: MISSING_LABEL_ERROR });
           }
           const { name: applicatorName, license: applicatorLicense } = await resolveChemApplicator(targetItem, user.id, campaign);
+          const fb = getEmailFallbacks(user.language ?? 'en');
           const preVars: Record<string, string> = {
             companyName: company?.name || '',
+            // companyPhone carries the locale-aware fallback so templates that
+            // reference {{companyPhone}} show "See company contact details" when
+            // no phone is on file — matching the send_notification path exactly.
+            companyPhone: company?.phone || fb.seeCompanyContact,
+            companyEmail: company?.billingEmail || '',
             customerName: targetItem.customerName,
             campaignTitle: campaign.title,
-            targetDate: targetItem.targetDate || campaign.windowStart || '',
-            backupDate: targetItem.backupDate || campaign.windowEnd || '',
+            targetDate: targetItem.targetDate || campaign.windowStart || fb.toBeScheduled,
+            backupDate: targetItem.backupDate || fb.toBeDetermined,
             timeWindow: formatTimeWindow(targetItem.timeWindowStart, targetItem.timeWindowEnd),
             contactPhone: company?.phone || '',
             contactEmail: company?.billingEmail || '',
@@ -14541,11 +14548,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
             pesticideLicenseNumber: company?.pesticideLicenseNumber || '',
             labelAttachmentUrl,
             labelAttachmentName,
-            applicatorName,
+            applicatorName: applicatorName || fb.licensedApplicator,
             applicatorLicense,
           };
           if (targetItem.purposeOverride && String(targetItem.purposeOverride).trim().length > 0) preVars.purpose = String(targetItem.purposeOverride);
-          if (targetItem.reentryIntervalOverride !== undefined && targetItem.reentryIntervalOverride !== null && String(targetItem.reentryIntervalOverride).trim().length > 0) preVars.reentryInterval = String(targetItem.reentryIntervalOverride);
+          // Format with " hours" when the override is a bare number (e.g. "24" → "24 hours")
+          // to match the free-text format that chemical_notification_templates use.
+          if (targetItem.reentryIntervalOverride !== undefined && targetItem.reentryIntervalOverride !== null && String(targetItem.reentryIntervalOverride).trim().length > 0) preVars.reentryInterval = formatReentryInterval(targetItem.reentryIntervalOverride);
           if (targetItem.wateringInstructionsOverride && String(targetItem.wateringInstructionsOverride).trim().length > 0) preVars.wateringInstructions = String(targetItem.wateringInstructionsOverride);
           if (targetItem.mowingInstructionsOverride && String(targetItem.mowingInstructionsOverride).trim().length > 0) preVars.mowingInstructions = String(targetItem.mowingInstructionsOverride);
           const { subject, html, textBody, templateId, templateName } = await renderChemicalNotificationTemplate(
@@ -14628,8 +14637,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
           }
           const completionPhotosHtml = await resolveChemCompletionPhotosHtml(targetItem);
           const { name: applicatorName, license: applicatorLicense } = await resolveChemApplicator(targetItem, user.id, campaign);
+          const fb = getEmailFallbacks(user.language ?? 'en');
           const postVars: Record<string, string> = {
             companyName: company?.name || '',
+            // companyPhone carries the locale-aware fallback so templates that
+            // reference {{companyPhone}} show "See company contact details" when
+            // no phone is on file — matching the send_notification path exactly.
+            companyPhone: company?.phone || fb.seeCompanyContact,
+            companyEmail: company?.billingEmail || '',
             customerName: targetItem.customerName,
             campaignTitle: campaign.title,
             completionDate: resolveChemCompletionDate(targetItem),
@@ -14641,11 +14656,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
             labelAttachmentName,
             completionPhotosHtml,
             photoHtmlThumbs: completionPhotosHtml,
-            applicatorName,
+            applicatorName: applicatorName || fb.licensedApplicator,
             applicatorLicense,
           };
           if (targetItem.purposeOverride && String(targetItem.purposeOverride).trim().length > 0) postVars.purpose = String(targetItem.purposeOverride);
-          if (targetItem.reentryIntervalOverride !== undefined && targetItem.reentryIntervalOverride !== null && String(targetItem.reentryIntervalOverride).trim().length > 0) postVars.reentryInterval = String(targetItem.reentryIntervalOverride);
+          // Format with " hours" when the override is a bare number (e.g. "24" → "24 hours")
+          // to match the free-text format that chemical_notification_templates use.
+          if (targetItem.reentryIntervalOverride !== undefined && targetItem.reentryIntervalOverride !== null && String(targetItem.reentryIntervalOverride).trim().length > 0) postVars.reentryInterval = formatReentryInterval(targetItem.reentryIntervalOverride);
           if (targetItem.wateringInstructionsOverride && String(targetItem.wateringInstructionsOverride).trim().length > 0) postVars.wateringInstructions = String(targetItem.wateringInstructionsOverride);
           if (targetItem.mowingInstructionsOverride && String(targetItem.mowingInstructionsOverride).trim().length > 0) postVars.mowingInstructions = String(targetItem.mowingInstructionsOverride);
           const { subject, html, textBody, templateId, templateName } = await renderChemicalNotificationTemplate(

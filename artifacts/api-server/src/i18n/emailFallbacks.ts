@@ -58,6 +58,21 @@ export function getEmailFallbacks(locale?: string | null): ChemEmailFallbacks {
 }
 
 /**
+ * Format a re-entry interval override value for use in email templates.
+ * The value is stored as a bare number string (e.g. "24") from the numeric
+ * form input; append " hours" so it matches the free-text format templates
+ * use (e.g. "24 hours"). If the value already carries a non-numeric suffix
+ * (e.g. "4 hours", "24h"), it is returned as-is.
+ */
+export function formatReentryInterval(val: string | number | null | undefined): string {
+  if (val === null || val === undefined) return '';
+  const s = String(val).trim();
+  if (!s) return '';
+  // Bare integer or decimal (e.g. "24", "24.5") → append " hours"
+  return /^\d+(\.\d+)?$/.test(s) ? `${s} hours` : s;
+}
+
+/**
  * Formats a time window into a human-readable string.
  * Both values → "8:00 AM – 12:00 PM"
  * Start only  → "Starting around 8:00 AM"

@@ -2,7 +2,7 @@ import sgMail from '@sendgrid/mail';
 import Handlebars from 'handlebars';
 import { storage } from '../storage';
 import type { EmailLog, InsertEmailLog, EmailRule, CampaignItem, ChemicalProduct, ChemicalNotificationTemplate } from '@workspace/db';
-import { getEmailFallbacks, formatTimeWindowWithFallback } from '../i18n/emailFallbacks';
+import { getEmailFallbacks, formatTimeWindowWithFallback, formatReentryInterval } from '../i18n/emailFallbacks';
 
 /**
  * Thrown by renderChemicalNotificationTemplate when no template can be resolved
@@ -591,7 +591,9 @@ export function buildChemicalNotificationVariables(
   // (the renderer treats explicit empty as "use template default"), so we
   // omit instead.
   if (purposeOverride && String(purposeOverride).trim().length > 0) out.purpose = String(purposeOverride);
-  if (reentryOverride !== undefined && reentryOverride !== null && String(reentryOverride).trim().length > 0) out.reentryInterval = String(reentryOverride);
+  // Format with " hours" when the override is a bare number (e.g. "24" → "24 hours")
+  // to match the free-text format that chemical_notification_templates use.
+  if (reentryOverride !== undefined && reentryOverride !== null && String(reentryOverride).trim().length > 0) out.reentryInterval = formatReentryInterval(reentryOverride);
   if (wateringOverride && String(wateringOverride).trim().length > 0) out.wateringInstructions = String(wateringOverride);
   if (mowingOverride && String(mowingOverride).trim().length > 0) out.mowingInstructions = String(mowingOverride);
   return out;
