@@ -5,14 +5,15 @@ import type { EmailLog, InsertEmailLog, EmailRule, CampaignItem, ChemicalProduct
 import { getEmailFallbacks, formatTimeWindowWithFallback, formatReentryInterval } from '../i18n/emailFallbacks';
 
 /**
- * Thrown by renderChemicalNotificationTemplate when no template can be resolved
+ * Thrown by resolveChemicalNotificationTemplate when no template can be resolved
  * for a chemical campaign. Routes should map this to HTTP 400 with the message.
  */
 export class MissingChemicalNotificationTemplateError extends Error {
   status = 400 as const;
-  constructor() {
+  constructor(message?: string) {
     super(
-      'This company has no chemical notification templates configured. Visit Settings \u2192 Notification Templates to create one.',
+      message ??
+        'This company has no chemical notification templates configured. Visit Settings \u2192 Notification Templates to create one.',
     );
     this.name = 'MissingChemicalNotificationTemplateError';
   }
@@ -749,9 +750,21 @@ export async function resolveChemicalNotificationTemplate(
       companyId,
     );
     if (tpl) return tpl;
+    // The explicitly-linked template no longer exists — do NOT fall through to
+    // the default. Silently substituting a different template sends the wrong
+    // body text and wrong label PDF with no warning.
+    throw new MissingChemicalNotificationTemplateError(
+      'The notification template linked to this campaign no longer exists. Re-select a template before sending.',
+    );
   }
   const all = await storage.getChemicalNotificationTemplates(companyId);
-  const fallback = all.find(t => t.isDefault) ?? null;
+  const defaults = all.filter(t => t.isDefault);
+  if (defaults.length > 1) {
+    throw new MissingChemicalNotificationTemplateError(
+      'Multiple notification templates are marked as default, so the correct one cannot be determined automatically. Please select a template explicitly on the campaign before sending.',
+    );
+  }
+  const fallback = defaults[0] ?? null;
   if (fallback) return fallback;
   throw new MissingChemicalNotificationTemplateError();
 }
