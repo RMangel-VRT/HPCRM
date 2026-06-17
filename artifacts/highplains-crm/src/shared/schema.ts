@@ -124,7 +124,12 @@ export const insertCustomerSchema = createInsertSchema(customers).omit({
 }).extend({
   status: z.enum(["active", "prospect", "inactive"]).default("active"),
   tags: z.array(z.string()).default([]),
-  complexityScore: z.enum(["1", "2", "3", "4", "5"]).optional(),
+  // Forms submit "" for an unselected optional Select; coerce empty/null to undefined
+  // so the optional enum validates instead of returning a 400.
+  complexityScore: z.preprocess(
+    (v) => (v === "" || v === null ? undefined : v),
+    z.enum(["1", "2", "3", "4", "5"]).optional(),
+  ),
   parentCustomerId: z.string().nullable().optional(),
   isParent: z.enum(["true", "false"]).default("false"),
   active: z.enum(["true", "false"]).default("true"),

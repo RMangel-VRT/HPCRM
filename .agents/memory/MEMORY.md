@@ -1,0 +1,1 @@
+- [Optional enum Select submits ""](optional-enum-select-empty-string.md) — react-hook-form Controller sends "" for untouched optional Selects; lenient frontend stub lets it through; server `z.enum().optional()` 400s. Preprocess ""/null→undefined in the shared insert schema.
