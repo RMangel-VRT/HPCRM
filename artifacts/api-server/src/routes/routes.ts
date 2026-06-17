@@ -13522,9 +13522,17 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
     }
     let notificationTemplateName: string | null = null;
-    if (campaign.notificationTemplateId) {
-      const notifTpl = await storage.getChemicalNotificationTemplate(campaign.notificationTemplateId, user.activeCompanyId);
-      notificationTemplateName = notifTpl?.name ?? null;
+    let notificationTemplateIsDefault = false;
+    if (campaign.category === "chemical") {
+      if (campaign.notificationTemplateId) {
+        const notifTpl = await storage.getChemicalNotificationTemplate(campaign.notificationTemplateId, user.activeCompanyId);
+        notificationTemplateName = notifTpl?.name ?? null;
+      } else {
+        const allTpls = await storage.getChemicalNotificationTemplates(user.activeCompanyId);
+        const defaultTpl = allTpls.find(t => t.isDefault) ?? null;
+        notificationTemplateName = defaultTpl?.name ?? null;
+        notificationTemplateIsDefault = true;
+      }
     }
     res.json({
       ...campaign,
@@ -13539,6 +13547,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       checklistTasks,
       itemTaskCompletions,
       notificationTemplateName,
+      notificationTemplateIsDefault,
     });
   });
 

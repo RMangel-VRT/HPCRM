@@ -85,6 +85,8 @@ interface CampaignDetailData extends Campaign {
   seasonName?: string;
   checklistTasks?: CampaignChecklistTask[];
   itemTaskCompletions?: Record<string, string[]>;
+  notificationTemplateName?: string | null;
+  notificationTemplateIsDefault?: boolean;
 }
 
 function escapeHtml(str: string): string {
@@ -445,6 +447,37 @@ export default function CampaignDetail() {
           </CardContent>
         </Card>
       </div>
+
+      {isChemicalCampaign && (() => {
+        const isDefault = !!campaign.notificationTemplateIsDefault;
+        const resolvedName = campaign.notificationTemplateName ?? null;
+        return (
+          <div
+            className={`flex items-start gap-2.5 p-3 rounded-md border text-sm ${!isDefault ? "bg-primary/5 border-primary/20" : "bg-muted/40 border-border"}`}
+            data-testid="banner-campaign-notification-template"
+          >
+            <Mail className="w-4 h-4 mt-0.5 flex-shrink-0 text-muted-foreground" />
+            <div className="flex-1 min-w-0">
+              <span className="text-muted-foreground">Notification template: </span>
+              {resolvedName ? (
+                <button
+                  type="button"
+                  onClick={() => navigate("/dashboard/settings/notification-templates")}
+                  className="font-medium text-primary underline underline-offset-2 hover:opacity-75"
+                  data-testid="link-notification-template"
+                >
+                  {resolvedName}
+                </button>
+              ) : (
+                <span className="font-medium text-muted-foreground italic">No default template configured</span>
+              )}
+              {isDefault && resolvedName && (
+                <span className="text-muted-foreground"> (company default)</span>
+              )}
+            </div>
+          </div>
+        );
+      })()}
 
       {canManage && (
         <div className="flex items-center gap-2 flex-wrap">
