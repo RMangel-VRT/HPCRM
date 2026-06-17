@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useCallback } from "react";
+import React, { useState, useEffect, useRef, useCallback } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { Link, useLocation, useParams } from "wouter";
 import { useTranslation } from "react-i18next";
@@ -140,6 +140,37 @@ interface CampaignDetailData extends Campaign {
   checklistTasks?: CampaignChecklistTask[];
   itemTaskCompletions?: Record<string, string[]>;
   notificationTemplateName?: string | null;
+}
+
+function highlightUnresolvedVars(html: string): string {
+  return html.replace(/\{\{[^}]+\}\}/g, (match) =>
+    `<span style="background-color:#fef08a;padding:0 2px;border-radius:3px;font-weight:600;color:#78350f;">${match}</span>`,
+  );
+}
+
+function countUnresolvedVars(subject: string, htmlBody: string): number {
+  const matches = [
+    ...(subject.match(/\{\{[^}]+\}\}/g) ?? []),
+    ...(htmlBody.match(/\{\{[^}]+\}\}/g) ?? []),
+  ];
+  return new Set(matches).size;
+}
+
+function renderSubjectWithHighlights(subject: string): React.ReactNode {
+  if (!subject) return '—';
+  const parts = subject.split(/(\{\{[^}]+\}\})/g);
+  return parts.map((part, i) =>
+    /^\{\{[^}]+\}\}$/.test(part) ? (
+      <span
+        key={i}
+        style={{ backgroundColor: '#fef08a', padding: '0 2px', borderRadius: '3px', fontWeight: 600, color: '#78350f' }}
+      >
+        {part}
+      </span>
+    ) : (
+      part || null
+    ),
+  );
 }
 
 export default function CampaignItemDetail() {
@@ -546,6 +577,53 @@ export default function CampaignItemDetail() {
     } catch {}
     setLoadingCompletionEmailPreview(false);
     setShowCompletionEmailPreview(true);
+  };
+
+  const handleConfirmSend = async () => {
+    const action = showEmailConfirm === "pre" ? "send_pre_communication" : "send_post_communication";
+    const effectiveEmail = emailPreview?.recipientEmail || manualEmail.trim();
+    const isDynamic = !!templateVarSpec?.hasTemplate;
+    const customWindowStart = !isDynamic && showEmailConfirm === "pre" ? preNoticeWindowStart : undefined;
+    const customWindowEnd = !isDynamic && showEmailConfirm === "pre" ? preNoticeWindowEnd : undefined;
+    const completedAt = showEmailConfirm === "post" ? postCommDate : undefined;
+    const areasTreated = !isDynamic && showEmailConfirm === "post" ? postCommAreasTreated : undefined;
+    const applicationConditions = !isDynamic && showEmailConfirm === "post" ? postCommApplicationConditions : undefined;
+    const nextVisitDate = !isDynamic && showEmailConfirm === "post" ? postCommNextVisitDate : undefined;
+    const templateVars = isDynamic ? formVars : undefined;
+    try {
+      await updateItemMutation.mutateAsync({ chemAction: action, notes, overrideEmail: !emailPreview?.recipientEmail ? effectiveEmail : undefined, customWindowStart, customWindowEnd, completedAt, areasTreated, applicationConditions, nextVisitDate, templateVars });
+    } catch {
+      return;
+    }
+    setShowEmailFullPreview(false);
+    setShowEmailConfirm(null);
+    setEmailPreview(null);
+    setManualEmail("");
+    setPreNoticeWindowStart("");
+    setPreNoticeWindowEnd("");
+    setPostCommDate("");
+    setPostCommAreasTreated("");
+    setPostCommApplicationConditions("");
+    setPostCommNextVisitDate("");
+    setTemplateVarSpec(null);
+    setFormVars({});
+  };
+
+  const handleOpenPreview = async () => {
+    const kind = showEmailConfirm as 'pre' | 'post';
+    const isDynamic = !!templateVarSpec?.hasTemplate;
+    let body: Record<string, unknown>;
+    if (kind === 'pre') {
+      body = isDynamic
+        ? { templateVars: formVars }
+        : { customWindowStart: preNoticeWindowStart, customWindowEnd: preNoticeWindowEnd };
+    } else {
+      body = isDynamic
+        ? { completedAt: postCommDate, templateVars: formVars }
+        : { completedAt: postCommDate, templateVars: { areasTreated: postCommAreasTreated, applicationConditions: postCommApplicationConditions, nextVisitDate: postCommNextVisitDate } };
+    }
+    await refreshChemPreview(kind, body);
+    setShowEmailFullPreview(true);
   };
 
   const handlePhotoUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -2709,52 +2787,23 @@ export default function CampaignItemDetail() {
                 {t("common.cancel")}
               </Button>
               <Button
-                className="w-full sm:w-auto"
-                onClick={async () => {
-                  const action = showEmailConfirm === "pre" ? "send_pre_communication" : "send_post_communication";
-                  const effectiveEmail = emailPreview?.recipientEmail || manualEmail.trim();
-                  const isDynamic = !!templateVarSpec?.hasTemplate;
-                  // In dynamic mode the server derives mapped values from
-                  // `templateVars` directly, so we omit the legacy dedicated
-                  // request fields to keep send/preview parity unambiguous —
-                  // except completedAt: completionDate is now a system-resolved
-                  // var, so the completion date always travels as a dedicated
-                  // field for both dynamic and legacy paths.
-                  const customWindowStart = !isDynamic && showEmailConfirm === "pre" ? preNoticeWindowStart : undefined;
-                  const customWindowEnd = !isDynamic && showEmailConfirm === "pre" ? preNoticeWindowEnd : undefined;
-                  const completedAt = showEmailConfirm === "post" ? postCommDate : undefined;
-                  const areasTreated = !isDynamic && showEmailConfirm === "post" ? postCommAreasTreated : undefined;
-                  const applicationConditions = !isDynamic && showEmailConfirm === "post" ? postCommApplicationConditions : undefined;
-                  const nextVisitDate = !isDynamic && showEmailConfirm === "post" ? postCommNextVisitDate : undefined;
-                  const templateVars = isDynamic ? formVars : undefined;
-                  // Keep the dialog open until we know the send succeeded —
-                  // on failure (e.g. SendGrid 502) the user keeps their
-                  // recipient/form inputs and can retry without re-opening.
-                  try {
-                    await updateItemMutation.mutateAsync({ chemAction: action, notes, overrideEmail: !emailPreview?.recipientEmail ? effectiveEmail : undefined, customWindowStart, customWindowEnd, completedAt, areasTreated, applicationConditions, nextVisitDate, templateVars });
-                  } catch {
-                    // updateItemMutation.onError already toasts the
-                    // server-provided message via extractApiErrorMessage.
-                    return;
-                  }
-                  setShowEmailConfirm(null);
-                  setEmailPreview(null);
-                  setManualEmail("");
-                  setPreNoticeWindowStart("");
-                  setPreNoticeWindowEnd("");
-                  setPostCommDate("");
-                  setPostCommAreasTreated("");
-                  setPostCommApplicationConditions("");
-                  setPostCommNextVisitDate("");
-                  setTemplateVarSpec(null);
-                  setFormVars({});
-                }}
+                variant="ghost"
+                className="w-full sm:w-auto text-muted-foreground"
+                onClick={handleConfirmSend}
                 disabled={updateItemMutation.isPending || (!emailPreview?.recipientEmail && (!manualEmail.trim() || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(manualEmail.trim()))) || (showEmailConfirm === "post" && !postCommDate)}
-                data-testid="button-confirm-send-email"
+                data-testid="button-send-without-preview"
               >
                 {updateItemMutation.isPending && <Loader2 className="w-4 h-4 mr-1 animate-spin" />}
-                {showEmailConfirm === "pre" ? <Mail className="w-4 h-4 mr-1" /> : <Send className="w-4 h-4 mr-1" />}
-                {t("campaigns.chemConfirmSend")}
+                Send without preview
+              </Button>
+              <Button
+                className="w-full sm:w-auto"
+                onClick={() => { void handleOpenPreview(); }}
+                disabled={previewLoading || (!emailPreview?.recipientEmail && (!manualEmail.trim() || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(manualEmail.trim()))) || (showEmailConfirm === "post" && !postCommDate)}
+                data-testid="button-preview-email"
+              >
+                <Eye className="w-4 h-4 mr-1" />
+                Preview
               </Button>
             </div>
           </div>
@@ -2763,24 +2812,66 @@ export default function CampaignItemDetail() {
 
       {/* Full-size email preview modal */}
       <Dialog open={showEmailFullPreview} onOpenChange={setShowEmailFullPreview}>
-        <DialogContent className="max-w-3xl max-h-[90vh] flex flex-col" data-testid="dialog-full-email-preview">
+        <DialogContent className="max-w-3xl max-h-[90vh] flex flex-col gap-3" data-testid="dialog-full-email-preview">
           <DialogHeader>
             <DialogTitle>Email Preview</DialogTitle>
-            {emailPreview?.subject && (
-              <DialogDescription className="font-medium text-foreground">
-                {emailPreview.subject}
-              </DialogDescription>
-            )}
           </DialogHeader>
-          <div className="flex-1 overflow-hidden rounded-md border bg-white mt-2" style={{ minHeight: 0 }}>
-            <iframe
-              srcDoc={emailPreview?.htmlBody || "<p style='color:#888;font-family:sans-serif;padding:1rem'>No preview available.</p>"}
-              className="w-full h-full"
-              style={{ height: "700px", border: "none" }}
-              sandbox="allow-same-origin"
-              data-testid="iframe-full-email-preview"
-            />
-          </div>
+          {(() => {
+            const subject = emailPreview?.subject ?? '';
+            const htmlBody = emailPreview?.htmlBody ?? '';
+            const unresolvedCount = countUnresolvedVars(subject, htmlBody);
+            const highlightedHtml = highlightUnresolvedVars(htmlBody);
+            const sendDisabled = updateItemMutation.isPending || (!emailPreview?.recipientEmail && (!manualEmail.trim() || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(manualEmail.trim()))) || (showEmailConfirm === "post" && !postCommDate);
+            const toAddress = emailPreview?.recipientEmail
+              ? (emailPreview.contactName ? `${emailPreview.contactName} <${emailPreview.recipientEmail}>` : emailPreview.recipientEmail)
+              : manualEmail || '—';
+            return (
+              <>
+                <div className="rounded-md border bg-muted/20 px-3 py-2.5 text-sm space-y-1.5">
+                  <div className="flex gap-2">
+                    <span className="text-muted-foreground w-14 shrink-0 font-medium">Subject</span>
+                    <span className="font-medium">{renderSubjectWithHighlights(subject)}</span>
+                  </div>
+                  <div className="flex gap-2">
+                    <span className="text-muted-foreground w-14 shrink-0 font-medium">To</span>
+                    <span>{toAddress}</span>
+                  </div>
+                </div>
+                {unresolvedCount > 0 && (
+                  <div className="flex items-center gap-2 rounded-md border border-amber-200 bg-amber-500/10 px-3 py-2 text-sm text-amber-700 dark:text-amber-400" data-testid="banner-unresolved-vars">
+                    <AlertCircle className="w-4 h-4 shrink-0" />
+                    <span>
+                      {unresolvedCount} variable{unresolvedCount !== 1 ? 's' : ''} not filled in — highlighted in yellow below
+                    </span>
+                  </div>
+                )}
+                <div className="flex-1 overflow-hidden rounded-md border bg-white" style={{ minHeight: 0 }}>
+                  <iframe
+                    srcDoc={highlightedHtml || "<p style='color:#888;font-family:sans-serif;padding:1rem'>No preview available.</p>"}
+                    className="w-full"
+                    style={{ height: "520px", border: "none" }}
+                    sandbox="allow-same-origin"
+                    data-testid="iframe-full-email-preview"
+                  />
+                </div>
+                <div className="flex items-center justify-between gap-2 pt-1">
+                  <Button variant="outline" onClick={() => setShowEmailFullPreview(false)} data-testid="button-preview-back">
+                    <ArrowLeft className="w-4 h-4 mr-1" />
+                    Back
+                  </Button>
+                  <Button
+                    onClick={() => { void handleConfirmSend(); }}
+                    disabled={sendDisabled}
+                    data-testid="button-preview-send"
+                  >
+                    {updateItemMutation.isPending && <Loader2 className="w-4 h-4 mr-1 animate-spin" />}
+                    {showEmailConfirm === "pre" ? <Mail className="w-4 h-4 mr-1" /> : <Send className="w-4 h-4 mr-1" />}
+                    {t("campaigns.chemConfirmSend")}
+                  </Button>
+                </div>
+              </>
+            );
+          })()}
         </DialogContent>
       </Dialog>
 
