@@ -22,6 +22,7 @@ import { ObjectStorageService, ObjectNotFoundError, objectStorageClient, signObj
 import { ObjectPermission, ObjectAccessGroupType, setObjectAclPolicy } from "../objectAcl";
 import { processEmailEvent, resendEmail, sendEmail, getDefaultWorkCompletedTemplate, buildChemicalNotificationVariables, formatTimeWindow, buildChemicalCompletionEmailVars, renderTemplate, renderChemicalNotificationTemplate, resolveChemicalNotificationTemplate, MissingChemicalNotificationTemplateError, classifyChemTemplateVariables, filterUserChemTemplateVars, CHEM_SYSTEM_TEMPLATE_VARS, getSendGridConnectionStatus } from '../services/emailService';
 import type { ChemTemplateVarSpec } from '../services/emailService';
+import { resolveChemLabelAttachment, BLOCK_PRODUCT_LABEL_FALLBACK, MISSING_LABEL_ERROR } from '../services/chemLabelService';
 import { migrateRemoveChemicalEmailTemplates } from '../services/legacyChemEmailCleanup';
 import heicConvert from 'heic-convert';
 import multer from 'multer';
@@ -42,18 +43,8 @@ import { getEmailFallbacks, formatReentryInterval } from '../i18n/emailFallbacks
 const LABEL_URL_TTL_SEC = 3600;
 const TEMPLATE_LABEL_TTL_SEC = 604800; // 7 days for template-level label PDFs
 
-/**
- * When true (default), a chemical notification send is blocked with HTTP 400
- * if the resolved label comes from the product-level fallback rather than the
- * notification template or a visit-level override. The template is the source
- * of truth for the label PDF; a product-level PDF is treated as a
- * misconfiguration. Set to false here (and document why) to allow the
- * product-fallback path silently instead.
- */
-const BLOCK_PRODUCT_LABEL_FALLBACK = true;
-
-const MISSING_LABEL_ERROR =
-  "This template has no product label PDF attached. Add a label to the template before sending.";
+// BLOCK_PRODUCT_LABEL_FALLBACK and MISSING_LABEL_ERROR are imported from
+// '../services/chemLabelService' above.
 
 const LABEL_ALLOWED_MIME_TYPES: Record<string, string> = {
   "application/pdf": "pdf",
@@ -17335,49 +17326,7 @@ ${pdfText.slice(0, 8000)}`;
     }
   });
 
-  // Label-PDF fallback for chemical visits, shared by all send + preview
-  // paths: visit override → template default → product default.
-  async function resolveChemLabelAttachment(
-    targetItem: { labelPdfOverrideKey?: string | null; chemicalProductId?: string | null },
-    campaign: { notificationTemplateId?: string | null },
-    companyId: string,
-  ): Promise<{ url: string; name: string; source: 'visit_override' | 'template' | 'product' | 'none' }> {
-    let url = '';
-    let name = '';
-    let source: 'visit_override' | 'template' | 'product' | 'none' = 'none';
-    try {
-      const tpl = await resolveChemicalNotificationTemplate(campaign, companyId).catch(() => null);
-      let productLabelKey: string | null = null;
-      if (targetItem.chemicalProductId) {
-        const [prod] = await db.select({ labelPdfStorageKey: chemicalProductsTable.labelPdfStorageKey })
-          .from(chemicalProductsTable)
-          .where(and(eq(chemicalProductsTable.id, targetItem.chemicalProductId), eq(chemicalProductsTable.companyId, companyId)));
-        productLabelKey = prod?.labelPdfStorageKey ?? null;
-      }
-      let storageKey: string | null = null;
-      if (targetItem.labelPdfOverrideKey) {
-        storageKey = targetItem.labelPdfOverrideKey;
-        source = 'visit_override';
-      } else if (tpl?.defaultLabelPdfStorageKey) {
-        storageKey = tpl.defaultLabelPdfStorageKey;
-        source = 'template';
-      } else if (productLabelKey) {
-        storageKey = productLabelKey;
-        source = 'product';
-      }
-      name = tpl?.defaultLabelPdfFilename || '';
-      if (storageKey) {
-        const parts = storageKey.replace(/^\//, '').split('/');
-        url = await signObjectURL({
-          bucketName: parts[0],
-          objectName: parts.slice(1).join('/'),
-          method: 'GET',
-          ttlSec: TEMPLATE_LABEL_TTL_SEC,
-        });
-      }
-    } catch { /* non-fatal */ }
-    return { url, name, source };
-  }
+  // resolveChemLabelAttachment is imported from '../services/chemLabelService'.
 
   async function resolveChemCompletionPhotosHtml(
     targetItem: { completionPhotoStorageKeys?: string[] | null },

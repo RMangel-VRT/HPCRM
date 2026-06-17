@@ -166,15 +166,72 @@ describe('renderChemicalNotificationTemplate', () => {
     expect(result.textBody).toContain('Until dry');
   });
 
-  it('falls through to company default when campaign template id no longer exists', async () => {
+  // Scenario 1: linked template has been deleted — must throw, never silently
+  // substitute the default (wrong body + wrong label PDF with no warning).
+  it('throws MissingChemicalNotificationTemplateError when the linked template no longer exists', async () => {
     setTemplates([{ ...baseTpl, id: 'tpl-default', isDefault: true }]);
-    const result = await renderChemicalNotificationTemplate(
-      { notificationTemplateId: 'tpl-deleted' },
-      'co-1',
-      'pre',
-      { customerName: 'Acme' },
-    );
-    expect(result.templateId).toBe('tpl-default');
+    await expect(
+      renderChemicalNotificationTemplate(
+        { notificationTemplateId: 'tpl-deleted' },
+        'co-1',
+        'pre',
+        { customerName: 'Acme' },
+      ),
+    ).rejects.toBeInstanceOf(MissingChemicalNotificationTemplateError);
+  });
+
+  it('deleted-template error includes an actionable message for the user', async () => {
+    setTemplates([{ ...baseTpl, id: 'tpl-default', isDefault: true }]);
+    try {
+      await renderChemicalNotificationTemplate(
+        { notificationTemplateId: 'tpl-deleted' },
+        'co-1',
+        'pre',
+        { customerName: 'Acme' },
+      );
+      throw new Error('should have thrown');
+    } catch (err) {
+      expect(err).toBeInstanceOf(MissingChemicalNotificationTemplateError);
+      expect((err as Error).message).toContain('no longer exists');
+      expect((err as MissingChemicalNotificationTemplateError).status).toBe(400);
+    }
+  });
+
+  // Scenario 2: ambiguous defaults — two templates both marked isDefault with no
+  // explicit selection; the correct template cannot be determined automatically.
+  it('throws MissingChemicalNotificationTemplateError when two templates are both marked isDefault', async () => {
+    setTemplates([
+      { ...baseTpl, id: 'tpl-a', name: 'Default A', isDefault: true },
+      { ...baseTpl, id: 'tpl-b', name: 'Default B', isDefault: true },
+    ]);
+    await expect(
+      renderChemicalNotificationTemplate(
+        { notificationTemplateId: null },
+        'co-1',
+        'pre',
+        { customerName: 'Acme' },
+      ),
+    ).rejects.toBeInstanceOf(MissingChemicalNotificationTemplateError);
+  });
+
+  it('multiple-defaults error message directs the user to select explicitly', async () => {
+    setTemplates([
+      { ...baseTpl, id: 'tpl-a', isDefault: true },
+      { ...baseTpl, id: 'tpl-b', isDefault: true },
+    ]);
+    try {
+      await renderChemicalNotificationTemplate(
+        { notificationTemplateId: null },
+        'co-1',
+        'pre',
+        {},
+      );
+      throw new Error('should have thrown');
+    } catch (err) {
+      expect(err).toBeInstanceOf(MissingChemicalNotificationTemplateError);
+      expect((err as Error).message).toContain('Multiple');
+      expect((err as MissingChemicalNotificationTemplateError).status).toBe(400);
+    }
   });
 });
 
