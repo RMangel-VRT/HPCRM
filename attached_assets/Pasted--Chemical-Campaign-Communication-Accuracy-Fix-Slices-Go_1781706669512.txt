@@ -1,0 +1,186 @@
+# Chemical Campaign Communication — Accuracy Fix Slices
+
+> Goal: stop sending chemical notices with the wrong template or a missing/mismatched
+> product label PDF.
+>
+> Design model (per Randy): the **template is the source of truth**. Each template
+> carries its product details AND its product label PDF, and the campaign is linked to
+> the correct template. So accuracy depends on two things only:
+> 1. The campaign always uses its intended template (never a silent wrong/default one).
+> 2. The attached PDF always comes from that template.
+>
+> These slices protect exactly those two guarantees. (The earlier "product-vars win
+> over template" slice was dropped — it conflicts with this model.)
+
+---
+
+## Context the implementer needs
+
+Three send actions in `artifacts/api-server/src/routes/routes.ts`:
+- `send_pre_communication` (~L14514)
+- `send_post_communication` (~L14610)
+- `send_notification` (~L14683)
+
+Template resolution: `resolveChemicalNotificationTemplate(campaign, companyId)` in
+`artifacts/api-server/src/services/emailService.ts` (~L740).
+
+Label PDF resolution chain (used by both send and preview), currently:
+```
+targetItem.labelPdfOverrideKey
+  → resolvedTemplate.defaultLabelPdfStorageKey
+  → product.labelPdfStorageKey
+  → none
+```
+`resolveChemLabelAttachment` is defined in `routes.ts` ~L17326.
+
+---
+
+## Slice B — Stop the silent fallback to the wrong template (TOP PRIORITY)
+
+**File:** `artifacts/api-server/src/services/emailService.ts`,
+`resolveChemicalNotificationTemplate` (~L740).
+
+### Why
+Currently: if `campaign.notificationTemplateId` is set but the template was **deleted**,
+the code silently falls through to any `isDefault` template and sends it. If several
+templates are flagged `isDefault`, it picks the first arbitrarily. In this design that
+means the wrong body text AND the wrong attached label PDF go to the customer.
+
+### Prompt for Replit
+
+> Modify `resolveChemicalNotificationTemplate` in `emailService.ts` so it never silently
+> substitutes a different template than intended:
+>
+> 1. If `campaign.notificationTemplateId` is set but `getChemicalNotificationTemplate`
+>    returns null (deleted/not found), **throw `MissingChemicalNotificationTemplateError`**
+>    with a clear message ("The notification template linked to this campaign no longer
+>    exists. Re-select a template before sending."). Do NOT fall back to the default.
+> 2. Only fall back to the company default when `campaign.notificationTemplateId` is
+>    null/empty (never explicitly chosen).
+> 3. When falling back, if **more than one** template has `isDefault === true`, throw the
+>    same error type with a message that the default is ambiguous and a template must be
+>    explicitly selected. Don't guess.
+> 4. Keep throwing `MissingChemicalNotificationTemplateError` when no template resolves
+>    at all (unchanged).
+>
+> The send routes already map `MissingChemicalNotificationTemplateError` to HTTP 400, so
+> these become clear, blocking errors instead of silent wrong sends.
+
+### Acceptance
+- Deleting a template a campaign points at → sending returns a 400 with a clear message
+  instead of sending the default.
+- Two `isDefault` templates → sending without an explicit selection returns a 400.
+- Normal case (valid linked template, or single default with no selection) → unchanged.
+
+---
+
+## Slice F — Label integrity: never send with a missing or non-template label PDF
+
+**Files:** `artifacts/api-server/src/routes/routes.ts` (`resolveChemLabelAttachment`
+~L17326 and the three send actions).
+
+### Why
+The PDF is the template's only if the template actually has one. If a template has no
+`defaultLabelPdfStorageKey`, the chain silently falls through to the **selected
+product's** PDF, and if that's empty too, the notice goes out with **no label at all** —
+silently. In this design a pesticide notice with a missing or mismatched label is the
+core failure to prevent.
+
+### Prompt for Replit
+
+> Harden the label PDF resolution so a chemical notice can never go out with a missing or
+> non-template label, per this design model (template is source of truth):
+>
+> 1. In `resolveChemLabelAttachment` (`routes.ts` ~L17326), have it report WHERE the
+>    label came from, e.g. return `{ url, name, source: 'visit_override' | 'template' |
+>    'product' | 'none' }`.
+> 2. In each send action (`send_pre_communication`, `send_post_communication`,
+>    `send_notification`), after resolving the label, **block the send** if `source` is
+>    `'none'` — return HTTP 400 with a clear message ("This template has no product label
+>    PDF attached. Add a label to the template before sending."). Do not send a notice
+>    with no label.
+> 3. Decide and apply a policy for `source === 'product'` (template had no PDF, fell back
+>    to the product's): RECOMMENDED in this model — treat product fallback as a
+>    configuration error and block with the same message, since the label must come from
+>    the template. (If you'd rather allow the product fallback, log a warning instead of
+>    blocking — make this a single clearly-commented switch.)
+> 4. Keep `visit_override` and `template` as valid, silent success paths.
+> 5. Apply the same check in the preview endpoint so preview reflects the same blocking
+>    behavior.
+
+### Acceptance
+- A template with no label PDF → sending returns a 400 (and preview shows the same),
+  instead of mailing a notice with no attachment.
+- A campaign using its template's PDF → unchanged.
+- (If product-fallback blocking is enabled) a template missing its PDF can't silently
+  borrow the product's PDF.
+
+---
+
+## Slice C — Unify fallback strings across the three send paths (consistency)
+
+**File:** `artifacts/api-server/src/routes/routes.ts`
+
+### Why
+`send_notification` runs vars through `buildChemicalNotificationVariables`, which fills
+locale-aware fallbacks (e.g. "See company contact" when no phone). The pre/post paths
+build vars inline and skip those fallbacks, so the same missing data renders blank in
+pre/post but as a fallback string in notification emails.
+
+### Prompt for Replit
+
+> Make the pre/post communication paths use the same contact/date fallback strings as the
+> notification path. Either route the shared keys (companyName, contactPhone, contactEmail,
+> applicatorName, targetDate/backupDate) through the same `getEmailFallbacks(locale)` logic
+> used in `buildChemicalNotificationVariables`, or extract a small shared helper both call.
+> Pass `user.language ?? 'en'` as the locale in the pre/post paths (the notification path
+> already does). Goal: identical rendering of missing fields regardless of send button.
+
+### Acceptance
+- With a company that has no phone/email, pre, post, and notification emails all render
+  the same fallback text rather than blanks in some and fallbacks in others.
+
+---
+
+## Slice E — Tests
+
+**Files:** `renderChemicalNotificationTemplate.test.ts` + a route-level test if present.
+
+### Prompt for Replit
+
+> Add tests covering:
+> 1. **Deleted linked template throws** (Slice B) rather than sending the default.
+> 2. **Ambiguous default (two isDefault) throws** (Slice B).
+> 3. **Valid linked template / single default** still resolves and sends (unchanged).
+> 4. **Missing label PDF blocks the send** with a 400 (Slice F).
+> 5. **Template-attached PDF sends normally** (Slice F).
+> 6. (If Slice C) consistent fallback strings across all three send paths.
+>
+> Run the suite; confirm new tests fail pre-fix and pass post-fix.
+
+---
+
+## Slice D — Re-entry interval units consistency (small, optional)
+
+**Files:** `routes.ts` override handling + `emailService.ts`.
+
+### Why
+`reentryIntervalOverride` is a **number**; template `reentryInterval` is free text (e.g.
+"24 hours"). Stringifying the number can render a bare "24" with no unit.
+
+### Prompt for Replit
+
+> When a numeric `reentryIntervalOverride` is present, format it with an explicit unit
+> (e.g. `${n} hours`) at the point it's converted to a string in the send paths, matching
+> how templates phrase it.
+
+### Acceptance
+- A numeric override renders with an explicit unit, not a bare number.
+
+---
+
+## Suggested order
+1. **Slice B** — stops wrong-template sends (text + PDF). Highest value, low risk.
+2. **Slice F** — guarantees the label PDF is present and template-sourced.
+3. **Slice E** — lock B and F in with tests.
+4. **Slice C**, then **Slice D** — consistency/polish.

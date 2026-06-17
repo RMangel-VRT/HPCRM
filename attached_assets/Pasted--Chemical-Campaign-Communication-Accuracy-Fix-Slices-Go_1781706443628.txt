@@ -1,0 +1,222 @@
+# Chemical Campaign Communication — Accuracy Fix Slices
+
+> Goal: stop sending emails that state inaccurate product/pesticide information.
+> Status of earlier work: per-visit override forwarding (old Slices 1 & 2) is already
+> in the latest pull. These slices address the remaining accuracy gaps.
+
+---
+
+## Context the implementer needs
+
+Three send actions in `artifacts/api-server/src/routes/routes.ts`:
+- `send_pre_communication` (~L14514)
+- `send_post_communication` (~L14610)
+- `send_notification` (~L14683)
+
+They all call `renderChemicalNotificationTemplate(campaign, companyId, kind, vars)`
+in `artifacts/api-server/src/services/emailService.ts` (~L765), which layers:
+1. **Base** = template metadata (`productName`, `activeIngredient`, `epaRegNumber`,
+   `purposeText`, `reentryInterval`, `wateringInstructions`, `mowingInstructions`,
+   `postApplicationExpectation`).
+2. **Override** = non-empty caller `vars` win over the base.
+
+Each visit item has a real selected product via `item.chemicalProductId` →
+`chemical_products` row. Relevant columns:
+`name`, `epaRegistrationNumber`, `activeIngredient`, `reEntryInterval`,
+`mowingRestriction`, `defaultPostApplicationWatering`,
+`defaultPostApplicationExpectation`, `targetPest`, `signalWord`, `labelPdfStorageKey`.
+
+### The core problem
+The email's **product identity (name / active ingredient / EPA reg #) comes only from
+the template**, never from the product actually selected on the visit. Only
+`signalWord` is read off the real product (and only in the notification path). If the
+template's product details don't match the applied product, the customer receives a
+pesticide notice with the wrong product, active ingredient, or EPA registration number.
+
+### Design decision (confirm before building)
+Adopt precedence **per-visit override → selected product → template metadata**. The
+product the applicator actually chose becomes the source of truth for product identity;
+the template becomes a formatting/fallback layer. If instead the template must remain
+authoritative, do NOT build Slice A — but then product mismatches stay possible.
+**Recommended: product wins over template (accuracy).**
+
+---
+
+## Slice A — Make emails reflect the product actually selected on the visit
+
+**Files:** `artifacts/api-server/src/services/emailService.ts` (new helper),
+`artifacts/api-server/src/routes/routes.ts` (all three send actions).
+
+### Prompt for Replit
+
+> In `artifacts/api-server/src/services/emailService.ts`, add and export a helper:
+>
+> ```ts
+> // Maps a selected chemical product to the canonical template variable keys.
+> // Returns only non-empty keys so it can be layered between template defaults
+> // (lowest) and per-visit overrides (highest).
+> export function buildChemicalProductVars(
+>   product: ChemicalProduct | null | undefined,
+> ): Record<string, string> {
+>   const out: Record<string, string> = {};
+>   if (!product) return out;
+>   const set = (k: string, v: string | null | undefined) => {
+>     if (v && String(v).trim().length > 0) out[k] = String(v);
+>   };
+>   set('productName', product.name);
+>   set('activeIngredient', product.activeIngredient);
+>   set('epaRegNumber', product.epaRegistrationNumber);
+>   set('reentryInterval', product.reEntryInterval);
+>   set('mowingInstructions', product.mowingRestriction);
+>   set('wateringInstructions', product.defaultPostApplicationWatering);
+>   set('postApplicationExpectation', product.defaultPostApplicationExpectation);
+>   set('purpose', product.targetPest);
+>   set('productSignalWord', product.signalWord);
+>   return out;
+> }
+> ```
+>
+> Then in `routes.ts`, in BOTH `send_pre_communication` (~L14514) and
+> `send_post_communication` (~L14610): after `targetItem` is available, load the
+> selected product when `targetItem.chemicalProductId` is set (use the same query
+> already used in `send_notification` ~L14683 — select from `chemicalProductsTable`
+> scoped to `user.activeCompanyId`). Build the variable map with this precedence:
+>
+> ```ts
+> const productVars = buildChemicalProductVars(selectedProduct);
+> const preVars: Record<string, string> = {
+>   ...baseContactAndDateVars,   // the existing inline keys (companyName, customerName, dates, contact, label, applicator, etc.)
+>   ...productVars,              // selected product overrides template defaults
+> };
+> // per-visit overrides remain HIGHEST priority (keep existing override lines):
+> if (targetItem.purposeOverride && ...) preVars.purpose = ...;
+> if (targetItem.reentryIntervalOverride != null && ...) preVars.reentryInterval = ...;
+> if (targetItem.wateringInstructionsOverride && ...) preVars.wateringInstructions = ...;
+> if (targetItem.mowingInstructionsOverride && ...) preVars.mowingInstructions = ...;
+> ```
+>
+> Do the same for `postVars`. Net precedence must be: **per-visit override → selected
+> product → template metadata**. Leave `send_notification` working the same way — add
+> `...buildChemicalProductVars(notifProduct)` into its `notifVars` (it already loads
+> `notifProduct`) so all three paths are consistent.
+
+### Acceptance
+- A visit whose selected product differs from the template shows the **product's**
+  name / active ingredient / EPA reg # in pre, post, and notification emails.
+- A per-visit override still beats the product value.
+- A visit with no selected product falls back to template metadata (current behavior).
+
+---
+
+## Slice B — Stop the silent fallback to the company default template
+
+**File:** `artifacts/api-server/src/services/emailService.ts`
+`resolveChemicalNotificationTemplate` (~L740).
+
+### Why
+Currently: if `campaign.notificationTemplateId` is set but the template was **deleted**,
+the code silently falls through to any `isDefault` template and sends it. And if several
+templates are flagged `isDefault`, it picks the first arbitrarily. Both can send a
+notice describing the wrong product.
+
+### Prompt for Replit
+
+> Modify `resolveChemicalNotificationTemplate` in `emailService.ts` so it never
+> silently substitutes a different template than intended:
+>
+> 1. If `campaign.notificationTemplateId` is set but `getChemicalNotificationTemplate`
+>    returns null (deleted/not found), **throw `MissingChemicalNotificationTemplateError`
+>    with a clear message** ("The notification template linked to this campaign no
+>    longer exists. Re-select a template before sending."). Do NOT fall back to the
+>    default in this case.
+> 2. Only fall back to the company default when `campaign.notificationTemplateId` is
+>    null/empty (never explicitly chosen).
+> 3. When falling back, if **more than one** template has `isDefault === true`, throw
+>    the same error type with a message that the default is ambiguous and a template
+>    must be explicitly selected. Don't guess.
+> 4. Keep throwing `MissingChemicalNotificationTemplateError` when no template resolves
+>    at all (unchanged).
+>
+> The send routes already map `MissingChemicalNotificationTemplateError` to HTTP 400,
+> so these become clear, blocking errors instead of silent wrong sends.
+
+### Acceptance
+- Deleting a template a campaign points at → sending returns a 400 with a clear message
+  instead of sending the default.
+- Two `isDefault` templates → sending without an explicit selection returns a 400.
+- Normal case (valid linked template, or single default with no selection) → unchanged.
+
+---
+
+## Slice C — Unify fallback strings across the three send paths (consistency)
+
+**File:** `artifacts/api-server/src/routes/routes.ts`
+
+### Why
+`send_notification` runs vars through `buildChemicalNotificationVariables`, which fills
+locale-aware fallbacks (e.g. "See company contact" when no phone). The pre/post paths
+build vars inline and skip those fallbacks, so the same missing data renders blank in
+pre/post but as a fallback string in notification emails.
+
+### Prompt for Replit
+
+> Make the pre/post communication paths use the same contact/date fallback strings as
+> the notification path. Either route the shared keys (companyName, contactPhone,
+> contactEmail, applicatorName, targetDate/backupDate) through the same
+> `getEmailFallbacks(locale)` logic used in `buildChemicalNotificationVariables`, or
+> extract a small shared helper both call. Pass `user.language ?? 'en'` as the locale in
+> the pre/post paths (the notification path already does). Goal: identical rendering of
+> missing fields regardless of which send button was used.
+
+### Acceptance
+- With a company that has no phone/email, pre, post, and notification emails all render
+  the same fallback text rather than blanks in some and fallbacks in others.
+
+---
+
+## Slice D — Re-entry interval units consistency (small, optional)
+
+**Files:** `routes.ts` override handling + `emailService.ts`.
+
+### Why
+`reentryIntervalOverride` is a **number**; template `reentryInterval` is free text
+(e.g. "24 hours"). Stringifying the number can render a bare "24" with no unit.
+
+### Prompt for Replit
+
+> Decide and enforce one representation for re-entry interval. Recommended: when a
+> numeric `reentryIntervalOverride` is present, format it with an explicit unit (e.g.
+> `${n} hours`) at the point it's converted to a string in the send paths, matching how
+> templates phrase it. Confirm the product column `reEntryInterval` (also text) renders
+> consistently with the same phrasing.
+
+### Acceptance
+- A numeric override renders with an explicit unit, not a bare number.
+
+---
+
+## Slice E — Tests
+
+**Files:** `renderChemicalNotificationTemplate.test.ts` + a route-level test if present.
+
+### Prompt for Replit
+
+> Add tests covering the accuracy fixes:
+> 1. **Product wins over template:** item with a selected product whose name/AI/EPA
+>    differ from the template → rendered pre/post/notification emails show the product's
+>    values.
+> 2. **Override wins over product:** a per-visit override beats the product value.
+> 3. **No product → template fallback** still works.
+> 4. **Deleted linked template throws** (Slice B) rather than sending the default.
+> 5. **Ambiguous default (two isDefault) throws** (Slice B).
+> 6. (If Slice C) consistent fallback strings across all three paths.
+>
+> Run the suite; confirm new tests fail pre-fix and pass post-fix.
+
+---
+
+## Suggested order
+1. **Slice B** (stops wrong-template sends immediately, low risk).
+2. **Slice A** (the core product-accuracy fix — confirm the precedence decision first).
+3. **Slice E** (lock it in with tests).
+4. **Slice C**, then **Slice D** (polish/consistency).
