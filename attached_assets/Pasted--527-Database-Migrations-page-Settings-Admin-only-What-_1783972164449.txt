@@ -1,0 +1,81 @@
+# #527 — Database Migrations page (Settings, Admin only)
+
+## What & why
+
+Add a UI under **Settings** that lets an admin view pending database migrations and apply them, so migrations can be run without shell access. It runs **only the migration files already checked into the repo** (`.migration-backup/migrations/*.sql`) — it never accepts SQL from the request body. Forward-only: no down-migrations, no ad-hoc SQL.
+
+Access is gated to the **admin** role (single-tenant platform, so a company admin is the top operational role — match the existing admin guard: `user.activeRole !== "admin" && !user.isSuperAdminBool → 403`).
+
+## Done looks like
+
+- An admin opens Settings and sees a **Database** tab with a migrations table.
+- Each migration file shows status: **applied** (with applied-at timestamp) or **pending**. Pending rows are highlighted.
+- An **Apply pending migrations** button runs only the un-applied files, in filename order, and shows a per-file result (applied / already-applied / failed) plus any checksum-drift warnings.
+- A non-admin hitting the routes gets 403, and the Database tab isn't rendered for them.
+- Applying is audited (who ran it, when, which files applied).
+- The confirm dialog states plainly that this changes the live database and can't be undone.
+
+## Out of scope
+
+- Running arbitrary/ad-hoc SQL from the UI (only checked-in files).
+- Rolling back / down-migrations (runner is forward-only).
+- Editing migration files in the UI.
+
+## Steps
+
+### 1. Refactor the runner into a reusable module
+
+Today `scripts/src/migrate.ts` is a standalone script (`main()` + `process.exit`). Extract the core into a shared function so the CLI and the API call identical logic:
+
+```ts
+runMigrations({ apply: boolean }): Promise<{
+  files: Array<{ filename: string; status: "applied" | "already-applied" | "pending" | "failed"; error?: string }>;
+  drifted: string[];
+}>
+```
+
+- `apply: false` → dry-run: list every `.sql` file with applied/pending status, make no changes.
+- `apply: true` → apply pending files in sorted order, transactional per file, recording filename + checksum in the existing `_applied_sql_migrations` tracking table.
+- Keep the current checksum-drift detection (a changed already-applied file is reported in `drifted`, never re-run).
+- The existing CLI (`pnpm --filter @workspace/scripts run migrate`) should import and call this same function so behavior is unchanged.
+
+### 2. Resolve the migrations directory reliably at runtime
+
+The script currently resolves `../../.migration-backup/migrations` relative to `scripts/src`. From the api-server that path differs, and **in a bundled production build the `.sql` files must actually ship with the server**. Make the directory path resolvable from the api-server (config/env var with a sensible default), and confirm the migration files are included in the api-server's deployment artifact. Document how the path resolves in Replit vs. production in Deliverables. **This is the item most likely to bite — verify it before shipping.**
+
+### 3. API routes (`artifacts/api-server/src/routes/routes.ts`)
+
+Follow the existing admin guard pattern (see the `/api/admin/companies` routes ~line 3858 and the many `user.activeRole !== "admin" && !user.isSuperAdminBool` checks):
+
+- `GET /api/admin/migrations` — returns the file list with applied/pending status + drift warnings (dry-run, no changes).
+- `POST /api/admin/migrations/apply` — applies pending migrations, returns per-file results. Guard against concurrent runs (in-memory lock or a Postgres advisory lock) so two clicks can't overlap. Write an audit-log entry (user id, timestamp, files applied).
+
+Both routes: `isAuthenticated()` first, then the admin gate → 403 otherwise.
+
+### 4. UI — Database tab in Settings
+
+`SettingsPage.tsx` uses a `Tabs` layout and already embeds admin sub-components as tabs (`ServicePlanTemplatesAdmin`, `ChemicalProductsAdmin`, `CrewsAdmin`, `WorkItemTemplatesAdmin`). Add a new admin-only tab following that exact pattern:
+
+- New component `MigrationsAdmin.tsx` (mirror the structure of the existing `*Admin` components).
+- Table of migrations with status badges (applied + timestamp / pending), using the shared `Table` UI components already imported in `SettingsPage.tsx`.
+- **Apply pending** button behind a confirm `Dialog` that lists exactly which files will run and warns the change is irreversible and hits the live database.
+- Disable the button + show a spinner while applying; render per-file results and any drift warning afterward via `useToast` / inline.
+- Only mount the tab when the current user is admin (use `useAuth`); the server 403 is the real guard, this just hides the UI.
+- i18next strings (en + es).
+
+### 5. Safety copy
+
+The confirm dialog must state plainly: this modifies the live production database and cannot be undone.
+
+## Relevant files
+
+- `scripts/src/migrate.ts` — extract the shared `runMigrations` function
+- `artifacts/api-server/src/routes/routes.ts` — admin route pattern (~line 3858)
+- `artifacts/highplains-crm/src/pages/SettingsPage.tsx` — tabbed settings, admin sub-tabs
+- `artifacts/highplains-crm/src/components/` — home for `MigrationsAdmin.tsx` (mirror existing `*Admin.tsx`)
+- `.migration-backup/migrations/` — source of migration files (read-only)
+
+## Two things to confirm before running
+
+1. The migration `.sql` files ship with the api-server in your production build (step 2). In Replit the whole repo is present so it works there; a bundled deploy may not include the folder.
+2. You're OK with forward-only (no rollback) — recovery from a bad migration is a new corrective migration, not an undo.
