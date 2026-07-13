@@ -1,0 +1,158 @@
+# Weather Capture — Root Cause & Replit Slices
+
+## Symptom
+Capturing weather for a property at "today 7:30 AM" returns ~99°F (an afternoon
+temperature), not the morning value. Location is roughly correct; the *hour*
+selected is wrong.
+
+## Root cause (timezone mismatch)
+`server` route `GET /api/weather` in `artifacts/api-server/src/routes/routes.ts`
+(~L15325–15409):
+
+1. The frontend (`WeatherCapturePanel.tsx` L140) sends `datetime` as an absolute
+   UTC instant: `new Date(customDatetime).toISOString()`. For Mountain Time,
+   7:30 AM → `13:30Z`.
+2. The server calls Open-Meteo with `timezone=auto`, so `hourly.time[]` comes back
+   as **naive local-time strings** for the property (e.g. `"2026-07-13T07:00"` =
+   7 AM property time, no offset).
+3. The matching loop parses those with `new Date(time[i])`, which treats a
+   no-offset string as **UTC**. So `"07:00"` property-local is compared as `07:00Z`
+   against the target `13:30Z`, and the nearest entry is `"13:00"` = **1 PM local**
+   → afternoon temperature.
+
+The error equals the property's UTC offset (~6 h in summer), so a morning capture
+lands on the afternoon peak.
+
+Two related bugs in the same block:
+- `dateStr = targetDate.toISOString().slice(0,10)` uses the **UTC** date. An
+  evening application can roll to the next UTC day and fetch the wrong day.
+- Any time earlier *today* sets `isPast` → uses `archive-api` (ERA5), which lags
+  several days and often has no data for today. The forecast endpoint covers
+  recent past dates.
+
+---
+
+## Replit Slice 1 — Fix the hour matching using the API's real offset
+
+**File:** `artifacts/api-server/src/routes/routes.ts`, `GET /api/weather` handler.
+
+Open-Meteo returns `utc_offset_seconds` in the response when `timezone=auto`.
+Use it to convert each naive local `time[]` string into a true UTC instant before
+comparing to the target. Also widen the fetched window to ±1 day so a
+timezone-driven date rollover can't hide the correct hour.
+
+Replace the request-URL construction and the matching loop with the following:
+
+```ts
+// --- Build a ±1 day window so date rollover / tz edges can't drop the target hour
+const dayMs = 24 * 60 * 60 * 1000;
+const startStr = new Date(targetDate.getTime() - dayMs).toISOString().slice(0, 10);
+const endStr   = new Date(targetDate.getTime() + dayMs).toISOString().slice(0, 10);
+
+// Forecast endpoint covers recent past + near future; archive only for older dates.
+const FORECAST_HORIZON_DAYS = 5;
+const useArchive =
+  targetDate.getTime() < now.getTime() - FORECAST_HORIZON_DAYS * dayMs;
+
+const base = useArchive
+  ? "https://archive-api.open-meteo.com/v1/archive"
+  : "https://api.open-meteo.com/v1/forecast";
+
+const apiUrl =
+  `${base}?latitude=${latitude}&longitude=${longitude}` +
+  `&start_date=${startStr}&end_date=${endStr}` +
+  `&hourly=temperature_2m,relative_humidity_2m,wind_speed_10m,wind_direction_10m,weather_code` +
+  `&temperature_unit=fahrenheit&wind_speed_unit=mph&timezone=auto`;
+```
+
+Then extend the response type and the matching loop:
+
+```ts
+const data = await response.json() as {
+  utc_offset_seconds?: number;
+  hourly?: {
+    time?: string[];
+    temperature_2m?: number[];
+    relative_humidity_2m?: number[];
+    wind_speed_10m?: number[];
+    wind_direction_10m?: number[];
+    weather_code?: number[];
+  };
+};
+
+if (!data.hourly?.time?.length) {
+  return res.status(404).json({ error: "No weather data available for this date" });
+}
+
+// timezone=auto returns local wall-clock strings; convert to true UTC using the
+// offset the API reports for this location.
+const offsetMs = (data.utc_offset_seconds ?? 0) * 1000;
+const targetMs = targetDate.getTime();
+let idx = 0;
+let closestDiff = Infinity;
+for (let i = 0; i < data.hourly.time.length; i++) {
+  // Parse the naive local string as UTC (append "Z"), then subtract the local
+  // offset to get the real UTC instant of that reading.
+  const entryUtcMs = new Date(data.hourly.time[i] + "Z").getTime() - offsetMs;
+  const diff = Math.abs(entryUtcMs - targetMs);
+  if (diff < closestDiff) {
+    closestDiff = diff;
+    idx = i;
+  }
+}
+```
+
+Leave the `weatherCodeToCondition` helper and the `res.json({...})` response as-is.
+
+**Why it works:** `"2026-07-13T07:00"` + `"Z"` = `07:00Z`; minus a −6 h offset
+(`utc_offset_seconds = -21600`) = `13:00Z`, which is the true instant of 7 AM
+Mountain Time. Comparing that against the `13:30Z` target now correctly selects
+the 7 AM reading.
+
+---
+
+## Replit Slice 2 — Regression test
+
+**File:** wherever the chemical/weather route tests live (same suite that holds the
+existing template-resolution guards). Add a test that locks in the offset handling.
+
+```ts
+// Mock fetch to return Open-Meteo-shaped data with a negative UTC offset,
+// as timezone=auto does for US Mountain Time.
+it("selects the reading matching the target LOCAL hour, not the UTC hour", async () => {
+  const utc_offset_seconds = -6 * 3600; // MDT
+  const hourly = {
+    time: Array.from({ length: 48 }, (_, h) => {
+      const d = new Date(Date.UTC(2026, 6, 13, 0, 0) + h * 3600_000);
+      return d.toISOString().slice(0, 16); // "YYYY-MM-DDTHH:00", no offset
+    }),
+    temperature_2m: Array.from({ length: 48 }, (_, h) => (h % 24 < 12 ? 55 : 99)),
+    relative_humidity_2m: new Array(48).fill(40),
+    wind_speed_10m: new Array(48).fill(5),
+    wind_direction_10m: new Array(48).fill(180),
+    weather_code: new Array(48).fill(0),
+  };
+  mockFetch({ utc_offset_seconds, hourly });
+
+  // Target: 7:30 AM Mountain = 13:30Z
+  const res = await getWeather({
+    lat: 40.0, lng: -104.9,
+    datetime: "2026-07-13T13:30:00.000Z",
+  });
+
+  // 7:30 AM local must land on a morning (55°F) reading, never the 99°F afternoon.
+  expect(res.temperature).toBe(55);
+});
+```
+
+Add a second case for an **evening** application (e.g. 8 PM local = next-day UTC)
+to prove the ±1 day window prevents the date-rollover bug.
+
+---
+
+## Notes / verification checklist
+- No frontend change needed — `WeatherCapturePanel.tsx` already sends a correct
+  absolute UTC instant.
+- After deploying, re-capture the same property/time and confirm the morning temp.
+- Sanity check a property in a different timezone to confirm the offset is read
+  per-location (it comes from the API response, not hardcoded).
