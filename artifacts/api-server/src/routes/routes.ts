@@ -15614,21 +15614,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
       // Route to the archive endpoint only when the target is more than 5 days old.
       // Recent-past captures (including earlier today) must use the forecast endpoint
       // because the archive lags several days and often has no data for today.
-      const isOldPast = targetDate < new Date(now.getTime() - 5 * 24 * 60 * 60 * 1000);
-      const baseUrl = isOldPast
-        ? `https://archive-api.open-meteo.com/v1/archive`
-        : `https://api.open-meteo.com/v1/forecast`;
+      const fiveDaysAgo = new Date(now.getTime() - 5 * 24 * 60 * 60 * 1000);
+      const isOldPast = targetDate < fiveDaysAgo;
+      // Captures in the 1–5 day window: forecast endpoint is tried first, archive is the fallback.
+      const isRecentPast = !isOldPast && targetDate < now;
 
-      const apiUrl = `${baseUrl}?latitude=${latitude}&longitude=${longitude}&start_date=${startDate}&end_date=${endDate}&hourly=temperature_2m,relative_humidity_2m,wind_speed_10m,wind_direction_10m,weather_code&temperature_unit=fahrenheit&wind_speed_unit=mph&timezone=auto`;
-
-      const response = await fetch(apiUrl);
-      if (!response.ok) {
-        const errText = await response.text();
-        req.log.error({ errText }, "Open-Meteo API error");
-        return res.status(502).json({ error: "Weather service unavailable" });
-      }
-
-      const data = await response.json() as {
+      type OpenMeteoHourly = {
         utc_offset_seconds?: number;
         hourly?: {
           time?: string[];
@@ -15640,7 +15631,61 @@ export async function registerRoutes(app: Express): Promise<Server> {
         };
       };
 
-      if (!data.hourly?.time?.length) return res.status(404).json({ error: "No weather data available for this date" });
+      const fetchFromEndpoint = async (baseUrl: string): Promise<{ ok: false; errText: string } | { ok: true; data: OpenMeteoHourly }> => {
+        const apiUrl = `${baseUrl}?latitude=${latitude}&longitude=${longitude}&start_date=${startDate}&end_date=${endDate}&hourly=temperature_2m,relative_humidity_2m,wind_speed_10m,wind_direction_10m,weather_code&temperature_unit=fahrenheit&wind_speed_unit=mph&timezone=auto`;
+        const response = await fetch(apiUrl);
+        if (!response.ok) {
+          const errText = await response.text();
+          return { ok: false, errText };
+        }
+        const data = await response.json() as OpenMeteoHourly;
+        return { ok: true, data };
+      };
+
+      let data: OpenMeteoHourly;
+
+      if (isOldPast) {
+        // Older than 5 days — go straight to archive.
+        const result = await fetchFromEndpoint("https://archive-api.open-meteo.com/v1/archive");
+        if (!result.ok) {
+          req.log.error({ errText: result.errText }, "Open-Meteo archive API error");
+          return res.status(502).json({ error: "Weather service unavailable" });
+        }
+        data = result.data;
+        if (!data.hourly?.time?.length) {
+          return res.status(404).json({ error: "No weather data available for this date. The archive may not yet have data for this location and time." });
+        }
+      } else {
+        // Today or recent past (≤5 days) — try forecast first.
+        const forecastResult = await fetchFromEndpoint("https://api.open-meteo.com/v1/forecast");
+        if (!forecastResult.ok) {
+          req.log.error({ errText: forecastResult.errText }, "Open-Meteo forecast API error");
+          return res.status(502).json({ error: "Weather service unavailable" });
+        }
+
+        if (forecastResult.data.hourly?.time?.length) {
+          // Forecast had data — use it.
+          data = forecastResult.data;
+        } else if (isRecentPast) {
+          // Forecast window has rolled past this date; try the archive as a fallback.
+          req.log.info({ targetDate }, "Forecast had no data for recent-past date; retrying with archive endpoint");
+          const archiveResult = await fetchFromEndpoint("https://archive-api.open-meteo.com/v1/archive");
+          if (!archiveResult.ok) {
+            req.log.error({ errText: archiveResult.errText }, "Open-Meteo archive fallback API error");
+            return res.status(502).json({ error: "Weather service unavailable" });
+          }
+          if (!archiveResult.data.hourly?.time?.length) {
+            return res.status(404).json({
+              error:
+                "Weather data is temporarily unavailable for this date. The forecast window no longer covers it and the archive has not yet processed data for this period. Please try again in a few hours.",
+            });
+          }
+          data = archiveResult.data;
+        } else {
+          // Future or today with no data yet.
+          return res.status(404).json({ error: "No weather data available for this date" });
+        }
+      }
 
       // Open-Meteo returns hourly times as naive local strings with no UTC offset
       // (e.g. "2026-07-13T07:00"). findClosestHourIndex corrects for this by treating
