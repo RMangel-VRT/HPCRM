@@ -1,0 +1,54 @@
+# Fix — "No migration files found" in Settings → Database
+
+## Symptom
+
+The Database tab renders and the routes respond (no 403), but the migration list is empty: **"No migration files found."**
+
+## Root cause
+
+`artifacts/api-server/src/lib/migrationRunner.ts` resolves the migrations directory by walking a **fixed 4 levels** up from its own file:
+
+```ts
+return resolve(__dirname_local, "..", "..", "..", "..", ".migration-backup", "migrations");
+```
+
+The api-server always runs the esbuild bundle (`package.json` → `start: node ./dist/index.mjs`, and `dev` builds then runs the same bundle). At runtime `import.meta.url` is `artifacts/api-server/dist/index.mjs`, which is **3 levels** below the workspace root — not 4. Walking up 4 lands one directory *above* the repo, where `.migration-backup/migrations` doesn't exist, so `readdirSync` finds nothing and the list is empty. The `.sql` folder itself is present at the repo root; only the path math is wrong. (The comment claiming dev and prod are both "4 levels below the workspace root" is the mistaken assumption — only the never-executed `src/lib` path is 4 deep.)
+
+## Fix — robust upward search (replaces the fixed walk)
+
+In `artifacts/api-server/src/lib/migrationRunner.ts`, add `existsSync` to the `node:fs` import and replace `resolveMigrationsDir()` with a version that searches upward for the folder, so it works from `dist`, `src/lib`, or any future layout:
+
+```ts
+import { existsSync, readdirSync, readFileSync } from "node:fs";
+
+function resolveMigrationsDir(): string {
+  if (process.env["MIGRATIONS_DIR"]) {
+    return process.env["MIGRATIONS_DIR"];
+  }
+  let dir = __dirname_local;
+  for (let i = 0; i < 8; i++) {
+    const candidate = resolve(dir, ".migration-backup", "migrations");
+    if (existsSync(candidate)) return candidate;
+    const parent = dirname(dir);
+    if (parent === dir) break; // reached filesystem root
+    dir = parent;
+  }
+  // Fallback: dist/ is 3 levels below the workspace root
+  return resolve(__dirname_local, "..", "..", "..", ".migration-backup", "migrations");
+}
+```
+
+Also update the stale doc comment at the top of the file (it currently says both dev and prod are 4 levels below root).
+
+## Immediate unblock (no code change / rebuild)
+
+The resolver checks `MIGRATIONS_DIR` first, so setting it wins without touching code. From the repo root the app runs in:
+
+```
+MIGRATIONS_DIR=.migration-backup/migrations
+```
+
+## Verify
+
+- `GET /api/admin/migrations` returns the full `0000`–`0035` list, with `0031`–`0035` (plant library) shown applied or pending.
+- The Settings → Database tab now lists the files instead of "No migration files found."
