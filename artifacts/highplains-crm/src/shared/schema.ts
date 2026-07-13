@@ -3258,6 +3258,7 @@ export interface PlantVarietyGroup {
   botanicalName: string | null;
   category: PlantCategory;
   location: string | null;
+  enrichment?: PlantEnrichmentData | null;
   sizes: Array<{
     productCode: string;
     sizeCode: string | null;
@@ -3266,4 +3267,54 @@ export interface PlantVarietyGroup {
     salePrice: string | null;
     wholesaleCost: string | null;
   }>;
+}
+
+export type PlantMatchStatus = "unmatched" | "auto" | "confirmed" | "rejected";
+export type PlantAttributeSource = "auto" | "confirmed";
+
+export interface PlantEnrichmentData {
+  id: string;
+  companyId: string;
+  varietyKey: string;
+  displayName: string | null;
+  treefarmUrl: string | null;
+  treefarmSlug: string | null;
+  imageUrl: string | null;
+  imageStoragePath: string | null;
+  imageAttribution: string | null;
+  descriptionText: string | null;
+  factsJson: Record<string, string> | null;
+  matchStatus: PlantMatchStatus;
+  matchConfidence: number | null;
+  attributeSource: PlantAttributeSource | null;
+  light: string | null;
+  waterUse: string | null;
+  isXeriscape: boolean | null;
+  bloomTime: string | null;
+  bloomColor: string | null;
+  fallColor: string | null;
+  foliageType: string | null;
+  isNative: boolean | null;
+  isPollinatorFriendly: boolean | null;
+  deerResistant: boolean | null;
+  saltTolerant: boolean | null;
+  growthRate: string | null;
+  lastEnrichedAt: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface PlantMatchQueueItem {
+  varietyKey: string;
+  commonName: string;
+  botanicalName: string | null;
+  category: PlantCategory;
+  enrichment: PlantEnrichmentData;
+}
+
+export interface PlantCandidateProduct {
+  slug: string;
+  title: string;
+  imageUrl: string | null;
+  pageUrl: string;
 }

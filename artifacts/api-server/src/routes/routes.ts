@@ -17716,7 +17716,7 @@ ${pdfText.slice(0, 8000)}`;
       return res.status(403).json({ error: "Insufficient permissions" });
     }
     try {
-      const { plantCatalogItems } = await import("@workspace/db");
+      const { plantCatalogItems, plantEnrichment } = await import("@workspace/db");
       const { ilike, or } = await import("drizzle-orm");
       const search = typeof req.query.search === "string" ? req.query.search.trim() : "";
       const category = typeof req.query.category === "string" ? req.query.category.trim() : "";
@@ -17751,12 +17751,19 @@ ${pdfText.slice(0, 8000)}`;
         rows = rows.filter((r) => r.onHand > 0);
       }
 
+      const enrichmentRows = await db
+        .select()
+        .from(plantEnrichment)
+        .where(eq(plantEnrichment.companyId, user.activeCompanyId));
+      const enrichmentMap = new Map(enrichmentRows.map((e) => [e.varietyKey, e]));
+
       const groupMap = new Map<string, {
         varietyKey: string;
         commonName: string;
         botanicalName: string | null;
         category: string;
         location: string | null;
+        enrichment: typeof enrichmentRows[0] | null;
         sizes: Array<{
           productCode: string;
           sizeCode: string | null;
@@ -17775,6 +17782,7 @@ ${pdfText.slice(0, 8000)}`;
             botanicalName: row.botanicalName,
             category: row.category,
             location: row.location,
+            enrichment: enrichmentMap.get(row.varietyKey) ?? null,
             sizes: [],
           });
         }
@@ -17807,12 +17815,227 @@ ${pdfText.slice(0, 8000)}`;
       const [latest] = await db
         .select()
         .from(plantSyncRuns)
-        .where(eq(plantSyncRuns.companyId, user.activeCompanyId))
+        .where(and(eq(plantSyncRuns.companyId, user.activeCompanyId), eq(plantSyncRuns.source as any, "availability")))
         .orderBy(desc(plantSyncRuns.startedAt))
         .limit(1);
       res.json(latest ?? null);
     } catch (err) {
       console.error("GET /api/plant-library/sync-status error:", err);
+      res.status(500).json({ error: "Internal server error" });
+    }
+  });
+
+  app.post("/api/plant-library/enrich", async (req, res) => {
+    if (!req.isAuthenticated()) return res.status(401).send("Not authenticated");
+    const user = req.user as UserWithContext;
+    if (!PLANT_LIBRARY_ROLES.includes(user.activeRole as typeof PLANT_LIBRARY_ROLES[number]) && !user.isSuperAdminBool) {
+      return res.status(403).json({ error: "Insufficient permissions" });
+    }
+    try {
+      const { enrichPlants } = await import("../lib/plantEnrichment");
+      void enrichPlants(user.activeCompanyId);
+      res.json({ status: "started" });
+    } catch (err) {
+      console.error("POST /api/plant-library/enrich error:", err);
+      res.status(500).json({ error: "Internal server error" });
+    }
+  });
+
+  app.get("/api/plant-library/matches", async (req, res) => {
+    if (!req.isAuthenticated()) return res.status(401).send("Not authenticated");
+    const user = req.user as UserWithContext;
+    if (!PLANT_LIBRARY_ROLES.includes(user.activeRole as typeof PLANT_LIBRARY_ROLES[number]) && !user.isSuperAdminBool) {
+      return res.status(403).json({ error: "Insufficient permissions" });
+    }
+    try {
+      const { plantEnrichment, plantCatalogItems } = await import("@workspace/db");
+      const { desc, inArray: inArrayDrizzle } = await import("drizzle-orm");
+
+      const statusParam = req.query.matchStatus;
+      const statuses = Array.isArray(statusParam)
+        ? (statusParam as string[]).filter(Boolean)
+        : statusParam ? [statusParam as string] : [];
+
+      const conditions: ReturnType<typeof eq>[] = [
+        eq(plantEnrichment.companyId, user.activeCompanyId),
+      ];
+      if (statuses.length > 0) {
+        conditions.push(inArrayDrizzle(plantEnrichment.matchStatus as any, statuses) as any);
+      }
+
+      const enrichmentRows = await db
+        .select()
+        .from(plantEnrichment)
+        .where(and(...conditions))
+        .orderBy(desc(plantEnrichment.updatedAt));
+
+      const varietyKeys = enrichmentRows.map((e) => e.varietyKey);
+      if (varietyKeys.length === 0) {
+        return res.json([]);
+      }
+
+      const catalogRows = await db
+        .select({
+          varietyKey: plantCatalogItems.varietyKey,
+          commonName: plantCatalogItems.commonName,
+          botanicalName: plantCatalogItems.botanicalName,
+          category: plantCatalogItems.category,
+        })
+        .from(plantCatalogItems)
+        .where(
+          and(
+            eq(plantCatalogItems.companyId, user.activeCompanyId),
+            eq(plantCatalogItems.isActive, true),
+            inArrayDrizzle(plantCatalogItems.varietyKey, varietyKeys),
+          ),
+        );
+
+      const catalogMap = new Map<string, typeof catalogRows[0]>();
+      for (const row of catalogRows) {
+        if (!catalogMap.has(row.varietyKey)) catalogMap.set(row.varietyKey, row);
+      }
+
+      const items = enrichmentRows
+        .map((e) => {
+          const catalog = catalogMap.get(e.varietyKey);
+          if (!catalog) return null;
+          return {
+            varietyKey: e.varietyKey,
+            commonName: catalog.commonName,
+            botanicalName: catalog.botanicalName,
+            category: catalog.category,
+            enrichment: e,
+          };
+        })
+        .filter(Boolean);
+
+      res.json(items);
+    } catch (err) {
+      console.error("GET /api/plant-library/matches error:", err);
+      res.status(500).json({ error: "Internal server error" });
+    }
+  });
+
+  app.post("/api/plant-library/matches/:varietyKey", async (req, res) => {
+    if (!req.isAuthenticated()) return res.status(401).send("Not authenticated");
+    const user = req.user as UserWithContext;
+    if (!PLANT_LIBRARY_ROLES.includes(user.activeRole as typeof PLANT_LIBRARY_ROLES[number]) && !user.isSuperAdminBool) {
+      return res.status(403).json({ error: "Insufficient permissions" });
+    }
+    const { varietyKey } = req.params;
+    if (!varietyKey) return res.status(400).json({ error: "varietyKey required" });
+
+    try {
+      const { plantEnrichment } = await import("@workspace/db");
+
+      const body = req.body as {
+        matchStatus?: string;
+        treefarmSlug?: string;
+        light?: string;
+        waterUse?: string;
+        isXeriscape?: boolean;
+        bloomTime?: string;
+        bloomColor?: string;
+        fallColor?: string;
+        foliageType?: string;
+        isNative?: boolean;
+        isPollinatorFriendly?: boolean;
+        deerResistant?: boolean;
+        saltTolerant?: boolean;
+        growthRate?: string;
+      };
+
+      const validStatuses = ["confirmed", "rejected", "unmatched", "auto"];
+      if (body.matchStatus && !validStatuses.includes(body.matchStatus)) {
+        return res.status(400).json({ error: "Invalid matchStatus" });
+      }
+
+      const updateData: Record<string, unknown> = {
+        updatedAt: new Date(),
+      };
+
+      if (body.matchStatus) updateData.matchStatus = body.matchStatus;
+      if (body.matchStatus === "confirmed" || body.matchStatus === "rejected") {
+        if (body.matchStatus === "confirmed") updateData.attributeSource = "confirmed";
+      }
+
+      for (const field of ["light", "waterUse", "bloomTime", "bloomColor", "fallColor", "foliageType", "growthRate"] as const) {
+        if (body[field] !== undefined) updateData[field] = body[field];
+      }
+      for (const field of ["isXeriscape", "isNative", "isPollinatorFriendly", "deerResistant", "saltTolerant"] as const) {
+        if (body[field] !== undefined) updateData[field] = body[field];
+      }
+
+      if (body.treefarmSlug) {
+        const { scrapeAndEnrichVariety } = await import("../lib/plantEnrichment");
+        void scrapeAndEnrichVariety(user.activeCompanyId, varietyKey, body.treefarmSlug);
+        updateData.treefarmSlug = body.treefarmSlug;
+        updateData.treefarmUrl = `https://www.thetreefarm.com/products/${body.treefarmSlug}`;
+        updateData.attributeSource = "confirmed";
+      }
+
+      await db
+        .update(plantEnrichment)
+        .set(updateData as any)
+        .where(
+          and(
+            eq(plantEnrichment.companyId, user.activeCompanyId),
+            eq(plantEnrichment.varietyKey, varietyKey),
+          ),
+        );
+
+      const [updated] = await db
+        .select()
+        .from(plantEnrichment)
+        .where(
+          and(
+            eq(plantEnrichment.companyId, user.activeCompanyId),
+            eq(plantEnrichment.varietyKey, varietyKey),
+          ),
+        )
+        .limit(1);
+
+      res.json(updated ?? null);
+    } catch (err) {
+      console.error("POST /api/plant-library/matches/:varietyKey error:", err);
+      res.status(500).json({ error: "Internal server error" });
+    }
+  });
+
+  app.get("/api/plant-library/candidates", async (req, res) => {
+    if (!req.isAuthenticated()) return res.status(401).send("Not authenticated");
+    const user = req.user as UserWithContext;
+    if (!PLANT_LIBRARY_ROLES.includes(user.activeRole as typeof PLANT_LIBRARY_ROLES[number]) && !user.isSuperAdminBool) {
+      return res.status(403).json({ error: "Insufficient permissions" });
+    }
+    try {
+      const q = typeof req.query.q === "string" ? req.query.q.toLowerCase().trim() : "";
+      if (!q || q.length < 2) return res.json([]);
+
+      const { promises: fs } = await import("fs");
+      const path = await import("path");
+      const CANDIDATE_CACHE_PATH = path.join("/tmp", "plant-enrichment-candidate-index.json");
+
+      let candidates: Array<{ slug: string; title: string; imageUrl: string | null; pageUrl: string }> = [];
+      try {
+        const raw = await fs.readFile(CANDIDATE_CACHE_PATH, "utf-8");
+        const cache = JSON.parse(raw);
+        candidates = cache.candidates ?? [];
+      } catch {
+        return res.json([]);
+      }
+
+      const filtered = candidates
+        .filter((c) =>
+          c.title.toLowerCase().includes(q) ||
+          c.slug.replace(/-/g, " ").toLowerCase().includes(q)
+        )
+        .slice(0, 20)
+        .map(({ slug, title, imageUrl, pageUrl }) => ({ slug, title, imageUrl, pageUrl }));
+
+      res.json(filtered);
+    } catch (err) {
+      console.error("GET /api/plant-library/candidates error:", err);
       res.status(500).json({ error: "Internal server error" });
     }
   });

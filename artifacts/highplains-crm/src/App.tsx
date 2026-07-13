@@ -77,6 +77,7 @@ const ChemicalNotificationTemplates = lazy(() => import("@/pages/ChemicalNotific
 const FlagsInboxPage = lazy(() => import("@/pages/FlagsInboxPage"));
 const FlagDetailPage = lazy(() => import("@/pages/FlagDetailPage"));
 const PlantLibrary = lazy(() => import("@/pages/PlantLibrary"));
+const PlantMatches = lazy(() => import("@/pages/PlantMatches"));
 
 interface ErrorBoundaryProps {
   children: ReactNode;
@@ -280,6 +281,7 @@ function Router() {
         <ProtectedRoute path="/dashboard/tools/visual-scope/:id" component={VisualScopeDraft} allowedRoles={["admin", "office"]} />
         <ProtectedRoute path="/dashboard/tools/visual-scope" component={VisualScopeList} allowedRoles={["admin", "office"]} />
         <ProtectedRoute path="/dashboard/tools/plant-library" component={PlantLibrary} allowedRoles={["admin", "office"]} />
+        <ProtectedRoute path="/dashboard/tools/plant-matches" component={PlantMatches} allowedRoles={["admin", "office"]} />
         <ProtectedRoute path="/dashboard/tools" component={ToolsPage} allowedRoles={["admin", "office", ...allFieldRoles, "crew_supervisor", "mapping"]} />
         <ProtectedRoute path="/dashboard/snow/new" component={NewSnowEvent} allowedRoles={["admin", "office"]} />
         <ProtectedRoute

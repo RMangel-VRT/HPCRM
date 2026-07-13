@@ -3597,6 +3597,7 @@ export const plantSyncRuns = pgTable("plant_sync_runs", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
   companyId: varchar("company_id").notNull().references(() => companies.id, { onDelete: "cascade" }),
   status: text("status").notNull().$type<"running" | "success" | "error">().default("running"),
+  source: text("source").notNull().$type<"availability" | "enrichment">().default("availability"),
   startedAt: timestamp("started_at").notNull().defaultNow(),
   finishedAt: timestamp("finished_at"),
   itemsUpserted: integer("items_upserted").notNull().default(0),
@@ -3608,3 +3609,45 @@ export const plantSyncRuns = pgTable("plant_sync_runs", {
 
 export type PlantSyncRun = typeof plantSyncRuns.$inferSelect;
 export type InsertPlantSyncRun = typeof plantSyncRuns.$inferInsert;
+
+export type PlantMatchStatus = "unmatched" | "auto" | "confirmed" | "rejected";
+export type PlantAttributeSource = "auto" | "confirmed";
+
+export const plantEnrichment = pgTable("plant_enrichment", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  companyId: varchar("company_id").notNull().references(() => companies.id, { onDelete: "cascade" }),
+  varietyKey: text("variety_key").notNull(),
+  displayName: text("display_name"),
+  treefarmUrl: text("treefarm_url"),
+  treefarmSlug: text("treefarm_slug"),
+  imageUrl: text("image_url"),
+  imageStoragePath: text("image_storage_path"),
+  imageAttribution: text("image_attribution"),
+  descriptionText: text("description_text"),
+  factsJson: jsonb("facts_json").$type<Record<string, string>>(),
+  matchStatus: text("match_status").notNull().$type<PlantMatchStatus>().default("unmatched"),
+  matchConfidence: real("match_confidence"),
+  attributeSource: text("attribute_source").$type<PlantAttributeSource>(),
+  light: text("light"),
+  waterUse: text("water_use"),
+  isXeriscape: boolean("is_xeriscape"),
+  bloomTime: text("bloom_time"),
+  bloomColor: text("bloom_color"),
+  fallColor: text("fall_color"),
+  foliageType: text("foliage_type"),
+  isNative: boolean("is_native"),
+  isPollinatorFriendly: boolean("is_pollinator_friendly"),
+  deerResistant: boolean("deer_resistant"),
+  saltTolerant: boolean("salt_tolerant"),
+  growthRate: text("growth_rate"),
+  lastEnrichedAt: timestamp("last_enriched_at"),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  updatedAt: timestamp("updated_at").notNull().defaultNow(),
+}, (table) => ({
+  plantEnrichmentCompanyVarietyUniq: uniqueIndex("plant_enrichment_company_variety_idx").on(table.companyId, table.varietyKey),
+  plantEnrichmentCompanyIdIdx: index("plant_enrichment_company_id_idx").on(table.companyId),
+  plantEnrichmentMatchStatusIdx: index("plant_enrichment_match_status_idx").on(table.matchStatus),
+}));
+
+export type PlantEnrichment = typeof plantEnrichment.$inferSelect;
+export type InsertPlantEnrichment = typeof plantEnrichment.$inferInsert;

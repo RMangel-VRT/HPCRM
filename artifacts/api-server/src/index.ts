@@ -5,6 +5,7 @@ import { logger } from "./lib/logger";
 import { registerRoutes } from "./routes/routes";
 import { requeueInterruptedBackfills } from "./services/mailboxBackfillService";
 import { startPlantSyncScheduler } from "./lib/plantSync";
+import { startPlantEnrichmentScheduler } from "./lib/plantEnrichment";
 
 async function warnIfSchemaDrift(): Promise<void> {
   try {
@@ -46,6 +47,7 @@ registerRoutes(app)
       void warnIfSchemaDrift();
       void requeueInterruptedBackfills();
       startPlantSyncScheduler();
+      startPlantEnrichmentScheduler();
     });
   })
   .catch((err) => {

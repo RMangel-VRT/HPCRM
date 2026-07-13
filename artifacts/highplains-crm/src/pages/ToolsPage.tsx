@@ -1,7 +1,7 @@
 import { useTranslation } from "react-i18next";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { FileText, Camera, Calculator, ClipboardList, Map, HardHat, Leaf } from "lucide-react";
+import { FileText, Camera, Calculator, ClipboardList, Map, HardHat, Leaf, CheckSquare } from "lucide-react";
 import { Link } from "wouter";
 
 export default function ToolsPage() {
@@ -67,6 +67,16 @@ export default function ToolsPage() {
       href: "/dashboard/tools/plant-library",
       available: true,
       testId: "card-plant-library",
+    },
+    {
+      title: t("tools.plantMatches"),
+      description: t("tools.plantMatchesDesc"),
+      icon: CheckSquare,
+      iconBg: "bg-emerald-100 dark:bg-emerald-950/40",
+      iconFg: "text-emerald-700 dark:text-emerald-300",
+      href: "/dashboard/tools/plant-matches",
+      available: true,
+      testId: "card-plant-matches",
     },
   ];
 
