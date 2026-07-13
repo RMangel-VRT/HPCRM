@@ -28,6 +28,7 @@ import heicConvert from 'heic-convert';
 import multer from 'multer';
 import { renderVisualScope, renderVisualScopeExport, type ExportType, type ExportPreset } from "../visualScopeRenderer";
 import { ROLLUP_SERVICE_LABELS, campaignToRollupServiceType } from "../shared/serviceCatalog";
+import { findClosestHourIndex, buildDateWindow } from "../lib/weatherHourMatch";
 import { buildContractAuditRows } from "../auditEngine";
 import { seedChemicalNotificationTemplates } from "../templates/seed";
 import { assertNotParentCustomer } from "../utils/parentGuard";
@@ -15335,28 +15336,33 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const targetDate = datetime ? new Date(datetime) : now;
       if (isNaN(targetDate.getTime())) return res.status(400).json({ error: "Invalid datetime" });
 
-      const isPast = targetDate < now;
       const isFuture = targetDate > new Date(now.getTime() + 16 * 24 * 60 * 60 * 1000);
-
       if (isFuture) return res.status(400).json({ error: "Cannot fetch weather for dates more than 16 days in the future" });
 
-      let apiUrl: string;
-      if (isPast) {
-        const dateStr = targetDate.toISOString().slice(0, 10);
-        apiUrl = `https://archive-api.open-meteo.com/v1/archive?latitude=${latitude}&longitude=${longitude}&start_date=${dateStr}&end_date=${dateStr}&hourly=temperature_2m,relative_humidity_2m,wind_speed_10m,wind_direction_10m,weather_code&temperature_unit=fahrenheit&wind_speed_unit=mph&timezone=auto`;
-      } else {
-        const dateStr = targetDate.toISOString().slice(0, 10);
-        apiUrl = `https://api.open-meteo.com/v1/forecast?latitude=${latitude}&longitude=${longitude}&start_date=${dateStr}&end_date=${dateStr}&hourly=temperature_2m,relative_humidity_2m,wind_speed_10m,wind_direction_10m,weather_code&temperature_unit=fahrenheit&wind_speed_unit=mph&timezone=auto`;
-      }
+      // Fetch a ±1 day window around the target UTC instant so that local-timezone
+      // date rollovers (e.g. 10 PM Mountain = next-day UTC) can never put the target
+      // hour outside the fetched range.
+      const { startDate, endDate } = buildDateWindow(targetDate.getTime());
+
+      // Route to the archive endpoint only when the target is more than 5 days old.
+      // Recent-past captures (including earlier today) must use the forecast endpoint
+      // because the archive lags several days and often has no data for today.
+      const isOldPast = targetDate < new Date(now.getTime() - 5 * 24 * 60 * 60 * 1000);
+      const baseUrl = isOldPast
+        ? `https://archive-api.open-meteo.com/v1/archive`
+        : `https://api.open-meteo.com/v1/forecast`;
+
+      const apiUrl = `${baseUrl}?latitude=${latitude}&longitude=${longitude}&start_date=${startDate}&end_date=${endDate}&hourly=temperature_2m,relative_humidity_2m,wind_speed_10m,wind_direction_10m,weather_code&temperature_unit=fahrenheit&wind_speed_unit=mph&timezone=auto`;
 
       const response = await fetch(apiUrl);
       if (!response.ok) {
         const errText = await response.text();
-        console.error("Open-Meteo API error:", errText);
+        req.log.error({ errText }, "Open-Meteo API error");
         return res.status(502).json({ error: "Weather service unavailable" });
       }
 
       const data = await response.json() as {
+        utc_offset_seconds?: number;
         hourly?: {
           time?: string[];
           temperature_2m?: number[];
@@ -15369,17 +15375,15 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       if (!data.hourly?.time?.length) return res.status(404).json({ error: "No weather data available for this date" });
 
-      const targetMs = targetDate.getTime();
-      let idx = 0;
-      let closestDiff = Infinity;
-      for (let i = 0; i < data.hourly.time.length; i++) {
-        const entryTime = new Date(data.hourly.time[i]).getTime();
-        const diff = Math.abs(entryTime - targetMs);
-        if (diff < closestDiff) {
-          closestDiff = diff;
-          idx = i;
-        }
-      }
+      // Open-Meteo returns hourly times as naive local strings with no UTC offset
+      // (e.g. "2026-07-13T07:00"). findClosestHourIndex corrects for this by treating
+      // each string as UTC and subtracting utc_offset_seconds to recover the true UTC
+      // instant before comparing against the target.
+      const idx = findClosestHourIndex(
+        data.hourly.time,
+        data.utc_offset_seconds ?? 0,
+        targetDate.getTime(),
+      );
 
       const weatherCodeToCondition = (code: number): string => {
         if (code === 0) return "Clear sky";
@@ -15403,7 +15407,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         recordedAt: targetDate.toISOString(),
       });
     } catch (error) {
-      console.error("Weather fetch error:", error);
+      req.log.error({ error }, "Weather fetch error");
       res.status(500).json({ error: "Failed to fetch weather data" });
     }
   });
