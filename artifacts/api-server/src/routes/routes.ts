@@ -35,6 +35,7 @@ import { assertNotParentCustomer } from "../utils/parentGuard";
 import { registerExtraBillablePhotoRoutes } from "./extraBillablePhotos";
 import { registerMobileTicketPhotosNotesRoutes } from "./mobileTicketPhotosNotes";
 import { getEmailFallbacks, formatReentryInterval } from '../i18n/emailFallbacks';
+import { listMigrations, applyMigrations, getAuditLog, MIGRATIONS_DIR } from '../lib/migrationRunner';
 
 /**
  * Signed URL TTL for chemical product label attachments (in seconds).
@@ -7728,6 +7729,74 @@ export async function registerRoutes(app: Express): Promise<Server> {
     await db.update(companyUsersTable).set({ tags }).where(eq(companyUsersTable.id, req.params.id));
     res.json({ success: true, tags });
   });
+
+  // ─── Database Migrations Admin UI ────────────────────────────────────────────
+  // In-memory apply lock prevents concurrent apply calls.
+  let migrationsApplyLock = false;
+
+  // GET /api/admin/migrations — list all migration files with status (dry-run, no writes)
+  app.get("/api/admin/migrations", async (req, res) => {
+    if (!req.isAuthenticated()) return res.status(401).send("Not authenticated");
+    const user = req.user as UserWithContext;
+    if (!isAdminOrSuperAdmin(user)) return res.status(403).send("Admin role required");
+    const databaseUrl = process.env["DATABASE_URL"];
+    if (!databaseUrl) return res.status(500).send("DATABASE_URL not configured");
+    try {
+      const result = await listMigrations(databaseUrl);
+      return res.json({
+        migrationsDir: MIGRATIONS_DIR,
+        files: result.files,
+        drifted: result.drifted,
+        pendingCount: result.pendingCount,
+        applyLocked: migrationsApplyLock,
+      });
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      return res.status(500).json({ error: msg });
+    }
+  });
+
+  // POST /api/admin/migrations/apply — apply all pending migrations
+  app.post("/api/admin/migrations/apply", async (req, res) => {
+    if (!req.isAuthenticated()) return res.status(401).send("Not authenticated");
+    const user = req.user as UserWithContext;
+    if (!isAdminOrSuperAdmin(user)) return res.status(403).send("Admin role required");
+    if (migrationsApplyLock) {
+      return res.status(409).json({ error: "A migration run is already in progress. Please wait." });
+    }
+    const databaseUrl = process.env["DATABASE_URL"];
+    if (!databaseUrl) return res.status(500).send("DATABASE_URL not configured");
+    migrationsApplyLock = true;
+    try {
+      const result = await applyMigrations(databaseUrl, {
+        userId: user.id,
+        email: user.email ?? "unknown",
+      });
+      return res.json(result);
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      return res.status(500).json({ error: msg });
+    } finally {
+      migrationsApplyLock = false;
+    }
+  });
+
+  // GET /api/admin/migrations/audit — recent apply audit log
+  app.get("/api/admin/migrations/audit", async (req, res) => {
+    if (!req.isAuthenticated()) return res.status(401).send("Not authenticated");
+    const user = req.user as UserWithContext;
+    if (!isAdminOrSuperAdmin(user)) return res.status(403).send("Admin role required");
+    const databaseUrl = process.env["DATABASE_URL"];
+    if (!databaseUrl) return res.status(500).send("DATABASE_URL not configured");
+    try {
+      const rows = await getAuditLog(databaseUrl);
+      return res.json(rows);
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      return res.status(500).json({ error: msg });
+    }
+  });
+  // ─────────────────────────────────────────────────────────────────────────────
 
   // Invoice migration: dry-run and execute
   // Creates Invoice tickets for existing tickets at billing-ready statuses without linked invoices
