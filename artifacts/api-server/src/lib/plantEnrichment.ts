@@ -355,7 +355,7 @@ export function matchVariety(
   return { candidate: null, confidence: 0, matchStatus: "unmatched" };
 }
 
-function mapFacts(facts: Record<string, string>): {
+export function mapFacts(facts: Record<string, string>): {
   light: string | null;
   waterUse: string | null;
   isXeriscape: boolean | null;
