@@ -2,8 +2,7 @@ import { useState } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { useTranslation } from "react-i18next";
 import {
-  Leaf, RefreshCw, Search, ChevronDown, ChevronUp, PackageOpen, Sun, Droplets,
-  Flower, TreePine, Bird, Shield, Wind
+  Leaf, RefreshCw, Search, ChevronDown, ChevronUp, PackageOpen, Plus, Check, Minus
 } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
@@ -29,6 +28,11 @@ const CATEGORIES: Array<{ value: PlantCategory | ""; label: string }> = [
 ];
 
 type TraitFilter = "xeriscape" | "native" | "pollinator" | "deer";
+
+export interface PlantPickerSelection {
+  plantCatalogItemId: string;
+  quantity: number;
+}
 
 function formatPrice(val: string | null | undefined): string {
   if (!val) return "—";
@@ -113,9 +117,9 @@ function EnrichmentPanel({ enrichment }: { enrichment: PlantEnrichmentData }) {
           )}
           {traits.length > 0 && (
             <div className="flex flex-wrap gap-1">
-              {traits.map((t) => (
-                <span key={t} className="text-xs bg-emerald-50 text-emerald-700 border border-emerald-200 rounded-full px-2 py-0.5">
-                  {t}
+              {traits.map((tr) => (
+                <span key={tr} className="text-xs bg-emerald-50 text-emerald-700 border border-emerald-200 rounded-full px-2 py-0.5">
+                  {tr}
                 </span>
               ))}
             </div>
@@ -126,14 +130,33 @@ function EnrichmentPanel({ enrichment }: { enrichment: PlantEnrichmentData }) {
   );
 }
 
-function VarietyRow({ group }: { group: PlantVarietyGroup }) {
+interface SizeRowInsertState {
+  selected: boolean;
+  quantity: number;
+}
+
+function VarietyRow({
+  group,
+  insertMode,
+  selections,
+  onToggleSize,
+  onQuantityChange,
+}: {
+  group: PlantVarietyGroup;
+  insertMode?: boolean;
+  selections?: Map<string, SizeRowInsertState>;
+  onToggleSize?: (productCode: string) => void;
+  onQuantityChange?: (productCode: string, qty: number) => void;
+}) {
   const { t } = useTranslation();
   const [open, setOpen] = useState(false);
   const totalOnHand = group.sizes.reduce((s, sz) => s + sz.onHand, 0);
   const enrichment = group.enrichment ?? null;
 
+  const anySelected = insertMode && group.sizes.some(sz => selections?.get(sz.productCode)?.selected);
+
   return (
-    <div className="border rounded-lg overflow-hidden">
+    <div className={`border rounded-lg overflow-hidden ${anySelected ? "border-emerald-500 ring-1 ring-emerald-300" : ""}`}>
       <button
         type="button"
         className="w-full flex items-center justify-between px-4 py-3 hover:bg-muted/40 transition-colors text-left"
@@ -159,6 +182,9 @@ function VarietyRow({ group }: { group: PlantVarietyGroup }) {
               </Badge>
               {enrichment?.matchStatus === "auto" && (
                 <Badge variant="secondary" className="text-xs opacity-80">{t("plantLibrary.unverifiedMatch")}</Badge>
+              )}
+              {anySelected && (
+                <Badge className="text-xs bg-emerald-600">Selected</Badge>
               )}
             </div>
             {group.botanicalName && (
@@ -202,29 +228,78 @@ function VarietyRow({ group }: { group: PlantVarietyGroup }) {
           <table className="w-full text-sm">
             <thead>
               <tr className="text-xs text-muted-foreground border-b">
+                {insertMode && <th className="w-8 px-3 py-2" />}
                 <th className="text-left px-4 py-2 font-medium">Size</th>
                 <th className="text-right px-4 py-2 font-medium">On Hand</th>
-                <th className="text-right px-4 py-2 font-medium">Sale Price</th>
-                <th className="text-right px-4 py-2 font-medium">Wholesale</th>
-                <th className="text-left px-4 py-2 font-medium hidden sm:table-cell">Location</th>
+                {!insertMode && <th className="text-right px-4 py-2 font-medium">Sale Price</th>}
+                {!insertMode && <th className="text-right px-4 py-2 font-medium">Wholesale</th>}
+                {!insertMode && <th className="text-left px-4 py-2 font-medium hidden sm:table-cell">Location</th>}
+                {insertMode && <th className="text-right px-4 py-2 font-medium">Qty</th>}
               </tr>
             </thead>
             <tbody>
-              {group.sizes.map((sz) => (
-                <tr key={sz.productCode} className="border-b last:border-0 hover:bg-muted/30">
-                  <td className="px-4 py-2 font-medium">{sz.sizeLabel || sz.sizeCode || "—"}</td>
-                  <td className="px-4 py-2 text-right tabular-nums">
-                    <span className={sz.onHand > 0 ? "text-green-700 font-medium" : "text-muted-foreground"}>
-                      {sz.onHand}
-                    </span>
-                  </td>
-                  <td className="px-4 py-2 text-right tabular-nums">{formatPrice(sz.salePrice)}</td>
-                  <td className="px-4 py-2 text-right tabular-nums">{formatPrice(sz.wholesaleCost)}</td>
-                  <td className="px-4 py-2 text-muted-foreground hidden sm:table-cell">
-                    {group.location ?? "—"}
-                  </td>
-                </tr>
-              ))}
+              {group.sizes.map((sz) => {
+                const state = selections?.get(sz.productCode);
+                const isSelected = state?.selected ?? false;
+                const qty = state?.quantity ?? 1;
+                return (
+                  <tr
+                    key={sz.productCode}
+                    className={`border-b last:border-0 ${insertMode ? "cursor-pointer" : ""} ${isSelected ? "bg-emerald-50 dark:bg-emerald-950/30" : "hover:bg-muted/30"}`}
+                    onClick={insertMode ? () => onToggleSize?.(sz.productCode) : undefined}
+                  >
+                    {insertMode && (
+                      <td className="px-3 py-2">
+                        <div className={`w-5 h-5 rounded border-2 flex items-center justify-center flex-shrink-0 ${isSelected ? "bg-emerald-600 border-emerald-600" : "border-border"}`}>
+                          {isSelected && <Check className="w-3 h-3 text-white" />}
+                        </div>
+                      </td>
+                    )}
+                    <td className="px-4 py-2 font-medium">{sz.sizeLabel || sz.sizeCode || "—"}</td>
+                    <td className="px-4 py-2 text-right tabular-nums">
+                      <span className={sz.onHand > 0 ? "text-green-700 font-medium" : "text-muted-foreground"}>
+                        {sz.onHand}
+                      </span>
+                    </td>
+                    {!insertMode && <td className="px-4 py-2 text-right tabular-nums">{formatPrice(sz.salePrice)}</td>}
+                    {!insertMode && <td className="px-4 py-2 text-right tabular-nums">{formatPrice(sz.wholesaleCost)}</td>}
+                    {!insertMode && (
+                      <td className="px-4 py-2 text-muted-foreground hidden sm:table-cell">
+                        {group.location ?? "—"}
+                      </td>
+                    )}
+                    {insertMode && (
+                      <td className="px-4 py-2 text-right" onClick={(e) => e.stopPropagation()}>
+                        {isSelected && (
+                          <div className="flex items-center justify-end gap-1">
+                            <button
+                              type="button"
+                              className="w-6 h-6 rounded border flex items-center justify-center hover:bg-muted"
+                              onClick={(e) => { e.stopPropagation(); onQuantityChange?.(sz.productCode, Math.max(1, qty - 1)); }}
+                            >
+                              <Minus className="w-3 h-3" />
+                            </button>
+                            <input
+                              type="number"
+                              min={1}
+                              value={qty}
+                              onChange={(e) => onQuantityChange?.(sz.productCode, Math.max(1, parseInt(e.target.value) || 1))}
+                              className="w-12 text-center text-sm border rounded px-1 py-0.5"
+                            />
+                            <button
+                              type="button"
+                              className="w-6 h-6 rounded border flex items-center justify-center hover:bg-muted"
+                              onClick={(e) => { e.stopPropagation(); onQuantityChange?.(sz.productCode, qty + 1); }}
+                            >
+                              <Plus className="w-3 h-3" />
+                            </button>
+                          </div>
+                        )}
+                      </td>
+                    )}
+                  </tr>
+                );
+              })}
             </tbody>
           </table>
         </div>
@@ -233,7 +308,13 @@ function VarietyRow({ group }: { group: PlantVarietyGroup }) {
   );
 }
 
-export default function PlantLibrary() {
+interface PlantLibraryProps {
+  insertMode?: boolean;
+  onAddSelections?: (selections: PlantPickerSelection[]) => void;
+  addPending?: boolean;
+}
+
+export default function PlantLibrary({ insertMode, onAddSelections, addPending }: PlantLibraryProps) {
   const { t } = useTranslation();
   const { toast } = useToast();
   const { user } = useAuth();
@@ -243,12 +324,35 @@ export default function PlantLibrary() {
   const [category, setCategory] = useState<PlantCategory | "">("");
   const [inStockOnly, setInStockOnly] = useState(true);
   const [activeTraits, setActiveTraits] = useState<Set<TraitFilter>>(new Set());
+  const [sizeSelections, setSizeSelections] = useState<Map<string, SizeRowInsertState>>(new Map());
 
-  function toggleTrait(t: TraitFilter) {
+  function toggleTrait(tr: TraitFilter) {
     setActiveTraits((prev) => {
       const next = new Set(prev);
-      if (next.has(t)) next.delete(t);
-      else next.add(t);
+      if (next.has(tr)) next.delete(tr);
+      else next.add(tr);
+      return next;
+    });
+  }
+
+  function handleToggleSize(productCode: string) {
+    setSizeSelections((prev) => {
+      const next = new Map(prev);
+      const cur = next.get(productCode);
+      if (cur?.selected) {
+        next.delete(productCode);
+      } else {
+        next.set(productCode, { selected: true, quantity: cur?.quantity ?? 1 });
+      }
+      return next;
+    });
+  }
+
+  function handleQuantityChange(productCode: string, qty: number) {
+    setSizeSelections((prev) => {
+      const next = new Map(prev);
+      const cur = next.get(productCode);
+      if (cur) next.set(productCode, { ...cur, quantity: qty });
       return next;
     });
   }
@@ -270,6 +374,7 @@ export default function PlantLibrary() {
     queryFn: () =>
       apiRequest("GET", "/api/plant-library/sync-status").then((r) => r.json()),
     refetchInterval: 10_000,
+    enabled: !insertMode,
   });
 
   const syncMutation = useMutation({
@@ -306,50 +411,72 @@ export default function PlantLibrary() {
     { key: "deer", label: t("plantLibrary.filterDeer") },
   ];
 
+  const selectedCount = [...sizeSelections.values()].filter(s => s.selected).length;
+
+  function buildSelections(): PlantPickerSelection[] {
+    if (!varieties) return [];
+    const result: PlantPickerSelection[] = [];
+    for (const group of varieties) {
+      for (const sz of group.sizes) {
+        const state = sizeSelections.get(sz.productCode);
+        if (!state?.selected) continue;
+        result.push({
+          plantCatalogItemId: sz.productCode,
+          quantity: state.quantity,
+        });
+      }
+    }
+    return result;
+  }
+
+  const outerClass = insertMode ? "p-4 max-w-full" : "p-8 max-w-6xl mx-auto";
+
   return (
-    <div className="p-8 max-w-6xl mx-auto">
-      <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-4 mb-8">
-        <div>
-          <div className="flex items-center gap-2 mb-1">
-            <Leaf className="w-6 h-6 text-primary" />
-            <h1 className="text-3xl font-semibold tracking-tight" data-testid="text-page-title">
-              {t("plantLibrary.title")}
-            </h1>
-          </div>
-          <p className="text-muted-foreground" data-testid="text-page-description">
-            {t("plantLibrary.description")}
-          </p>
-          {syncStatus && (
-            <div className="flex items-center gap-2 mt-2 text-xs text-muted-foreground">
-              <SyncStatusBadge status={syncStatus.status} />
-              {lastSyncedText && (
-                <span data-testid="text-last-synced">
-                  {t("plantLibrary.lastSynced", { time: lastSyncedText })}
-                </span>
-              )}
-              {syncStatus.status === "success" && (
-                <span>
-                  · {syncStatus.itemsUpserted} {t("plantLibrary.itemsUpserted")}
-                </span>
-              )}
+    <div className={outerClass}>
+      {!insertMode && (
+        <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-4 mb-8">
+          <div>
+            <div className="flex items-center gap-2 mb-1">
+              <Leaf className="w-6 h-6 text-primary" />
+              <h1 className="text-3xl font-semibold tracking-tight" data-testid="text-page-title">
+                {t("plantLibrary.title")}
+              </h1>
             </div>
+            <p className="text-muted-foreground" data-testid="text-page-description">
+              {t("plantLibrary.description")}
+            </p>
+            {syncStatus && (
+              <div className="flex items-center gap-2 mt-2 text-xs text-muted-foreground">
+                <SyncStatusBadge status={syncStatus.status} />
+                {lastSyncedText && (
+                  <span data-testid="text-last-synced">
+                    {t("plantLibrary.lastSynced", { time: lastSyncedText })}
+                  </span>
+                )}
+                {syncStatus.status === "success" && (
+                  <span>
+                    · {syncStatus.itemsUpserted} {t("plantLibrary.itemsUpserted")}
+                  </span>
+                )}
+              </div>
+            )}
+          </div>
+
+          {canSync && (
+            <Button
+              onClick={() => syncMutation.mutate()}
+              disabled={syncMutation.isPending || syncStatus?.status === "running"}
+              data-testid="button-sync-now"
+              className="flex-shrink-0"
+            >
+              <RefreshCw className={`w-4 h-4 mr-2 ${syncMutation.isPending ? "animate-spin" : ""}`} />
+              {t("plantLibrary.syncNow")}
+            </Button>
           )}
         </div>
+      )}
 
-        {canSync && (
-          <Button
-            onClick={() => syncMutation.mutate()}
-            disabled={syncMutation.isPending || syncStatus?.status === "running"}
-            data-testid="button-sync-now"
-            className="flex-shrink-0"
-          >
-            <RefreshCw className={`w-4 h-4 mr-2 ${syncMutation.isPending ? "animate-spin" : ""}`} />
-            {t("plantLibrary.syncNow")}
-          </Button>
-        )}
-      </div>
-
-      <div className="flex flex-col gap-3 mb-6">
+      <div className="flex flex-col gap-3 mb-4">
         <div className="flex flex-col sm:flex-row gap-3">
           <div className="relative flex-1">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
@@ -421,12 +548,45 @@ export default function PlantLibrary() {
 
       {!isLoading && !isError && filteredVarieties && filteredVarieties.length > 0 && (
         <div className="flex flex-col gap-2" data-testid="list-plant-varieties">
-          <p className="text-sm text-muted-foreground mb-1">
-            {t("plantLibrary.showingCount", { count: filteredVarieties.length })}
-          </p>
+          {!insertMode && (
+            <p className="text-sm text-muted-foreground mb-1">
+              {t("plantLibrary.showingCount", { count: filteredVarieties.length })}
+            </p>
+          )}
           {filteredVarieties.map((group) => (
-            <VarietyRow key={group.varietyKey} group={group} />
+            <VarietyRow
+              key={group.varietyKey}
+              group={group}
+              insertMode={insertMode}
+              selections={sizeSelections}
+              onToggleSize={handleToggleSize}
+              onQuantityChange={handleQuantityChange}
+            />
           ))}
+        </div>
+      )}
+
+      {insertMode && selectedCount > 0 && (
+        <div className="sticky bottom-0 mt-4 flex items-center justify-between gap-3 p-3 rounded-lg border bg-background shadow-lg">
+          <span className="text-sm font-medium">
+            {selectedCount} size{selectedCount !== 1 ? "s" : ""} selected
+          </span>
+          <Button
+            size="sm"
+            onClick={() => {
+              const items = buildSelections();
+              onAddSelections?.(items);
+            }}
+            disabled={addPending}
+            data-testid="button-add-plants-to-proposal"
+          >
+            {addPending ? (
+              <RefreshCw className="w-4 h-4 mr-2 animate-spin" />
+            ) : (
+              <Plus className="w-4 h-4 mr-2" />
+            )}
+            Add {selectedCount} to Proposal
+          </Button>
         </div>
       )}
     </div>

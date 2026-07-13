@@ -1681,11 +1681,30 @@ export type ProposalVersionWithUser = ProposalVersion & {
   finalizedByName: string | null;
 };
 
+export type ProposalPlantItem = {
+  id: string;
+  proposalId: string;
+  companyId: string;
+  plantCatalogItemId: string | null;
+  nameSnapshot: string;
+  botanicalSnapshot: string | null;
+  sizeSnapshot: string | null;
+  imageUrlSnapshot: string | null;
+  imageStoragePathSnapshot: string | null;
+  quantity: number;
+  wholesaleCostSnapshot: string | null;
+  notes: string | null;
+  displayOrder: number;
+  createdAt: string;
+  updatedAt: string;
+};
+
 export type ProposalWithDetails = Proposal & {
   customerName: string;
   files: ProposalFile[];
   versions: ProposalVersionWithUser[];
   visualScopeSheet?: VisualScopeSheetWithCustomer | null;
+  plantItems: ProposalPlantItem[];
 };
 
 // ==================== CREW WORKSHEETS ====================

@@ -59,11 +59,17 @@ import {
   AlertTriangle,
   GripVertical,
   HardHat,
+  Leaf,
+  Plus,
+  ArrowUp,
+  ArrowDown,
 } from "lucide-react";
 import { Checkbox } from "@/components/ui/checkbox";
+import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
-import type { ProposalWithDetails, ProposalFile, Ticket, VisualScopeSheetWithCustomer } from "@shared/schema";
+import type { ProposalWithDetails, ProposalFile, ProposalPlantItem, Ticket, VisualScopeSheetWithCustomer } from "@shared/schema";
+import PlantLibrary, { type PlantPickerSelection } from "@/pages/PlantLibrary";
 
 function formatDateTime(ts: string | Date) {
   try {
@@ -194,6 +200,7 @@ export default function ProposalDraft() {
   const [bulkDeleteOpen, setBulkDeleteOpen] = useState(false);
 
   const [captionDrafts, setCaptionDrafts] = useState<Record<string, string>>({});
+  const [plantPickerOpen, setPlantPickerOpen] = useState(false);
 
   const pdfInputRef = useRef<HTMLInputElement>(null);
   const imgInputRef = useRef<HTMLInputElement>(null);
@@ -376,6 +383,77 @@ export default function ProposalDraft() {
       toast({ title: t("common.error"), variant: "destructive" });
     },
   });
+
+  const addPlantItemsMutation = useMutation({
+    mutationFn: async (items: PlantPickerSelection[]) => {
+      const payload = items.map((item, i) => ({
+        plantCatalogItemId: item.plantCatalogItemId,
+        quantity: item.quantity,
+        displayOrder: (proposal?.plantItems?.length ?? 0) + i,
+      }));
+      const res = await apiRequest("POST", `/api/proposals/${id}/plant-items`, payload);
+      if (!res.ok) throw new Error(await res.text());
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/proposals", id] });
+      setPlantPickerOpen(false);
+      toast({ title: "Plants added to proposal" });
+    },
+    onError: (err: Error) => {
+      toast({ title: "Failed to add plants", description: err.message, variant: "destructive" });
+    },
+  });
+
+  const deletePlantItemMutation = useMutation({
+    mutationFn: async (itemId: string) => {
+      const res = await apiRequest("DELETE", `/api/proposals/${id}/plant-items/${itemId}`);
+      if (!res.ok) throw new Error(await res.text());
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/proposals", id] });
+    },
+    onError: () => {
+      toast({ title: t("common.error"), variant: "destructive" });
+    },
+  });
+
+  const updatePlantItemMutation = useMutation({
+    mutationFn: async ({ itemId, updates }: { itemId: string; updates: Partial<ProposalPlantItem> }) => {
+      const res = await apiRequest("PATCH", `/api/proposals/${id}/plant-items/${itemId}`, updates);
+      if (!res.ok) throw new Error(await res.text());
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/proposals", id] });
+    },
+    onError: () => {
+      toast({ title: t("common.error"), variant: "destructive" });
+    },
+  });
+
+  const reorderPlantItemsMutation = useMutation({
+    mutationFn: async (ids: string[]) => {
+      const res = await apiRequest("POST", `/api/proposals/${id}/plant-items/reorder`, { ids });
+      if (!res.ok) throw new Error(await res.text());
+    },
+    onError: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/proposals", id] });
+    },
+  });
+
+  function movePlantItem(items: ProposalPlantItem[], fromIdx: number, toIdx: number) {
+    const sorted = [...items].sort((a, b) => a.displayOrder - b.displayOrder);
+    const [moved] = sorted.splice(fromIdx, 1);
+    sorted.splice(toIdx, 0, moved);
+    const ids = sorted.map(i => i.id);
+    queryClient.setQueryData<ProposalWithDetails | undefined>(["/api/proposals", id], (old) => {
+      if (!old) return old;
+      const updated = sorted.map((item, idx) => ({ ...item, displayOrder: idx }));
+      return { ...old, plantItems: updated };
+    });
+    reorderPlantItemsMutation.mutate(ids);
+  }
 
   const finalizeMutation = useMutation({
     mutationFn: async () => {
@@ -985,6 +1063,143 @@ export default function ProposalDraft() {
           )}
         </CardContent>
       </Card>
+
+      <Card>
+        <CardHeader>
+          <div className="flex items-center justify-between gap-2 flex-wrap">
+            <CardTitle className="text-base flex items-center gap-2">
+              <Leaf className="w-4 h-4" /> Plant Schedule
+            </CardTitle>
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={() => setPlantPickerOpen(true)}
+              data-testid="button-open-plant-picker"
+            >
+              <Plus className="w-4 h-4 mr-1.5" /> Browse Plant Library
+            </Button>
+          </div>
+        </CardHeader>
+        <CardContent>
+          {(!proposal.plantItems || proposal.plantItems.length === 0) ? (
+            <p className="text-sm text-muted-foreground">
+              No plants added yet. Click "Browse Plant Library" to add plants to this proposal.
+            </p>
+          ) : (
+            <div className="flex flex-col gap-2">
+              {[...proposal.plantItems].sort((a, b) => a.displayOrder - b.displayOrder).map((item, idx, arr) => (
+                <div
+                  key={item.id}
+                  className="flex items-start gap-3 p-3 rounded-md border bg-background"
+                  data-testid={`div-plant-item-${item.id}`}
+                >
+                  {item.imageUrlSnapshot && (
+                    <img
+                      src={item.imageUrlSnapshot}
+                      alt={item.nameSnapshot}
+                      className="w-12 h-12 object-cover rounded flex-shrink-0"
+                      onError={(e) => { (e.target as HTMLImageElement).style.display = "none"; }}
+                    />
+                  )}
+                  <div className="flex-1 min-w-0">
+                    <p className="font-medium text-sm" data-testid={`text-plant-name-${item.id}`}>{item.nameSnapshot}</p>
+                    {item.botanicalSnapshot && (
+                      <p className="text-xs text-muted-foreground italic">{item.botanicalSnapshot}</p>
+                    )}
+                    {item.sizeSnapshot && (
+                      <p className="text-xs text-muted-foreground">{item.sizeSnapshot}</p>
+                    )}
+                    {item.wholesaleCostSnapshot && (
+                      <p className="text-xs text-muted-foreground">
+                        Wholesale: ${parseFloat(item.wholesaleCostSnapshot).toFixed(2)}
+                      </p>
+                    )}
+                    <div className="flex items-center gap-2 mt-1.5">
+                      <label className="text-xs text-muted-foreground">Qty:</label>
+                      <input
+                        type="number"
+                        min={1}
+                        defaultValue={item.quantity}
+                        className="w-16 text-sm border rounded px-1.5 py-0.5"
+                        onBlur={(e) => {
+                          const qty = Math.max(1, parseInt(e.target.value) || 1);
+                          if (qty !== item.quantity) {
+                            updatePlantItemMutation.mutate({ itemId: item.id, updates: { quantity: qty } });
+                          }
+                        }}
+                        data-testid={`input-plant-qty-${item.id}`}
+                      />
+                    </div>
+                    <div className="flex items-center gap-2 mt-1">
+                      <label className="text-xs text-muted-foreground shrink-0">Notes:</label>
+                      <input
+                        type="text"
+                        defaultValue={item.notes ?? ""}
+                        placeholder="Internal notes…"
+                        className="flex-1 text-xs border rounded px-1.5 py-0.5 min-w-0"
+                        onBlur={(e) => {
+                          const notes = e.target.value.trim() || null;
+                          if (notes !== (item.notes ?? null)) {
+                            updatePlantItemMutation.mutate({ itemId: item.id, updates: { notes } });
+                          }
+                        }}
+                        data-testid={`input-plant-notes-${item.id}`}
+                      />
+                    </div>
+                  </div>
+                  <div className="flex flex-col gap-1 shrink-0">
+                    <Button
+                      size="icon"
+                      variant="ghost"
+                      className="h-7 w-7"
+                      disabled={idx === 0}
+                      onClick={() => movePlantItem(proposal.plantItems!, idx, idx - 1)}
+                      data-testid={`button-plant-move-up-${item.id}`}
+                    >
+                      <ArrowUp className="w-3.5 h-3.5" />
+                    </Button>
+                    <Button
+                      size="icon"
+                      variant="ghost"
+                      className="h-7 w-7"
+                      disabled={idx === arr.length - 1}
+                      onClick={() => movePlantItem(proposal.plantItems!, idx, idx + 1)}
+                      data-testid={`button-plant-move-down-${item.id}`}
+                    >
+                      <ArrowDown className="w-3.5 h-3.5" />
+                    </Button>
+                    <Button
+                      size="icon"
+                      variant="ghost"
+                      className="h-7 w-7 text-destructive"
+                      onClick={() => deletePlantItemMutation.mutate(item.id)}
+                      disabled={deletePlantItemMutation.isPending}
+                      data-testid={`button-plant-delete-${item.id}`}
+                    >
+                      <Trash2 className="w-3.5 h-3.5" />
+                    </Button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
+      <Sheet open={plantPickerOpen} onOpenChange={setPlantPickerOpen}>
+        <SheetContent side="right" className="w-full sm:max-w-2xl overflow-y-auto p-0">
+          <SheetHeader className="px-4 pt-4 pb-0">
+            <SheetTitle className="flex items-center gap-2">
+              <Leaf className="w-4 h-4" /> Browse Plant Library
+            </SheetTitle>
+          </SheetHeader>
+          <PlantLibrary
+            insertMode
+            onAddSelections={(selections) => addPlantItemsMutation.mutate(selections)}
+            addPending={addPlantItemsMutation.isPending}
+          />
+        </SheetContent>
+      </Sheet>
 
       <Card>
         <CardHeader>

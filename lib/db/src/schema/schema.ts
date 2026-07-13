@@ -1700,6 +1700,7 @@ export const proposalVersions = pgTable("proposal_versions", {
   vsCombinedPath: varchar("vs_combined_path"),
   vsBasePath: varchar("vs_base_path"),
   vsOverlayPath: varchar("vs_overlay_path"),
+  plantItemsSnapshot: jsonb("plant_items_snapshot").$type<Record<string, unknown>[]>(),
   createdAt: timestamp("created_at").notNull().defaultNow(),
 }, (table) => ({
   uniqueProposalVersion: unique().on(table.proposalId, table.versionNumber),
@@ -1723,6 +1724,7 @@ export type ProposalWithDetails = Proposal & {
   files: ProposalFile[];
   versions: ProposalVersionWithUser[];
   visualScopeSheet?: VisualScopeSheetWithCustomer | null;
+  plantItems: ProposalPlantItem[];
 };
 
 // ==================== CREW WORKSHEETS ====================
@@ -3651,3 +3653,38 @@ export const plantEnrichment = pgTable("plant_enrichment", {
 
 export type PlantEnrichment = typeof plantEnrichment.$inferSelect;
 export type InsertPlantEnrichment = typeof plantEnrichment.$inferInsert;
+
+// ==================== PROPOSAL PLANT ITEMS ====================
+
+export const proposalPlantItems = pgTable("proposal_plant_items", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  proposalId: varchar("proposal_id").notNull().references(() => proposals.id, { onDelete: "cascade" }),
+  companyId: varchar("company_id").notNull().references(() => companies.id, { onDelete: "cascade" }),
+  plantCatalogItemId: varchar("plant_catalog_item_id").references(() => plantCatalogItems.id, { onDelete: "set null" }),
+  nameSnapshot: text("name_snapshot").notNull(),
+  botanicalSnapshot: text("botanical_snapshot"),
+  sizeSnapshot: text("size_snapshot"),
+  imageUrlSnapshot: text("image_url_snapshot"),
+  imageStoragePathSnapshot: text("image_storage_path_snapshot"),
+  quantity: integer("quantity").notNull().default(1),
+  wholesaleCostSnapshot: numeric("wholesale_cost_snapshot", { precision: 10, scale: 2 }),
+  notes: text("notes"),
+  displayOrder: integer("display_order").notNull().default(0),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  updatedAt: timestamp("updated_at").notNull().defaultNow(),
+}, (table) => ({
+  proposalPlantItemsProposalIdIdx: index("proposal_plant_items_proposal_id_idx").on(table.proposalId),
+  proposalPlantItemsCompanyIdIdx: index("proposal_plant_items_company_id_idx").on(table.companyId),
+}));
+
+export const insertProposalPlantItemSchema = createInsertSchema(proposalPlantItems).omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+}).extend({
+  quantity: z.number().int().min(1).default(1),
+  displayOrder: z.number().int().default(0),
+});
+
+export type InsertProposalPlantItem = z.infer<typeof insertProposalPlantItemSchema>;
+export type ProposalPlantItem = typeof proposalPlantItems.$inferSelect;

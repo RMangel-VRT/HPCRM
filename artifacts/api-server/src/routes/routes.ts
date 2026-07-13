@@ -11216,6 +11216,145 @@ export async function registerRoutes(app: Express): Promise<Server> {
     res.json({ success: true });
   });
 
+  // ---- Proposal plant items CRUD ----
+
+  app.get("/api/proposals/:id/plant-items", async (req, res) => {
+    if (!req.isAuthenticated()) return res.status(401).send("Not authenticated");
+    const user = req.user as UserWithContext;
+    if (!canAccessProposals(user.activeRole)) return res.status(403).send("Insufficient permissions");
+    const proposal = await storage.getProposalById(req.params.id, user.activeCompanyId);
+    if (!proposal) return res.status(404).send("Proposal not found");
+    res.json(proposal.plantItems ?? []);
+  });
+
+  app.post("/api/proposals/:id/plant-items", async (req, res) => {
+    if (!req.isAuthenticated()) return res.status(401).send("Not authenticated");
+    const user = req.user as UserWithContext;
+    if (!canAccessProposals(user.activeRole)) return res.status(403).send("Insufficient permissions");
+    const proposal = await storage.getProposalById(req.params.id, user.activeCompanyId);
+    if (!proposal) return res.status(404).send("Proposal not found");
+    try {
+      const { proposalPlantItems: plantItemsTable, plantCatalogItems, plantEnrichment } = await import("@workspace/db");
+      const { eq, and } = await import("drizzle-orm");
+      const body = req.body;
+      const items = Array.isArray(body) ? body : [body];
+      const inserted: unknown[] = [];
+      for (const item of items) {
+        const catalogId: string | null = item.plantCatalogItemId ?? null;
+        if (!catalogId) {
+          return res.status(400).json({ error: "plantCatalogItemId is required" });
+        }
+        // Server-side snapshotting: look up canonical catalog + enrichment data
+        // Frontend sends productCode (supplier code); catalog PK is a UUID
+        const [catalogRow] = await db
+          .select()
+          .from(plantCatalogItems)
+          .where(and(eq(plantCatalogItems.productCode, catalogId), eq(plantCatalogItems.companyId, user.activeCompanyId)));
+        if (!catalogRow) {
+          return res.status(404).json({ error: `Plant catalog item ${catalogId} not found` });
+        }
+        // Enrichment is keyed by varietyKey (shared across sizes of the same variety)
+        const [enrichRow] = await db
+          .select()
+          .from(plantEnrichment)
+          .where(and(eq(plantEnrichment.varietyKey, catalogRow.varietyKey), eq(plantEnrichment.companyId, user.activeCompanyId)));
+        const [row] = await db
+          .insert(plantItemsTable)
+          .values({
+            proposalId: req.params.id,
+            companyId: user.activeCompanyId,
+            plantCatalogItemId: catalogRow.id,
+            nameSnapshot: catalogRow.commonName,
+            botanicalSnapshot: catalogRow.botanicalName ?? null,
+            sizeSnapshot: catalogRow.sizeLabel ?? null,
+            imageUrlSnapshot: enrichRow?.imageUrl ?? null,
+            imageStoragePathSnapshot: enrichRow?.imageStoragePath ?? null,
+            wholesaleCostSnapshot: catalogRow.wholesaleCost ?? null,
+            quantity: typeof item.quantity === "number" ? item.quantity : 1,
+            notes: item.notes ?? null,
+            displayOrder: typeof item.displayOrder === "number" ? item.displayOrder : 0,
+          })
+          .returning();
+        inserted.push(row);
+      }
+      res.json(Array.isArray(body) ? inserted : inserted[0]);
+    } catch (err) {
+      req.log.error({ err }, "POST /api/proposals/:id/plant-items error");
+      res.status(500).json({ error: "Failed to add plant items" });
+    }
+  });
+
+  app.patch("/api/proposals/:id/plant-items/:itemId", async (req, res) => {
+    if (!req.isAuthenticated()) return res.status(401).send("Not authenticated");
+    const user = req.user as UserWithContext;
+    if (!canAccessProposals(user.activeRole)) return res.status(403).send("Insufficient permissions");
+    const proposal = await storage.getProposalById(req.params.id, user.activeCompanyId);
+    if (!proposal) return res.status(404).send("Proposal not found");
+    try {
+      const { proposalPlantItems: plantItemsTable } = await import("@workspace/db");
+      const { eq, and } = await import("drizzle-orm");
+      const allowed = ["quantity", "notes", "displayOrder"];
+      const updates: Record<string, unknown> = {};
+      for (const key of allowed) {
+        if (key in req.body) updates[key] = req.body[key];
+      }
+      updates.updatedAt = new Date();
+      const [row] = await db
+        .update(plantItemsTable)
+        .set(updates as any)
+        .where(and(eq(plantItemsTable.id, req.params.itemId), eq(plantItemsTable.proposalId, req.params.id), eq(plantItemsTable.companyId, user.activeCompanyId)))
+        .returning();
+      if (!row) return res.status(404).send("Plant item not found");
+      res.json(row);
+    } catch (err) {
+      console.error("PATCH /api/proposals/:id/plant-items/:itemId error:", err);
+      res.status(500).json({ error: "Failed to update plant item" });
+    }
+  });
+
+  app.delete("/api/proposals/:id/plant-items/:itemId", async (req, res) => {
+    if (!req.isAuthenticated()) return res.status(401).send("Not authenticated");
+    const user = req.user as UserWithContext;
+    if (!canAccessProposals(user.activeRole)) return res.status(403).send("Insufficient permissions");
+    const proposal = await storage.getProposalById(req.params.id, user.activeCompanyId);
+    if (!proposal) return res.status(404).send("Proposal not found");
+    try {
+      const { proposalPlantItems: plantItemsTable } = await import("@workspace/db");
+      const { eq, and } = await import("drizzle-orm");
+      await db
+        .delete(plantItemsTable)
+        .where(and(eq(plantItemsTable.id, req.params.itemId), eq(plantItemsTable.proposalId, req.params.id), eq(plantItemsTable.companyId, user.activeCompanyId)));
+      res.json({ success: true });
+    } catch (err) {
+      console.error("DELETE /api/proposals/:id/plant-items/:itemId error:", err);
+      res.status(500).json({ error: "Failed to delete plant item" });
+    }
+  });
+
+  app.post("/api/proposals/:id/plant-items/reorder", async (req, res) => {
+    if (!req.isAuthenticated()) return res.status(401).send("Not authenticated");
+    const user = req.user as UserWithContext;
+    if (!canAccessProposals(user.activeRole)) return res.status(403).send("Insufficient permissions");
+    const proposal = await storage.getProposalById(req.params.id, user.activeCompanyId);
+    if (!proposal) return res.status(404).send("Proposal not found");
+    const ids: string[] = req.body.ids;
+    if (!Array.isArray(ids)) return res.status(400).json({ error: "ids must be an array" });
+    try {
+      const { proposalPlantItems: plantItemsTable } = await import("@workspace/db");
+      const { eq, and } = await import("drizzle-orm");
+      for (let i = 0; i < ids.length; i++) {
+        await db
+          .update(plantItemsTable)
+          .set({ displayOrder: i })
+          .where(and(eq(plantItemsTable.id, ids[i]), eq(plantItemsTable.proposalId, req.params.id), eq(plantItemsTable.companyId, user.activeCompanyId)));
+      }
+      res.json({ success: true });
+    } catch (err) {
+      console.error("POST /api/proposals/:id/plant-items/reorder error:", err);
+      res.status(500).json({ error: "Failed to reorder plant items" });
+    }
+  });
+
   // ---- Image compression helper for proposal PDF ----
   async function compressImageForPdf(buffer: Buffer): Promise<Buffer> {
     try {
@@ -11482,6 +11621,127 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
     doc.end();
     const brandedBuffer = await pdfPromise;
+
+    // --- Plant schedule section ---
+    let plantScheduleBuffer: Buffer | null = null;
+    const plantItems = (proposal.plantItems ?? []).slice().sort((a, b) => a.displayOrder - b.displayOrder);
+    if (plantItems.length > 0) {
+      const psDoc = new PDFDocumentKit({ size: 'LETTER', margins: { top: LM, bottom: LM, left: LM, right: RM } });
+      const psChunks: Buffer[] = [];
+      psDoc.on('data', (chunk: Buffer) => psChunks.push(chunk));
+      const psPromise = new Promise<Buffer>((resolve, reject) => {
+        psDoc.on('end', () => resolve(Buffer.concat(psChunks)));
+        psDoc.on('error', reject);
+      });
+      let psPageCounter = 0;
+      const psGuard = { active: false };
+      const drawPsDecorations = (d: InstanceType<typeof PDFDocumentKit>, num: number) => {
+        if (psGuard.active) return;
+        psGuard.active = true;
+        const savedY = d.y;
+        try { drawWatermark(d); drawFooter(d, num, companyName); }
+        finally { d.y = savedY; psGuard.active = false; }
+      };
+      psPageCounter = 1;
+      drawPsDecorations(psDoc, psPageCounter);
+      psDoc.on('pageAdded', () => { psPageCounter++; drawPsDecorations(psDoc, psPageCounter); });
+
+      const psContentW = psDoc.page.width - LM - RM;
+      // Vary thumbnail size: grid layout fits more rows per page, large gives more visual weight
+      const IMG_COL = proposal.photoLayout === 'grid' ? 48 : 72;
+      const QTY_COL = 36;
+      const SIZE_COL = 90;
+      const NAME_COL = psContentW - IMG_COL - QTY_COL - SIZE_COL - 18;
+
+      // Heading
+      psDoc.fillColor(BRAND).fontSize(13).font('Helvetica-Bold')
+        .text('PLANT SCHEDULE', LM, LM, { width: psContentW, align: 'center' });
+      const divY = LM + 20;
+      const divX = LM + (psContentW - 200) / 2;
+      psDoc.moveTo(divX, divY).lineTo(divX + 200, divY).strokeColor(BRAND).lineWidth(0.5).stroke();
+      psDoc.moveDown(1.4);
+
+      // Column headers
+      const headerY = psDoc.y;
+      psDoc.fillColor('#666666').fontSize(7.5).font('Helvetica-Bold');
+      let cx = LM + IMG_COL + 6;
+      psDoc.text('QTY', cx, headerY, { width: QTY_COL, align: 'center' });
+      cx += QTY_COL + 6;
+      psDoc.text('NAME / BOTANICAL', cx, headerY, { width: NAME_COL });
+      cx += NAME_COL + 6;
+      psDoc.text('SIZE', cx, headerY, { width: SIZE_COL });
+      psDoc.moveDown(0.3);
+      const hLineY = psDoc.y;
+      psDoc.moveTo(LM, hLineY).lineTo(LM + psContentW, hLineY).strokeColor('#cccccc').lineWidth(0.4).stroke();
+      psDoc.moveDown(0.4);
+
+      // Fetch plant images in parallel (best-effort, non-blocking failures)
+      const psObjectStorage = new ObjectStorageService();
+      const itemImageBuffers: (Buffer | null)[] = await Promise.all(
+        plantItems.map(async (item) => {
+          if (!item.imageStoragePathSnapshot) return null;
+          try {
+            return await psObjectStorage.downloadByPath(item.imageStoragePathSnapshot);
+          } catch {
+            return null;
+          }
+        })
+      );
+
+      for (let i = 0; i < plantItems.length; i++) {
+        const item = plantItems[i];
+        const imgBuf = itemImageBuffers[i];
+        const rowTopY = psDoc.y;
+        const ROW_H = Math.max(IMG_COL, 36);
+
+        // Image thumbnail
+        if (imgBuf) {
+          try {
+            const compressed = await compressImageForPdf(imgBuf);
+            psDoc.image(compressed, LM, rowTopY, { fit: [IMG_COL - 4, IMG_COL - 4] });
+          } catch { /* skip image */ }
+        } else {
+          psDoc.rect(LM, rowTopY, IMG_COL - 4, IMG_COL - 4).fillColor('#f0f0f0').fill();
+        }
+
+        // Qty
+        cx = LM + IMG_COL + 6;
+        psDoc.fillColor('#222222').fontSize(11).font('Helvetica-Bold')
+          .text(String(item.quantity), cx, rowTopY + 8, { width: QTY_COL, align: 'center' });
+
+        // Name + botanical
+        cx += QTY_COL + 6;
+        psDoc.fillColor('#222222').fontSize(10).font('Helvetica-Bold')
+          .text(item.nameSnapshot, cx, rowTopY + 2, { width: NAME_COL });
+        if (item.botanicalSnapshot) {
+          psDoc.fillColor('#888888').fontSize(8.5).font('Helvetica-Oblique')
+            .text(item.botanicalSnapshot, cx, psDoc.y + 1, { width: NAME_COL });
+        }
+        if (item.notes) {
+          psDoc.fillColor('#666666').fontSize(8).font('Helvetica')
+            .text(item.notes, cx, psDoc.y + 2, { width: NAME_COL });
+        }
+
+        // Size
+        cx += NAME_COL + 6;
+        psDoc.fillColor('#555555').fontSize(9).font('Helvetica')
+          .text(item.sizeSnapshot ?? '—', cx, rowTopY + 6, { width: SIZE_COL });
+
+        // Row separator
+        const nextY = Math.max(rowTopY + ROW_H, psDoc.y + 6);
+        psDoc.y = nextY;
+        psDoc.moveTo(LM, nextY).lineTo(LM + psContentW, nextY).strokeColor('#eeeeee').lineWidth(0.3).stroke();
+        psDoc.y = nextY + 6;
+
+        // Check for page overflow
+        if (psDoc.y > psDoc.page.height - LM - 60 && i < plantItems.length - 1) {
+          psDoc.addPage();
+        }
+      }
+
+      psDoc.end();
+      plantScheduleBuffer = await psPromise;
+    }
 
     // --- Photo appendix (P4) ---
     const MAX_IMAGES = 25;
@@ -11799,6 +12059,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
         estimatePages.forEach(p => mergedDoc.addPage(p));
       }
 
+      if (plantScheduleBuffer) {
+        const psPdfDoc = await PDFDocument.load(plantScheduleBuffer);
+        const psPages = await mergedDoc.copyPages(psPdfDoc, psPdfDoc.getPageIndices());
+        psPages.forEach(p => mergedDoc.addPage(p));
+      }
+
       if (appendixBuffer) {
         const appendixPdfDoc = await PDFDocument.load(appendixBuffer);
         const appendixPages = await mergedDoc.copyPages(appendixPdfDoc, appendixPdfDoc.getPageIndices());
@@ -11959,6 +12225,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
           estimateNumber: proposal.estimateNumber ?? null,
           finalizedById: user.id,
           pdfStoragePath: storedPath,
+          plantItemsSnapshot: (proposal.plantItems ?? []).slice().sort((a, b) => a.displayOrder - b.displayOrder) as unknown as Record<string, unknown>[],
           ...(vsSnapshots && proposal.visualScopeSheet ? {
             visualScopeSheetId: proposal.visualScopeSheetId!,
             visualScopeTitle: proposal.visualScopeSheet.title,
