@@ -1,0 +1,320 @@
+# Plant Library — Design & Replit Slices
+
+**Feature:** A searchable plant library inside the proposal system. Salespeople browse/search live nursery inventory, see a photo + facts for each plant, and drop selected plants (with pricing) straight into a proposal.
+
+**Two data sources (very different difficulty):**
+
+1. **Availability** — `api.citiyard.com/availability/{tree,shrub,perennial,shrub-rose,vine,ornamental-grass}`. These are *not* JSON APIs; they return HTML tables (`Content-Type: text/html`). Clean, consistent 8 columns, auto-updating. **Easy and reliable.**
+2. **Photos + facts** — `thetreefarm.com` (the same nursery's retail storefront, a Magento site). Product pages have clean slugs (`/maple-autumn-blaze-seedless`). Scraping one page is easy; *matching* an availability row to the right page is the fiddly part, and the photos carry photographer credits ("©photo…", "Courtesy of Bailey Nurseries"). **Design deliberately.**
+
+**Core architecture principle: never scrape live per-proposal.** Sync both sources into a local cached catalog in the CRM. The proposal UI reads only from that local catalog — fast, works if either site is down, and lets you hand-correct bad matches.
+
+---
+
+## Data model
+
+Four new tables in `shared/schema.ts`, following existing conventions (Drizzle + Postgres, `varchar` UUID PKs, `companyId` on every table, `<table>_<column>_idx` indexes, `createInsertSchema` + zod). All are **company-scoped** to match the rest of the CRM even though today only High Plains uses them.
+
+### 1. `plant_catalog_items` — one row per availability line (the SKU)
+
+Each availability line is a specific size of a specific variety (e.g. `APP-150M10C` = Honeycrisp apple, 10-gallon). Store them flat; group by variety in queries.
+
+| Column | Type | Notes |
+|---|---|---|
+| `id` | varchar PK | uuid |
+| `companyId` | varchar FK → companies | multi-tenant |
+| `category` | text `$type<"tree"\|"shrub"\|"perennial"\|"shrub_rose"\|"vine"\|"ornamental_grass">` | which endpoint it came from |
+| `productCode` | varchar | source key, e.g. `APP-150M10C`. Unique per company. |
+| `onHand` | integer | live quantity |
+| `rawDescription` | text | full source string |
+| `commonName` | text | parsed (before the dash), e.g. `APPLE, HONEYCRISP/SEMI-DWARF` |
+| `botanicalName` | text | parsed (after the dash), e.g. `MALUS SYLV. 'HONEYCRISP'` |
+| `varietyKey` | text | normalized grouping key (see parsing) — links SKUs of the same plant together and joins to enrichment |
+| `retailPrice` | numeric(10,2) | full retail |
+| `salePrice` | numeric(10,2) | retail sale price |
+| `wsCode` | varchar | raw wholesale code, e.g. `06/26FRT2099` |
+| `wholesaleCost` | numeric(10,2) | **parsed** from wsCode (see rules) — this is *your cost* |
+| `sizeCode` | varchar | e.g. `10C100` |
+| `sizeLabel` | text | human-readable, e.g. `10-gal container, 1.0" caliper` |
+| `location` | varchar | yard location column |
+| `sourceUrl` | varchar | which endpoint |
+| `isActive` | boolean default true | false = disappeared from last sync |
+| `lastSeenAt` | timestamp | last sync that included this code |
+| `createdAt` / `updatedAt` | timestamp | |
+
+Unique index on `(companyId, productCode)`. Indexes on `companyId`, `varietyKey`, `category`.
+
+**Price parsing rules (from the Wholesale Availabilities PDF):**
+- Wholesale cost lives in the *trailing digit run* of `wsCode` (the number after the date/type prefix, e.g. `06/26FRT2099` → `2099`). All wholesale prices end in `.90`. `799` → `$79.90`; `5499` → `$549.90`; `2099` → `$209.90`. Rule: strip the final digit, that leaves the dollar amount, then add `.90` → `wholesaleCost = floor(trailingDigits / 10) + 0.90`. **Confirm this rule on a few known rows before trusting it.**
+- `retailPrice`/`salePrice` come straight from the RETAIL and SALE columns.
+
+**Size code decoding (for `sizeLabel`, from the PDF):** `C`=container (gal), `CS`=super-size container, `B`=grow bag, `F`=field pot (B&B rooted in container), `CL`=clump, `CSTK`=staked pot, `BB`=balled & burlapped. Number *before* code = container size; number *after* = caliper (deciduous, inches) or height (evergreen, feet). E.g. `15C150` = 15-gal, 1.5" caliper; `BBMD350` = machine-dug B&B, 3.5" caliper; `BBHD06` = hand-dug 6' evergreen.
+
+### 2. `plant_enrichment` — one row per *variety* (photo + facts), keyed to catalog by `varietyKey`
+
+| Column | Type | Notes |
+|---|---|---|
+| `id` | varchar PK | |
+| `companyId` | varchar FK | |
+| `varietyKey` | text | join key back to `plant_catalog_items` |
+| `displayName` | text | clean human name for the picker |
+| `treefarmUrl` | varchar | matched product page |
+| `treefarmSlug` | varchar | e.g. `apple-honeycrisp` |
+| `imageUrl` | varchar | cached photo URL from thetreefarm.com |
+| `imageAttribution` | text | photographer/vendor credit (must be preserved) |
+| `factsJson` | jsonb | `{ matureHeight, matureWidth, hardinessZone, light, water, bloomTime, bloomColor, fallColor, growthRate, … }` |
+| `descriptionText` | text | marketing/care blurb |
+| `matchStatus` | text `$type<"unmatched"\|"auto"\|"confirmed"\|"rejected">` default `"unmatched"` | review workflow |
+| `matchConfidence` | real | 0–1 fuzzy score |
+| `lastEnrichedAt` | timestamp | |
+
+Unique on `(companyId, varietyKey)`. The **`matchStatus` review step is the whole point** — auto-matches stay `"auto"` until a human confirms; the picker can show a subtle "unverified match" badge until then.
+
+**Classification attributes (normalized enums, filterable).** These are the plant traits the picker filters on. Store them as dedicated enum/boolean columns (not buried in `factsJson`) so they're sortable and filterable. Per Randy's picks: **Light + Water/Xeriscape**, **Seasonal interest**, and **Ecological traits** (mature-size and hardiness-zone filters deferred). Populated **hybrid** — auto-suggested from thetreefarm.com during enrichment, then confirmed/corrected in the match-review screen. Add to `plant_enrichment`:
+
+| Column | Type | Notes |
+|---|---|---|
+| `light` | text `$type<"full_sun"\|"part_sun"\|"shade">` nullable | sun/shade |
+| `waterUse` | text `$type<"low"\|"moderate"\|"high">` nullable | |
+| `isXeriscape` | boolean nullable | water-thrifty flag |
+| `bloomTime` | text nullable | e.g. `spring`, `early_summer` |
+| `bloomColor` | text nullable | |
+| `fallColor` | text nullable | |
+| `foliageType` | text `$type<"deciduous"\|"evergreen">` nullable | |
+| `isNative` | boolean nullable | |
+| `isPollinatorFriendly` | boolean nullable | |
+| `deerResistant` | boolean nullable | |
+| `saltTolerant` | boolean nullable | |
+| `growthRate` | text `$type<"slow"\|"moderate"\|"fast">` nullable | |
+| `attributeSource` | text `$type<"auto"\|"confirmed">` default `"auto"` | per-row curation state for the filters |
+
+All nullable so an unenriched plant simply doesn't match attribute filters yet. `factsJson` still holds anything not promoted to a column (mature size text, etc.).
+
+### 3. `plant_sync_runs` — audit log for each sync
+
+`id`, `companyId`, `source` (`"availability"` | `"enrichment"`), `category` (nullable), `startedAt`, `finishedAt`, `rowsSeen`, `rowsUpserted`, `rowsDeactivated`, `status` (`"running"|"success"|"error"`), `error` text. Gives you a "last synced 2h ago, 1,243 items" line in the admin UI and a paper trail when numbers look off.
+
+### 4. `proposal_plant_items` — plants attached to a proposal (with snapshot)
+
+Proposals today store scope as free text (`proposals.scopeOfWork`) with no structured line items. Add a dedicated table so plant selections are structured and **snapshotted** (proposal stays stable even when the catalog changes underneath it).
+
+**Pricing is out of scope for the CRM.** Per Randy's decision, all customer pricing lives in the QuickBooks Online estimate system for now. So this table is a **plant schedule / spec list**, not a priced line item — it captures *what plants, what size, how many*, with photo and facts, for the proposal's plant schedule and PDF. No customer-facing price is stored or rendered. (`wholesaleCost` from the catalog can still be shown to the salesperson on-screen as an internal reference, but it never renders into the customer proposal.)
+
+| Column | Type | Notes |
+|---|---|---|
+| `id` | varchar PK | |
+| `companyId` | varchar FK | |
+| `proposalId` | varchar FK → proposals (cascade) | |
+| `plantCatalogItemId` | varchar FK → plant_catalog_items (set null) | live link, nullable |
+| `nameSnapshot` | text | name at time of add |
+| `botanicalSnapshot` | text | botanical name at time of add |
+| `sizeSnapshot` | text | |
+| `imageUrlSnapshot` | varchar | |
+| `quantity` | integer default 1 | |
+| `notes` | text | crew/spec notes |
+| `displayOrder` | integer default 0 | |
+| `createdAt` | timestamp | |
+
+No `unitPrice` column — pricing is handled downstream in QuickBooks. If pricing ever moves into the CRM, add a `unitPrice numeric(10,2)` here then.
+
+---
+
+## Decisions (resolved)
+
+1. **Customer-facing price — RESOLVED: out of scope.** All pricing stays in the QuickBooks Online estimate system for now. The CRM plant library is a *selection/spec* tool — it puts a plant schedule (names, sizes, quantities, photos, facts) on the proposal, no customer pricing. Wholesale cost may be shown to the salesperson on-screen as internal reference only.
+2. **Classifications — RESOLVED:** Light + Water/Xeriscape, Seasonal interest, and Ecological traits, as normalized enum columns on `plant_enrichment`. Mature-size and hardiness-zone filters deferred.
+3. **Populate method — RESOLVED: hybrid.** Auto-suggest classifications during enrichment, confirm/correct in the review screen.
+4. **Sync cadence — RESOLVED: nightly + manual "Sync now" button.** Enrichment also nightly, only for new/stale varieties, rate-limited.
+
+## Still open (confirm before Slice 2/3)
+
+1. **Image rights.** Photos are credited to outside photographers/vendors. Since it's your own supplier you likely have permission, but confirm before those images go out on client PDFs. Safe path: always render the attribution string alongside the image.
+2. **Global vs. company-scoped catalog.** Spec is company-scoped (safe, matches conventions). Recommend staying company-scoped for now.
+3. **Two-tier model?** Current design is flat (one row per size). Grouping "Honeycrisp Apple" with a size dropdown is done in the query — no schema change. Recommend flat for v1.
+
+---
+
+## Slice plan
+
+Each slice lands deployable. Ship Slice 1 alone and you already have a working, searchable plant picker (text-only). Enrichment and proposal wiring layer on top without rework.
+
+- **Slice 1 — Availability sync + browse/search picker.** Schema tables 1 & 3, the HTML-table parser, the nightly + manual sync, a "Plant Library" page **under the existing Tools page** to browse/search/filter, and a "Sync now" button. No photos, no proposal wiring yet.
+- **Slice 2 — Enrichment (photos + facts + classifications).** Schema table 2 with the classification enums, the thetreefarm.com matcher + scraper, a nightly enrichment job, and a review screen (also under Tools) to confirm/reject auto-matches and classifications. Picker starts showing photos, facts, and filterable traits.
+- **Slice 3 — Proposal maker integration.** Schema table 4 (no pricing), a "Plants" section inside the proposal maker, the picker reused in insert-mode, a structured plant schedule on the proposal, and rendering it into the proposal PDF/scope.
+
+The three slice prompts follow. Paste them into Replit one at a time, in order.
+
+---
+
+# Replit Prompt — Plant Library, Slice 1: Availability Sync + Picker
+
+## Context
+
+We are adding a **Plant Library** to the CRM: a cached, searchable catalog of live nursery inventory that salespeople will eventually pull from when building proposals. The inventory source is our wholesale supplier's availability feed at `api.citiyard.com/availability/{category}`. Despite the name these are **not JSON APIs** — each URL returns an HTML page containing a single `<table>` with 8 columns. There are six category endpoints: `tree`, `shrub`, `perennial`, `shrub-rose`, `vine`, `ornamental-grass`.
+
+This is **Slice 1 of 3**. Slice 1 builds the schema foundation, the parser, a scheduled + manual sync, and a read-only admin browse/search page. **No photos, no plant facts (Slice 2). No proposal wiring (Slice 3).** The deployable end-state of Slice 1: an admin opens a "Plant Library" page, clicks "Sync now" (or waits for the scheduled run), and sees a searchable/filterable table of every in-stock plant with quantity, sizes, and pricing.
+
+Land this in a deployable, production-quality state. Do not stub anything. Inspect existing patterns before writing code.
+
+## Existing context (do not duplicate or replace)
+
+- **Schema** in `shared/schema.ts`. Multi-tenancy: every table has `companyId`; every query filters by the active company from `UserWithContext`. Follow the existing index convention (`<table>_<column>_idx`), `createInsertSchema(...).omit(...)`, and exported `Insert*`/`*` types.
+- **Stack:** React 18 + TypeScript + Vite + Tailwind + shadcn/ui (Radix) + Wouter + TanStack Query v5 + React Hook Form + Zod + Drizzle ORM + Postgres + i18next (en + es). Match this exactly.
+- **Server routes** live in `server/routes.ts`. Follow the existing route + company-scoping helpers.
+- **Scheduled jobs:** inspect how `due-date-notifications` / any existing cron/scheduler is wired and reuse that mechanism — do not invent a new scheduler.
+- **Admin pages** live in `client/src/pages/`. Reuse an existing list/table page (search input + filters + table) as the pattern; do not invent a new layout.
+- **Roles:** `admin` and `office` can view and trigger syncs. Use existing role-check helpers.
+
+## New dependency
+
+Add **one** HTML parser — `node-html-parser` (lightweight) or `cheerio`. Pick whichever is already present if either is; otherwise `node-html-parser`. Call it out in Deliverables.
+
+## Schema changes (`shared/schema.ts`)
+
+Add `plant_catalog_items` and `plant_sync_runs` exactly as specified in the design doc's Data Model §1 and §3. Key points:
+
+- `plant_catalog_items`: unique index on `(companyId, productCode)`; indexes on `companyId`, `varietyKey`, `category`. `category` is a `text` union of the six categories (snake_case: `shrub_rose`, `ornamental_grass`). Money columns are `numeric(10,2)`.
+- `plant_sync_runs`: the audit-log table.
+- Export `insert*Schema`, `Insert*`, and select types.
+
+## Parsing (`server/lib/plantAvailability.ts` — new file)
+
+1. **Fetch** each category URL server-side.
+2. **Parse** the `<table>`: columns are `PRODUCT CODE | ON HAND | PRODUCT DESCRIPTION | RETAIL | SALE | SIZE | WS CODE | LOCATION`.
+3. **Derive fields per row:**
+   - `commonName` / `botanicalName`: split `rawDescription` on the last ` - ` (common name before, botanical after). Botanical is roughly `GENUS SPECIES 'CULTIVAR'`.
+   - `varietyKey`: normalize the botanical name (uppercase, strip punctuation/rootstock suffixes like `M7`, collapse whitespace) so every size of the same variety shares one key. Fall back to normalized common name if botanical is empty.
+   - `wholesaleCost`: parse the trailing digit run of `wsCode` (the number after the date/type prefix). Convention: `2099 → $209.90`, `5499 → $549.90`, `799 → $79.90` (all wholesale prices end in `.90`). Implement as: take the trailing digit run `n`, then `floor(n / 10) + 0.90`. **Add a unit test asserting these three known cases.**
+   - `sizeLabel`: decode `sizeCode` per the size-code table in the design doc (`C`/`CS`/`B`/`F`/`CL`/`CSTK`/`BB`, number-before = container size, number-after = caliper or height). A best-effort human string is fine; keep the raw `sizeCode` too.
+4. Be defensive: skip malformed rows, log counts, never throw the whole sync on one bad row.
+
+## Sync (`server/lib/plantSync.ts` — new file)
+
+`syncPlantAvailability(companyId)`:
+- Open a `plant_sync_runs` row (`status="running"`).
+- For each category: fetch + parse, then **upsert** by `(companyId, productCode)` — update `onHand`, prices, `sizeLabel`, `location`, set `isActive=true`, `lastSeenAt=now`.
+- After all categories: any `plant_catalog_items` row for this company **not seen** in this run gets `isActive=false` (soft-delete — don't hard-delete; on-hand may return).
+- Close the run with counts + `status="success"`, or `"error"` + message on failure.
+
+Wire it into the existing scheduler (**nightly**) **and** expose a manual "Sync now" trigger (below).
+
+## API (`server/routes.ts`)
+
+- `POST /api/plant-library/sync` — admin/office only; kicks off `syncPlantAvailability` for the active company; returns the run summary.
+- `GET /api/plant-library/items` — company-scoped; query params: `search` (matches common/botanical name), `category`, `inStockOnly` (default true → `onHand > 0 AND isActive`), pagination. Return grouped-by-`varietyKey` **or** flat with a `groupBy` flag — grouped is nicer for the UI (one variety, its available sizes nested).
+- `GET /api/plant-library/sync-status` — latest `plant_sync_runs` row for the "last synced" line.
+
+## UI (`client/src/pages/PlantLibrary.tsx` — new page, surfaced under the existing Tools page)
+
+- **Do not add a new top-level nav item.** Surface this under the existing **Tools** page as a "Plant Library" entry/card. Inspect how Tools currently lists its items and follow that pattern; route via Wouter as a Tools sub-route.
+- Search input + category filter + "in stock only" toggle. TanStack Query against `/api/plant-library/items`.
+- Table/cards grouped by variety: **common name**, **botanical name** (italic), a size/price sub-list (each size → on-hand qty, sale price, your wholesale cost), yard location.
+- Header shows "Last synced …" from `sync-status` + a **"Sync now"** button (admin/office) that calls the sync endpoint and refetches.
+- i18next strings (en + es). Loading/empty/error states.
+
+## Deliverables
+
+- The two tables + generated migration.
+- `plantAvailability.ts` parser with the wholesale-cost unit test passing.
+- `plantSync.ts` with soft-delete-on-disappear logic, wired to the scheduler + manual endpoint.
+- The three API routes, company-scoped and role-checked.
+- `PlantLibrary.tsx` browse/search page in nav.
+- Note the HTML-parser dependency you added and confirm the wholesale-cost parse against three real rows.
+
+---
+
+# Replit Prompt — Plant Library, Slice 2: Enrichment (Photos + Facts)
+
+## Context
+
+Slice 1 gave us a text-only plant catalog synced from the availability feed. Slice 2 enriches each **variety** with a photo and horticultural facts scraped from our supplier's retail storefront, **thetreefarm.com** (a Magento site with clean product slugs like `/maple-autumn-blaze-seedless`). The hard part is not scraping a page — it's **matching** an availability variety to the correct product page, so this slice includes a human review step. **No proposal wiring yet (Slice 3).**
+
+Deployable end-state: a nightly job proposes photo+facts matches for new varieties; an admin reviews/confirms them on a screen; the Plant Library picker shows photos and facts for confirmed (and, with a badge, auto) matches.
+
+Land deployable and production-quality. Inspect Slice 1's code first.
+
+## Existing context
+
+- Everything from Slice 1: `plant_catalog_items`, `plant_sync_runs`, `varietyKey`, the sync + scheduler mechanism, `PlantLibrary.tsx`.
+- Same stack, same multi-tenancy, same role helpers, same scheduler.
+- Reuse the HTML parser you added in Slice 1.
+
+## Schema changes (`shared/schema.ts`)
+
+Add `plant_enrichment` exactly as in the design doc's Data Model §2, including the **classification enum columns** (`light`, `waterUse`, `isXeriscape`, `bloomTime`, `bloomColor`, `fallColor`, `foliageType`, `isNative`, `isPollinatorFriendly`, `deerResistant`, `saltTolerant`, `growthRate`, `attributeSource`). These are normalized enums/booleans — the picker filters on them, so they must NOT live only inside `factsJson`. All nullable. Also `displayName`, `treefarmUrl`, `treefarmSlug`, `imageUrl`, `imageAttribution`, `factsJson` (jsonb, for anything not promoted to a column), `descriptionText`, `matchStatus` (`unmatched|auto|confirmed|rejected`, default `unmatched`), `matchConfidence` (real), `lastEnrichedAt`. Unique on `(companyId, varietyKey)`.
+
+**Populate hybrid:** auto-suggest each classification from the scraped product page (map the page's stated sun/water/bloom/etc. to the enums; leave null if not derivable). `attributeSource="auto"` until a human confirms in review, then `"confirmed"`. The picker can trust confirmed values fully and show auto values with the "unverified" badge.
+
+## Matcher + scraper (`server/lib/plantEnrichment.ts` — new file)
+
+1. **Candidate discovery:** thetreefarm.com groups products under category pages (`/plants/deciduous-trees`, `/plants/shrubs`, `/plants/evergreens`, `/plants/perennials`, `/plants/fruit-trees`, `/plants/roses`, `/plants/vines`, `/plants/ornamental-grasses`). Crawl these once to build a local index of `{ slug, title, imageUrl, imageAttribution }` (title/attribution come from the anchor's `title` attr and image alt). Cache this index; refresh weekly.
+2. **Match** each catalog `varietyKey` to a candidate by fuzzy-scoring common name + botanical name against the product title/slug (token overlap + a string-distance lib). Record `matchConfidence`.
+   - Confidence ≥ high threshold → `matchStatus="auto"`.
+   - Below → `matchStatus="unmatched"` (surfaced for manual matching).
+3. **Scrape the matched product page** for `factsJson` (mature height/width, hardiness zone, light, water, bloom time/color, fall color, growth rate — map whatever the page exposes), `descriptionText`, and confirm `imageUrl` + `imageAttribution`.
+4. **Rate-limit** and cache aggressively. Only process varieties with no enrichment row or a stale one. Never hammer the site.
+
+## Job + API (`server/routes.ts`, scheduler)
+
+- Nightly `enrichPlants(companyId)` for new/stale varieties, logged as a `plant_sync_runs` row with `source="enrichment"`.
+- `POST /api/plant-library/enrich` — manual trigger (admin/office).
+- `GET /api/plant-library/matches` — list enrichment rows filterable by `matchStatus` for the review screen.
+- `POST /api/plant-library/matches/:varietyKey` — set `matchStatus` to `confirmed`/`rejected`, or manually assign a `treefarmUrl`/`slug` (which re-scrapes facts).
+
+## UI
+
+- **Review screen** (`client/src/pages/PlantMatches.tsx`, also surfaced under the **Tools** page next to Plant Library): queue of `auto`/`unmatched` varieties. Each shows our name/botanical beside the proposed product (thumbnail, title, confidence) plus the auto-suggested classifications to confirm/correct. Confirm / Reject / "pick a different product" (search the candidate index). Keyboard-friendly for fast review.
+- **Picker upgrade** (`PlantLibrary.tsx`): render `imageUrl` + key facts on each variety; always show `imageAttribution` under the image; subtle "unverified match" badge while `matchStatus="auto"`.
+
+## Deliverables
+
+- `plant_enrichment` table + migration.
+- Candidate index crawler + fuzzy matcher + facts scraper, rate-limited and cached.
+- Nightly enrichment job + manual trigger + review API.
+- `PlantMatches.tsx` review screen; photos/facts + attribution in the picker.
+- Confirm the matcher on ~10 known varieties and report the hit rate.
+
+---
+
+# Replit Prompt — Plant Library, Slice 3: Proposal Maker Integration
+
+## Context
+
+Slices 1–2 gave us a searchable, photo-enriched plant catalog. Slice 3 makes the plant library a **first-class section of the proposal maker**: the proposal editor gets a dedicated **"Plants" section** where a salesperson opens the picker inline, selects plants with quantities, and builds a **plant schedule** for the proposal. Selections become structured, snapshotted items and render into the proposal output as a plant schedule.
+
+**No pricing.** Per Randy's decision, all customer pricing lives in QuickBooks Online. This section is a plant *schedule / spec*, not a priced line-item list — quantities, sizes, photos, and facts only. Wholesale cost may show on-screen to the salesperson as internal reference but never renders into the customer proposal.
+
+Deployable end-state: inside the proposal maker, a "Plants" section lets the salesperson search the library, add plants with quantities and notes, reorder them, and have the plant schedule (photo + name + botanical + size + qty) appear in the finalized proposal PDF/scope.
+
+## Existing context
+
+- Slices 1–2: catalog, enrichment, picker.
+- **Proposals** in `shared/schema.ts`: `proposals` (~line 1628), `proposalFiles`, `proposalVersions`, `ProposalWithDetails`. Proposals currently hold scope as free text (`scopeOfWork`) with **no structured line items** — this slice adds the first structured line-item type. Inspect the proposal editor page and the proposal PDF/version generation before writing code; extend them, don't fork.
+- Same stack, multi-tenancy, roles.
+
+## Schema changes (`shared/schema.ts`)
+
+Add `proposal_plant_items` exactly as in the design doc's Data Model §4: FK to `proposals` (cascade) and nullable FK to `plant_catalog_items` (set null), plus `nameSnapshot`, `botanicalSnapshot`, `sizeSnapshot`, `imageUrlSnapshot`, `quantity`, `notes`, `displayOrder`. **No price column.** Add these items to `ProposalWithDetails`.
+
+## API (`server/routes.ts`)
+
+- `GET /api/proposals/:id/plant-items`
+- `POST /api/proposals/:id/plant-items` — accepts a `plantCatalogItemId` + quantity; server snapshots name/botanical/size/image at insert time.
+- `PATCH /api/proposals/:id/plant-items/:itemId` — quantity, notes, order.
+- `DELETE /api/proposals/:id/plant-items/:itemId`.
+- All company-scoped, verifying the proposal belongs to the active company.
+
+## UI
+
+- **"Plants" section in the proposal maker** (not a detached button). Add it as a section of the proposal editor alongside scope of work / files, following the editor's existing section pattern. Inspect the proposal editor page first and match how its other sections render.
+- The section has an **"Add plants"** action that opens the Slice-1/2 picker inline (dialog or embedded panel) in **insert-mode** (multi-select + quantity), reusing the same picker component — do not duplicate it.
+- **Plant schedule list** within the section: thumbnail, common name, botanical (italic), size, quantity, notes, remove, reorder (drag or up/down). No pricing shown to the customer; optional small internal "cost" reference for the salesperson only.
+- **Proposal output:** render the plant schedule (photo per `photoLayout`) into the generated proposal PDF / `proposalVersions` snapshot so finalized proposals include the plant schedule.
+
+## Deliverables
+
+- `proposal_plant_items` table (no price column) + migration; added to `ProposalWithDetails`.
+- CRUD API with server-side snapshotting.
+- Picker reused in insert-mode inside a new "Plants" section of the proposal maker.
+- Plant schedule rendered into the finalized proposal output.
+- Confirm no customer-facing pricing leaks into the proposal PDF (QBO owns pricing).

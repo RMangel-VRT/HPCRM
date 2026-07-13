@@ -1,0 +1,18 @@
+The critical issue: hotlinking breaks the PDF (Slice 2 ↔ Slice 3 conflict)
+Slice 2 puts "self-hosting photos" out of scope and says "all images link to thetreefarm.com's CDN." But Slice 3 has to render those photos into the finalized proposal, and I confirmed how that works: proposals finalize server-side via POST /api/proposals/:id/finalize, and PDF generation in this codebase uses pdfkit (doc.image(...)), which needs the actual image bytes at render time — it can't just point at a remote URL. So a hotlinked thetreefarm image means your server has to fetch an external CDN file every time a proposal is finalized. That's fragile: it breaks if thetreefarm reorganizes media (their URLs are Magento cache paths, which do change), rate-limits you, or is down — and it's slow.
+You already have the fix in place: the repo has object storage (objectStorage.ts / @google-cloud/storage) that proposal files and photos already use. So the right move is to download each matched photo once during Slice 2 enrichment and store it in your object storage, keeping both the original source URL and the credit. Then Slice 3 just reads a stable local object. It's barely more work in Slice 2 and removes an external dependency from your proposal-generation path.
+My recommendation: flip Slice 2's "self-hosting out of scope" line to "download + store in object storage," and add imageStoragePath alongside imageUrl on plant_enrichment. (Browser picker can still use the CDN URL; the PDF uses the stored bytes.)
+Slice 2 (#525) — other notes
+
+Add SKU-based matching, not just fuzzy. I found that thetreefarm product pages carry a structured "Additional Information" table with a SKU field (e.g. MAP-AUT), and your availability product codes are the same scheme plus a size suffix. So you can very likely match deterministically on SKU — strip the size off the availability code, join to thetreefarm's SKU — and fall back to fuzzy only for the stragglers. Much higher accuracy than fuzzy alone. Worth adding to step 3.
+The facts come from that structured table, not prose. Step 4 says "scrape the product page for factsJson fields" — good, and you can make it deterministic: the classifications map from labeled rows (Light Needs → light, Water Needs → waterUse/isXeriscape, Flowering Season → bloomTime, Fall Color, Growth Rate, USDA Hardiness Zone), so it's field-lookup, not NLP. Pages are static HTML — no headless browser needed.
+Everything else (schema, enum columns, review UI under Tools, scheduler reuse) is consistent with Slice 1's verified patterns.
+
+Slice 3 (#526) — other notes
+
+Relevant-files gap: the list omits the two files this slice actually edits most. The editor is ProposalDraft.tsx (not ProposalMaker.tsx) — it has the scope-of-work/files sections and the photoLayout setting, so the "Plants" section goes there. And the finalize/PDF path lives in routes.ts under POST /api/proposals/:id/finalize. Add both to the list.
+Note that the QuickBooks estimate is already uploaded into proposals as an estimate_pdf file — good confirmation that pricing genuinely lives in QBO and your no-unitPrice decision fits the existing flow.
+Schema/CRUD/snapshot approach is all consistent with the verified conventions.
+
+Migration numbering across the three slices
+The runner applies .sql files in sorted order, so number them sequentially after the current latest (0030): Slice 1 → 0031_plant_library.sql, Slice 2 → 0032_plant_enrichment.sql, Slice 3 → 0033_proposal_plant_items.sql.
