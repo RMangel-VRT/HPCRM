@@ -3,11 +3,12 @@
  *
  * Resolution strategy for MIGRATIONS_DIR:
  *   1. MIGRATIONS_DIR env var (highest priority — works in any layout or container)
- *   2. Monorepo default: walk up from __dirname to the workspace root and into
- *      .migration-backup/migrations/.  In a bundled esbuild CJS build the output
- *      lands in artifacts/api-server/dist/, so __dirname is 4 levels below the
- *      workspace root.  In ts-node / tsx dev mode __dirname is
- *      artifacts/api-server/src/lib/, also 4 levels below.  Both resolve the same way.
+ *   2. Monorepo default: walk upward from __dirname (up to 8 levels) looking for
+ *      a directory that contains .migration-backup/migrations/.  This handles both
+ *      the bundled esbuild output (artifacts/api-server/dist/ — 3 levels below root)
+ *      and ts-node / tsx dev mode (artifacts/api-server/src/lib/ — 4 levels below root)
+ *      without needing to know the exact depth.
+ *   3. Final fallback: 3 levels up from __dirname (used if the walk finds nothing).
  *
  * The .sql files are NOT bundled into the esbuild output — they are read from disk
  * at runtime.  The deployment artifact must therefore include .migration-backup/migrations/
@@ -16,7 +17,7 @@
  */
 
 import { createHash } from "node:crypto";
-import { readdirSync, readFileSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { join, resolve, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import pg from "pg";
@@ -26,15 +27,27 @@ const __dirname_local = dirname(__filename);
 
 /**
  * Resolve the migrations directory.
- * Walks up 4 levels from this file's location to reach the workspace root,
- * then descends into .migration-backup/migrations/.
+ * Walks upward from this file's location (up to 8 levels) and returns the first
+ * directory where `.migration-backup/migrations` exists.  Falls back to 3 levels
+ * up if nothing is found, so the caller gets a deterministic path even on a fresh
+ * clone where the directory might not exist yet.
  */
 function resolveMigrationsDir(): string {
   if (process.env["MIGRATIONS_DIR"]) {
     return process.env["MIGRATIONS_DIR"];
   }
-  // __dirname_local is …/artifacts/api-server/src/lib (dev) or …/artifacts/api-server/dist (prod)
-  return resolve(__dirname_local, "..", "..", "..", "..", ".migration-backup", "migrations");
+  let dir = __dirname_local;
+  for (let i = 0; i < 8; i++) {
+    const candidate = resolve(dir, ".migration-backup", "migrations");
+    if (existsSync(candidate)) {
+      return candidate;
+    }
+    const parent = resolve(dir, "..");
+    if (parent === dir) break;
+    dir = parent;
+  }
+  // Fallback: 3 levels up from __dirname_local (workspace root for the dist/ bundle)
+  return resolve(__dirname_local, "..", "..", "..", ".migration-backup", "migrations");
 }
 
 export const MIGRATIONS_DIR = resolveMigrationsDir();
