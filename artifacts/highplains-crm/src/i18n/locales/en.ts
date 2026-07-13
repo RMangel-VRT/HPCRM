@@ -729,6 +729,8 @@ const en = {
     estimateBuilderDesc: "Create detailed project estimates with line items and pricing",
     openTool: "Open Tool",
     comingSoon: "Coming Soon",
+    plantLibrary: "Plant Library",
+    plantLibraryDesc: "Browse live nursery inventory from Citiyard — search, filter by category, and view size/price details",
   },
   users: {
     title: "Team",
@@ -2207,6 +2209,23 @@ const en = {
   },
   backfill: {
     stuckHint: "No progress for over a minute. If this looks stuck, press Cancel — the server will force-clear it.",
+  },
+  plantLibrary: {
+    title: "Plant Library",
+    description: "Live nursery inventory from Citiyard — search by name, filter by category, and view size and pricing details",
+    syncNow: "Sync Now",
+    syncStarted: "Sync started",
+    syncStartedDesc: "Fetching latest inventory from Citiyard. This may take a moment.",
+    syncFailed: "Sync failed",
+    lastSynced: "Last synced {{time}}",
+    itemsUpserted: "items updated",
+    searchPlaceholder: "Search by common or botanical name…",
+    allCategories: "All Categories",
+    inStockOnly: "In stock only",
+    loadError: "Failed to load plant library. Please try again.",
+    empty: "No plants found",
+    emptyHint: "Try adjusting your filters or run a sync to pull the latest inventory.",
+    showingCount: "{{count}} varieties",
   },
 };
 

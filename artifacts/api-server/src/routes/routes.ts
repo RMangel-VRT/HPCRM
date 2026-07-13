@@ -17689,6 +17689,134 @@ ${pdfText.slice(0, 8000)}`;
     }
   });
 
+  // ─── Plant Library ──────────────────────────────────────────────────────────
+
+  const PLANT_LIBRARY_ROLES = ["admin", "office"] as const;
+
+  app.post("/api/plant-library/sync", async (req, res) => {
+    if (!req.isAuthenticated()) return res.status(401).send("Not authenticated");
+    const user = req.user as UserWithContext;
+    if (!PLANT_LIBRARY_ROLES.includes(user.activeRole as typeof PLANT_LIBRARY_ROLES[number]) && !user.isSuperAdminBool) {
+      return res.status(403).json({ error: "Insufficient permissions" });
+    }
+    try {
+      const { syncPlantAvailability } = await import("../lib/plantSync");
+      const result = await syncPlantAvailability(user.activeCompanyId);
+      res.json(result);
+    } catch (err) {
+      console.error("POST /api/plant-library/sync error:", err);
+      res.status(500).json({ error: "Internal server error" });
+    }
+  });
+
+  app.get("/api/plant-library/items", async (req, res) => {
+    if (!req.isAuthenticated()) return res.status(401).send("Not authenticated");
+    const user = req.user as UserWithContext;
+    if (!PLANT_LIBRARY_ROLES.includes(user.activeRole as typeof PLANT_LIBRARY_ROLES[number]) && !user.isSuperAdminBool) {
+      return res.status(403).json({ error: "Insufficient permissions" });
+    }
+    try {
+      const { plantCatalogItems } = await import("@workspace/db");
+      const { ilike, or } = await import("drizzle-orm");
+      const search = typeof req.query.search === "string" ? req.query.search.trim() : "";
+      const category = typeof req.query.category === "string" ? req.query.category.trim() : "";
+      const inStockOnly = req.query.inStockOnly !== "false";
+
+      const conditions: ReturnType<typeof eq>[] = [
+        eq(plantCatalogItems.companyId, user.activeCompanyId),
+      ];
+      if (inStockOnly) {
+        conditions.push(eq(plantCatalogItems.isActive, true));
+      }
+      if (category) {
+        conditions.push(eq(plantCatalogItems.category, category as any));
+      }
+
+      let rows = await db
+        .select()
+        .from(plantCatalogItems)
+        .where(and(...conditions))
+        .orderBy(plantCatalogItems.commonName, plantCatalogItems.sizeLabel);
+
+      if (search) {
+        const lower = search.toLowerCase();
+        rows = rows.filter(
+          (r) =>
+            r.commonName.toLowerCase().includes(lower) ||
+            (r.botanicalName?.toLowerCase().includes(lower) ?? false),
+        );
+      }
+
+      if (inStockOnly) {
+        rows = rows.filter((r) => r.onHand > 0);
+      }
+
+      const groupMap = new Map<string, {
+        varietyKey: string;
+        commonName: string;
+        botanicalName: string | null;
+        category: string;
+        location: string | null;
+        sizes: Array<{
+          productCode: string;
+          sizeCode: string | null;
+          sizeLabel: string;
+          onHand: number;
+          salePrice: string | null;
+          wholesaleCost: string | null;
+        }>;
+      }>();
+
+      for (const row of rows) {
+        if (!groupMap.has(row.varietyKey)) {
+          groupMap.set(row.varietyKey, {
+            varietyKey: row.varietyKey,
+            commonName: row.commonName,
+            botanicalName: row.botanicalName,
+            category: row.category,
+            location: row.location,
+            sizes: [],
+          });
+        }
+        groupMap.get(row.varietyKey)!.sizes.push({
+          productCode: row.productCode,
+          sizeCode: row.sizeCode,
+          sizeLabel: row.sizeLabel,
+          onHand: row.onHand,
+          salePrice: row.salePrice,
+          wholesaleCost: row.wholesaleCost,
+        });
+      }
+
+      res.json(Array.from(groupMap.values()));
+    } catch (err) {
+      console.error("GET /api/plant-library/items error:", err);
+      res.status(500).json({ error: "Internal server error" });
+    }
+  });
+
+  app.get("/api/plant-library/sync-status", async (req, res) => {
+    if (!req.isAuthenticated()) return res.status(401).send("Not authenticated");
+    const user = req.user as UserWithContext;
+    if (!PLANT_LIBRARY_ROLES.includes(user.activeRole as typeof PLANT_LIBRARY_ROLES[number]) && !user.isSuperAdminBool) {
+      return res.status(403).json({ error: "Insufficient permissions" });
+    }
+    try {
+      const { plantSyncRuns } = await import("@workspace/db");
+      const { desc } = await import("drizzle-orm");
+      const [latest] = await db
+        .select()
+        .from(plantSyncRuns)
+        .where(eq(plantSyncRuns.companyId, user.activeCompanyId))
+        .orderBy(desc(plantSyncRuns.startedAt))
+        .limit(1);
+      res.json(latest ?? null);
+    } catch (err) {
+      console.error("GET /api/plant-library/sync-status error:", err);
+      res.status(500).json({ error: "Internal server error" });
+    }
+  });
+
   // Internal cron endpoint — replaces the removed setInterval in server/index.ts
   // Call via a cron job: POST /api/_internal/run-automation-rules
   // Requires x-cron-token header matching the CRON_SECRET environment variable.

@@ -636,6 +636,8 @@ const es = {
     estimateBuilderDesc: "Cree estimados detallados de proyectos con articulos y precios",
     openTool: "Abrir Herramienta",
     comingSoon: "Proximamente",
+    plantLibrary: "Biblioteca de Plantas",
+    plantLibraryDesc: "Consulte el inventario del vivero Citiyard: busque, filtre por categoria y vea detalles de tamanos y precios",
   },
   users: {
     title: "Equipo de Trabajo",
@@ -2325,6 +2327,23 @@ const es = {
   },
   backfill: {
     stuckHint: "Sin progreso durante más de un minuto. Si parece estancado, presiona Cancelar — el servidor lo limpiará.",
+  },
+  plantLibrary: {
+    title: "Biblioteca de Plantas",
+    description: "Inventario en vivo del vivero Citiyard — busque por nombre, filtre por categoria y vea detalles de tamanos y precios",
+    syncNow: "Sincronizar ahora",
+    syncStarted: "Sincronizacion iniciada",
+    syncStartedDesc: "Obteniendo el inventario mas reciente de Citiyard. Esto puede tardar un momento.",
+    syncFailed: "Error al sincronizar",
+    lastSynced: "Ultima sincronizacion {{time}}",
+    itemsUpserted: "articulos actualizados",
+    searchPlaceholder: "Buscar por nombre comun o botanico…",
+    allCategories: "Todas las categorias",
+    inStockOnly: "Solo en existencia",
+    loadError: "Error al cargar la biblioteca de plantas. Intente de nuevo.",
+    empty: "No se encontraron plantas",
+    emptyHint: "Ajuste los filtros o sincronice para obtener el inventario mas reciente.",
+    showingCount: "{{count}} variedades",
   },
 };
 

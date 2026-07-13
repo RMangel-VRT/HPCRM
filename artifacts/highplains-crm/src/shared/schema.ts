@@ -3198,3 +3198,72 @@ export type FlagTag = (typeof FLAG_TAGS)[number]["value"];
 export const FLAG_STATUSES = ["new", "acknowledged", "in_progress", "resolved", "dismissed"] as const;
 export type FlagStatus = (typeof FLAG_STATUSES)[number];
 export const FLAG_NOTE_MAX_LENGTH = 280;
+
+// ─── Plant Library ─────────────────────────────────────────────────────────────
+
+export type PlantCategory =
+  | "deciduous_trees"
+  | "evergreen_trees"
+  | "ornamental_trees"
+  | "shrubs"
+  | "perennials"
+  | "grasses";
+
+export const PLANT_CATEGORY_LABELS: Record<PlantCategory, string> = {
+  deciduous_trees: "Deciduous Trees",
+  evergreen_trees: "Evergreen Trees",
+  ornamental_trees: "Ornamental Trees",
+  shrubs: "Shrubs",
+  perennials: "Perennials",
+  grasses: "Grasses",
+};
+
+export interface PlantCatalogItem {
+  id: string;
+  companyId: string;
+  productCode: string;
+  category: PlantCategory;
+  varietyKey: string;
+  rawDescription: string;
+  commonName: string;
+  botanicalName: string | null;
+  sizeCode: string | null;
+  sizeLabel: string;
+  onHand: number;
+  retailPrice: string | null;
+  salePrice: string | null;
+  wholesaleCost: string | null;
+  wsCode: string | null;
+  location: string | null;
+  isActive: boolean;
+  lastSeenAt: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface PlantSyncRun {
+  id: string;
+  companyId: string;
+  status: "running" | "success" | "error";
+  startedAt: string;
+  finishedAt: string | null;
+  itemsUpserted: number;
+  itemsDeactivated: number;
+  errorMessage: string | null;
+}
+
+export interface PlantVarietyGroup {
+  varietyKey: string;
+  commonName: string;
+  botanicalName: string | null;
+  category: PlantCategory;
+  location: string | null;
+  sizes: Array<{
+    productCode: string;
+    sizeCode: string | null;
+    sizeLabel: string;
+    onHand: number;
+    salePrice: string | null;
+    wholesaleCost: string | null;
+  }>;
+}

@@ -3536,3 +3536,75 @@ export const flagPhotos = pgTable("flag_photos", {
 
 export type FlagPhoto = typeof flagPhotos.$inferSelect;
 export type InsertFlagPhoto = typeof flagPhotos.$inferInsert;
+
+// ─── Plant Library ─────────────────────────────────────────────────────────────
+// Slice 1: availability sync cache. Six Citiyard category endpoints are fetched
+// nightly and upserted here by (companyId, productCode).
+
+export type PlantCategory =
+  | "deciduous_trees"
+  | "evergreen_trees"
+  | "ornamental_trees"
+  | "shrubs"
+  | "perennials"
+  | "grasses";
+
+export const plantCatalogItems = pgTable("plant_catalog_items", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  companyId: varchar("company_id").notNull().references(() => companies.id, { onDelete: "cascade" }),
+  productCode: text("product_code").notNull(),
+  category: text("category").notNull().$type<PlantCategory>(),
+  varietyKey: text("variety_key").notNull(),
+  rawDescription: text("raw_description").notNull(),
+  commonName: text("common_name").notNull(),
+  botanicalName: text("botanical_name"),
+  sizeCode: text("size_code"),
+  sizeLabel: text("size_label").notNull(),
+  onHand: integer("on_hand").notNull().default(0),
+  retailPrice: numeric("retail_price", { precision: 10, scale: 2 }),
+  salePrice: numeric("sale_price", { precision: 10, scale: 2 }),
+  wholesaleCost: numeric("wholesale_cost", { precision: 10, scale: 2 }),
+  wsCode: text("ws_code"),
+  location: text("location"),
+  isActive: boolean("is_active").notNull().default(true),
+  lastSeenAt: timestamp("last_seen_at").notNull().defaultNow(),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  updatedAt: timestamp("updated_at").notNull().defaultNow(),
+}, (table) => ({
+  plantCatalogCompanyProductUniq: uniqueIndex("plant_catalog_items_company_product_idx").on(table.companyId, table.productCode),
+  plantCatalogCompanyIdIdx: index("plant_catalog_items_company_id_idx").on(table.companyId),
+  plantCatalogVarietyKeyIdx: index("plant_catalog_items_variety_key_idx").on(table.varietyKey),
+  plantCatalogCategoryIdx: index("plant_catalog_items_category_idx").on(table.category),
+}));
+
+export const insertPlantCatalogItemSchema = createInsertSchema(plantCatalogItems).omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+}).extend({
+  category: z.enum(["deciduous_trees", "evergreen_trees", "ornamental_trees", "shrubs", "perennials", "grasses"]),
+  onHand: z.number().int().min(0).default(0),
+  isActive: z.boolean().default(true),
+  retailPrice: z.string().nullable().optional(),
+  salePrice: z.string().nullable().optional(),
+  wholesaleCost: z.string().nullable().optional(),
+});
+
+export type InsertPlantCatalogItem = z.infer<typeof insertPlantCatalogItemSchema>;
+export type PlantCatalogItem = typeof plantCatalogItems.$inferSelect;
+
+export const plantSyncRuns = pgTable("plant_sync_runs", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  companyId: varchar("company_id").notNull().references(() => companies.id, { onDelete: "cascade" }),
+  status: text("status").notNull().$type<"running" | "success" | "error">().default("running"),
+  startedAt: timestamp("started_at").notNull().defaultNow(),
+  finishedAt: timestamp("finished_at"),
+  itemsUpserted: integer("items_upserted").notNull().default(0),
+  itemsDeactivated: integer("items_deactivated").notNull().default(0),
+  errorMessage: text("error_message"),
+}, (table) => ({
+  plantSyncRunsCompanyStartedIdx: index("plant_sync_runs_company_started_idx").on(table.companyId, table.startedAt),
+}));
+
+export type PlantSyncRun = typeof plantSyncRuns.$inferSelect;
+export type InsertPlantSyncRun = typeof plantSyncRuns.$inferInsert;

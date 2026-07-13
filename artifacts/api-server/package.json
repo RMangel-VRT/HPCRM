@@ -28,6 +28,7 @@
     "handlebars": "^4.7.9",
     "heic-convert": "^2.1.0",
     "multer": "^2.1.1",
+    "node-html-parser": "^9.0.0",
     "passport": "^0.7.0",
     "passport-local": "^1.0.0",
     "pdf-lib": "^1.17.1",

@@ -4,6 +4,7 @@ import app from "./app";
 import { logger } from "./lib/logger";
 import { registerRoutes } from "./routes/routes";
 import { requeueInterruptedBackfills } from "./services/mailboxBackfillService";
+import { startPlantSyncScheduler } from "./lib/plantSync";
 
 async function warnIfSchemaDrift(): Promise<void> {
   try {
@@ -44,6 +45,7 @@ registerRoutes(app)
       logger.info({ port }, "Server listening");
       void warnIfSchemaDrift();
       void requeueInterruptedBackfills();
+      startPlantSyncScheduler();
     });
   })
   .catch((err) => {
