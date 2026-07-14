@@ -35,7 +35,7 @@ import { assertNotParentCustomer } from "../utils/parentGuard";
 import { registerExtraBillablePhotoRoutes } from "./extraBillablePhotos";
 import { registerMobileTicketPhotosNotesRoutes } from "./mobileTicketPhotosNotes";
 import { getEmailFallbacks, formatReentryInterval } from '../i18n/emailFallbacks';
-import { listMigrations, applyMigrations, getAuditLog, MIGRATIONS_DIR } from '../lib/migrationRunner';
+import { listMigrations, applyMigrations, baselineMigrations, getAuditLog, MIGRATIONS_DIR } from '../lib/migrationRunner';
 
 /**
  * Signed URL TTL for chemical product label attachments (in seconds).
@@ -7778,6 +7778,25 @@ export async function registerRoutes(app: Express): Promise<Server> {
       return res.status(500).json({ error: msg });
     } finally {
       migrationsApplyLock = false;
+    }
+  });
+
+  // POST /api/admin/migrations/baseline — record pending migrations as applied without executing SQL
+  app.post("/api/admin/migrations/baseline", async (req, res) => {
+    if (!req.isAuthenticated()) return res.status(401).send("Not authenticated");
+    const user = req.user as UserWithContext;
+    if (!isAdminOrSuperAdmin(user)) return res.status(403).send("Admin role required");
+    const databaseUrl = process.env["DATABASE_URL"];
+    if (!databaseUrl) return res.status(500).send("DATABASE_URL not configured");
+    try {
+      const result = await baselineMigrations(databaseUrl, {
+        userId: user.id,
+        email: user.email ?? "unknown",
+      });
+      return res.json(result);
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      return res.status(500).json({ error: msg });
     }
   });
 

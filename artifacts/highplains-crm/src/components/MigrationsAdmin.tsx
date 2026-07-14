@@ -76,6 +76,7 @@ export default function MigrationsAdmin() {
   const { t } = useTranslation();
   const { toast } = useToast();
   const [confirmOpen, setConfirmOpen] = useState(false);
+  const [baselineConfirmOpen, setBaselineConfirmOpen] = useState(false);
   const [applyResults, setApplyResults] = useState<MigrationFileResult[] | null>(null);
 
   const { data, isLoading, error, refetch } = useQuery<MigrationListResponse>({
@@ -122,9 +123,33 @@ export default function MigrationsAdmin() {
     },
   });
 
+  const baselineMutation = useMutation({
+    mutationFn: async () => {
+      const res = await apiRequest("POST", "/api/admin/migrations/baseline");
+      return res.json() as Promise<{ baselinedCount: number; baselinedFiles: string[] }>;
+    },
+    onSuccess: (result) => {
+      setBaselineConfirmOpen(false);
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/migrations"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/migrations/audit"] });
+      toast({
+        title: t("migrations.baselineSuccess"),
+        description: t("migrations.baselineSuccessDesc", { count: result.baselinedCount }),
+      });
+    },
+    onError: (err: Error) => {
+      setBaselineConfirmOpen(false);
+      toast({
+        title: t("migrations.baselineFailed"),
+        description: err.message,
+        variant: "destructive",
+      });
+    },
+  });
+
   const pendingFiles = data?.files.filter((f) => f.status === "applied") ?? [];
   const driftedFiles = data?.files.filter((f) => f.status === "drifted") ?? [];
-  const isLocked = data?.applyLocked || applyMutation.isPending;
+  const isLocked = data?.applyLocked || applyMutation.isPending || baselineMutation.isPending;
 
   function formatTs(ts: string) {
     return new Date(ts).toLocaleString(undefined, {
@@ -145,7 +170,7 @@ export default function MigrationsAdmin() {
             <CardTitle>{t("migrations.title")}</CardTitle>
             <CardDescription>{t("migrations.description")}</CardDescription>
           </div>
-          <div className="flex gap-2 flex-shrink-0">
+          <div className="flex gap-2 flex-shrink-0 flex-wrap">
             <Button
               variant="outline"
               size="sm"
@@ -157,17 +182,31 @@ export default function MigrationsAdmin() {
               {t("migrations.refresh")}
             </Button>
             <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setBaselineConfirmOpen(true)}
+              disabled={isLocked || pendingFiles.length === 0 || isLoading}
+              data-testid="button-baseline-migrations"
+            >
+              {baselineMutation.isPending ? (
+                <Loader2 className="w-4 h-4 mr-1 animate-spin" />
+              ) : (
+                <CheckCircle2 className="w-4 h-4 mr-1" />
+              )}
+              {baselineMutation.isPending ? t("migrations.baselining") : t("migrations.baselineButton")}
+            </Button>
+            <Button
               size="sm"
               onClick={() => setConfirmOpen(true)}
               disabled={isLocked || pendingFiles.length === 0 || isLoading}
               data-testid="button-apply-migrations"
             >
-              {isLocked ? (
+              {applyMutation.isPending ? (
                 <Loader2 className="w-4 h-4 mr-1 animate-spin" />
               ) : (
                 <Play className="w-4 h-4 mr-1" />
               )}
-              {isLocked ? t("migrations.applying") : t("migrations.applyPending")}
+              {applyMutation.isPending ? t("migrations.applying") : t("migrations.applyPending")}
             </Button>
           </div>
         </CardHeader>
@@ -334,7 +373,7 @@ export default function MigrationsAdmin() {
         </Card>
       )}
 
-      {/* Confirm dialog */}
+      {/* Apply confirm dialog */}
       <Dialog open={confirmOpen} onOpenChange={(open) => { if (!open) setConfirmOpen(false); }}>
         <DialogContent data-testid="dialog-apply-migrations">
           <DialogHeader>
@@ -379,6 +418,57 @@ export default function MigrationsAdmin() {
                 </>
               ) : (
                 t("migrations.confirmApply")
+              )}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Baseline confirm dialog */}
+      <Dialog open={baselineConfirmOpen} onOpenChange={(open) => { if (!open) setBaselineConfirmOpen(false); }}>
+        <DialogContent data-testid="dialog-baseline-migrations">
+          <DialogHeader>
+            <DialogTitle>{t("migrations.baselineConfirmTitle")}</DialogTitle>
+            <DialogDescription asChild>
+              <div className="space-y-3">
+                <p>
+                  {t("migrations.baselineConfirmDesc", { count: pendingFiles.length })}
+                </p>
+                {pendingFiles.length > 0 && (
+                  <ul className="space-y-1 pl-4 list-disc text-sm">
+                    {pendingFiles.map((f) => (
+                      <li key={f.filename} className="font-mono text-xs">{f.filename}</li>
+                    ))}
+                  </ul>
+                )}
+                <div className="rounded-md border border-blue-200 bg-blue-50 dark:border-blue-800 dark:bg-blue-950/30 p-3 text-sm text-blue-800 dark:text-blue-300">
+                  {t("migrations.baselineConfirmWarning")}
+                </div>
+              </div>
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={() => setBaselineConfirmOpen(false)}
+              disabled={baselineMutation.isPending}
+              data-testid="button-cancel-baseline"
+            >
+              {t("common.cancel")}
+            </Button>
+            <Button
+              variant="secondary"
+              onClick={() => baselineMutation.mutate()}
+              disabled={baselineMutation.isPending}
+              data-testid="button-confirm-baseline"
+            >
+              {baselineMutation.isPending ? (
+                <>
+                  <Loader2 className="w-4 h-4 mr-1 animate-spin" />
+                  {t("migrations.baselining")}
+                </>
+              ) : (
+                t("migrations.baselineConfirmAction")
               )}
             </Button>
           </DialogFooter>

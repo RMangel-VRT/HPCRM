@@ -2315,6 +2315,15 @@ const en = {
     auditTitle: "Apply history",
     auditDesc: "Recent migration apply runs (most recent first).",
     nothingApplied: "No files applied in this run.",
+    baselineButton: "Mark all as applied (baseline)",
+    baselining: "Baselining…",
+    baselineConfirmTitle: "Mark all pending as applied?",
+    baselineConfirmDesc: "This records {{count}} pending migration file(s) as applied in the tracking table without executing any SQL. Use this only when the database already contains the objects described by these files.",
+    baselineConfirmWarning: "No SQL will be executed. This is safe for existing databases adopting the migration tracker for the first time.",
+    baselineConfirmAction: "Mark as applied",
+    baselineSuccess: "Migrations baselined",
+    baselineSuccessDesc: "{{count}} file(s) marked as applied.",
+    baselineFailed: "Baseline failed",
   },
 };
 

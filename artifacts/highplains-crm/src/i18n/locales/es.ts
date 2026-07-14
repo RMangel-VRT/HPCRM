@@ -2433,6 +2433,15 @@ const es = {
     auditTitle: "Historial de aplicaciones",
     auditDesc: "Ejecuciones recientes de migraciones (más recientes primero).",
     nothingApplied: "No se aplicaron archivos en este proceso.",
+    baselineButton: "Marcar todo como aplicado (baseline)",
+    baselining: "Aplicando baseline…",
+    baselineConfirmTitle: "¿Marcar todas las pendientes como aplicadas?",
+    baselineConfirmDesc: "Esto registra {{count}} archivo(s) de migración pendientes como aplicados en la tabla de seguimiento sin ejecutar ningún SQL. Úselo solo cuando la base de datos ya contiene los objetos descritos por estos archivos.",
+    baselineConfirmWarning: "No se ejecutará ningún SQL. Esto es seguro para bases de datos existentes que adoptan el rastreador de migraciones por primera vez.",
+    baselineConfirmAction: "Marcar como aplicado",
+    baselineSuccess: "Baseline de migraciones completado",
+    baselineSuccessDesc: "{{count}} archivo(s) marcados como aplicados.",
+    baselineFailed: "Error en el baseline",
   },
 };
 

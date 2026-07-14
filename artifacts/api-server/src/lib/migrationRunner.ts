@@ -257,6 +257,53 @@ export async function applyMigrations(
   }
 }
 
+/**
+ * Baseline all pending migrations — writes tracking rows without executing any SQL.
+ * Use when the database already contains the schema objects described by the migration
+ * files and you only need the tracking table to catch up (e.g. first-time adoption of
+ * the tracker on an existing database).
+ *
+ * Files already tracked (including drifted files) are left untouched.
+ * An audit row is written at the end so the action appears in the apply history.
+ */
+export async function baselineMigrations(
+  databaseUrl: string,
+  actor: { userId: string; email: string },
+): Promise<{ baselinedCount: number; baselinedFiles: string[] }> {
+  const pool = new pg.Pool({ connectionString: databaseUrl });
+  const client = await pool.connect();
+  try {
+    await ensureInfrastructure(client);
+    const applied = await getApplied(client);
+    const filenames = listSqlFiles();
+    const baselinedFiles: string[] = [];
+
+    for (const filename of filenames) {
+      if (applied.has(filename)) {
+        continue;
+      }
+      const content = readFileSync(join(MIGRATIONS_DIR, filename), "utf8");
+      const sum = fileChecksum(content);
+      await client.query(
+        `INSERT INTO ${TRACKING_TABLE} (filename, checksum) VALUES ($1, $2) ON CONFLICT (filename) DO NOTHING`,
+        [filename, sum],
+      );
+      baselinedFiles.push(filename);
+    }
+
+    await client.query(
+      `INSERT INTO ${AUDIT_TABLE} (run_by_user_id, run_by_email, files_applied, files_failed, files_drifted)
+       VALUES ($1, $2, $3, '{}', '{}')`,
+      [actor.userId, actor.email, baselinedFiles],
+    );
+
+    return { baselinedCount: baselinedFiles.length, baselinedFiles };
+  } finally {
+    client.release();
+    await pool.end();
+  }
+}
+
 /** Audit log rows for display in the UI. */
 export interface AuditRow {
   id: string;
