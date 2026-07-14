@@ -18370,7 +18370,7 @@ ${pdfText.slice(0, 8000)}`;
         const { scrapeAndEnrichVariety } = await import("../lib/plantEnrichment");
         void scrapeAndEnrichVariety(user.activeCompanyId, varietyKey, body.treefarmSlug);
         updateData.treefarmSlug = body.treefarmSlug;
-        updateData.treefarmUrl = `https://www.thetreefarm.com/products/${body.treefarmSlug}`;
+        updateData.treefarmUrl = `https://www.thetreefarm.com/${body.treefarmSlug}`;
         updateData.attributeSource = "confirmed";
       }
 

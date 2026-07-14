@@ -4,7 +4,7 @@
  *
  * - matchVariety: SKU-first match and fuzzy token-overlap paths
  * - mapFacts: field-mapping table rows → enrichment columns
- * - enrichPlants (fetch failure): all network calls fail → success run, 0 enriched
+ * - enrichPlants (fetch failure): all network calls fail → error run, 0 processed
  */
 
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
@@ -40,7 +40,7 @@ vi.mock("drizzle-orm", () => ({
   desc: vi.fn((col: unknown) => `desc(${String(col)})`),
 }));
 
-import { matchVariety, mapFacts, enrichPlants } from "./plantEnrichment";
+import { matchVariety, mapFacts, enrichPlants, extractProductsFromCategoryPage } from "./plantEnrichment";
 import type { CandidateProduct } from "./plantEnrichment";
 import { db } from "../db";
 
@@ -53,7 +53,7 @@ function makeCandidate(overrides: Partial<CandidateProduct> = {}): CandidateProd
     sku: null,
     imageUrl: null,
     imageAttribution: null,
-    pageUrl: "https://www.thetreefarm.com/products/colorado-blue-spruce",
+    pageUrl: "https://www.thetreefarm.com/colorado-blue-spruce",
     ...overrides,
   };
 }
@@ -77,6 +77,107 @@ function makeUpdateChain() {
   return { set };
 }
 
+// ── extractProductsFromCategoryPage ──────────────────────────────────────────
+
+describe("extractProductsFromCategoryPage", () => {
+  function catalogImg(slug: string, alt = "") {
+    return `<img src="https://www.thetreefarm.com/media/catalog/product/image/${slug}.jpg" alt="${alt}">`;
+  }
+
+  it("extracts a product when image anchor and text anchor are separate (Magento pattern)", () => {
+    const html = `
+      <html><body>
+        <a href="/maple-autumn-blaze">${catalogImg("maple-autumn-blaze", "Autumn Blaze Maple")}</a>
+        <a href="/maple-autumn-blaze">Autumn Blaze Maple</a>
+      </body></html>
+    `;
+    const products = extractProductsFromCategoryPage(html);
+    expect(products).toHaveLength(1);
+    expect(products[0].slug).toBe("maple-autumn-blaze");
+    expect(products[0].title).toBe("Autumn Blaze Maple");
+    expect(products[0].imageUrl).toContain("/media/catalog/product/");
+  });
+
+  it("picks the longest title across multiple anchors to the same slug", () => {
+    const html = `
+      <html><body>
+        <a href="/blue-spruce">${catalogImg("blue-spruce")}</a>
+        <a href="/blue-spruce">Blue</a>
+        <a href="/blue-spruce">Colorado Blue Spruce</a>
+      </body></html>
+    `;
+    const products = extractProductsFromCategoryPage(html);
+    expect(products[0].title).toBe("Colorado Blue Spruce");
+  });
+
+  it("excludes slugs that have no qualifying catalog image", () => {
+    const html = `
+      <html><body>
+        <a href="/maple-autumn-blaze">Autumn Blaze Maple (no image)</a>
+      </body></html>
+    `;
+    const products = extractProductsFromCategoryPage(html);
+    expect(products).toHaveLength(0);
+  });
+
+  it("excludes placeholder images", () => {
+    const html = `
+      <html><body>
+        <a href="/mystery-shrub">
+          <img src="https://www.thetreefarm.com/media/catalog/product/placeholder/default/image.jpg">
+        </a>
+        <a href="/mystery-shrub">Mystery Shrub</a>
+      </body></html>
+    `;
+    const products = extractProductsFromCategoryPage(html);
+    expect(products).toHaveLength(0);
+  });
+
+  it("excludes known Magento nav slugs", () => {
+    const html = `
+      <html><body>
+        <a href="/catalog">${catalogImg("catalog")}</a>
+        <a href="/checkout">${catalogImg("checkout")}</a>
+        <a href="/maple-autumn-blaze">${catalogImg("maple-autumn-blaze", "Autumn Blaze Maple")}</a>
+        <a href="/maple-autumn-blaze">Autumn Blaze Maple</a>
+      </body></html>
+    `;
+    const products = extractProductsFromCategoryPage(html);
+    expect(products).toHaveLength(1);
+    expect(products[0].slug).toBe("maple-autumn-blaze");
+  });
+
+  it("sets imageAttribution from the image alt text", () => {
+    const html = `
+      <html><body>
+        <a href="/red-oak">
+          <img src="https://www.thetreefarm.com/media/catalog/product/image/red-oak.jpg" alt="Red Oak Tree">
+        </a>
+        <a href="/red-oak">Red Oak</a>
+      </body></html>
+    `;
+    const products = extractProductsFromCategoryPage(html);
+    expect(products[0].imageAttribution).toBe("Red Oak Tree");
+  });
+
+  it("falls back to '© The Tree Farm' when img has no alt/title", () => {
+    const html = `
+      <html><body>
+        <a href="/red-oak">
+          <img src="https://www.thetreefarm.com/media/catalog/product/image/red-oak.jpg">
+        </a>
+        <a href="/red-oak">Red Oak</a>
+      </body></html>
+    `;
+    const products = extractProductsFromCategoryPage(html);
+    expect(products[0].imageAttribution).toBe("© The Tree Farm");
+  });
+
+  it("returns empty array for empty HTML", () => {
+    expect(extractProductsFromCategoryPage("<html><body></body></html>")).toHaveLength(0);
+  });
+});
+
 // ── matchVariety ──────────────────────────────────────────────────────────────
 
 describe("matchVariety", () => {
@@ -88,10 +189,8 @@ describe("matchVariety", () => {
   ];
 
   describe("SKU-first path", () => {
-    it("matches when product-code prefix equals candidate SKU exactly", () => {
-      // extractSkuPrefix strips the size suffix iff digits are immediately followed
-      // by a capital letter: "CBS5G-10G" → strips "-10G" → prefix "CBS5G".
-      // A bare numeric suffix like "-10" has no trailing capital so is NOT stripped.
+    it("matches when product code starts with candidate SKU", () => {
+      // Code "CBS5G-10G" starts with candidate SKU "CBS5G" → auto match.
       const result = matchVariety(
         "spruce-colorado-blue",
         "Colorado Blue Spruce",
@@ -104,12 +203,13 @@ describe("matchVariety", () => {
       expect(result.candidate?.sku).toBe("CBS5G");
     });
 
-    it("matches when candidate SKU starts with product-code prefix", () => {
+    it("matches when product code starts with candidate SKU (multiple codes)", () => {
+      // Codes ["ABM10-05C","ABM10-15C"] both start with candidate SKU "ABM10".
       const result = matchVariety(
         "maple-autumn-blaze",
         "Autumn Blaze Maple",
         "Acer freemanii",
-        ["ABM"],
+        ["ABM10-05C", "ABM10-15C"],
         candidates,
       );
       expect(result.matchStatus).toBe("auto");
@@ -140,9 +240,7 @@ describe("matchVariety", () => {
       const withHashSku: CandidateProduct[] = [
         makeCandidate({ slug: "bog-grass", title: "Blue Oat Grass", sku: "#BOG1G" }),
       ];
-      // extractSkuPrefix strips the size suffix only when a digit-run is immediately
-      // followed by a capital letter (e.g. "-10G" → strips to "BOG1G").
-      // "-20" has no trailing capital so would NOT be stripped; use "-10G" here.
+      // Code "BOG1G-10G" starts with normalized candidate SKU "BOG1G".
       const result = matchVariety(
         "grass-blue-oat",
         "Blue Oat Grass",
@@ -152,6 +250,23 @@ describe("matchVariety", () => {
       );
       expect(result.matchStatus).toBe("auto");
       expect(result.confidence).toBe(1.0);
+    });
+
+    it("skips candidate SKU shorter than 4 characters to avoid false positives", () => {
+      const shortSkuCandidate: CandidateProduct[] = [
+        makeCandidate({ slug: "elm-shrub", title: "Elm Shrub", sku: "ELM" }),
+      ];
+      // SKU "ELM" normalized length = 3 < 4, so it is skipped in SKU-first path.
+      // Falls back to fuzzy — "Colorado Blue Spruce" vs "Elm Shrub" has no token overlap.
+      const result = matchVariety(
+        "spruce-colorado-blue",
+        "Colorado Blue Spruce",
+        null,
+        ["ELM-10G"],
+        shortSkuCandidate,
+      );
+      // SKU path skipped; fuzzy match is zero — unmatched with no candidate.
+      expect(result.candidate).toBeNull();
     });
   });
 
@@ -251,7 +366,15 @@ describe("mapFacts", () => {
     expect(mapFacts({ "Water Needs": "Xeriscape / Low" }).isXeriscape).toBe(true);
   });
 
-  it("sets isXeriscape false when water value does not contain xeriscape", () => {
+  it("sets isXeriscape true when water value is 'Low'", () => {
+    expect(mapFacts({ "Water Needs": "Low" }).isXeriscape).toBe(true);
+  });
+
+  it("sets isXeriscape true when water value contains 'drought'", () => {
+    expect(mapFacts({ "Water Needs": "Drought tolerant" }).isXeriscape).toBe(true);
+  });
+
+  it("sets isXeriscape false when water value does not contain xeriscape/low/drought", () => {
     expect(mapFacts({ "Water Needs": "Moderate" }).isXeriscape).toBe(false);
   });
 
@@ -303,6 +426,22 @@ describe("mapFacts", () => {
     expect(mapFacts({ "Salt Tolerant": "Yes" }).saltTolerant).toBe(true);
   });
 
+  it("derives isPollinatorFriendly from Features text when explicit field is absent", () => {
+    expect(
+      mapFacts({ "Features": "Attracts butterflies and bee pollinators" }).isPollinatorFriendly,
+    ).toBe(true);
+  });
+
+  it("derives isNative from Features text when explicit field is absent", () => {
+    expect(mapFacts({ "Features": "Native to North America" }).isNative).toBe(true);
+  });
+
+  it("explicit boolean field takes priority over Features text", () => {
+    expect(
+      mapFacts({ "Pollinator Friendly": "No", "Features": "Great pollinator plant" }).isPollinatorFriendly,
+    ).toBe(false);
+  });
+
   it("returns all nulls for an empty facts object", () => {
     const result = mapFacts({});
     expect(result.light).toBeNull();
@@ -350,7 +489,7 @@ describe("mapFacts", () => {
   });
 });
 
-// ── enrichPlants — fetch failure ──────────────────────────────────────────────
+// ── enrichPlants — fetch failure (empty crawl) ────────────────────────────────
 
 describe("enrichPlants — fetch failure", () => {
   beforeEach(() => {
@@ -362,12 +501,6 @@ describe("enrichPlants — fetch failure", () => {
     );
 
     const mockInsertRunChain = makeInsertRunChain({ id: "run-test-1" });
-    const mockInsertEnrichChain = {
-      values: vi.fn().mockReturnValue({
-        returning: vi.fn().mockResolvedValue([]),
-        onConflictDoUpdate: vi.fn().mockResolvedValue(undefined),
-      }),
-    };
     const mockUpdate = makeUpdateChain();
 
     const catalogRow = {
@@ -387,7 +520,12 @@ describe("enrichPlants — fetch failure", () => {
 
     mockDbObj["insert"] = vi.fn().mockImplementation(() => {
       insertCallCount++;
-      return insertCallCount === 1 ? mockInsertRunChain : mockInsertEnrichChain;
+      return insertCallCount === 1 ? mockInsertRunChain : {
+        values: vi.fn().mockReturnValue({
+          returning: vi.fn().mockResolvedValue([]),
+          onConflictDoUpdate: vi.fn().mockResolvedValue(undefined),
+        }),
+      };
     });
 
     mockDbObj["update"] = vi.fn().mockReturnValue(mockUpdate);
@@ -403,13 +541,21 @@ describe("enrichPlants — fetch failure", () => {
     vi.unstubAllGlobals();
   });
 
-  it("completes with status 'success' and enriched=0 when all fetches fail", async () => {
+  it("completes with status 'error' when all fetches fail (crawl returns 0 candidates)", async () => {
     const promise = enrichPlants("company-abc");
     await vi.runAllTimersAsync();
     const result = await promise;
 
-    expect(result.status).toBe("success");
+    expect(result.status).toBe("error");
     expect(result.enriched).toBe(0);
+  });
+
+  it("records a descriptive error message when the crawl returns 0 products", async () => {
+    const promise = enrichPlants("company-abc");
+    await vi.runAllTimersAsync();
+    const result = await promise;
+
+    expect(result.errorMessage).toMatch(/crawl returned 0 candidate products/i);
   });
 
   it("writes the sync run record to the database", async () => {
@@ -421,7 +567,7 @@ describe("enrichPlants — fetch failure", () => {
     expect(mockInsert).toHaveBeenCalled();
   });
 
-  it("marks the sync run as 'success' (not 'error') in the DB", async () => {
+  it("marks the sync run as 'error' in the DB when the crawl returns 0 products", async () => {
     const promise = enrichPlants("company-abc");
     await vi.runAllTimersAsync();
     await promise;
@@ -429,15 +575,15 @@ describe("enrichPlants — fetch failure", () => {
     const mockUpdate = (db as Record<string, unknown>)["update"] as ReturnType<typeof vi.fn>;
     const setCalls = mockUpdate.mock.results.map((r: { value: { set: ReturnType<typeof vi.fn> } }) => r.value.set.mock.calls[0]?.[0]);
     const finalStatus = setCalls.find((c: Record<string, unknown>) => c?.status === "success" || c?.status === "error");
-    expect(finalStatus?.status).toBe("success");
+    expect(finalStatus?.status).toBe("error");
   });
 
-  it("processed count equals the number of varieties in the catalog when candidates are empty", async () => {
+  it("processed count is 0 when crawl fails before the enrichment loop", async () => {
     const promise = enrichPlants("company-abc");
     await vi.runAllTimersAsync();
     const result = await promise;
 
-    expect(result.processed).toBe(1);
+    expect(result.processed).toBe(0);
     expect(result.enriched).toBe(0);
   });
 });

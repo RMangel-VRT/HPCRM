@@ -34,8 +34,9 @@ async function fetchWithDelay(url: string): Promise<string | null> {
     const res = await fetch(url, {
       signal: AbortSignal.timeout(20_000),
       headers: {
-        "User-Agent": "Mozilla/5.0 (compatible; HighPlainsCRM/1.0; +https://highplainsprop.com)",
-        "Accept": "text/html,application/xhtml+xml",
+        "User-Agent":
+          "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+        Accept: "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
       },
     });
     if (!res.ok) {
@@ -74,45 +75,101 @@ const TREEFARM_CATEGORIES = [
   "/plants/ornamental-grasses",
 ];
 
-function extractProductsFromCategoryPage(html: string, pageUrl: string): Array<Omit<CandidateProduct, "sku" | "imageAttribution">> {
+const NON_PRODUCT_SLUGS = new Set([
+  "plants", "deciduous-trees", "shrubs", "evergreens", "perennials",
+  "fruit-trees", "roses", "vines", "ornamental-grasses", "trees",
+  "catalog", "category", "search", "catalogsearch", "result",
+  "checkout", "cart", "account", "login", "register", "wishlist",
+  "customer", "contact", "about", "privacy", "terms", "sitemap",
+  "blog", "news", "faq", "index", "home", "store", "media",
+  "info", "services", "gallery", "wholesale", "delivery", "shipping",
+  "availability", "availability-list", "plant-finder",
+]);
+
+export function extractProductsFromCategoryPage(html: string): CandidateProduct[] {
   const root = parse(html);
-  const products: Array<Omit<CandidateProduct, "sku" | "imageAttribution">> = [];
 
-  const productItems = root.querySelectorAll(".product-item, .grid-product, article.product, li.product, .product");
-  for (const item of productItems) {
-    const linkEl = item.querySelector("a[href]");
-    if (!linkEl) continue;
-    const href = linkEl.getAttribute("href") ?? "";
-    const slug = href.replace(/^\//, "").replace(/\/$/, "").split("/").pop() ?? "";
-    if (!slug) continue;
-
-    const titleEl = item.querySelector(".product-item__title, .grid-product__title, h2, h3, .product-title, .product__title");
-    const title = (titleEl?.text ?? "").trim();
-    if (!title) continue;
-
-    const imgEl = item.querySelector("img");
-    let imageUrl: string | null = imgEl?.getAttribute("src") ?? imgEl?.getAttribute("data-src") ?? null;
-    if (imageUrl && imageUrl.startsWith("//")) imageUrl = "https:" + imageUrl;
-    if (imageUrl && !imageUrl.startsWith("http")) imageUrl = null;
-
-    const fullHref = href.startsWith("http") ? href : `${TREEFARM_BASE}${href.startsWith("/") ? "" : "/"}${href}`;
-
-    products.push({ slug, title, imageUrl, pageUrl: fullHref });
+  interface SlugData {
+    title: string;
+    imageUrl: string | null;
+    imageAttribution: string | null;
+    hasQualifyingImage: boolean;
   }
 
-  if (products.length === 0) {
-    const links = root.querySelectorAll("a[href*='/products/']");
-    const seen = new Set<string>();
-    for (const link of links) {
-      const href = link.getAttribute("href") ?? "";
-      const slug = href.split("/products/")[1]?.split("?")[0]?.replace(/\/$/, "");
-      if (!slug || seen.has(slug)) continue;
-      seen.add(slug);
-      const title = (link.text ?? "").trim();
-      if (title.length < 3) continue;
-      const fullHref = href.startsWith("http") ? href : `${TREEFARM_BASE}${href}`;
-      products.push({ slug, title, imageUrl: null, pageUrl: fullHref });
+  const slugMap = new Map<string, SlugData>();
+
+  const anchors = root.querySelectorAll("a[href]");
+  for (const anchor of anchors) {
+    const href = anchor.getAttribute("href") ?? "";
+
+    let slug: string;
+    try {
+      const url = new URL(href, TREEFARM_BASE);
+      const pathname = url.pathname.replace(/^\/|\/$/g, "");
+      if (!pathname || pathname.includes("/")) continue;
+      slug = pathname;
+    } catch {
+      const stripped = href.replace(/^\/|\/$/g, "").split("?")[0].split("#")[0];
+      if (!stripped || stripped.includes("/")) continue;
+      slug = stripped;
     }
+
+    if (!slug || NON_PRODUCT_SLUGS.has(slug)) continue;
+
+    const anchorText = (anchor.text ?? "").replace(/\s+/g, " ").trim();
+
+    // Check for a qualifying catalog image within this anchor
+    const img = anchor.querySelector("img");
+    let imageUrl: string | null = null;
+    let imageAttribution: string | null = null;
+    let hasQualifyingImage = false;
+    if (img) {
+      const imgSrc = img.getAttribute("src") ?? img.getAttribute("data-src") ?? "";
+      if (imgSrc.includes("/media/catalog/product/") && !imgSrc.includes("/placeholder/")) {
+        const fullSrc = imgSrc.startsWith("//")
+          ? "https:" + imgSrc
+          : imgSrc.startsWith("http")
+          ? imgSrc
+          : null;
+        if (fullSrc) {
+          imageUrl = fullSrc;
+          imageAttribution =
+            (img.getAttribute("alt") ?? img.getAttribute("title") ?? "").trim() || "© The Tree Farm";
+          hasQualifyingImage = true;
+        }
+      }
+    }
+
+    if (!slugMap.has(slug)) {
+      slugMap.set(slug, { title: anchorText, imageUrl, imageAttribution, hasQualifyingImage });
+    } else {
+      const existing = slugMap.get(slug)!;
+      // Keep the longest visible text as the title (typically the heading/text anchor)
+      if (anchorText.length > existing.title.length) {
+        existing.title = anchorText;
+      }
+      // Adopt image data from the first qualifying image anchor seen for this slug
+      if (hasQualifyingImage && !existing.hasQualifyingImage) {
+        existing.imageUrl = imageUrl;
+        existing.imageAttribution = imageAttribution;
+        existing.hasQualifyingImage = true;
+      }
+    }
+  }
+
+  const products: CandidateProduct[] = [];
+  for (const [slug, data] of slugMap.entries()) {
+    // Require both a valid title and a confirmed catalog image
+    if (!data.hasQualifyingImage) continue;
+    if (!data.title || data.title.length < 3) continue;
+    products.push({
+      slug,
+      title: data.title,
+      sku: null,
+      imageUrl: data.imageUrl,
+      imageAttribution: data.imageAttribution,
+      pageUrl: `${TREEFARM_BASE}/${slug}`,
+    });
   }
 
   return products;
@@ -164,6 +221,8 @@ async function scrapeProductPage(pageUrl: string): Promise<{
         facts["Deer Resistant"] = value;
       } else if (label.includes("salt")) {
         facts["Salt Tolerant"] = value;
+      } else if (label.includes("feature")) {
+        facts["Features"] = value;
       }
     }
   }
@@ -173,10 +232,23 @@ async function scrapeProductPage(pageUrl: string): Promise<{
     sku = (skuEl.text ?? "").replace(/sku[:\s]*/i, "").trim().toUpperCase() || null;
   }
 
-  const imgEl = root.querySelector(".product-featured-media img, .product__media img, [class*='product'] img");
-  let imageUrl: string | null = imgEl?.getAttribute("src") ?? imgEl?.getAttribute("data-src") ?? null;
-  if (imageUrl && imageUrl.startsWith("//")) imageUrl = "https:" + imageUrl;
-  if (imageUrl && !imageUrl.startsWith("http")) imageUrl = null;
+  let imageUrl: string | null = null;
+  let mainImgUrl: string | null = null;
+  let firstImgUrl: string | null = null;
+  const imgs = root.querySelectorAll("img");
+  for (const img of imgs) {
+    const src = img.getAttribute("src") ?? img.getAttribute("data-src") ?? "";
+    if (!src.includes("/media/catalog/product/") || src.includes("/placeholder/")) continue;
+    const fullSrc = src.startsWith("//")
+      ? "https:" + src
+      : src.startsWith("http")
+      ? src
+      : null;
+    if (!fullSrc) continue;
+    if (!firstImgUrl) firstImgUrl = fullSrc;
+    if (src.includes("/image/") && !mainImgUrl) mainImgUrl = fullSrc;
+  }
+  imageUrl = mainImgUrl ?? firstImgUrl;
 
   const copyrightEl = root.querySelector(".image-attribution, .photo-credit, [class*='attribution'], figcaption");
   const imageAttribution: string | null = (copyrightEl?.text ?? "").trim() || "© The Tree Farm";
@@ -200,42 +272,54 @@ async function buildCandidateIndex(): Promise<CandidateProduct[]> {
 
   logger.info("plant enrichment: building candidate index from thetreefarm.com");
 
-  const allBasic: Array<Omit<CandidateProduct, "sku" | "imageAttribution">> = [];
+  const seenSlugs = new Set<string>();
+  const allBasic: CandidateProduct[] = [];
 
   for (const categoryPath of TREEFARM_CATEGORIES) {
     const url = `${TREEFARM_BASE}${categoryPath}`;
     const html = await fetchWithDelay(url);
     if (!html) continue;
-    const products = extractProductsFromCategoryPage(html, url);
-    allBasic.push(...products);
-    logger.info({ category: categoryPath, found: products.length }, "plant enrichment: category crawled");
+    const products = extractProductsFromCategoryPage(html);
+    let newThisCategory = 0;
+    for (const p of products) {
+      if (!seenSlugs.has(p.slug)) {
+        seenSlugs.add(p.slug);
+        allBasic.push(p);
+        newThisCategory++;
+      }
+    }
+    logger.info({ category: categoryPath, found: products.length, new: newThisCategory }, "plant enrichment: category crawled");
 
     let page = 2;
-    while (page <= 10) {
-      const pageUrl = `${url}?page=${page}`;
+    while (page <= 20) {
+      const pageUrl = `${url}?p=${page}`;
       const pageHtml = await fetchWithDelay(pageUrl);
       if (!pageHtml) break;
-      const pageProducts = extractProductsFromCategoryPage(pageHtml, pageUrl);
+      const pageProducts = extractProductsFromCategoryPage(pageHtml);
       if (pageProducts.length === 0) break;
-      allBasic.push(...pageProducts);
+      let newThisPage = 0;
+      for (const p of pageProducts) {
+        if (!seenSlugs.has(p.slug)) {
+          seenSlugs.add(p.slug);
+          allBasic.push(p);
+          newThisPage++;
+        }
+      }
+      if (page > 1 && newThisPage === 0) break;
       page++;
     }
   }
 
-  const deduped = Array.from(
-    new Map(allBasic.map((p) => [p.slug, p])).values()
-  );
-
-  logger.info({ total: deduped.length }, "plant enrichment: scraping product pages for SKUs");
+  logger.info({ total: allBasic.length }, "plant enrichment: scraping product pages for SKUs");
 
   const candidates: CandidateProduct[] = [];
-  for (const basic of deduped.slice(0, 500)) {
+  for (const basic of allBasic.slice(0, 800)) {
     const detail = await scrapeProductPage(basic.pageUrl);
     candidates.push({
       ...basic,
       sku: detail.sku,
       imageUrl: detail.imageUrl ?? basic.imageUrl,
-      imageAttribution: detail.imageAttribution,
+      imageAttribution: basic.imageAttribution ?? detail.imageAttribution,
     });
   }
 
@@ -248,10 +332,6 @@ async function buildCandidateIndex(): Promise<CandidateProduct[]> {
   }
 
   return candidates;
-}
-
-function extractSkuPrefix(productCode: string): string {
-  return productCode.replace(/-\d+[A-Z].*$/, "").toUpperCase();
 }
 
 function tokenize(s: string): Set<string> {
@@ -326,12 +406,18 @@ export function matchVariety(
   productCodes: string[],
   candidates: CandidateProduct[],
 ): MatchResult {
-  const skuPrefixes = productCodes.map(extractSkuPrefix);
+  const normalizedCodes = productCodes.map((c) =>
+    c.replace(/[^A-Z0-9-]/gi, "").toUpperCase()
+  );
 
   for (const candidate of candidates) {
     if (!candidate.sku) continue;
-    const candidateSku = candidate.sku.replace(/^#/, "").toUpperCase();
-    if (skuPrefixes.some((p) => candidateSku === p || candidateSku.startsWith(p))) {
+    const candidateSku = candidate.sku
+      .replace(/^#/, "")
+      .replace(/[^A-Z0-9-]/gi, "")
+      .toUpperCase();
+    if (candidateSku.length < 4) continue;
+    if (normalizedCodes.some((code) => code === candidateSku || code.startsWith(candidateSku))) {
       return { candidate, confidence: 1.0, matchStatus: "auto" };
     }
   }
@@ -378,7 +464,16 @@ export function mapFacts(facts: Record<string, string>): {
   };
 
   const waterRaw = facts["Water Needs"] ?? null;
-  const isXeriscape = waterRaw ? waterRaw.toLowerCase().includes("xeriscape") : null;
+  const isXeriscape = waterRaw
+    ? /\b(low|xeric|xeriscape|drought)\b/i.test(waterRaw)
+    : null;
+
+  const featuresText = facts["Features"] ?? null;
+
+  const deriveBoolFromFeatures = (pattern: RegExp): boolean | null => {
+    if (!featuresText) return null;
+    return pattern.test(featuresText) ? true : null;
+  };
 
   return {
     light: facts["Light Needs"] ?? null,
@@ -388,10 +483,18 @@ export function mapFacts(facts: Record<string, string>): {
     bloomColor: facts["Bloom Color"] ?? null,
     fallColor: facts["Fall Color"] ?? null,
     foliageType: facts["Foliage Type"] ?? null,
-    isNative: booleanLike(facts["Native"]),
-    isPollinatorFriendly: booleanLike(facts["Pollinator Friendly"]),
-    deerResistant: booleanLike(facts["Deer Resistant"]),
-    saltTolerant: booleanLike(facts["Salt Tolerant"]),
+    isNative:
+      booleanLike(facts["Native"]) ??
+      deriveBoolFromFeatures(/\bnative\b/i),
+    isPollinatorFriendly:
+      booleanLike(facts["Pollinator Friendly"]) ??
+      deriveBoolFromFeatures(/\b(pollinator|bee|butterfly|attracts\s+pollinators)\b/i),
+    deerResistant:
+      booleanLike(facts["Deer Resistant"]) ??
+      deriveBoolFromFeatures(/\bdeer[- ]resistant\b/i),
+    saltTolerant:
+      booleanLike(facts["Salt Tolerant"]) ??
+      deriveBoolFromFeatures(/\bsalt[- ]toleran/i),
     growthRate: facts["Growth Rate"] ?? null,
   };
 }
@@ -495,7 +598,7 @@ export async function scrapeAndEnrichVariety(
   varietyKey: string,
   slug: string,
 ): Promise<void> {
-  const pageUrl = `${TREEFARM_BASE}/products/${slug}`;
+  const pageUrl = `${TREEFARM_BASE}/${slug}`;
   const detail = await scrapeProductPage(pageUrl);
 
   const factFields = mapFacts(detail.facts);
@@ -542,6 +645,13 @@ export async function enrichPlants(companyId: string): Promise<{
 
   try {
     const candidates = await buildCandidateIndex();
+
+    if (candidates.length === 0) {
+      throw new Error(
+        "thetreefarm.com crawl returned 0 candidate products — the site may have blocked the request or changed structure.",
+      );
+    }
+
     const varieties = await getVarietiesToEnrich(companyId);
 
     logger.info({ companyId, total: varieties.length, candidates: candidates.length }, "plant enrichment: starting enrichment run");
