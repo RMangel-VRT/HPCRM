@@ -32,7 +32,7 @@ async function fetchWithDelay(url: string): Promise<string | null> {
   await sleep(REQUEST_DELAY_MS);
   try {
     const res = await fetch(url, {
-      signal: AbortSignal.timeout(20_000),
+      signal: AbortSignal.timeout(15_000),
       headers: {
         "User-Agent":
           "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
@@ -310,18 +310,7 @@ async function buildCandidateIndex(): Promise<CandidateProduct[]> {
     }
   }
 
-  logger.info({ total: allBasic.length }, "plant enrichment: scraping product pages for SKUs");
-
-  const candidates: CandidateProduct[] = [];
-  for (const basic of allBasic.slice(0, 800)) {
-    const detail = await scrapeProductPage(basic.pageUrl);
-    candidates.push({
-      ...basic,
-      sku: detail.sku,
-      imageUrl: detail.imageUrl ?? basic.imageUrl,
-      imageAttribution: basic.imageAttribution ?? detail.imageAttribution,
-    });
-  }
+  const candidates: CandidateProduct[] = allBasic;
 
   const cache: CandidateCache = { builtAt: Date.now(), candidates };
   try {
@@ -632,7 +621,8 @@ export async function scrapeAndEnrichVariety(
 export async function enrichPlants(companyId: string): Promise<{
   processed: number;
   enriched: number;
-  status: "success" | "error";
+  failed: number;
+  status: "success" | "partial" | "error";
   errorMessage?: string;
 }> {
   const [run] = await db
@@ -642,6 +632,7 @@ export async function enrichPlants(companyId: string): Promise<{
 
   let processed = 0;
   let enriched = 0;
+  let failed = 0;
 
   try {
     const candidates = await buildCandidateIndex();
@@ -657,38 +648,56 @@ export async function enrichPlants(companyId: string): Promise<{
     logger.info({ companyId, total: varieties.length, candidates: candidates.length }, "plant enrichment: starting enrichment run");
 
     for (const variety of varieties) {
-      processed++;
-      const matchResult = matchVariety(
-        variety.varietyKey,
-        variety.commonName,
-        variety.botanicalName,
-        variety.productCodes,
-        candidates,
-      );
+      try {
+        processed++;
+        const matchResult = matchVariety(
+          variety.varietyKey,
+          variety.commonName,
+          variety.botanicalName,
+          variety.productCodes,
+          candidates,
+        );
 
-      const upsertData: Partial<typeof plantEnrichment.$inferInsert> = {
-        companyId,
-        varietyKey: variety.varietyKey,
-        matchStatus: matchResult.matchStatus,
-        matchConfidence: matchResult.confidence > 0 ? matchResult.confidence : undefined,
-        updatedAt: new Date(),
-      };
+        let finalMatchStatus = matchResult.matchStatus;
+        let finalConfidence = matchResult.confidence;
 
-      if (matchResult.candidate) {
-        upsertData.displayName = matchResult.candidate.title;
-        upsertData.treefarmSlug = matchResult.candidate.slug;
-        upsertData.treefarmUrl = matchResult.candidate.pageUrl;
-        upsertData.imageUrl = matchResult.candidate.imageUrl ?? undefined;
-        upsertData.imageAttribution = matchResult.candidate.imageAttribution ?? undefined;
+        const upsertData: Partial<typeof plantEnrichment.$inferInsert> = {
+          companyId,
+          varietyKey: variety.varietyKey,
+          matchStatus: finalMatchStatus,
+          matchConfidence: finalConfidence > 0 ? finalConfidence : undefined,
+          updatedAt: new Date(),
+        };
 
-        if (matchResult.matchStatus === "auto") {
+        if (matchResult.candidate) {
+          upsertData.displayName = matchResult.candidate.title;
+          upsertData.treefarmSlug = matchResult.candidate.slug;
+          upsertData.treefarmUrl = matchResult.candidate.pageUrl;
+          upsertData.imageUrl = matchResult.candidate.imageUrl ?? undefined;
+          upsertData.imageAttribution = matchResult.candidate.imageAttribution ?? undefined;
+
           const detail = await scrapeProductPage(matchResult.candidate.pageUrl);
           const factFields = mapFacts(detail.facts);
           const imageStoragePath = detail.imageUrl
             ? await downloadAndStorePhoto(detail.imageUrl, companyId, variety.varietyKey)
             : null;
 
+          if (detail.sku) {
+            const normalizedSku = detail.sku.replace(/^#/, "").replace(/[^A-Z0-9-]/gi, "").toUpperCase();
+            if (normalizedSku.length >= 4) {
+              const normalizedCodes = variety.productCodes.map((c) =>
+                c.replace(/[^A-Z0-9-]/gi, "").toUpperCase(),
+              );
+              if (normalizedCodes.some((code) => code === normalizedSku || code.startsWith(normalizedSku))) {
+                finalMatchStatus = "auto";
+                finalConfidence = 1.0;
+              }
+            }
+          }
+
           Object.assign(upsertData, {
+            matchStatus: finalMatchStatus,
+            matchConfidence: finalConfidence > 0 ? finalConfidence : undefined,
             imageUrl: detail.imageUrl ?? matchResult.candidate.imageUrl ?? undefined,
             imageStoragePath: imageStoragePath ?? undefined,
             imageAttribution: detail.imageAttribution ?? matchResult.candidate.imageAttribution ?? undefined,
@@ -700,28 +709,37 @@ export async function enrichPlants(companyId: string): Promise<{
           });
           enriched++;
         }
-      }
 
-      await db
-        .insert(plantEnrichment)
-        .values({ ...upsertData, companyId, varietyKey: variety.varietyKey } as typeof plantEnrichment.$inferInsert)
-        .onConflictDoUpdate({
-          target: [plantEnrichment.companyId, plantEnrichment.varietyKey],
-          set: { ...upsertData, updatedAt: new Date() },
-        });
+        await db
+          .insert(plantEnrichment)
+          .values({ ...upsertData, companyId, varietyKey: variety.varietyKey } as typeof plantEnrichment.$inferInsert)
+          .onConflictDoUpdate({
+            target: [plantEnrichment.companyId, plantEnrichment.varietyKey],
+            set: { ...upsertData, updatedAt: new Date() },
+          });
 
-      if (processed % 10 === 0) {
-        logger.info({ companyId, processed, enriched, total: varieties.length }, "plant enrichment: progress");
+        if (processed % 10 === 0) {
+          logger.info({ companyId, processed, enriched, failed, total: varieties.length }, "plant enrichment: progress");
+        }
+      } catch (varietyErr) {
+        failed++;
+        logger.warn({ err: varietyErr, companyId, varietyKey: variety.varietyKey }, "plant enrichment: variety failed, continuing");
       }
     }
 
+    const succeeded = processed - failed;
+    const runStatus: "success" | "partial" | "error" =
+      succeeded === 0 && failed > 0 ? "error" : failed > 0 ? "partial" : "success";
+    const runErrorMessage =
+      runStatus !== "success" ? `${failed} of ${processed} varieties failed` : undefined;
+
     await db
       .update(plantSyncRuns)
-      .set({ status: "success", finishedAt: new Date(), itemsUpserted: enriched, itemsDeactivated: 0 })
+      .set({ status: runStatus, finishedAt: new Date(), itemsUpserted: enriched, itemsDeactivated: 0, errorMessage: runErrorMessage })
       .where(eq(plantSyncRuns.id, run.id));
 
-    logger.info({ companyId, processed, enriched }, "plant enrichment: run complete");
-    return { processed, enriched, status: "success" };
+    logger.info({ companyId, processed, enriched, failed, status: runStatus }, "plant enrichment: run complete");
+    return { processed, enriched, failed, status: runStatus, errorMessage: runErrorMessage };
   } catch (err) {
     const errorMessage = err instanceof Error ? err.message : String(err);
     logger.error({ err, companyId }, "plant enrichment: run failed");
@@ -729,7 +747,7 @@ export async function enrichPlants(companyId: string): Promise<{
       .update(plantSyncRuns)
       .set({ status: "error", finishedAt: new Date(), errorMessage })
       .where(eq(plantSyncRuns.id, run.id));
-    return { processed, enriched, status: "error", errorMessage };
+    return { processed, enriched, failed, status: "error", errorMessage };
   }
 }
 

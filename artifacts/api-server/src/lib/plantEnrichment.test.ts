@@ -587,3 +587,125 @@ describe("enrichPlants — fetch failure", () => {
     expect(result.enriched).toBe(0);
   });
 });
+
+// ── enrichPlants — partial failure (some varieties fail, others succeed) ───────
+
+describe("enrichPlants — partial failure", () => {
+  beforeEach(async () => {
+    vi.useFakeTimers();
+
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockRejectedValue(new TypeError("network failure")),
+    );
+
+    // Provide a warm cache so buildCandidateIndex skips all network fetches.
+    // The candidate matches variety1 by name but not variety2, so variety1 gets a
+    // scrapeProductPage call (which returns empty detail because fetch fails) and
+    // variety2 gets no scrape.
+    const { promises: fsMock } = await import("fs");
+    vi.mocked(fsMock.readFile).mockResolvedValue(
+      JSON.stringify({
+        builtAt: Date.now(),
+        candidates: [
+          {
+            slug: "colorado-blue-spruce",
+            title: "Colorado Blue Spruce",
+            sku: null,
+            imageUrl: null,
+            imageAttribution: null,
+            pageUrl: "https://www.thetreefarm.com/colorado-blue-spruce",
+          },
+        ],
+      }) as unknown as string,
+    );
+
+    const variety1 = {
+      varietyKey: "spruce-colorado-blue",
+      commonName: "Colorado Blue Spruce",
+      botanicalName: null,
+      productCode: "CBS-5G",
+    };
+    const variety2 = {
+      varietyKey: "maple-autumn-blaze",
+      commonName: "Autumn Blaze Maple",
+      botanicalName: null,
+      productCode: "ABM-10G",
+    };
+
+    const mockDbObj = db as Record<string, unknown>;
+    let insertCallCount = 0;
+    let selectCallCount = 0;
+
+    mockDbObj["insert"] = vi.fn().mockImplementation(() => {
+      insertCallCount++;
+      if (insertCallCount === 1) {
+        return makeInsertRunChain({ id: "run-partial-1" });
+      }
+      if (insertCallCount === 2) {
+        return {
+          values: vi.fn().mockReturnValue({
+            onConflictDoUpdate: vi.fn().mockRejectedValue(new Error("DB error for variety 1")),
+          }),
+        };
+      }
+      return {
+        values: vi.fn().mockReturnValue({
+          onConflictDoUpdate: vi.fn().mockResolvedValue(undefined),
+        }),
+      };
+    });
+
+    mockDbObj["select"] = vi.fn().mockImplementation(() => {
+      selectCallCount++;
+      return selectCallCount === 1
+        ? makeSelectChain([variety1, variety2])
+        : makeSelectChain([]);
+    });
+
+    mockDbObj["update"] = vi.fn().mockReturnValue(makeUpdateChain());
+  });
+
+  afterEach(async () => {
+    vi.useRealTimers();
+    vi.unstubAllGlobals();
+    const { promises: fsMock } = await import("fs");
+    vi.mocked(fsMock.readFile).mockRejectedValue(
+      Object.assign(new Error("ENOENT"), { code: "ENOENT" }),
+    );
+  });
+
+  it("returns 'partial' when some varieties fail and others succeed", async () => {
+    const promise = enrichPlants("company-abc");
+    await vi.runAllTimersAsync();
+    const result = await promise;
+
+    expect(result.status).toBe("partial");
+    expect(result.failed).toBe(1);
+    expect(result.processed).toBe(2);
+  });
+
+  it("does not abort after the first variety failure — remaining varieties still run", async () => {
+    const promise = enrichPlants("company-abc");
+    await vi.runAllTimersAsync();
+    const result = await promise;
+
+    expect(result.processed).toBe(2);
+  });
+
+  it("marks the sync run as 'partial' in the DB", async () => {
+    const promise = enrichPlants("company-abc");
+    await vi.runAllTimersAsync();
+    await promise;
+
+    const mockUpdate = (db as Record<string, unknown>)["update"] as ReturnType<typeof vi.fn>;
+    const setCalls = mockUpdate.mock.results.map(
+      (r: { value: { set: ReturnType<typeof vi.fn> } }) => r.value.set.mock.calls[0]?.[0],
+    );
+    const finalStatus = setCalls.find(
+      (c: Record<string, unknown>) =>
+        c?.status === "success" || c?.status === "partial" || c?.status === "error",
+    );
+    expect(finalStatus?.status).toBe("partial");
+  });
+});
