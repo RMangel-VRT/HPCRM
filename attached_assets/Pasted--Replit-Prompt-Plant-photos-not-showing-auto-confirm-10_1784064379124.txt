@@ -1,0 +1,49 @@
+# Replit Prompt — Plant photos not showing + auto-confirm 100% matches
+
+Two issues on the Plant Library / Plant Matches pages:
+
+1. **No photos render** even though enrichment ran and stored images.
+2. **100% (SKU) matches should be auto-approved** into the library instead of sitting in Pending Review.
+
+## Issue 1 — photos don't display (hotlinking a blocked CDN)
+
+### Root cause
+
+Enrichment already downloads each matched photo into object storage and saves the path in `plant_enrichment.imageStoragePath` (via `downloadAndStorePhoto` → `saveBufferToPrivatePath`). But the frontend (`PlantLibrary.tsx`, `PlantMatches.tsx`) renders `enrichment.imageUrl`, which is the **raw thetreefarm.com URL** (`https://www.thetreefarm.com/media/catalog/product/…`). Loading that cross-origin from the CRM fails (hotlink/referrer blocking), and the `<img onError>` handler hides it → blank boxes. The self-hosted copy we already have is never shown.
+
+Also: the detail scrape's `imageAttribution` uses a selector that never matches Magento, so it returns the fallback `"© The Tree Farm"` and, in `enrichPlants`, **overwrites the real credit** the listing captured (in the image `alt`/`title`). So every card shows the generic credit.
+
+### Fix
+
+**a. Serve the stored photo.** Add a way to serve `imageStoragePath` bytes through the app (reuse the existing object-storage serving path — there is already `app.get("/objects/*objectPath", …)` and `objectStorageService.downloadObject`). Simplest: a small authenticated route, e.g. `GET /api/plant-library/photo/:varietyKey`, that looks up the company-scoped enrichment row and streams the object at `imageStoragePath` (404 if none). Inspect how `/objects/*` and `getObjectEntityFile`/`downloadObject` work and follow that pattern.
+
+**b. Return a served photo URL from the items + matches APIs.** In `GET /api/plant-library/items` (and the matches endpoint), when `imageStoragePath` is present, include a `photoUrl` that points at the served route (e.g. `/api/plant-library/photo/<varietyKey>`); otherwise fall back to the raw `imageUrl`.
+
+**c. Frontend uses the served URL.** In `PlantLibrary.tsx` and `PlantMatches.tsx`, render `enrichment.photoUrl ?? enrichment.imageUrl`. Keep the `onError` fallback, but prefer the self-hosted copy so blocked hotlinks stop hiding images.
+
+**d. Download a photo for every matched candidate, not just `"auto"`.** In `enrichPlants`, the detail scrape + `downloadAndStorePhoto` only run when `matchStatus === "auto"`. Surfaced ("unmatched"-with-candidate) rows get only a hotlink and no stored copy, so they're blank too. Run the download whenever there is a matched candidate (auto / confirmed / surfaced). If the detail-page image is empty, fall back to downloading the **listing** image (`candidate.imageUrl`) so there's always a stored copy.
+
+**e. Fix the credit precedence.** Prefer the real captured credit over the generic fallback: use `candidate.imageAttribution` (from the listing `alt`/`title`) unless it's empty, and only use `"© The Tree Farm"` when nothing real was found. Don't let the detail scrape's fallback overwrite a real listing credit.
+
+## Issue 2 — auto-confirm 100% (SKU) matches
+
+### Root cause
+
+In `matchVariety` (`plantEnrichment.ts`), a SKU match returns `{ confidence: 1.0, matchStatus: "auto" }` — the same status as a high fuzzy match — so 100% matches land in Pending Review and require a manual confirm.
+
+### Fix
+
+- In `matchVariety`, return `matchStatus: "confirmed"` (confidence `1.0`) for the **SKU-exact** branch. Leave fuzzy matches as `"auto"` (≥ auto threshold) and `"unmatched"` (surfaced) as they are — those still need human review.
+- In `enrichPlants`, the block that scrapes facts + downloads the photo currently runs only when `matchStatus === "auto"`. Broaden it to run for `"auto"` **and** `"confirmed"` so auto-confirmed SKU matches still get facts, image, and the stored photo (otherwise they'd be confirmed but blank). Keep `attributeSource` as `"auto"` (the facts were still machine-derived) unless you want a separate marker.
+- Confirm the review UI already routes `matchStatus === "confirmed"` to the "Confirmed" tab and includes them in the Library picker (the items query should include confirmed rows). If the Library only shows confirmed/auto, verify confirmed rows appear.
+
+## Verify
+
+1. `pnpm --filter @workspace/api-server run typecheck` and `pnpm --filter @workspace/api-server test` pass. Update any `matchVariety` test that asserted a SKU match returns `"auto"` — it should now assert `"confirmed"`.
+2. Run **Enrich Now**. On the Plant Matches page, 100% matches now appear under **Confirmed** (not Pending Review); fuzzy matches remain in Pending Review.
+3. On the Plant Library, confirmed varieties show their **photo** (served from your object storage, not the thetreefarm hotlink) with the correct photo credit.
+
+## Notes
+
+- Serving the self-hosted copy also makes proposal PDFs reliable later (Slice 3), since the image bytes are already in your storage rather than a live external fetch.
+- This does not change pricing or any proposal behavior.
