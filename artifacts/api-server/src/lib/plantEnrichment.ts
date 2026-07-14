@@ -407,7 +407,7 @@ export function matchVariety(
       .toUpperCase();
     if (candidateSku.length < 4) continue;
     if (normalizedCodes.some((code) => code === candidateSku || code.startsWith(candidateSku))) {
-      return { candidate, confidence: 1.0, matchStatus: "auto" };
+      return { candidate, confidence: 1.0, matchStatus: "confirmed" };
     }
   }
 
@@ -678,8 +678,9 @@ export async function enrichPlants(companyId: string): Promise<{
 
           const detail = await scrapeProductPage(matchResult.candidate.pageUrl);
           const factFields = mapFacts(detail.facts);
-          const imageStoragePath = detail.imageUrl
-            ? await downloadAndStorePhoto(detail.imageUrl, companyId, variety.varietyKey)
+          const photoSourceUrl = detail.imageUrl ?? matchResult.candidate.imageUrl ?? null;
+          const imageStoragePath = photoSourceUrl
+            ? await downloadAndStorePhoto(photoSourceUrl, companyId, variety.varietyKey)
             : null;
 
           if (detail.sku) {
@@ -689,18 +690,23 @@ export async function enrichPlants(companyId: string): Promise<{
                 c.replace(/[^A-Z0-9-]/gi, "").toUpperCase(),
               );
               if (normalizedCodes.some((code) => code === normalizedSku || code.startsWith(normalizedSku))) {
-                finalMatchStatus = "auto";
+                finalMatchStatus = "confirmed";
                 finalConfidence = 1.0;
               }
             }
           }
 
+          const imageUrlFinal = detail.imageUrl ?? matchResult.candidate.imageUrl ?? undefined;
+          const imageAttributionFinal = matchResult.candidate.imageAttribution
+            ? matchResult.candidate.imageAttribution
+            : (detail.imageAttribution ?? undefined);
+
           Object.assign(upsertData, {
             matchStatus: finalMatchStatus,
             matchConfidence: finalConfidence > 0 ? finalConfidence : undefined,
-            imageUrl: detail.imageUrl ?? matchResult.candidate.imageUrl ?? undefined,
+            imageUrl: imageUrlFinal,
             imageStoragePath: imageStoragePath ?? undefined,
-            imageAttribution: detail.imageAttribution ?? matchResult.candidate.imageAttribution ?? undefined,
+            imageAttribution: imageAttributionFinal,
             descriptionText: detail.descriptionText ?? undefined,
             factsJson: Object.keys(detail.facts).length > 0 ? detail.facts : undefined,
             attributeSource: "auto" as const,

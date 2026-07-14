@@ -18196,7 +18196,19 @@ ${pdfText.slice(0, 8000)}`;
         });
       }
 
-      res.json(Array.from(groupMap.values()));
+      const responseItems = Array.from(groupMap.values()).map((g) => {
+        if (!g.enrichment) return g;
+        return {
+          ...g,
+          enrichment: {
+            ...g.enrichment,
+            photoUrl: g.enrichment.imageStoragePath
+              ? `/api/plant-library/photo/${encodeURIComponent(g.varietyKey)}`
+              : null,
+          },
+        };
+      });
+      res.json(responseItems);
     } catch (err) {
       console.error("GET /api/plant-library/items error:", err);
       res.status(500).json({ error: "Internal server error" });
@@ -18304,7 +18316,12 @@ ${pdfText.slice(0, 8000)}`;
             commonName: catalog.commonName,
             botanicalName: catalog.botanicalName,
             category: catalog.category,
-            enrichment: e,
+            enrichment: {
+              ...e,
+              photoUrl: e.imageStoragePath
+                ? `/api/plant-library/photo/${encodeURIComponent(e.varietyKey)}`
+                : null,
+            },
           };
         })
         .filter(Boolean);
@@ -18398,6 +18415,41 @@ ${pdfText.slice(0, 8000)}`;
       res.json(updated ?? null);
     } catch (err) {
       console.error("POST /api/plant-library/matches/:varietyKey error:", err);
+      res.status(500).json({ error: "Internal server error" });
+    }
+  });
+
+  app.get("/api/plant-library/photo/:varietyKey", async (req, res) => {
+    if (!req.isAuthenticated()) return res.status(401).send("Not authenticated");
+    const user = req.user as UserWithContext;
+    if (!PLANT_LIBRARY_ROLES.includes(user.activeRole as typeof PLANT_LIBRARY_ROLES[number]) && !user.isSuperAdminBool) {
+      return res.status(403).json({ error: "Insufficient permissions" });
+    }
+    const { varietyKey } = req.params;
+    if (!varietyKey) return res.status(400).json({ error: "varietyKey required" });
+    try {
+      const { plantEnrichment: plantEnrichmentTable } = await import("@workspace/db");
+      const [enrichRow] = await db
+        .select({ imageStoragePath: plantEnrichmentTable.imageStoragePath })
+        .from(plantEnrichmentTable)
+        .where(
+          and(
+            eq(plantEnrichmentTable.companyId, user.activeCompanyId),
+            eq(plantEnrichmentTable.varietyKey, varietyKey),
+          ),
+        )
+        .limit(1);
+      if (!enrichRow?.imageStoragePath) return res.status(404).json({ error: "Not found" });
+
+      const storageService = new ObjectStorageService();
+      const buffer = await storageService.downloadByPath(enrichRow.imageStoragePath);
+      const ext = enrichRow.imageStoragePath.split(".").pop()?.toLowerCase();
+      const contentType = ext === "png" ? "image/png" : ext === "webp" ? "image/webp" : "image/jpeg";
+      res.set("Content-Type", contentType);
+      res.set("Cache-Control", "private, max-age=86400");
+      res.send(buffer);
+    } catch (err) {
+      console.error("GET /api/plant-library/photo/:varietyKey error:", err);
       res.status(500).json({ error: "Internal server error" });
     }
   });

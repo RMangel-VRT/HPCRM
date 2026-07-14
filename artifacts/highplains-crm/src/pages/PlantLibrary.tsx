@@ -83,10 +83,10 @@ function EnrichmentPanel({ enrichment }: { enrichment: PlantEnrichmentData }) {
   return (
     <div className="border-t bg-muted/10 px-4 py-3 flex flex-col gap-3">
       <div className="flex gap-3 flex-col sm:flex-row">
-        {enrichment.imageUrl && (
+        {(enrichment.photoUrl ?? enrichment.imageUrl) && (
           <div className="sm:w-28 flex-shrink-0">
             <img
-              src={enrichment.imageUrl}
+              src={enrichment.photoUrl ?? enrichment.imageUrl ?? undefined}
               alt={enrichment.displayName ?? ""}
               className="w-full h-20 sm:h-24 object-cover rounded"
               onError={(ev) => { (ev.target as HTMLImageElement).style.display = "none"; }}
@@ -164,9 +164,9 @@ function VarietyRow({
         data-testid="button-plant-variety-row"
       >
         <div className="flex items-center gap-3 min-w-0">
-          {enrichment?.imageUrl && (
+          {(enrichment?.photoUrl ?? enrichment?.imageUrl) && (
             <img
-              src={enrichment.imageUrl}
+              src={enrichment.photoUrl ?? enrichment.imageUrl ?? undefined}
               alt={group.commonName}
               className="w-10 h-10 object-cover rounded flex-shrink-0 hidden sm:block"
               onError={(ev) => { (ev.target as HTMLImageElement).style.display = "none"; }}
@@ -222,7 +222,7 @@ function VarietyRow({
 
       {open && (
         <div className="border-t bg-muted/20">
-          {enrichment && (enrichment.imageUrl || enrichment.light || enrichment.bloomTime || enrichment.descriptionText) && (
+          {enrichment && ((enrichment.photoUrl ?? enrichment.imageUrl) || enrichment.light || enrichment.bloomTime || enrichment.descriptionText) && (
             <EnrichmentPanel enrichment={enrichment} />
           )}
           <table className="w-full text-sm">

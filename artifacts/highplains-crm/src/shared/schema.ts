@@ -3300,6 +3300,7 @@ export interface PlantEnrichmentData {
   treefarmSlug: string | null;
   imageUrl: string | null;
   imageStoragePath: string | null;
+  photoUrl?: string | null;
   imageAttribution: string | null;
   descriptionText: string | null;
   factsJson: Record<string, string> | null;

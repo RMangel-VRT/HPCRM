@@ -190,7 +190,7 @@ describe("matchVariety", () => {
 
   describe("SKU-first path", () => {
     it("matches when product code starts with candidate SKU", () => {
-      // Code "CBS5G-10G" starts with candidate SKU "CBS5G" → auto match.
+      // Code "CBS5G-10G" starts with candidate SKU "CBS5G" → confirmed match.
       const result = matchVariety(
         "spruce-colorado-blue",
         "Colorado Blue Spruce",
@@ -198,7 +198,7 @@ describe("matchVariety", () => {
         ["CBS5G-10G"],
         candidates,
       );
-      expect(result.matchStatus).toBe("auto");
+      expect(result.matchStatus).toBe("confirmed");
       expect(result.confidence).toBe(1.0);
       expect(result.candidate?.sku).toBe("CBS5G");
     });
@@ -212,7 +212,7 @@ describe("matchVariety", () => {
         ["ABM10-05C", "ABM10-15C"],
         candidates,
       );
-      expect(result.matchStatus).toBe("auto");
+      expect(result.matchStatus).toBe("confirmed");
       expect(result.confidence).toBe(1.0);
       expect(result.candidate?.slug).toBe("autumn-blaze-maple");
     });
@@ -248,7 +248,7 @@ describe("matchVariety", () => {
         ["BOG1G-10G"],
         withHashSku,
       );
-      expect(result.matchStatus).toBe("auto");
+      expect(result.matchStatus).toBe("confirmed");
       expect(result.confidence).toBe(1.0);
     });
 

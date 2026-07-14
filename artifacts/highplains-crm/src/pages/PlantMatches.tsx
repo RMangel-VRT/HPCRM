@@ -86,10 +86,10 @@ function PlantMatchCard({
       aria-pressed={isActive}
     >
       <div className="flex flex-col sm:flex-row gap-0">
-        {e.imageUrl && (
+        {(e.photoUrl ?? e.imageUrl) && (
           <div className="sm:w-36 sm:flex-shrink-0 bg-muted relative">
             <img
-              src={e.imageUrl}
+              src={e.photoUrl ?? e.imageUrl ?? undefined}
               alt={e.displayName ?? item.commonName}
               className="w-full h-32 sm:h-full object-cover"
               onError={(ev) => { (ev.target as HTMLImageElement).style.display = "none"; }}
