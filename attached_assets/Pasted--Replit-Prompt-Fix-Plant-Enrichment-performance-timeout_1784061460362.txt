@@ -1,0 +1,40 @@
+# Replit Prompt — Fix Plant Enrichment performance / timeout
+
+## Context
+
+The enrichment run crawls all 8 thetreefarm.com category pages, finds ~1,528 product pages, then scrapes **every one** of them to collect SKUs before matching. That takes many minutes and a single page timeout (or the runtime killing the long detached background job) aborts the whole run — so no matches or photos ever land.
+
+Fix: only scrape the handful of product pages that actually match your catalog (a few dozen), and make the run resilient to individual failures. All changes in `artifacts/api-server/src/lib/plantEnrichment.ts`.
+
+## The key point (avoid a chicken-and-egg bug)
+
+The SKU lives on the product **detail** page, and the current matcher is SKU-first. So "only scrape matched varieties" cannot mean "match by SKU first" — you'd have to scrape everything to get SKUs. Reorder it:
+
+1. **Candidate index = listing pages only.** In `buildCandidateIndex`, crawl the category listing pages (with `?p=N` pagination) to collect `{ slug, title, imageUrl, imageAttribution, pageUrl }`. **Delete the loop that scrapes every product page for SKUs.** Candidates have `sku: null` at this stage. This is ~16 fast page fetches.
+
+2. **Match on listing data (name/slug).** `matchVariety` should run its fuzzy token-overlap path against candidate `title`/`slug` (no SKU needed). Drop the SKU-first phase from this stage, or make it a no-op when candidate SKUs are null.
+
+3. **Scrape only matched varieties.** In `enrichPlants`, after a variety matches a candidate (auto or surfaced), scrape **that one** detail page for facts, the full image, and the SKU. Then, if the availability product code starts with the scraped SKU, upgrade the match to confident (`matchStatus: "auto"`, confidence `1.0`). This bounds total detail scrapes to roughly the number of catalog varieties.
+
+Net effect: instead of ~1,528 detail scrapes, you do ~16 listing fetches + one scrape per matched variety (dozens). Completes in well under a minute.
+
+## Resilience (so one timeout can't kill the run)
+
+- Wrap each variety's work (match + optional detail scrape + upsert) in its own `try/catch`. On failure, log and continue to the next variety — never let one page abort the loop.
+- Track failures; if some varieties failed but others succeeded, finish the run as `"partial"` with a count, not `"error"`. Only mark the whole run `"error"` if the candidate index itself came back empty (already added by the enrichment fix) or nothing could be processed.
+- Keep the polite delay, but consider lowering per-request timeout (e.g. 15s) so a single slow page fails fast instead of stalling the run.
+
+## Background-job note (why it may be getting killed)
+
+`enrichPlants` is invoked fire-and-forget (`void enrichPlants(...)`) from the `POST /api/plant-library/enrich` route. On a hosted deploy, detached work that outlives the HTTP response can be terminated when the instance is recycled. With the scope reduction above the job finishes in seconds, which largely avoids this. If longer runs are ever needed, move enrichment to the existing scheduler/worker path (like the nightly job) rather than the request handler, or chunk it and persist progress so it can resume.
+
+## Verify
+
+1. `pnpm --filter @workspace/api-server run typecheck` and `pnpm --filter @workspace/api-server test` pass. (Update any test that assumed `buildCandidateIndex` scrapes product pages / that candidates carry SKUs pre-scrape.)
+2. Run **Enrich Now** — completes in seconds; the Matches queue fills with matches + photos for catalog varieties, and unmatched varieties are surfaced for review.
+3. Trigger a single slow/blocked page (or rely on logs) — the run should complete `success`/`partial`, never abort on one timeout.
+
+## Depends on
+
+- `Fix-Plant-Category-Endpoints.md` (availability categories) so the catalog has plants to match.
+- `Fix-Plant-Enrichment-Matches.md` (Magento scraper correctness). This slice revises that doc's "scrape every product for SKUs" step into the match-then-scrape order above.
