@@ -72,7 +72,7 @@ function PlantMatchCard({
   onPickDifferent: (varietyKey: string) => void;
   isPending: boolean;
 }) {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
   const e = item.enrichment;
   const isActionable = e.matchStatus === "auto" || e.matchStatus === "unmatched";
 
@@ -107,7 +107,7 @@ function PlantMatchCard({
             <div className="min-w-0">
               <div className="flex items-center gap-2 flex-wrap mb-0.5">
                 <span className="font-semibold text-sm" data-testid="text-match-common-name">{item.commonName}</span>
-                <Badge variant="outline" className="text-xs">{PLANT_CATEGORY_LABELS[item.category]}</Badge>
+                <Badge variant="outline" className="text-xs">{PLANT_CATEGORY_LABELS[item.category][i18n.language === "es" ? "es" : "en"]}</Badge>
               </div>
               {item.botanicalName && (
                 <p className="text-xs text-muted-foreground italic">{item.botanicalName}</p>

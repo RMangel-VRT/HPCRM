@@ -19,12 +19,12 @@ import { formatDistanceToNow } from "date-fns";
 
 const CATEGORIES: Array<{ value: PlantCategory | ""; label: string }> = [
   { value: "", label: "All Categories" },
-  { value: "deciduous_trees", label: "Deciduous Trees" },
-  { value: "evergreen_trees", label: "Evergreen Trees" },
-  { value: "ornamental_trees", label: "Ornamental Trees" },
-  { value: "shrubs", label: "Shrubs" },
-  { value: "perennials", label: "Perennials" },
-  { value: "grasses", label: "Grasses" },
+  { value: "tree",             label: "Trees" },
+  { value: "shrub",            label: "Shrubs" },
+  { value: "perennial",        label: "Perennials" },
+  { value: "shrub_rose",       label: "Roses" },
+  { value: "vine",             label: "Vines" },
+  { value: "ornamental_grass", label: "Ornamental Grasses" },
 ];
 
 type TraitFilter = "xeriscape" | "native" | "pollinator" | "deer";
@@ -148,7 +148,7 @@ function VarietyRow({
   onToggleSize?: (productCode: string) => void;
   onQuantityChange?: (productCode: string, qty: number) => void;
 }) {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
   const [open, setOpen] = useState(false);
   const totalOnHand = group.sizes.reduce((s, sz) => s + sz.onHand, 0);
   const enrichment = group.enrichment ?? null;
@@ -178,7 +178,7 @@ function VarietyRow({
                 {group.commonName}
               </span>
               <Badge variant="outline" className="text-xs">
-                {PLANT_CATEGORY_LABELS[group.category]}
+                {PLANT_CATEGORY_LABELS[group.category][i18n.language === "es" ? "es" : "en"]}
               </Badge>
               {enrichment?.matchStatus === "auto" && (
                 <Badge variant="secondary" className="text-xs opacity-80">{t("plantLibrary.unverifiedMatch")}</Badge>

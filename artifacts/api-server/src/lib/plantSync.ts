@@ -29,14 +29,14 @@ export async function syncPlantAvailability(companyId: string): Promise<{
   const categoryErrors: Array<{ category: string; message: string }> = [];
 
   try {
-    for (const category of PLANT_CATEGORIES) {
+    for (const endpoint of PLANT_CATEGORIES) {
       let rows: Awaited<ReturnType<typeof fetchCategoryAvailability>>;
       try {
-        rows = await fetchCategoryAvailability(category);
+        rows = await fetchCategoryAvailability(endpoint);
       } catch (err) {
         const message = err instanceof Error ? err.message : String(err);
-        logger.warn({ err, category, companyId }, "category fetch failed; continuing");
-        categoryErrors.push({ category, message });
+        logger.warn({ err, category: endpoint.key, slug: endpoint.slug, companyId }, "category fetch failed; continuing");
+        categoryErrors.push({ category: endpoint.key, message });
         continue;
       }
 

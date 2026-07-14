@@ -3221,20 +3221,20 @@ export const FLAG_NOTE_MAX_LENGTH = 280;
 // ─── Plant Library ─────────────────────────────────────────────────────────────
 
 export type PlantCategory =
-  | "deciduous_trees"
-  | "evergreen_trees"
-  | "ornamental_trees"
-  | "shrubs"
-  | "perennials"
-  | "grasses";
+  | "tree"
+  | "shrub"
+  | "perennial"
+  | "shrub_rose"
+  | "vine"
+  | "ornamental_grass";
 
-export const PLANT_CATEGORY_LABELS: Record<PlantCategory, string> = {
-  deciduous_trees: "Deciduous Trees",
-  evergreen_trees: "Evergreen Trees",
-  ornamental_trees: "Ornamental Trees",
-  shrubs: "Shrubs",
-  perennials: "Perennials",
-  grasses: "Grasses",
+export const PLANT_CATEGORY_LABELS: Record<PlantCategory, { en: string; es: string }> = {
+  tree:             { en: "Trees",              es: "Árboles" },
+  shrub:            { en: "Shrubs",             es: "Arbustos" },
+  perennial:        { en: "Perennials",         es: "Perennes" },
+  shrub_rose:       { en: "Roses",              es: "Rosas" },
+  vine:             { en: "Vines",              es: "Enredaderas" },
+  ornamental_grass: { en: "Ornamental Grasses", es: "Pastos Ornamentales" },
 };
 
 export interface PlantCatalogItem {

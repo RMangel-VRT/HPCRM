@@ -3544,12 +3544,12 @@ export type InsertFlagPhoto = typeof flagPhotos.$inferInsert;
 // nightly and upserted here by (companyId, productCode).
 
 export type PlantCategory =
-  | "deciduous_trees"
-  | "evergreen_trees"
-  | "ornamental_trees"
-  | "shrubs"
-  | "perennials"
-  | "grasses";
+  | "tree"
+  | "shrub"
+  | "perennial"
+  | "shrub_rose"
+  | "vine"
+  | "ornamental_grass";
 
 export const plantCatalogItems = pgTable("plant_catalog_items", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
@@ -3584,7 +3584,7 @@ export const insertPlantCatalogItemSchema = createInsertSchema(plantCatalogItems
   createdAt: true,
   updatedAt: true,
 }).extend({
-  category: z.enum(["deciduous_trees", "evergreen_trees", "ornamental_trees", "shrubs", "perennials", "grasses"]),
+  category: z.enum(["tree", "shrub", "perennial", "shrub_rose", "vine", "ornamental_grass"]),
   onHand: z.number().int().min(0).default(0),
   isActive: z.boolean().default(true),
   retailPrice: z.string().nullable().optional(),

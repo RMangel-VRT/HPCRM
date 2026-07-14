@@ -2,20 +2,25 @@ import { parse } from "node-html-parser";
 import { logger } from "./logger";
 
 export type PlantCategory =
-  | "deciduous_trees"
-  | "evergreen_trees"
-  | "ornamental_trees"
-  | "shrubs"
-  | "perennials"
-  | "grasses";
+  | "tree"
+  | "shrub"
+  | "perennial"
+  | "shrub_rose"
+  | "vine"
+  | "ornamental_grass";
 
-export const PLANT_CATEGORIES: PlantCategory[] = [
-  "deciduous_trees",
-  "evergreen_trees",
-  "ornamental_trees",
-  "shrubs",
-  "perennials",
-  "grasses",
+export interface CategoryEndpoint {
+  slug: string;
+  key: PlantCategory;
+}
+
+export const PLANT_CATEGORIES: CategoryEndpoint[] = [
+  { slug: "tree",             key: "tree" },
+  { slug: "shrub",            key: "shrub" },
+  { slug: "perennial",        key: "perennial" },
+  { slug: "shrub-rose",       key: "shrub_rose" },
+  { slug: "vine",             key: "vine" },
+  { slug: "ornamental-grass", key: "ornamental_grass" },
 ];
 
 const BASE_URL = "https://api.citiyard.com/availability";
@@ -164,9 +169,9 @@ function parsePrice(raw: string | null | undefined): number | null {
  * Fetch and parse one category's availability HTML table from Citiyard.
  */
 export async function fetchCategoryAvailability(
-  category: PlantCategory,
+  endpoint: CategoryEndpoint,
 ): Promise<PlantRow[]> {
-  const url = `${BASE_URL}/${category}`;
+  const url = `${BASE_URL}/${endpoint.slug}`;
   let html: string;
   const res = await fetch(url, { headers: FETCH_HEADERS, signal: AbortSignal.timeout(30_000) });
   if (!res.ok) {
@@ -217,7 +222,7 @@ export async function fetchCategoryAvailability(
 
     results.push({
       productCode,
-      category,
+      category: endpoint.key,
       rawDescription: description,
       commonName,
       botanicalName: botanicalName || null,
@@ -233,6 +238,6 @@ export async function fetchCategoryAvailability(
     });
   }
 
-  logger.info({ category, parsed: results.length, skipped }, "plant availability fetched");
+  logger.info({ category: endpoint.key, slug: endpoint.slug, parsed: results.length, skipped }, "plant availability fetched");
   return results;
 }
