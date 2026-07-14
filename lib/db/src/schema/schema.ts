@@ -3598,7 +3598,7 @@ export type PlantCatalogItem = typeof plantCatalogItems.$inferSelect;
 export const plantSyncRuns = pgTable("plant_sync_runs", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
   companyId: varchar("company_id").notNull().references(() => companies.id, { onDelete: "cascade" }),
-  status: text("status").notNull().$type<"running" | "success" | "error">().default("running"),
+  status: text("status").notNull().$type<"running" | "success" | "partial" | "error">().default("running"),
   source: text("source").notNull().$type<"availability" | "enrichment">().default("availability"),
   startedAt: timestamp("started_at").notNull().defaultNow(),
   finishedAt: timestamp("finished_at"),

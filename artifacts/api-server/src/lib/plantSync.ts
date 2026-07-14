@@ -15,7 +15,7 @@ import { logger } from "./logger";
 export async function syncPlantAvailability(companyId: string): Promise<{
   itemsUpserted: number;
   itemsDeactivated: number;
-  status: "success" | "error";
+  status: "success" | "partial" | "error";
   errorMessage?: string;
 }> {
   const [run] = await db
@@ -26,6 +26,7 @@ export async function syncPlantAvailability(companyId: string): Promise<{
   let itemsUpserted = 0;
   let itemsDeactivated = 0;
   const seenProductCodes: string[] = [];
+  const categoryErrors: Array<{ category: string; message: string }> = [];
 
   try {
     for (const category of PLANT_CATEGORIES) {
@@ -33,7 +34,9 @@ export async function syncPlantAvailability(companyId: string): Promise<{
       try {
         rows = await fetchCategoryAvailability(category);
       } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
         logger.warn({ err, category, companyId }, "category fetch failed; continuing");
+        categoryErrors.push({ category, message });
         continue;
       }
 
@@ -100,18 +103,34 @@ export async function syncPlantAvailability(companyId: string): Promise<{
       itemsDeactivated = deactivated.length;
     }
 
+    const totalCategories = PLANT_CATEGORIES.length;
+    const failedCount = categoryErrors.length;
+    let finalStatus: "success" | "partial" | "error";
+    let errorMessage: string | undefined;
+
+    if (failedCount === 0) {
+      finalStatus = "success";
+    } else if (failedCount === totalCategories) {
+      finalStatus = "error";
+      errorMessage = categoryErrors[0].message;
+    } else {
+      finalStatus = "partial";
+      errorMessage = `${failedCount} of ${totalCategories} categories failed: ${categoryErrors.map((e) => e.category).join(", ")}. First error: ${categoryErrors[0].message}`;
+    }
+
     await db
       .update(plantSyncRuns)
       .set({
-        status: "success",
+        status: finalStatus,
         finishedAt: new Date(),
         itemsUpserted,
         itemsDeactivated,
+        errorMessage: errorMessage ?? null,
       })
       .where(eq(plantSyncRuns.id, run.id));
 
-    logger.info({ companyId, itemsUpserted, itemsDeactivated }, "plant sync complete");
-    return { itemsUpserted, itemsDeactivated, status: "success" };
+    logger.info({ companyId, itemsUpserted, itemsDeactivated, finalStatus, failedCategories: failedCount }, "plant sync complete");
+    return { itemsUpserted, itemsDeactivated, status: finalStatus, errorMessage };
   } catch (err) {
     const errorMessage = err instanceof Error ? err.message : String(err);
     logger.error({ err, companyId }, "plant sync failed");

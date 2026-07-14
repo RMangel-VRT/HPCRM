@@ -20,6 +20,12 @@ export const PLANT_CATEGORIES: PlantCategory[] = [
 
 const BASE_URL = "https://api.citiyard.com/availability";
 
+const FETCH_HEADERS = {
+  "User-Agent":
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+  Accept: "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+};
+
 export interface PlantRow {
   productCode: string;
   category: PlantCategory;
@@ -162,17 +168,11 @@ export async function fetchCategoryAvailability(
 ): Promise<PlantRow[]> {
   const url = `${BASE_URL}/${category}`;
   let html: string;
-  try {
-    const res = await fetch(url, { signal: AbortSignal.timeout(30_000) });
-    if (!res.ok) {
-      logger.warn({ status: res.status, url }, "plant availability fetch non-OK");
-      return [];
-    }
-    html = await res.text();
-  } catch (err) {
-    logger.warn({ err, url }, "plant availability fetch failed");
-    return [];
+  const res = await fetch(url, { headers: FETCH_HEADERS, signal: AbortSignal.timeout(30_000) });
+  if (!res.ok) {
+    throw new Error(`Citiyard returned HTTP ${res.status} for ${url}`);
   }
+  html = await res.text();
 
   const root = parse(html);
   const rows = root.querySelectorAll("table tr");
