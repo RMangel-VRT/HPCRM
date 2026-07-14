@@ -1,0 +1,102 @@
+# Fix — Plant sync uses wrong Citiyard category endpoints
+
+## Root cause (confirmed live)
+
+The sync fails on all 6 categories not because Citiyard is down, but because the code requests **category slugs that don't exist on the API**. Verified just now against the live API:
+
+- `https://api.citiyard.com/availability/tree` → **HTTP 200**, full table.
+- `https://api.citiyard.com/availability/shrub-rose` → **HTTP 200**, full table.
+
+Citiyard is up. The code (`artifacts/api-server/src/lib/plantAvailability.ts`) hardcodes invented slugs:
+
+```
+deciduous_trees, evergreen_trees, ornamental_trees, shrubs, perennials, grasses
+```
+
+None of those are real endpoints, so each request 500s. The recent error-handling correctly reports "all 6 failed" — it's just failing on bad URLs. (The Replit diagnosis read the failing names off this wrong list and assumed they were valid endpoints, hence the "Citiyard's server is down" conclusion. It isn't.)
+
+## The real endpoints
+
+From the Wholesale Availabilities PDF and confirmed live, there are exactly six:
+
+```
+tree, shrub, perennial, shrub-rose, vine, ornamental-grass
+```
+
+The API has a single `tree` endpoint (not split into deciduous/evergreen/ornamental), and it includes `shrub-rose` and `vine`, which the code never requested.
+
+## Fix
+
+### Slug vs. stored value
+
+The URL path uses hyphens (`shrub-rose`, `ornamental-grass`); those aren't ideal as a stored enum value. Define each category once as a `{ slug, key }` pair — `slug` is the URL segment, `key` is what gets stored in `plant_catalog_items.category`:
+
+| URL slug (for fetch) | Stored key (DB / type) |
+|---|---|
+| `tree` | `tree` |
+| `shrub` | `shrub` |
+| `perennial` | `perennial` |
+| `shrub-rose` | `shrub_rose` |
+| `vine` | `vine` |
+| `ornamental-grass` | `ornamental_grass` |
+
+### 1. `artifacts/api-server/src/lib/plantAvailability.ts`
+
+Replace the `PlantCategory` type and `PLANT_CATEGORIES` list:
+
+```ts
+export type PlantCategory =
+  | "tree"
+  | "shrub"
+  | "perennial"
+  | "shrub_rose"
+  | "vine"
+  | "ornamental_grass";
+
+interface CategoryEndpoint {
+  slug: string;        // URL segment on api.citiyard.com/availability/<slug>
+  key: PlantCategory;  // value stored in plant_catalog_items.category
+}
+
+export const PLANT_CATEGORIES: CategoryEndpoint[] = [
+  { slug: "tree", key: "tree" },
+  { slug: "shrub", key: "shrub" },
+  { slug: "perennial", key: "perennial" },
+  { slug: "shrub-rose", key: "shrub_rose" },
+  { slug: "vine", key: "vine" },
+  { slug: "ornamental-grass", key: "ornamental_grass" },
+];
+```
+
+Update `fetchCategoryAvailability` to take the endpoint (or slug + key): build the URL from `slug`, and set each parsed row's `category` to `key` (not the slug). Keep the new `FETCH_HEADERS` and the throw-on-non-OK behavior from the last fix.
+
+### 2. `artifacts/api-server/src/lib/plantSync.ts`
+
+Iterate `PLANT_CATEGORIES` as objects. Pass the endpoint to `fetchCategoryAvailability`. In the per-category error record, log `endpoint.key` (or slug) so the error message names the real category. No other logic changes — the success/partial/error handling stays.
+
+### 3. Schema type — `lib/db/src/schema/schema.ts` (and the mirror in `artifacts/highplains-crm/src/shared/schema.ts`)
+
+Update the `plant_catalog_items.category` `$type<>()` union to the six stored keys: `"tree" | "shrub" | "perennial" | "shrub_rose" | "vine" | "ornamental_grass"`.
+
+**Verify the column type:** if `category` is a plain `text` column (expected), no DB migration is needed — it's a TS-only change. If it was defined as a Postgres `enum`, add a migration to replace the allowed values. Since the sync has never successfully written a row, there is **no existing data to backfill**.
+
+### 4. Frontend category filter — `artifacts/highplains-crm/src/pages/PlantLibrary.tsx`
+
+The category `<Select>` options currently list the old invented values. Replace them with the six real keys and add i18n labels (en + es), e.g.:
+
+- `tree` → "Trees" / "Árboles"
+- `shrub` → "Shrubs" / "Arbustos"
+- `perennial` → "Perennials" / "Perennes"
+- `shrub_rose` → "Roses" / "Rosas"
+- `vine` → "Vines" / "Enredaderas"
+- `ornamental_grass` → "Ornamental Grasses" / "Gramíneas ornamentales"
+
+## Verify
+
+- Click **Sync Now**. Status should read **"Success · N items updated"** with N in the hundreds/thousands, and the table should populate.
+- The category dropdown should filter across all six real categories.
+- If any single category still errors, the new per-category error message will name which one — but all six were confirmed live, so a clean pull is expected.
+
+## Note on the old "tree" split
+
+The previous code implied three tree buckets (deciduous/evergreen/ornamental). The API doesn't distinguish them at the endpoint level — it's one `tree` feed. If you ever want that split in the UI, derive it from the row data (e.g. botanical/description), not from separate endpoints.

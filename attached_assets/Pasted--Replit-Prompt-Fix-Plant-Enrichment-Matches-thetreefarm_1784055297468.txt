@@ -1,0 +1,78 @@
+# Replit Prompt — Fix Plant Enrichment / Matches (thetreefarm.com scraper)
+
+## Context
+
+The Plant Matches (enrichment) system does not work: after a Sync loads inventory, running Enrich produces no matches and no photos. Root cause is that the thetreefarm.com scraper in `artifacts/api-server/src/lib/plantEnrichment.ts` was written against the wrong site structure (Shopify/WooCommerce conventions) while thetreefarm.com is **Magento 1**. Several assumptions are wrong and must be corrected against the real site.
+
+**Do all of this in `artifacts/api-server/src/lib/plantEnrichment.ts` unless noted. Also update `artifacts/api-server/src/lib/plantEnrichment.test.ts` and one line in `routes.ts`.**
+
+### Verified facts about the live site (confirmed by fetching it)
+
+- **Product URLs are bare single-segment slugs**, e.g. `https://www.thetreefarm.com/aspen-swedish`, `/maple-autumn-blaze-seedless`, `/oak-red`. There is **no `/products/` path segment**.
+- **Category listing pages** are `/plants/deciduous-trees`, `/plants/shrubs`, `/plants/evergreens`, `/plants/perennials`, `/plants/fruit-trees`, `/plants/roses`, `/plants/vines`, `/plants/ornamental-grasses` (these are already correct in `TREEFARM_CATEGORIES`).
+- On a listing page each product appears as **an image link** (`<a>` wrapping an `<img>` whose `src` contains `/media/catalog/product/cache/…`) **and** a separate **text/heading link** to the same slug carrying the clean product name. The image `alt`/`title` carries the photo credit (e.g. "©photo by ArborTanics inc.").
+- **Pagination is `?p=N`** (Magento), not `?page=N`. Listing shows "Items 1 to 24 of 202 total" with page links `?p=2`, `?p=3`, …
+- **Product detail pages** have an "Additional Information" table with labeled rows including `SKU` (e.g. `MAP-AUT`), `Light Needs`, `Water Needs` (values Low/Moderate/High), `Flowering Season`, `Fall Color`, `Growth Rate`, `USDA Hardiness Zone`, `Features`, `Mature Height/Width`. Native / pollinator / deer / salt are **not** their own rows — at most they appear inside the free-text `Features` field.
+
+## Changes
+
+### 1. Category-page product extraction (currently returns 0 products)
+
+`extractProductsFromCategoryPage` uses selectors `.product-item, .grid-product, li.product, .product` (Shopify/Woo) and a `/products/` fallback — none match Magento, so it finds nothing. Rewrite it to key off the **real** signals instead of guessed class names:
+
+- Iterate every `a[href]`. Derive a candidate slug: strip the origin, drop query/hash, and accept only **single-segment** paths (no `/`), excluding known non-product segments (`plants`, `supplies`, `garden`, `services`, `info`, `more`, `about-us`, `customer-service`, `catalogsearch`, `customer`, `checkout`, `wishlist`, `delivery-and-planting`, `free-professional-loading`, `retail-volume-discounts`, `agritourism`, `sale-list`, `current-ads`, `blog`, `new-plant-arrivals`, `contacts`, `faqs`, `plant-care`, `our-growers`, `privacy-policy`, `about-our-plants`, `pest-and-disease-diagnosis`, and anything containing a `.`).
+- Group anchors by slug. A slug is a real product **iff** at least one of its anchors contains an `<img>` whose `src` includes `/media/catalog/product/` and not `/placeholder/`. Take the image URL from that anchor and the photo credit from the image's `alt`/`title`.
+- Take the clean **title** from the anchor with the longest visible text (the heading link; the image anchor has no text).
+- `pageUrl` is `${TREEFARM_BASE}/${slug}` (bare slug — no `/products/`).
+- Return only slugs that had a catalog image and a title ≥ 3 chars.
+
+This function can now return full `CandidateProduct` shape (with `sku: null`, filled later), so drop the `Omit<…, "sku" | "imageAttribution">` typing and the `pageUrl` parameter.
+
+### 2. Crawl pagination (currently fetches wrong pages)
+
+In `buildCandidateIndex`, change pagination from `?page=N` to `?p=N`. Loop `page = 1..N`, tracking a global `seenSlugs` set; stop a category when a page returns 0 products, or when `page > 1` and it adds no new slugs (Magento clamps out-of-range `?p` to the last page, so this detects the end). Raise the per-product SKU-scrape cap from 500 to ~800. When assembling candidates, prefer the listing image's `alt`/`title` credit for `imageAttribution` (`basic.imageAttribution ?? detail.imageAttribution`).
+
+### 3. Product detail scrape (`scrapeProductPage`)
+
+- **Image:** replace the guessed `[class*='product'] img` selector with: iterate `img` elements, keep those whose `src` includes `/media/catalog/product/` and not `/placeholder/`; treat one containing `/image/` (or lacking `small_image`/`thumbnail`) as the main image and prefer it; capture the credit from its `alt`/`title`. Fall back to `"© The Tree Farm"`.
+- **Facts:** add a branch to capture the `Features` row (`label.includes("feature")` → `facts["Features"]`). Keep the existing SKU / Light / Water / Flowering / Fall Color / Growth Rate / Zone branches.
+
+### 4. Manual re-scrape URL (currently 404s)
+
+- In `scrapeAndEnrichVariety`, change `${TREEFARM_BASE}/products/${slug}` → `${TREEFARM_BASE}/${slug}`.
+- In `artifacts/api-server/src/routes/routes.ts`, the match-assign route builds `updateData.treefarmUrl = \`https://www.thetreefarm.com/products/${body.treefarmSlug}\`` — change to `https://www.thetreefarm.com/${body.treefarmSlug}`.
+
+### 5. SKU matching (currently misses / over-matches)
+
+`matchVariety` uses `extractSkuPrefix` (a fragile regex) then compares candidate SKU against a stripped code. The real relationship is: **availability product code = thetreefarm SKU + size suffix** (e.g. SKU `MAP-AUT` → code `MAP-AUT15C150`). Replace the SKU-first block with: for each candidate with a SKU, normalize it (strip non-alphanumerics except `-`, uppercase, require length ≥ 4) and match when **any product code `=== sku` or `startsWith(sku)`**. Remove the now-unused `extractSkuPrefix` function. Keep the fuzzy token-overlap fallback unchanged.
+
+### 6. Xeriscape + ecological traits (`mapFacts`)
+
+- `isXeriscape` currently checks for the literal word "xeriscape," which never appears in the Low/Moderate/High water values → always false. Derive it from low water instead: `/\b(low|xeric|xeriscape|drought)\b/i` on the water value.
+- Native / pollinator / deer / salt aren't structured rows; derive them (best-effort) from the `Features` text when an explicit field is absent: e.g. pollinator ← `/pollinator|butterfl|attracts bees|hummingbird/`, deer ← `/deer[\s-]*resistant/`, native ← `/\bnative\b/`, salt ← `/salt[\s-]*tolerant/`. Keep explicit `Yes/No` fields authoritative when present (only fall back to the Features regex when the explicit field is null).
+
+### 7. Surface a failed crawl instead of false success
+
+`enrichPlants` marks the run `"success"` even when the crawl returns 0 candidates (mirroring the availability "0 items" bug). After `buildCandidateIndex()`, if `candidates.length === 0`, throw so the run is recorded as `"error"` with a message like "thetreefarm.com crawl returned 0 candidate products — the site may have blocked the request or changed structure."
+
+### 8. User-Agent
+
+`fetchWithDelay` sends a bot User-Agent (`HighPlainsCRM/1.0`) that a CDN/WAF may block (the same class of block that broke the availability sync). Change it to a real browser User-Agent (Chrome desktop), consistent with the photo-download fetch.
+
+## Tests (`plantEnrichment.test.ts`)
+
+Update to the corrected semantics:
+
+- SKU-first test: a match now occurs when a **product code starts with the candidate SKU** (e.g. codes `["ABM10-05C","ABM10-15C"]` match SKU `ABM10`), not when a stripped prefix equals the SKU. Update the two SKU tests and their comments; remove references to `extractSkuPrefix`.
+- Empty-crawl test: when all fetches fail, the run should now be **`"error"`** with `processed === 0` (the guard throws before the variety loop), not `"success"` with `processed === 1`. Update those three assertions.
+- `mapFacts` tests: keep the existing ones; note `isXeriscape` for "Moderate" is still `false` and for a value containing "Low"/"Xeriscape" is `true`.
+
+## Verify
+
+1. `pnpm --filter @workspace/api-server run typecheck` and `pnpm --filter @workspace/api-server test` pass.
+2. After the availability category fix (see `Fix-Plant-Category-Endpoints.md`) so the catalog has plants: run **Enrich Now**. It crawls politely (~1 req/sec, a few minutes) and the Matches queue fills with SKU/fuzzy matches and photos; confirmed matches show images in the Plant Library.
+3. If the crawl is blocked, the run now reports an error with the reason instead of a silent success.
+
+## Note (source-data limitation, not a bug)
+
+thetreefarm exposes light, water, bloom, fall color, growth rate, and zone as structured fields, but native/pollinator/deer are sparse (only sometimes in the free-text `Features`). Those ecological filters will be partially populated at best — the code derives what's available rather than fabricating values.
