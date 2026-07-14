@@ -1,0 +1,110 @@
+# #528 — "Baseline" (mark all as applied) for the Migrations page
+
+## What & why
+
+The Database tab currently shows every historical migration as **Pending** (e.g. "0 applied, 43 pending") because the tracking table `_applied_sql_migrations` is new and empty — even though the database already contains all those objects (the app runs fine). This is the normal state when adding migration tracking to an already-built database.
+
+"Apply pending migrations" is the wrong tool for this: `applyMigrations` executes each file's SQL and has no already-exists handling, so on a built database it errors on the first historical file and stops.
+
+Add a **record-only baseline** action: for each untracked `.sql` file, record its filename + checksum in the tracking table **without executing any SQL**. This flips the whole list to "applied" so only genuinely new future migrations show as pending. It's the standard "adopt migrations on an existing database" operation.
+
+## Done looks like
+
+- The Database tab has a second button, **"Mark all as applied (baseline)"**, next to "Apply pending migrations."
+- Clicking it (after a confirm dialog) records every currently-pending file as applied **without running its SQL**, then refreshes — the list shows all files as applied with a timestamp, "0 pending."
+- The action is admin-gated (same guard as the other migration routes) and audited.
+- Running SQL is never involved in this path — it only writes to the tracking table.
+
+## Out of scope
+
+- Changing "Apply pending migrations" behavior (still executes real SQL for genuinely new migrations).
+- Selective/per-file baselining (this baselines all currently-untracked files at once).
+- Un-baselining / removing tracking rows.
+
+## Steps
+
+### 1. Add a record-only baseline function
+
+In `artifacts/api-server/src/lib/migrationRunner.ts`, add `baselineMigrations` alongside `applyMigrations`. It mirrors the apply loop but **never runs the migration SQL** — it only inserts tracking rows. Reuse the existing `ensureInfrastructure`, `getApplied`, `listSqlFiles`, `fileChecksum`, `MIGRATIONS_DIR`, `TRACKING_TABLE`, and `AUDIT_TABLE`.
+
+```ts
+/**
+ * Record every untracked migration file as applied WITHOUT executing its SQL.
+ * For adopting migration tracking on a database that already contains the objects.
+ * Writes tracking rows + an audit row. Runs no migration SQL.
+ */
+export async function baselineMigrations(
+  databaseUrl: string,
+  actor: { userId: string; email: string },
+): Promise<MigrationRunResult> {
+  const pool = new pg.Pool({ connectionString: databaseUrl });
+  const client = await pool.connect();
+  try {
+    await ensureInfrastructure(client);
+    const applied = await getApplied(client);
+    const filenames = listSqlFiles();
+    const files: MigrationFileResult[] = [];
+    const baselined: string[] = [];
+    let appliedCount = 0;
+
+    for (const filename of filenames) {
+      const content = readFileSync(join(MIGRATIONS_DIR, filename), "utf8");
+      const sum = fileChecksum(content);
+      const row = applied.get(filename);
+
+      if (row) {
+        const status = row.checksum !== sum ? "drifted" : "already_applied";
+        files.push({ filename, status, appliedAt: row.applied_at, checksum: sum });
+        continue;
+      }
+
+      const insertRes = await client.query<{ applied_at: string }>(
+        `INSERT INTO ${TRACKING_TABLE} (filename, checksum) VALUES ($1, $2) RETURNING applied_at`,
+        [filename, sum],
+      );
+      const ts = insertRes.rows[0]?.applied_at ?? new Date().toISOString();
+      files.push({ filename, status: "applied", appliedAt: ts, checksum: sum });
+      baselined.push(filename);
+      appliedCount++;
+    }
+
+    await client.query(
+      `INSERT INTO ${AUDIT_TABLE} (run_by_user_id, run_by_email, files_applied, files_failed, files_drifted)
+       VALUES ($1, $2, $3, $4, $5)`,
+      [actor.userId, actor.email, baselined, [], []],
+    );
+
+    return { files, drifted: [], appliedCount, pendingCount: 0 };
+  } finally {
+    client.release();
+    await pool.end();
+  }
+}
+```
+
+Note: each `INSERT` is a single statement; no `BEGIN`/`COMMIT` wrapper is required, and no migration SQL is executed. Files that are already tracked are left untouched (including drifted ones — baseline does not overwrite a drift).
+
+### 2. Add the API route
+
+In `artifacts/api-server/src/routes/routes.ts`, add `POST /api/admin/migrations/baseline`, following the exact guard pattern of the existing `POST /api/admin/migrations/apply` route (`isAuthenticated()` then the admin check → 403). Call `baselineMigrations(databaseUrl, { userId, email })` with the current user and return the result. Import `baselineMigrations` alongside the existing `applyMigrations` import.
+
+### 3. Add the UI button
+
+In the Database-tab component (`MigrationsAdmin.tsx`), next to "Apply pending migrations", add a secondary/outline button **"Mark all as applied (baseline)"**:
+
+- Behind a confirm `Dialog` whose copy states plainly: *this records all pending migrations as applied without running any SQL — use it only when the database already contains these objects (adopting tracking on an existing database). It does not modify your data.*
+- On confirm, `POST /api/admin/migrations/baseline`, then invalidate/refetch the list and show a toast (e.g. "N migrations baselined").
+- Disable + spinner while running. Admin-only, same as the rest of the tab.
+- Keep it visually secondary to "Apply pending migrations" so the executing action stays the primary one.
+
+## Relevant files
+
+- `artifacts/api-server/src/lib/migrationRunner.ts` — add `baselineMigrations`
+- `artifacts/api-server/src/routes/routes.ts` — add `POST /api/admin/migrations/baseline` (mirror the `.../apply` route)
+- `artifacts/highplains-crm/src/components/MigrationsAdmin.tsx` (or wherever the Database tab component lives) — add the button + confirm dialog
+
+## After it ships — one-time use
+
+Click **"Mark all as applied (baseline)"** once. The list flips to all-applied, 0 pending. From then on, a newly added migration file is the only thing that shows as pending, and you use "Apply pending migrations" to run it for real.
+
+Spot-check afterward: the plant library tables (from `0031`–`0035`) already exist since the feature works, so baselining them is correct. If you ever add a migration whose objects are *not* yet in the database, do **not** baseline it — use "Apply pending migrations" so it actually runs.

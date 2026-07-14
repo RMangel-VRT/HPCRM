@@ -1,0 +1,70 @@
+# Fix — Plant sync reports "Success · 0 items" (nothing loads)
+
+## Symptom
+
+Clicking **Sync Now** on the Plant Library shows a green **"Success · 0 items updated"** and "No plants found." Enrich Now on the Plant Matches page similarly does nothing. No error toast, no 500.
+
+## Root cause
+
+Both pages depend on the server making **outbound web requests** (Sync → `api.citiyard.com`, Enrich → `thetreefarm.com`), and the fetch is coming back empty. Two things combine to make this silent:
+
+1. **The request sends no `User-Agent` header.** `artifacts/api-server/src/lib/plantAvailability.ts` calls `fetch(url, { signal: AbortSignal.timeout(30_000) })` with no headers (~line 166). Node's `fetch` sends no browser User-Agent, and many CDNs/WAFs reject header-less requests with a 403 or a challenge page — so `res.ok` is false and the function returns `[]`. (When the same URL is fetched with a normal browser-like request it returns the full table, so the endpoint and parser are correct — the difference is the request headers.)
+2. **Failures are swallowed and reported as success.** In `plantSync.ts` a failed category fetch is caught and `continue`d (~lines 35-38), and the run is still marked `"success"` with 0 items. So a completely failed sync looks green.
+
+The other possible cause is that outbound egress is blocked in the deployment (the server isn't allowed to reach those domains at all) — same visible result. The fixes below make the real cause visible either way.
+
+## Fix
+
+### 1. Send a browser-like User-Agent (and Accept) on every outbound fetch
+
+In `artifacts/api-server/src/lib/plantAvailability.ts`, update `fetchCategoryAvailability`:
+
+```ts
+const FETCH_HEADERS = {
+  "User-Agent":
+    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 " +
+    "(KHTML, like Gecko) Chrome/124.0 Safari/537.36",
+  "Accept": "text/html,application/xhtml+xml",
+};
+
+// inside fetchCategoryAvailability:
+const res = await fetch(url, {
+  headers: FETCH_HEADERS,
+  signal: AbortSignal.timeout(30_000),
+});
+```
+
+Apply the same `FETCH_HEADERS` to the outbound `fetch` calls in `artifacts/api-server/src/lib/plantEnrichment.ts` (the category-page crawl, the product-page scrape, and the photo download).
+
+### 2. Stop reporting a failed sync as "success"
+
+Make `fetchCategoryAvailability` distinguish "fetched but empty" from "fetch failed." Simplest: have it throw on a non-OK response / network error instead of returning `[]`, or return a typed result. Then in `plantSync.ts`, track per-category failures:
+
+- Count categories that failed vs. succeeded.
+- If **all** categories failed, mark the run `status: "error"` with the underlying message (e.g. the HTTP status or the fetch error), not `"success"`.
+- If some succeeded and some failed, mark it `"partial"` (or keep `"success"` but include a note) so the UI can show that some feeds didn't load.
+- Include the first failure's message/status in `errorMessage` so it surfaces on the page.
+
+The goal: the status line should read something truthful like **"Error — Citiyard returned 403"** or **"Error — fetch failed (ENOTFOUND)"** instead of a green "Success · 0 items."
+
+### 3. Surface it in the UI
+
+The status badge already renders `errorMessage` states — once the run is marked `"error"`, the Plant Library header will show the real reason instead of a false success. No UI change needed beyond confirming the error branch displays `errorMessage`.
+
+## After deploying — what the new message tells you
+
+Click Sync Now again and read the status line:
+
+- **Now shows items (>0):** it was the missing User-Agent. Done.
+- **"Error — … 403 / challenge":** the request is still being blocked by a WAF; add more browser headers (e.g. `Accept-Language`, `Accept-Encoding`) or contact Citiyard to allowlist your server.
+- **"Error — ENOTFOUND / ETIMEDOUT / fetch failed":** outbound egress is blocked in the deployment. This can't be fixed in code — the hosting environment must allow the server to reach `api.citiyard.com` and `thetreefarm.com`. Enable outbound network access for the deployed api-server.
+
+## Relevant files
+
+- `artifacts/api-server/src/lib/plantAvailability.ts` — add headers to `fetchCategoryAvailability`; make failures distinguishable from empty.
+- `artifacts/api-server/src/lib/plantSync.ts` — mark the run `error`/`partial` when fetches fail; put the reason in `errorMessage`.
+- `artifacts/api-server/src/lib/plantEnrichment.ts` — same headers on the crawl, scrape, and photo-download fetches.
+
+## Note
+
+Sync and Enrich are the same underlying issue (outbound HTTP), so fixing the headers/egress fixes both pages at once. Verify with Sync first (it runs inline and reports a result); once inventory loads, run Enrich to populate photos and the match queue.
