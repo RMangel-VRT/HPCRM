@@ -1726,6 +1726,7 @@ export type ProposalWithDetails = Proposal & {
   versions: ProposalVersionWithUser[];
   visualScopeSheet?: VisualScopeSheetWithCustomer | null;
   plantItems: ProposalPlantItem[];
+  plantPalette?: (PlantPalette & { items: PlantPaletteItem[] }) | null;
 };
 
 // ==================== CREW WORKSHEETS ====================

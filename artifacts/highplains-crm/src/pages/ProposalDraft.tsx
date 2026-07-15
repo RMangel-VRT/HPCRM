@@ -68,7 +68,7 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
-import type { ProposalWithDetails, ProposalFile, ProposalPlantItem, Ticket, VisualScopeSheetWithCustomer } from "@shared/schema";
+import type { ProposalWithDetails, ProposalFile, ProposalPlantItem, Ticket, VisualScopeSheetWithCustomer, PlantPalette } from "@shared/schema";
 import PlantLibrary, { type PlantPickerSelection } from "@/pages/PlantLibrary";
 
 function formatDateTime(ts: string | Date) {
@@ -201,6 +201,8 @@ export default function ProposalDraft() {
 
   const [captionDrafts, setCaptionDrafts] = useState<Record<string, string>>({});
   const [plantPickerOpen, setPlantPickerOpen] = useState(false);
+  const [palettePickerOpen, setPalettePickerOpen] = useState(false);
+  const [palettePickerTab, setPalettePickerTab] = useState<"customer" | "templates">("customer");
 
   const pdfInputRef = useRef<HTMLInputElement>(null);
   const imgInputRef = useRef<HTMLInputElement>(null);
@@ -584,6 +586,45 @@ export default function ProposalDraft() {
       return res.json();
     },
     enabled: !!proposal?.customerId,
+  });
+
+  const { data: customerPalettes, isLoading: customerPalettesLoading } = useQuery<(PlantPalette & { items?: { id: string }[]; customerName?: string | null })[]>({
+    queryKey: ["/api/plant-palettes", "customer", proposal?.customerId],
+    queryFn: async () => {
+      const res = await fetch(`/api/plant-palettes?customerId=${proposal!.customerId}`, { credentials: "include" });
+      if (!res.ok) return [];
+      return res.json();
+    },
+    enabled: palettePickerOpen && !!proposal?.customerId,
+  });
+
+  const { data: templatePalettes, isLoading: templatePalettesLoading } = useQuery<(PlantPalette & { items?: { id: string }[]; customerName?: string | null })[]>({
+    queryKey: ["/api/plant-palettes", "templates"],
+    queryFn: async () => {
+      const res = await fetch("/api/plant-palettes?templates=true", { credentials: "include" });
+      if (!res.ok) return [];
+      return res.json();
+    },
+    enabled: palettePickerOpen && palettePickerTab === "templates",
+  });
+
+  const duplicateAndAttachPaletteMutation = useMutation({
+    mutationFn: async (templateId: string) => {
+      const res = await apiRequest("POST", `/api/plant-palettes/${templateId}/duplicate`, {
+        customerId: proposal?.customerId ?? null,
+      });
+      if (!res.ok) throw new Error(await res.text());
+      const copy = await res.json();
+      return copy.id as string;
+    },
+    onSuccess: (newId: string) => {
+      saveMutation.mutate({ plantPaletteId: newId } as any);
+      setPalettePickerOpen(false);
+      toast({ title: "Template duplicated and attached" });
+    },
+    onError: () => {
+      toast({ title: t("common.error"), description: "Failed to duplicate palette template", variant: "destructive" });
+    },
   });
 
   const estimatePdfs = proposal?.files.filter(f => f.fileType === "estimate_pdf").sort((a, b) => a.displayOrder - b.displayOrder) ?? [];
@@ -1058,6 +1099,155 @@ export default function ProposalDraft() {
                     );
                   })}
                 </div>
+              )}
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
+      {/* ── Plant Palette ── */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-base flex items-center gap-2">
+            <Leaf className="w-4 h-4" /> Plant Palette
+          </CardTitle>
+        </CardHeader>
+        <CardContent>
+          {proposal.plantPaletteId && proposal.plantPalette ? (
+            <div className="flex items-center justify-between gap-3 p-3 rounded-md border" data-testid="div-palette-attached">
+              <div className="flex items-center gap-3 min-w-0">
+                <Leaf className="w-4 h-4 text-muted-foreground shrink-0" />
+                <div className="min-w-0">
+                  <p className="text-sm font-medium truncate" data-testid="text-palette-title">
+                    {proposal.plantPalette.title}
+                  </p>
+                  <p className="text-xs text-muted-foreground">
+                    {proposal.plantPalette.items.length} item{proposal.plantPalette.items.length !== 1 ? "s" : ""}
+                  </p>
+                </div>
+              </div>
+              <div className="flex items-center gap-2 shrink-0">
+                <a
+                  href={`/dashboard/tools/plant-palette/${proposal.plantPaletteId}`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                >
+                  <Button variant="outline" size="sm" data-testid="button-open-palette">
+                    <ExternalLink className="w-3 h-3 mr-1" /> Preview / Edit
+                  </Button>
+                </a>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => saveMutation.mutate({ plantPaletteId: null } as any)}
+                  data-testid="button-detach-palette"
+                >
+                  <X className="w-3 h-3 mr-1" /> Detach
+                </Button>
+              </div>
+            </div>
+          ) : (
+            <div className="space-y-3">
+              {palettePickerOpen ? (
+                <div className="rounded-md border p-3 space-y-3">
+                  <div className="flex items-center gap-2">
+                    <button
+                      type="button"
+                      className={`text-sm px-3 py-1 rounded-md border transition-colors ${palettePickerTab === "customer" ? "bg-primary text-primary-foreground border-primary" : "bg-background text-foreground border-input hover:bg-muted"}`}
+                      onClick={() => setPalettePickerTab("customer")}
+                      data-testid="tab-palette-customer"
+                    >
+                      This Customer
+                    </button>
+                    <button
+                      type="button"
+                      className={`text-sm px-3 py-1 rounded-md border transition-colors ${palettePickerTab === "templates" ? "bg-primary text-primary-foreground border-primary" : "bg-background text-foreground border-input hover:bg-muted"}`}
+                      onClick={() => setPalettePickerTab("templates")}
+                      data-testid="tab-palette-templates"
+                    >
+                      Templates
+                    </button>
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="ml-auto h-7 w-7"
+                      onClick={() => setPalettePickerOpen(false)}
+                      data-testid="button-close-palette-picker"
+                    >
+                      <X className="w-4 h-4" />
+                    </Button>
+                  </div>
+
+                  {palettePickerTab === "customer" && (
+                    <div className="space-y-1 max-h-64 overflow-y-auto">
+                      {customerPalettesLoading ? (
+                        <div className="flex items-center gap-2 text-sm text-muted-foreground p-2">
+                          <Loader2 className="w-4 h-4 animate-spin" /> Loading…
+                        </div>
+                      ) : !customerPalettes || customerPalettes.length === 0 ? (
+                        <p className="text-sm text-muted-foreground p-2">No palettes found for this customer.</p>
+                      ) : (
+                        customerPalettes.map(palette => (
+                          <div
+                            key={palette.id}
+                            className="flex items-center justify-between gap-3 p-2 rounded-md hover:bg-muted cursor-pointer"
+                            onClick={() => {
+                              saveMutation.mutate({ plantPaletteId: palette.id } as any);
+                              setPalettePickerOpen(false);
+                            }}
+                            data-testid={`row-palette-${palette.id}`}
+                          >
+                            <div>
+                              <p className="text-sm font-medium">{palette.title}</p>
+                              <p className="text-xs text-muted-foreground">{palette.items?.length ?? 0} items</p>
+                            </div>
+                            <Badge variant="outline" className="shrink-0 text-xs">Select</Badge>
+                          </div>
+                        ))
+                      )}
+                    </div>
+                  )}
+
+                  {palettePickerTab === "templates" && (
+                    <div className="space-y-1 max-h-64 overflow-y-auto">
+                      {templatePalettesLoading ? (
+                        <div className="flex items-center gap-2 text-sm text-muted-foreground p-2">
+                          <Loader2 className="w-4 h-4 animate-spin" /> Loading…
+                        </div>
+                      ) : !templatePalettes || templatePalettes.length === 0 ? (
+                        <p className="text-sm text-muted-foreground p-2">No palette templates found.</p>
+                      ) : (
+                        templatePalettes.map(template => (
+                          <div
+                            key={template.id}
+                            className="flex items-center justify-between gap-3 p-2 rounded-md hover:bg-muted cursor-pointer"
+                            onClick={() => duplicateAndAttachPaletteMutation.mutate(template.id)}
+                            data-testid={`row-template-${template.id}`}
+                          >
+                            <div>
+                              <p className="text-sm font-medium">{template.title}</p>
+                              <p className="text-xs text-muted-foreground">{template.items?.length ?? 0} items · will be duplicated for this customer</p>
+                            </div>
+                            {duplicateAndAttachPaletteMutation.isPending ? (
+                              <Loader2 className="w-4 h-4 animate-spin shrink-0" />
+                            ) : (
+                              <Badge variant="outline" className="shrink-0 text-xs">Use</Badge>
+                            )}
+                          </div>
+                        ))
+                      )}
+                    </div>
+                  )}
+                </div>
+              ) : (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => { setPalettePickerOpen(true); setPalettePickerTab("customer"); }}
+                  data-testid="button-attach-palette"
+                >
+                  <Plus className="w-4 h-4 mr-1.5" /> Attach Palette
+                </Button>
               )}
             </div>
           )}

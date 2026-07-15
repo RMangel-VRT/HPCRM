@@ -11055,9 +11055,18 @@ export async function registerRoutes(app: Express): Promise<Server> {
     if (!existing) return res.status(404).send("Not found");
     if (await assertNotParentCustomer(existing.customerId, user.activeCompanyId, res)) return;
     const { title, proposalDate, estimateNumber, scopeOfWork, ticketId,
-            visualScopeSheetId, vsIncludeBase, vsIncludeOverlay, photoLayout } = req.body;
+            visualScopeSheetId, vsIncludeBase, vsIncludeOverlay, photoLayout,
+            plantPaletteId } = req.body;
     if (photoLayout !== undefined && photoLayout !== "large" && photoLayout !== "grid") {
       return res.status(400).json({ error: "photoLayout must be 'large' or 'grid'" });
+    }
+    // Validate plantPaletteId ownership if being set (prevent cross-company attachment)
+    if (plantPaletteId) {
+      const { plantPalettes: plantPalettesTable } = await import("@workspace/db");
+      const [ppCheck] = await db.select({ id: plantPalettesTable.id })
+        .from(plantPalettesTable)
+        .where(and(eq(plantPalettesTable.id, plantPaletteId), eq(plantPalettesTable.companyId, user.activeCompanyId)));
+      if (!ppCheck) return res.status(403).json({ error: "Palette not found or access denied" });
     }
     const updated = await storage.updateProposal(req.params.id, user.activeCompanyId, {
       ...(title !== undefined && { title }),
@@ -11069,6 +11078,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       ...(vsIncludeBase !== undefined && { vsIncludeBase: !!vsIncludeBase }),
       ...(vsIncludeOverlay !== undefined && { vsIncludeOverlay: !!vsIncludeOverlay }),
       ...(photoLayout !== undefined && { photoLayout }),
+      ...(plantPaletteId !== undefined && { plantPaletteId: plantPaletteId || null }),
     });
     if (!updated) return res.status(404).send("Not found");
     res.json(updated);
@@ -11831,6 +11841,164 @@ export async function registerRoutes(app: Express): Promise<Server> {
       plantScheduleBuffer = await psPromise;
     }
 
+    // --- Plant Palette exhibit ---
+    let paletteBuffer: Buffer | null = null;
+    if (proposal.plantPalette && proposal.plantPalette.items.length > 0) {
+      const palette = proposal.plantPalette;
+      const paletteItems = palette.items.slice().sort((a, b) => a.displayOrder - b.displayOrder);
+
+      const palDoc = new PDFDocumentKit({ size: 'LETTER', margins: { top: LM, bottom: LM, left: LM, right: RM } });
+      const palChunks: Buffer[] = [];
+      palDoc.on('data', (chunk: Buffer) => palChunks.push(chunk));
+      const palPromise = new Promise<Buffer>((resolve, reject) => {
+        palDoc.on('end', () => resolve(Buffer.concat(palChunks)));
+        palDoc.on('error', reject);
+      });
+      let palPageCounter = 0;
+      const palGuard = { active: false };
+      const drawPalDecorations = (d: InstanceType<typeof PDFDocumentKit>, num: number) => {
+        if (palGuard.active) return;
+        palGuard.active = true;
+        const savedY = d.y;
+        try { drawWatermark(d); drawFooter(d, num, companyName); }
+        finally { d.y = savedY; palGuard.active = false; }
+      };
+      palPageCounter = 1;
+      drawPalDecorations(palDoc, palPageCounter);
+      palDoc.on('pageAdded', () => { palPageCounter++; drawPalDecorations(palDoc, palPageCounter); });
+
+      const palContentW = palDoc.page.width - LM - RM;
+
+      // Heading — same style as PLANT SCHEDULE
+      palDoc.fillColor(BRAND).fontSize(13).font('Helvetica-Bold')
+        .text('PLANT PALETTE', LM, LM, { width: palContentW, align: 'center' });
+      const palDivY = LM + 20;
+      const palDivX = LM + (palContentW - 200) / 2;
+      palDoc.moveTo(palDivX, palDivY).lineTo(palDivX + 200, palDivY).strokeColor(BRAND).lineWidth(0.5).stroke();
+      palDoc.moveDown(1.4);
+
+      // Intro text
+      if (palette.introText && palette.introText.trim()) {
+        palDoc.fillColor('#444444').fontSize(10).font('Helvetica')
+          .text(palette.introText.trim(), LM, palDoc.y, { width: palContentW, lineGap: 3 });
+        palDoc.moveDown(1.0);
+      }
+
+      // Group items by category in fixed order
+      // Stored category values are taxonomy tokens (tree, shrub, perennial, shrub_rose, vine, ornamental_grass)
+      const PALETTE_CATEGORY_TOKEN_ORDER = ['tree', 'shrub', 'perennial', 'shrub_rose', 'vine', 'ornamental_grass'];
+      const PALETTE_CATEGORY_LABEL_MAP: Record<string, string> = {
+        tree: 'Trees',
+        shrub: 'Shrubs & Evergreens',
+        perennial: 'Perennials',
+        shrub_rose: 'Roses',
+        vine: 'Vines',
+        ornamental_grass: 'Ornamental Grasses',
+      };
+      const getPalCategoryLabel = (tok: string): string =>
+        PALETTE_CATEGORY_LABEL_MAP[tok] ?? tok.replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase());
+
+      const palGrouped = new Map<string, typeof paletteItems>();
+      for (const item of paletteItems) {
+        const cat = item.category || 'other';
+        if (!palGrouped.has(cat)) palGrouped.set(cat, []);
+        palGrouped.get(cat)!.push(item);
+      }
+      const palOrderedCategories = [
+        ...PALETTE_CATEGORY_TOKEN_ORDER.filter(c => palGrouped.has(c)),
+        ...[...palGrouped.keys()].filter(c => !PALETTE_CATEGORY_TOKEN_ORDER.includes(c)).sort(),
+      ];
+
+      // Download palette item images in parallel (best-effort)
+      const palObjectStorage = new ObjectStorageService();
+      const paletteImageBuffers: (Buffer | null)[] = await Promise.all(
+        paletteItems.map(async (item) => {
+          if (!item.imageStoragePathSnapshot) return null;
+          try { return await palObjectStorage.downloadByPath(item.imageStoragePathSnapshot); }
+          catch { return null; }
+        })
+      );
+      const itemToImageBuf = new Map<string, Buffer | null>(
+        paletteItems.map((item, idx) => [item.id, paletteImageBuffers[idx]])
+      );
+
+      // 3-column photo-card grid constants
+      const PAL_COLS = 3;
+      const PAL_GUTTER = 12;
+      const PAL_CARD_W = Math.floor((palContentW - PAL_GUTTER * (PAL_COLS - 1)) / PAL_COLS);
+      const PAL_PHOTO_SIZE = PAL_CARD_W; // square photo
+      const PAL_CARD_TEXT_H = 36;
+      const PAL_CARD_H = PAL_PHOTO_SIZE + PAL_CARD_TEXT_H;
+      const PAL_PAGE_BOTTOM = LM + 55; // footer reserve
+
+      for (const category of palOrderedCategories) {
+        const catItems = palGrouped.get(category)!;
+
+        // If category heading + at least one row won't fit, new page
+        if (palDoc.y + 22 + PAL_CARD_H > palDoc.page.height - PAL_PAGE_BOTTOM) {
+          palDoc.addPage();
+          palDoc.y = LM;
+        }
+
+        // Category heading (map token → display label)
+        palDoc.fillColor('#333333').fontSize(9.5).font('Helvetica-Bold')
+          .text(getPalCategoryLabel(category).toUpperCase(), LM, palDoc.y, { width: palContentW });
+        palDoc.moveDown(0.3);
+        palDoc.moveTo(LM, palDoc.y).lineTo(LM + palContentW, palDoc.y)
+          .strokeColor('#cccccc').lineWidth(0.3).stroke();
+        palDoc.moveDown(0.5);
+
+        // Render cards 3 per row
+        for (let i = 0; i < catItems.length; i += PAL_COLS) {
+          const rowItems = catItems.slice(i, i + PAL_COLS);
+
+          // Page overflow check before each row
+          if (palDoc.y + PAL_CARD_H > palDoc.page.height - PAL_PAGE_BOTTOM) {
+            palDoc.addPage();
+            palDoc.y = LM;
+          }
+
+          const rowY = palDoc.y;
+
+          for (let col = 0; col < rowItems.length; col++) {
+            const item = rowItems[col];
+            const cardX = LM + col * (PAL_CARD_W + PAL_GUTTER);
+            const imgBuf = itemToImageBuf.get(item.id) ?? null;
+
+            // Square photo or grey placeholder
+            if (imgBuf) {
+              try {
+                const compressed = await compressImageForPdf(imgBuf);
+                palDoc.image(compressed, cardX, rowY, { fit: [PAL_PHOTO_SIZE, PAL_PHOTO_SIZE], align: 'center', valign: 'center' });
+              } catch {
+                palDoc.rect(cardX, rowY, PAL_PHOTO_SIZE, PAL_PHOTO_SIZE).fillColor('#f0f0f0').fill();
+              }
+            } else {
+              palDoc.rect(cardX, rowY, PAL_PHOTO_SIZE, PAL_PHOTO_SIZE).fillColor('#f0f0f0').fill();
+            }
+
+            // Bold name
+            const nameY = rowY + PAL_PHOTO_SIZE + 4;
+            palDoc.fillColor('#222222').fontSize(8).font('Helvetica-Bold')
+              .text(item.nameSnapshot, cardX, nameY, { width: PAL_CARD_W, align: 'center', lineBreak: false, ellipsis: true });
+
+            // Italic muted type label
+            if (item.typeLabel) {
+              palDoc.fillColor('#888888').fontSize(7).font('Helvetica-Oblique')
+                .text(item.typeLabel, cardX, nameY + 13, { width: PAL_CARD_W, align: 'center', lineBreak: false, ellipsis: true });
+            }
+          }
+
+          palDoc.y = rowY + PAL_CARD_H + 8;
+        }
+
+        palDoc.moveDown(0.4);
+      }
+
+      palDoc.end();
+      paletteBuffer = await palPromise;
+    }
+
     // --- Photo appendix (P4) ---
     const MAX_IMAGES = 25;
     const images = proposal.files
@@ -12151,6 +12319,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
         const psPdfDoc = await PDFDocument.load(plantScheduleBuffer);
         const psPages = await mergedDoc.copyPages(psPdfDoc, psPdfDoc.getPageIndices());
         psPages.forEach(p => mergedDoc.addPage(p));
+      }
+
+      if (paletteBuffer) {
+        const palettePdfDoc = await PDFDocument.load(paletteBuffer);
+        const palettePages = await mergedDoc.copyPages(palettePdfDoc, palettePdfDoc.getPageIndices());
+        palettePages.forEach(p => mergedDoc.addPage(p));
       }
 
       if (appendixBuffer) {
