@@ -3263,12 +3263,15 @@ export interface PlantCatalogItem {
 export interface PlantSyncRun {
   id: string;
   companyId: string;
-  status: "running" | "success" | "error";
+  status: "running" | "success" | "partial" | "error";
+  source: "availability" | "enrichment";
   startedAt: string;
   finishedAt: string | null;
   itemsUpserted: number;
   itemsDeactivated: number;
   errorMessage: string | null;
+  processedCount: number | null;
+  totalCount: number | null;
 }
 
 export interface PlantVarietyGroup {

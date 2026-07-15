@@ -18237,6 +18237,28 @@ ${pdfText.slice(0, 8000)}`;
     }
   });
 
+  app.get("/api/plant-library/enrichment-status", async (req, res) => {
+    if (!req.isAuthenticated()) return res.status(401).send("Not authenticated");
+    const user = req.user as UserWithContext;
+    if (!PLANT_LIBRARY_ROLES.includes(user.activeRole as typeof PLANT_LIBRARY_ROLES[number]) && !user.isSuperAdminBool) {
+      return res.status(403).json({ error: "Insufficient permissions" });
+    }
+    try {
+      const { plantSyncRuns } = await import("@workspace/db");
+      const { desc } = await import("drizzle-orm");
+      const [latest] = await db
+        .select()
+        .from(plantSyncRuns)
+        .where(and(eq(plantSyncRuns.companyId, user.activeCompanyId), eq(plantSyncRuns.source as any, "enrichment")))
+        .orderBy(desc(plantSyncRuns.startedAt))
+        .limit(1);
+      return res.json(latest ?? null);
+    } catch (err) {
+      req.log.error({ err }, "GET /api/plant-library/enrichment-status error");
+      return res.status(500).json({ error: "Internal server error" });
+    }
+  });
+
   app.post("/api/plant-library/enrich", async (req, res) => {
     if (!req.isAuthenticated()) return res.status(401).send("Not authenticated");
     const user = req.user as UserWithContext;

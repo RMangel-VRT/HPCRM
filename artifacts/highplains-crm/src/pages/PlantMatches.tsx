@@ -3,7 +3,7 @@ import { useQuery, useMutation } from "@tanstack/react-query";
 import { useTranslation } from "react-i18next";
 import {
   CheckSquare, XSquare, Search, RefreshCw, Leaf, PackageOpen, ExternalLink,
-  ChevronLeft, ChevronRight, AlertCircle, Sprout
+  ChevronLeft, ChevronRight, AlertCircle, Sprout, Loader2
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -11,7 +11,7 @@ import { Input } from "@/components/ui/input";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useAuth } from "@/hooks/use-auth";
-import type { PlantMatchQueueItem, PlantMatchStatus, PlantEnrichmentData } from "@/shared/schema";
+import type { PlantMatchQueueItem, PlantMatchStatus, PlantEnrichmentData, PlantSyncRun } from "@/shared/schema";
 import { PLANT_CATEGORY_LABELS } from "@/shared/schema";
 import { formatDistanceToNow } from "date-fns";
 
@@ -53,6 +53,69 @@ function FactChip({ label, value }: { label: string; value: string | boolean | n
       <span className="font-medium text-foreground">{label}:</span> {value}
     </span>
   );
+}
+
+function EnrichmentProgress({ run }: { run: PlantSyncRun | null }) {
+  const { t } = useTranslation();
+
+  if (!run) return null;
+
+  if (run.status === "running") {
+    if (run.totalCount === null) {
+      return (
+        <div className="flex items-center gap-2 text-sm text-muted-foreground">
+          <Loader2 className="w-4 h-4 animate-spin flex-shrink-0" />
+          <span>{t("plantMatches.enrichBuildingIndex")}</span>
+        </div>
+      );
+    }
+    const processed = run.processedCount ?? 0;
+    const total = run.totalCount;
+    const pct = total > 0 ? Math.round((processed / total) * 100) : 0;
+    return (
+      <div className="flex flex-col gap-1 min-w-[180px]">
+        <div className="flex items-center justify-between text-xs text-muted-foreground">
+          <span className="flex items-center gap-1">
+            <Loader2 className="w-3 h-3 animate-spin" />
+            {t("plantMatches.enrichProgress", { processed, total })}
+          </span>
+          <span>{pct}%</span>
+        </div>
+        <div className="h-1.5 bg-muted rounded-full overflow-hidden">
+          <div
+            className="h-full bg-primary transition-all duration-500 rounded-full"
+            style={{ width: `${pct}%` }}
+          />
+        </div>
+      </div>
+    );
+  }
+
+  if (run.status === "error") {
+    return (
+      <div className="flex items-center gap-2 text-sm text-destructive">
+        <AlertCircle className="w-4 h-4 flex-shrink-0" />
+        <span className="font-medium">{t("plantMatches.enrichErrorBadge")}:</span>
+        <span className="text-xs truncate max-w-[240px]" title={run.errorMessage ?? undefined}>
+          {run.errorMessage ?? "Unknown error"}
+        </span>
+      </div>
+    );
+  }
+
+  if (run.status === "success" || run.status === "partial") {
+    const count = run.processedCount ?? run.itemsUpserted;
+    const ago = run.finishedAt
+      ? formatDistanceToNow(new Date(run.finishedAt), { addSuffix: true })
+      : "";
+    return (
+      <span className="text-xs text-muted-foreground">
+        {t("plantMatches.enrichLastRun", { count, ago })}
+      </span>
+    );
+  }
+
+  return null;
 }
 
 function PlantMatchCard({
@@ -288,13 +351,34 @@ export default function PlantMatches() {
     staleTime: 30_000,
   });
 
+  const { data: enrichmentRun } = useQuery<PlantSyncRun | null>({
+    queryKey: ["/api/plant-library/enrichment-status"],
+    queryFn: () =>
+      apiRequest("GET", "/api/plant-library/enrichment-status").then((r) => r.json()),
+    refetchInterval: (query) => {
+      const data = query.state.data as PlantSyncRun | null | undefined;
+      return data?.status === "running" ? 2500 : false;
+    },
+    enabled: canEnrich,
+    staleTime: 0,
+  });
+
+  const isEnrichmentRunning = enrichmentRun?.status === "running";
+
   const enrichMutation = useMutation({
     mutationFn: () => apiRequest("POST", "/api/plant-library/enrich"),
     onSuccess: () => {
       toast({ title: t("plantMatches.enrichStarted"), description: t("plantMatches.enrichStartedDesc") });
+      void queryClient.invalidateQueries({ queryKey: ["/api/plant-library/enrichment-status"] });
     },
     onError: () => toast({ title: t("plantMatches.enrichFailed"), variant: "destructive" }),
   });
+
+  useEffect(() => {
+    if (enrichmentRun?.status && enrichmentRun.status !== "running") {
+      void queryClient.invalidateQueries({ queryKey: ["/api/plant-library/matches"] });
+    }
+  }, [enrichmentRun?.status]);
 
   const updateMutation = useMutation({
     mutationFn: ({ varietyKey, data }: { varietyKey: string; data: Record<string, unknown> }) =>
@@ -372,15 +456,19 @@ export default function PlantMatches() {
         </div>
 
         {canEnrich && (
-          <Button
-            onClick={() => enrichMutation.mutate()}
-            disabled={enrichMutation.isPending}
-            data-testid="button-enrich-now"
-            className="flex-shrink-0"
-          >
-            <RefreshCw className={`w-4 h-4 mr-2 ${enrichMutation.isPending ? "animate-spin" : ""}`} />
-            {t("plantMatches.enrichNow")}
-          </Button>
+          <div className="flex flex-col items-end gap-2 flex-shrink-0">
+            <Button
+              onClick={() => enrichMutation.mutate()}
+              disabled={enrichMutation.isPending || isEnrichmentRunning}
+              data-testid="button-enrich-now"
+            >
+              <RefreshCw className={`w-4 h-4 mr-2 ${(enrichMutation.isPending || isEnrichmentRunning) ? "animate-spin" : ""}`} />
+              {t("plantMatches.enrichNow")}
+            </Button>
+            {enrichmentRun !== undefined && (
+              <EnrichmentProgress run={enrichmentRun} />
+            )}
+          </div>
         )}
       </div>
 

@@ -3605,6 +3605,8 @@ export const plantSyncRuns = pgTable("plant_sync_runs", {
   itemsUpserted: integer("items_upserted").notNull().default(0),
   itemsDeactivated: integer("items_deactivated").notNull().default(0),
   errorMessage: text("error_message"),
+  processedCount: integer("processed_count"),
+  totalCount: integer("total_count"),
 }, (table) => ({
   plantSyncRunsCompanyStartedIdx: index("plant_sync_runs_company_started_idx").on(table.companyId, table.startedAt),
 }));

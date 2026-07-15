@@ -645,6 +645,11 @@ export async function enrichPlants(companyId: string): Promise<{
 
     const varieties = await getVarietiesToEnrich(companyId);
 
+    await db
+      .update(plantSyncRuns)
+      .set({ totalCount: varieties.length, processedCount: 0 })
+      .where(eq(plantSyncRuns.id, run.id));
+
     logger.info({ companyId, total: varieties.length, candidates: candidates.length }, "plant enrichment: starting enrichment run");
 
     for (const variety of varieties) {
@@ -724,7 +729,11 @@ export async function enrichPlants(companyId: string): Promise<{
             set: { ...upsertData, updatedAt: new Date() },
           });
 
-        if (processed % 10 === 0) {
+        if (processed % 5 === 0 || processed === varieties.length) {
+          await db
+            .update(plantSyncRuns)
+            .set({ processedCount: processed })
+            .where(eq(plantSyncRuns.id, run.id));
           logger.info({ companyId, processed, enriched, failed, total: varieties.length }, "plant enrichment: progress");
         }
       } catch (varietyErr) {
@@ -741,7 +750,7 @@ export async function enrichPlants(companyId: string): Promise<{
 
     await db
       .update(plantSyncRuns)
-      .set({ status: runStatus, finishedAt: new Date(), itemsUpserted: enriched, itemsDeactivated: 0, errorMessage: runErrorMessage })
+      .set({ status: runStatus, finishedAt: new Date(), itemsUpserted: enriched, itemsDeactivated: 0, errorMessage: runErrorMessage, processedCount: processed })
       .where(eq(plantSyncRuns.id, run.id));
 
     logger.info({ companyId, processed, enriched, failed, status: runStatus }, "plant enrichment: run complete");
@@ -751,7 +760,7 @@ export async function enrichPlants(companyId: string): Promise<{
     logger.error({ err, companyId }, "plant enrichment: run failed");
     await db
       .update(plantSyncRuns)
-      .set({ status: "error", finishedAt: new Date(), errorMessage })
+      .set({ status: "error", finishedAt: new Date(), errorMessage, processedCount: processed })
       .where(eq(plantSyncRuns.id, run.id));
     return { processed, enriched, failed, status: "error", errorMessage };
   }
