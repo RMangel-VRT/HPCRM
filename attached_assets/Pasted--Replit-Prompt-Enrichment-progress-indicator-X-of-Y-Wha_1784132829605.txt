@@ -1,0 +1,50 @@
+# Replit Prompt — Enrichment progress indicator (X of Y)
+
+## What & why
+
+When "Run Enrichment" runs, there's no feedback — the user can't tell if it's working or how far along it is. Add a live progress indicator on the Plant Matches page showing how many varieties have been processed out of the total, plus a "building index…" state during the crawl phase.
+
+The job already creates a `plant_sync_runs` row (`source = "enrichment"`) and logs progress every 10 items; it just doesn't persist a running count or expose it.
+
+## Backend
+
+### 1. Persist progress on the run row
+
+Add two nullable integer columns to `plant_sync_runs` (schema in `lib/db/src/schema/schema.ts`, mirror the type in `artifacts/highplains-crm/src/shared/schema.ts`, and add a numbered SQL migration in `.migration-backup/migrations/`, e.g. `00XX_plant_sync_runs_progress.sql`, using `ADD COLUMN IF NOT EXISTS`):
+
+- `processedCount` integer, nullable
+- `totalCount` integer, nullable
+
+These are plain columns (no data migration). Both nullable so existing rows are unaffected.
+
+### 2. Update the counts during `enrichPlants` (`plantEnrichment.ts`)
+
+- The run starts as `status: "running"`. During the crawl phase (`buildCandidateIndex`), leave `totalCount` null — the UI reads null total as "building index…".
+- Once `getVarietiesToEnrich` returns, set `totalCount = varieties.length` and `processedCount = 0` on the run row.
+- Inside the variety loop, update `processedCount` on the run row **throttled** (e.g. every 5 varieties and on the last one) so it's not a DB write per item. Reuse the existing `processed` counter.
+- On completion/error, the final update already sets status; also set `processedCount = processed` so the finished row reflects the true total.
+
+### 3. Status endpoint (`routes.ts`)
+
+Add `GET /api/plant-library/enrichment-status` — company-scoped + role-checked, mirroring the existing `GET /api/plant-library/sync-status` but filtering `plantSyncRuns.source = "enrichment"` and returning the latest run: `status`, `processedCount`, `totalCount`, `startedAt`, `finishedAt`, `errorMessage`.
+
+## Frontend (`PlantMatches.tsx`)
+
+- Add a `useQuery` against `/api/plant-library/enrichment-status`. Give it a `refetchInterval` that is active only while `status === "running"` (e.g. poll every 2–3s when running, `false` otherwise), so it stops polling when idle.
+- Render progress near the "Run Enrichment" button:
+  - `status === "running"` and `totalCount == null` → "Building plant index…" with a spinner.
+  - `status === "running"` and `totalCount != null` → a progress bar plus "Processed {processedCount} of {totalCount}".
+  - `status === "success"` / `"partial"` → "Last run: {processedCount} processed {time} ago" (reuse `formatDistanceToNow`).
+  - `status === "error"` → show the error badge + `errorMessage`.
+- Disable the "Run Enrichment" button while `status === "running"`, and after a run kicks off, invalidate/refetch the matches list so newly confirmed/auto rows appear.
+- i18next strings (en + es). Use the existing `Progress` UI component if the project has one; otherwise a simple bar.
+
+## Verify
+
+1. `pnpm --filter @workspace/api-server run typecheck` and tests pass; the new migration applies cleanly (Settings → Database, or `pnpm --filter @workspace/scripts run migrate`).
+2. Click **Run Enrichment** — the page shows "Building plant index…", then a progress bar advancing "Processed N of M", then a finished summary. The button is disabled during the run and re-enables when done.
+
+## Notes
+
+- This composes with `Fix-Plant-Enrichment-Performance.md` (match-then-scrape): the variety loop is where `processedCount` advances, and the crawl phase is the "building index…" state. Order doesn't matter, but the performance fix makes the crawl phase short so the progress bar spends most of its time on the variety count.
+- Progress is stored on the run row (survives instance/poll differences). If you'd rather avoid the migration, an in-memory `Map<companyId, {processed,total}>` updated by the job and read by the status endpoint also works, but only within a single running instance.
