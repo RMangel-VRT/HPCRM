@@ -1,0 +1,112 @@
+# Plant Palette — Design & Replit Slices
+
+## What it is
+
+A **Plant Palette** is a proposal exhibit: an intro line, then category sections (Trees, Shrubs & Evergreens, Perennials, Ornamental Grasses, …) rendered as a 3-across grid of photo cards — square photo → bold name → italic type label.
+
+**Styling: no new styling decisions.** The exhibit must be an extension of the **current proposal PDF** — same brand color (`BRAND = '#1a4d1a'`), the same layered-hills **watermark** (`drawWatermark`), the same logo and footer (`drawFooter`) already used by `generateProposalPdf` (routes.ts ~L11466). It is rendered as **another section inside `generateProposalPdf`**, modeled on the existing **PLANT SCHEDULE** section (~L11714), and merged into the proposal the same way. (Note: the uploaded `HPPM_Flatirons_Plant_Palette` example was a one-off in navy — that palette will now render in the current proposal PDF's green-branded, watermarked style instead. Only the *layout* — category sections + photo-card grid — is new; every color/mark comes from the existing generator.)
+
+## How it intertwines (mirror Visual Scope)
+
+Visual Scope is a saved artifact (`visual_scope_sheets`) built in its own Tools page and attached to a proposal via `proposals.visualScopeSheetId`, then frozen into the finalized version. The Plant Palette mirrors this exactly:
+
+- A **Plant Palette tool** under Tools (like `/dashboard/tools/visual-scope`) to build/save palettes, pulling plants from the Plant Library (Slices 1–2) with their enrichment photos.
+- Attach a palette to a proposal via `proposals.plantPaletteId`.
+- At finalize, render the palette as a **new section inside `generateProposalPdf`** (reusing that function's existing watermark/brand/footer/logo — no new styling) and include it in the merged proposal output.
+
+## Decisions (from Randy)
+
+1. **Both** reusable templates and per-proposal palettes: palettes can be saved as reusable **templates** (customer-agnostic) and **copied into a proposal** where the copy is customized.
+2. **Hardscape/accents deferred** to a separate tool later. This build is **plants only** — but the item schema leaves room (a `typeLabel` + nullable plant link) so a future hardscape tool can add non-plant items without a schema rewrite.
+3. **Auto-group by category** — section headings come from each plant's category; no manual section curation in v1.
+4. **Styled PDF exhibit** in the proposal, matching the example, reusing current branding.
+
+## Data model (mirror `visual_scope_sheets`)
+
+Add to `lib/db/src/schema/schema.ts` (mirror types in `artifacts/highplains-crm/src/shared/schema.ts`; add a numbered SQL migration in `.migration-backup/migrations/`).
+
+### `plant_palettes`
+| Column | Type | Notes |
+|---|---|---|
+| `id` | varchar PK | |
+| `companyId` | varchar FK → companies (cascade) | |
+| `customerId` | varchar FK → customers (set null), **nullable** | null = reusable template |
+| `isTemplate` | boolean default false | true = reusable template |
+| `createdById` | varchar FK → users (set null) | |
+| `title` | varchar default "Plant & Hardscape Palette" | |
+| `introText` | text | the "All species are Colorado-hardy…" line; editable |
+| `paletteDate` | varchar | |
+| `status` | varchar default "draft" | |
+| `createdAt` / `updatedAt` | timestamp | |
+
+### `plant_palette_items`
+| Column | Type | Notes |
+|---|---|---|
+| `id` | varchar PK | |
+| `companyId` | varchar FK | |
+| `paletteId` | varchar FK → plant_palettes (cascade) | |
+| `plantCatalogItemId` | varchar FK → plant_catalog_items (set null), nullable | live link (null for future hardscape items) |
+| `varietyKey` | text nullable | join to enrichment for photo/facts |
+| `nameSnapshot` | text | e.g. "Crabapple (Prairie Fire)" |
+| `typeLabel` | text | italic card label, e.g. "Ornamental Tree" — default from category/enrichment, editable |
+| `category` | text | used for auto-grouping section headings |
+| `imageStoragePathSnapshot` | varchar nullable | self-hosted photo path (for the PDF) |
+| `imageUrlSnapshot` | varchar nullable | fallback |
+| `displayOrder` | integer default 0 | |
+| `createdAt` | timestamp | |
+
+### `proposals`
+Add `plantPaletteId` varchar FK → plant_palettes (set null), nullable — mirrors `visualScopeSheetId`. Add the attached palette + its items to `ProposalWithDetails` so `generateProposalPdf` can render it. No new `proposal_versions` column is needed — the palette renders into the same merged PDF that's already frozen as the version (like the plant schedule).
+
+---
+
+# Slice A — Plant Palette tool (build + save + reuse)
+
+## Context
+Add a Plant Palette tool under Tools to create/edit reusable palettes and customer palettes, pulling plants from the Plant Library. No proposal wiring or PDF yet (Slice B). Mirror the Visual Scope tool's list/detail/save pattern and the Tools-page entry.
+
+## Steps
+1. **Schema** — `plant_palettes` + `plant_palette_items` + `proposals.plantPaletteId` as above; migration; `ProposalWithDetails` update.
+2. **API** (`routes.ts`, company-scoped, role-checked like other tools):
+   - `GET /api/plant-palettes` (list; filter `?templates=true` or `?customerId=`).
+   - `POST /api/plant-palettes` (create; template or customer).
+   - `GET /api/plant-palettes/:id` (with items, grouped by category).
+   - `PATCH /api/plant-palettes/:id` (title, introText, date, status).
+   - `POST /api/plant-palettes/:id/items` (add from a `plantCatalogItemId`/`varietyKey`; server snapshots name, typeLabel default, category, and the enrichment `imageStoragePath`/`imageUrl`).
+   - `PATCH /api/plant-palettes/:id/items/:itemId` (typeLabel, name, order), `DELETE …`.
+   - `POST /api/plant-palettes/:id/duplicate` (copy a template into a new customer palette — used by Slice B's "attach").
+3. **Tool page** — add a "Plant Palette" card to `ToolsPage.tsx` (`available: true`, a leaf/layout icon) and route `/dashboard/tools/plant-palette` in `App.tsx`. Build `PlantPalettes.tsx` (list) and `PlantPaletteDraft.tsx` (editor):
+   - Editor: title, intro text, date; an **"Add plants"** action that opens the **existing Plant Library picker** (Slices 1–2) in insert-mode — do not duplicate it.
+   - Show items **auto-grouped by category** into sections, each item a card (photo from the served self-hosted photo URL, bold name, editable italic `typeLabel`), reorder/remove.
+   - i18next (en + es); match existing tool page styling.
+4. **typeLabel default** — derive from category (`tree`→"Ornamental Tree"/"Evergreen Tree" where foliage is known, else "Tree"; `shrub_rose`→"Flowering Shrub"/"Rose"; `ornamental_grass`→"Ornamental Grass"; etc.), editable per item.
+
+## Deliverables
+- Tables + migration; the tool lists/creates/edits palettes; plants add from the library with photos; sections auto-group by category; typecheck + tests pass.
+
+---
+
+# Slice B — Proposal integration + branded PDF exhibit
+
+## Context
+Attach a palette to a proposal (like Visual Scope) and render it as a branded PDF exhibit included in the finalized proposal, matching the example and the existing PDF styling.
+
+## Steps
+1. **Proposal editor** (`ProposalDraft.tsx`) — add a **"Plant Palette"** section beside the Visual Scope section (~L960). Let the user **attach**: pick an existing customer palette, or pick a **template** which calls `POST /api/plant-palettes/:id/duplicate` to create a customer copy, then set `proposals.plantPaletteId`. Show the attached palette title with a preview/edit link and a detach control. Follow the exact pattern used for `visualScopeSheetId` attach/detach.
+2. **Palette section inside `generateProposalPdf`** (routes.ts ~L11466) — add a `paletteBuffer` generator modeled on the existing **PLANT SCHEDULE** block (~L11714). Reuse the SAME helpers already in that function — introduce **no** new colors, fonts, watermark, or logo handling:
+   - Same `PDFDocumentKit`, `size: 'LETTER'`, margins `LM`/`RM`.
+   - Per-page decorations via the existing `drawWatermark` + `drawFooter`, wired on the first page and the `pageAdded` event exactly like `drawPsDecorations` does for the schedule.
+   - Title/section headings in `BRAND` (`#1a4d1a`) Helvetica-Bold with the same divider-rule style as the "PLANT SCHEDULE" heading; intro text in the existing body style.
+   - Auto-group items by `category` (fixed order: Trees, Shrubs & Evergreens, Perennials, Roses, Vines, Ornamental Grasses). Render each group as a heading + a **3-column** photo-card grid: photo via `psObjectStorage.downloadByPath(item.imageStoragePathSnapshot)` + `compressImageForPdf` (same as the schedule — **not** a hotlink), bold `nameSnapshot`, italic muted `typeLabel`. Reuse the schedule's page-overflow/`addPage` handling.
+3. **Merge** — add `paletteBuffer` to the existing pdf-lib merge alongside `plantScheduleBuffer` (routes.ts ~L12150) so it becomes part of the single proposal PDF. The proposal PDF is already generated from live data at preview/finalize time and frozen as the version, so no separate palette freeze/`palettePdfPath` is needed — the palette rides along in the same merged document, exactly like the plant schedule.
+
+## Deliverables
+- `plantPaletteId` attach/detach in the proposal editor (Visual Scope pattern).
+- pdfkit palette exhibit matching the example, using self-hosted photo bytes and current branding.
+- Palette included + frozen in the finalized proposal; typecheck + tests pass.
+
+## Notes
+- **Palette vs. the existing plant schedule.** The proposal PDF already renders a **PLANT SCHEDULE** section (a tabular qty/name/size spec from `proposal_plant_items`, ~L11714). The Plant Palette is a separate **visual** exhibit (photo-card grid from a saved `plant_palettes` artifact). They can coexist as two sections, or the palette can be positioned before/after the schedule — confirm the desired order, and whether both should appear or the palette is the preferred presentation.
+- Depends on the Plant Library photos being self-hosted (`Fix-Plant-Photos-And-AutoConfirm.md`) — the PDF needs image **bytes** via `downloadByPath`, so hotlinks won't work in the exhibit.
+- Pricing stays out (QuickBooks) — the palette is a visual/spec exhibit only, consistent with the earlier proposal decisions.
+- Hardscape/accents are a later tool; `plant_palette_items` already allows non-plant rows (null `plantCatalogItemId` + free `typeLabel`) so that tool can add to the same palette without schema changes.
