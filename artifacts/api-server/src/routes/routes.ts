@@ -18779,6 +18779,382 @@ ${pdfText.slice(0, 8000)}`;
   registerExtraBillablePhotoRoutes(app, { storage });
   registerMobileTicketPhotosNotesRoutes(app);
 
+  // ─── Plant Palettes ──────────────────────────────────────────────────────────
+
+  const PALETTE_ROLES = ["admin", "office"] as const;
+
+  function derivePaletteTypeLabel(category: string, foliageType?: string | null): string {
+    switch (category) {
+      case "tree":
+        if (foliageType && foliageType.toLowerCase().includes("evergreen")) return "Evergreen Tree";
+        return "Tree";
+      case "shrub":
+        return "Shrub";
+      case "shrub_rose":
+      case "rose":
+        return "Flowering Shrub";
+      case "ornamental_grass":
+        return "Ornamental Grass";
+      case "perennial":
+        return "Perennial";
+      case "vine":
+        return "Vine";
+      case "annual":
+        return "Annual";
+      default:
+        return category
+          .split(/[_\s]+/)
+          .map((w) => w.charAt(0).toUpperCase() + w.slice(1))
+          .join(" ");
+    }
+  }
+
+  app.get("/api/plant-palettes", async (req, res) => {
+    if (!req.isAuthenticated()) return res.status(401).send("Not authenticated");
+    const user = req.user as UserWithContext;
+    if (!PALETTE_ROLES.includes(user.activeRole as typeof PALETTE_ROLES[number]) && !user.isSuperAdminBool) {
+      return res.status(403).json({ error: "Insufficient permissions" });
+    }
+    try {
+      const { plantPalettes: plantPalettesTable } = await import("@workspace/db");
+      const { desc } = await import("drizzle-orm");
+      const conditions: ReturnType<typeof eq>[] = [eq(plantPalettesTable.companyId, user.activeCompanyId)];
+      if (req.query.templates === "true") {
+        conditions.push(eq(plantPalettesTable.isTemplate, true));
+      } else if (req.query.customerId && typeof req.query.customerId === "string") {
+        conditions.push(eq(plantPalettesTable.customerId, req.query.customerId));
+      }
+      const palettes = await db
+        .select()
+        .from(plantPalettesTable)
+        .where(and(...conditions))
+        .orderBy(desc(plantPalettesTable.updatedAt));
+
+      // Attach customer names
+      const customerIds = [...new Set(palettes.map((p) => p.customerId).filter(Boolean))] as string[];
+      let customerMap = new Map<string, string>();
+      if (customerIds.length) {
+        const custRows = await db.select({ id: customersTable.id, name: customersTable.name })
+          .from(customersTable)
+          .where(inArray(customersTable.id, customerIds));
+        customerMap = new Map(custRows.map((c) => [c.id, c.name]));
+      }
+
+      res.json(palettes.map((p) => ({
+        ...p,
+        customerName: p.customerId ? (customerMap.get(p.customerId) ?? null) : null,
+      })));
+    } catch (err) {
+      req.log.error({ err }, "GET /api/plant-palettes error");
+      res.status(500).json({ error: "Internal server error" });
+    }
+  });
+
+  app.post("/api/plant-palettes", async (req, res) => {
+    if (!req.isAuthenticated()) return res.status(401).send("Not authenticated");
+    const user = req.user as UserWithContext;
+    if (!PALETTE_ROLES.includes(user.activeRole as typeof PALETTE_ROLES[number]) && !user.isSuperAdminBool) {
+      return res.status(403).json({ error: "Insufficient permissions" });
+    }
+    try {
+      const { plantPalettes: plantPalettesTable } = await import("@workspace/db");
+      const body = req.body as {
+        title?: string;
+        introText?: string;
+        paletteDate?: string;
+        isTemplate?: boolean;
+        customerId?: string | null;
+        status?: string;
+      };
+      const [palette] = await db.insert(plantPalettesTable).values({
+        companyId: user.activeCompanyId,
+        createdById: user.id,
+        title: body.title?.trim() || "Plant Palette",
+        introText: body.introText ?? null,
+        paletteDate: body.paletteDate ?? null,
+        isTemplate: body.isTemplate ?? false,
+        customerId: body.customerId ?? null,
+        status: (body.status === "published" ? "published" : "draft") as "draft" | "published",
+      }).returning();
+      res.status(201).json(palette);
+    } catch (err) {
+      req.log.error({ err }, "POST /api/plant-palettes error");
+      res.status(500).json({ error: "Internal server error" });
+    }
+  });
+
+  app.get("/api/plant-palettes/:id", async (req, res) => {
+    if (!req.isAuthenticated()) return res.status(401).send("Not authenticated");
+    const user = req.user as UserWithContext;
+    if (!PALETTE_ROLES.includes(user.activeRole as typeof PALETTE_ROLES[number]) && !user.isSuperAdminBool) {
+      return res.status(403).json({ error: "Insufficient permissions" });
+    }
+    try {
+      const { plantPalettes: plantPalettesTable, plantPaletteItems: plantPaletteItemsTable } = await import("@workspace/db");
+      const [palette] = await db.select().from(plantPalettesTable).where(
+        and(eq(plantPalettesTable.id, req.params.id), eq(plantPalettesTable.companyId, user.activeCompanyId))
+      );
+      if (!palette) return res.status(404).json({ error: "Not found" });
+
+      const items = await db.select().from(plantPaletteItemsTable)
+        .where(eq(plantPaletteItemsTable.paletteId, palette.id))
+        .orderBy(plantPaletteItemsTable.displayOrder);
+
+      let customerName: string | null = null;
+      if (palette.customerId) {
+        const [cust] = await db.select({ name: customersTable.name }).from(customersTable)
+          .where(eq(customersTable.id, palette.customerId));
+        customerName = cust?.name ?? null;
+      }
+
+      res.json({ ...palette, items, customerName });
+    } catch (err) {
+      req.log.error({ err }, "GET /api/plant-palettes/:id error");
+      res.status(500).json({ error: "Internal server error" });
+    }
+  });
+
+  app.patch("/api/plant-palettes/:id", async (req, res) => {
+    if (!req.isAuthenticated()) return res.status(401).send("Not authenticated");
+    const user = req.user as UserWithContext;
+    if (!PALETTE_ROLES.includes(user.activeRole as typeof PALETTE_ROLES[number]) && !user.isSuperAdminBool) {
+      return res.status(403).json({ error: "Insufficient permissions" });
+    }
+    try {
+      const { plantPalettes: plantPalettesTable } = await import("@workspace/db");
+      const body = req.body as {
+        title?: string;
+        introText?: string | null;
+        paletteDate?: string | null;
+        status?: string;
+        isTemplate?: boolean;
+        customerId?: string | null;
+      };
+      const updates: Record<string, unknown> = { updatedAt: new Date() };
+      if (body.title !== undefined) updates.title = body.title;
+      if (body.introText !== undefined) updates.introText = body.introText;
+      if (body.paletteDate !== undefined) updates.paletteDate = body.paletteDate;
+      if (body.status === "draft" || body.status === "published") updates.status = body.status;
+      if (body.isTemplate !== undefined) updates.isTemplate = body.isTemplate;
+      if (body.customerId !== undefined) updates.customerId = body.customerId;
+
+      const [updated] = await db.update(plantPalettesTable)
+        .set(updates as any)
+        .where(and(eq(plantPalettesTable.id, req.params.id), eq(plantPalettesTable.companyId, user.activeCompanyId)))
+        .returning();
+      if (!updated) return res.status(404).json({ error: "Not found" });
+      res.json(updated);
+    } catch (err) {
+      req.log.error({ err }, "PATCH /api/plant-palettes/:id error");
+      res.status(500).json({ error: "Internal server error" });
+    }
+  });
+
+  app.delete("/api/plant-palettes/:id", async (req, res) => {
+    if (!req.isAuthenticated()) return res.status(401).send("Not authenticated");
+    const user = req.user as UserWithContext;
+    if (!PALETTE_ROLES.includes(user.activeRole as typeof PALETTE_ROLES[number]) && !user.isSuperAdminBool) {
+      return res.status(403).json({ error: "Insufficient permissions" });
+    }
+    try {
+      const { plantPalettes: plantPalettesTable } = await import("@workspace/db");
+      const [deleted] = await db.delete(plantPalettesTable)
+        .where(and(eq(plantPalettesTable.id, req.params.id), eq(plantPalettesTable.companyId, user.activeCompanyId)))
+        .returning({ id: plantPalettesTable.id });
+      if (!deleted) return res.status(404).json({ error: "Not found" });
+      res.json({ ok: true });
+    } catch (err) {
+      req.log.error({ err }, "DELETE /api/plant-palettes/:id error");
+      res.status(500).json({ error: "Internal server error" });
+    }
+  });
+
+  app.post("/api/plant-palettes/:id/items", async (req, res) => {
+    if (!req.isAuthenticated()) return res.status(401).send("Not authenticated");
+    const user = req.user as UserWithContext;
+    if (!PALETTE_ROLES.includes(user.activeRole as typeof PALETTE_ROLES[number]) && !user.isSuperAdminBool) {
+      return res.status(403).json({ error: "Insufficient permissions" });
+    }
+    try {
+      const { plantPalettes: plantPalettesTable, plantPaletteItems: plantPaletteItemsTable, plantCatalogItems: plantCatalogItemsTable, plantEnrichment: plantEnrichmentTable } = await import("@workspace/db");
+      const { sql: sqlFn } = await import("drizzle-orm");
+
+      // Verify palette belongs to company
+      const [palette] = await db.select().from(plantPalettesTable).where(
+        and(eq(plantPalettesTable.id, req.params.id), eq(plantPalettesTable.companyId, user.activeCompanyId))
+      );
+      if (!palette) return res.status(404).json({ error: "Not found" });
+
+      const body = req.body as { plantCatalogItemId?: string; varietyKey?: string };
+      if (!body.plantCatalogItemId && !body.varietyKey) {
+        return res.status(400).json({ error: "plantCatalogItemId or varietyKey is required" });
+      }
+
+      // Look up catalog item for snapshots
+      let catalogItem: typeof plantCatalogItemsTable.$inferSelect | null = null;
+      if (body.plantCatalogItemId) {
+        const [ci] = await db.select().from(plantCatalogItemsTable).where(
+          and(eq(plantCatalogItemsTable.id, body.plantCatalogItemId), eq(plantCatalogItemsTable.companyId, user.activeCompanyId))
+        );
+        catalogItem = ci ?? null;
+      } else if (body.varietyKey) {
+        const [ci] = await db.select().from(plantCatalogItemsTable).where(
+          and(eq(plantCatalogItemsTable.varietyKey, body.varietyKey), eq(plantCatalogItemsTable.companyId, user.activeCompanyId))
+        ).limit(1);
+        catalogItem = ci ?? null;
+      }
+
+      // Look up enrichment for image + foliageType
+      const vKey = body.varietyKey ?? catalogItem?.varietyKey;
+      let enrichRow: typeof plantEnrichmentTable.$inferSelect | null = null;
+      if (vKey) {
+        const [er] = await db.select().from(plantEnrichmentTable).where(
+          and(eq(plantEnrichmentTable.companyId, user.activeCompanyId), eq(plantEnrichmentTable.varietyKey, vKey))
+        );
+        enrichRow = er ?? null;
+      }
+
+      const category = catalogItem?.category ?? "shrub";
+      const foliageType = enrichRow?.foliageType ?? null;
+      const typeLabel = derivePaletteTypeLabel(category, foliageType);
+
+      // Get next display order
+      const [orderRow] = await db.select({ maxOrder: sqlFn<number>`COALESCE(MAX(display_order), -1)` })
+        .from(plantPaletteItemsTable)
+        .where(eq(plantPaletteItemsTable.paletteId, palette.id));
+      const nextOrder = ((orderRow?.maxOrder as number) ?? -1) + 1;
+
+      const [item] = await db.insert(plantPaletteItemsTable).values({
+        paletteId: palette.id,
+        companyId: user.activeCompanyId,
+        plantCatalogItemId: body.plantCatalogItemId ?? catalogItem?.id ?? null,
+        varietyKey: vKey ?? null,
+        nameSnapshot: catalogItem?.commonName ?? vKey ?? "Unknown Plant",
+        typeLabel,
+        category,
+        imageStoragePathSnapshot: enrichRow?.imageStoragePath ?? null,
+        imageUrlSnapshot: enrichRow?.imageUrl ?? null,
+        displayOrder: nextOrder,
+      }).returning();
+
+      // Bump palette updatedAt
+      await db.update(plantPalettesTable).set({ updatedAt: new Date() })
+        .where(eq(plantPalettesTable.id, palette.id));
+
+      res.status(201).json(item);
+    } catch (err) {
+      req.log.error({ err }, "POST /api/plant-palettes/:id/items error");
+      res.status(500).json({ error: "Internal server error" });
+    }
+  });
+
+  app.patch("/api/plant-palettes/:id/items/:itemId", async (req, res) => {
+    if (!req.isAuthenticated()) return res.status(401).send("Not authenticated");
+    const user = req.user as UserWithContext;
+    if (!PALETTE_ROLES.includes(user.activeRole as typeof PALETTE_ROLES[number]) && !user.isSuperAdminBool) {
+      return res.status(403).json({ error: "Insufficient permissions" });
+    }
+    try {
+      const { plantPaletteItems: plantPaletteItemsTable } = await import("@workspace/db");
+      const body = req.body as { typeLabel?: string; nameSnapshot?: string; displayOrder?: number };
+      const updates: Record<string, unknown> = {};
+      if (body.typeLabel !== undefined) updates.typeLabel = body.typeLabel;
+      if (body.nameSnapshot !== undefined) updates.nameSnapshot = body.nameSnapshot;
+      if (body.displayOrder !== undefined) updates.displayOrder = body.displayOrder;
+
+      const [updated] = await db.update(plantPaletteItemsTable)
+        .set(updates as any)
+        .where(and(
+          eq(plantPaletteItemsTable.id, req.params.itemId),
+          eq(plantPaletteItemsTable.companyId, user.activeCompanyId)
+        ))
+        .returning();
+      if (!updated) return res.status(404).json({ error: "Not found" });
+      res.json(updated);
+    } catch (err) {
+      req.log.error({ err }, "PATCH /api/plant-palettes/:id/items/:itemId error");
+      res.status(500).json({ error: "Internal server error" });
+    }
+  });
+
+  app.delete("/api/plant-palettes/:id/items/:itemId", async (req, res) => {
+    if (!req.isAuthenticated()) return res.status(401).send("Not authenticated");
+    const user = req.user as UserWithContext;
+    if (!PALETTE_ROLES.includes(user.activeRole as typeof PALETTE_ROLES[number]) && !user.isSuperAdminBool) {
+      return res.status(403).json({ error: "Insufficient permissions" });
+    }
+    try {
+      const { plantPaletteItems: plantPaletteItemsTable, plantPalettes: plantPalettesTable } = await import("@workspace/db");
+      const [deleted] = await db.delete(plantPaletteItemsTable)
+        .where(and(
+          eq(plantPaletteItemsTable.id, req.params.itemId),
+          eq(plantPaletteItemsTable.companyId, user.activeCompanyId)
+        ))
+        .returning({ id: plantPaletteItemsTable.id, paletteId: plantPaletteItemsTable.paletteId });
+      if (!deleted) return res.status(404).json({ error: "Not found" });
+      // Bump palette updatedAt
+      await db.update(plantPalettesTable).set({ updatedAt: new Date() })
+        .where(eq(plantPalettesTable.id, deleted.paletteId));
+      res.json({ ok: true });
+    } catch (err) {
+      req.log.error({ err }, "DELETE /api/plant-palettes/:id/items/:itemId error");
+      res.status(500).json({ error: "Internal server error" });
+    }
+  });
+
+  app.post("/api/plant-palettes/:id/duplicate", async (req, res) => {
+    if (!req.isAuthenticated()) return res.status(401).send("Not authenticated");
+    const user = req.user as UserWithContext;
+    if (!PALETTE_ROLES.includes(user.activeRole as typeof PALETTE_ROLES[number]) && !user.isSuperAdminBool) {
+      return res.status(403).json({ error: "Insufficient permissions" });
+    }
+    try {
+      const { plantPalettes: plantPalettesTable, plantPaletteItems: plantPaletteItemsTable } = await import("@workspace/db");
+      const [source] = await db.select().from(plantPalettesTable).where(
+        and(eq(plantPalettesTable.id, req.params.id), eq(plantPalettesTable.companyId, user.activeCompanyId))
+      );
+      if (!source) return res.status(404).json({ error: "Not found" });
+
+      const body = req.body as { customerId?: string | null; title?: string };
+      const [copy] = await db.insert(plantPalettesTable).values({
+        companyId: user.activeCompanyId,
+        createdById: user.id,
+        title: body.title ?? `${source.title} (copy)`,
+        introText: source.introText,
+        paletteDate: source.paletteDate,
+        isTemplate: false,
+        customerId: body.customerId ?? null,
+        status: "draft",
+      }).returning();
+
+      const sourceItems = await db.select().from(plantPaletteItemsTable)
+        .where(eq(plantPaletteItemsTable.paletteId, source.id))
+        .orderBy(plantPaletteItemsTable.displayOrder);
+
+      if (sourceItems.length) {
+        await db.insert(plantPaletteItemsTable).values(
+          sourceItems.map((item) => ({
+            paletteId: copy.id,
+            companyId: user.activeCompanyId,
+            plantCatalogItemId: item.plantCatalogItemId,
+            varietyKey: item.varietyKey,
+            nameSnapshot: item.nameSnapshot,
+            typeLabel: item.typeLabel,
+            category: item.category,
+            imageStoragePathSnapshot: item.imageStoragePathSnapshot,
+            imageUrlSnapshot: item.imageUrlSnapshot,
+            displayOrder: item.displayOrder,
+          }))
+        );
+      }
+
+      res.status(201).json(copy);
+    } catch (err) {
+      req.log.error({ err }, "POST /api/plant-palettes/:id/duplicate error");
+      res.status(500).json({ error: "Internal server error" });
+    }
+  });
+
   const httpServer = createServer(app);
 
   return httpServer;

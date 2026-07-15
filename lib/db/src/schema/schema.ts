@@ -1638,6 +1638,7 @@ export const proposals = pgTable("proposals", {
   scopeOfWork: text("scope_of_work").notNull().default(""),
   status: varchar("status").notNull().default("draft"),
   visualScopeSheetId: varchar("visual_scope_sheet_id").references(() => visualScopeSheets.id, { onDelete: "set null" }),
+  plantPaletteId: varchar("plant_palette_id").references(() => plantPalettes.id, { onDelete: "set null" }),
   vsIncludeBase: boolean("vs_include_base").notNull().default(false),
   vsIncludeOverlay: boolean("vs_include_overlay").notNull().default(false),
   photoLayout: varchar("photo_layout").notNull().default("large"),
@@ -3690,3 +3691,69 @@ export const insertProposalPlantItemSchema = createInsertSchema(proposalPlantIte
 
 export type InsertProposalPlantItem = z.infer<typeof insertProposalPlantItemSchema>;
 export type ProposalPlantItem = typeof proposalPlantItems.$inferSelect;
+
+// ==================== PLANT PALETTES ====================
+
+export const plantPalettes = pgTable("plant_palettes", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  companyId: varchar("company_id").notNull().references(() => companies.id, { onDelete: "cascade" }),
+  customerId: varchar("customer_id").references(() => customers.id, { onDelete: "set null" }),
+  isTemplate: boolean("is_template").notNull().default(false),
+  createdById: varchar("created_by_id").references(() => users.id, { onDelete: "set null" }),
+  title: text("title").notNull().default("Plant Palette"),
+  introText: text("intro_text"),
+  paletteDate: varchar("palette_date"),
+  status: text("status").notNull().$type<"draft" | "published">().default("draft"),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  updatedAt: timestamp("updated_at").notNull().defaultNow(),
+}, (table) => ({
+  plantPalettesCompanyIdIdx: index("plant_palettes_company_id_idx").on(table.companyId),
+  plantPalettesCustomerIdIdx: index("plant_palettes_customer_id_idx").on(table.customerId),
+}));
+
+export const insertPlantPaletteSchema = createInsertSchema(plantPalettes).omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+}).extend({
+  isTemplate: z.boolean().default(false),
+  status: z.enum(["draft", "published"]).default("draft"),
+  customerId: z.string().nullable().optional(),
+  createdById: z.string().nullable().optional(),
+  introText: z.string().nullable().optional(),
+  paletteDate: z.string().nullable().optional(),
+});
+
+export type InsertPlantPalette = z.infer<typeof insertPlantPaletteSchema>;
+export type PlantPalette = typeof plantPalettes.$inferSelect;
+
+export const plantPaletteItems = pgTable("plant_palette_items", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  paletteId: varchar("palette_id").notNull().references(() => plantPalettes.id, { onDelete: "cascade" }),
+  companyId: varchar("company_id").notNull().references(() => companies.id, { onDelete: "cascade" }),
+  plantCatalogItemId: varchar("plant_catalog_item_id").references(() => plantCatalogItems.id, { onDelete: "set null" }),
+  varietyKey: text("variety_key"),
+  nameSnapshot: text("name_snapshot").notNull(),
+  typeLabel: text("type_label").notNull(),
+  category: text("category").notNull(),
+  imageStoragePathSnapshot: text("image_storage_path_snapshot"),
+  imageUrlSnapshot: text("image_url_snapshot"),
+  displayOrder: integer("display_order").notNull().default(0),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+}, (table) => ({
+  plantPaletteItemsPaletteIdIdx: index("plant_palette_items_palette_id_idx").on(table.paletteId),
+}));
+
+export const insertPlantPaletteItemSchema = createInsertSchema(plantPaletteItems).omit({
+  id: true,
+  createdAt: true,
+}).extend({
+  displayOrder: z.number().int().default(0),
+  plantCatalogItemId: z.string().nullable().optional(),
+  varietyKey: z.string().nullable().optional(),
+  imageStoragePathSnapshot: z.string().nullable().optional(),
+  imageUrlSnapshot: z.string().nullable().optional(),
+});
+
+export type InsertPlantPaletteItem = z.infer<typeof insertPlantPaletteItemSchema>;
+export type PlantPaletteItem = typeof plantPaletteItems.$inferSelect;

@@ -1601,6 +1601,7 @@ export const proposals = pgTable("proposals", {
   scopeOfWork: text("scope_of_work").notNull().default(""),
   status: varchar("status").notNull().default("draft"),
   visualScopeSheetId: varchar("visual_scope_sheet_id").references(() => visualScopeSheets.id, { onDelete: "set null" }),
+  plantPaletteId: varchar("plant_palette_id"),
   vsIncludeBase: boolean("vs_include_base").notNull().default(false),
   vsIncludeOverlay: boolean("vs_include_overlay").notNull().default(false),
   photoLayout: varchar("photo_layout").notNull().default("large"),
@@ -3340,4 +3341,40 @@ export interface PlantCandidateProduct {
   title: string;
   imageUrl: string | null;
   pageUrl: string;
+}
+
+// ==================== PLANT PALETTES ====================
+
+export interface PlantPalette {
+  id: string;
+  companyId: string;
+  customerId: string | null;
+  isTemplate: boolean;
+  createdById: string | null;
+  title: string;
+  introText: string | null;
+  paletteDate: string | null;
+  status: "draft" | "published";
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface PlantPaletteItem {
+  id: string;
+  paletteId: string;
+  companyId: string;
+  plantCatalogItemId: string | null;
+  varietyKey: string | null;
+  nameSnapshot: string;
+  typeLabel: string;
+  category: string;
+  imageStoragePathSnapshot: string | null;
+  imageUrlSnapshot: string | null;
+  displayOrder: number;
+  createdAt: string;
+}
+
+export interface PlantPaletteWithItems extends PlantPalette {
+  items: PlantPaletteItem[];
+  customerName?: string | null;
 }
