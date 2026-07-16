@@ -1,0 +1,103 @@
+# Replit Prompt — Estimate Builder, Slice 1.1: QuickBooks OAuth Connection
+
+## Context
+
+We are beginning the Estimate Builder + QuickBooks integration (master spec: `estimate-builder-design-spec.md`). The end state of the whole project: the CRM owns the product catalog and estimates; QuickBooks receives accurate invoices built from accepted estimates. **This slice builds only the foundation: a per-company QuickBooks Online OAuth2 connection**, managed from Settings, with encrypted token storage, automatic refresh, and a health status. No customer sync, no invoices, no estimates in this slice (those are Slices 1.2+).
+
+Deployable end state: an admin opens Settings, clicks "Connect to QuickBooks," completes Intuit's consent flow, and returns to Settings showing a healthy connection (company name, environment, status). Tokens refresh automatically. Disconnect works. The existing `qbo_write` feature-flag toggle gains real server-side meaning: a helper that later slices will use to gate all QBO write operations.
+
+This slice should land in a deployable, production-quality state. Do not stub anything you say you've built.
+
+## Prerequisites (Randy does these before/during this slice)
+
+- Intuit Developer account + an app (gets `Client ID` / `Client Secret`), with the app's redirect URI set to `<app-base-url>/api/qbo/callback`.
+- A QBO **sandbox company** for development.
+- Replit secrets: `QBO_CLIENT_ID`, `QBO_CLIENT_SECRET`, `QBO_REDIRECT_URI`, `QBO_ENVIRONMENT` (`sandbox` | `production`), `QBO_TOKEN_ENC_KEY` (64 hex chars = 32 bytes, generate with `openssl rand -hex 32`).
+
+The code must fail with a clear log message (not a crash) if these are missing.
+
+## Existing context (do not duplicate or replace)
+
+- **Schema** lives canonically in `lib/db/src/schema/schema.ts`, mirrored in `artifacts/highplains-crm/src/shared/schema.ts`; numbered SQL migration in `.migration-backup/migrations/`. Follow existing index naming (`<table>_<column>_idx`).
+- **Settings table** (`lib/db/src/schema/schema.ts` ~L291): one row per company; `featureFlags` is a JSON **string** column. The Settings UI (`artifacts/highplains-crm/src/pages/SettingsPage.tsx`) already has a "QuickBooks Write Access" toggle writing `qbo_write` into that JSON (~L1048, parse at ~L463). Keep it; this slice adds a server-side reader for it.
+- **Route modules:** do NOT grow `artifacts/api-server/src/routes/routes.ts` (18k+ lines). Create a new module `artifacts/api-server/src/routes/qbo.ts` and register it the same way `flags.ts` / `mailboxAccounts.ts` are registered in `routes/index.ts`.
+- **Services** live in `artifacts/api-server/src/services/`. Storage-layer methods go through `artifacts/api-server/src/storage.ts` following its existing interface pattern.
+- **Multi-tenancy:** every table has `companyId`; every query filters by `user.activeCompanyId`. No exceptions.
+- **Roles:** connect/disconnect is `admin` only. Use existing role-check helpers.
+- **Stack:** Express + Drizzle + Postgres; React 18 + Tailwind + shadcn/ui + TanStack Query v5 + i18next (en + es). **No new npm dependencies** — implement OAuth with plain `fetch` and Node `crypto` (the QBO OAuth2 endpoints are simple POSTs; do not add `intuit-oauth`).
+
+## Schema
+
+### New table: `qbo_connections`
+
+```ts
+export const qboConnections = pgTable("qbo_connections", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  companyId: varchar("company_id").notNull().references(() => companies.id, { onDelete: "cascade" }).unique(),
+  realmId: varchar("realm_id").notNull(),
+  environment: text("environment").notNull().$type<"sandbox" | "production">(),
+  accessTokenEnc: text("access_token_enc").notNull(),
+  refreshTokenEnc: text("refresh_token_enc").notNull(),
+  accessTokenExpiresAt: timestamp("access_token_expires_at").notNull(),
+  refreshTokenExpiresAt: timestamp("refresh_token_expires_at").notNull(),
+  status: text("status").notNull().$type<"connected" | "expired" | "revoked" | "error">().default("connected"),
+  lastErrorMessage: text("last_error_message"),
+  qboCompanyName: text("qbo_company_name"),
+  connectedById: varchar("connected_by_id").references(() => users.id, { onDelete: "set null" }),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  updatedAt: timestamp("updated_at").notNull().defaultNow(),
+});
+```
+
+Insert schema + types per convention. Migration file numbered per `.migration-backup/migrations/` convention.
+
+## Server
+
+### 1. Token encryption — `artifacts/api-server/src/services/qboCrypto.ts`
+
+AES-256-GCM via Node `crypto`, key from `QBO_TOKEN_ENC_KEY`. Store as `iv:ciphertext:authTag` (hex or base64). Export `encryptToken(plain): string` / `decryptToken(enc): string`. Unit-test round-trip + tamper detection (bad auth tag throws).
+
+### 2. QBO client service — `artifacts/api-server/src/services/qboClient.ts`
+
+The single choke point for all QBO API access, used by every later slice.
+
+- `getAuthorizeUrl(state)` → `https://appcenter.intuit.com/connect/oauth2` with `client_id`, `scope=com.intuit.quickbooks.accounting`, `redirect_uri`, `response_type=code`, `state`.
+- `exchangeCodeForTokens(code, realmId)` / `refreshTokens(connection)` → POST `https://oauth.platform.intuit.com/oauth2/v1/tokens/bearer` (Basic auth from client id/secret). Persist encrypted tokens + expiries (access ~1h, refresh ~100 days — read from the response fields, don't hard-code).
+- `revoke(connection)` → POST to Intuit's revoke endpoint; then delete the row.
+- `qboRequest(companyId, method, path, body?)` → resolves the company's connection, **auto-refreshes if the access token expires within 5 minutes** (single-flight: concurrent callers must not double-refresh — per-company in-flight promise with a 30s timeout + AbortController so a hung refresh can't wedge the lock), calls `https://{sandbox-}quickbooks.api.intuit.com/v3/company/{realmId}{path}` with `minorversion` pinned. On 401: one refresh + retry, then mark the connection failed and throw a typed error. Base URL from the connection's `environment`.
+- **Refresh-failure classification** (production-proven pattern; implement exactly): parse Intuit's error body — `invalid_grant`/`invalid_refresh_token` → `expired` (stale refresh token); `access_denied`/`authorization_revoked`/`revoked_token` → `revoked`; HTTP 5xx / `server_error` / `temporarily_unavailable` → transient (do NOT change connection status; retry later); other 4xx → `error` (reconnect required). Non-transient categories set `status` + a human-readable `lastErrorMessage` ("Refresh token expired. Please reauthorize QuickBooks."). Transient failures never flip a healthy connection to a broken status.
+- **Background proactive refresh:** a simple interval job (piggyback on an existing scheduler if one exists; otherwise `setInterval` at boot, ~30 min) that runs the proactive refresh for every connected company — so tokens stay fresh even when nobody is using QBO features. Skips connections already in a failed status.
+- `getCompanyInfo(companyId)` → GET `/companyinfo/{realmId}`; used post-connect (store `qboCompanyName`) and by the health check.
+- `isQboWriteEnabled(companyId)` → reads `settings.featureFlags` JSON, returns `!!flags.qbo_write`. Exported for later slices; nothing calls it yet except a unit test.
+
+### 3. Routes — `artifacts/api-server/src/routes/qbo.ts`
+
+- `GET /api/qbo/connection` (admin, office): status view — `{ status, environment, qboCompanyName, realmId, connectedAt, accessTokenExpiresAt, lastErrorMessage }` or `{ status: "not_connected" }`. Never returns tokens.
+- `POST /api/qbo/connect` (admin): generates a random `state`, stores it server-side bound to the session/user + companyId (10-min expiry), returns `{ authorizeUrl }`. Frontend redirects the browser to it.
+- `GET /api/qbo/callback`: validates `state` (reject on mismatch/expiry), exchanges `code` + `realmId`, upserts the company's `qbo_connections` row, fetches CompanyInfo for the display name, then redirects to Settings with `?qbo=connected` (or `?qbo=error&reason=…`).
+- `POST /api/qbo/disconnect` (admin): revoke + delete row.
+- `POST /api/qbo/test` (admin, office): calls `getCompanyInfo`, returns ok/fail — the "Test connection" button.
+
+## Frontend — SettingsPage.tsx
+
+Add a **"QuickBooks Connection"** card adjacent to the existing QuickBooks Write Access toggle (~L1048):
+
+- Not connected: explanation line + "Connect to QuickBooks" button (admin only) → `POST /api/qbo/connect` → `window.location.href = authorizeUrl`.
+- Connected: company name, environment badge (show `sandbox` prominently in amber), status pill (connected / expired / error with `lastErrorMessage`), connected date, "Test connection" and "Disconnect" (confirm dialog) buttons.
+- Handle the `?qbo=connected` / `?qbo=error` return params with a toast, then strip them from the URL.
+- i18next strings (en + es). TanStack Query for the connection state, invalidate on connect/disconnect/test.
+
+## Tests
+
+- qboCrypto round-trip + tamper.
+- Token refresh logic: expired-soon triggers refresh; single-flight under concurrency; 401-refresh-retry path; refresh failure marks status. Mock fetch — no live Intuit calls in tests.
+- State validation on the callback (mismatch and expiry both rejected).
+- `isQboWriteEnabled` reads the JSON flag correctly (missing settings row → false).
+- Route auth: non-admin cannot connect/disconnect; connection view never contains token material.
+
+## Deliverables
+
+- Table + migration; encrypted tokens at rest; connect → consent → callback → connected round-trip working against the sandbox.
+- Auto-refresh with single-flight; health/test endpoint; disconnect with revoke.
+- Settings card with status UI (en + es); typecheck + all tests pass.
+- Short note in the PR/commit description of any deviation from this prompt and why.
