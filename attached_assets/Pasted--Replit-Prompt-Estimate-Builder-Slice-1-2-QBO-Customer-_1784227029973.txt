@@ -1,0 +1,96 @@
+# Replit Prompt — Estimate Builder, Slice 1.2: QBO Customer Pull + Binding UI
+
+## Context
+
+Slice 1.1 gave each company a QuickBooks OAuth connection and a `qboClient` service. **This slice binds CRM customers to QBO customers by immutable QBO `Id`** — the prerequisite for ever pushing an invoice. Customer data in the two systems is currently messy and unlinked; the design decision (spec §6) is that binding happens in an admin matching screen inside the CRM, against the QBO API directly.
+
+Deployable end state: an admin opens a "QuickBooks Customers" mapping screen, pulls the QBO customer list, sees CRM customers with suggested QBO matches, confirms bindings one by one (or unbinds), and can see at a glance which active customers remain unbound. **Read-only against QBO** — no writes to QuickBooks in this slice (creating QBO customers from the CRM is Slice 1.3).
+
+This slice should land in a deployable, production-quality state. Do not stub anything you say you've built.
+
+## Existing context (do not duplicate or replace)
+
+- **Slice 1.1 artifacts:** `qbo_connections` table, `qboClient.ts` (`qboRequest`, auto-refresh), routes module `artifacts/api-server/src/routes/qbo.ts`. Extend these; do not fork.
+- **Customers table** (`lib/db/src/schema/schema.ts` ~L104): no QBO fields, no email column (emails live on the separate `contacts` table). Has `name`, `street/city/state/zip`, `status` (active/prospect/inactive), parent/child (`parentCustomerId`, `isParent`), and a `pg_trgm` GIN index on `lower(name)` (`customers_name_trgm_idx`) — the extension is already installed; reuse it for match suggestions.
+- **Schema conventions:** canonical `lib/db/src/schema/schema.ts`, mirror in `artifacts/highplains-crm/src/shared/schema.ts`, numbered migration in `.migration-backup/migrations/`.
+- **Multi-tenancy:** every table has `companyId`; filter by `user.activeCompanyId` everywhere.
+- **Roles:** the mapping screen is `admin` + `office`.
+- **Stack:** as Slice 1.1. No new dependencies.
+- QBO query API: `GET /query?query=SELECT * FROM Customer WHERE Active IN (true,false) STARTPOSITION n MAXRESULTS 1000` — page until exhausted; QBO caps at 1000/page.
+
+## Schema
+
+### 1. `customers` additions
+
+- `qboCustomerId` — varchar, nullable. **Partial unique index** on (`companyId`, `qboCustomerId`) where not null (two CRM customers must not bind to the same QBO customer).
+- `qboDisplayName` — text, nullable. Snapshot of the bound QBO customer's DisplayName at bind/refresh time (display only — the Id is the binding).
+- `qboSyncedAt` — timestamp, nullable.
+
+Update `insertCustomerSchema` with `.nullable().optional()` for all three.
+
+### 2. New table: `qbo_customer_cache` — the "Full Customer List"
+
+This table is the company's **Full Customer List**: a local mirror of everything in QuickBooks, browsable in its own right (concept mirrors Randy's IrrigoPro setup). The existing `customers` table is the **Active CRM List** — only customers actually being worked. The two meet through **bind** (link an existing CRM customer to its QBO row) and **promote** (create a new CRM customer *from* a QBO row, born bound). It also powers SQL-side match suggestions without hitting the API per render.
+
+```ts
+export const qboCustomerCache = pgTable("qbo_customer_cache", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  companyId: varchar("company_id").notNull().references(() => companies.id, { onDelete: "cascade" }),
+  qboId: varchar("qbo_id").notNull(),
+  displayName: text("display_name").notNull(),
+  companyName: text("company_name"),
+  email: text("email"),
+  phone: text("phone"),
+  city: text("city"),
+  zip: text("zip"),
+  isActive: boolean("is_active").notNull().default(true),
+  qboSyncToken: varchar("qbo_sync_token"),
+  fetchedAt: timestamp("fetched_at").notNull().defaultNow(),
+}, (table) => ({
+  qboCustomerCacheCompanyQboUniq: uniqueIndex("qbo_customer_cache_company_qbo_idx").on(table.companyId, table.qboId),
+  qboCustomerCacheCompanyIdIdx: index("qbo_customer_cache_company_id_idx").on(table.companyId),
+}));
+```
+
+Add a trigram index on `lower(display_name)` matching the customers-table pattern. The cache is disposable — a re-pull upserts by (`companyId`, `qboId`) and marks rows missing from QBO as `isActive=false`.
+
+## Server (extend `routes/qbo.ts` + storage.ts)
+
+- `POST /api/qbo/customers/pull` (admin, office): pages the full QBO customer list into `qbo_customer_cache` (upsert by qboId; deactivate missing). Also refreshes `qboDisplayName` on already-bound CRM customers whose QBO DisplayName changed, and flags bindings whose QBO customer disappeared or was merged (see stale handling below). Returns `{ pulled, updated, deactivated, staleBindings }`.
+- `GET /api/qbo/customers/mapping?filter=unbound|bound|all&search=…`: rows of CRM customers (company-scoped) with binding state plus **up to 3 suggested matches** each from the cache. Suggestion scoring in SQL: trigram `similarity(lower(customers.name), lower(cache.display_name))` as the base score, small boosts for equal zip and equal city; only suggest unbound cache rows (not already bound to another CRM customer); include the score so the UI can show confidence. Exclude child properties (`parentCustomerId` set) from *requiring* a binding — parent-level binding is the default assumption for QBO billing; child rows still appear, collapsed under the parent, bindable individually when Randy wants property-level QBO customers.
+- `POST /api/qbo/customers/bind` (admin, office): `{ customerId, qboId }` → validates both exist, validates the qboId isn't already bound (partial unique index is the backstop; return a clean 409, not a DB error), sets the three columns. Audit-log via the existing notes/timeline convention if one exists for customers; otherwise a server log line is fine for v1.
+- `POST /api/qbo/customers/unbind` (admin, office): clears the three columns.
+- `POST /api/qbo/customers/promote` (admin, office): `{ qboId, overrides? }` → creates a new CRM customer from the cache row, pre-bound (`qboCustomerId` set at insert). The `customers` table requires `street/city/state/zip` and QBO's BillAddr may be incomplete — the endpoint accepts `overrides` for any customer field so the UI can collect missing required fields before creating. New customer defaults: `status: "prospect"`, `customerType: "commercial"`. Rejects (409) if the qboId is already bound. IrrigoPro-style non-destructive refresh applies afterward: future pulls update `qboDisplayName` but never overwrite CRM-edited fields.
+- `GET /api/qbo/customers/unbound-count`: `{ activeUnbound }` — used for the Settings/summary badge.
+- `POST /api/qbo/customers/import-seed` (admin): accepts a CSV upload with columns `customer_name, quickbooks_id` (an export from our IrrigoPro system, where QBO customer bindings were already hand-verified in production). For each row whose `quickbooks_id` exists in `qbo_customer_cache`, attach it as a **top-confidence suggestion** (score 1.0, labeled "verified in IrrigoPro") on the best-matching CRM customer by trigram name similarity. Do NOT auto-bind — CRM and IrrigoPro customer names can differ; the admin confirms each one in the mapping UI like any other suggestion. Rows with no cache hit or no plausible CRM match are returned in the response for manual review.
+
+**Stale-binding handling:** if a pull finds a bound `qboCustomerId` no longer present (deleted/merged in QBO), do NOT clear the binding silently — set the cache row inactive and return it in `staleBindings`; the mapping UI shows these with a "re-bind needed" warning state.
+
+## Frontend
+
+New page `artifacts/highplains-crm/src/pages/QboCustomerMapping.tsx`, route `/dashboard/settings/qbo-customers` (admin + office), linked from the Settings QuickBooks card ("Manage customer mappings" + unbound-count badge). The page has **two tabs reflecting the two-list model**:
+
+**Tab 1 — "Full Customer List" (QBO mirror):** every `qbo_customer_cache` row with its state: `In CRM` (bound — show the linked CRM customer), `Not in CRM` (→ **"Promote to CRM"** action opening a dialog pre-filled from the cache row, with required-address fields editable before create), or inactive-in-QBO. Search + state filter. This is the browsable master list, like IrrigoPro's full QuickBooks customer view.
+
+**Tab 2 — "CRM Customer Matching":** the binding workflow for CRM customers that already exist (the messy-data cleanup):
+
+- Header: "Pull from QuickBooks" button (shows pulled/updated/stale counts as a toast; disabled with tooltip when not connected), last-pulled timestamp, filter tabs (Unbound / Bound / All), search box (reuse the debounced-search pattern used on the customers list page).
+- Table rows: CRM customer (name, city, status chip) → suggestion cells showing up to 3 QBO candidates with name, city/zip, and a match-confidence indicator → "Bind" per suggestion, plus a manual picker (searchable dropdown over the cache) for when no suggestion is right → bound rows show the QBO name + "Unbind".
+- Stale bindings render with a warning state and a "Re-bind" action.
+- Empty states: not connected → prompt to connect in Settings; connected but never pulled → prompt to pull.
+- i18next (en + es); TanStack Query with invalidation after pull/bind/unbind.
+
+## Tests
+
+- Pull pagination (mock fetch: 2+ pages), upsert-and-deactivate behavior, stale-binding detection (bound id missing from pull).
+- Suggestion scoring: exact-name match ranks first; zip boost applies; already-bound cache rows are never suggested.
+- Bind: happy path; 409 on double-bind of the same qboId; unbind clears all three columns.
+- Promote: creates a pre-bound CRM customer with overrides applied; 409 when qboId already bound; required-field validation when BillAddr is incomplete and no override given.
+- Role gates on all five endpoints; company scoping (customer from another company → 404).
+
+## Deliverables
+
+- Schema additions + cache table + migration.
+- Pull, mapping-with-suggestions, bind/unbind, stale detection endpoints; storage methods per existing pattern.
+- Mapping page wired end-to-end (en + es); Settings link + unbound badge.
+- Typecheck + all tests pass; deviations documented.

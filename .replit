@@ -71,3 +71,9 @@ externalPort = 3000
 
 [nix]
 channel = "stable-25_05"
+
+[userenv]
+
+[userenv.shared]
+QBO_REDIRECT_URI = "https://app.highplainsprop.com/api/qbo/callback"
+QBO_ENVIRONMENT = "sandbox"
