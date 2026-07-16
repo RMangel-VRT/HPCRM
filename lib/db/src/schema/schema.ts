@@ -3758,3 +3758,37 @@ export const insertPlantPaletteItemSchema = createInsertSchema(plantPaletteItems
 
 export type InsertPlantPaletteItem = z.infer<typeof insertPlantPaletteItemSchema>;
 export type PlantPaletteItem = typeof plantPaletteItems.$inferSelect;
+
+// ── QuickBooks Online OAuth Connection ─────────────────────────────────────────
+export const qboConnections = pgTable("qbo_connections", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  companyId: varchar("company_id").notNull().references(() => companies.id, { onDelete: "cascade" }).unique(),
+  realmId: text("realm_id").notNull(),
+  accessTokenEnc: text("access_token_enc").notNull(),
+  refreshTokenEnc: text("refresh_token_enc").notNull(),
+  tokenExpiresAt: timestamp("token_expires_at").notNull(),
+  refreshTokenExpiresAt: timestamp("refresh_token_expires_at"),
+  status: text("status").notNull().$type<"connected" | "expired" | "revoked" | "error">().default("connected"),
+  companyName: text("company_name"),
+  environment: text("environment").notNull().$type<"sandbox" | "production">().default("production"),
+  lastErrorMessage: text("last_error_message"),
+  connectedAt: timestamp("connected_at").notNull().defaultNow(),
+  updatedAt: timestamp("updated_at").notNull().defaultNow(),
+}, (table) => ({
+  qboConnectionsCompanyIdIdx: index("qbo_connections_company_id_idx").on(table.companyId),
+}));
+
+export const insertQboConnectionSchema = createInsertSchema(qboConnections).omit({
+  id: true,
+  connectedAt: true,
+  updatedAt: true,
+}).extend({
+  status: z.enum(["connected", "expired", "revoked", "error"]).default("connected"),
+  environment: z.enum(["sandbox", "production"]).default("production"),
+  companyName: z.string().nullable().optional(),
+  lastErrorMessage: z.string().nullable().optional(),
+  refreshTokenExpiresAt: z.date().nullable().optional(),
+});
+
+export type InsertQboConnection = z.infer<typeof insertQboConnectionSchema>;
+export type QboConnection = typeof qboConnections.$inferSelect;

@@ -6,6 +6,7 @@ import { registerRoutes } from "./routes/routes";
 import { requeueInterruptedBackfills } from "./services/mailboxBackfillService";
 import { startPlantSyncScheduler } from "./lib/plantSync";
 import { startPlantEnrichmentScheduler } from "./lib/plantEnrichment";
+import { startQboProactiveRefresh } from "./services/qboClient";
 
 async function warnIfSchemaDrift(): Promise<void> {
   try {
@@ -48,6 +49,7 @@ registerRoutes(app)
       void requeueInterruptedBackfills();
       startPlantSyncScheduler();
       startPlantEnrichmentScheduler();
+      startQboProactiveRefresh();
     });
   })
   .catch((err) => {

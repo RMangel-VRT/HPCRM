@@ -20,10 +20,10 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
 import { Textarea } from "@/components/ui/textarea";
-import { Building2, User, Plus, Pencil, Trash2, X, Phone, Mail, Copy, FileText, Eye, AlertTriangle } from "lucide-react";
+import { Building2, User, Plus, Pencil, Trash2, X, Phone, Mail, Copy, FileText, Eye, AlertTriangle, CheckCircle, XCircle, Clock, Loader2 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest, queryClient } from "@/lib/queryClient";
-import type { Settings, PropertyManagementCompany, PropertyManager, PropertyManagerEmail, PropertyManagerPhone, PropertyManagerWithContacts } from "@shared/schema";
+import type { Settings, PropertyManagementCompany, PropertyManager, PropertyManagerEmail, PropertyManagerPhone, PropertyManagerWithContacts, QboConnectionStatus } from "@shared/schema";
 import ServicePlanTemplatesAdmin from "@/components/ServicePlanTemplatesAdmin";
 import ChemicalProductsAdmin from "@/components/ChemicalProductsAdmin";
 import CrewsAdmin from "@/pages/CrewsAdmin";
@@ -170,6 +170,75 @@ export default function SettingsPage() {
     queryKey: ["/api/email-rules"],
     enabled: isAdmin === true,
   });
+
+  // QBO connection
+  const { data: qboStatus, refetch: refetchQboStatus } = useQuery<QboConnectionStatus>({
+    queryKey: ["/api/qbo/connection"],
+    enabled: isAdmin === true,
+  });
+
+  const [qboTesting, setQboTesting] = useState(false);
+
+  const qboConnectMutation = useMutation({
+    mutationFn: async () => {
+      const data = await apiRequest("POST", "/api/qbo/connect");
+      return data as { authorizeUrl: string };
+    },
+    onSuccess: ({ authorizeUrl }) => {
+      window.location.href = authorizeUrl;
+    },
+    onError: (err: Error) => {
+      toast({ title: err.message || t("settings.qbo.oauthError"), variant: "destructive" });
+    },
+  });
+
+  const qboDisconnectMutation = useMutation({
+    mutationFn: async () => {
+      await apiRequest("POST", "/api/qbo/disconnect");
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/qbo/connection"] });
+      toast({ title: t("settings.qbo.statusNotConnected") });
+    },
+    onError: () => {
+      toast({ title: "Failed to disconnect QuickBooks", variant: "destructive" });
+    },
+  });
+
+  const handleQboTest = async () => {
+    setQboTesting(true);
+    try {
+      const result = await apiRequest("POST", "/api/qbo/test") as { ok: boolean; companyName?: string; error?: string };
+      if (result.ok) {
+        toast({ title: `${t("settings.qbo.testOk")}${result.companyName ? ` — ${result.companyName}` : ""}` });
+        void refetchQboStatus();
+      } else {
+        toast({ title: `${t("settings.qbo.testFail")}: ${result.error ?? "Unknown error"}`, variant: "destructive" });
+      }
+    } catch {
+      toast({ title: t("settings.qbo.testFail"), variant: "destructive" });
+    } finally {
+      setQboTesting(false);
+    }
+  };
+
+  // Handle OAuth redirect params (?qbo=connected or ?qbo=error&reason=...)
+  useEffect(() => {
+    const searchPart = location.includes("?") ? location.split("?")[1] : "";
+    const params = new URLSearchParams(searchPart);
+    const qboParam = params.get("qbo");
+    if (!qboParam) return;
+    if (qboParam === "connected") {
+      toast({ title: t("settings.qbo.oauthSuccess") });
+      void refetchQboStatus();
+    } else if (qboParam === "error") {
+      const reason = params.get("reason") ?? "unknown";
+      toast({ title: `${t("settings.qbo.oauthError")}: ${reason}`, variant: "destructive" });
+    }
+    // Clean up URL params without full reload
+    const cleanPath = location.split("?")[0];
+    navigate(cleanPath, { replace: true });
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   const updateTemplateMutation = useMutation({
     mutationFn: async ({ id, data }: { id: string; data: any }) => {
@@ -1057,6 +1126,101 @@ export default function SettingsPage() {
                   data-testid="switch-qbo-write"
                   disabled
                 />
+              </div>
+
+              <Separator />
+
+              {/* QBO Connection Card */}
+              <div className="space-y-3" data-testid="qbo-connection-section">
+                <div>
+                  <p className="text-base font-medium">{t("settings.qbo.sectionTitle")}</p>
+                  <p className="text-sm text-muted-foreground">{t("settings.qbo.sectionDesc")}</p>
+                </div>
+
+                {qboStatus && qboStatus.status !== "not_connected" ? (
+                  <div className="rounded-md border p-4 space-y-3">
+                    <div className="flex items-center gap-2">
+                      {qboStatus.status === "connected" ? (
+                        <CheckCircle className="h-4 w-4 text-green-600" />
+                      ) : qboStatus.status === "expired" ? (
+                        <Clock className="h-4 w-4 text-amber-500" />
+                      ) : (
+                        <XCircle className="h-4 w-4 text-destructive" />
+                      )}
+                      <span className="text-sm font-medium" data-testid="qbo-status-text">
+                        {qboStatus.status === "connected"
+                          ? t("settings.qbo.statusConnected")
+                          : qboStatus.status === "expired"
+                          ? t("settings.qbo.statusExpired")
+                          : qboStatus.status === "revoked"
+                          ? t("settings.qbo.statusRevoked")
+                          : t("settings.qbo.statusError")}
+                      </span>
+                    </div>
+                    {qboStatus.companyName && (
+                      <p className="text-sm text-muted-foreground">
+                        <span className="font-medium">{t("settings.qbo.companyLabel")}</span> {qboStatus.companyName}
+                      </p>
+                    )}
+                    {qboStatus.environment && (
+                      <p className="text-sm text-muted-foreground">
+                        <span className="font-medium">{t("settings.qbo.environmentLabel")}</span>{" "}
+                        {qboStatus.environment === "sandbox"
+                          ? t("settings.qbo.environmentSandbox")
+                          : t("settings.qbo.environmentProduction")}
+                      </p>
+                    )}
+                    {qboStatus.connectedAt && (
+                      <p className="text-sm text-muted-foreground">
+                        <span className="font-medium">{t("settings.qbo.connectedAt")}</span>{" "}
+                        {new Date(qboStatus.connectedAt).toLocaleDateString()}
+                      </p>
+                    )}
+                    {qboStatus.lastErrorMessage && (
+                      <p className="text-sm text-destructive">
+                        <span className="font-medium">{t("settings.qbo.errorLabel")}</span> {qboStatus.lastErrorMessage}
+                      </p>
+                    )}
+                    <div className="flex gap-2 flex-wrap">
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={handleQboTest}
+                        disabled={qboTesting || qboStatus.status !== "connected"}
+                        data-testid="button-qbo-test"
+                      >
+                        {qboTesting ? (
+                          <><Loader2 className="mr-1 h-3 w-3 animate-spin" />{t("settings.qbo.testing")}</>
+                        ) : (
+                          t("settings.qbo.testBtn")
+                        )}
+                      </Button>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => {
+                          if (window.confirm(t("settings.qbo.disconnectConfirm"))) {
+                            qboDisconnectMutation.mutate();
+                          }
+                        }}
+                        disabled={qboDisconnectMutation.isPending}
+                        data-testid="button-qbo-disconnect"
+                      >
+                        {qboDisconnectMutation.isPending ? t("settings.qbo.disconnecting") : t("settings.qbo.disconnectBtn")}
+                      </Button>
+                    </div>
+                  </div>
+                ) : (
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => qboConnectMutation.mutate()}
+                    disabled={qboConnectMutation.isPending}
+                    data-testid="button-qbo-connect"
+                  >
+                    {qboConnectMutation.isPending ? t("settings.qbo.connecting") : t("settings.qbo.connectBtn")}
+                  </Button>
+                )}
               </div>
 
               <div className="flex justify-end">

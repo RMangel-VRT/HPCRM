@@ -17441,6 +17441,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.use("/api/mailbox-accounts", mailboxAccountsRouter);
   app.use("/api/unsorted-emails", unsortedEmailsRouter);
 
+  // ─── QuickBooks Online ────────────────────────────────────────────────────────
+  const qboRouter = (await import("./qbo")).default;
+  app.use("/api/qbo", qboRouter);
+
   // ─── Chemical Products CRUD ──────────────────────────────────────────────────
 
   app.get("/api/chemical-products", async (req, res) => {

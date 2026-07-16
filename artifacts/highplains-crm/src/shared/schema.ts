@@ -3379,3 +3379,31 @@ export interface PlantPaletteWithItems extends PlantPalette {
   items: PlantPaletteItem[];
   customerName?: string | null;
 }
+
+// ==================== QBO CONNECTION ====================
+
+export interface QboConnection {
+  id: string;
+  companyId: string;
+  realmId: string;
+  accessTokenEnc: string;
+  refreshTokenEnc: string;
+  tokenExpiresAt: string;
+  refreshTokenExpiresAt: string | null;
+  status: "connected" | "expired" | "revoked" | "error";
+  companyName: string | null;
+  environment: "sandbox" | "production";
+  lastErrorMessage: string | null;
+  connectedAt: string;
+  updatedAt: string;
+}
+
+export interface QboConnectionStatus {
+  status: "not_connected" | "connected" | "expired" | "revoked" | "error";
+  realmId?: string;
+  companyName?: string | null;
+  environment?: "sandbox" | "production";
+  lastErrorMessage?: string | null;
+  connectedAt?: string;
+  updatedAt?: string;
+}
