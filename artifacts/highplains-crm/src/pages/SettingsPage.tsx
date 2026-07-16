@@ -29,6 +29,7 @@ import ChemicalProductsAdmin from "@/components/ChemicalProductsAdmin";
 import CrewsAdmin from "@/pages/CrewsAdmin";
 import WorkItemTemplatesAdmin from "@/components/WorkItemTemplatesAdmin";
 import MigrationsAdmin from "@/components/MigrationsAdmin";
+import { qboConnectMutationFn } from "@/pages/qboApi";
 
 interface ManagerEmailInput {
   email: string;
@@ -180,10 +181,7 @@ export default function SettingsPage() {
   const [qboTesting, setQboTesting] = useState(false);
 
   const qboConnectMutation = useMutation({
-    mutationFn: async () => {
-      const data = await apiRequest("POST", "/api/qbo/connect");
-      return data as { authorizeUrl: string };
-    },
+    mutationFn: qboConnectMutationFn,
     onSuccess: ({ authorizeUrl }) => {
       window.location.href = authorizeUrl;
     },
@@ -208,7 +206,8 @@ export default function SettingsPage() {
   const handleQboTest = async () => {
     setQboTesting(true);
     try {
-      const result = await apiRequest("POST", "/api/qbo/test") as { ok: boolean; companyName?: string; error?: string };
+      const res = await apiRequest("POST", "/api/qbo/test");
+      const result = (await res.json()) as { ok: boolean; companyName?: string; error?: string };
       if (result.ok) {
         toast({ title: `${t("settings.qbo.testOk")}${result.companyName ? ` — ${result.companyName}` : ""}` });
         void refetchQboStatus();
