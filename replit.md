@@ -77,6 +77,22 @@ If you reverse this order, the schema-drift / required-extensions validation wil
 - **Mobile demo seed:** `pnpm --filter @workspace/scripts run seed-mobile-test-user` provisions a fully populated `crew_supervisor` test user against `DATABASE_URL` (dev only). Idempotent — re-running refreshes today's tickets so the demo always has a clean day. Test credentials it provisions: `mobile-test@highplainsprop.com` / `Soccer03` (role `crew_supervisor`, "Test Crew", 6 seeded customers, ~6 stops on the Today tab).
 - **Randy demo seed (preferred for live demos):** `pnpm --filter @workspace/scripts run seed-randy` does the same thing for Randy (`randy@highplainsprop.com`, existing password unchanged) — provisions "Randy's Crew", 6 customers tagged `randy-demo-seed`, and ~6 stops on the Today tab. Same idempotency + prod-safety guard as above. Fails loudly if Randy's user row doesn't exist (his account is provisioned separately and shouldn't be re-created by a seed). Randy is the preferred demo account when showing the mobile app to Mike.
 
+## QuickBooks Online (QBO) integration
+
+The QBO integration requires five secrets. Add them in Replit (Tools → Secrets) and then **republish** — secrets are read at boot, so a running deployment won't see additions until it restarts.
+
+| Secret name | Where to get it |
+|---|---|
+| `QBO_CLIENT_ID` | Your app's Client ID on [developer.intuit.com](https://developer.intuit.com) → My Apps → Keys & OAuth |
+| `QBO_CLIENT_SECRET` | Same page as above |
+| `QBO_REDIRECT_URI` | Your deployed app URL + `/api/qbo/callback` — e.g. `https://your-app.replit.app/api/qbo/callback` |
+| `QBO_ENVIRONMENT` | `sandbox` (for testing against a QBO sandbox company) or `production` (live QBO) |
+| `QBO_TOKEN_ENC_KEY` | A random 64-character hex string — generate with `openssl rand -hex 32` in any terminal |
+
+If the Connect button shows a 503 toast in production, the deployment is missing one or more of these. The server logs the exact missing names: look in the deployment logs for a line like `QBO env vars missing: QBO_TOKEN_ENC_KEY`. Add the missing ones in Secrets and republish.
+
+**Replit Secrets sync to deployments automatically** — you do not need to re-enter them in a separate "deployment secrets" pane. Adding a secret to the workspace + republishing is sufficient.
+
 ## User preferences
 
 - Keep the existing `apiRequest` fetch layer — do not introduce OpenAPI/Orval codegen for the CRM frontend
