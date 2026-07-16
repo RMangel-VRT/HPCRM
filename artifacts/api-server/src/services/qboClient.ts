@@ -298,7 +298,8 @@ export async function qboRequest(
   if (!accessToken) throw new Error("Cannot decrypt QBO access token");
 
   const base = getQboApiBase(freshConn.environment);
-  const url = `${base}/${freshConn.realmId}${path}?minorversion=${QBO_MINOR_VERSION}`;
+  const sep = path.includes("?") ? "&" : "?";
+  const url = `${base}/${freshConn.realmId}${path}${sep}minorversion=${QBO_MINOR_VERSION}`;
 
   const headers: Record<string, string> = {
     Authorization: `Bearer ${accessToken}`,

@@ -513,6 +513,46 @@ describe("ensureFreshToken single-flight", () => {
   });
 });
 
+// ── qboRequest URL separator ───────────────────────────────────────────────────
+describe("qboRequest URL separator", () => {
+  function mockConnRow() {
+    return {
+      companyId: "c1",
+      realmId: "r1",
+      accessTokenEnc: "enc:acc123:tag",
+      refreshTokenEnc: "enc:ref456:tag",
+      tokenExpiresAt: new Date(Date.now() + 60 * 60 * 1000),
+      refreshTokenExpiresAt: null,
+      status: "connected" as const,
+      environment: "sandbox" as const,
+      companyName: null,
+      lastErrorMessage: null,
+      connectedAt: new Date(),
+      updatedAt: new Date(),
+    };
+  }
+
+  it("appends ?minorversion= for a plain path (no existing query string)", async () => {
+    (db.select as ReturnType<typeof vi.fn>).mockReturnValue(makeSelectChain([mockConnRow()]));
+    mockFetch.mockResolvedValue({ ok: true, status: 200, json: async () => ({}) });
+    const { qboRequest } = await import("./qboClient");
+    await qboRequest("c1", "GET", "/companyinfo/r1");
+    const [callUrl] = mockFetch.mock.calls[0] as [string];
+    expect(callUrl).toContain("?minorversion=");
+    expect(callUrl).not.toContain("??");
+  });
+
+  it("appends &minorversion= for a path that already has a query string", async () => {
+    (db.select as ReturnType<typeof vi.fn>).mockReturnValue(makeSelectChain([mockConnRow()]));
+    mockFetch.mockResolvedValue({ ok: true, status: 200, json: async () => ({}) });
+    const { qboRequest } = await import("./qboClient");
+    await qboRequest("c1", "GET", "/query?query=SELECT * FROM Customer");
+    const [callUrl] = mockFetch.mock.calls[0] as [string];
+    expect(callUrl).toContain("&minorversion=");
+    expect(callUrl).not.toContain("??");
+  });
+});
+
 // ── Connection response does not leak encrypted fields ─────────────────────────
 describe("GET /api/qbo/connection token-field exclusion", () => {
   it("safePublicConn-equivalent: encrypted token fields are excluded", () => {
