@@ -124,15 +124,6 @@ router.post("/connect", async (req, res) => {
       req.session.save((err) => (err ? reject(err) : resolve()))
     );
     const authorizeUrl = getAuthorizeUrl(state);
-    logger.info(
-      {
-        clientIdPrefix: process.env.QBO_CLIENT_ID?.slice(0, 8),
-        environment: process.env.QBO_ENVIRONMENT,
-        redirectUri: process.env.QBO_REDIRECT_URI,
-        authorizeUrlPrefix: authorizeUrl.slice(0, 120),
-      },
-      "QBO connect debug"
-    );
     res.json({ authorizeUrl });
   } catch (err) {
     logger.error({ err }, "POST /api/qbo/connect error");
