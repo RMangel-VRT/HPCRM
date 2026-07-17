@@ -22,6 +22,8 @@ import AppBreadcrumb from "@/components/AppBreadcrumb";
 import NotificationsDropdown from "@/components/NotificationsDropdown";
 import LoginPage from "@/pages/LoginPage";
 import SetupPage from "@/pages/SetupPage";
+import EulaPage from "@/pages/EulaPage";
+import PrivacyPolicyPage from "@/pages/PrivacyPolicyPage";
 
 const AccessDenied = lazy(() => import("@/pages/AccessDenied"));
 const Dashboard = lazy(() => import("@/pages/Dashboard"));
@@ -146,6 +148,7 @@ function Router() {
     !/^\/dashboard\/customers\/map(\/|$)/.test(location);
 
   const prefersReducedMotion = usePrefersReducedMotion();
+
   const prevIsCustomerDetailRef = useRef(isCustomerDetail);
   const [phantomRailVisible, setPhantomRailVisible] = useState(false);
   const [phantomRailCollapsed, setPhantomRailCollapsed] = useState(false);
@@ -188,6 +191,9 @@ function Router() {
       return () => clearTimeout(timer);
     }
   }, [isAppLoading, showLoadingScreen]);
+
+  if (location === "/legal/eula") return <EulaPage />;
+  if (location === "/legal/privacy") return <PrivacyPolicyPage />;
 
   const FIELD_APP_ROLES = ["field_manager", "chemical_manager", "irrigation_manager", "shop_manager", "landscape_supervisor"] as const;
   type FieldAppRole = typeof FIELD_APP_ROLES[number];
@@ -444,6 +450,8 @@ function Router() {
           content = (
             <Switch>
               <Route path="/login" component={LoginPage} />
+              <Route path="/legal/eula" component={EulaPage} />
+              <Route path="/legal/privacy" component={PrivacyPolicyPage} />
               <Route>
                 <Redirect to="/login" />
               </Route>
@@ -476,6 +484,8 @@ function Router() {
     return (
       <Switch>
         <Route path="/login" component={LoginPage} />
+        <Route path="/legal/eula" component={EulaPage} />
+        <Route path="/legal/privacy" component={PrivacyPolicyPage} />
         <Route>
           <Redirect to="/login" />
         </Route>
