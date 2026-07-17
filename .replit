@@ -76,4 +76,4 @@ channel = "stable-25_05"
 
 [userenv.shared]
 QBO_REDIRECT_URI = "https://app.highplainsprop.com/api/qbo/callback"
-QBO_ENVIRONMENT = "sandbox"
+QBO_ENVIRONMENT = "production"
