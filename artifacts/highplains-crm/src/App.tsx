@@ -80,6 +80,7 @@ const PlantLibrary = lazy(() => import("@/pages/PlantLibrary"));
 const PlantMatches = lazy(() => import("@/pages/PlantMatches"));
 const PlantPalettes = lazy(() => import("@/pages/PlantPalettes"));
 const PlantPaletteDraft = lazy(() => import("@/pages/PlantPaletteDraft"));
+const QboCustomerMapping = lazy(() => import("@/pages/QboCustomerMapping"));
 
 interface ErrorBoundaryProps {
   children: ReactNode;
@@ -350,6 +351,7 @@ function Router() {
         </Route>
         <ProtectedRoute path="/dashboard/settings/my-mailbox" component={MyMailboxPage} />
         <ProtectedRoute path="/dashboard/settings/notification-templates" component={ChemicalNotificationTemplates} allowedRoles={["admin"]} />
+        <ProtectedRoute path="/dashboard/settings/qbo-customers" component={QboCustomerMapping} allowedRoles={["admin", "office"]} />
         <ProtectedRoute path="/dashboard/settings/crews" component={SettingsPage} allowedRoles={["admin", "office"]} />
         <ProtectedRoute path="/dashboard/reports" component={ReportsPage} allowedRoles={["admin", "office"]} />
         <ProtectedRoute path="/dashboard/users" component={UsersPage} allowedRoles={["admin"]} />

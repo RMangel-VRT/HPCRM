@@ -178,6 +178,12 @@ export default function SettingsPage() {
     enabled: isAdmin === true,
   });
 
+  // QBO unbound-count badge — only fetch when connected so we don't show stale counts
+  const { data: qboUnboundData } = useQuery<{ activeUnbound: number }>({
+    queryKey: ["/api/qbo/customers/unbound-count"],
+    enabled: isAdmin === true && qboStatus?.status === "connected",
+  });
+
   const [qboTesting, setQboTesting] = useState(false);
 
   const qboConnectMutation = useMutation({
@@ -1221,6 +1227,25 @@ export default function SettingsPage() {
                   </Button>
                 )}
               </div>
+
+              {qboStatus && qboStatus.status === "connected" && (
+                <div className="rounded-md border p-4 flex items-center justify-between">
+                  <div>
+                    <p className="text-sm font-medium">{t("settings.qbo.manageCustomersTitle")}</p>
+                    <p className="text-sm text-muted-foreground">{t("settings.qbo.manageCustomersDesc")}</p>
+                  </div>
+                  <Link href="/dashboard/settings/qbo-customers">
+                    <Button variant="outline" size="sm" className="shrink-0 gap-2" data-testid="button-qbo-manage-customers">
+                      {t("settings.qbo.manageCustomersBtn")}
+                      {typeof qboUnboundData?.activeUnbound === "number" && qboUnboundData.activeUnbound > 0 && (
+                        <span className="ml-1 rounded-full bg-destructive text-destructive-foreground text-xs px-1.5 py-0.5 leading-none">
+                          {qboUnboundData.activeUnbound}
+                        </span>
+                      )}
+                    </Button>
+                  </Link>
+                </div>
+              )}
 
               <div className="flex justify-end">
                 <Button

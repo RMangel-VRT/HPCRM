@@ -109,12 +109,20 @@ export const customers = pgTable("customers", {
   locationLat: real("location_lat"),
   locationLng: real("location_lng"),
   ranking: text("ranking").$type<"standard" | "preferred" | "key_account">().notNull().default("standard"),
+  // QBO Slice 1.2: binding columns
+  qboCustomerId: varchar("qbo_customer_id"),
+  qboDisplayName: text("qbo_display_name"),
+  qboSyncedAt: timestamp("qbo_synced_at"),
   createdAt: timestamp("created_at").notNull().defaultNow(),
   updatedAt: timestamp("updated_at").notNull().defaultNow(),
 }, (table) => ({
   customersCompanyIdIdx: index("customers_company_id_idx").on(table.companyId),
   // Trigram index for fast customer-name substring search (requires pg_trgm extension)
   customersNameTrgmIdx: index("customers_name_trgm_idx").using("gin", sql`lower(name) gin_trgm_ops`),
+  // Partial unique index: one CRM customer per QBO customer ID (NULLs excluded)
+  customersQboCustomerIdUniq: uniqueIndex("customers_qbo_customer_id_uniq")
+    .on(table.companyId, table.qboCustomerId)
+    .where(sql`qbo_customer_id IS NOT NULL`),
 }));
 
 export const insertCustomerSchema = createInsertSchema(customers).omit({
@@ -137,6 +145,9 @@ export const insertCustomerSchema = createInsertSchema(customers).omit({
   locationLat: z.number().nullable().optional(),
   locationLng: z.number().nullable().optional(),
   ranking: z.enum(["standard", "preferred", "key_account"]).default("standard"),
+  qboCustomerId: z.string().nullable().optional(),
+  qboDisplayName: z.string().nullable().optional(),
+  qboSyncedAt: z.date().nullable().optional(),
 });
 
 export type InsertCustomer = z.infer<typeof insertCustomerSchema>;
@@ -3379,6 +3390,97 @@ export interface PlantPaletteWithItems extends PlantPalette {
   items: PlantPaletteItem[];
   customerName?: string | null;
 }
+
+// ==================== QBO CUSTOMER CACHE ====================
+
+export interface QboCustomerCache {
+  id: string;
+  companyId: string;
+  qboId: string;
+  displayName: string;
+  companyName: string | null;
+  email: string | null;
+  phone: string | null;
+  billAddrLine1: string | null;
+  billAddrCity: string | null;
+  billAddrPostalCode: string | null;
+  billAddrCountrySubDivisionCode: string | null;
+  active: boolean;
+  syncedAt: string;
+  seedCustomerId: string | null;
+  seedSource: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export type QboCacheState = "in_crm" | "not_in_crm" | "inactive";
+
+export interface QboCacheRow extends QboCustomerCache {
+  state: QboCacheState;
+  boundCrmCustomerId: string | null;
+  boundCrmCustomerName: string | null;
+}
+
+export interface QboSuggestion {
+  qboId: string;
+  displayName: string;
+  billAddrCity: string | null;
+  billAddrPostalCode: string | null;
+  score: number;
+  verified: boolean;
+}
+
+export interface QboMappingRow {
+  customerId: string;
+  customerName: string;
+  customerCity: string;
+  customerZip: string;
+  customerStatus: string;
+  bound: boolean;
+  qboCustomerId: string | null;
+  qboDisplayName: string | null;
+  qboSyncedAt: string | null;
+  stale: boolean;
+  suggestions: QboSuggestion[];
+}
+
+export interface QboPullResult {
+  pulled: number;
+  inserted: number;
+  updated: number;
+  deactivated: number;
+  staleBindings: number;
+  lastPulledAt: string;
+}
+
+// ==================== QBO CUSTOMER CACHE ====================
+
+export const qboCustomerCache = pgTable("qbo_customer_cache", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  companyId: varchar("company_id").notNull().references(() => companies.id, { onDelete: "cascade" }),
+  qboId: text("qbo_id").notNull(),
+  displayName: text("display_name").notNull(),
+  companyName: text("company_name"),
+  email: text("email"),
+  phone: text("phone"),
+  billAddrLine1: text("bill_addr_line1"),
+  billAddrCity: text("bill_addr_city"),
+  billAddrPostalCode: text("bill_addr_postal_code"),
+  billAddrCountrySubDivisionCode: text("bill_addr_country_sub_division_code"),
+  active: boolean("active").notNull().default(true),
+  syncedAt: timestamp("synced_at").notNull().defaultNow(),
+  seedCustomerId: varchar("seed_customer_id"),
+  seedSource: text("seed_source"),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  updatedAt: timestamp("updated_at").notNull().defaultNow(),
+}, (table) => ({
+  qboCustomerCacheCompanyQboIdUniq: uniqueIndex("qbo_customer_cache_company_qbo_id_uniq").on(table.companyId, table.qboId),
+  qboCustomerCacheCompanyIdIdx: index("qbo_customer_cache_company_id_idx").on(table.companyId),
+  qboCustomerCacheDisplayNameTrgmIdx: index("qbo_customer_cache_display_name_trgm_idx")
+    .using("gin", sql`lower(display_name) gin_trgm_ops`),
+}));
+
+export type QboCustomerCacheRecord = typeof qboCustomerCache.$inferSelect;
 
 // ==================== QBO CONNECTION ====================
 

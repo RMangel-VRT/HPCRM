@@ -133,12 +133,20 @@ export const customers = pgTable("customers", {
   irrigationControllerLocations: text("irrigation_controller_locations"),
   accessNotes: text("access_notes"),
   watchOutNotes: text("watch_out_notes"),
+  // QBO Slice 1.2: binding columns linking this CRM customer to a QBO customer record.
+  qboCustomerId: varchar("qbo_customer_id"),
+  qboDisplayName: text("qbo_display_name"),
+  qboSyncedAt: timestamp("qbo_synced_at"),
   createdAt: timestamp("created_at").notNull().defaultNow(),
   updatedAt: timestamp("updated_at").notNull().defaultNow(),
 }, (table) => ({
   customersCompanyIdIdx: index("customers_company_id_idx").on(table.companyId),
   // Trigram index for fast customer-name substring search (requires pg_trgm extension)
   customersNameTrgmIdx: index("customers_name_trgm_idx").using("gin", sql`lower(name) gin_trgm_ops`),
+  // Partial unique index: only one CRM customer per QBO customer (ignores NULL bindings)
+  customersQboCustomerIdUniq: uniqueIndex("customers_qbo_customer_id_uniq")
+    .on(table.companyId, table.qboCustomerId)
+    .where(sql`qbo_customer_id IS NOT NULL`),
 }));
 
 export const insertCustomerSchema = createInsertSchema(customers).omit({
@@ -161,6 +169,9 @@ export const insertCustomerSchema = createInsertSchema(customers).omit({
   locationLat: z.number().nullable().optional(),
   locationLng: z.number().nullable().optional(),
   ranking: z.enum(["standard", "preferred", "key_account"]).default("standard"),
+  qboCustomerId: z.string().nullable().optional(),
+  qboDisplayName: z.string().nullable().optional(),
+  qboSyncedAt: z.date().nullable().optional(),
 });
 
 export type InsertCustomer = z.infer<typeof insertCustomerSchema>;
@@ -3758,6 +3769,54 @@ export const insertPlantPaletteItemSchema = createInsertSchema(plantPaletteItems
 
 export type InsertPlantPaletteItem = z.infer<typeof insertPlantPaletteItemSchema>;
 export type PlantPaletteItem = typeof plantPaletteItems.$inferSelect;
+
+// ── QuickBooks Online Customer Cache ───────────────────────────────────────────
+export const qboCustomerCache = pgTable("qbo_customer_cache", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  companyId: varchar("company_id").notNull().references(() => companies.id, { onDelete: "cascade" }),
+  qboId: text("qbo_id").notNull(),
+  displayName: text("display_name").notNull(),
+  companyName: text("company_name"),
+  email: text("email"),
+  phone: text("phone"),
+  billAddrLine1: text("bill_addr_line1"),
+  billAddrCity: text("bill_addr_city"),
+  billAddrPostalCode: text("bill_addr_postal_code"),
+  billAddrCountrySubDivisionCode: text("bill_addr_country_sub_division_code"),
+  active: boolean("active").notNull().default(true),
+  syncedAt: timestamp("synced_at").notNull().defaultNow(),
+  // Seed columns: persist import-seed evidence independently of binding state
+  seedCustomerId: varchar("seed_customer_id").references(() => customers.id, { onDelete: "set null" }),
+  seedSource: text("seed_source"),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  updatedAt: timestamp("updated_at").notNull().defaultNow(),
+}, (table) => ({
+  qboCustomerCacheCompanyQboIdUniq: unique("qbo_customer_cache_company_qbo_id_uniq").on(table.companyId, table.qboId),
+  qboCustomerCacheCompanyIdIdx: index("qbo_customer_cache_company_id_idx").on(table.companyId),
+  // Trigram index for fast display-name matching (requires pg_trgm extension)
+  qboCustomerCacheDisplayNameTrgmIdx: index("qbo_customer_cache_display_name_trgm_idx")
+    .using("gin", sql`lower(display_name) gin_trgm_ops`),
+}));
+
+export const insertQboCustomerCacheSchema = createInsertSchema(qboCustomerCache).omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+}).extend({
+  companyName: z.string().nullable().optional(),
+  email: z.string().nullable().optional(),
+  phone: z.string().nullable().optional(),
+  billAddrLine1: z.string().nullable().optional(),
+  billAddrCity: z.string().nullable().optional(),
+  billAddrPostalCode: z.string().nullable().optional(),
+  billAddrCountrySubDivisionCode: z.string().nullable().optional(),
+  seedCustomerId: z.string().nullable().optional(),
+  seedSource: z.string().nullable().optional(),
+  active: z.boolean().default(true),
+});
+
+export type InsertQboCustomerCache = z.infer<typeof insertQboCustomerCacheSchema>;
+export type QboCustomerCache = typeof qboCustomerCache.$inferSelect;
 
 // ── QuickBooks Online OAuth Connection ─────────────────────────────────────────
 export const qboConnections = pgTable("qbo_connections", {

@@ -20,8 +20,8 @@ export interface MyExtraBillableBatch {
 }
 import { type User, type InsertUser, type Customer, type InsertCustomer, type Contact, type InsertContact, type Company, type InsertCompany, type CompanyUser, type InsertCompanyUser, type Settings, type InsertSettings, type Note, type InsertNote, type Contract, type InsertContract, type ContractStatusHistory, type InsertContractStatusHistory, type ContractDocument, type InsertContractDocument, type ContractMonthlyAmount, type InsertContractMonthlyAmount, type CustomerRateSheet, type InsertCustomerRateSheet, type ContractService, type InsertContractService, type ContractTemplate, type InsertContractTemplate, type ContractBuilderDocument, type InsertContractBuilderDocument, type ContractBuilderSection, type InsertContractBuilderSection, type ContractBuilderVariable, type InsertContractBuilderVariable, type TicketType, type InsertTicketType, type TicketTypeStatus, type InsertTicketTypeStatus, type TicketTypeField, type InsertTicketTypeField, type Ticket, type InsertTicket, type TicketFieldValue, type InsertTicketFieldValue, type TicketStatusHistory, type InsertTicketStatusHistory, type TicketComment, type TicketCommentWithAuthor, type InsertTicketComment, type TicketCommentMention, type InsertTicketCommentMention, type TicketSource, type InsertTicketSource, type TicketLink, type InsertTicketLink, type TicketTypeCategory, type CustomerMapLayer, type InsertCustomerMapLayer, type CustomerMapDocument, type InsertCustomerMapDocument, type MaintenanceCrew, type InsertMaintenanceCrew, type MaintenanceVisitConfig, type InsertMaintenanceVisitConfig, type WeeklyScheduleTemplate, type InsertWeeklyScheduleTemplate, type ScheduleBlock, type InsertScheduleBlock, type TicketNotification, type InsertTicketNotification, type NotificationType, type PropertyManagementCompany, type InsertPropertyManagementCompany, type PropertyManager, type InsertPropertyManager, type PropertyManagerEmail, type InsertPropertyManagerEmail, type PropertyManagerPhone, type InsertPropertyManagerPhone, type PropertyManagerWithContacts, type Equipment, type InsertEquipment, type EquipmentFile, type InsertEquipmentFile, type EquipmentTicket, type InsertEquipmentTicket, type EquipmentTicketStatusHistory, type InsertEquipmentTicketStatusHistory, type EquipmentWithTicketCount, type SnowEvent, type InsertSnowEvent, type SnowEventAttachment, type InsertSnowEventAttachment, type SnowEventPropertyImpact, type InsertSnowEventPropertyImpact, type SnowEventWithDetails, type SnowEventPropertyImpactWithCustomer, type EmailTemplate, type InsertEmailTemplate, type EmailRule, type InsertEmailRule, type EmailLog, type InsertEmailLog, type EmailLogWithDetails, type Proposal, type InsertProposal, type ProposalFile, type InsertProposalFile, type ProposalWithDetails, type ProposalVersion, type InsertProposalVersion, type ProposalVersionWithUser, type VisualScopeSheet, type InsertVisualScopeSheet, type VisualScopeSheetWithCustomer, type Campaign, type InsertCampaign, type CampaignItem, type InsertCampaignItem, type CampaignWithProgress, type Season, type InsertSeason, type CampaignChecklistTask, type InsertCampaignChecklistTask, type CampaignItemTaskCompletion, type InsertCampaignItemTaskCompletion, type CampaignChecklistAuditLog, type InsertCampaignChecklistAuditLog, type CampaignChecklistAuditLogWithUser, type Communication, type InsertCommunication, type CommunicationTemplate, type InsertCommunicationTemplate, type CommunicationThread, type InsertCommunicationThread, type CommunicationLink, type InsertCommunicationLink, type CommunicationWithDetails, type CommunicationAnalytics, type InsertCommunicationAuditLog, type CommunicationAuditLog, type CommunicationAuditLogWithUser, type ChemicalProduct, type InsertChemicalProduct, type ChemicalNotificationTemplate, type InsertChemicalNotificationTemplate, type MailboxBackfillRun, type InsertMailboxBackfillRun } from "@workspace/db";
 import { db } from "./db";
-import { users, customers, contacts, companies, companyUsers, settings, notes, contracts, contractStatusHistory, contractDocuments, contractMonthlyAmounts, customerRateSheets, contractServices, contractTemplates, contractBuilderDocuments, contractBuilderSections, contractBuilderVariables, ticketTypes, ticketTypeStatuses, ticketTypeFields, tickets, ticketFieldValues, ticketStatusHistory, ticketComments, ticketCommentMentions, ticketSources, ticketLinks, customerMapLayers, customerMapDocuments, maintenanceCrews, maintenanceVisitConfigs, weeklyScheduleTemplates, scheduleBlocks, ticketNotifications, propertyManagementCompanies, propertyManagers, propertyManagerEmails, propertyManagerPhones, equipment, equipmentFiles, equipmentTickets, equipmentTicketStatusHistory, snowEvents, snowEventAttachments, snowEventPropertyImpacts, emailTemplates, emailRules, emailLogs, proposals, proposalFiles, proposalVersions, proposalPlantItems, visualScopeSheets, plantPalettes, plantPaletteItems, campaigns, campaignItems, campaignChecklistTasks, campaignItemTaskCompletions, campaignChecklistAuditLog as campaignChecklistAuditLogTable, campaignCrews, campaignCrewMembers, seasons, communications, communicationTemplates, communicationThreads, communicationLinks, communicationAuditLog, communicationAutomationRules, mailboxAccounts, unsortedEmails, servicePlanTemplates, servicePlanTemplateItems, customerServicePlans, stylePresets, sheetTemplates, chemicalProducts, chemicalNotificationTemplates, mailboxBackfillRuns, crewWorksheets, crewWorksheetPhotos, crewWorksheetVersions, crewWorksheetNumberCounters, qboConnections } from "@workspace/db";
-import type { QboConnection, InsertQboConnection } from "@workspace/db";
+import { users, customers, contacts, companies, companyUsers, settings, notes, contracts, contractStatusHistory, contractDocuments, contractMonthlyAmounts, customerRateSheets, contractServices, contractTemplates, contractBuilderDocuments, contractBuilderSections, contractBuilderVariables, ticketTypes, ticketTypeStatuses, ticketTypeFields, tickets, ticketFieldValues, ticketStatusHistory, ticketComments, ticketCommentMentions, ticketSources, ticketLinks, customerMapLayers, customerMapDocuments, maintenanceCrews, maintenanceVisitConfigs, weeklyScheduleTemplates, scheduleBlocks, ticketNotifications, propertyManagementCompanies, propertyManagers, propertyManagerEmails, propertyManagerPhones, equipment, equipmentFiles, equipmentTickets, equipmentTicketStatusHistory, snowEvents, snowEventAttachments, snowEventPropertyImpacts, emailTemplates, emailRules, emailLogs, proposals, proposalFiles, proposalVersions, proposalPlantItems, visualScopeSheets, plantPalettes, plantPaletteItems, campaigns, campaignItems, campaignChecklistTasks, campaignItemTaskCompletions, campaignChecklistAuditLog as campaignChecklistAuditLogTable, campaignCrews, campaignCrewMembers, seasons, communications, communicationTemplates, communicationThreads, communicationLinks, communicationAuditLog, communicationAutomationRules, mailboxAccounts, unsortedEmails, servicePlanTemplates, servicePlanTemplateItems, customerServicePlans, stylePresets, sheetTemplates, chemicalProducts, chemicalNotificationTemplates, mailboxBackfillRuns, crewWorksheets, crewWorksheetPhotos, crewWorksheetVersions, crewWorksheetNumberCounters, qboConnections, qboCustomerCache } from "@workspace/db";
+import type { QboConnection, InsertQboConnection, QboCustomerCache } from "@workspace/db";
 import type { StylePreset, InsertStylePreset, SheetTemplate, InsertSheetTemplate, StylePresetType, StylePresetConfig } from "@workspace/db";
 import type { VisibleMailboxes } from "./services/mailboxScope";
 import type { CommunicationAutomationRule, InsertCommunicationAutomationRule, ServicePlanTemplateWithItems, ServicePlanTemplate, InsertServicePlanTemplate, ServicePlanTemplateItem, ServicePlanCategory, CustomerServicePlan, InsertCustomerServicePlan, ServiceFulfillmentRow } from "@workspace/db";
@@ -5481,6 +5481,473 @@ export class PgStorage implements IStorage {
       .update(qboConnections)
       .set({ status, lastErrorMessage: lastErrorMessage ?? null, updatedAt: new Date() })
       .where(eq(qboConnections.companyId, companyId));
+  }
+
+  // ── QBO Customer Cache ────────────────────────────────────────────────────────
+
+  async upsertQboCustomerCache(
+    companyId: string,
+    rows: Array<{
+      qboId: string;
+      displayName: string;
+      companyName?: string | null;
+      email?: string | null;
+      phone?: string | null;
+      billAddrLine1?: string | null;
+      billAddrCity?: string | null;
+      billAddrPostalCode?: string | null;
+      billAddrCountrySubDivisionCode?: string | null;
+      active: boolean;
+    }>,
+  ): Promise<{ upserted: number; inserted: number; updated: number }> {
+    if (rows.length === 0) return { upserted: 0, inserted: 0, updated: 0 };
+    const now = new Date();
+    const qboIds = rows.map((r) => r.qboId);
+
+    // Count how many incoming IDs already exist so we can report insert vs update
+    const existingRes = await pool.query<{ count: string }>(
+      `SELECT COUNT(*)::text AS count FROM qbo_customer_cache
+       WHERE company_id = $1 AND qbo_id = ANY($2::text[])`,
+      [companyId, qboIds],
+    );
+    const existing = parseInt(existingRes.rows[0]?.count ?? "0", 10);
+
+    const values = rows.map((r) => ({
+      companyId,
+      qboId: r.qboId,
+      displayName: r.displayName,
+      companyName: r.companyName ?? null,
+      email: r.email ?? null,
+      phone: r.phone ?? null,
+      billAddrLine1: r.billAddrLine1 ?? null,
+      billAddrCity: r.billAddrCity ?? null,
+      billAddrPostalCode: r.billAddrPostalCode ?? null,
+      billAddrCountrySubDivisionCode: r.billAddrCountrySubDivisionCode ?? null,
+      active: r.active,
+      syncedAt: now,
+      updatedAt: now,
+    }));
+    await db
+      .insert(qboCustomerCache)
+      .values(values)
+      .onConflictDoUpdate({
+        target: [qboCustomerCache.companyId, qboCustomerCache.qboId],
+        set: {
+          displayName: sql`excluded.display_name`,
+          companyName: sql`excluded.company_name`,
+          email: sql`excluded.email`,
+          phone: sql`excluded.phone`,
+          billAddrLine1: sql`excluded.bill_addr_line1`,
+          billAddrCity: sql`excluded.bill_addr_city`,
+          billAddrPostalCode: sql`excluded.bill_addr_postal_code`,
+          billAddrCountrySubDivisionCode: sql`excluded.bill_addr_country_sub_division_code`,
+          active: sql`excluded.active`,
+          syncedAt: sql`excluded.synced_at`,
+          updatedAt: sql`excluded.updated_at`,
+        },
+      });
+    const inserted = rows.length - existing;
+    const updated = existing;
+    return { upserted: rows.length, inserted, updated };
+  }
+
+  async deactivateMissingQboCustomers(
+    companyId: string,
+    presentQboIds: string[],
+  ): Promise<number> {
+    if (presentQboIds.length === 0) {
+      const result = await db
+        .update(qboCustomerCache)
+        .set({ active: false, updatedAt: new Date() })
+        .where(and(eq(qboCustomerCache.companyId, companyId), eq(qboCustomerCache.active, true)))
+        .returning({ id: qboCustomerCache.id });
+      return result.length;
+    }
+    const result = await db
+      .update(qboCustomerCache)
+      .set({ active: false, updatedAt: new Date() })
+      .where(
+        and(
+          eq(qboCustomerCache.companyId, companyId),
+          eq(qboCustomerCache.active, true),
+          sql`${qboCustomerCache.qboId} != ALL(${sql.raw(`ARRAY[${presentQboIds.map((_, i) => `$${i + 2}`).join(",")}]::text[]`)})`,
+        ),
+      )
+      .returning({ id: qboCustomerCache.id });
+    return result.length;
+  }
+
+  async deactivateMissingQboCustomersRaw(
+    companyId: string,
+    presentQboIds: string[],
+  ): Promise<number> {
+    if (presentQboIds.length === 0) {
+      const res = await pool.query(
+        `UPDATE qbo_customer_cache SET active = false, updated_at = NOW()
+         WHERE company_id = $1 AND active = true
+         RETURNING id`,
+        [companyId],
+      );
+      return res.rowCount ?? 0;
+    }
+    const res = await pool.query(
+      `UPDATE qbo_customer_cache SET active = false, updated_at = NOW()
+       WHERE company_id = $1 AND active = true AND qbo_id != ALL($2::text[])
+       RETURNING id`,
+      [companyId, presentQboIds],
+    );
+    return res.rowCount ?? 0;
+  }
+
+  async getQboCacheRow(companyId: string, qboId: string): Promise<QboCustomerCache | undefined> {
+    const [row] = await db
+      .select()
+      .from(qboCustomerCache)
+      .where(and(eq(qboCustomerCache.companyId, companyId), eq(qboCustomerCache.qboId, qboId)));
+    return row;
+  }
+
+  async getQboCacheList(
+    companyId: string,
+    filter: "all" | "in_crm" | "not_in_crm" | "inactive",
+    search?: string,
+  ): Promise<Array<{
+    id: string; companyId: string; qboId: string; displayName: string; companyName: string | null;
+    email: string | null; phone: string | null; billAddrLine1: string | null;
+    billAddrCity: string | null; billAddrPostalCode: string | null;
+    billAddrCountrySubDivisionCode: string | null; active: boolean; syncedAt: Date;
+    seedCustomerId: string | null; seedSource: string | null; createdAt: Date; updatedAt: Date;
+    state: "in_crm" | "not_in_crm" | "inactive";
+    boundCrmCustomerId: string | null; boundCrmCustomerName: string | null;
+  }>> {
+    const params: unknown[] = [companyId];
+    let whereClauses = `qcc.company_id = $1`;
+
+    if (filter === "inactive") {
+      whereClauses += ` AND qcc.active = false`;
+    } else if (filter === "in_crm") {
+      whereClauses += ` AND qcc.active = true AND c.id IS NOT NULL`;
+    } else if (filter === "not_in_crm") {
+      whereClauses += ` AND qcc.active = true AND c.id IS NULL`;
+    } else {
+      // all — no additional filter
+    }
+
+    if (search) {
+      params.push(`%${search.toLowerCase()}%`);
+      whereClauses += ` AND (lower(qcc.display_name) LIKE $${params.length} OR lower(coalesce(qcc.bill_addr_city,'')) LIKE $${params.length})`;
+    }
+
+    const res = await pool.query<{
+      id: string; company_id: string; qbo_id: string; display_name: string; company_name: string | null;
+      email: string | null; phone: string | null; bill_addr_line1: string | null;
+      bill_addr_city: string | null; bill_addr_postal_code: string | null;
+      bill_addr_country_sub_division_code: string | null; active: boolean; synced_at: Date;
+      seed_customer_id: string | null; seed_source: string | null; created_at: Date; updated_at: Date;
+      state: "in_crm" | "not_in_crm" | "inactive";
+      bound_crm_customer_id: string | null; bound_crm_customer_name: string | null;
+    }>(
+      `SELECT qcc.*,
+        CASE
+          WHEN NOT qcc.active THEN 'inactive'
+          WHEN c.id IS NOT NULL THEN 'in_crm'
+          ELSE 'not_in_crm'
+        END AS state,
+        c.id AS bound_crm_customer_id,
+        c.name AS bound_crm_customer_name
+       FROM qbo_customer_cache qcc
+       LEFT JOIN customers c ON c.qbo_customer_id = qcc.qbo_id AND c.company_id = qcc.company_id
+       WHERE ${whereClauses}
+       ORDER BY qcc.display_name ASC`,
+      params,
+    );
+    return res.rows.map((r) => ({
+      id: r.id, companyId: r.company_id, qboId: r.qbo_id, displayName: r.display_name,
+      companyName: r.company_name, email: r.email, phone: r.phone, billAddrLine1: r.bill_addr_line1,
+      billAddrCity: r.bill_addr_city, billAddrPostalCode: r.bill_addr_postal_code,
+      billAddrCountrySubDivisionCode: r.bill_addr_country_sub_division_code,
+      active: r.active, syncedAt: r.synced_at, seedCustomerId: r.seed_customer_id,
+      seedSource: r.seed_source, createdAt: r.created_at, updatedAt: r.updated_at,
+      state: r.state, boundCrmCustomerId: r.bound_crm_customer_id,
+      boundCrmCustomerName: r.bound_crm_customer_name,
+    }));
+  }
+
+  async getQboMappingRows(
+    companyId: string,
+    filter: "unbound" | "bound" | "all",
+    search?: string,
+  ): Promise<Array<{
+    customerId: string; customerName: string; customerCity: string; customerZip: string;
+    customerStatus: string; bound: boolean; qboCustomerId: string | null;
+    qboDisplayName: string | null; qboSyncedAt: Date | null; stale: boolean;
+    suggestions: Array<{ qboId: string; displayName: string; billAddrCity: string | null;
+      billAddrPostalCode: string | null; score: number; verified: boolean }>;
+  }>> {
+    const params: unknown[] = [companyId];
+    let whereClauses = `c.company_id = $1 AND c.active = 'true'`;
+
+    if (filter === "bound") {
+      whereClauses += ` AND c.qbo_customer_id IS NOT NULL`;
+    } else if (filter === "unbound") {
+      whereClauses += ` AND c.qbo_customer_id IS NULL`;
+    }
+
+    if (search) {
+      params.push(`%${search.toLowerCase()}%`);
+      whereClauses += ` AND lower(c.name) LIKE $${params.length}`;
+    }
+
+    const custRes = await pool.query<{
+      id: string; name: string; city: string; zip: string; status: string;
+      qbo_customer_id: string | null; qbo_display_name: string | null; qbo_synced_at: Date | null;
+    }>(
+      `SELECT c.id, c.name, c.city, c.zip, c.status, c.qbo_customer_id, c.qbo_display_name, c.qbo_synced_at
+       FROM customers c
+       WHERE ${whereClauses}
+       ORDER BY c.name ASC`,
+      params,
+    );
+
+    const crmCustomers = custRes.rows;
+    if (crmCustomers.length === 0) return [];
+
+    // Get all present QBO IDs in the cache for this company (to detect stale bindings)
+    const presentRes = await pool.query<{ qbo_id: string }>(
+      `SELECT qbo_id FROM qbo_customer_cache WHERE company_id = $1 AND active = true`,
+      [companyId],
+    );
+    const presentQboIds = new Set(presentRes.rows.map((r) => r.qbo_id));
+
+    // For each CRM customer, compute suggestions using trigram similarity + seed boost
+    const results = await Promise.all(
+      crmCustomers.map(async (c) => {
+        const bound = c.qbo_customer_id !== null;
+        const stale = bound && !presentQboIds.has(c.qbo_customer_id!);
+
+        // Only compute suggestions for unbound customers (or show empty for bound)
+        let suggestions: Array<{ qboId: string; displayName: string; billAddrCity: string | null;
+          billAddrPostalCode: string | null; score: number; verified: boolean }> = [];
+
+        if (!bound) {
+          const sugRes = await pool.query<{
+            qbo_id: string; display_name: string; bill_addr_city: string | null;
+            bill_addr_postal_code: string | null; score: number; verified: boolean;
+          }>(
+            `SELECT
+               qcc.qbo_id,
+               qcc.display_name,
+               qcc.bill_addr_city,
+               qcc.bill_addr_postal_code,
+               CASE
+                 WHEN qcc.seed_customer_id = $2 THEN 1.0
+                 ELSE (
+                   similarity(lower(qcc.display_name), lower($3::text))
+                   + CASE WHEN qcc.bill_addr_postal_code = $4 THEN 0.1 ELSE 0.0 END
+                   + CASE WHEN lower(coalesce(qcc.bill_addr_city,'')) = lower($5::text) THEN 0.05 ELSE 0.0 END
+                 )
+               END::float AS score,
+               (qcc.seed_customer_id = $2) AS verified
+             FROM qbo_customer_cache qcc
+             WHERE qcc.company_id = $1
+               AND qcc.active = true
+               AND NOT EXISTS (
+                 SELECT 1 FROM customers c2
+                 WHERE c2.company_id = $1
+                   AND c2.qbo_customer_id = qcc.qbo_id
+                   AND c2.id != $2
+               )
+             ORDER BY score DESC, qcc.display_name ASC
+             LIMIT 3`,
+            [companyId, c.id, c.name, c.zip, c.city],
+          );
+          suggestions = sugRes.rows.map((r) => ({
+            qboId: r.qbo_id, displayName: r.display_name, billAddrCity: r.bill_addr_city,
+            billAddrPostalCode: r.bill_addr_postal_code, score: Number(r.score),
+            verified: Boolean(r.verified),
+          }));
+        }
+
+        return {
+          customerId: c.id, customerName: c.name, customerCity: c.city, customerZip: c.zip,
+          customerStatus: c.status, bound, qboCustomerId: c.qbo_customer_id,
+          qboDisplayName: c.qbo_display_name, qboSyncedAt: c.qbo_synced_at, stale, suggestions,
+        };
+      }),
+    );
+    return results;
+  }
+
+  async writeSeedSuggestion(
+    companyId: string,
+    qboId: string,
+    customerId: string,
+    source: string,
+  ): Promise<void> {
+    await db
+      .update(qboCustomerCache)
+      .set({ seedCustomerId: customerId, seedSource: source, updatedAt: new Date() })
+      .where(and(eq(qboCustomerCache.companyId, companyId), eq(qboCustomerCache.qboId, qboId)));
+  }
+
+  async bindQboCustomer(
+    companyId: string,
+    customerId: string,
+    qboId: string,
+  ): Promise<{ conflict: boolean; notFound?: "qbo" | "customer" }> {
+    // Check the cache row exists and belongs to this company
+    const cacheRow = await this.getQboCacheRow(companyId, qboId);
+    if (!cacheRow) return { conflict: false, notFound: "qbo" };
+
+    // Check the CRM customer exists and belongs to this company
+    const [crmCustomer] = await db
+      .select({ id: customers.id })
+      .from(customers)
+      .where(and(eq(customers.id, customerId), eq(customers.companyId, companyId)));
+    if (!crmCustomer) return { conflict: false, notFound: "customer" };
+
+    // Check if already bound to another CRM customer
+    const [existing] = await db
+      .select({ id: customers.id })
+      .from(customers)
+      .where(
+        and(
+          eq(customers.companyId, companyId),
+          eq(customers.qboCustomerId, qboId),
+        ),
+      );
+    if (existing && existing.id !== customerId) {
+      return { conflict: true };
+    }
+
+    await db
+      .update(customers)
+      .set({
+        qboCustomerId: qboId,
+        qboDisplayName: cacheRow.displayName,
+        qboSyncedAt: new Date(),
+        updatedAt: new Date(),
+      })
+      .where(and(eq(customers.id, customerId), eq(customers.companyId, companyId)));
+    return { conflict: false };
+  }
+
+  async unbindQboCustomer(companyId: string, customerId: string): Promise<void> {
+    await db
+      .update(customers)
+      .set({ qboCustomerId: null, qboDisplayName: null, qboSyncedAt: null, updatedAt: new Date() })
+      .where(and(eq(customers.id, customerId), eq(customers.companyId, companyId)));
+  }
+
+  async promoteQboCustomerToCrm(
+    companyId: string,
+    qboId: string,
+    overrides: { name?: string; street?: string; city?: string; state?: string; zip?: string },
+  ): Promise<Customer | { conflict: boolean } | { missingFields: string[] }> {
+    const cacheRow = await this.getQboCacheRow(companyId, qboId);
+    if (!cacheRow) return { missingFields: ["qboId not found in cache"] };
+
+    // Check not already bound
+    const [existing] = await db
+      .select({ id: customers.id })
+      .from(customers)
+      .where(and(eq(customers.companyId, companyId), eq(customers.qboCustomerId, qboId)));
+    if (existing) return { conflict: true };
+
+    const street = overrides.street ?? cacheRow.billAddrLine1 ?? null;
+    const city = overrides.city ?? cacheRow.billAddrCity ?? null;
+    const state = overrides.state ?? cacheRow.billAddrCountrySubDivisionCode ?? null;
+    const zip = overrides.zip ?? cacheRow.billAddrPostalCode ?? null;
+    const name = overrides.name ?? cacheRow.displayName;
+
+    const missingFields: string[] = [];
+    if (!street) missingFields.push("street");
+    if (!city) missingFields.push("city");
+    if (!state) missingFields.push("state");
+    if (!zip) missingFields.push("zip");
+    if (missingFields.length > 0) return { missingFields };
+
+    const [newCustomer] = await db
+      .insert(customers)
+      .values({
+        companyId,
+        name,
+        street: street!,
+        city: city!,
+        state: state!,
+        zip: zip!,
+        status: "prospect",
+        customerType: "commercial",
+        qboCustomerId: qboId,
+        qboDisplayName: cacheRow.displayName,
+        qboSyncedAt: new Date(),
+      })
+      .returning();
+    return newCustomer;
+  }
+
+  async countActiveUnboundCustomers(companyId: string): Promise<number> {
+    const res = await pool.query<{ count: string }>(
+      `SELECT COUNT(*)::text AS count FROM customers
+       WHERE company_id = $1 AND active = 'true' AND qbo_customer_id IS NULL`,
+      [companyId],
+    );
+    return parseInt(res.rows[0]?.count ?? "0", 10);
+  }
+
+  async refreshStaleDisplayNames(
+    companyId: string,
+    changedQboRows: Array<{ qboId: string; displayName: string }>,
+  ): Promise<void> {
+    if (changedQboRows.length === 0) return;
+    for (const row of changedQboRows) {
+      await db
+        .update(customers)
+        .set({ qboDisplayName: row.displayName, qboSyncedAt: new Date(), updatedAt: new Date() })
+        .where(
+          and(eq(customers.companyId, companyId), eq(customers.qboCustomerId, row.qboId)),
+        );
+    }
+  }
+
+  async findBestCrmMatchByName(
+    companyId: string,
+    customerName: string,
+  ): Promise<{ customerId: string; customerName: string; score: number } | null> {
+    const res = await pool.query<{ id: string; name: string; score: number }>(
+      `SELECT c.id, c.name,
+              similarity(lower(c.name), lower($2)) AS score
+       FROM customers c
+       WHERE c.company_id = $1
+         AND c.active = 'true'
+         AND c.qbo_customer_id IS NULL
+         AND similarity(lower(c.name), lower($2)) > 0.1
+       ORDER BY score DESC
+       LIMIT 1`,
+      [companyId, customerName],
+    );
+    if (!res.rows[0]) return null;
+    return {
+      customerId: res.rows[0].id,
+      customerName: res.rows[0].name,
+      score: res.rows[0].score,
+    };
+  }
+
+  async getStaleBindings(companyId: string, presentQboIds: string[]): Promise<string[]> {
+    if (presentQboIds.length === 0) {
+      const res = await pool.query<{ qbo_customer_id: string }>(
+        `SELECT qbo_customer_id FROM customers WHERE company_id = $1 AND qbo_customer_id IS NOT NULL`,
+        [companyId],
+      );
+      return res.rows.map((r) => r.qbo_customer_id);
+    }
+    const res = await pool.query<{ qbo_customer_id: string }>(
+      `SELECT qbo_customer_id FROM customers
+       WHERE company_id = $1 AND qbo_customer_id IS NOT NULL AND qbo_customer_id != ALL($2::text[])`,
+      [companyId, presentQboIds],
+    );
+    return res.rows.map((r) => r.qbo_customer_id);
   }
 }
 
