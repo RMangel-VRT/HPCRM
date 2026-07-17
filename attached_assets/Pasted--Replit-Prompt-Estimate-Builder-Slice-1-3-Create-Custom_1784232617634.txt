@@ -1,0 +1,67 @@
+# Replit Prompt — Estimate Builder, Slice 1.3: Create Customers in QBO (Write-Gated) + Dedupe Rule
+
+## Context
+
+Slices 1.1–1.2 gave us a QBO connection and Id-bindings for customers that exist in both systems. **This slice handles the remainder: CRM customers with no QBO counterpart get created in QuickBooks from the CRM** — the first QBO *write* in the project — plus the ongoing dedupe rule so the messy-data problem never regrows. After this slice, Phase 1 is complete: every active customer is bound or explicitly flagged.
+
+Deployable end state: on the mapping screen, an unbound customer with no good match gets a "Create in QuickBooks" action; the CRM searches QBO for potential duplicates first, shows what it found, and on confirm creates the QBO Customer and binds the new Id. All writes are gated behind the `qbo_write` feature flag, now enforced server-side for the first time.
+
+This slice should land in a deployable, production-quality state. Do not stub anything you say you've built.
+
+## Existing context (do not duplicate or replace)
+
+- **Slice 1.1:** `qboClient.ts` with `qboRequest` and `isQboWriteEnabled(companyId)` (reads the `qbo_write` flag from `settings.featureFlags` JSON — the Settings toggle already exists at `SettingsPage.tsx` ~L1048). **This slice is the first caller** of `isQboWriteEnabled`; every write endpoint checks it and returns a clean 403 with a message pointing at the Settings toggle when disabled.
+- **Slice 1.2:** `qbo_customer_cache`, binding columns on `customers`, mapping page `QboCustomerMapping.tsx`, bind/unbind endpoints.
+- **Contacts:** customer emails/phones live on the `contacts` table (`lib/db/src/schema/schema.ts` ~L169), not on `customers`. When building the QBO payload, use the customer's primary contact if one exists.
+- **QBO facts:** `DisplayName` must be unique across ALL QBO names (customers, vendors, employees). A create with a colliding name fails with a validation error — surface it, never auto-suffix silently. QBO Customer fields we care about: `DisplayName`, `CompanyName`, `PrimaryEmailAddr`, `PrimaryPhone`, `BillAddr` (Line1/City/CountrySubDivisionCode/PostalCode).
+- Conventions as previous slices: route module `routes/qbo.ts`, storage.ts pattern, multi-tenancy, roles admin+office, no new dependencies, i18next en + es.
+
+## Server (extend `routes/qbo.ts`)
+
+### 1. Dedupe search — `POST /api/qbo/customers/duplicate-check`
+
+`{ customerId }` → runs BOTH checks and returns them labeled:
+
+- **Cache check** (fast): trigram similarity against `qbo_customer_cache` (active, unbound rows), same scoring as Slice 1.2 suggestions.
+- **Live check** (authoritative): QBO query `SELECT * FROM Customer WHERE DisplayName = '…'` (escape single quotes by doubling them — build the query defensively) plus, when the customer has a primary contact email, a `PrimaryEmailAddr` query. Upsert anything found into the cache.
+
+Response: `{ candidates: [{ qboId, displayName, city, zip, source: "cache" | "live", score }] }`. Read-only — allowed even when `qbo_write` is off.
+
+### 2. Create + bind — `POST /api/qbo/customers/create`
+
+`{ customerId, displayNameOverride? }` (admin, office; **403 unless `isQboWriteEnabled`**):
+
+1. Re-run the live duplicate check server-side (never trust that the UI ran it). If an exact DisplayName match exists → 409 with the candidate, so the UI offers "bind to this instead."
+2. Build the payload from the CRM customer + primary contact. `DisplayName` = CRM name, or `displayNameOverride` when the admin resolved a collision by renaming.
+3. `POST /customer` via `qboRequest`. On Intuit validation errors (including a DisplayName race), return the QBO error message cleanly.
+4. On success: upsert into `qbo_customer_cache`, set `qboCustomerId`/`qboDisplayName`/`qboSyncedAt` on the CRM customer (reuse the Slice 1.2 bind path so the 409-double-bind guard applies), return the binding.
+
+Idempotency guard: if the CRM customer is already bound, return 409 immediately (double-click / stale-tab protection).
+
+### 3. Ongoing dedupe rule (the "never regrows" part)
+
+No auto-push on CRM customer creation in v1 — creation in QBO stays a deliberate admin action on the mapping screen. But add a lightweight nudge: the unbound-count badge from Slice 1.2 already surfaces drift; extend `GET /api/qbo/customers/unbound-count` to also return `activeUnboundOlderThan30d` so the badge can escalate. (Full automation is a later decision; keep this slice small.)
+
+## Frontend (extend `QboCustomerMapping.tsx`)
+
+- Unbound rows gain **"Create in QuickBooks"** (visible only when `qbo_write` is on — fetch the flag with the connection status; when off, show the action disabled with a tooltip pointing at the Settings toggle).
+- Clicking opens a confirm dialog: duplicate-check results up front — exact match → primary action becomes **"Bind to this existing customer"**; near matches → listed with a "bind instead" option per candidate; none → payload preview (display name editable, address, email/phone from primary contact) + "Create".
+- 409 collision from the server → inline error offering rename (`displayNameOverride`) or bind-to-existing.
+- Success → row flips to bound state; cache and counts invalidated.
+- i18next (en + es).
+
+## Tests
+
+- `isQboWriteEnabled` gate: flag off → 403 on create; duplicate-check still allowed.
+- Duplicate check: quote-escaping in the QBO query string; live results upserted to cache; exact match → 409 on create.
+- Create happy path (mock fetch): payload maps name/address/contact correctly; success binds via the guarded bind path; already-bound → 409.
+- DisplayName race: create returns Intuit's validation error → clean 409 payload, no partial binding written.
+- Role gates + company scoping.
+
+## Deliverables
+
+- Duplicate-check + write-gated create endpoints; first real enforcement of `qbo_write`.
+- Mapping screen create/bind-instead flow (en + es).
+- Unbound-count escalation field.
+- Typecheck + all tests pass; deviations documented.
+- **Phase 1 exit check** (manual, with Randy): every active CRM customer bound or consciously left unbound; connection healthy in Settings.
