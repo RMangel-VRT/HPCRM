@@ -5949,6 +5949,18 @@ export class PgStorage implements IStorage {
     );
     return res.rows.map((r) => r.qbo_customer_id);
   }
+
+  async getInactiveBindings(companyId: string): Promise<string[]> {
+    const res = await pool.query<{ qbo_customer_id: string }>(
+      `SELECT c.qbo_customer_id
+       FROM customers c
+       JOIN qbo_customer_cache qcc
+         ON qcc.company_id = $1 AND qcc.qbo_id = c.qbo_customer_id AND qcc.active = false
+       WHERE c.company_id = $1 AND c.qbo_customer_id IS NOT NULL`,
+      [companyId],
+    );
+    return res.rows.map((r) => r.qbo_customer_id);
+  }
 }
 
 export const storage = new PgStorage();

@@ -311,7 +311,7 @@ router.post("/customers/pull", async (req, res) => {
     // Page through all QBO customers
     while (true) {
       const query = encodeURIComponent(
-        `SELECT * FROM Customer STARTPOSITION ${startPosition} MAXRESULTS ${PAGE_SIZE}`,
+        `SELECT * FROM Customer WHERE Active IN (true,false) STARTPOSITION ${startPosition} MAXRESULTS ${PAGE_SIZE}`,
       );
       const resp = await qboRequest(u.activeCompanyId, "GET", `/query?query=${query}`);
       if (!resp.ok) {
@@ -369,9 +369,13 @@ router.post("/customers/pull", async (req, res) => {
     const changedRows = allQboRows.filter((r) => r.displayName);
     await storage.refreshStaleDisplayNames(u.activeCompanyId, changedRows);
 
-    // Detect stale bindings
+    // Detect stale bindings (bound CRM customers whose QBO ID is absent from the full pull)
     const staleQboIds = await storage.getStaleBindings(u.activeCompanyId, presentQboIds);
     const staleBindings = staleQboIds.length;
+
+    // Detect inactive bindings (bound CRM customers whose QBO customer is present but inactive)
+    const inactiveQboIds = await storage.getInactiveBindings(u.activeCompanyId);
+    const inactiveBindings = inactiveQboIds.length;
 
     res.json({
       pulled,
@@ -379,6 +383,7 @@ router.post("/customers/pull", async (req, res) => {
       updated,
       deactivated,
       staleBindings,
+      inactiveBindings,
       lastPulledAt: new Date().toISOString(),
     });
   } catch (err) {
@@ -524,13 +529,53 @@ router.post("/customers/promote", async (req, res) => {
   }
 });
 
+/** Minimal RFC 4180-style CSV field splitter.
+ *  Handles quoted fields containing literal commas and "" as an escaped quote. */
+function parseCsvLine(line: string): string[] {
+  const fields: string[] = [];
+  let i = 0;
+  while (i <= line.length) {
+    if (i === line.length) {
+      fields.push("");
+      break;
+    }
+    if (line[i] === '"') {
+      i++; // skip opening quote
+      let field = "";
+      while (i < line.length) {
+        if (line[i] === '"') {
+          if (i + 1 < line.length && line[i + 1] === '"') {
+            field += '"';
+            i += 2;
+          } else {
+            i++; // skip closing quote
+            break;
+          }
+        } else {
+          field += line[i++];
+        }
+      }
+      fields.push(field);
+      if (i < line.length && line[i] === ',') i++; // skip delimiter
+    } else {
+      let field = "";
+      while (i < line.length && line[i] !== ',') {
+        field += line[i++];
+      }
+      fields.push(field.trim());
+      if (i < line.length) i++; // skip delimiter
+    }
+  }
+  return fields;
+}
+
 /** Parse CSV text into {customer_name, quickbooks_id} rows */
 function parseSeedCsv(
   text: string,
 ): { rows: Array<{ customer_name: string; quickbooks_id: string }>; error?: string } {
   const lines = text.split("\n").filter((l) => l.trim());
   if (lines.length < 2) return { rows: [], error: "CSV must have a header and at least one data row" };
-  const header = lines[0].split(",").map((h) => h.trim().toLowerCase().replace(/"/g, ""));
+  const header = parseCsvLine(lines[0]).map((h) => h.trim().toLowerCase());
   const nameIdx = header.indexOf("customer_name");
   const idIdx = header.indexOf("quickbooks_id");
   if (nameIdx === -1 || idIdx === -1) {
@@ -538,9 +583,11 @@ function parseSeedCsv(
   }
   const rows: Array<{ customer_name: string; quickbooks_id: string }> = [];
   for (let i = 1; i < lines.length; i++) {
-    const cols = lines[i].split(",").map((c) => c.trim().replace(/"/g, ""));
-    if (cols[nameIdx] && cols[idIdx]) {
-      rows.push({ customer_name: cols[nameIdx], quickbooks_id: cols[idIdx] });
+    const cols = parseCsvLine(lines[i]);
+    const name = cols[nameIdx]?.trim() ?? "";
+    const id = cols[idIdx]?.trim() ?? "";
+    if (name && id) {
+      rows.push({ customer_name: name, quickbooks_id: id });
     }
   }
   return { rows };

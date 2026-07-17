@@ -17,6 +17,7 @@ const mockStorage = {
   deactivateMissingQboCustomersRaw: vi.fn(),
   refreshStaleDisplayNames: vi.fn(),
   getStaleBindings: vi.fn(),
+  getInactiveBindings: vi.fn(),
   getQboCacheList: vi.fn(),
   getQboMappingRows: vi.fn(),
   countActiveUnboundCustomers: vi.fn(),
@@ -602,31 +603,48 @@ describe("POST /api/qbo/customers/pull", () => {
     expect(res.status).toBe(503);
   });
 
-  it("pages through QBO and upserts all rows then deactivates missing", async () => {
+  it("pages through QBO and upserts all rows including inactive records", async () => {
     mockStorage.getQboConnection.mockResolvedValue(connectedStatus());
 
-    // Simulate two pages: first returns 1000 items, second returns 5
-    const makePage = (count: number) => ({
+    // First page: 999 active + 1 inactive customer; second page: 5 active
+    const page1 = {
       ok: true,
       json: async () => ({
         QueryResponse: {
-          Customer: Array.from({ length: count }, (_, i) => ({
-            Id: String(i + 1),
-            DisplayName: `Customer ${i + 1}`,
+          Customer: [
+            ...Array.from({ length: 999 }, (_, i) => ({
+              Id: String(i + 1),
+              DisplayName: `Customer ${i + 1}`,
+              Active: true,
+            })),
+            { Id: "inactive-1", DisplayName: "Inactive Corp", Active: false },
+          ],
+        },
+      }),
+      text: async () => "",
+    };
+    const page2 = {
+      ok: true,
+      json: async () => ({
+        QueryResponse: {
+          Customer: Array.from({ length: 5 }, (_, i) => ({
+            Id: String(1000 + i),
+            DisplayName: `Customer ${1000 + i}`,
             Active: true,
           })),
         },
       }),
       text: async () => "",
-    });
+    };
     mockQboRequest
-      .mockResolvedValueOnce(makePage(1000))
-      .mockResolvedValueOnce(makePage(5));
+      .mockResolvedValueOnce(page1)
+      .mockResolvedValueOnce(page2);
 
     mockStorage.upsertQboCustomerCache.mockResolvedValue({ upserted: 1005, inserted: 5, updated: 1000 });
     mockStorage.deactivateMissingQboCustomersRaw.mockResolvedValue(0);
     mockStorage.refreshStaleDisplayNames.mockResolvedValue(undefined);
     mockStorage.getStaleBindings.mockResolvedValue([]);
+    mockStorage.getInactiveBindings.mockResolvedValue([]);
 
     const app = await buildApp(adminUser());
     const res = await request(app).post("/api/qbo/customers/pull");
@@ -634,34 +652,82 @@ describe("POST /api/qbo/customers/pull", () => {
     expect(res.body.pulled).toBe(1005);
     expect(res.body.deactivated).toBe(0);
     expect(res.body.staleBindings).toBe(0);
+    expect(res.body.inactiveBindings).toBe(0);
     expect(mockQboRequest).toHaveBeenCalledTimes(2); // two pages
+    // Inactive customer must be included in the upsert, with active: false
     expect(mockStorage.upsertQboCustomerCache).toHaveBeenCalledWith(
       COMPANY_ID,
-      expect.arrayContaining([expect.objectContaining({ qboId: "1" })]),
+      expect.arrayContaining([
+        expect.objectContaining({ qboId: "1" }),
+        expect.objectContaining({ qboId: "inactive-1", active: false }),
+      ]),
     );
-    // deactivate called with all 1005 IDs
+    // deactivate called with all 1005 IDs including the inactive one
     expect(mockStorage.deactivateMissingQboCustomersRaw).toHaveBeenCalledWith(
       COMPANY_ID,
-      expect.arrayContaining(["1", "2", "3"]),
+      expect.arrayContaining(["1", "inactive-1"]),
     );
   });
 
-  it("returns staleBindings count when bound customers are now inactive in QBO", async () => {
+  it("inactive-but-present QBO customer is not stale; truly absent QBO ID is stale", async () => {
     mockStorage.getQboConnection.mockResolvedValue(connectedStatus());
+    // Pull returns one active and one inactive QBO customer; "missing-qbo" is absent
     mockQboRequest.mockResolvedValue({
       ok: true,
-      json: async () => ({ QueryResponse: { Customer: [{ Id: "qbo-1", DisplayName: "Acme", Active: true }] } }),
+      json: async () => ({
+        QueryResponse: {
+          Customer: [
+            { Id: "qbo-active", DisplayName: "Active Co", Active: true },
+            { Id: "qbo-inactive", DisplayName: "Inactive Co", Active: false },
+          ],
+        },
+      }),
       text: async () => "",
     });
-    mockStorage.upsertQboCustomerCache.mockResolvedValue({ upserted: 1 });
-    mockStorage.deactivateMissingQboCustomersRaw.mockResolvedValue(2);
+    mockStorage.upsertQboCustomerCache.mockResolvedValue({ upserted: 2, inserted: 0, updated: 2 });
+    mockStorage.deactivateMissingQboCustomersRaw.mockResolvedValue(0);
     mockStorage.refreshStaleDisplayNames.mockResolvedValue(undefined);
-    mockStorage.getStaleBindings.mockResolvedValue(["old-qbo-1", "old-qbo-2"]);
+    // Only the truly absent binding is stale — qbo-inactive is present so it won't be here
+    mockStorage.getStaleBindings.mockResolvedValue(["missing-qbo"]);
+    mockStorage.getInactiveBindings.mockResolvedValue(["qbo-inactive"]);
 
     const app = await buildApp(adminUser());
     const res = await request(app).post("/api/qbo/customers/pull");
     expect(res.status).toBe(200);
-    expect(res.body.staleBindings).toBe(2);
+    expect(res.body.staleBindings).toBe(1);
+    expect(res.body.inactiveBindings).toBe(1);
+    // getStaleBindings must have been called with both present IDs (active + inactive)
+    expect(mockStorage.getStaleBindings).toHaveBeenCalledWith(
+      COMPANY_ID,
+      expect.arrayContaining(["qbo-active", "qbo-inactive"]),
+    );
+  });
+
+  it("returns inactiveBindings count in pull response", async () => {
+    mockStorage.getQboConnection.mockResolvedValue(connectedStatus());
+    mockQboRequest.mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        QueryResponse: {
+          Customer: [
+            { Id: "qbo-1", DisplayName: "Acme", Active: true },
+            { Id: "qbo-2", DisplayName: "Old Corp", Active: false },
+          ],
+        },
+      }),
+      text: async () => "",
+    });
+    mockStorage.upsertQboCustomerCache.mockResolvedValue({ upserted: 2, inserted: 0, updated: 2 });
+    mockStorage.deactivateMissingQboCustomersRaw.mockResolvedValue(0);
+    mockStorage.refreshStaleDisplayNames.mockResolvedValue(undefined);
+    mockStorage.getStaleBindings.mockResolvedValue([]);
+    mockStorage.getInactiveBindings.mockResolvedValue(["qbo-2"]);
+
+    const app = await buildApp(adminUser());
+    const res = await request(app).post("/api/qbo/customers/pull");
+    expect(res.status).toBe(200);
+    expect(res.body.inactiveBindings).toBe(1);
+    expect(res.body.staleBindings).toBe(0);
   });
 
   it("returns 502 when QBO API responds with error status", async () => {
@@ -675,5 +741,71 @@ describe("POST /api/qbo/customers/pull", () => {
     const res = await request(app).post("/api/qbo/customers/pull");
     expect(res.status).toBe(502);
     expect(res.body.message).toMatch(/qbo query failed/i);
+  });
+});
+
+// ── parseSeedCsv (tested via POST /api/qbo/customers/import-seed text/csv) ───
+
+describe("parseSeedCsv — via import-seed endpoint", () => {
+  beforeEach(() => vi.clearAllMocks());
+
+  function connectedSetup() {
+    mockStorage.getQboConnection.mockResolvedValue(connectedStatus());
+    // Return null so each row resolves quickly as "not_in_cache"
+    mockStorage.getQboCacheRow.mockResolvedValue(null);
+  }
+
+  it("correctly parses a quoted name containing a comma", async () => {
+    connectedSetup();
+    const csv = `customer_name,quickbooks_id\n"ABC Property Management, LLC",123`;
+    const app = await buildApp(adminUser());
+    const res = await request(app)
+      .post("/api/qbo/customers/import-seed")
+      .set("Content-Type", "text/csv")
+      .send(csv);
+    expect(res.status).toBe(200);
+    expect(mockStorage.getQboCacheRow).toHaveBeenCalledWith(COMPANY_ID, "123");
+    const result = (res.body.results as Array<{ customer_name: string }>)[0];
+    expect(result.customer_name).toBe("ABC Property Management, LLC");
+  });
+
+  it("handles a double-quote escape inside a quoted field", async () => {
+    connectedSetup();
+    const csv = `customer_name,quickbooks_id\n"O""Brien Holdings",456`;
+    const app = await buildApp(adminUser());
+    const res = await request(app)
+      .post("/api/qbo/customers/import-seed")
+      .set("Content-Type", "text/csv")
+      .send(csv);
+    expect(res.status).toBe(200);
+    expect(mockStorage.getQboCacheRow).toHaveBeenCalledWith(COMPANY_ID, "456");
+    const result = (res.body.results as Array<{ customer_name: string }>)[0];
+    expect(result.customer_name).toBe('O"Brien Holdings');
+  });
+
+  it("parses a plain unquoted row correctly", async () => {
+    connectedSetup();
+    const csv = `customer_name,quickbooks_id\nAcme Corp,789`;
+    const app = await buildApp(adminUser());
+    const res = await request(app)
+      .post("/api/qbo/customers/import-seed")
+      .set("Content-Type", "text/csv")
+      .send(csv);
+    expect(res.status).toBe(200);
+    expect(mockStorage.getQboCacheRow).toHaveBeenCalledWith(COMPANY_ID, "789");
+    const result = (res.body.results as Array<{ customer_name: string }>)[0];
+    expect(result.customer_name).toBe("Acme Corp");
+  });
+
+  it("returns 400 when required header columns are missing", async () => {
+    connectedSetup();
+    const csv = `customer_name,wrong_column\nAcme Corp,789`;
+    const app = await buildApp(adminUser());
+    const res = await request(app)
+      .post("/api/qbo/customers/import-seed")
+      .set("Content-Type", "text/csv")
+      .send(csv);
+    expect(res.status).toBe(400);
+    expect(res.body.message).toMatch(/customer_name.*quickbooks_id|quickbooks_id.*customer_name/i);
   });
 });
