@@ -97,8 +97,11 @@ router.get("/connection", async (req, res) => {
   const u = requireAdminOrOffice(req, res);
   if (!u) return;
   try {
-    const conn = await storage.getQboConnection(u.activeCompanyId);
-    res.json(safePublicConn(conn));
+    const [conn, qboWriteEnabled] = await Promise.all([
+      storage.getQboConnection(u.activeCompanyId),
+      isQboWriteEnabled(u.activeCompanyId),
+    ]);
+    res.json({ ...safePublicConn(conn), qboWriteEnabled });
   } catch (err) {
     logger.error({ err }, "GET /api/qbo/connection error");
     res.status(500).json({ message: "Failed to get QBO connection" });
@@ -437,8 +440,11 @@ router.get("/customers/unbound-count", async (req, res) => {
   const u = requireAdminOrOffice(req, res);
   if (!u) return;
   try {
-    const activeUnbound = await storage.countActiveUnboundCustomers(u.activeCompanyId);
-    res.json({ activeUnbound });
+    const [activeUnbound, activeUnboundOlderThan30d] = await Promise.all([
+      storage.countActiveUnboundCustomers(u.activeCompanyId),
+      storage.countActiveUnboundOlderThan30d(u.activeCompanyId),
+    ]);
+    res.json({ activeUnbound, activeUnboundOlderThan30d });
   } catch (err) {
     logger.error({ err }, "GET /api/qbo/customers/unbound-count error");
     res.status(500).json({ message: "Failed to count unbound customers" });
@@ -492,6 +498,302 @@ router.post("/customers/unbind", async (req, res) => {
   } catch (err) {
     logger.error({ err }, "POST /api/qbo/customers/unbind error");
     res.status(500).json({ message: "Failed to unbind customer" });
+  }
+});
+
+// ── Helpers shared by duplicate-check and create ──────────────────────────────
+
+/** Escape single quotes in a string for use in Intuit IDS query language (double them). */
+function escapeQboString(s: string): string {
+  return s.replace(/'/g, "''");
+}
+
+/** Parse a QBO Customer record into a cache-upsert shape. */
+function parseQboCustomerRecord(c: Record<string, unknown>): {
+  qboId: string; displayName: string; companyName: string | null;
+  email: string | null; phone: string | null; billAddrLine1: string | null;
+  billAddrCity: string | null; billAddrPostalCode: string | null;
+  billAddrCountrySubDivisionCode: string | null; active: boolean;
+} {
+  const billAddr = c["BillAddr"] as Record<string, unknown> | undefined;
+  const primaryEmail = (c["PrimaryEmailAddr"] as Record<string, unknown> | undefined)?.["Address"] as string | undefined;
+  const primaryPhone = (c["PrimaryPhone"] as Record<string, unknown> | undefined)?.["FreeFormNumber"] as string | undefined;
+  return {
+    qboId: String(c["Id"]),
+    displayName: String(c["DisplayName"] ?? c["FullyQualifiedName"] ?? ""),
+    companyName: (c["CompanyName"] as string | undefined) ?? null,
+    email: primaryEmail ?? null,
+    phone: primaryPhone ?? null,
+    billAddrLine1: (billAddr?.["Line1"] as string | undefined) ?? null,
+    billAddrCity: (billAddr?.["City"] as string | undefined) ?? null,
+    billAddrPostalCode: (billAddr?.["PostalCode"] as string | undefined) ?? null,
+    billAddrCountrySubDivisionCode: (billAddr?.["CountrySubDivisionCode"] as string | undefined) ?? null,
+    active: c["Active"] !== false,
+  };
+}
+
+/** Run a live QBO Customer query and return parsed results (upserts them to cache). */
+async function liveQboCustomerQuery(
+  companyId: string,
+  queryStr: string,
+  matchType: "exact_display_name" | "near",
+): Promise<Array<{ qboId: string; displayName: string; city: string | null; zip: string | null; source: "live"; score: number; matchType: "exact_display_name" | "near" }>> {
+  const encoded = encodeURIComponent(queryStr);
+  const resp = await qboRequest(companyId, "GET", `/query?query=${encoded}`);
+  if (!resp.ok) {
+    const text = await resp.text();
+    logger.warn({ status: resp.status, body: text, companyId }, "QBO duplicate-check query failed");
+    return [];
+  }
+  const data = await resp.json() as Record<string, unknown>;
+  const queryResponse = (data as { QueryResponse?: Record<string, unknown> }).QueryResponse ?? {};
+  const items = (queryResponse.Customer as unknown[] | undefined) ?? [];
+  const parsed = items.map((item) => parseQboCustomerRecord(item as Record<string, unknown>));
+
+  if (parsed.length > 0) {
+    await storage.upsertQboCustomerCache(companyId, parsed).catch((err) =>
+      logger.warn({ err, companyId }, "Failed to upsert live QBO results to cache (non-fatal)"),
+    );
+  }
+
+  return parsed
+    .filter((p) => p.active)
+    .map((p) => ({
+      qboId: p.qboId,
+      displayName: p.displayName,
+      city: p.billAddrCity,
+      zip: p.billAddrPostalCode,
+      source: "live" as const,
+      score: 1.0,
+      matchType,
+    }));
+}
+
+// POST /api/qbo/customers/duplicate-check — read-only; no write gate required
+router.post("/customers/duplicate-check", async (req, res) => {
+  const u = requireAdminOrOffice(req, res);
+  if (!u) return;
+  if (!(await assertConnected(u.activeCompanyId, res))) return;
+
+  const { customerId } = req.body as { customerId?: string };
+  if (!customerId) {
+    res.status(400).json({ message: "customerId is required" });
+    return;
+  }
+
+  try {
+    const crmCustomer = await storage.getCustomerWithPrimaryContactForQbo(u.activeCompanyId, customerId);
+    if (!crmCustomer) {
+      res.status(404).json({ message: "CRM customer not found" });
+      return;
+    }
+
+    const displayName = crmCustomer.name;
+
+    // Fast cache check using trigram similarity (all cache results are "near" matches)
+    const cacheResults = await storage.findQboCacheDuplicates(
+      u.activeCompanyId,
+      displayName,
+      crmCustomer.city,
+      crmCustomer.zip,
+    );
+    const cacheWithType = cacheResults.map((r) => ({ ...r, matchType: "near" as const }));
+
+    // Authoritative live check: query by DisplayName → "exact_display_name"
+    const nameQuery = `SELECT * FROM Customer WHERE DisplayName = '${escapeQboString(displayName)}' MAXRESULTS 5`;
+    const liveByName = await liveQboCustomerQuery(u.activeCompanyId, nameQuery, "exact_display_name");
+
+    // Also query by email if the customer has one → "near" (email match, not name match)
+    let liveByEmail: typeof liveByName = [];
+    if (crmCustomer.primaryEmail) {
+      const emailQuery = `SELECT * FROM Customer WHERE PrimaryEmailAddr = '${escapeQboString(crmCustomer.primaryEmail)}' MAXRESULTS 5`;
+      liveByEmail = await liveQboCustomerQuery(u.activeCompanyId, emailQuery, "near");
+    }
+
+    // Merge results: live takes precedence over cache (dedup by qboId, live wins)
+    const seen = new Set<string>();
+    const candidates: Array<{
+      qboId: string; displayName: string; city: string | null;
+      zip: string | null; score: number; source: "cache" | "live";
+      matchType: "exact_display_name" | "near";
+    }> = [];
+
+    for (const r of [...liveByName, ...liveByEmail]) {
+      if (!seen.has(r.qboId)) {
+        seen.add(r.qboId);
+        candidates.push(r);
+      }
+    }
+    for (const r of cacheWithType) {
+      if (!seen.has(r.qboId)) {
+        seen.add(r.qboId);
+        candidates.push(r);
+      }
+    }
+
+    res.json({
+      candidates,
+      crmCustomer: {
+        name: crmCustomer.name,
+        street: crmCustomer.street,
+        city: crmCustomer.city,
+        state: crmCustomer.state,
+        zip: crmCustomer.zip,
+        primaryEmail: crmCustomer.primaryEmail,
+        primaryPhone: crmCustomer.primaryPhone,
+      },
+    });
+  } catch (err) {
+    logger.error({ err }, "POST /api/qbo/customers/duplicate-check error");
+    res.status(500).json({ message: "Failed to check for duplicates" });
+  }
+});
+
+// POST /api/qbo/customers/create — write-gated; creates a QBO customer and binds it
+router.post("/customers/create", async (req, res) => {
+  const u = requireAdminOrOffice(req, res);
+  if (!u) return;
+  if (!(await assertConnected(u.activeCompanyId, res))) return;
+
+  // Write gate — check feature flag server-side
+  const writeEnabled = await isQboWriteEnabled(u.activeCompanyId);
+  if (!writeEnabled) {
+    res.status(403).json({
+      message: "QuickBooks write access is disabled. Enable it in Settings → Features.",
+      writeDisabled: true,
+    });
+    return;
+  }
+
+  const {
+    customerId,
+    displayNameOverride,
+    streetOverride,
+    cityOverride,
+    stateOverride,
+    zipOverride,
+    emailOverride,
+    phoneOverride,
+  } = req.body as {
+    customerId?: string;
+    displayNameOverride?: string;
+    streetOverride?: string;
+    cityOverride?: string;
+    stateOverride?: string;
+    zipOverride?: string;
+    emailOverride?: string;
+    phoneOverride?: string;
+  };
+
+  if (!customerId) {
+    res.status(400).json({ message: "customerId is required" });
+    return;
+  }
+
+  try {
+    const crmCustomer = await storage.getCustomerWithPrimaryContactForQbo(u.activeCompanyId, customerId);
+    if (!crmCustomer) {
+      res.status(404).json({ message: "CRM customer not found" });
+      return;
+    }
+
+    // (a) Idempotency guard — already bound
+    if (crmCustomer.qboCustomerId) {
+      res.status(409).json({
+        message: "CRM customer is already bound to a QuickBooks customer",
+        alreadyBound: true,
+        qboId: crmCustomer.qboCustomerId,
+      });
+      return;
+    }
+
+    const displayName = displayNameOverride?.trim() || crmCustomer.name;
+    const street = streetOverride?.trim() || crmCustomer.street;
+    const city = cityOverride?.trim() || crmCustomer.city;
+    const state = stateOverride?.trim() || crmCustomer.state;
+    const zip = zipOverride?.trim() || crmCustomer.zip;
+    const email = emailOverride?.trim() || crmCustomer.primaryEmail || null;
+    const phone = phoneOverride?.trim() || crmCustomer.primaryPhone || null;
+
+    // (b) Server-side live duplicate check — exact DisplayName match → 409
+    const dedupeQuery = `SELECT * FROM Customer WHERE DisplayName = '${escapeQboString(displayName)}' MAXRESULTS 1`;
+    const liveMatches = await liveQboCustomerQuery(u.activeCompanyId, dedupeQuery, "exact_display_name");
+    if (liveMatches.length > 0) {
+      const candidate = liveMatches[0];
+      res.status(409).json({
+        message: "A QuickBooks customer with this display name already exists",
+        displayNameCollision: true,
+        candidate,
+      });
+      return;
+    }
+
+    // (c) Build the QBO payload using effective (override-or-original) values
+    const qboPayload: Record<string, unknown> = {
+      DisplayName: displayName,
+      CompanyName: crmCustomer.name,
+      BillAddr: {
+        Line1: street,
+        City: city,
+        CountrySubDivisionCode: state,
+        PostalCode: zip,
+        Country: "USA",
+      },
+    };
+    if (email) {
+      qboPayload["PrimaryEmailAddr"] = { Address: email };
+    }
+    if (phone) {
+      qboPayload["PrimaryPhone"] = { FreeFormNumber: phone };
+    }
+
+    // (d) POST /customer to QBO
+    const createResp = await qboRequest(u.activeCompanyId, "POST", "/customer", qboPayload);
+    if (!createResp.ok) {
+      const errBody = await createResp.json() as Record<string, unknown>;
+      const fault = (errBody["Fault"] as Record<string, unknown> | undefined);
+      const errors = (fault?.["Error"] as Array<Record<string, unknown>> | undefined) ?? [];
+      const firstError = errors[0];
+      // Code 6240 = Duplicate Name Exists Error
+      if (String(firstError?.["code"]) === "6240") {
+        res.status(409).json({
+          message: "A QuickBooks customer with this display name already exists",
+          displayNameCollision: true,
+        });
+        return;
+      }
+      const detail = firstError?.["Detail"] ?? firstError?.["Message"] ?? "QBO create failed";
+      logger.error({ errBody, companyId: u.activeCompanyId }, "QBO customer create failed");
+      res.status(502).json({ message: String(detail) });
+      return;
+    }
+
+    const createData = await createResp.json() as Record<string, unknown>;
+    const created = createData["Customer"] as Record<string, unknown> | undefined;
+    if (!created) {
+      res.status(502).json({ message: "QBO returned no customer in response" });
+      return;
+    }
+
+    // (e) Upsert to cache and bind
+    const parsed = parseQboCustomerRecord(created);
+    await storage.upsertQboCustomerCache(u.activeCompanyId, [parsed]);
+
+    const bindResult = await storage.bindQboCustomer(u.activeCompanyId, customerId, parsed.qboId);
+    if (bindResult.conflict) {
+      res.status(409).json({ message: "QuickBooks customer already bound to another CRM customer" });
+      return;
+    }
+    if (bindResult.notFound) {
+      res.status(500).json({ message: "Failed to bind after create — data inconsistency" });
+      return;
+    }
+
+    logger.info({ companyId: u.activeCompanyId, customerId, qboId: parsed.qboId }, "QBO customer created and bound");
+    res.json({ ok: true, qboId: parsed.qboId, displayName: parsed.displayName });
+  } catch (err) {
+    logger.error({ err }, "POST /api/qbo/customers/create error");
+    res.status(500).json({ message: "Failed to create customer in QuickBooks" });
   }
 });
 

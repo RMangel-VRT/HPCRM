@@ -27,8 +27,8 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { Loader2, RefreshCw, Link2, Link2Off, AlertTriangle, CheckCircle2, Search, UserPlus, ShieldCheck } from "lucide-react";
-import type { QboCacheRow, QboMappingRow, QboPullResult, QboConnectionStatus, QboCustomerCache } from "@shared/schema";
+import { Loader2, RefreshCw, Link2, Link2Off, AlertTriangle, CheckCircle2, Search, UserPlus, ShieldCheck, PlusCircle } from "lucide-react";
+import type { QboCacheRow, QboMappingRow, QboPullResult, QboConnectionStatus, QboCustomerCache, QboDuplicateCandidate, QboDuplicateCheckResult } from "@shared/schema";
 import { cn } from "@/lib/utils";
 
 const INVALIDATE_KEYS = [
@@ -279,6 +279,409 @@ function ManualPickerDialog({
   );
 }
 
+// ── Create in QuickBooks dialog ────────────────────────────────────────────────
+type CreateStage = "loading" | "exact" | "near" | "none";
+
+interface CreateOverrides {
+  displayName: string;
+  street: string;
+  city: string;
+  state: string;
+  zip: string;
+  email: string;
+  phone: string;
+}
+
+function EditableField({
+  label,
+  value,
+  onChange,
+  error,
+}: {
+  label: string;
+  value: string;
+  onChange: (v: string) => void;
+  error?: boolean;
+}) {
+  return (
+    <div>
+      <Label className="text-xs text-muted-foreground mb-1 block">{label}</Label>
+      <Input
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        className={error ? "border-destructive" : ""}
+      />
+    </div>
+  );
+}
+
+function CreateForm({
+  overrides,
+  onChange,
+  conflictError,
+  t,
+}: {
+  overrides: CreateOverrides;
+  onChange: (field: keyof CreateOverrides, value: string) => void;
+  conflictError: string | null;
+  t: (key: string) => string;
+}) {
+  return (
+    <div className="space-y-3">
+      <EditableField
+        label={t("qboMapping.displayNameLabel")}
+        value={overrides.displayName}
+        onChange={(v) => onChange("displayName", v)}
+        error={!!conflictError}
+      />
+      {conflictError && <p className="text-xs text-destructive -mt-2">{conflictError}</p>}
+      <div className="grid grid-cols-2 gap-3">
+        <div className="col-span-2">
+          <EditableField
+            label={t("qboMapping.street")}
+            value={overrides.street}
+            onChange={(v) => onChange("street", v)}
+          />
+        </div>
+        <EditableField
+          label={t("qboMapping.city")}
+          value={overrides.city}
+          onChange={(v) => onChange("city", v)}
+        />
+        <div className="grid grid-cols-2 gap-2">
+          <EditableField
+            label={t("qboMapping.state")}
+            value={overrides.state}
+            onChange={(v) => onChange("state", v)}
+          />
+          <EditableField
+            label={t("qboMapping.zip")}
+            value={overrides.zip}
+            onChange={(v) => onChange("zip", v)}
+          />
+        </div>
+      </div>
+      <EditableField
+        label={t("qboMapping.emailLabel")}
+        value={overrides.email}
+        onChange={(v) => onChange("email", v)}
+      />
+      <EditableField
+        label={t("qboMapping.phoneLabel")}
+        value={overrides.phone}
+        onChange={(v) => onChange("phone", v)}
+      />
+    </div>
+  );
+}
+
+function CreateInQboDialog({
+  open,
+  row,
+  onClose,
+}: {
+  open: boolean;
+  row: QboMappingRow | null;
+  onClose: () => void;
+}) {
+  const { t } = useTranslation();
+  const { toast } = useToast();
+  const [stage, setStage] = useState<CreateStage>("loading");
+  const [candidates, setCandidates] = useState<QboDuplicateCandidate[]>([]);
+  const [overrides, setOverrides] = useState<CreateOverrides>({
+    displayName: "", street: "", city: "", state: "", zip: "", email: "", phone: "",
+  });
+  const [conflictError, setConflictError] = useState<string | null>(null);
+  const [collisionCandidate, setCollisionCandidate] = useState<QboDuplicateCandidate | null>(null);
+
+  const setField = useCallback((field: keyof CreateOverrides, value: string) => {
+    setOverrides((prev) => ({ ...prev, [field]: value }));
+    if (field === "displayName") { setConflictError(null); setCollisionCandidate(null); }
+  }, []);
+
+  // Reset and run duplicate-check when dialog opens
+  useEffect(() => {
+    if (!open || !row) return;
+    setStage("loading");
+    setCandidates([]);
+    setConflictError(null);
+    setCollisionCandidate(null);
+
+    apiRequest("POST", "/api/qbo/customers/duplicate-check", { customerId: row.customerId })
+      .then(async (res) => {
+        const data = await res.json() as QboDuplicateCheckResult;
+        const found = data.candidates ?? [];
+        const crm = data.crmCustomer;
+        setCandidates(found);
+        setOverrides({
+          displayName: crm?.name ?? row.customerName,
+          street: crm?.street ?? "",
+          city: crm?.city ?? row.customerCity,
+          state: crm?.state ?? "",
+          zip: crm?.zip ?? row.customerZip,
+          email: crm?.primaryEmail ?? "",
+          phone: crm?.primaryPhone ?? "",
+        });
+        const hasExact = found.some((c) => c.matchType === "exact_display_name");
+        if (hasExact) setStage("exact");
+        else if (found.length > 0) setStage("near");
+        else setStage("none");
+      })
+      .catch(() => {
+        setOverrides((prev) => ({ ...prev, displayName: row.customerName }));
+        setStage("none");
+      });
+  }, [open, row]);
+
+  const createMutation = useMutation({
+    mutationFn: async () => {
+      const res = await apiRequest("POST", "/api/qbo/customers/create", {
+        customerId: row!.customerId,
+        displayNameOverride: overrides.displayName || undefined,
+        streetOverride: overrides.street || undefined,
+        cityOverride: overrides.city || undefined,
+        stateOverride: overrides.state || undefined,
+        zipOverride: overrides.zip || undefined,
+        emailOverride: overrides.email || undefined,
+        phoneOverride: overrides.phone || undefined,
+      });
+      if (!res.ok) {
+        const data = await res.json() as { message?: string; displayNameCollision?: boolean; candidate?: QboDuplicateCandidate };
+        if (data.displayNameCollision) {
+          setConflictError(data.message ?? t("qboMapping.nameConflict"));
+          if (data.candidate) {
+            setCollisionCandidate({ ...data.candidate, matchType: "exact_display_name" });
+          } else {
+            // Race: no candidate returned — re-run duplicate check to surface bindable matches
+            apiRequest("POST", "/api/qbo/customers/duplicate-check", { customerId: row!.customerId })
+              .then(async (r) => {
+                const d = await r.json() as QboDuplicateCheckResult;
+                const exact = (d.candidates ?? []).filter((c) => c.matchType === "exact_display_name");
+                if (exact.length > 0) setCollisionCandidate(exact[0]);
+              })
+              .catch(() => undefined);
+          }
+          return;
+        }
+        throw new Error(data.message ?? t("qboMapping.createFailed"));
+      }
+      return res.json();
+    },
+    onSuccess: (data) => {
+      if (!data) return;
+      toast({ title: t("qboMapping.created") });
+      queryClient.invalidateQueries({ queryKey: ["/api/qbo/customers/mapping"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/qbo/customers/unbound-count"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/qbo/connection"] });
+      onClose();
+    },
+    onError: (err: Error) => {
+      toast({ title: err.message || t("qboMapping.createFailed"), variant: "destructive" });
+    },
+  });
+
+  const bindMutation = useMutation({
+    mutationFn: async (qboId: string) => {
+      const res = await apiRequest("POST", "/api/qbo/customers/bind", {
+        customerId: row!.customerId,
+        qboId,
+      });
+      if (!res.ok) {
+        const data = await res.json() as { message?: string };
+        throw new Error(data.message ?? t("qboMapping.bindFailed"));
+      }
+      return res.json();
+    },
+    onSuccess: () => {
+      toast({ title: t("qboMapping.bound") });
+      queryClient.invalidateQueries({ queryKey: ["/api/qbo/customers/mapping"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/qbo/customers/unbound-count"] });
+      onClose();
+    },
+    onError: (err: Error) => {
+      toast({ title: err.message || t("qboMapping.bindFailed"), variant: "destructive" });
+    },
+  });
+
+  if (!row) return null;
+
+  // Exact matches: DisplayName-exact live hits (must link, create blocked)
+  const exactMatches = candidates.filter((c) => c.matchType === "exact_display_name");
+  // Near matches: all other candidates (cache fuzzy + live email-based)
+  const nearMatches = candidates.filter((c) => c.matchType !== "exact_display_name");
+
+  return (
+    <Dialog open={open} onOpenChange={(o) => { if (!o) onClose(); }}>
+      <DialogContent className="max-w-lg max-h-[90vh] overflow-y-auto">
+        <DialogHeader>
+          <DialogTitle>{t("qboMapping.createInQboTitle")}</DialogTitle>
+          <DialogDescription>{t("qboMapping.createInQboDesc")}</DialogDescription>
+        </DialogHeader>
+
+        {stage === "loading" && (
+          <div className="flex flex-col items-center gap-3 py-8">
+            <Loader2 className="w-6 h-6 animate-spin text-muted-foreground" />
+            <p className="text-sm text-muted-foreground">{t("qboMapping.checkingDuplicates")}</p>
+          </div>
+        )}
+
+        {stage === "exact" && (
+          <div className="space-y-4">
+            <div className="flex items-start gap-3 p-3 rounded-md bg-yellow-50 border border-yellow-200">
+              <AlertTriangle className="w-5 h-5 text-yellow-600 mt-0.5 shrink-0" />
+              <div>
+                <p className="text-sm font-medium text-yellow-800">{t("qboMapping.exactMatchFound")}</p>
+                <p className="text-xs text-yellow-700 mt-0.5">{t("qboMapping.exactMatchDesc")}</p>
+              </div>
+            </div>
+            <div className="space-y-2">
+              {exactMatches.map((c) => (
+                <div key={c.qboId} className="flex items-center justify-between p-3 border rounded-md">
+                  <div>
+                    <div className="font-medium text-sm">{c.displayName}</div>
+                    {(c.city || c.zip) && (
+                      <div className="text-xs text-muted-foreground">{[c.city, c.zip].filter(Boolean).join(", ")}</div>
+                    )}
+                  </div>
+                  <Button
+                    size="sm"
+                    onClick={() => bindMutation.mutate(c.qboId)}
+                    disabled={bindMutation.isPending}
+                  >
+                    {bindMutation.isPending && <Loader2 className="w-3 h-3 mr-1 animate-spin" />}
+                    <Link2 className="w-3 h-3 mr-1" />
+                    {t("qboMapping.bindInstead")}
+                  </Button>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {stage === "near" && (
+          <div className="space-y-4">
+            <div className="flex items-start gap-3 p-3 rounded-md bg-blue-50 border border-blue-200">
+              <AlertTriangle className="w-5 h-5 text-blue-600 mt-0.5 shrink-0" />
+              <div>
+                <p className="text-sm font-medium text-blue-800">{t("qboMapping.nearMatchesFound")}</p>
+                <p className="text-xs text-blue-700 mt-0.5">{t("qboMapping.nearMatchesDesc")}</p>
+              </div>
+            </div>
+            <div className="space-y-2">
+              {nearMatches.map((c) => (
+                <div key={c.qboId} className="flex items-center justify-between p-3 border rounded-md">
+                  <div>
+                    <div className="font-medium text-sm">{c.displayName}</div>
+                    {(c.city || c.zip) && (
+                      <div className="text-xs text-muted-foreground">{[c.city, c.zip].filter(Boolean).join(", ")}</div>
+                    )}
+                    {c.source === "cache" && <ConfidenceBar score={c.score} />}
+                  </div>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={() => bindMutation.mutate(c.qboId)}
+                    disabled={bindMutation.isPending}
+                  >
+                    {bindMutation.isPending && <Loader2 className="w-3 h-3 mr-1 animate-spin" />}
+                    <Link2 className="w-3 h-3 mr-1" />
+                    {t("qboMapping.bindInstead")}
+                  </Button>
+                </div>
+              ))}
+            </div>
+            <div className="border-t pt-3 space-y-3">
+              <CreateForm
+                overrides={overrides}
+                onChange={setField}
+                conflictError={conflictError}
+                t={t}
+              />
+              {collisionCandidate && (
+                <div className="border rounded-md p-3 bg-yellow-50 border-yellow-200 space-y-2">
+                  <p className="text-xs font-medium text-yellow-800">{t("qboMapping.exactMatchDesc")}</p>
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <div className="font-medium text-sm">{collisionCandidate.displayName}</div>
+                      {(collisionCandidate.city || collisionCandidate.zip) && (
+                        <div className="text-xs text-muted-foreground">{[collisionCandidate.city, collisionCandidate.zip].filter(Boolean).join(", ")}</div>
+                      )}
+                    </div>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      onClick={() => bindMutation.mutate(collisionCandidate.qboId)}
+                      disabled={bindMutation.isPending}
+                    >
+                      {bindMutation.isPending && <Loader2 className="w-3 h-3 mr-1 animate-spin" />}
+                      <Link2 className="w-3 h-3 mr-1" />
+                      {t("qboMapping.bindInstead")}
+                    </Button>
+                  </div>
+                </div>
+              )}
+            </div>
+          </div>
+        )}
+
+        {stage === "none" && (
+          <div className="space-y-4">
+            <div className="flex items-start gap-3 p-3 rounded-md bg-green-50 border border-green-200">
+              <CheckCircle2 className="w-5 h-5 text-green-600 mt-0.5 shrink-0" />
+              <div>
+                <p className="text-sm font-medium text-green-800">{t("qboMapping.noMatchFound")}</p>
+                <p className="text-xs text-green-700 mt-0.5">{t("qboMapping.noMatchFoundDesc")}</p>
+              </div>
+            </div>
+            <CreateForm
+              overrides={overrides}
+              onChange={setField}
+              conflictError={conflictError}
+              t={t}
+            />
+            {collisionCandidate && (
+              <div className="border rounded-md p-3 bg-yellow-50 border-yellow-200 space-y-2">
+                <p className="text-xs font-medium text-yellow-800">{t("qboMapping.exactMatchDesc")}</p>
+                <div className="flex items-center justify-between">
+                  <div>
+                    <div className="font-medium text-sm">{collisionCandidate.displayName}</div>
+                    {(collisionCandidate.city || collisionCandidate.zip) && (
+                      <div className="text-xs text-muted-foreground">{[collisionCandidate.city, collisionCandidate.zip].filter(Boolean).join(", ")}</div>
+                    )}
+                  </div>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={() => bindMutation.mutate(collisionCandidate.qboId)}
+                    disabled={bindMutation.isPending}
+                  >
+                    {bindMutation.isPending && <Loader2 className="w-3 h-3 mr-1 animate-spin" />}
+                    <Link2 className="w-3 h-3 mr-1" />
+                    {t("qboMapping.bindInstead")}
+                  </Button>
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+
+        <DialogFooter>
+          <Button variant="outline" onClick={onClose}>{t("common.cancel")}</Button>
+          {(stage === "none" || stage === "near") && (
+            <Button
+              onClick={() => createMutation.mutate()}
+              disabled={createMutation.isPending || !overrides.displayName.trim()}
+            >
+              {createMutation.isPending && <Loader2 className="w-4 h-4 mr-2 animate-spin" />}
+              {createMutation.isPending ? t("qboMapping.creating") : t("qboMapping.createAction")}
+            </Button>
+          )}
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
 // ── Tab 1: Full Customer List ──────────────────────────────────────────────────
 function FullCustomerList() {
   const { t } = useTranslation();
@@ -397,8 +800,10 @@ function CrmCustomerMatching({ connectionStatus }: { connectionStatus: QboConnec
   const [search, setSearch] = useState("");
   const [manualPickerId, setManualPickerId] = useState<string | null>(null);
   const [lastPullResult, setLastPullResult] = useState<QboPullResult | null>(null);
+  const [createInQboRow, setCreateInQboRow] = useState<QboMappingRow | null>(null);
 
   const connected = connectionStatus?.status === "connected";
+  const qboWriteEnabled = connectionStatus?.qboWriteEnabled ?? false;
 
   const { data: rows = [], isLoading, refetch } = useQuery<QboMappingRow[]>({
     queryKey: ["/api/qbo/customers/mapping", { filter, search }],
@@ -617,18 +1022,34 @@ function CrmCustomerMatching({ connectionStatus }: { connectionStatus: QboConnec
                     )}
                   </TableCell>
                   <TableCell className="text-right">
-                    {row.bound && (
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        className="text-destructive hover:text-destructive"
-                        onClick={() => unbindMutation.mutate(row.customerId)}
-                        disabled={unbindMutation.isPending}
-                      >
-                        <Link2Off className="w-4 h-4 mr-1" />
-                        {row.stale ? t("qboMapping.rebind") : t("qboMapping.unbind")}
-                      </Button>
-                    )}
+                    <div className="flex items-center justify-end gap-1">
+                      {!row.bound && connected && (
+                        <div title={!qboWriteEnabled ? t("qboMapping.writeDisabledTooltip") : undefined}>
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            className="text-xs"
+                            onClick={() => setCreateInQboRow(row)}
+                            disabled={!qboWriteEnabled}
+                          >
+                            <PlusCircle className="w-3.5 h-3.5 mr-1" />
+                            {t("qboMapping.createInQbo")}
+                          </Button>
+                        </div>
+                      )}
+                      {row.bound && (
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          className="text-destructive hover:text-destructive"
+                          onClick={() => unbindMutation.mutate(row.customerId)}
+                          disabled={unbindMutation.isPending}
+                        >
+                          <Link2Off className="w-4 h-4 mr-1" />
+                          {row.stale ? t("qboMapping.rebind") : t("qboMapping.unbind")}
+                        </Button>
+                      )}
+                    </div>
                   </TableCell>
                 </TableRow>
               ))}
@@ -641,6 +1062,11 @@ function CrmCustomerMatching({ connectionStatus }: { connectionStatus: QboConnec
         open={manualPickerId !== null}
         customerId={manualPickerId}
         onClose={() => setManualPickerId(null)}
+      />
+      <CreateInQboDialog
+        open={createInQboRow !== null}
+        row={createInQboRow}
+        onClose={() => setCreateInQboRow(null)}
       />
     </div>
   );

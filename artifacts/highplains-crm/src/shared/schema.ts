@@ -3508,4 +3508,28 @@ export interface QboConnectionStatus {
   lastErrorMessage?: string | null;
   connectedAt?: string;
   updatedAt?: string;
+  qboWriteEnabled?: boolean;
+}
+
+export interface QboDuplicateCandidate {
+  qboId: string;
+  displayName: string;
+  city: string | null;
+  zip: string | null;
+  score: number;
+  source: "cache" | "live";
+  matchType: "exact_display_name" | "near";
+}
+
+export interface QboDuplicateCheckResult {
+  candidates: QboDuplicateCandidate[];
+  crmCustomer: {
+    name: string;
+    street: string;
+    city: string;
+    state: string;
+    zip: string;
+    primaryEmail: string | null;
+    primaryPhone: string | null;
+  };
 }

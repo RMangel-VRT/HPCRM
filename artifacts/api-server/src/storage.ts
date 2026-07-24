@@ -5961,6 +5961,107 @@ export class PgStorage implements IStorage {
     );
     return res.rows.map((r) => r.qbo_customer_id);
   }
+
+  async countActiveUnboundOlderThan30d(companyId: string): Promise<number> {
+    const res = await pool.query<{ count: string }>(
+      `SELECT COUNT(*)::text AS count FROM customers
+       WHERE company_id = $1 AND active = 'true' AND qbo_customer_id IS NULL
+         AND created_at < NOW() - INTERVAL '30 days'`,
+      [companyId],
+    );
+    return parseInt(res.rows[0]?.count ?? "0", 10);
+  }
+
+  async getCustomerWithPrimaryContactForQbo(
+    companyId: string,
+    customerId: string,
+  ): Promise<{
+    id: string;
+    name: string;
+    street: string;
+    city: string;
+    state: string;
+    zip: string;
+    qboCustomerId: string | null;
+    primaryEmail: string | null;
+    primaryPhone: string | null;
+  } | null> {
+    const [cust] = await db
+      .select()
+      .from(customers)
+      .where(and(eq(customers.id, customerId), eq(customers.companyId, companyId)));
+    if (!cust) return null;
+
+    const contactRows = await db
+      .select()
+      .from(contacts)
+      .where(and(eq(contacts.customerId, customerId), eq(contacts.companyId, companyId)));
+
+    const primary = contactRows.find((c) => c.isPrimary === "true") ?? contactRows[0] ?? null;
+
+    return {
+      id: cust.id,
+      name: cust.name,
+      street: cust.street,
+      city: cust.city,
+      state: cust.state,
+      zip: cust.zip,
+      qboCustomerId: cust.qboCustomerId ?? null,
+      primaryEmail: (primary?.emails ?? [])[0] ?? null,
+      primaryPhone: (primary?.phones ?? [])[0] ?? null,
+    };
+  }
+
+  async findQboCacheDuplicates(
+    companyId: string,
+    displayName: string,
+    city?: string | null,
+    zip?: string | null,
+  ): Promise<Array<{
+    qboId: string;
+    displayName: string;
+    city: string | null;
+    zip: string | null;
+    score: number;
+    source: "cache";
+  }>> {
+    const res = await pool.query<{
+      qbo_id: string;
+      display_name: string;
+      bill_addr_city: string | null;
+      bill_addr_postal_code: string | null;
+      score: number;
+    }>(
+      `SELECT
+         qcc.qbo_id,
+         qcc.display_name,
+         qcc.bill_addr_city,
+         qcc.bill_addr_postal_code,
+         (
+           similarity(lower(qcc.display_name), lower($2))
+           + CASE WHEN qcc.bill_addr_postal_code = $3 THEN 0.1 ELSE 0.0 END
+           + CASE WHEN lower(coalesce(qcc.bill_addr_city,'')) = lower($4) THEN 0.05 ELSE 0.0 END
+         )::float AS score
+       FROM qbo_customer_cache qcc
+       WHERE qcc.company_id = $1
+         AND qcc.active = true
+         AND NOT EXISTS (
+           SELECT 1 FROM customers c WHERE c.company_id = $1 AND c.qbo_customer_id = qcc.qbo_id
+         )
+         AND similarity(lower(qcc.display_name), lower($2)) > 0.3
+       ORDER BY score DESC
+       LIMIT 5`,
+      [companyId, displayName, zip ?? null, city ?? ""],
+    );
+    return res.rows.map((r) => ({
+      qboId: r.qbo_id,
+      displayName: r.display_name,
+      city: r.bill_addr_city,
+      zip: r.bill_addr_postal_code,
+      score: Number(r.score),
+      source: "cache" as const,
+    }));
+  }
 }
 
 export const storage = new PgStorage();

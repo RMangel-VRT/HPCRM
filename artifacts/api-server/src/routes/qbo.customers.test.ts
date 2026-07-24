@@ -21,12 +21,15 @@ const mockStorage = {
   getQboCacheList: vi.fn(),
   getQboMappingRows: vi.fn(),
   countActiveUnboundCustomers: vi.fn(),
+  countActiveUnboundOlderThan30d: vi.fn(),
   bindQboCustomer: vi.fn(),
   unbindQboCustomer: vi.fn(),
   promoteQboCustomerToCrm: vi.fn(),
   getQboCacheRow: vi.fn(),
   writeSeedSuggestion: vi.fn(),
   findBestCrmMatchByName: vi.fn(),
+  getCustomerWithPrimaryContactForQbo: vi.fn(),
+  findQboCacheDuplicates: vi.fn(),
 };
 vi.mock("../storage", () => ({ storage: mockStorage }));
 
@@ -129,6 +132,7 @@ describe("Connection gate — endpoints requiring QBO connection return 503 when
 
   it("GET /api/qbo/customers/unbound-count does NOT require connection (badge always visible)", async () => {
     mockStorage.countActiveUnboundCustomers.mockResolvedValue(3);
+    mockStorage.countActiveUnboundOlderThan30d.mockResolvedValue(1);
     const app = await buildApp(adminUser());
     const res = await request(app).get("/api/qbo/customers/unbound-count");
     // Should succeed without calling getQboConnection
@@ -807,5 +811,443 @@ describe("parseSeedCsv — via import-seed endpoint", () => {
       .send(csv);
     expect(res.status).toBe(400);
     expect(res.body.message).toMatch(/customer_name.*quickbooks_id|quickbooks_id.*customer_name/i);
+  });
+});
+
+// ── GET /api/qbo/customers/unbound-count — extended ───────────────────────────
+
+describe("GET /api/qbo/customers/unbound-count — activeUnboundOlderThan30d", () => {
+  beforeEach(() => vi.clearAllMocks());
+
+  it("returns both activeUnbound and activeUnboundOlderThan30d", async () => {
+    mockStorage.countActiveUnboundCustomers.mockResolvedValue(10);
+    mockStorage.countActiveUnboundOlderThan30d.mockResolvedValue(4);
+    const app = await buildApp(adminUser());
+    const res = await request(app).get("/api/qbo/customers/unbound-count");
+    expect(res.status).toBe(200);
+    expect(res.body.activeUnbound).toBe(10);
+    expect(res.body.activeUnboundOlderThan30d).toBe(4);
+  });
+
+  it("returns 0 for activeUnboundOlderThan30d when none exist", async () => {
+    mockStorage.countActiveUnboundCustomers.mockResolvedValue(2);
+    mockStorage.countActiveUnboundOlderThan30d.mockResolvedValue(0);
+    const app = await buildApp(adminUser());
+    const res = await request(app).get("/api/qbo/customers/unbound-count");
+    expect(res.status).toBe(200);
+    expect(res.body.activeUnboundOlderThan30d).toBe(0);
+  });
+});
+
+// ── GET /api/qbo/connection — qboWriteEnabled ─────────────────────────────────
+
+describe("GET /api/qbo/connection — qboWriteEnabled field", () => {
+  beforeEach(() => vi.clearAllMocks());
+
+  it("includes qboWriteEnabled:false when write flag is off", async () => {
+    const { isQboWriteEnabled } = await import("../services/qboClient");
+    vi.mocked(isQboWriteEnabled).mockResolvedValue(false);
+    mockStorage.getQboConnection.mockResolvedValue(connectedStatus());
+    const app = await buildApp(adminUser());
+    const res = await request(app).get("/api/qbo/connection");
+    expect(res.status).toBe(200);
+    expect(res.body.qboWriteEnabled).toBe(false);
+  });
+
+  it("includes qboWriteEnabled:true when write flag is on", async () => {
+    const { isQboWriteEnabled } = await import("../services/qboClient");
+    vi.mocked(isQboWriteEnabled).mockResolvedValue(true);
+    mockStorage.getQboConnection.mockResolvedValue(connectedStatus());
+    const app = await buildApp(adminUser());
+    const res = await request(app).get("/api/qbo/connection");
+    expect(res.status).toBe(200);
+    expect(res.body.qboWriteEnabled).toBe(true);
+  });
+});
+
+// ── POST /api/qbo/customers/duplicate-check ───────────────────────────────────
+
+describe("POST /api/qbo/customers/duplicate-check", () => {
+  beforeEach(() => vi.clearAllMocks());
+
+  function connectedSetup() {
+    mockStorage.getQboConnection.mockResolvedValue(connectedStatus());
+  }
+
+  function crmCustomer(overrides: Partial<{
+    qboCustomerId: string | null; primaryEmail: string | null; primaryPhone: string | null;
+  }> = {}) {
+    return {
+      id: "cust-1",
+      name: "Acme Corp",
+      street: "123 Main St",
+      city: "Denver",
+      state: "CO",
+      zip: "80202",
+      qboCustomerId: null,
+      primaryEmail: "acme@test.com",
+      primaryPhone: "303-555-1234",
+      ...overrides,
+    };
+  }
+
+  it("returns 400 when customerId is missing", async () => {
+    connectedSetup();
+    const app = await buildApp(adminUser());
+    const res = await request(app).post("/api/qbo/customers/duplicate-check").send({});
+    expect(res.status).toBe(400);
+    expect(res.body.message).toMatch(/customerId/i);
+  });
+
+  it("returns 404 when CRM customer not found", async () => {
+    connectedSetup();
+    mockStorage.getCustomerWithPrimaryContactForQbo.mockResolvedValue(null);
+    const app = await buildApp(adminUser());
+    const res = await request(app)
+      .post("/api/qbo/customers/duplicate-check")
+      .send({ customerId: "missing" });
+    expect(res.status).toBe(404);
+  });
+
+  it("returns merged candidates from cache and live QBO with correct matchType", async () => {
+    connectedSetup();
+    mockStorage.getCustomerWithPrimaryContactForQbo.mockResolvedValue(crmCustomer());
+    mockStorage.findQboCacheDuplicates.mockResolvedValue([
+      { qboId: "qbo-cache-1", displayName: "Acme Corporation", city: "Denver", zip: "80202", score: 0.75, source: "cache" },
+    ]);
+    mockStorage.upsertQboCustomerCache.mockResolvedValue(undefined);
+    // Live QBO query: name match returns one result, email match returns empty
+    mockQboRequest
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          QueryResponse: {
+            Customer: [
+              { Id: "qbo-live-1", DisplayName: "Acme Corp", Active: true, BillAddr: { City: "Denver", PostalCode: "80202" } },
+            ],
+          },
+        }),
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ QueryResponse: {} }),
+      });
+
+    const app = await buildApp(adminUser());
+    const res = await request(app)
+      .post("/api/qbo/customers/duplicate-check")
+      .send({ customerId: "cust-1" });
+
+    expect(res.status).toBe(200);
+    expect(res.body.candidates).toHaveLength(2);
+    const liveCandidate = res.body.candidates.find((c: { source: string }) => c.source === "live");
+    expect(liveCandidate).toBeDefined();
+    expect(liveCandidate.qboId).toBe("qbo-live-1");
+    expect(liveCandidate.matchType).toBe("exact_display_name");
+    const cacheCandidate = res.body.candidates.find((c: { source: string }) => c.source === "cache");
+    expect(cacheCandidate).toBeDefined();
+    expect(cacheCandidate.qboId).toBe("qbo-cache-1");
+    expect(cacheCandidate.matchType).toBe("near");
+  });
+
+  it("email-based live results get matchType=near, not exact_display_name", async () => {
+    connectedSetup();
+    mockStorage.getCustomerWithPrimaryContactForQbo.mockResolvedValue(crmCustomer());
+    mockStorage.findQboCacheDuplicates.mockResolvedValue([]);
+    mockStorage.upsertQboCustomerCache.mockResolvedValue(undefined);
+    // DisplayName query: no match; email query: one match
+    mockQboRequest
+      .mockResolvedValueOnce({ ok: true, json: async () => ({ QueryResponse: {} }) })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          QueryResponse: {
+            Customer: [{ Id: "qbo-email-1", DisplayName: "Acme LLC", Active: true }],
+          },
+        }),
+      });
+
+    const app = await buildApp(adminUser());
+    const res = await request(app)
+      .post("/api/qbo/customers/duplicate-check")
+      .send({ customerId: "cust-1" });
+
+    expect(res.status).toBe(200);
+    expect(res.body.candidates).toHaveLength(1);
+    expect(res.body.candidates[0].matchType).toBe("near");
+    expect(res.body.candidates[0].source).toBe("live");
+  });
+
+  it("response includes crmCustomer data for form initialization", async () => {
+    connectedSetup();
+    mockStorage.getCustomerWithPrimaryContactForQbo.mockResolvedValue(crmCustomer());
+    mockStorage.findQboCacheDuplicates.mockResolvedValue([]);
+    mockStorage.upsertQboCustomerCache.mockResolvedValue(undefined);
+    mockQboRequest
+      .mockResolvedValueOnce({ ok: true, json: async () => ({ QueryResponse: {} }) })
+      .mockResolvedValueOnce({ ok: true, json: async () => ({ QueryResponse: {} }) });
+
+    const app = await buildApp(adminUser());
+    const res = await request(app)
+      .post("/api/qbo/customers/duplicate-check")
+      .send({ customerId: "cust-1" });
+
+    expect(res.status).toBe(200);
+    expect(res.body.crmCustomer).toBeDefined();
+    expect(res.body.crmCustomer.name).toBe("Acme Corp");
+    expect(res.body.crmCustomer.street).toBe("123 Main St");
+    expect(res.body.crmCustomer.primaryEmail).toBe("acme@test.com");
+  });
+
+  it("deduplicates live results that also appear in cache (live wins)", async () => {
+    connectedSetup();
+    mockStorage.getCustomerWithPrimaryContactForQbo.mockResolvedValue(crmCustomer({ primaryEmail: null }));
+    mockStorage.findQboCacheDuplicates.mockResolvedValue([
+      { qboId: "qbo-1", displayName: "Acme Corp", city: "Denver", zip: "80202", score: 0.95, source: "cache" },
+    ]);
+    mockStorage.upsertQboCustomerCache.mockResolvedValue(undefined);
+    mockQboRequest.mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({
+        QueryResponse: {
+          Customer: [{ Id: "qbo-1", DisplayName: "Acme Corp", Active: true }],
+        },
+      }),
+    });
+
+    const app = await buildApp(adminUser());
+    const res = await request(app)
+      .post("/api/qbo/customers/duplicate-check")
+      .send({ customerId: "cust-1" });
+
+    expect(res.status).toBe(200);
+    // Should appear only once (live deduplication), with live taking precedence
+    expect(res.body.candidates).toHaveLength(1);
+    expect(res.body.candidates[0].source).toBe("live");
+    expect(res.body.candidates[0].matchType).toBe("exact_display_name");
+  });
+
+  it("returns empty candidates when no matches found", async () => {
+    connectedSetup();
+    mockStorage.getCustomerWithPrimaryContactForQbo.mockResolvedValue(crmCustomer({ primaryEmail: null }));
+    mockStorage.findQboCacheDuplicates.mockResolvedValue([]);
+    mockStorage.upsertQboCustomerCache.mockResolvedValue(undefined);
+    mockQboRequest.mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({ QueryResponse: {} }),
+    });
+
+    const app = await buildApp(adminUser());
+    const res = await request(app)
+      .post("/api/qbo/customers/duplicate-check")
+      .send({ customerId: "cust-1" });
+
+    expect(res.status).toBe(200);
+    expect(res.body.candidates).toHaveLength(0);
+  });
+
+  it("returns 503 when QBO is not connected", async () => {
+    mockStorage.getQboConnection.mockResolvedValue(disconnectedStatus());
+    const app = await buildApp(adminUser());
+    const res = await request(app)
+      .post("/api/qbo/customers/duplicate-check")
+      .send({ customerId: "cust-1" });
+    expect(res.status).toBe(503);
+  });
+});
+
+// ── POST /api/qbo/customers/create ───────────────────────────────────────────
+
+describe("POST /api/qbo/customers/create", () => {
+  beforeEach(() => vi.clearAllMocks());
+
+  async function connectedWriteSetup() {
+    const { isQboWriteEnabled } = await import("../services/qboClient");
+    vi.mocked(isQboWriteEnabled).mockResolvedValue(true);
+    mockStorage.getQboConnection.mockResolvedValue(connectedStatus());
+  }
+
+  function crmCustomer() {
+    return {
+      id: "cust-1",
+      name: "Acme Corp",
+      street: "123 Main St",
+      city: "Denver",
+      state: "CO",
+      zip: "80202",
+      qboCustomerId: null,
+      primaryEmail: "acme@test.com",
+      primaryPhone: "303-555-1234",
+    };
+  }
+
+  it("returns 400 when customerId is missing", async () => {
+    await connectedWriteSetup();
+    const app = await buildApp(adminUser());
+    const res = await request(app).post("/api/qbo/customers/create").send({});
+    expect(res.status).toBe(400);
+    expect(res.body.message).toMatch(/customerId/i);
+  });
+
+  it("returns 403 when write gate is disabled", async () => {
+    const { isQboWriteEnabled } = await import("../services/qboClient");
+    vi.mocked(isQboWriteEnabled).mockResolvedValue(false);
+    mockStorage.getQboConnection.mockResolvedValue(connectedStatus());
+    const app = await buildApp(adminUser());
+    const res = await request(app)
+      .post("/api/qbo/customers/create")
+      .send({ customerId: "cust-1" });
+    expect(res.status).toBe(403);
+    expect(res.body.writeDisabled).toBe(true);
+  });
+
+  it("returns 404 when CRM customer not found", async () => {
+    await connectedWriteSetup();
+    mockStorage.getCustomerWithPrimaryContactForQbo.mockResolvedValue(null);
+    const app = await buildApp(adminUser());
+    const res = await request(app)
+      .post("/api/qbo/customers/create")
+      .send({ customerId: "missing" });
+    expect(res.status).toBe(404);
+  });
+
+  it("returns 409 alreadyBound when CRM customer already has a QBO ID", async () => {
+    await connectedWriteSetup();
+    mockStorage.getCustomerWithPrimaryContactForQbo.mockResolvedValue({
+      ...crmCustomer(), qboCustomerId: "existing-qbo-id",
+    });
+    const app = await buildApp(adminUser());
+    const res = await request(app)
+      .post("/api/qbo/customers/create")
+      .send({ customerId: "cust-1" });
+    expect(res.status).toBe(409);
+    expect(res.body.alreadyBound).toBe(true);
+    expect(res.body.qboId).toBe("existing-qbo-id");
+  });
+
+  it("returns 409 displayNameCollision when live QBO has exact match", async () => {
+    await connectedWriteSetup();
+    mockStorage.getCustomerWithPrimaryContactForQbo.mockResolvedValue(crmCustomer());
+    mockStorage.upsertQboCustomerCache.mockResolvedValue(undefined);
+    mockQboRequest.mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({
+        QueryResponse: {
+          Customer: [{ Id: "qbo-existing", DisplayName: "Acme Corp", Active: true }],
+        },
+      }),
+    });
+
+    const app = await buildApp(adminUser());
+    const res = await request(app)
+      .post("/api/qbo/customers/create")
+      .send({ customerId: "cust-1" });
+
+    expect(res.status).toBe(409);
+    expect(res.body.displayNameCollision).toBe(true);
+    expect(res.body.candidate).toBeDefined();
+    expect(res.body.candidate.qboId).toBe("qbo-existing");
+  });
+
+  it("creates customer and binds it on success", async () => {
+    await connectedWriteSetup();
+    mockStorage.getCustomerWithPrimaryContactForQbo.mockResolvedValue(crmCustomer());
+    mockStorage.upsertQboCustomerCache.mockResolvedValue(undefined);
+    mockStorage.bindQboCustomer.mockResolvedValue({ conflict: false, notFound: false });
+    // Dedupe check: no match
+    mockQboRequest.mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({ QueryResponse: {} }),
+    });
+    // Create call: success
+    mockQboRequest.mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({
+        Customer: { Id: "new-qbo-id", DisplayName: "Acme Corp", Active: true },
+      }),
+    });
+
+    const app = await buildApp(adminUser());
+    const res = await request(app)
+      .post("/api/qbo/customers/create")
+      .send({ customerId: "cust-1" });
+
+    expect(res.status).toBe(200);
+    expect(res.body.ok).toBe(true);
+    expect(res.body.qboId).toBe("new-qbo-id");
+    expect(mockStorage.bindQboCustomer).toHaveBeenCalledWith(COMPANY_ID, "cust-1", "new-qbo-id");
+    expect(mockStorage.upsertQboCustomerCache).toHaveBeenCalled();
+  });
+
+  it("uses displayNameOverride in payload and dedupe check", async () => {
+    await connectedWriteSetup();
+    mockStorage.getCustomerWithPrimaryContactForQbo.mockResolvedValue(crmCustomer());
+    mockStorage.upsertQboCustomerCache.mockResolvedValue(undefined);
+    mockStorage.bindQboCustomer.mockResolvedValue({ conflict: false, notFound: false });
+    mockQboRequest
+      .mockResolvedValueOnce({ ok: true, json: async () => ({ QueryResponse: {} }) })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ Customer: { Id: "new-qbo-id", DisplayName: "Acme Corp Renamed", Active: true } }),
+      });
+
+    const app = await buildApp(adminUser());
+    const res = await request(app)
+      .post("/api/qbo/customers/create")
+      .send({ customerId: "cust-1", displayNameOverride: "Acme Corp Renamed" });
+
+    expect(res.status).toBe(200);
+    // The dedupe query should have used the override name (path is URL-encoded)
+    const dedupeCall = mockQboRequest.mock.calls[0];
+    expect(decodeURIComponent(dedupeCall[2] as string)).toContain("Acme Corp Renamed");
+  });
+
+  it("handles QBO error code 6240 (duplicate name) as 409", async () => {
+    await connectedWriteSetup();
+    mockStorage.getCustomerWithPrimaryContactForQbo.mockResolvedValue(crmCustomer());
+    mockStorage.upsertQboCustomerCache.mockResolvedValue(undefined);
+    // Dedupe check: no match
+    mockQboRequest.mockResolvedValueOnce({ ok: true, json: async () => ({ QueryResponse: {} }) });
+    // Create call: QBO rejects with 6240
+    mockQboRequest.mockResolvedValueOnce({
+      ok: false,
+      json: async () => ({
+        Fault: {
+          Error: [{ code: "6240", Message: "Duplicate Name Exists Error", Detail: "The name already exists" }],
+          type: "ValidationFault",
+        },
+      }),
+    });
+
+    const app = await buildApp(adminUser());
+    const res = await request(app)
+      .post("/api/qbo/customers/create")
+      .send({ customerId: "cust-1" });
+
+    expect(res.status).toBe(409);
+    expect(res.body.displayNameCollision).toBe(true);
+  });
+
+  it("escapes single quotes in display name for QBO query", async () => {
+    await connectedWriteSetup();
+    mockStorage.getCustomerWithPrimaryContactForQbo.mockResolvedValue({
+      ...crmCustomer(), name: "O'Brien Holdings",
+    });
+    mockStorage.upsertQboCustomerCache.mockResolvedValue(undefined);
+    mockStorage.bindQboCustomer.mockResolvedValue({ conflict: false, notFound: false });
+    mockQboRequest
+      .mockResolvedValueOnce({ ok: true, json: async () => ({ QueryResponse: {} }) })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ Customer: { Id: "qbo-obrien", DisplayName: "O'Brien Holdings", Active: true } }),
+      });
+
+    const app = await buildApp(adminUser());
+    await request(app)
+      .post("/api/qbo/customers/create")
+      .send({ customerId: "cust-1" });
+
+    const dedupeCall = mockQboRequest.mock.calls[0];
+    expect(decodeURIComponent(dedupeCall[2] as string)).toContain("O''Brien Holdings");
   });
 });
